@@ -8,9 +8,10 @@ interface TopbarProps {
   tenantName: string;
   shopName?: string;
   userEmail?: string;
+  settingsHref?: string;
 }
 
-export function Topbar({ tenantName, shopName, userEmail }: TopbarProps) {
+export function Topbar({ tenantName, shopName, userEmail, settingsHref = '/dashboard/settings' }: TopbarProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
   async function handleSignOut() {
@@ -74,7 +75,7 @@ export function Topbar({ tenantName, shopName, userEmail }: TopbarProps) {
               </div>
               <div className="p-1">
                 <Link
-                  href="/dashboard/settings"
+                  href={settingsHref}
                   className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
                   onClick={() => setDropdownOpen(false)}
                 >

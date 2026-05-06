@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { headers } from 'next/headers';
 import { getSupabaseServerClient } from '../../../lib/server/supabaseServer';
 import { getSupabaseAdminClient } from '../../../lib/server/supabaseAdmin';
+import { DashboardShell } from '../../components/layout/DashboardShell';
 import { ShopDashboard } from './ShopDashboard';
 
 interface Props {
@@ -13,10 +14,14 @@ export default async function ShopPage({ params }: Props) {
   const { slug } = await params;
   const supabase = await getSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
+  const headerStore = await headers();
+  const host = headerStore.get('host') ?? '';
+  const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
+  const subdomain = extractSubdomain(host, rootDomain);
+  const homePath = subdomain ? '/' : `/s/${slug}`;
+  const shellBasePath = subdomain ? '/' : `/s/${slug}`;
+  const controlPlaneOrigin = process.env.NEXT_PUBLIC_SITE_URL ?? `http://${rootDomain}`;
   if (!authData.user) {
-    const headerStore = await headers();
-    const host = headerStore.get('host') ?? '';
-    const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
     const nextPath = extractSubdomain(host, rootDomain) ? '/' : `/s/${slug}`;
     redirect(`/auth/signin?next=${encodeURIComponent(nextPath)}`);
   }
@@ -50,11 +55,23 @@ export default async function ShopPage({ params }: Props) {
   }
 
   return (
-    <ShopDashboard
-      shop={{ id: shop.id, tenantId: shop.tenant_id, name: shop.name, slug: shop.slug }}
-      connectorStatus={shop.connector_status ?? null}
-      connectorId={shop.connector_id ?? null}
-    />
+    <DashboardShell
+      tenantName={shop.name}
+      shopName={shop.name}
+      userEmail={authData.user.email}
+      sidebarBasePath={shellBasePath}
+      tenantHref={`${controlPlaneOrigin}/dashboard/tenants`}
+      connectorsHref={`${homePath === '/' ? '' : homePath}/connectors` || '/connectors'}
+      settingsHref={`${homePath === '/' ? '' : homePath}/settings` || '/settings'}
+      supportHref={`${homePath === '/' ? '' : homePath}/support` || '/support'}
+    >
+      <ShopDashboard
+        shop={{ id: shop.id, tenantId: shop.tenant_id, name: shop.name, slug: shop.slug }}
+        connectorStatus={shop.connector_status ?? null}
+        connectorId={shop.connector_id ?? null}
+        homePath={homePath}
+      />
+    </DashboardShell>
   );
 }
 
