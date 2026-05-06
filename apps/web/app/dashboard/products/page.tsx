@@ -33,7 +33,7 @@ export default function ProductsPage() {
           <>
             <button className="rounded border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50">Import danh sách sản phẩm</button>
             <button className="rounded border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50">Xuất Excel</button>
-            <button className="rounded bg-[#0F766E] px-4 py-2 text-sm text-white hover:bg-[#115E59]">+ Thêm mới</button>
+            <button className="rounded-xl bg-[#0268FF] px-4 py-2 text-sm text-white hover:bg-[#0256CC]">+ Thêm mới</button>
           </>
         }
       />

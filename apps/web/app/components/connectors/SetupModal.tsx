@@ -7,9 +7,10 @@ type Mode = 'choose' | 'manual' | 'oauth';
 interface Props {
   shopId: string;
   onConnected: () => void;
+  onClose?: () => void;
 }
 
-export function SetupModal({ shopId, onConnected }: Props) {
+export function SetupModal({ shopId, onConnected, onClose }: Props) {
   const [mode, setMode] = useState<Mode>('choose');
   const [sheetId, setSheetId] = useState('');
   const [accessToken, setAccessToken] = useState('');
@@ -63,9 +64,18 @@ export function SetupModal({ shopId, onConnected }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
-        <h2 className="text-lg font-semibold text-slate-900">Kết nối dữ liệu</h2>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={(e) => e.target === e.currentTarget && onClose?.()}>
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-lg font-semibold text-slate-900">Kết nối dữ liệu</h2>
+          {onClose && (
+            <button onClick={onClose} className="rounded-lg p-1 hover:bg-slate-100 text-slate-400">
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
+        </div>
         <p className="mt-1 text-sm text-slate-500">
           Chi nhánh này chưa có nguồn dữ liệu. Chọn cách kết nối Google Sheets.
         </p>

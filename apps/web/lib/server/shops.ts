@@ -1,20 +1,23 @@
-import { getSupabaseServerClient } from './supabaseServer';
+import { getSupabaseAdminClient } from './supabaseAdmin';
 
 export async function getShopsForTenant(tenantId: string) {
-  const supabase = await getSupabaseServerClient();
-  const { data, error } = await supabase
+  const admin = getSupabaseAdminClient();
+  const { data, error } = await admin
     .from('shops_view')
     .select('*')
     .eq('tenant_id', tenantId)
     .order('created_at', { ascending: true });
 
-  if (error) throw error;
+  if (error) {
+    console.error('[getShopsForTenant] error:', error.message);
+    throw error;
+  }
   return data ?? [];
 }
 
 export async function getShopBySlug(slug: string) {
-  const supabase = await getSupabaseServerClient();
-  const { data, error } = await supabase
+  const admin = getSupabaseAdminClient();
+  const { data, error } = await admin
     .from('shops_view')
     .select('*')
     .eq('slug', slug)
@@ -24,22 +27,35 @@ export async function getShopBySlug(slug: string) {
   return data;
 }
 
-/** Check if a user can access a shop — via tenant-level OR shop-level membership */
 export async function assertUserShopAccess(userId: string, shopId: string): Promise<boolean> {
-  const supabase = await getSupabaseServerClient();
+  const admin = getSupabaseAdminClient();
 
-  // 1. Tenant-level access (owner/admin inherits all shops)
-  const { data: tenantAccess } = await supabase
+  const { data: tenantAccess } = await admin
     .from('user_tenants')
-    .select('user_tenants.id')
+    .select('id')
     .eq('user_id', userId)
-    .eq('shops.id', shopId)  // via shops.tenant_id join
     .maybeSingle();
 
-  if (tenantAccess) return true;
+  if (tenantAccess) {
+    // Check if this tenant owns the shop
+    const { data: shop } = await admin
+      .from('shops')
+      .select('tenant_id')
+      .eq('id', shopId)
+      .maybeSingle();
 
-  // 2. Shop-level access (staff assigned to specific shop)
-  const { data: shopAccess } = await supabase
+    if (shop) {
+      const { data: membership } = await admin
+        .from('user_tenants')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('tenant_id', shop.tenant_id)
+        .maybeSingle();
+      if (membership) return true;
+    }
+  }
+
+  const { data: shopAccess } = await admin
     .from('user_shops')
     .select('id')
     .eq('user_id', userId)

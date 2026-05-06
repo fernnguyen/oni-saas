@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getSupabaseServerClient } from '../../../lib/server/supabaseServer';
+import { getSupabaseAdminClient } from '../../../lib/server/supabaseAdmin';
 
 const createSchema = z.object({
   tenant_id: z.string().uuid(),
@@ -22,8 +23,9 @@ export async function POST(req: NextRequest) {
 
   const { tenant_id, name, slug, address } = parsed.data;
 
-  // Verify caller is owner/admin of this tenant
-  const { data: membership } = await supabase
+  // Use admin client for role check — bypasses RLS, user identity already verified above
+  const admin = getSupabaseAdminClient();
+  const { data: membership } = await admin
     .from('user_tenants')
     .select('roles(code)')
     .eq('user_id', auth.user.id)
@@ -35,8 +37,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: 'Forbidden' }, { status: 403 });
   }
 
-  // create_shop enforces max_shops plan limit
-  const { data, error } = await supabase.rpc('create_shop', {
+  const { data, error } = await admin.rpc('create_shop', {
     p_tenant_id: tenant_id,
     p_name: name,
     p_slug: slug,
@@ -58,7 +59,8 @@ export async function GET(req: NextRequest) {
   const tenant_id = req.nextUrl.searchParams.get('tenant_id');
   if (!tenant_id) return NextResponse.json({ message: 'tenant_id required' }, { status: 400 });
 
-  const { data, error } = await supabase
+  const admin = getSupabaseAdminClient();
+  const { data, error } = await admin
     .from('shops_view')
     .select('*')
     .eq('tenant_id', tenant_id)

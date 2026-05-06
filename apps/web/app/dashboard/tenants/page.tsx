@@ -4,22 +4,94 @@ import Link from 'next/link';
 export default async function TenantsPage() {
   const { tenants } = await listTenantsForCurrentUser();
 
+  if (tenants.length === 0) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-xl font-bold text-slate-900">Tổ chức</h1>
+          <p className="text-sm text-slate-500 mt-0.5">Quản lý tổ chức và chi nhánh kinh doanh</p>
+        </div>
+        <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 bg-white py-16 text-center">
+          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#0268FF]/10">
+            <svg className="h-7 w-7 text-[#0268FF]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+            </svg>
+          </div>
+          <h3 className="text-lg font-bold text-slate-800">Chưa có tổ chức nào</h3>
+          <p className="mt-2 max-w-sm text-sm text-slate-500">
+            Tạo tổ chức để bắt đầu thêm chi nhánh, kết nối dữ liệu và quản lý đơn hàng.
+          </p>
+          <Link
+            href="/dashboard/tenants/new"
+            className="mt-6 inline-flex items-center gap-2 rounded-xl bg-[#0268FF] px-5 py-3 text-sm font-semibold text-white hover:bg-[#0256CC] transition-colors"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            Tạo tổ chức đầu tiên
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div>
-      <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Gian hàng</h1>
-        <Link href="/dashboard/tenants/new" className="rounded bg-slate-900 px-3 py-2 text-sm text-white">
-          + Tạo gian hàng
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-slate-900">Tổ chức</h1>
+          <p className="text-sm text-slate-500 mt-0.5">Quản lý tổ chức và chi nhánh kinh doanh</p>
+        </div>
+        <Link
+          href="/dashboard/tenants/new"
+          className="inline-flex items-center gap-2 rounded-xl bg-[#0268FF] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0256CC] transition-colors"
+        >
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+          Tạo tổ chức
         </Link>
       </div>
-      <ul className="space-y-2">
-        {tenants.map((t) => (
-          <li key={t.id} className="rounded border p-3">
-            <div className="font-medium">{t.name}</div>
-            <div className="text-xs text-slate-500">{t.primaryDomain ?? `${t.slug}.oni.vn`}</div>
-          </li>
+
+      <div className="space-y-3">
+        {(tenants as any[]).map((t) => (
+          <div key={t.id} className="rounded-2xl border border-slate-200 bg-white p-5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#0268FF]/10 text-[#0268FF] font-bold text-base">
+                  {t.name.charAt(0).toUpperCase()}
+                </div>
+                <div>
+                  <div className="font-semibold text-slate-800">{t.name}</div>
+                  <div className="text-xs text-slate-400 mt-0.5">
+                    {t.slug}.oni.vn
+                    {t.plan_name && (
+                      <span className="ml-2 rounded-full bg-blue-50 text-[#0268FF] px-2 py-0.5 text-[10px] font-medium">
+                        {t.plan_name}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-400">{t.shop_count ?? 0} chi nhánh</span>
+                <Link
+                  href={`/dashboard/shops/new?tenant_id=${t.id}`}
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+                >
+                  + Chi nhánh
+                </Link>
+                <Link
+                  href={`/dashboard/shops?tenant_id=${t.id}`}
+                  className="rounded-lg bg-[#0268FF] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#0256CC] transition-colors"
+                >
+                  Xem chi nhánh →
+                </Link>
+              </div>
+            </div>
+          </div>
         ))}
-      </ul>
+      </div>
     </div>
   );
 }
