@@ -1,64 +1,60 @@
 'use client';
 
-import { useState } from 'react';
-
-type Mode = 'choose' | 'manual' | 'oauth';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { extractGoogleSheetId } from '../../../lib/googleSheets';
 
 interface Props {
   shopId: string;
   onConnected: () => void;
   onClose?: () => void;
+  returnTo?: string;
 }
 
-export function SetupModal({ shopId, onConnected, onClose }: Props) {
-  const [mode, setMode] = useState<Mode>('choose');
-  const [sheetId, setSheetId] = useState('');
-  const [accessToken, setAccessToken] = useState('');
+const ERROR_MESSAGES: Record<string, string> = {
+  oauth_missing_params: 'Google trả về thiếu dữ liệu xác thực. Hãy thử lại.',
+  token_exchange_failed: 'Không đổi được mã xác thực từ Google. Kiểm tra cấu hình OAuth.',
+  token_missing: 'Google không trả về access token hợp lệ.',
+  sheet_access_denied: 'Google đã đăng nhập nhưng tài khoản này chưa có quyền mở Sheet bạn nhập.',
+  template_create_failed: 'Đã đăng nhập Google nhưng chưa tạo được file template mới.',
+  template_seed_failed: 'Đã tạo file nhưng chưa ghi được cấu trúc mẫu của ONI.',
+  save_failed: 'Đã nhận xác thực từ Google nhưng chưa lưu được kết nối.',
+};
+
+export function SetupModal({ shopId, onConnected, onClose, returnTo = '/' }: Props) {
+  const searchParams = useSearchParams();
+  const [source, setSource] = useState<'existing' | 'template'>('existing');
+  const [sheetInput, setSheetInput] = useState('');
+  const [templateName, setTemplateName] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const error = searchParams.get('error');
+  const success = searchParams.get('success');
+  const parsedSheetId = extractGoogleSheetId(sheetInput);
 
-  async function connectManual() {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch('/api/connectors/google-sheets/connect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ shop_id: shopId, mode: 'manual', sheet_id: sheetId, access_token: accessToken }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message);
-
-      const verifyRes = await fetch('/api/connectors/google-sheets/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ connector_id: data.connector.id }),
-      });
-      const verifyData = await verifyRes.json();
-      if (!verifyRes.ok) throw new Error(verifyData.message);
-
-      onConnected();
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }
+  useEffect(() => {
+    if (success === 'connected') onConnected();
+  }, [onConnected, success]);
 
   async function connectOAuth() {
     setLoading(true);
-    setError(null);
     try {
       const res = await fetch('/api/connectors/google-sheets/connect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ shop_id: shopId, mode: 'oauth_init' }),
+        body: JSON.stringify({
+          shop_id: shopId,
+          mode: 'oauth_init',
+          source,
+          sheet_input: sheetInput,
+          template_name: templateName,
+          return_to: returnTo,
+        }),
       });
-      const data = await res.json();
+      const data = await readJsonResponse(res);
       if (!res.ok) throw new Error(data.message);
       window.location.href = data.redirect_url;
     } catch (err: any) {
-      setError(err.message);
+      window.alert(err.message);
       setLoading(false);
     }
   }
@@ -77,105 +73,120 @@ export function SetupModal({ shopId, onConnected, onClose }: Props) {
           )}
         </div>
         <p className="mt-1 text-sm text-slate-500">
-          Chi nhánh này chưa có nguồn dữ liệu. Chọn cách kết nối Google Sheets.
+          Chọn một trong hai cách: dùng Google Sheet có sẵn hoặc để ONI tạo file mới từ template.
         </p>
 
-        {mode === 'choose' && (
-          <div className="mt-6 space-y-3">
+        <div className="mt-6 space-y-4">
+          {success === 'connected' && (
+            <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+              Kết nối thành công. Google Sheet đã được xác nhận quyền truy cập.
+            </div>
+          )}
+          {error && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+              {ERROR_MESSAGES[error] ?? 'Kết nối chưa thành công. Hãy kiểm tra lại cấu hình.'}
+            </div>
+          )}
+
+          <div className="grid gap-3 sm:grid-cols-2">
             <button
-              onClick={() => setMode('oauth')}
-              className="flex w-full items-center gap-4 rounded-lg border border-slate-200 p-4 text-left hover:border-slate-400 hover:bg-slate-50"
+              onClick={() => setSource('existing')}
+              className={`rounded-xl border p-4 text-left transition-colors ${
+                source === 'existing' ? 'border-[#0268FF] bg-blue-50' : 'border-slate-200 bg-white hover:border-slate-300'
+              }`}
             >
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50">
-                <svg width="20" height="20" viewBox="0 0 18 18">
-                  <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615Z"/>
-                  <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18Z"/>
-                  <path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332Z"/>
-                  <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58Z"/>
-                </svg>
-              </span>
-              <div>
-                <div className="font-medium text-slate-800">Đăng nhập Google</div>
-                <div className="text-xs text-slate-500">Uỷ quyền qua OAuth — Google Drive hiện danh sách Sheet của bạn</div>
-              </div>
+              <div className="text-sm font-semibold text-slate-800">Dùng link có sẵn</div>
+              <p className="mt-1 text-xs text-slate-500">Bạn đã có file Google Sheet và chỉ cần nối nó với ONI.</p>
             </button>
-
             <button
-              onClick={() => setMode('manual')}
-              className="flex w-full items-center gap-4 rounded-lg border border-slate-200 p-4 text-left hover:border-slate-400 hover:bg-slate-50"
+              onClick={() => setSource('template')}
+              className={`rounded-xl border p-4 text-left transition-colors ${
+                source === 'template' ? 'border-[#0268FF] bg-blue-50' : 'border-slate-200 bg-white hover:border-slate-300'
+              }`}
             >
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 font-mono text-sm font-bold">
-                ID
-              </span>
-              <div>
-                <div className="font-medium text-slate-800">Nhập thủ công</div>
-                <div className="text-xs text-slate-500">Dán Sheet ID + Access Token — phù hợp Service Account</div>
-              </div>
+              <div className="text-sm font-semibold text-slate-800">Tạo mới qua template ONI</div>
+              <p className="mt-1 text-xs text-slate-500">ONI sẽ tạo file mới với các tab mẫu cơ bản cho bạn.</p>
             </button>
           </div>
-        )}
 
-        {mode === 'oauth' && (
-          <div className="mt-6 space-y-4">
-            <p className="text-sm text-slate-600">
-              Bấm kết nối bên dưới để chuyển sang trang đăng nhập Google. Sau khi xác nhận, bạn sẽ được quay về đây.
-            </p>
-            {error && <p className="text-sm text-red-600">{error}</p>}
-            <div className="flex gap-3">
-              <button onClick={() => setMode('choose')} className="flex-1 rounded border px-4 py-2 text-sm">
-                Quay lại
-              </button>
-              <button
-                onClick={connectOAuth}
-                disabled={loading}
-                className="flex-1 rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-60"
-              >
-                {loading ? 'Đang chuyển hướng...' : 'Kết nối Google'}
-              </button>
-            </div>
-          </div>
-        )}
+          {source === 'existing' ? (
+            <>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="text-sm font-medium text-slate-800">Cách làm nhanh</div>
+                <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-slate-600">
+                  <li>Mở file Google Sheet bạn muốn dùng.</li>
+                  <li>Copy toàn bộ đường link trên thanh địa chỉ.</li>
+                  <li>Dán vào ô bên dưới rồi bấm kết nối.</li>
+                  <li>Chọn đúng tài khoản Google có quyền mở file đó.</li>
+                </ol>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-slate-700">Link Google Sheet</label>
+                <input
+                  value={sheetInput}
+                  onChange={(e) => setSheetInput(e.target.value)}
+                  placeholder="https://docs.google.com/spreadsheets/d/..."
+                  className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm focus:border-[#0268FF] focus:outline-none focus:ring-2 focus:ring-[#0268FF]/20"
+                />
+                <p className="mt-1.5 text-xs text-slate-400">Bạn có thể dán nguyên link hoặc chỉ dán riêng Sheet ID.</p>
+              </div>
+              {parsedSheetId && (
+                <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-xs text-blue-700">
+                  Đã nhận Sheet ID: <span className="font-mono">{parsedSheetId}</span>
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="text-sm font-medium text-slate-800">ONI sẽ chuẩn bị sẵn</div>
+                <ul className="mt-2 space-y-1 text-sm text-slate-600">
+                  <li>`Products` cho sản phẩm</li>
+                  <li>`Orders` và `OrderItems` cho đơn hàng</li>
+                  <li>`Customers` cho khách hàng</li>
+                  <li>`Settings` cho cấu hình cơ bản</li>
+                </ul>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-slate-700">Tên file mới</label>
+                <input
+                  value={templateName}
+                  onChange={(e) => setTemplateName(e.target.value)}
+                  placeholder="Chi nhánh Linh Ka"
+                  className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm focus:border-[#0268FF] focus:outline-none focus:ring-2 focus:ring-[#0268FF]/20"
+                />
+                <p className="mt-1.5 text-xs text-slate-400">
+                  ONI sẽ tạo file dạng <span className="font-mono">ONI - Tên file</span> trong Google Drive của bạn.
+                </p>
+              </div>
+            </>
+          )}
 
-        {mode === 'manual' && (
-          <div className="mt-6 space-y-4">
-            <div>
-              <label className="mb-1 block text-sm font-medium">Google Sheet ID</label>
-              <input
-                value={sheetId}
-                onChange={(e) => setSheetId(e.target.value)}
-                placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms"
-                className="w-full rounded border px-3 py-2 text-sm font-mono"
-              />
-              <p className="mt-1 text-xs text-slate-400">
-                Lấy từ URL: docs.google.com/spreadsheets/d/<strong>sheet-id</strong>/edit
-              </p>
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium">Access Token</label>
-              <input
-                type="password"
-                value={accessToken}
-                onChange={(e) => setAccessToken(e.target.value)}
-                placeholder="ya29.xxx"
-                className="w-full rounded border px-3 py-2 text-sm font-mono"
-              />
-            </div>
-            {error && <p className="text-sm text-red-600">{error}</p>}
-            <div className="flex gap-3">
-              <button onClick={() => setMode('choose')} className="flex-1 rounded border px-4 py-2 text-sm">
-                Quay lại
+          <div className="flex gap-3">
+            {onClose && (
+              <button onClick={onClose} className="flex-1 rounded border px-4 py-2 text-sm">
+                Đóng
               </button>
-              <button
-                onClick={connectManual}
-                disabled={loading || !sheetId || !accessToken}
-                className="flex-1 rounded bg-emerald-600 px-4 py-2 text-sm text-white hover:bg-emerald-700 disabled:opacity-60"
-              >
-                {loading ? 'Đang kết nối...' : 'Kết nối & Kiểm tra'}
-              </button>
-            </div>
+            )}
+            <button
+              onClick={connectOAuth}
+              disabled={loading || (source === 'existing' ? !parsedSheetId : !templateName.trim())}
+              className="flex-1 rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-60"
+            >
+              {loading ? 'Đang chuyển hướng...' : source === 'existing' ? 'Kết nối với Google' : 'Tạo template qua Google'}
+            </button>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
+}
+
+async function readJsonResponse(res: Response) {
+  const text = await res.text();
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(`API trả về dữ liệu không hợp lệ (${res.status})`);
+  }
 }

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { SetupModal } from '../../components/connectors/SetupModal';
 
 interface Props {
@@ -11,8 +12,11 @@ interface Props {
 }
 
 export function ShopDashboard({ shop, connectorStatus }: Props) {
+  const searchParams = useSearchParams();
   const [showModal, setShowModal] = useState(connectorStatus !== 'active');
-  const [connected, setConnected] = useState(connectorStatus === 'active');
+  const [connected, setConnected] = useState(connectorStatus === 'active' || searchParams.get('success') === 'connected');
+  const error = searchParams.get('error');
+  const success = searchParams.get('success');
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -42,6 +46,16 @@ export function ShopDashboard({ shop, connectorStatus }: Props) {
       </header>
 
       <main className="p-6">
+        {success === 'connected' && (
+          <div className="mb-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+            Kết nối Google Sheet thành công cho chi nhánh này.
+          </div>
+        )}
+        {error && (
+          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+            Kết nối chưa hoàn tất. Hãy mở lại cấu hình dữ liệu và thử lại.
+          </div>
+        )}
         {connected ? (
           <p className="text-slate-600">Chi nhánh đang hoạt động.</p>
         ) : (
@@ -62,6 +76,7 @@ export function ShopDashboard({ shop, connectorStatus }: Props) {
           shopId={shop.id}
           onConnected={() => { setConnected(true); setShowModal(false); }}
           onClose={() => setShowModal(false)}
+          returnTo="/"
         />
       )}
     </div>

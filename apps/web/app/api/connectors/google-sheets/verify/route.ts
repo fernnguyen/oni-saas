@@ -25,8 +25,16 @@ export async function POST(req: NextRequest) {
   if (error || !connector) return NextResponse.json({ message: 'Connector not found' }, { status: 404 });
 
   try {
-    const token = decryptConnectorField(connector.config.encrypted_token);
+    const tokenCipher = connector.config.encrypted_access_token ?? connector.config.encrypted_token;
+    if (!tokenCipher) {
+      return NextResponse.json({ ok: false, message: 'Connector chưa có access token' }, { status: 400 });
+    }
+
+    const token = decryptConnectorField(tokenCipher);
     const sheetId = connector.config.sheet_id;
+    if (!sheetId) {
+      return NextResponse.json({ ok: false, message: 'Connector chưa có sheet_id' }, { status: 400 });
+    }
 
     const res = await fetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?fields=spreadsheetId,properties.title`,
@@ -45,7 +53,11 @@ export async function POST(req: NextRequest) {
 
     await supabase
       .from('connectors')
-      .update({ status: 'active', updated_at: new Date().toISOString() })
+      .update({
+        status: 'active',
+        config: { ...connector.config, sheet_title: sheet.properties?.title ?? null },
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', connector_id);
 
     return NextResponse.json({ ok: true, title: sheet.properties?.title });
