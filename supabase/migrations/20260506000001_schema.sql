@@ -1,8 +1,7 @@
--- ═══════════════════════════════════════════════════════════════
+-- migration: 20260506000001_schema
 -- ONI.vn — Core multi-tenant schema
 -- Hierarchy: User → Tenant (Company) → Shop (Branch/POS)
 -- Subscription lives on Tenant; Connector & Domain live on Shop
--- ═══════════════════════════════════════════════════════════════
 
 create extension if not exists "pgcrypto";
 

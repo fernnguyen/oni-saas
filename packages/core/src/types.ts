@@ -1,4 +1,6 @@
-export type TenantRole = 'owner' | 'admin' | 'staff' | 'viewer';
+/** System role codes — seeded by migrations. Custom roles added by tenant are arbitrary strings. */
+export type SystemRole = 'owner' | 'admin' | 'staff' | 'viewer';
+export type TenantRole = SystemRole | (string & {});
 
 export interface Tenant {
   id: string;

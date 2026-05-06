@@ -6,3 +6,4 @@ dist
 .DS_Store
 .serena
 *.tsbuildinfo
+supabase/.temp
