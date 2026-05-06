@@ -4,7 +4,8 @@ import { getSupabaseServerClient } from '../../../../lib/server/supabaseServer';
 export async function GET(req: NextRequest) {
   const { searchParams, origin } = new URL(req.url);
   const code = searchParams.get('code');
-  const next = searchParams.get('next') ?? '/dashboard';
+  const nextParam = searchParams.get('next');
+  const next = nextParam?.startsWith('/') ? nextParam : '/dashboard';
 
   if (code) {
     const supabase = await getSupabaseServerClient();

@@ -13,6 +13,10 @@ export async function middleware(req: NextRequest) {
   const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
   const subdomain = extractSubdomain(host, rootDomain);
 
+  if (PUBLIC_PATHS.some((prefix) => pathname.startsWith(prefix))) {
+    return withSupabaseSession(req, NextResponse.next());
+  }
+
   if (subdomain) {
     // Rewrite to /s/[slug]/... so the app router can serve the shop's control panel
     const url = req.nextUrl.clone();

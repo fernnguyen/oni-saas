@@ -1,14 +1,17 @@
 'use client';
 
 import { useState, FormEvent } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { getSupabaseBrowserClient } from '../../../lib/supabaseBrowser';
 
 export function SignInForm() {
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const next = sanitizeNext(searchParams.get('next'));
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -24,7 +27,7 @@ export function SignInForm() {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.message || 'Đăng nhập thất bại');
       }
-      window.location.href = '/dashboard';
+      window.location.href = next;
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -36,9 +39,11 @@ export function SignInForm() {
     setLoading(true);
     setError(null);
     const supabase = getSupabaseBrowserClient();
+    const redirectTo = new URL('/api/auth/callback', window.location.origin);
+    redirectTo.searchParams.set('next', next);
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: `${window.location.origin}/api/auth/callback` },
+      options: { redirectTo: redirectTo.toString() },
     });
     if (error) {
       setError(error.message);
@@ -121,4 +126,9 @@ export function SignInForm() {
       </div>
     </main>
   );
+}
+
+function sanitizeNext(value: string | null): string {
+  if (!value || !value.startsWith('/')) return '/dashboard';
+  return value;
 }

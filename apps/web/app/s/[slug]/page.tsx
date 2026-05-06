@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { headers } from 'next/headers';
 import { getSupabaseServerClient } from '../../../lib/server/supabaseServer';
 import { getSupabaseAdminClient } from '../../../lib/server/supabaseAdmin';
 import { ShopDashboard } from './ShopDashboard';
@@ -12,7 +13,13 @@ export default async function ShopPage({ params }: Props) {
   const { slug } = await params;
   const supabase = await getSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
-  if (!authData.user) redirect(`/auth/signin?next=/s/${slug}`);
+  if (!authData.user) {
+    const headerStore = await headers();
+    const host = headerStore.get('host') ?? '';
+    const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
+    const nextPath = extractSubdomain(host, rootDomain) ? '/' : `/s/${slug}`;
+    redirect(`/auth/signin?next=${encodeURIComponent(nextPath)}`);
+  }
 
   const admin = getSupabaseAdminClient();
 
@@ -49,4 +56,12 @@ export default async function ShopPage({ params }: Props) {
       connectorId={shop.connector_id ?? null}
     />
   );
+}
+
+function extractSubdomain(host: string, rootDomain: string): string | null {
+  if (host === rootDomain) return null;
+  if (!host.endsWith(`.${rootDomain}`)) return null;
+  const sub = host.slice(0, host.length - rootDomain.length - 1);
+  if (sub === 'www') return null;
+  return sub || null;
 }
