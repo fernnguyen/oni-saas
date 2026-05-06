@@ -10,6 +10,8 @@ interface SidebarProps {
   tenantHref?: string;
   connectorsHref?: string;
   settingsHref?: string;
+  /** Permission codes for the current user — nav items are filtered by these. */
+  permissions?: string[];
 }
 
 export function Sidebar({
@@ -18,9 +20,13 @@ export function Sidebar({
   tenantHref = '/dashboard/tenants',
   connectorsHref = '/dashboard/connectors',
   settingsHref = '/dashboard/settings',
+  permissions = [],
 }: SidebarProps) {
   const pathname = usePathname();
-  const navGroups = buildNavGroups({ basePath, supportHref, tenantHref, connectorsHref, settingsHref });
+  const navGroups = buildNavGroups(
+    { basePath, supportHref, tenantHref, connectorsHref, settingsHref },
+    permissions,
+  );
 
   function isActive(href: string, exact?: boolean) {
     if (exact) return pathname === href;

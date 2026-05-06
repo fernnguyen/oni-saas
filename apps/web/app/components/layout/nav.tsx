@@ -6,6 +6,8 @@ export interface NavItem {
   href: string;
   label: string;
   icon: ({ className }: { className?: string }) => React.ReactElement;
+  /** Permission code required to see this item. Omit = always visible. */
+  permission?: string;
   exact?: boolean;
 }
 
@@ -22,56 +24,69 @@ interface BuildNavOptions {
   settingsHref: string;
 }
 
-export function buildNavGroups(options: BuildNavOptions): NavGroup[] {
+/**
+ * Builds nav groups filtered by the user's permission set.
+ * Pass an empty array to hide all permission-gated items (e.g. loading state).
+ */
+export function buildNavGroups(options: BuildNavOptions, permissions: string[]): NavGroup[] {
   const base = normalizeBasePath(options.basePath);
+  const can = (p: string) => permissions.includes(p);
 
-  return [
+  const allGroups: NavGroup[] = [
     {
       items: [
-        { href: base || '/', label: 'Tổng quan', icon: IconHome, exact: true },
+        { href: base || '/', label: 'Tổng quan', icon: IconHome, exact: true, permission: 'dashboard.view' },
       ],
     },
     {
       label: 'Đơn hàng & sản phẩm',
       items: [
-        { href: joinPath(base, '/products'), label: 'Sản phẩm', icon: IconBox },
-        { href: joinPath(base, '/orders'), label: 'Đơn hàng', icon: IconClipboard },
-        { href: joinPath(base, '/returns'), label: 'Đơn trả hàng', icon: IconReturn },
+        { href: joinPath(base, '/products'), label: 'Sản phẩm',      icon: IconBox,       permission: 'products.view' },
+        { href: joinPath(base, '/orders'),   label: 'Đơn hàng',      icon: IconClipboard, permission: 'orders.view' },
+        { href: joinPath(base, '/returns'),  label: 'Đơn trả hàng',  icon: IconReturn,    permission: 'returns.view' },
       ],
     },
     {
       label: 'Vận hành',
       items: [
-        { href: joinPath(base, '/shipping'), label: 'Vận chuyển', icon: IconTruck },
-        { href: joinPath(base, '/inventory'), label: 'Kho', icon: IconWarehouse },
-        { href: joinPath(base, '/partners'), label: 'Quản lý đối tác', icon: IconUsers },
+        { href: joinPath(base, '/shipping'),  label: 'Vận chuyển',       icon: IconTruck,    permission: 'shipping.view' },
+        { href: joinPath(base, '/inventory'), label: 'Kho',              icon: IconWarehouse, permission: 'inventory.view' },
+        { href: joinPath(base, '/partners'),  label: 'Quản lý đối tác',  icon: IconUsers,    permission: 'partners.view' },
       ],
     },
     {
       label: 'Kênh bán hàng',
       items: [
-        { href: joinPath(base, '/channels/facebook'), label: 'Facebook', icon: IconFacebook },
-        { href: joinPath(base, '/channels/ecom'), label: 'Sàn TMĐT', icon: IconShop },
-        { href: joinPath(base, '/channels/pos'), label: 'Bán tại quầy', icon: IconPos },
+        { href: joinPath(base, '/channels/facebook'), label: 'Facebook',     icon: IconFacebook, permission: 'channels.view' },
+        { href: joinPath(base, '/channels/ecom'),     label: 'Sàn TMĐT',     icon: IconShop,     permission: 'channels.view' },
+        { href: joinPath(base, '/channels/pos'),      label: 'Bán tại quầy', icon: IconPos,      permission: 'pos.use' },
       ],
     },
     {
       label: 'Báo cáo',
       items: [
-        { href: joinPath(base, '/reports/accounting'), label: 'Kế toán', icon: IconChart },
-        { href: joinPath(base, '/reports/cod'), label: 'Đối soát COD', icon: IconMoney },
-        { href: joinPath(base, '/reports'), label: 'Báo cáo', icon: IconBarChart },
+        { href: joinPath(base, '/reports/accounting'), label: 'Kế toán',        icon: IconChart,    permission: 'accounting.view' },
+        { href: joinPath(base, '/reports/cod'),        label: 'Đối soát COD',   icon: IconMoney,    permission: 'cod.view' },
+        { href: joinPath(base, '/reports'),            label: 'Báo cáo',        icon: IconBarChart, permission: 'reports.view_shop' },
       ],
     },
     {
       label: 'Hệ thống',
       items: [
-        { href: options.tenantHref, label: 'Tổ chức', icon: IconBuilding },
-        { href: options.connectorsHref, label: 'Kết nối dữ liệu', icon: IconPlugin },
-        { href: options.settingsHref, label: 'Cài đặt', icon: IconSettings },
+        { href: options.tenantHref,          label: 'Tổ chức',           icon: IconBuilding, permission: 'tenants.view' },
+        { href: options.connectorsHref,      label: 'Kết nối dữ liệu',   icon: IconPlugin,   permission: 'connectors.view' },
+        { href: joinPath(base, '/roles'),    label: 'Phân quyền',        icon: IconShield,   permission: 'roles.view' },
+        { href: options.settingsHref,        label: 'Cài đặt',           icon: IconSettings, permission: 'settings.view' },
       ],
     },
   ];
+
+  return allGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => !item.permission || can(item.permission)),
+    }))
+    .filter((group) => group.items.length > 0);
 }
 
 export function joinPath(basePath: string, suffix: string) {
@@ -196,6 +211,13 @@ export function IconHelp({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  );
+}
+export function IconShield({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
     </svg>
   );
 }

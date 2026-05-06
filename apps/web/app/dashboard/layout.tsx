@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { redirect } from 'next/navigation';
 import { getSessionUserWithTenant } from '../../lib/server/auth';
 import { getShopsForTenant } from '../../lib/server/shops';
+import { getUserPermissions } from '../../lib/server/permissions';
 import { DashboardShell } from '../components/layout/DashboardShell';
 
 export default async function DashboardLayout({ children }: { children: ReactNode }) {
@@ -13,11 +14,16 @@ export default async function DashboardLayout({ children }: { children: ReactNod
   const shops = tenant ? await getShopsForTenant(tenant.id).catch(() => []) : [];
   const firstShop = shops[0] as any;
 
+  const permissions = tenant
+    ? await getUserPermissions(ctx.user.id, tenant.id).catch(() => [])
+    : [];
+
   return (
     <DashboardShell
       tenantName={tenant?.name ?? ''}
       shopName={firstShop?.name}
       userEmail={ctx.user.email}
+      permissions={permissions}
     >
       {children}
     </DashboardShell>

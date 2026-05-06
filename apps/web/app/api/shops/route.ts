@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getSupabaseServerClient } from '../../../lib/server/supabaseServer';
 import { getSupabaseAdminClient } from '../../../lib/server/supabaseAdmin';
+import { hasPermission } from '../../../lib/server/permissions';
 
 const createSchema = z.object({
   tenant_id: z.string().uuid(),
@@ -23,20 +24,12 @@ export async function POST(req: NextRequest) {
 
   const { tenant_id, name, slug, address } = parsed.data;
 
-  // Use admin client for role check — bypasses RLS, user identity already verified above
-  const admin = getSupabaseAdminClient();
-  const { data: membership } = await admin
-    .from('user_tenants')
-    .select('roles(code)')
-    .eq('user_id', auth.user.id)
-    .eq('tenant_id', tenant_id)
-    .maybeSingle();
-
-  const roleCode = (membership?.roles as any)?.code;
-  if (!roleCode || !['owner', 'admin'].includes(roleCode)) {
+  const allowed = await hasPermission(auth.user.id, tenant_id, 'shops.create');
+  if (!allowed) {
     return NextResponse.json({ message: 'Forbidden' }, { status: 403 });
   }
 
+  const admin = getSupabaseAdminClient();
   const { data, error } = await admin.rpc('create_shop', {
     p_tenant_id: tenant_id,
     p_name: name,

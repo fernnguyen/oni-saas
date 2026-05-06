@@ -11,6 +11,7 @@ interface DashboardShellProps {
   tenantHref?: string;
   connectorsHref?: string;
   settingsHref?: string;
+  permissions?: string[];
 }
 
 export function DashboardShell({
@@ -23,6 +24,7 @@ export function DashboardShell({
   tenantHref = '/dashboard/tenants',
   connectorsHref = '/dashboard/connectors',
   settingsHref = '/dashboard/settings',
+  permissions = [],
 }: DashboardShellProps) {
   return (
     <div className="min-h-screen bg-slate-50 flex">
@@ -32,6 +34,7 @@ export function DashboardShell({
         tenantHref={tenantHref}
         connectorsHref={connectorsHref}
         settingsHref={settingsHref}
+        permissions={permissions}
       />
       <div className="flex-1 min-w-0 flex flex-col">
         <Topbar tenantName={tenantName} shopName={shopName} userEmail={userEmail} settingsHref={settingsHref} />
