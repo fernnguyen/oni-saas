@@ -111,7 +111,7 @@ export default async function ShopsPage({ searchParams }: Props) {
                     {shop.connector_status === 'active' ? 'Đã kết nối' : 'Chưa kết nối'}
                   </span>
                   <Link
-                    href="/dashboard/connectors"
+                    href={`/dashboard/connectors?tenant_id=${tenant_id}`}
                     className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors"
                   >
                     Kết nối dữ liệu

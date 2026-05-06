@@ -60,7 +60,7 @@ function NewShopForm() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.message || 'Không tạo được chi nhánh');
-      router.push('/dashboard/connectors');
+      router.push(`/dashboard/connectors?tenant_id=${tenantId}`);
     } catch (err: any) {
       setError(err.message);
     } finally {
