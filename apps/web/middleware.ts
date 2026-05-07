@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
-// Paths without trailing slash — match exact or as prefix followed by /
-const PUBLIC_PATHS = ['/auth', '/api', '/_next', '/favicon', '/register'];
+// Paths that are public on the MAIN domain (no auth required)
+const MAIN_DOMAIN_PUBLIC = ['/auth', '/api', '/_next', '/favicon', '/register'];
 
-function isPublic(pathname: string) {
-  return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + '/'));
+function isMainPublic(pathname: string) {
+  return pathname === '/' ||
+    MAIN_DOMAIN_PUBLIC.some((p) => pathname === p || pathname.startsWith(p + '/'));
 }
 
 export async function middleware(req: NextRequest) {
@@ -15,23 +16,20 @@ export async function middleware(req: NextRequest) {
   const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
   const subdomain = extractSubdomain(host, rootDomain);
 
-  // Always pass through public paths (no auth check needed)
-  if (isPublic(pathname)) {
-    return withSupabaseSession(req, NextResponse.next());
-  }
-
-  // ── Landing page ──
-  if (pathname === '/') {
-    return withSupabaseSession(req, NextResponse.next());
-  }
-
-  // ── Subdomain (tenant workspace) ──
+  // ── SUBDOMAIN (tenant workspace) ─────────────────────────────
+  // Must be checked FIRST — subdomain /auth/signin must serve the
+  // workspace login form, not the superadmin form.
   if (subdomain) {
-    // Control-plane & register paths belong only on the main domain
-    if (pathname.startsWith('/dashboard') || pathname.startsWith('/register') || pathname.startsWith('/super')) {
+    // These paths belong only on the main domain
+    if (
+      pathname.startsWith('/dashboard') ||
+      pathname.startsWith('/register') ||
+      pathname.startsWith('/super')
+    ) {
       return NextResponse.redirect(new URL('/', `http://${rootDomain}`));
     }
-    // Rewrite workspace paths to /t/[slug]/...
+
+    // Rewrite all subdomain paths to /t/[slug]/...
     const url = req.nextUrl.clone();
     url.pathname = `/t/${subdomain}${pathname === '/' ? '' : pathname}`;
     const res = NextResponse.rewrite(url);
@@ -39,46 +37,39 @@ export async function middleware(req: NextRequest) {
     return withSupabaseSession(req, res);
   }
 
-  // ── Main domain — only superadmins past this point ──
+  // ── MAIN DOMAIN ───────────────────────────────────────────────
   // Block direct /t/ access (only reachable via subdomain rewrite)
   if (pathname.startsWith('/t/')) {
     return NextResponse.redirect(new URL('/auth/signin', req.nextUrl));
   }
 
-  // /super/* — superadmin guard
-  if (pathname.startsWith('/super')) {
-    const { user } = await getUser(req);
-    if (!user) return NextResponse.redirect(new URL('/auth/signin', req.nextUrl));
-    if (user.app_metadata?.role !== 'super_admin') {
-      return rejectNonSuperadmin(req, user, rootDomain);
-    }
+  // Public paths on main domain — pass through
+  if (isMainPublic(pathname)) {
     return withSupabaseSession(req, NextResponse.next());
   }
 
-  // /dashboard/* and any other protected main-domain route
-  // Under the new model the main domain is superadmin-only
+  // All other main-domain routes require superadmin
   const { user } = await getUser(req);
   if (!user) {
     return NextResponse.redirect(new URL('/auth/signin', req.nextUrl));
   }
   if (user.app_metadata?.role !== 'super_admin') {
-    return rejectNonSuperadmin(req, user, rootDomain);
+    return NextResponse.redirect(new URL('/auth/signin?error=not_superadmin', req.nextUrl));
   }
 
   return withSupabaseSession(req, NextResponse.next());
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────
 
 function extractSubdomain(host: string, rootDomain: string): string | null {
-  if (host === rootDomain) return null;
-  // strip port for comparison (e.g. "localhost:3000" vs "linhka.localhost:3000")
+  // Strip port before comparing base hostnames
   const rootBase = rootDomain.split(':')[0];
   const hostBase = host.split(':')[0];
+  if (hostBase === rootBase) return null;
   if (!hostBase.endsWith(`.${rootBase}`)) return null;
   const sub = hostBase.slice(0, hostBase.length - rootBase.length - 1);
-  if (sub === 'www') return null;
-  return sub || null;
+  return sub === 'www' || sub === '' ? null : sub;
 }
 
 async function getUser(req: NextRequest) {
@@ -97,14 +88,6 @@ async function getUser(req: NextRequest) {
   return { user: data.user };
 }
 
-function rejectNonSuperadmin(req: NextRequest, user: { id: string } | null, _rootDomain: string) {
-  // Redirect to signin with a flag so the UI can show an appropriate message
-  const url = new URL('/auth/signin', req.nextUrl);
-  url.searchParams.set('error', 'not_superadmin');
-  return NextResponse.redirect(url);
-}
-
-// Refresh Supabase session cookie on every request
 async function withSupabaseSession(req: NextRequest, res: NextResponse): Promise<NextResponse> {
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -112,8 +95,12 @@ async function withSupabaseSession(req: NextRequest, res: NextResponse): Promise
     {
       cookies: {
         get(name: string) { return req.cookies.get(name)?.value; },
-        set(name: string, value: string, options: Record<string, unknown>) { res.cookies.set({ name, value, ...options }); },
-        remove(name: string, options: Record<string, unknown>) { res.cookies.set({ name, value: '', ...options }); },
+        set(name: string, value: string, options: Record<string, unknown>) {
+          res.cookies.set({ name, value, ...options });
+        },
+        remove(name: string, options: Record<string, unknown>) {
+          res.cookies.set({ name, value: '', ...options });
+        },
       },
     },
   );
