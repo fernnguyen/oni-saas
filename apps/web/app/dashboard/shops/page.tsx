@@ -114,7 +114,16 @@ export default async function ShopsPage({ searchParams }: Props) {
                     href={`/dashboard/connectors?tenant_id=${tenant_id}`}
                     className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors"
                   >
-                    Kết nối dữ liệu
+                    Cấu hình
+                  </Link>
+                  <Link
+                    href={`/s/${shop.slug}`}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-[#0268FF] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#0256CC] transition-colors"
+                  >
+                    Vào cửa hàng
+                    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                    </svg>
                   </Link>
                 </div>
               </div>

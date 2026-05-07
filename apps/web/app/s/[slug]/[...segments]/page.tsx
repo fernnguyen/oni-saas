@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { headers } from 'next/headers';
 import { getSupabaseServerClient } from '../../../../lib/server/supabaseServer';
 import { getShopBySlug, assertUserShopAccess } from '../../../../lib/server/shops';
+import { getUserPermissions } from '../../../../lib/server/permissions';
 import { DashboardShell } from '../../../components/layout/DashboardShell';
 
 interface Props {
@@ -62,6 +63,8 @@ export default async function ShopSectionPage({ params }: Props) {
   const hasAccess = await assertUserShopAccess(authData.user.id, shop.id);
   if (!hasAccess) redirect('/dashboard');
 
+  const permissions = await getUserPermissions(authData.user.id, shop.tenant_id, shop.id).catch(() => []);
+
   const key = segments[0] ?? 'overview';
   const meta = moduleMeta[key] ?? {
     title: segments.map((segment) => segment.replace(/-/g, ' ')).join(' / ') || 'Chi nhánh',
@@ -78,6 +81,7 @@ export default async function ShopSectionPage({ params }: Props) {
       connectorsHref={`${homePath === '/' ? '' : homePath}/connectors` || '/connectors'}
       settingsHref={`${homePath === '/' ? '' : homePath}/settings` || '/settings'}
       supportHref={`${homePath === '/' ? '' : homePath}/support` || '/support'}
+      permissions={permissions}
     >
       <div className="mx-auto max-w-5xl space-y-6">
         <div className="rounded-2xl border border-slate-200 bg-white p-6">

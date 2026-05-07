@@ -12,6 +12,8 @@ interface SidebarProps {
   settingsHref?: string;
   /** Permission codes for the current user — nav items are filtered by these. */
   permissions?: string[];
+  /** 'control' = org management plane; 'shop' = shop operations plane (default) */
+  context?: 'control' | 'shop';
 }
 
 export function Sidebar({
@@ -21,10 +23,11 @@ export function Sidebar({
   connectorsHref = '/dashboard/connectors',
   settingsHref = '/dashboard/settings',
   permissions = [],
+  context = 'shop',
 }: SidebarProps) {
   const pathname = usePathname();
   const navGroups = buildNavGroups(
-    { basePath, supportHref, tenantHref, connectorsHref, settingsHref },
+    { basePath, supportHref, tenantHref, connectorsHref, settingsHref, context },
     permissions,
   );
 

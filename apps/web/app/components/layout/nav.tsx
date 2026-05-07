@@ -22,6 +22,8 @@ interface BuildNavOptions {
   tenantHref: string;
   connectorsHref: string;
   settingsHref: string;
+  /** 'control' = org management plane (/dashboard); 'shop' = shop operations plane (/s/[slug]) */
+  context?: 'control' | 'shop';
 }
 
 /**
@@ -32,7 +34,40 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
   const base = normalizeBasePath(options.basePath);
   const can = (p: string) => permissions.includes(p);
 
-  const allGroups: NavGroup[] = [
+  const filter = (groups: NavGroup[]) =>
+    groups
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((item) => !item.permission || can(item.permission)),
+      }))
+      .filter((group) => group.items.length > 0);
+
+  if (options.context === 'control') {
+    return filter([
+      {
+        items: [
+          { href: base || '/dashboard', label: 'Tổng quan', icon: IconHome, exact: true },
+        ],
+      },
+      {
+        label: 'Quản lý',
+        items: [
+          { href: options.tenantHref,     label: 'Tổ chức',         icon: IconBuilding, permission: 'tenants.view' },
+          { href: options.connectorsHref, label: 'Kết nối dữ liệu', icon: IconPlugin,   permission: 'connectors.view' },
+        ],
+      },
+      {
+        label: 'Hệ thống',
+        items: [
+          { href: joinPath(base, '/billing'), label: 'Gói dịch vụ', icon: IconMoney,    permission: 'settings.view' },
+          { href: joinPath(base, '/roles'),   label: 'Phân quyền',  icon: IconShield,   permission: 'roles.view' },
+          { href: options.settingsHref,       label: 'Cài đặt',     icon: IconSettings, permission: 'settings.view' },
+        ],
+      },
+    ]);
+  }
+
+  return filter([
     {
       items: [
         { href: base || '/', label: 'Tổng quan', icon: IconHome, exact: true, permission: 'dashboard.view' },
@@ -49,9 +84,9 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
     {
       label: 'Vận hành',
       items: [
-        { href: joinPath(base, '/shipping'),  label: 'Vận chuyển',       icon: IconTruck,    permission: 'shipping.view' },
-        { href: joinPath(base, '/inventory'), label: 'Kho',              icon: IconWarehouse, permission: 'inventory.view' },
-        { href: joinPath(base, '/partners'),  label: 'Quản lý đối tác',  icon: IconUsers,    permission: 'partners.view' },
+        { href: joinPath(base, '/shipping'),  label: 'Vận chuyển',      icon: IconTruck,     permission: 'shipping.view' },
+        { href: joinPath(base, '/inventory'), label: 'Kho',             icon: IconWarehouse, permission: 'inventory.view' },
+        { href: joinPath(base, '/partners'),  label: 'Quản lý đối tác', icon: IconUsers,     permission: 'partners.view' },
       ],
     },
     {
@@ -65,28 +100,21 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
     {
       label: 'Báo cáo',
       items: [
-        { href: joinPath(base, '/reports/accounting'), label: 'Kế toán',        icon: IconChart,    permission: 'accounting.view' },
-        { href: joinPath(base, '/reports/cod'),        label: 'Đối soát COD',   icon: IconMoney,    permission: 'cod.view' },
-        { href: joinPath(base, '/reports'),            label: 'Báo cáo',        icon: IconBarChart, permission: 'reports.view_shop' },
+        { href: joinPath(base, '/reports/accounting'), label: 'Kế toán',      icon: IconChart,    permission: 'accounting.view' },
+        { href: joinPath(base, '/reports/cod'),        label: 'Đối soát COD', icon: IconMoney,    permission: 'cod.view' },
+        { href: joinPath(base, '/reports'),            label: 'Báo cáo',      icon: IconBarChart, permission: 'reports.view_shop' },
       ],
     },
     {
       label: 'Hệ thống',
       items: [
-        { href: options.tenantHref,          label: 'Tổ chức',           icon: IconBuilding, permission: 'tenants.view' },
-        { href: options.connectorsHref,      label: 'Kết nối dữ liệu',   icon: IconPlugin,   permission: 'connectors.view' },
-        { href: joinPath(base, '/roles'),    label: 'Phân quyền',        icon: IconShield,   permission: 'roles.view' },
-        { href: options.settingsHref,        label: 'Cài đặt',           icon: IconSettings, permission: 'settings.view' },
+        { href: options.tenantHref,       label: 'Tổ chức',         icon: IconBuilding, permission: 'tenants.view' },
+        { href: options.connectorsHref,   label: 'Kết nối dữ liệu', icon: IconPlugin,   permission: 'connectors.view' },
+        { href: joinPath(base, '/roles'), label: 'Phân quyền',      icon: IconShield,   permission: 'roles.view' },
+        { href: options.settingsHref,     label: 'Cài đặt',         icon: IconSettings, permission: 'settings.view' },
       ],
     },
-  ];
-
-  return allGroups
-    .map((group) => ({
-      ...group,
-      items: group.items.filter((item) => !item.permission || can(item.permission)),
-    }))
-    .filter((group) => group.items.length > 0);
+  ]);
 }
 
 export function joinPath(basePath: string, suffix: string) {

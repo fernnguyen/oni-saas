@@ -12,6 +12,8 @@ interface DashboardShellProps {
   connectorsHref?: string;
   settingsHref?: string;
   permissions?: string[];
+  /** 'control' = org management plane; 'shop' = shop operations plane (default) */
+  sidebarContext?: 'control' | 'shop';
 }
 
 export function DashboardShell({
@@ -25,6 +27,7 @@ export function DashboardShell({
   connectorsHref = '/dashboard/connectors',
   settingsHref = '/dashboard/settings',
   permissions = [],
+  sidebarContext = 'shop',
 }: DashboardShellProps) {
   return (
     <div className="min-h-screen bg-slate-50 flex">
@@ -35,6 +38,7 @@ export function DashboardShell({
         connectorsHref={connectorsHref}
         settingsHref={settingsHref}
         permissions={permissions}
+        context={sidebarContext}
       />
       <div className="flex-1 min-w-0 flex flex-col">
         <Topbar tenantName={tenantName} shopName={shopName} userEmail={userEmail} settingsHref={settingsHref} />

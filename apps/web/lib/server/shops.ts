@@ -30,37 +30,32 @@ export async function getShopBySlug(slug: string) {
 export async function assertUserShopAccess(userId: string, shopId: string): Promise<boolean> {
   const admin = getSupabaseAdminClient();
 
-  const { data: tenantAccess } = await admin
+  // Resolve the shop's tenant first
+  const { data: shop } = await admin
+    .from('shops')
+    .select('tenant_id')
+    .eq('id', shopId)
+    .maybeSingle();
+
+  if (!shop) return false;
+
+  // Tenant-level access: user belongs to the tenant that owns this shop
+  const { data: tenantMembership } = await admin
     .from('user_tenants')
     .select('id')
     .eq('user_id', userId)
+    .eq('tenant_id', shop.tenant_id)
     .maybeSingle();
 
-  if (tenantAccess) {
-    // Check if this tenant owns the shop
-    const { data: shop } = await admin
-      .from('shops')
-      .select('tenant_id')
-      .eq('id', shopId)
-      .maybeSingle();
+  if (tenantMembership) return true;
 
-    if (shop) {
-      const { data: membership } = await admin
-        .from('user_tenants')
-        .select('id')
-        .eq('user_id', userId)
-        .eq('tenant_id', shop.tenant_id)
-        .maybeSingle();
-      if (membership) return true;
-    }
-  }
-
-  const { data: shopAccess } = await admin
+  // Shop-level access: user assigned directly to this shop
+  const { data: shopMembership } = await admin
     .from('user_shops')
     .select('id')
     .eq('user_id', userId)
     .eq('shop_id', shopId)
     .maybeSingle();
 
-  return !!shopAccess;
+  return !!shopMembership;
 }
