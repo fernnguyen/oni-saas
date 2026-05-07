@@ -151,48 +151,83 @@ metadata   jsonb -- { max_shops, max_users, max_connectors_per_shop, max_custom_
 
 ## 3. URL Routing
 
-### 3.1 Routing hiện tại (Phase 1 — đang dùng)
+### 3.1 Routing hiện tại (Phase 3 — đang dùng)
 
 ```
-oni.vn/                    → Landing page
-oni.vn/register            → [NEW] Tạo workspace (thay onboarding 3 bước)
-oni.vn/auth/signin         → Đăng nhập
-oni.vn/dashboard           → Control plane (quản lý tenant/branch)
-oni.vn/dashboard/tenants   → Danh sách tổ chức
-oni.vn/dashboard/shops     → Danh sách chi nhánh (theo tenant)
-oni.vn/s/[branch-slug]     → Dashboard chi nhánh (path-based)
-oni.vn/super               → [Phase 3] Superadmin
+oni.vn/                    → Landing page (public)
+oni.vn/register            → Tạo workspace mới (public)
+oni.vn/auth/signin         → SUPERADMIN ONLY — đăng nhập superadmin
+oni.vn/super               → Superadmin panel (Phase 3, đã triển khai)
+oni.vn/super/dashboard     → Tổng quan hệ thống
+oni.vn/super/tenants       → Danh sách tất cả tenant
+oni.vn/super/tenants/[id]  → Chi tiết tenant (domain, plan, members, actions)
+oni.vn/super/plans         → Quản lý gói dịch vụ
+oni.vn/super/users         → Tìm kiếm user
+oni.vn/super/audit-logs    → Nhật ký hệ thống
 
-[slug].oni.vn/             → Middleware rewrite → /s/[slug] (chi nhánh trực tiếp)
-[slug].localhost:3000/     → Dev: path rewrite giống prod
+[slug].oni.vn/             → Middleware rewrite → /t/[slug]
+[slug].oni.vn/auth/signin  → Workspace login (WorkspaceSignInForm)
+[slug].oni.vn/[branch]/    → Dashboard chi nhánh
+[slug].oni.vn/settings     → Cài đặt tenant
 ```
 
-### 3.2 Routing mục tiêu (Phase 2 — sau này)
+> **Quan trọng**: Main domain (`oni.vn`) chỉ dành cho superadmin. Tenant users phải truy cập qua subdomain riêng.
+
+### 3.2 Access Control — Main Domain vs Subdomain
+
+| Domain | Route | Ai được truy cập |
+|--------|-------|-----------------|
+| `oni.vn` | `/auth/signin` | Public (nhưng API reject non-superadmin) |
+| `oni.vn` | `/register/*` | Public |
+| `oni.vn` | `/super/*` | Superadmin (`app_metadata.role === 'super_admin'`) |
+| `oni.vn` | Mọi route khác | Superadmin |
+| `[slug].oni.vn` | `/auth/signin` | Public — phục vụ WorkspaceSignInForm |
+| `[slug].oni.vn` | Mọi route khác | Tenant members |
+
+### 3.3 Middleware logic (Phase 3)
 
 ```
-[tenant-slug].oni.vn/              → Branch selector hoặc auto-redirect
-[tenant-slug].oni.vn/[branch]/     → Dashboard chi nhánh
-[tenant-slug].oni.vn/settings      → Cài đặt tenant
-[tenant-slug].oni.vn/billing       → Billing
-[tenant-slug].oni.vn/team          → Quản lý thành viên
-```
+middleware.ts — thứ tự xử lý:
 
-> **Thay đổi middleware Phase 2**: `[slug].oni.vn/*` → `/t/[slug]/*` thay vì `/s/[slug]`
+1. Subdomain detected?
+   YES → rewrite tất cả paths sang /t/[slug]/[path]
+         (kể cả /auth/signin → /t/[slug]/auth/signin)
+         Trả về request cho app router xử lý
+   NO  → tiếp tục (main domain)
 
-### 3.3 Middleware logic
+2. Main domain — /t/* direct access? → redirect /auth/signin
 
-```typescript
-// apps/web/middleware.ts
-const subdomain = extractSubdomain(host, rootDomain);
+3. Main domain — isPublic path? (/auth, /api, /register, /)
+   YES → pass through
 
-if (subdomain) {
-  // Phase 1: rewrite to /s/[subdomain]
-  // Phase 2: rewrite to /t/[subdomain]
-  rewrite(`/s/${subdomain}${pathname}`);
-}
+4. Main domain — protected route → check superadmin role
+   - Not logged in → redirect /auth/signin
+   - Logged in, NOT superadmin → redirect /auth/signin?error=not_superadmin
+   - Superadmin → allow
 ```
 
 **Dev**: `NEXT_PUBLIC_ROOT_DOMAIN=localhost:3000` → `linhka.localhost:3000` hoạt động như `linhka.oni.vn`
+
+### 3.4 Signin flow
+
+**Main domain** (`oni.vn/auth/signin`):
+```
+POST /api/auth/signin
+  → signInWithPassword(email, password)
+  → Check host header: is main domain?
+      YES → check app_metadata.role === 'super_admin'
+              superadmin → return { ok: true } → redirect /super/dashboard
+              non-superadmin → signOut() + return 403 + { workspace_slug }
+      NO (subdomain) → return { ok: true } → redirect /
+```
+
+**Subdomain** (`[slug].oni.vn/auth/signin`):
+```
+Middleware rewrites → /t/[slug]/auth/signin
+→ WorkspaceSignInForm (tenant-branded UI)
+→ POST /api/auth/signin (host = slug.oni.vn → NOT main domain → no superadmin check)
+→ On success: redirect /
+```
 
 ---
 
