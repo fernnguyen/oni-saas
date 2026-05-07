@@ -20,6 +20,11 @@ export async function middleware(req: NextRequest) {
   // Must be checked FIRST — subdomain /auth/signin must serve the
   // workspace login form, not the superadmin form.
   if (subdomain) {
+    // API routes and Next.js internals are not tenant-specific — pass through
+    if (pathname.startsWith('/api/') || pathname.startsWith('/_next/')) {
+      return withSupabaseSession(req, NextResponse.next());
+    }
+
     // These paths belong only on the main domain
     if (
       pathname.startsWith('/dashboard') ||
@@ -29,7 +34,7 @@ export async function middleware(req: NextRequest) {
       return NextResponse.redirect(new URL('/', `http://${rootDomain}`));
     }
 
-    // Rewrite all subdomain paths to /t/[slug]/...
+    // Rewrite all other subdomain paths to /t/[slug]/...
     const url = req.nextUrl.clone();
     url.pathname = `/t/${subdomain}${pathname === '/' ? '' : pathname}`;
     const res = NextResponse.rewrite(url);
