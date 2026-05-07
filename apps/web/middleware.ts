@@ -17,6 +17,26 @@ export async function middleware(req: NextRequest) {
     return withSupabaseSession(req, NextResponse.next());
   }
 
+  // Super admin guard — /super/* is main-domain only, requires super_admin role
+  if (pathname.startsWith('/super')) {
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+      {
+        cookies: {
+          get(name: string) { return req.cookies.get(name)?.value; },
+          set() {},
+          remove() {},
+        },
+      },
+    );
+    const { data } = await supabase.auth.getUser();
+    if (!data.user || data.user.app_metadata?.role !== 'super_admin') {
+      return NextResponse.redirect(new URL('/auth/signin', req.nextUrl));
+    }
+    return withSupabaseSession(req, NextResponse.next());
+  }
+
   if (subdomain) {
     // Control-plane paths belong only on the main domain
     if (pathname.startsWith('/dashboard') || pathname.startsWith('/register')) {

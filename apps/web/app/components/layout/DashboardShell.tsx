@@ -12,8 +12,8 @@ interface DashboardShellProps {
   connectorsHref?: string;
   settingsHref?: string;
   permissions?: string[];
-  /** 'control' = org management plane; 'shop' = shop operations plane (default) */
-  sidebarContext?: 'control' | 'shop';
+  /** 'control' = org management; 'shop' = shop operations (default); 'super' = superadmin */
+  sidebarContext?: 'control' | 'shop' | 'super';
 }
 
 export function DashboardShell({
@@ -23,9 +23,9 @@ export function DashboardShell({
   userEmail,
   sidebarBasePath = '/dashboard',
   supportHref = '/dashboard/support',
-  tenantHref = '/dashboard/tenants',
-  connectorsHref = '/dashboard/connectors',
-  settingsHref = '/dashboard/settings',
+  tenantHref,
+  connectorsHref,
+  settingsHref,
   permissions = [],
   sidebarContext = 'shop',
 }: DashboardShellProps) {

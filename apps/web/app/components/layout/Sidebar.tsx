@@ -12,16 +12,16 @@ interface SidebarProps {
   settingsHref?: string;
   /** Permission codes for the current user — nav items are filtered by these. */
   permissions?: string[];
-  /** 'control' = org management plane; 'shop' = shop operations plane (default) */
-  context?: 'control' | 'shop';
+  /** 'control' = org management; 'shop' = shop operations (default); 'super' = superadmin */
+  context?: 'control' | 'shop' | 'super';
 }
 
 export function Sidebar({
   basePath = '/dashboard',
   supportHref = '/dashboard/support',
-  tenantHref = '/dashboard/tenants',
-  connectorsHref = '/dashboard/connectors',
-  settingsHref = '/dashboard/settings',
+  tenantHref,
+  connectorsHref,
+  settingsHref,
   permissions = [],
   context = 'shop',
 }: SidebarProps) {
@@ -41,7 +41,11 @@ export function Sidebar({
       <div className="flex items-center gap-2 px-4 py-4 border-b border-white/10">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#0268FF] text-white font-bold text-sm">O</div>
         <span className="font-bold text-white text-base tracking-wide">ONI.vn</span>
-        <span className="ml-auto text-[10px] bg-[#0268FF]/20 text-[#60A5FA] px-1.5 py-0.5 rounded font-medium">BETA</span>
+        {context === 'super' ? (
+          <span className="ml-auto text-[10px] bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded font-medium">SUPER</span>
+        ) : (
+          <span className="ml-auto text-[10px] bg-[#0268FF]/20 text-[#60A5FA] px-1.5 py-0.5 rounded font-medium">BETA</span>
+        )}
       </div>
 
       <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-4">
