@@ -190,9 +190,10 @@ oni.vn/super/audit-logs    → Nhật ký hệ thống
 middleware.ts — thứ tự xử lý:
 
 1. Subdomain detected?
-   YES → rewrite tất cả paths sang /t/[slug]/[path]
-         (kể cả /auth/signin → /t/[slug]/auth/signin)
-         Trả về request cho app router xử lý
+   YES → /api/* hoặc /_next/* → pass through (không rewrite — API routes dùng chung)
+         /dashboard, /register, /super → redirect về main domain
+         Mọi path khác → rewrite sang /t/[slug]/[path]
+         (vd: /auth/signin → /t/[slug]/auth/signin)
    NO  → tiếp tục (main domain)
 
 2. Main domain — /t/* direct access? → redirect /auth/signin
