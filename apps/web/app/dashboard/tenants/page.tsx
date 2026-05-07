@@ -42,15 +42,6 @@ export default async function TenantsPage() {
           <h1 className="text-xl font-bold text-slate-900">Tổ chức</h1>
           <p className="text-sm text-slate-500 mt-0.5">Quản lý tổ chức và chi nhánh kinh doanh</p>
         </div>
-        <Link
-          href="/dashboard/tenants/new"
-          className="inline-flex items-center gap-2 rounded-xl bg-[#0268FF] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0256CC] transition-colors"
-        >
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-          Tạo tổ chức
-        </Link>
       </div>
 
       <div className="space-y-3">

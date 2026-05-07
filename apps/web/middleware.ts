@@ -18,17 +18,21 @@ export async function middleware(req: NextRequest) {
   }
 
   if (subdomain) {
-    // Rewrite to /s/[slug]/... so the app router can serve the shop's control panel
+    // Control-plane paths belong only on the main domain
+    if (pathname.startsWith('/dashboard') || pathname.startsWith('/register')) {
+      return NextResponse.redirect(new URL(pathname, `http://${rootDomain}`));
+    }
+    // Rewrite workspace paths to /t/[slug]/...
     const url = req.nextUrl.clone();
-    url.pathname = `/s/${subdomain}${pathname === '/' ? '' : pathname}`;
+    url.pathname = `/t/${subdomain}${pathname === '/' ? '' : pathname}`;
     const res = NextResponse.rewrite(url);
     res.headers.set('x-tenant-slug', subdomain);
     return withSupabaseSession(req, res);
   }
 
-  // ── Auth guard for dashboard ──
-  if (pathname.startsWith('/dashboard')) {
-    return withSupabaseSession(req, NextResponse.next());
+  // Block direct access to workspace routes from main domain — only via subdomain rewrite
+  if (pathname.startsWith('/t/')) {
+    return NextResponse.redirect(new URL('/dashboard', req.nextUrl));
   }
 
   return withSupabaseSession(req, NextResponse.next());

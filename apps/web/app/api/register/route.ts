@@ -1,0 +1,81 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
+import { getSupabaseAdminClient } from '../../../lib/server/supabaseAdmin';
+
+const schema = z.object({
+  slug:      z.string().min(2).max(50).regex(/^[a-z0-9-]+$/, 'Chỉ dùng chữ thường, số và dấu gạch ngang'),
+  name:      z.string().min(2).max(100),
+  email:     z.string().email(),
+  password:  z.string().min(8),
+  plan_code: z.string().optional(),
+});
+
+export async function POST(req: NextRequest) {
+  const json = await req.json().catch(() => null);
+  if (!json) return NextResponse.json({ message: 'Invalid JSON' }, { status: 400 });
+
+  const parsed = schema.safeParse(json);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { message: 'Dữ liệu không hợp lệ', errors: parsed.error.flatten().fieldErrors },
+      { status: 422 },
+    );
+  }
+
+  const { slug, name, email, password } = parsed.data;
+  const admin = getSupabaseAdminClient();
+
+  // 1 — Check slug uniqueness (tenant + shop share global slug namespace)
+  const [{ count: tenantCount }, { count: shopCount }] = await Promise.all([
+    admin.from('tenants').select('*', { count: 'exact', head: true }).eq('slug', slug),
+    admin.from('shops').select('*',   { count: 'exact', head: true }).eq('slug', slug),
+  ]);
+  if ((tenantCount ?? 0) > 0 || (shopCount ?? 0) > 0) {
+    return NextResponse.json({ message: 'Subdomain này đã được sử dụng. Hãy chọn tên khác.', field: 'slug' }, { status: 409 });
+  }
+
+  // 2 — Create auth user (email pre-confirmed so workspace is immediately accessible)
+  const { data: userData, error: authError } = await admin.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+  });
+  if (authError) {
+    const isDuplicate = authError.message.toLowerCase().includes('already');
+    return NextResponse.json(
+      { message: isDuplicate ? 'Email này đã được đăng ký.' : authError.message, field: isDuplicate ? 'email' : undefined },
+      { status: isDuplicate ? 409 : 400 },
+    );
+  }
+  const userId = userData.user.id;
+
+  // 3 — Create tenant + owner membership + subscription (one atomic RPC)
+  const { data: tenant, error: tenantError } = await admin.rpc('create_tenant_with_owner', {
+    p_name:     name,
+    p_slug:     slug,
+    p_owner_id: userId,
+  });
+  if (tenantError) {
+    await admin.auth.admin.deleteUser(userId).catch(() => {});
+    return NextResponse.json({ message: tenantError.message }, { status: 400 });
+  }
+  const tenantId = (tenant as any).id as string;
+
+  // 4 — Create default branch (same slug as tenant)
+  const { error: shopError } = await admin.rpc('create_shop', {
+    p_tenant_id: tenantId,
+    p_name:      name,
+    p_slug:      slug,
+    p_address:   null,
+  });
+  if (shopError) {
+    await admin.auth.admin.deleteUser(userId).catch(() => {});
+    return NextResponse.json({ message: shopError.message }, { status: 400 });
+  }
+
+  const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
+  const protocol   = rootDomain.startsWith('localhost') ? 'http' : 'https';
+  const workspaceUrl = `${protocol}://${slug}.${rootDomain}`;
+
+  return NextResponse.json({ tenant_id: tenantId, workspace_url: workspaceUrl, email, slug }, { status: 201 });
+}
