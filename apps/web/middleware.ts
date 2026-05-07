@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
-const PUBLIC_PATHS = ['/auth/', '/api/', '/_next/', '/favicon', '/register'];
+// Paths without trailing slash — match exact or as prefix followed by /
+const PUBLIC_PATHS = ['/auth', '/api', '/_next', '/favicon', '/register'];
+
+function isPublic(pathname: string) {
+  return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + '/'));
+}
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
@@ -11,7 +16,7 @@ export async function middleware(req: NextRequest) {
   const subdomain = extractSubdomain(host, rootDomain);
 
   // Always pass through public paths (no auth check needed)
-  if (PUBLIC_PATHS.some((prefix) => pathname === prefix || pathname.startsWith(prefix + '/'))) {
+  if (isPublic(pathname)) {
     return withSupabaseSession(req, NextResponse.next());
   }
 
