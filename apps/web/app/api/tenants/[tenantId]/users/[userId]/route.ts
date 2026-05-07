@@ -1,0 +1,69 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
+import { getSupabaseServerClient } from '../../../../../../lib/server/supabaseServer';
+import { hasPermission } from '../../../../../../lib/server/permissions';
+import { deleteTenantUser, resetTenantUserPassword } from '../../../../../../lib/server/tenantUsers';
+
+const resetPasswordSchema = z.object({
+  password: z.string().min(6, 'Mật khẩu tối thiểu 6 ký tự'),
+});
+
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ tenantId: string; userId: string }> },
+) {
+  const { tenantId, userId } = await params;
+  const supabase = await getSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
+
+  if (user.id === userId) {
+    return NextResponse.json({ message: 'Không thể tự xóa tài khoản của mình' }, { status: 400 });
+  }
+
+  const allowed = await hasPermission(user.id, tenantId, 'users.remove');
+  if (!allowed) return NextResponse.json({ message: 'Forbidden' }, { status: 403 });
+
+  try {
+    await deleteTenantUser(userId, tenantId);
+    return NextResponse.json({ ok: true });
+  } catch (err: unknown) {
+    return NextResponse.json(
+      { message: err instanceof Error ? err.message : 'Không thể xóa người dùng' },
+      { status: 500 },
+    );
+  }
+}
+
+// PATCH /api/tenants/[tenantId]/users/[userId] — reset password (owner/admin only)
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ tenantId: string; userId: string }> },
+) {
+  const { tenantId, userId } = await params;
+  const supabase = await getSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
+
+  const allowed = await hasPermission(user.id, tenantId, 'users.invite');
+  if (!allowed) return NextResponse.json({ message: 'Forbidden' }, { status: 403 });
+
+  const json = await req.json();
+  const parsed = resetPasswordSchema.safeParse(json);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { message: parsed.error.errors[0]?.message ?? 'Dữ liệu không hợp lệ' },
+      { status: 400 },
+    );
+  }
+
+  try {
+    await resetTenantUserPassword(userId, tenantId, parsed.data.password);
+    return NextResponse.json({ ok: true });
+  } catch (err: unknown) {
+    return NextResponse.json(
+      { message: err instanceof Error ? err.message : 'Không thể đổi mật khẩu' },
+      { status: 500 },
+    );
+  }
+}

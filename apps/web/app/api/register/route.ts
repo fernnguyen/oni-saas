@@ -2,10 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getSupabaseAdminClient } from '../../../lib/server/supabaseAdmin';
 
+// Reject fake tenant emails — these are reserved for tenant user accounts
+const ONI_FAKE_EMAIL_RE = /^[^@]+@[^.]+\.oni\.vn$/i;
+
 const schema = z.object({
   slug:      z.string().min(2).max(50).regex(/^[a-z0-9-]+$/, 'Chỉ dùng chữ thường, số và dấu gạch ngang'),
   name:      z.string().min(2).max(100),
-  email:     z.string().email(),
+  email:     z.string().email().refine(
+    (e) => !ONI_FAKE_EMAIL_RE.test(e),
+    { message: 'Không thể đăng ký với email này' },
+  ),
   password:  z.string().min(8),
   plan_code: z.string().optional(),
 });

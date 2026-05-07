@@ -9,7 +9,7 @@ interface Props {
 }
 
 export function WorkspaceSignInForm({ tenantName, tenantSlug }: Props) {
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -22,13 +22,12 @@ export function WorkspaceSignInForm({ tenantName, tenantSlug }: Props) {
       const res = await fetch('/api/auth/signin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ identifier, password, tenant_slug: tenantSlug }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.message || 'Đăng nhập thất bại');
       }
-      // Reload workspace root — branch selector will handle the redirect
       window.location.href = '/';
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Đăng nhập thất bại');
@@ -52,6 +51,8 @@ export function WorkspaceSignInForm({ tenantName, tenantSlug }: Props) {
       setLoading(false);
     }
   }
+
+  const isEmail = identifier.includes('@');
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50 p-4">
@@ -89,15 +90,23 @@ export function WorkspaceSignInForm({ tenantName, tenantSlug }: Props) {
 
           <form onSubmit={onSubmit} className="space-y-4">
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-700">Email</label>
+              <label className="mb-1.5 block text-sm font-medium text-slate-700">
+                Tên đăng nhập
+              </label>
               <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="ban@example.com"
+                type="text"
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value.trim())}
+                placeholder="john hoặc john@example.com"
+                autoComplete="username"
                 className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm focus:border-[#0268FF] focus:outline-none focus:ring-2 focus:ring-[#0268FF]/20"
                 required
               />
+              {identifier && !isEmail && (
+                <p className="mt-1 text-xs text-slate-400">
+                  Đăng nhập với tài khoản workspace
+                </p>
+              )}
             </div>
             <div>
               <label className="mb-1.5 block text-sm font-medium text-slate-700">Mật khẩu</label>
@@ -105,6 +114,7 @@ export function WorkspaceSignInForm({ tenantName, tenantSlug }: Props) {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
                 className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm focus:border-[#0268FF] focus:outline-none focus:ring-2 focus:ring-[#0268FF]/20"
                 required
               />

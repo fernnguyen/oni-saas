@@ -38,7 +38,7 @@ export default async function TenantRootPage({ params }: Props) {
     return <WorkspaceSignInForm tenantName={tenant.name} tenantSlug={tenant.slug} />;
   }
 
-  // Check tenant membership
+  // Check tenant-level membership (owner/admin)
   const { data: tenantAccess } = await admin
     .from('user_tenants')
     .select('id')
@@ -46,8 +46,18 @@ export default async function TenantRootPage({ params }: Props) {
     .eq('tenant_id', tenant.id)
     .maybeSingle();
 
-  if (!tenantAccess) {
-    // Authenticated but doesn't belong to this tenant
+  // Check shop-level membership (staff/viewer assigned to specific shops)
+  const { data: shopAccesses } = tenantAccess
+    ? { data: null }
+    : await admin
+        .from('user_shops')
+        .select('shop_id, shops!inner(tenant_id)')
+        .eq('user_id', authData.user.id)
+        .eq('shops.tenant_id', tenant.id);
+
+  const allowedShopIds = shopAccesses?.map((s) => s.shop_id) ?? null;
+
+  if (!tenantAccess && (!allowedShopIds || allowedShopIds.length === 0)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-center space-y-2">
@@ -58,7 +68,11 @@ export default async function TenantRootPage({ params }: Props) {
     );
   }
 
-  const branches = await getShopsForTenant(tenant.id);
+  const allBranches = await getShopsForTenant(tenant.id);
+  // Tenant-level members see all branches; shop-level members see only their assigned shops
+  const branches = allowedShopIds
+    ? allBranches.filter((b) => allowedShopIds.includes(b.id))
+    : allBranches;
 
   if (branches.length === 0) {
     return (
