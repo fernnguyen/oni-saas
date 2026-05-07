@@ -140,7 +140,7 @@ export function SetupModal({ shopId, onConnected, onClose }: Props) {
                       <span className="flex-1 truncate font-mono text-xs text-slate-700">{SERVICE_ACCOUNT_EMAIL}</span>
                       <button
                         onClick={copyEmail}
-                        className="shrink-0 rounded px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 transition-colors"
+                        className="cursor-pointer shrink-0 rounded px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 transition-colors"
                       >
                         {copied ? 'Đã copy!' : 'Copy'}
                       </button>
@@ -186,7 +186,7 @@ export function SetupModal({ shopId, onConnected, onClose }: Props) {
               <button
                 onClick={handleVerify}
                 disabled={!parsedSheetId || !SERVICE_ACCOUNT_EMAIL}
-                className="flex-1 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                className="cursor-pointer flex-1 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 Xác nhận kết nối
               </button>

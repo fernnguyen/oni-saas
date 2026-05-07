@@ -41,7 +41,7 @@ export function DashboardShell({
         context={sidebarContext}
       />
       <div className="flex-1 min-w-0 flex flex-col">
-        <Topbar tenantName={tenantName} shopName={shopName} userEmail={userEmail} settingsHref={settingsHref} />
+        <Topbar tenantName={tenantName} shopName={shopName} userEmail={userEmail} settingsHref={settingsHref} permissions={permissions} />
         <main className="flex-1 p-4 md:p-6">{children}</main>
       </div>
     </div>
