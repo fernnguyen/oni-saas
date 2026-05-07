@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { getSupabaseServerClient } from '../../../../lib/server/supabaseServer';
 import { getSupabaseAdminClient } from '../../../../lib/server/supabaseAdmin';
 
-const schema = z.object({ email: z.string().email(), password: z.string().min(6) });
+const schema = z.object({ email: z.string().email(), password: z.string().min(1) });
 
 export async function POST(req: NextRequest) {
   const supabase = await getSupabaseServerClient();
@@ -17,7 +17,12 @@ export async function POST(req: NextRequest) {
   const { error } = await supabase.auth.signInWithPassword({ email, password });
 
   if (error) {
-    return NextResponse.json({ message: error.message }, { status: 400 });
+    const message =
+      error.message.toLowerCase().includes('invalid login credentials') ||
+      error.message.toLowerCase().includes('invalid email or password')
+        ? 'Email hoặc mật khẩu không đúng'
+        : error.message;
+    return NextResponse.json({ message }, { status: 400 });
   }
 
   // Main domain: only superadmins are allowed
