@@ -21,6 +21,8 @@
     "typescript": "^5.6.0"
   },
   "dependencies": {
+    "@oni/adapters": "workspace:*",
+    "@oni/core": "workspace:*",
     "@supabase/ssr": "^0.5.0",
     "@supabase/supabase-js": "^2.49.0",
     "@tailwindcss/postcss": "^4.2.4",

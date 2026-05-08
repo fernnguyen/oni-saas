@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  transpilePackages: ['@oni/adapters', '@oni/core'],
   async headers() {
     return [
       {

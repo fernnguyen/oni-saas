@@ -55,7 +55,7 @@ export default async function BranchSettingsPage({ params }: Props) {
     if (!shopAccess) notFound();
   }
 
-  const permissions = await getUserPermissions(authData.user.id, tenant.id, shop.id).catch(() => []);
+  const permissions: string[] = await getUserPermissions(authData.user.id, tenant.id, shop.id).catch(() => []);
 
   const shopId: string = shop.id;
   const homePath = `/${branch}`;

@@ -93,11 +93,21 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
       ],
     },
     {
-      label: 'Đơn hàng & sản phẩm',
+      label: 'Bán hàng',
       items: [
-        { href: joinPath(base, '/products'), label: 'Sản phẩm',      icon: IconBox,       permission: 'products.view' },
+        { href: joinPath(base, '/channels/pos'), label: 'Bán tại quầy', icon: IconPos,      permission: 'pos.use' },
         { href: joinPath(base, '/orders'),   label: 'Đơn hàng',      icon: IconClipboard, permission: 'orders.view' },
         { href: joinPath(base, '/returns'),  label: 'Đơn trả hàng',  icon: IconReturn,    permission: 'returns.view' },
+        { href: joinPath(base, '/customers'), label: 'Khách hàng',   icon: IconUsers,     permission: 'customers.view' },
+      ],
+    },
+    {
+      label: 'Danh mục',
+      items: [
+        { href: joinPath(base, '/products'),   label: 'Sản phẩm',    icon: IconBox,       permission: 'products.view' },
+        { href: joinPath(base, '/categories'), label: 'Danh mục',    icon: IconGrid,      permission: 'products.view' },
+        { href: joinPath(base, '/suppliers'),  label: 'Nhà cung cấp', icon: IconTruck,    permission: 'inventory.view' },
+        { href: joinPath(base, '/employees'),  label: 'Nhân viên',   icon: IconUsers,     permission: 'dashboard.view' },
       ],
     },
     {
@@ -113,7 +123,6 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
       items: [
         { href: joinPath(base, '/channels/facebook'), label: 'Facebook',     icon: IconFacebook, permission: 'channels.view' },
         { href: joinPath(base, '/channels/ecom'),     label: 'Sàn TMĐT',     icon: IconShop,     permission: 'channels.view' },
-        { href: joinPath(base, '/channels/pos'),      label: 'Bán tại quầy', icon: IconPos,      permission: 'pos.use' },
       ],
     },
     {
@@ -188,6 +197,13 @@ export function IconWarehouse({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z" />
+    </svg>
+  );
+}
+export function IconGrid({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 4h6v6H4V4zm10 0h6v6h-6V4zM4 14h6v6H4v-6zm10 3h6m-3-3v6" />
     </svg>
   );
 }

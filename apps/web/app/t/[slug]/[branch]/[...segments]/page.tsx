@@ -22,6 +22,18 @@ const moduleMeta: Record<string, { title: string; description: string }> = {
     title: 'Khách hàng',
     description: 'Lưu hồ sơ mua hàng, thông tin liên hệ và các ghi chú chăm sóc khách.',
   },
+  categories: {
+    title: 'Danh mục',
+    description: 'Sắp xếp cây danh mục sản phẩm để lọc bán hàng và tổ chức dữ liệu tốt hơn.',
+  },
+  suppliers: {
+    title: 'Nhà cung cấp',
+    description: 'Quản lý đầu mối nhập hàng, điều khoản thanh toán và thông tin liên hệ.',
+  },
+  employees: {
+    title: 'Nhân viên',
+    description: 'Lưu dữ liệu nhân sự bán hàng nội bộ, vai trò vận hành và trạng thái làm việc.',
+  },
   inventory: {
     title: 'Kho',
     description: 'Kiểm tra tồn kho, nhập xuất và chuẩn bị các cảnh báo thiếu hàng.',
@@ -134,12 +146,14 @@ export default async function BranchSectionPage({ params }: Props) {
 
         <div className="grid gap-4 md:grid-cols-3">
           {[
+            { href: `${homePath}/channels/pos`, label: 'Bán tại quầy' },
             { href: `${homePath}/orders`, label: 'Đơn hàng' },
             { href: `${homePath}/products`, label: 'Sản phẩm' },
-            { href: `${homePath}/inventory`, label: 'Kho' },
+            { href: `${homePath}/categories`, label: 'Danh mục' },
             { href: `${homePath}/customers`, label: 'Khách hàng' },
-            { href: `${homePath}/channels/pos`, label: 'Bán tại quầy' },
-            { href: `${homePath}/reports`, label: 'Báo cáo' },
+            { href: `${homePath}/suppliers`, label: 'Nhà cung cấp' },
+            { href: `${homePath}/employees`, label: 'Nhân viên' },
+            { href: `${homePath}/inventory`, label: 'Kho' },
           ].map((item) => (
             <Link
               key={item.href}

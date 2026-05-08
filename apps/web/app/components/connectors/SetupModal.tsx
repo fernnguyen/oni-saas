@@ -7,6 +7,7 @@ interface Props {
   shopId: string;
   onConnected: () => void;
   onClose?: () => void;
+  returnTo?: string;
 }
 
 type Phase =

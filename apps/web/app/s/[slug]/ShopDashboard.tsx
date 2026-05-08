@@ -12,11 +12,14 @@ interface Props {
 }
 
 const shopModules = [
-  { href: '/orders', label: 'Đơn hàng', description: 'Tạo đơn, theo dõi trạng thái và xử lý bán hàng hằng ngày.' },
-  { href: '/products', label: 'Sản phẩm', description: 'Quản lý danh mục, giá bán, SKU và hàng đang kinh doanh.' },
-  { href: '/inventory', label: 'Kho', description: 'Kiểm tra tồn kho, nhập xuất và các cảnh báo số lượng.' },
-  { href: '/customers', label: 'Khách hàng', description: 'Lưu lịch sử mua hàng và thông tin liên hệ cơ bản.' },
   { href: '/channels/pos', label: 'Bán tại quầy', description: 'Mở giao diện POS cho nhân viên thao tác trực tiếp.' },
+  { href: '/orders', label: 'Đơn hàng', description: 'Tạo đơn, theo dõi trạng thái và xử lý bán hàng hằng ngày.' },
+  { href: '/customers', label: 'Khách hàng', description: 'Lưu lịch sử mua hàng và thông tin liên hệ cơ bản.' },
+  { href: '/products', label: 'Sản phẩm', description: 'Quản lý danh mục, giá bán, SKU và hàng đang kinh doanh.' },
+  { href: '/categories', label: 'Danh mục', description: 'Sắp xếp nhóm sản phẩm để lọc, báo cáo và quản lý nhanh hơn.' },
+  { href: '/suppliers', label: 'Nhà cung cấp', description: 'Theo dõi đầu mối nhập hàng và thông tin giao dịch cơ bản.' },
+  { href: '/employees', label: 'Nhân viên', description: 'Quản lý hồ sơ bán hàng nội bộ theo từng chi nhánh.' },
+  { href: '/inventory', label: 'Kho', description: 'Kiểm tra tồn kho, nhập xuất và các cảnh báo số lượng.' },
   { href: '/reports', label: 'Báo cáo', description: 'Xem doanh thu, hiệu suất bán hàng và đối soát nhanh.' },
 ];
 

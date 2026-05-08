@@ -1,8 +1,16 @@
-export function SearchBar({ placeholder = 'Tìm kiếm...' }: { placeholder?: string }) {
+interface SearchBarProps {
+  value?: string
+  onChange?: (value: string) => void
+  placeholder?: string
+}
+
+export function SearchBar({ value, onChange, placeholder = 'Tìm kiếm...' }: SearchBarProps) {
   return (
     <div className="flex flex-col gap-3 md:flex-row md:items-center">
       <div className="flex-1">
         <input
+          value={value}
+          onChange={(e) => onChange?.(e.target.value)}
           className="w-full rounded border border-slate-300 bg-white px-4 py-2 outline-none focus:ring-2 focus:ring-[#0F766E]"
           placeholder={placeholder}
         />
