@@ -39,13 +39,21 @@ export default async function SuperTenantDetail({
   const { id } = await params;
   const admin = getSupabaseAdminClient();
 
-  const [tenantRes, subsRes, shopsRes, membersRes, plansRes, featureRes] = await Promise.all([
+  const [tenantRes, subsRes, shopsRes, membersRes, plansRes, featureRes, auditRes, ordersRes] = await Promise.all([
     admin.from('tenants').select('*').eq('id', id).single(),
     admin.from('subscriptions').select('*, plans(id, code, name, metadata)').eq('tenant_id', id).maybeSingle(),
     admin.from('shops').select('id, name, slug, created_at').eq('tenant_id', id).order('created_at'),
     admin.from('user_tenants').select('user_id, roles(code)').eq('tenant_id', id),
     admin.from('plans').select('id, code, name').order('id'),
     admin.from('feature_flags').select('key, enabled').eq('tenant_id', id),
+    admin.from('audit_logs').select('id, action, user_id, metadata, created_at')
+      .eq('tenant_id', id)
+      .order('created_at', { ascending: false })
+      .limit(30),
+    admin.from('subscription_orders').select('id, plan_code, billing_interval, amount_vnd, reference_code, status, fulfilled_at, created_at')
+      .eq('tenant_id', id)
+      .order('created_at', { ascending: false })
+      .limit(20),
   ]);
 
   if (tenantRes.error || !tenantRes.data) notFound();
@@ -58,6 +66,8 @@ export default async function SuperTenantDetail({
   const members = (membersRes.data ?? []) as any[];
   const plans = (plansRes.data ?? []) as any[];
   const features = (featureRes.data ?? []) as Array<{ key: string; enabled: boolean }>;
+  const auditLogs = (auditRes.data ?? []) as Array<{ id: string; action: string; user_id: string | null; metadata: Record<string, unknown>; created_at: string }>;
+  const orders = (ordersRes.data ?? []) as Array<{ id: string; plan_code: string; billing_interval: string; amount_vnd: number; reference_code: string; status: string; fulfilled_at: string | null; created_at: string }>;
 
   // Usage stats
   const shopIds = shops.map((s: any) => s.id);
@@ -89,7 +99,7 @@ export default async function SuperTenantDetail({
   const enabledFeatures = features.filter((f) => f.enabled);
 
   return (
-    <div className="space-y-6 max-w-6xl">
+    <div className="space-y-6">
       {/* Breadcrumb */}
       <nav className="flex items-center gap-2 text-sm text-slate-400">
         <Link href="/super/tenants" className="hover:text-slate-600 transition-colors">Tenants</Link>
@@ -132,31 +142,43 @@ export default async function SuperTenantDetail({
             </div>
             <div className="divide-y divide-slate-50">
               <DetailRow label="TENANT ID">
-                <span className="font-mono text-sm text-slate-700">{tenant.id}</span>
+                <span className="font-mono text-xs text-slate-700 break-all">{tenant.id}</span>
               </DetailRow>
-              <DetailRow label="STATUS">
+              <DetailRow label="SLUG">
+                <span className="font-mono text-sm text-slate-700">{tenant.slug}</span>
+              </DetailRow>
+              <DetailRow label="TRẠNG THÁI">
                 <StatusBadge status={subStatus} />
               </DetailRow>
-              <DetailRow label="PLAN">
+              <DetailRow label="GÓI DỊCH VỤ">
                 <span className="font-semibold text-slate-900">{sub?.plans?.name ?? '—'}</span>
               </DetailRow>
-              <DetailRow label="SUBSCRIPTION">
-                <StatusBadge status={subStatus} />
-              </DetailRow>
-              <DetailRow label="CREATED">
+              <DetailRow label="CHU KỲ">
                 <span className="text-slate-700">
-                  {new Date(tenant.created_at).toLocaleDateString('en-US', {
-                    year: 'numeric', month: 'long', day: 'numeric',
-                    hour: '2-digit', minute: '2-digit',
-                  })}
+                  {sub?.current_period_start
+                    ? new Date(sub.current_period_start).toLocaleDateString('vi-VN')
+                    : '—'}
+                  {sub?.current_period_end
+                    ? ` → ${new Date(sub.current_period_end).toLocaleDateString('vi-VN')}`
+                    : ''}
                 </span>
               </DetailRow>
-              <DetailRow label="LAST UPDATED">
+              {sub?.trial_end && (
+                <DetailRow label="TRIAL ĐẾN">
+                  <span className={`text-sm font-medium ${new Date(sub.trial_end) > new Date() ? 'text-blue-600' : 'text-slate-400'}`}>
+                    {new Date(sub.trial_end).toLocaleDateString('vi-VN')}
+                    {new Date(sub.trial_end) <= new Date() && ' (hết hạn)'}
+                  </span>
+                </DetailRow>
+              )}
+              <DetailRow label="ĐĂNG KÝ LÚC">
                 <span className="text-slate-700">
-                  {new Date(tenant.updated_at).toLocaleDateString('en-US', {
-                    year: 'numeric', month: 'long', day: 'numeric',
-                    hour: '2-digit', minute: '2-digit',
-                  })}
+                  {new Date(tenant.created_at).toLocaleString('vi-VN')}
+                </span>
+              </DetailRow>
+              <DetailRow label="CẬP NHẬT LÚC">
+                <span className="text-slate-700">
+                  {new Date(tenant.updated_at).toLocaleString('vi-VN')}
                 </span>
               </DetailRow>
             </div>
@@ -250,46 +272,6 @@ export default async function SuperTenantDetail({
             </div>
           </div>
 
-          {/* Shops list */}
-          {shops.length > 0 && (
-            <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
-              <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-                <div className="flex items-center gap-2">
-                  <svg className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                  </svg>
-                  <span className="font-semibold text-slate-800 text-sm">Chi nhánh</span>
-                </div>
-                <span className="text-xs text-slate-400">{shops.length} chi nhánh</span>
-              </div>
-              <div className="divide-y divide-slate-50">
-                {shops.map((shop: any) => {
-                  const shopConnectors = connectors.filter((c: any) => c.shop_id === shop.id);
-                  return (
-                    <div key={shop.id} className="flex items-center justify-between px-5 py-3">
-                      <div className="flex items-center gap-3">
-                        <div className="h-7 w-7 rounded-lg bg-slate-100 flex items-center justify-center text-slate-600 font-bold text-xs">
-                          {shop.name.charAt(0).toUpperCase()}
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium text-slate-800">{shop.name}</p>
-                          <p className="text-xs text-slate-400 font-mono">{shop.slug}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        {shopConnectors.length > 0 && (
-                          <span className="text-xs text-slate-400">{shopConnectors.length} connector</span>
-                        )}
-                        <span className="text-xs text-slate-400">
-                          {new Date(shop.created_at).toLocaleDateString('vi-VN')}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Right column */}
@@ -365,6 +347,49 @@ export default async function SuperTenantDetail({
             </div>
           </div>
 
+          {/* Shops list */}
+          <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <svg className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                </svg>
+                <span className="font-semibold text-slate-800 text-sm">Chi nhánh</span>
+              </div>
+              <span className="text-xs text-slate-400">{shops.length} chi nhánh</span>
+            </div>
+            {shops.length === 0 ? (
+              <div className="px-5 py-4 text-xs text-slate-400">Chưa có chi nhánh</div>
+            ) : (
+              <div className="divide-y divide-slate-50">
+                {shops.map((shop: any) => {
+                  const shopConnectors = connectors.filter((c: any) => c.shop_id === shop.id);
+                  return (
+                    <div key={shop.id} className="flex items-center justify-between px-4 py-3">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="h-6 w-6 rounded-md bg-slate-100 flex items-center justify-center text-slate-600 font-bold text-[10px] shrink-0">
+                          {shop.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-slate-800 truncate">{shop.name}</p>
+                          <p className="text-[11px] text-slate-400 font-mono">{shop.slug}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0 ml-2">
+                        {shopConnectors.length > 0 && (
+                          <span className="text-[11px] text-slate-400">{shopConnectors.length}c</span>
+                        )}
+                        <span className="text-[11px] text-slate-400">
+                          {new Date(shop.created_at).toLocaleDateString('vi-VN')}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           {/* Members */}
           <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
@@ -391,6 +416,152 @@ export default async function SuperTenantDetail({
               )}
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Payment history */}
+      <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <svg className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+            </svg>
+            <span className="font-semibold text-slate-800 text-sm">Lịch sử thanh toán</span>
+          </div>
+          <span className="text-xs text-slate-400">{orders.length} giao dịch</span>
+        </div>
+        {orders.length === 0 ? (
+          <div className="px-5 py-8 text-center text-sm text-slate-400">Chưa có giao dịch nào</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 border-b border-slate-100">
+                <tr>
+                  <th className="text-left px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Gói</th>
+                  <th className="text-left px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Chu kỳ</th>
+                  <th className="text-right px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Số tiền</th>
+                  <th className="text-left px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Mã đơn</th>
+                  <th className="text-left px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Trạng thái</th>
+                  <th className="text-left px-5 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Ngày tạo</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {orders.map((o) => {
+                  const isDone = o.status === 'fulfilled' || o.status === 'completed';
+                  const statusStyle =
+                    isDone                   ? 'bg-green-100 text-green-700' :
+                    o.status === 'pending'   ? 'bg-yellow-100 text-yellow-700' :
+                    o.status === 'expired'   ? 'bg-slate-100 text-slate-500' :
+                    'bg-red-100 text-red-700';
+                  const statusLabel =
+                    isDone                   ? 'Hoàn thành' :
+                    o.status === 'pending'   ? 'Chờ thanh toán' :
+                    o.status === 'expired'   ? 'Hết hạn' : o.status;
+                  return (
+                    <tr key={o.id} className="hover:bg-slate-50">
+                      <td className="px-5 py-3 font-medium text-slate-800">{o.plan_code}</td>
+                      <td className="px-5 py-3 text-slate-500">{o.billing_interval === 'yearly' ? 'Năm' : 'Tháng'}</td>
+                      <td className="px-5 py-3 text-right font-mono font-semibold text-slate-800">
+                        {o.amount_vnd.toLocaleString('vi-VN')}₫
+                      </td>
+                      <td className="px-5 py-3 font-mono text-xs text-slate-400">{o.reference_code}</td>
+                      <td className="px-5 py-3">
+                        <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${statusStyle}`}>
+                          {statusLabel}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3 text-xs text-slate-400 whitespace-nowrap">
+                        {new Date(o.created_at).toLocaleString('vi-VN')}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Action history */}
+      <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <svg className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span className="font-semibold text-slate-800 text-sm">Lịch sử tác động</span>
+          </div>
+          <a
+            href={`/super/audit-logs?tenant_id=${tenant.id}`}
+            className="text-xs text-[#0268FF] hover:underline"
+          >
+            Xem tất cả →
+          </a>
+        </div>
+
+        {auditLogs.length === 0 ? (
+          <div className="px-5 py-8 text-center text-sm text-slate-400">
+            Chưa có hành động nào được ghi nhận
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-50">
+            {auditLogs.map((log) => (
+              <AuditLogRow key={log.id} log={log} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const ACTION_META: Record<string, { label: string; color: string; dot: string }> = {
+  'tenant.suspend':     { label: 'Tạm khóa',      color: 'bg-amber-100 text-amber-700',  dot: 'bg-amber-500' },
+  'tenant.cancel':      { label: 'Huỷ dịch vụ',   color: 'bg-red-100 text-red-700',      dot: 'bg-red-500' },
+  'tenant.delete':      { label: 'Xoá tenant',     color: 'bg-red-100 text-red-700',      dot: 'bg-red-600' },
+  'tenant.plan_change': { label: 'Đổi gói',        color: 'bg-blue-100 text-blue-700',    dot: 'bg-blue-500' },
+  'tenant.activate':    { label: 'Kích hoạt',      color: 'bg-green-100 text-green-700',  dot: 'bg-green-500' },
+};
+
+function AuditLogRow({ log }: { log: { id: string; action: string; user_id: string | null; metadata: Record<string, unknown>; created_at: string } }) {
+  const meta = ACTION_META[log.action] ?? { label: log.action, color: 'bg-slate-100 text-slate-600', dot: 'bg-slate-400' };
+
+  function renderDetail(m: Record<string, unknown>): string {
+    if (log.action === 'tenant.plan_change') {
+      const prev = m.previous_plan_name as string | null;
+      const next = m.new_plan_name as string | null;
+      if (prev && next) return `${prev} → ${next}`;
+      if (next) return `Chuyển sang: ${next}`;
+    }
+    if (log.action === 'tenant.suspend' || log.action === 'tenant.cancel') {
+      const prev = m.previous_status as string | null;
+      const next = m.new_status as string | null;
+      if (prev && next) return `${prev} → ${next}`;
+    }
+    return Object.keys(m).length > 0 ? JSON.stringify(m) : '';
+  }
+
+  const detail = renderDetail(log.metadata ?? {});
+
+  return (
+    <div className="flex items-start gap-4 px-5 py-3.5">
+      <div className={`mt-0.5 h-2 w-2 rounded-full shrink-0 ${meta.dot}`} />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${meta.color}`}>
+            {meta.label}
+          </span>
+          {detail && (
+            <span className="text-xs text-slate-500">{detail}</span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 mt-1">
+          {log.user_id && (
+            <span className="text-[11px] text-slate-400 font-mono">by {log.user_id.slice(0, 8)}…</span>
+          )}
+          <span className="text-[11px] text-slate-400">
+            {new Date(log.created_at).toLocaleString('vi-VN')}
+          </span>
         </div>
       </div>
     </div>
