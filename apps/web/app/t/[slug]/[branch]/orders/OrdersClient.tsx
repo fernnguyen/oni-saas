@@ -101,6 +101,8 @@ export function OrdersClient({ shopId }: Props) {
   const [showReturnForm, setShowReturnForm] = useState(false)
   const [returnReason, setReturnReason] = useState('other')
   const [returnRefundMethod, setReturnRefundMethod] = useState('cash')
+  const [returnNote, setReturnNote] = useState('')
+  const [returnRefundAmount, setReturnRefundAmount] = useState('')
 
   // Stats summary
   const { data: stats } = useQuery<OrderStats>({
@@ -198,7 +200,7 @@ export function OrdersClient({ shopId }: Props) {
   const returnMutation = useMutation({
     mutationFn: async (order: Row) => {
       const items = itemsData?.data ?? []
-      const totalRefund = items.reduce((s, i) => s + parseFloat(i.line_total || '0'), 0)
+      const totalRefund = returnRefundAmount !== '' ? parseFloat(returnRefundAmount) : items.reduce((s, i) => s + parseFloat(i.line_total || '0'), 0)
       // 1. Create return header
       const retRes = await fetch(`/api/shops/${shopId}/returns`, {
         method: 'POST',
@@ -212,6 +214,7 @@ export function OrdersClient({ shopId }: Props) {
           refund_method: returnRefundMethod,
           total_refund:  String(totalRefund),
           status:        'pending',
+          note:          returnNote,
         }),
       })
       if (!retRes.ok) throw new Error((await retRes.json()).error ?? 'Lỗi tạo phiếu trả')
@@ -270,6 +273,11 @@ export function OrdersClient({ shopId }: Props) {
 
   function closeDetail() {
     setSelectedOrder(null)
+    setShowReturnForm(false)
+    setReturnReason('other')
+    setReturnRefundMethod('cash')
+    setReturnNote('')
+    setReturnRefundAmount('')
   }
 
   const columns = useMemo<Column<Row>[]>(() => [
@@ -403,7 +411,13 @@ export function OrdersClient({ shopId }: Props) {
         footer={
           <div className="flex w-full items-center justify-between">
             <button
-              onClick={() => { setShowReturnForm((v) => !v); setReturnReason('other'); setReturnRefundMethod('cash') }}
+              onClick={() => {
+                setShowReturnForm((v) => !v)
+                setReturnReason('other')
+                setReturnRefundMethod('cash')
+                setReturnNote('')
+                setReturnRefundAmount(selectedOrder?.total_amount ?? '')
+              }}
               className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-medium text-orange-700 hover:bg-orange-100"
             >
               Tạo phiếu trả hàng
@@ -651,6 +665,25 @@ export function OrdersClient({ shopId }: Props) {
                       <option value="none">Không hoàn</option>
                     </select>
                   </div>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-orange-700">Số tiền hoàn</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={returnRefundAmount}
+                    onChange={(e) => setReturnRefundAmount(e.target.value)}
+                    className="w-full rounded-lg border border-orange-200 bg-white px-2 py-1.5 text-sm"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="mb-1 block text-xs font-medium text-orange-700">Ghi chú</label>
+                  <input
+                    value={returnNote}
+                    onChange={(e) => setReturnNote(e.target.value)}
+                    placeholder="Tùy chọn"
+                    className="w-full rounded-lg border border-orange-200 bg-white px-2 py-1.5 text-sm"
+                  />
                 </div>
                 <div className="flex justify-end gap-2">
                   <button

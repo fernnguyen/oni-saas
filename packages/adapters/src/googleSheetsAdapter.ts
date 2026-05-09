@@ -76,6 +76,33 @@ async function sheetsPut(token: string, sheetId: string, path: string, body: unk
   return res.json()
 }
 
+// Auto-create a sheet tab with headers derived from sampleData + idKey.
+// Called when readTab() fails with a 400 (tab doesn't exist yet).
+async function createTab(
+  token: string,
+  sheetId: string,
+  tabName: string,
+  sampleData: Record<string, string>,
+  idKey: string,
+): Promise<{ headers: string[]; rows: Record<string, string>[] }> {
+  // Step 1: add the sheet
+  await sheetsPost(token, sheetId, ':batchUpdate', {
+    requests: [{ addSheet: { properties: { title: tabName } } }],
+  })
+  // Step 2: build headers — idKey first, then all data fields, created_at last if missing
+  const dataKeys = Object.keys(sampleData).filter(k => k !== idKey)
+  const headers = [idKey, ...dataKeys]
+  if (!headers.includes('created_at')) headers.push('created_at')
+  // Step 3: write header row
+  const range = `${tabName}!A1`
+  await sheetsPut(token, sheetId, `/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`, {
+    range,
+    values: [headers],
+  })
+  cacheInvalidate(`${sheetId}:${tabName}`)
+  return { headers, rows: [] }
+}
+
 async function readTab(
   token: string,
   sheetId: string,
@@ -202,7 +229,14 @@ export class GoogleSheetsConnector implements IDataConnector {
   async create(entity: string, data: Record<string, string>): Promise<Record<string, string>> {
     const { tab, idKey, prefix } = this.getConfig(entity)
     const token = await this.tokenProvider()
-    const { headers, rows } = await readTab(token, this.sheetId, tab)
+    let tabData: { headers: string[]; rows: Record<string, string>[] }
+    try {
+      tabData = await readTab(token, this.sheetId, tab)
+    } catch {
+      // Tab doesn't exist yet — auto-create it with headers from the data
+      tabData = await createTab(token, this.sheetId, tab, data, idKey)
+    }
+    const { headers, rows } = tabData
 
     const newId = await this.generateId(token, tab, prefix, rows, idKey)
 
