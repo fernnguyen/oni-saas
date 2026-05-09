@@ -1,5 +1,6 @@
 'use client'
-import { useCallback, useReducer } from 'react'
+import { useCallback, useReducer, useRef } from 'react'
+import { toast } from 'sonner'
 import type { LocalProduct } from '@/lib/localDb/schema'
 
 export interface CartItem {
@@ -59,20 +60,24 @@ function cartReducer(state: CartState, action: CartAction): CartState {
       }
       return { ...state, items: [...state.items, newItem] }
     }
-    case 'REMOVE_ITEM':
-      return { ...state, items: state.items.filter((i) => i.product_id !== action.product_id) }
+    case 'REMOVE_ITEM': {
+      const newItems = state.items.filter((i) => i.product_id !== action.product_id)
+      const newSubtotal = newItems.reduce((s, i) => s + Number(i.line_total), 0)
+      return { ...state, items: newItems, discount_amount: Math.min(state.discount_amount, newSubtotal) }
+    }
     case 'SET_QTY': {
       if (action.qty <= 0) {
-        return { ...state, items: state.items.filter((i) => i.product_id !== action.product_id) }
+        const newItems = state.items.filter((i) => i.product_id !== action.product_id)
+        const newSubtotal = newItems.reduce((s, i) => s + Number(i.line_total), 0)
+        return { ...state, items: newItems, discount_amount: Math.min(state.discount_amount, newSubtotal) }
       }
-      return {
-        ...state,
-        items: state.items.map((i) =>
-          i.product_id === action.product_id
-            ? { ...i, qty: action.qty, line_total: lineTotal({ ...i, qty: action.qty }) }
-            : i
-        ),
-      }
+      const newItems = state.items.map((i) =>
+        i.product_id === action.product_id
+          ? { ...i, qty: action.qty, line_total: lineTotal({ ...i, qty: action.qty }) }
+          : i
+      )
+      const newSubtotal = newItems.reduce((s, i) => s + Number(i.line_total), 0)
+      return { ...state, items: newItems, discount_amount: Math.min(state.discount_amount, newSubtotal) }
     }
     case 'SET_ITEM_DISCOUNT':
       return {
@@ -96,15 +101,46 @@ function cartReducer(state: CartState, action: CartAction): CartState {
   }
 }
 
-export function useCart() {
+export function useCart(inventory?: Map<string, number>) {
   const [state, dispatch] = useReducer(cartReducer, { items: [], discount_amount: 0, note: '' })
+
+  const inventoryRef = useRef(inventory)
+  inventoryRef.current = inventory
+  const stateRef = useRef(state)
+  stateRef.current = state
 
   const subtotal = state.items.reduce((s, i) => s + Number(i.line_total), 0)
   const total = Math.max(0, subtotal - Number(state.discount_amount))
 
-  const addItem = useCallback((product: LocalProduct) => dispatch({ type: 'ADD_ITEM', product }), [])
+  const addItem = useCallback((product: LocalProduct) => {
+    const stock = inventoryRef.current?.get(product.product_id)
+    if (stock !== undefined) {
+      const currentQty = stateRef.current.items.find((i) => i.product_id === product.product_id)?.qty ?? 0
+      if (currentQty >= stock) {
+        toast.warning(`Đã đủ số lượng trong kho`, {
+          description: `"${product.name}" chỉ còn ${stock} - không thể thêm`,
+        })
+        return
+      }
+    }
+    dispatch({ type: 'ADD_ITEM', product })
+  }, [])
+
   const removeItem = useCallback((product_id: string) => dispatch({ type: 'REMOVE_ITEM', product_id }), [])
-  const setQty = useCallback((product_id: string, qty: number) => dispatch({ type: 'SET_QTY', product_id, qty }), [])
+
+  const setQty = useCallback((product_id: string, qty: number) => {
+    if (qty <= 0) {
+      dispatch({ type: 'SET_QTY', product_id, qty: 0 })
+      return
+    }
+    const stock = inventoryRef.current?.get(product_id)
+    if (stock !== undefined && stock > 0 && qty > stock) {
+      toast.warning(`Chỉ còn ${stock} trong kho - đã điều chỉnh số lượng`)
+      dispatch({ type: 'SET_QTY', product_id, qty: stock })
+      return
+    }
+    dispatch({ type: 'SET_QTY', product_id, qty })
+  }, [])
   const setItemDiscount = useCallback(
     (product_id: string, discount: number) => dispatch({ type: 'SET_ITEM_DISCOUNT', product_id, discount }),
     []

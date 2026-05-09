@@ -8,3 +8,7 @@
 body {
   @apply bg-slate-50 text-slate-900;
 }
+
+button:not(:disabled) {
+  cursor: pointer;
+}

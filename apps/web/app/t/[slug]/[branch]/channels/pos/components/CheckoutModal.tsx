@@ -72,13 +72,14 @@ export function CheckoutModal({
     { id: nextId(), method: 'cash', amount: String(total) },
   ])
   const [saving, setSaving] = useState(false)
+  const [localNote, setLocalNote] = useState(note)
 
-  // Reset payments when total changes or modal opens
   useEffect(() => {
     if (open) {
       setPayments([{ id: nextId(), method: 'cash', amount: String(total) }])
+      setLocalNote(note)
     }
-  }, [open, total])
+  }, [open, total, note])
 
   const totalPaid = payments.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
   const remaining = total - totalPaid
@@ -94,8 +95,11 @@ export function CheckoutModal({
   }
 
   function addPayment() {
+    const usedMethods = new Set(payments.map((p) => p.method))
+    const nextMethod = METHODS.find((m) => !usedMethods.has(m.value))
+    if (!nextMethod) return
     const leftover = Math.max(0, remaining)
-    setPayments((prev) => [...prev, { id: nextId(), method: 'cash', amount: leftover > 0 ? String(leftover) : '' }])
+    setPayments((prev) => [...prev, { id: nextId(), method: nextMethod.value, amount: leftover > 0 ? String(leftover) : '' }])
   }
 
   function distributeRemaining() {
@@ -157,7 +161,7 @@ export function CheckoutModal({
         tax_amount: 0,
         total_amount: total,
         paid_amount: actualPaid,
-        note,
+        note: localNote,
         created_at: now,
         status: 'completed',
         items: orderItems,
@@ -249,6 +253,14 @@ export function CheckoutModal({
         </div>
 
         <div className="p-5 space-y-4">
+          {/* Customer */}
+          <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-xs font-medium text-slate-500">KHÁCH HÀNG</span>
+              <span className="font-medium text-slate-900">{customer?.name ?? 'Khách lẻ'}</span>
+            </div>
+          </div>
+
           {/* Order summary */}
           <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
             <div className="max-h-32 overflow-y-auto space-y-0.5">
@@ -265,11 +277,6 @@ export function CheckoutModal({
                   <span>Giảm giá:</span><span>−{fmtVND(discount_amount)}</span>
                 </div>
               )}
-              {customer && (
-                <div className="flex justify-between text-slate-500">
-                  <span>Khách hàng:</span><span>{customer.name}</span>
-                </div>
-              )}
               <div className="flex justify-between font-bold text-slate-900 text-base">
                 <span>Tổng cộng:</span>
                 <span className="text-[#0268FF]">{fmtVND(total)}</span>
@@ -277,13 +284,23 @@ export function CheckoutModal({
             </div>
           </div>
 
+          {/* Note */}
+          <input
+            type="text"
+            value={localNote}
+            onChange={(e) => setLocalNote(e.target.value)}
+            placeholder="Ghi chú đơn hàng..."
+            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm placeholder:text-slate-400 focus:border-[#0268FF] focus:outline-none"
+          />
+
           {/* Payments */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <p className="text-xs font-medium text-slate-500">PHƯƠNG THỨC THANH TOÁN</p>
               <button
                 onClick={addPayment}
-                className="text-xs text-[#0268FF] hover:underline"
+                disabled={payments.length >= METHODS.length}
+                className="text-xs text-[#0268FF] hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 + Thêm
               </button>
@@ -296,7 +313,9 @@ export function CheckoutModal({
                   onChange={(e) => updatePayment(p.id, 'method', e.target.value)}
                   className="w-32 shrink-0 rounded-lg border border-slate-200 px-2 py-2 text-sm focus:border-[#0268FF] focus:outline-none"
                 >
-                  {METHODS.map((m) => (
+                  {METHODS.filter(
+                    (m) => m.value === p.method || !payments.some((other) => other.id !== p.id && other.method === m.value)
+                  ).map((m) => (
                     <option key={m.value} value={m.value}>{m.label}</option>
                   ))}
                 </select>
@@ -329,16 +348,23 @@ export function CheckoutModal({
               </div>
             ))}
 
-            {/* Summary row */}
-            <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm">
-              <span className="text-slate-500">Đã nhập:</span>
-              <span className={remaining > 0 ? 'font-medium text-red-500' : 'font-medium text-green-600'}>
-                {fmtVND(totalPaid)}
-                {remaining > 0 && <span className="ml-2 text-xs">còn thiếu {fmtVND(remaining)}</span>}
-                {remaining < 0 && cashRows.length > 0 && (
-                  <span className="ml-2 text-xs text-slate-500">thối {fmtVND(Math.abs(cashChange))}</span>
-                )}
-              </span>
+            {/* Summary rows */}
+            <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500">Số tiền nhận:</span>
+                <span className={remaining > 0 ? 'font-medium text-red-500' : 'font-medium text-green-600'}>
+                  {fmtVND(totalPaid)}
+                  {remaining > 0 && (
+                    <span className="ml-2 text-xs">còn thiếu {fmtVND(remaining)}</span>
+                  )}
+                </span>
+              </div>
+              {remaining < 0 && cashRows.length > 0 && cashChange > 0 && (
+                <div className="flex items-center justify-between border-t border-slate-200 pt-1">
+                  <span className="text-slate-500">Trả lại tiền thừa:</span>
+                  <span className="font-semibold text-red-500">{fmtVND(cashChange)}</span>
+                </div>
+              )}
             </div>
           </div>
         </div>

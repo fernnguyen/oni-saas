@@ -1,11 +1,14 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import { liveQuery } from 'dexie'
 import { usePOSHydration } from '@/hooks/usePOSHydration'
 import { useNetworkStatus } from '@/hooks/useNetworkStatus'
 import { useCart, type CartItem } from '@/hooks/useCart'
-import type { LocalCustomer } from '@/lib/localDb/schema'
+import { useConfirm } from '@/app/components/ui/ConfirmProvider'
+import { localDb, type LocalInventory, type LocalCustomer } from '@/lib/localDb/schema'
 import { SyncWorker } from '@/lib/pos/syncWorker'
+import { IconClipboard } from '@/app/components/layout/nav'
 import { ProductGrid } from './components/ProductGrid'
 import { CartPanel } from './components/CartPanel'
 import { CheckoutModal } from './components/CheckoutModal'
@@ -36,7 +39,9 @@ const shellStyle = { height: 'calc(100vh - 3.5rem)' } as const
 export function POSClient({ shopId, branchId, shopName, userEmail, backPath }: Props) {
   const { status, lastHydratedAt, refresh } = usePOSHydration(shopId, branchId)
   const isOnline = useNetworkStatus()
-  const cart = useCart()
+  const confirm = useConfirm()
+  const [inventory, setInventory] = useState<Map<string, number>>(new Map())
+  const cart = useCart(inventory)
   const [customer, setCustomer] = useState<LocalCustomer | null>(null)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [heldCarts, setHeldCarts] = useState<HeldCart[]>([])
@@ -56,6 +61,18 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath }: P
     if (!cartHydratedRef.current) return
     localStorage.setItem('oni-held-carts', JSON.stringify(heldCarts))
   }, [heldCarts])
+
+  useEffect(() => {
+    const sub = liveQuery(() => localDb.inventory.toArray()).subscribe({
+      next: (rows: LocalInventory[]) => {
+        const map = new Map<string, number>()
+        rows.forEach((r) => map.set(r.product_id, (map.get(r.product_id) ?? 0) + Number(r.stock_qty)))
+        setInventory(map)
+      },
+      error: () => {},
+    })
+    return () => sub.unsubscribe()
+  }, [])
 
   useEffect(() => {
     const worker = new SyncWorker(shopId)
@@ -139,9 +156,18 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath }: P
     setHeldCarts((prev) => prev.filter((h) => h.id !== id))
   }
 
-  function clearCart() {
+  async function clearCart() {
+    const totalQty = cart.items.reduce((s, i) => s + i.qty, 0)
+    const ok = await confirm({
+      title: 'Xóa giỏ hàng?',
+      description: `Bỏ ${cart.items.length} sản phẩm (${totalQty} đv) ra khỏi đơn.`,
+      confirmLabel: 'Xóa giỏ',
+      variant: 'danger',
+    })
+    if (!ok) return
     cart.clear()
     setCustomer(null)
+    toast.success(`Đã xóa giỏ hàng (${totalQty} sản phẩm)`)
   }
 
   const headerBadge = heldCarts.length
@@ -170,7 +196,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath }: P
             className="relative flex items-center gap-1 rounded border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50 transition-colors"
             title="Đơn đang giữ và đơn hôm nay"
           >
-            📋 Đơn hàng
+            <IconClipboard className="h-3.5 w-3.5 shrink-0" /> Đơn hàng
             {headerBadge > 0 && (
               <span className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-orange-500 text-[10px] font-bold text-white">
                 {headerBadge}
@@ -212,13 +238,14 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath }: P
       <div className="flex flex-1 overflow-hidden">
         {/* Product grid */}
         <div className="flex-1 overflow-hidden border-r border-slate-200 bg-white">
-          <ProductGrid branchId={branchId} onAddToCart={cart.addItem} />
+          <ProductGrid branchId={branchId} inventory={inventory} onAddToCart={cart.addItem} />
         </div>
 
         {/* Cart panel */}
         <div className="w-72 shrink-0 overflow-hidden xl:w-80">
           <CartPanel
             items={cart.items}
+            inventory={inventory}
             subtotal={cart.subtotal}
             discount_amount={cart.discount_amount}
             total={cart.total}

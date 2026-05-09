@@ -3,9 +3,11 @@ import { useState } from 'react'
 import type { CartItem } from '@/hooks/useCart'
 import type { LocalCustomer } from '@/lib/localDb/schema'
 import { CustomerSearch } from './CustomerSearch'
+import { IconClipboard, IconWarehouse, IconTrash } from '@/app/components/layout/nav'
 
 interface Props {
   items: CartItem[]
+  inventory?: Map<string, number>
   subtotal: number
   discount_amount: number
   total: number
@@ -31,6 +33,7 @@ const DISCOUNT_PRESETS = [5, 10, 20, 50]
 
 export function CartPanel({
   items,
+  inventory,
   subtotal,
   discount_amount,
   total,
@@ -71,7 +74,7 @@ export function CartPanel({
         <div className="mb-1.5 flex items-center justify-between">
           <p className="text-xs font-medium text-slate-500">KHÁCH HÀNG</p>
           <p className="text-xs text-slate-400">
-            {customer ? customer.name : 'Khách vãng lai'}
+            {customer ? customer.name : 'Khách lẻ'}
           </p>
         </div>
         <CustomerSearch selected={customer} onSelect={onCustomerChange} />
@@ -81,7 +84,7 @@ export function CartPanel({
       <div className="flex-1 overflow-y-auto">
         {items.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-slate-400">
-            <span className="text-4xl">🛒</span>
+            <IconWarehouse className="h-12 w-12" />
             <p className="text-sm">Chọn sản phẩm để bắt đầu</p>
             {heldCount > 0 && (
               <p className="text-xs text-[#0268FF]">{heldCount} đơn đang giữ</p>
@@ -89,54 +92,75 @@ export function CartPanel({
           </div>
         ) : (
           <div className="divide-y divide-slate-50">
-            {items.map((item) => (
-              <div key={item.product_id} className="px-3 py-2">
-                <div className="flex items-start gap-2">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-slate-900 leading-tight">
-                      {item.product_name}
-                    </p>
-                    <p className="text-xs text-slate-400">{fmtVND(item.unit_price)}/đv</p>
-                  </div>
-                  <button
-                    onClick={() => onRemove(item.product_id)}
-                    className="mt-0.5 shrink-0 text-slate-300 hover:text-red-400"
-                  >
-                    ✕
-                  </button>
-                </div>
-                <div className="mt-1.5 flex items-center justify-between">
-                  {/* Qty controls */}
-                  <div className="flex items-center gap-1">
+            {items.map((item) => {
+              const stock = inventory?.get(item.product_id)
+              const atMax = stock !== undefined && item.qty >= stock
+              return (
+                <div key={item.product_id} className="px-3 py-2">
+                  <div className="flex items-start gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-slate-900 leading-tight">
+                        {item.product_name}
+                      </p>
+                      <p className="text-xs text-slate-400">{fmtVND(item.unit_price)}/đv</p>
+                    </div>
                     <button
-                      onClick={() => onQtyChange(item.product_id, item.qty - 1)}
-                      className="flex h-6 w-6 items-center justify-center rounded border border-slate-200 text-sm text-slate-600 hover:bg-slate-100"
+                      onClick={() => onRemove(item.product_id)}
+                      className="mt-0.5 shrink-0 text-slate-300 hover:text-red-400"
                     >
-                      −
-                    </button>
-                    <input
-                      type="number"
-                      value={item.qty}
-                      min={1}
-                      onChange={(e) => {
-                        const v = parseInt(e.target.value, 10)
-                        if (!isNaN(v) && v > 0) onQtyChange(item.product_id, v)
-                      }}
-                      className="h-6 w-10 rounded border border-slate-200 text-center text-sm focus:border-[#0268FF] focus:outline-none"
-                    />
-                    <button
-                      onClick={() => onQtyChange(item.product_id, item.qty + 1)}
-                      className="flex h-6 w-6 items-center justify-center rounded border border-slate-200 text-sm text-slate-600 hover:bg-slate-100"
-                    >
-                      +
+                      ✕
                     </button>
                   </div>
-                  <span className="text-sm font-semibold text-slate-900">
-                    {fmtVND(item.line_total)}
-                  </span>
+                  <div className="mt-1.5 flex items-center justify-between">
+                    {/* Qty controls */}
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => onQtyChange(item.product_id, item.qty - 1)}
+                        className="flex h-6 w-6 items-center justify-center rounded border border-slate-200 text-sm text-slate-600 hover:bg-slate-100"
+                      >
+                        −
+                      </button>
+                      <input
+                        type="number"
+                        value={item.qty}
+                        min={1}
+                        max={stock ?? undefined}
+                        onChange={(e) => {
+                          const v = parseInt(e.target.value, 10)
+                          if (!isNaN(v) && v > 0) onQtyChange(item.product_id, v)
+                        }}
+                        className={[
+                          'h-6 w-10 rounded border text-center text-sm focus:outline-none',
+                          atMax
+                            ? 'border-orange-300 text-orange-600 focus:border-orange-400'
+                            : 'border-slate-200 focus:border-[#0268FF]',
+                        ].join(' ')}
+                      />
+                      <button
+                        onClick={() => onQtyChange(item.product_id, item.qty + 1)}
+                        disabled={atMax}
+                        className={[
+                          'flex h-6 w-6 items-center justify-center rounded border text-sm transition-colors',
+                          atMax
+                            ? 'border-slate-100 text-slate-300 cursor-not-allowed'
+                            : 'border-slate-200 text-slate-600 hover:bg-slate-100',
+                        ].join(' ')}
+                      >
+                        +
+                      </button>
+                      {atMax && (
+                        <span className="ml-0.5 text-[10px] font-semibold text-orange-500">
+                          Tối đa
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-sm font-semibold text-slate-900">
+                      {fmtVND(item.line_total)}
+                    </span>
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>
@@ -247,7 +271,7 @@ export function CartPanel({
               title="Giữ đơn — lưu tạm để làm đơn khác"
               className="flex items-center gap-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-600 hover:bg-slate-50 transition-colors"
             >
-              📋
+              <IconClipboard className="h-4 w-4 shrink-0" />
               {heldCount > 0 && (
                 <span className="min-w-[16px] rounded-full bg-orange-100 px-1 text-center text-xs font-semibold text-orange-600">
                   {heldCount}
@@ -259,9 +283,9 @@ export function CartPanel({
             <button
               onClick={onClearCart}
               title="Xóa toàn bộ giỏ hàng"
-              className="rounded-xl border border-red-100 px-3 py-2.5 text-sm text-red-400 hover:bg-red-50 transition-colors"
+              className="rounded-xl bg-red-50 border border-red-200 px-3 py-2.5 text-red-600 hover:bg-red-100 hover:border-red-300 transition-colors"
             >
-              🗑
+              <IconTrash className="h-4 w-4" />
             </button>
           )}
           <button
