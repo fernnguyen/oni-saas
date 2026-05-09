@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
+import { toast } from 'sonner';
 
 interface Branch {
   id: string;
@@ -43,7 +44,7 @@ function CreateBranchModal({
 }: {
   tenantId: string;
   onClose: () => void;
-  onCreated: (slug: string) => void;
+  onCreated: (slug: string, name: string) => void;
 }) {
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
@@ -71,7 +72,7 @@ function CreateBranchModal({
         if (res.status === 402) throw new Error(data.message || 'Đã đạt giới hạn gói hiện tại');
         throw new Error(data.message || 'Không tạo được chi nhánh');
       }
-      onCreated(slug);
+      onCreated(slug, name);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Lỗi không xác định');
     } finally {
@@ -202,17 +203,18 @@ export function BranchSelector({
     return () => document.removeEventListener('mousedown', handle);
   }, [open]);
 
-  function switchBranch(slug: string) {
+  function switchBranch(slug: string, name?: string) {
     setOpen(false);
     if (slug === currentSlug) return;
     const newPath = pathname.replace(/^\/[^/]+/, '/' + slug);
     router.push(newPath);
+    toast.success(`Đã chuyển sang chi nhánh ${name ?? slug}`);
   }
 
-  function handleCreated(slug: string) {
+  function handleCreated(slug: string, name: string) {
     setShowCreate(false);
     loadBranches();
-    switchBranch(slug);
+    switchBranch(slug, name);
   }
 
   const initial = currentName.charAt(0).toUpperCase();
@@ -266,7 +268,7 @@ export function BranchSelector({
               return (
                 <button
                   key={b.id}
-                  onClick={() => switchBranch(b.slug)}
+                  onClick={() => switchBranch(b.slug, b.name)}
                   className={`w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors cursor-pointer ${
                     isCurrent ? 'bg-blue-50' : 'hover:bg-slate-50'
                   }`}
@@ -329,7 +331,7 @@ export function BranchSelector({
                       </svg>
                     </div>
                     <div className="flex-1 min-w-0">
-                      <span className="text-sm font-medium text-slate-600">Thêm chi nhánh mới</span>
+                      <span className="text-sm font-medium text-slate-600">Chi nhánh mới</span>
                       {limitStatus && limitStatus.limit !== -1 && (
                         <span className="ml-1.5 text-[11px] text-slate-400">
                           ({limitStatus.current}/{limitStatus.limit})
