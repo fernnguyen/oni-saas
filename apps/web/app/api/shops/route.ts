@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getSupabaseServerClient } from '../../../lib/server/supabaseServer';
 import { getSupabaseAdminClient } from '../../../lib/server/supabaseAdmin';
 import { hasPermission } from '../../../lib/server/permissions';
+import { enforceShopLimit, isPlanLimitError, planLimitResponse } from '../../../lib/server/planLimits';
 
 const createSchema = z.object({
   tenant_id: z.string().uuid(),
@@ -25,8 +26,13 @@ export async function POST(req: NextRequest) {
   const { tenant_id, name, slug, address } = parsed.data;
 
   const allowed = await hasPermission(auth.user.id, tenant_id, 'shops.create');
-  if (!allowed) {
-    return NextResponse.json({ message: 'Forbidden' }, { status: 403 });
+  if (!allowed) return NextResponse.json({ message: 'Forbidden' }, { status: 403 });
+
+  try {
+    await enforceShopLimit(tenant_id);
+  } catch (err) {
+    if (isPlanLimitError(err)) return planLimitResponse(err);
+    throw err;
   }
 
   const admin = getSupabaseAdminClient();
@@ -37,10 +43,7 @@ export async function POST(req: NextRequest) {
     p_address: address ?? null,
   });
 
-  if (error) {
-    return NextResponse.json({ message: error.message }, { status: 400 });
-  }
-
+  if (error) return NextResponse.json({ message: error.message }, { status: 400 });
   return NextResponse.json({ shop: data }, { status: 201 });
 }
 

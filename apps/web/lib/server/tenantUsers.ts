@@ -47,19 +47,8 @@ export async function createTenantUser(params: CreateTenantUserParams) {
   const admin = getSupabaseAdminClient();
 
   // ── Plan limit check ────────────────────────────────────────
-  const { data: meta } = await admin.rpc('get_tenant_plan_meta', { p_tenant_id: params.tenantId });
-  if (meta) {
-    const maxUsers = (meta as any).max_users as number;
-    if (maxUsers !== -1) {
-      const { count } = await admin
-        .from('user_tenants')
-        .select('*', { count: 'exact', head: true })
-        .eq('tenant_id', params.tenantId);
-      if ((count ?? 0) >= maxUsers) {
-        throw new Error(`Đã đạt giới hạn ${maxUsers} người dùng của plan hiện tại`);
-      }
-    }
-  }
+  const { enforceUserLimit } = await import('./planLimits');
+  await enforceUserLimit(params.tenantId);
 
   if (params.accountType === 'workspace') {
     return _createWorkspaceUser(params);

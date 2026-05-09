@@ -10,6 +10,12 @@ interface Branch {
   address: string | null;
 }
 
+interface LimitStatus {
+  current: number;
+  limit: number;
+  atLimit: boolean;
+}
+
 interface BranchSelectorProps {
   tenantId: string;
   currentSlug: string;
@@ -61,7 +67,10 @@ function CreateBranchModal({
         body: JSON.stringify({ tenant_id: tenantId, name, slug, address: address || undefined }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.message || 'Không tạo được chi nhánh');
+      if (!res.ok) {
+        if (res.status === 402) throw new Error(data.message || 'Đã đạt giới hạn gói hiện tại');
+        throw new Error(data.message || 'Không tạo được chi nhánh');
+      }
       onCreated(slug);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Lỗi không xác định');
@@ -164,6 +173,7 @@ export function BranchSelector({
 }: BranchSelectorProps) {
   const [open, setOpen] = useState(false);
   const [branches, setBranches] = useState<Branch[]>([]);
+  const [limitStatus, setLimitStatus] = useState<LimitStatus | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
@@ -172,7 +182,10 @@ export function BranchSelector({
   function loadBranches() {
     fetch(`/api/branches?tenant_id=${tenantId}`)
       .then((r) => r.json())
-      .then((d) => setBranches(d.branches ?? []));
+      .then((d) => {
+        setBranches(d.branches ?? []);
+        setLimitStatus(d.limit ?? null);
+      });
   }
 
   useEffect(() => {
@@ -289,17 +302,42 @@ export function BranchSelector({
             {canCreate && (
               <>
                 {branches.length > 0 && <div className="my-1 h-px bg-slate-100 mx-2" />}
-                <button
-                  onClick={() => { setOpen(false); setShowCreate(true); }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-slate-50 transition-colors cursor-pointer"
-                >
-                  <div className="h-7 w-7 rounded-full bg-slate-100 flex items-center justify-center shrink-0">
-                    <svg className="h-3.5 w-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                    </svg>
+                {limitStatus?.atLimit ? (
+                  <div className="px-3 py-2">
+                    <div className="flex items-center gap-2.5">
+                      <div className="h-7 w-7 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+                        <svg className="h-3.5 w-3.5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                        </svg>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-amber-700">
+                          Đã đạt giới hạn ({limitStatus.current}/{limitStatus.limit} chi nhánh)
+                        </p>
+                        <p className="text-[11px] text-amber-600 mt-0.5">Nâng cấp gói để thêm</p>
+                      </div>
+                    </div>
                   </div>
-                  <span className="text-sm font-medium text-slate-600">Thêm chi nhánh mới</span>
-                </button>
+                ) : (
+                  <button
+                    onClick={() => { setOpen(false); setShowCreate(true); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-slate-50 transition-colors cursor-pointer"
+                  >
+                    <div className="h-7 w-7 rounded-full bg-slate-100 flex items-center justify-center shrink-0">
+                      <svg className="h-3.5 w-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                      </svg>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm font-medium text-slate-600">Thêm chi nhánh mới</span>
+                      {limitStatus && limitStatus.limit !== -1 && (
+                        <span className="ml-1.5 text-[11px] text-slate-400">
+                          ({limitStatus.current}/{limitStatus.limit})
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                )}
               </>
             )}
           </div>

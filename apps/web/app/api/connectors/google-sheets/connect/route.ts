@@ -4,6 +4,7 @@ import { getSupabaseServerClient } from '../../../../../lib/server/supabaseServe
 import { getSupabaseAdminClient } from '../../../../../lib/server/supabaseAdmin';
 import { extractGoogleSheetId } from '../../../../../lib/googleSheets';
 import { getServiceAccountToken } from '../../../../../lib/server/googleServiceAccount';
+import { enforceConnectorLimit, isPlanLimitError, planLimitResponse } from '../../../../../lib/server/planLimits';
 
 const schema = z.object({
   shop_id: z.string().uuid(),
@@ -78,6 +79,15 @@ export async function POST(req: NextRequest) {
     },
     updated_at: now,
   };
+
+  if (!existing) {
+    try {
+      await enforceConnectorLimit(shop_id);
+    } catch (err) {
+      if (isPlanLimitError(err)) return planLimitResponse(err);
+      throw err;
+    }
+  }
 
   let connector_id: string;
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '@/lib/server/supabaseServer';
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
+import { getShopLimitStatus } from '@/lib/server/planLimits';
 
 export async function GET(req: NextRequest) {
   const supabase = await getSupabaseServerClient();
@@ -19,6 +20,7 @@ export async function GET(req: NextRequest) {
     .eq('tenant_id', tenant_id)
     .maybeSingle();
 
+  let branches;
   if (tenantAccess) {
     const { data, error } = await admin
       .from('shops_view')
@@ -26,24 +28,28 @@ export async function GET(req: NextRequest) {
       .eq('tenant_id', tenant_id)
       .order('created_at', { ascending: true });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ branches: data ?? [] });
+    branches = data ?? [];
+  } else {
+    const { data: userShops } = await admin
+      .from('user_shops')
+      .select('shop_id')
+      .eq('user_id', auth.user.id);
+
+    const shopIds = (userShops ?? []).map((s) => s.shop_id);
+    if (!shopIds.length) return NextResponse.json({ branches: [], limit: null });
+
+    const { data, error } = await admin
+      .from('shops_view')
+      .select('id, name, slug, address')
+      .eq('tenant_id', tenant_id)
+      .in('id', shopIds)
+      .order('created_at', { ascending: true });
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    branches = data ?? [];
   }
 
-  const { data: userShops } = await admin
-    .from('user_shops')
-    .select('shop_id')
-    .eq('user_id', auth.user.id);
+  // Limit status — only for tenant-level members (who can create branches)
+  const limit = tenantAccess ? await getShopLimitStatus(tenant_id) : null;
 
-  const shopIds = (userShops ?? []).map((s) => s.shop_id);
-  if (!shopIds.length) return NextResponse.json({ branches: [] });
-
-  const { data, error } = await admin
-    .from('shops_view')
-    .select('id, name, slug, address')
-    .eq('tenant_id', tenant_id)
-    .in('id', shopIds)
-    .order('created_at', { ascending: true });
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ branches: data ?? [] });
+  return NextResponse.json({ branches, limit });
 }
