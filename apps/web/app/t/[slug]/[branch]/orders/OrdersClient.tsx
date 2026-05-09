@@ -288,7 +288,7 @@ export function OrdersClient({ shopId }: Props) {
         loading={isLoading}
         pagination={{ page, total: data?.total ?? 0, pageSize: 50, onChange: setPage }}
         emptyState={<EmptyState title="Chưa có đơn hàng nào" description="Đơn hàng sẽ xuất hiện ở đây sau khi được tạo từ POS." />}
-        rowKey={(row) => row.order_id}
+        rowKey={(row, idx) => `${row.order_id}__${idx}`}
       />
 
       {/* Detail slide-over */}

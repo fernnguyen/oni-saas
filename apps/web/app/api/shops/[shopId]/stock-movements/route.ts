@@ -55,7 +55,28 @@ export async function POST(
     const { connector } = await requireShopAccess(shopId)
 
     const body = await req.json()
+    // Extract POS-sync flag before schema parse (Zod strips unknown fields)
+    const skipInventoryUpdate = body.skip_inventory_update === 'true'
     const data = stockMovementCreateSchema.parse(body)
+
+    // When called from the POS sync worker, movement creation and inventory update
+    // are handled as separate idempotent steps. The worker tracks each independently
+    // via steps_done, so inventory is never silently lost on retry.
+    if (skipInventoryUpdate) {
+      // Idempotent: return existing movement if already created (same ref + product)
+      if (data.reference_no) {
+        const check = await connector.list('stock-movements', {
+          page: 1, limit: 1,
+          filters: { reference_no: data.reference_no, product_id: data.product_id },
+        })
+        if (check.data.length > 0) {
+          return NextResponse.json(check.data[0], { status: 200 })
+        }
+      }
+      const created = await connector.create('stock-movements', data as unknown as Record<string, string>)
+      invalidate(shopId, 'stock-movements')
+      return NextResponse.json(created, { status: 201 })
+    }
 
     // 1. Create movement record
     const created = await connector.create('stock-movements', data as unknown as Record<string, string>)
@@ -68,13 +89,19 @@ export async function POST(
     const branchId = data.branch_id ?? ''
 
     let invResult = await connector.list('inventory', {
-      page: 1, limit: 5,
+      page: 1, limit: 1,
       filters: { product_id: data.product_id, branch_id: branchId },
     })
     if (invResult.data.length === 0 && branchId !== '') {
       invResult = await connector.list('inventory', {
-        page: 1, limit: 5,
+        page: 1, limit: 1,
         filters: { product_id: data.product_id, branch_id: '' },
+      })
+    }
+    if (invResult.data.length === 0) {
+      invResult = await connector.list('inventory', {
+        page: 1, limit: 1,
+        filters: { product_id: data.product_id },
       })
     }
 

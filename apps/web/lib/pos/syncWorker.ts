@@ -1,6 +1,15 @@
 import { localDb, type SyncQueueItem } from '@/lib/localDb/schema'
 import { broadcastOrderSynced } from '@/lib/localDb/tabSync'
 
+const INBOUND_TYPES = ['purchase_in', 'return_in', 'transfer_in']
+const OUTBOUND_TYPES = ['sale_out', 'transfer_out']
+
+function calcMovementDelta(type: string, qty: number): number {
+  if (INBOUND_TYPES.includes(type)) return Math.abs(qty)
+  if (OUTBOUND_TYPES.includes(type)) return -Math.abs(qty)
+  return qty // adjustment: use raw signed value
+}
+
 const SYNC_INTERVAL_MS = 3_000
 const MAX_RETRY = 5
 const BACKOFF_MS = [2_000, 4_000, 8_000, 16_000, 32_000]
@@ -8,6 +17,7 @@ const BACKOFF_MS = [2_000, 4_000, 8_000, 16_000, 32_000]
 export class SyncWorker {
   private timer: ReturnType<typeof setInterval> | null = null
   private running = false
+  private stopped = false
   private shopId: string
 
   constructor(shopId: string) {
@@ -15,16 +25,22 @@ export class SyncWorker {
   }
 
   async start() {
-    // Reset any items stuck as 'syncing' from a previous crashed session
+    // Web Locks are released automatically on page unload, so on startup there
+    // are no active locks. Resetting all 'syncing' items is always safe here —
+    // no worker can hold a lock on them until this worker acquires one.
     await localDb.syncQueue
       .where('status').equals('syncing')
-      .modify({ status: 'pending' })
+      .modify((item) => {
+        item.status = 'pending'
+        delete item.syncing_since
+      })
 
     this.timer = setInterval(() => void this.tick(), SYNC_INTERVAL_MS)
     void this.tick()
   }
 
   stop() {
+    this.stopped = true
     if (this.timer) clearInterval(this.timer)
     this.timer = null
   }
@@ -41,8 +57,22 @@ export class SyncWorker {
     void this.tick()
   }
 
+  // Resets both stuck-syncing and failed items so the user can recover without
+  // reloading the page (e.g. after a long offline period or a hung request).
+  async retryAll() {
+    await localDb.syncQueue
+      .where('status').anyOf('syncing', 'failed')
+      .modify((item) => {
+        item.status = 'pending'
+        item.retry_count = 0
+        delete item.syncing_since
+        delete item.last_error
+      })
+    void this.tick()
+  }
+
   private async tick() {
-    if (!navigator.onLine || this.running) return
+    if (!navigator.onLine || this.running || this.stopped) return
     this.running = true
     try {
       await this.flushQueue()
@@ -72,6 +102,16 @@ export class SyncWorker {
     return res.json() as Promise<Record<string, string>>
   }
 
+  private async postJson<T = Record<string, unknown>>(path: string, body: unknown): Promise<T> {
+    const res = await fetch(`/api/shops/${this.shopId}/${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) throw new Error(`POST ${path} → ${res.status}`)
+    return res.json() as Promise<T>
+  }
+
   private async get(path: string, params: Record<string, string>) {
     const qs = new URLSearchParams(params).toString()
     const res = await fetch(`/api/shops/${this.shopId}/${path}?${qs}`)
@@ -81,142 +121,112 @@ export class SyncWorker {
   }
 
   private async syncOne(rawItem: SyncQueueItem) {
-    // Always re-read from DB — a previous attempt may have saved server_order_id / steps_done
-    const item = (await localDb.syncQueue.get(rawItem.id!)) ?? rawItem
+    // Web Locks: only one tab can hold the lock for a given item at a time.
+    // Lock is released automatically on page unload, so start() can safely reset
+    // any 'syncing' items — no active worker will be holding a stale lock.
+    if (typeof navigator !== 'undefined' && 'locks' in navigator) {
+      await navigator.locks.request(
+        `pos-sync-${rawItem.id}`,
+        { ifAvailable: true },
+        async (lock) => {
+          if (!lock) return  // another tab is already processing this item
+          await this._doSync(rawItem)
+        }
+      )
+    } else {
+      await this._doSync(rawItem)
+    }
+  }
 
-    await localDb.syncQueue.update(item.id!, { status: 'syncing' })
+  private async _doSync(rawItem: SyncQueueItem) {
+    // Atomically claim item: transition 'pending' → 'syncing' inside a Dexie transaction.
+    // Also re-reads to pick up server_order_id / steps_done from prior attempts.
+    // If another worker already claimed this item, item stays undefined and we bail.
+    let item: SyncQueueItem | undefined
+    await localDb.transaction('rw', [localDb.syncQueue], async () => {
+      const current = await localDb.syncQueue.get(rawItem.id!)
+      if (!current || current.status !== 'pending') return
+      await localDb.syncQueue.update(rawItem.id!, {
+        status: 'syncing',
+        syncing_since: new Date().toISOString(),
+      })
+      item = current
+    })
+    if (!item) return
+    // TypeScript can't narrow `item` across closures below, so rebind to a definite type.
+    const syncItem: SyncQueueItem = item
 
     try {
-      const { order, items, payments, stockMovements } = item.payload
-      const stepsDone = new Set(item.steps_done ?? [])
+      const { order, items, payments, stockMovements } = syncItem.payload
+      const stepsDone = new Set(syncItem.steps_done ?? [])
 
-      // ── Step 1: Create order (skip if already created in a previous attempt) ──
-      let serverId = item.server_order_id ?? ''
-      let orderNo  = item.server_order_no  ?? ''
+      // ── Step 1: Batch sync — order + items + payments + movements in one call ──
+      let serverId = syncItem.server_order_id ?? ''
+      let orderNo  = syncItem.server_order_no  ?? ''
 
-      if (!serverId) {
-        const serverOrder = await this.post('orders', {
-          status:          order.status,
-          channel:         'pos',
-          customer_id:     order.customer_id   ?? '',
-          customer_name:   order.customer_name ?? '',
-          branch_id:       order.branch_id     ?? '',
-          employee_id:     order.employee_id   ?? '',
-          subtotal:        String(order.subtotal),
-          discount_amount: String(order.discount_amount),
-          tax_amount:      String(order.tax_amount),
-          total_amount:    String(order.total_amount),
-          paid_amount:     String(order.paid_amount),
-          note:            order.note ?? '',
-        })
-        serverId = serverOrder.order_id
-        orderNo  = serverOrder.order_no ?? ''
+      if (!stepsDone.has('batch')) {
+        const result = await this.postJson<{ order_id: string; order_no: string }>(
+          'orders/sync-batch',
+          {
+            local_order_id:  syncItem.local_order_id,
+            server_order_id: serverId || undefined,
+            order,
+            items,
+            payments,
+            stock_movements: stockMovements,
+          }
+        )
+        serverId = result.order_id
+        orderNo  = result.order_no ?? ''
 
-        // Persist immediately — if any later step fails, retry will reuse these IDs
-        await localDb.syncQueue.update(item.id!, {
+        stepsDone.add('batch')
+        await localDb.syncQueue.update(syncItem.id!, {
+          steps_done:      [...stepsDone],
           server_order_id: serverId,
           server_order_no: orderNo,
         })
       }
 
-      // ── Step 2: Order items — dedupe by product_id against server ──
-      if (!stepsDone.has('items')) {
-        const existing = await this.get('order-items', { order_id: serverId, limit: '200' })
-        const existingProductIds = new Set(existing.map((r) => r.product_id))
+      // ── Step 2: Inventory adjustments — per-item dedup via steps_done ──
+      // Kept separate from the batch so a failed inventory update is retried
+      // independently without re-creating order/items/payments/movements.
+      if (!stepsDone.has('inventory')) {
+        for (const mv of stockMovements) {
+          const invKey = `inv:${mv.product_id}`
+          if (stepsDone.has(invKey)) continue
 
-        for (let i = 0; i < items.length; i++) {
-          const it = items[i]
-          if (existingProductIds.has(it.product_id)) continue // already on server
-
-          await this.post('order-items', {
-            order_id:      serverId,
-            order_no:      orderNo,
-            line_no:       String(i + 1),
-            product_id:    it.product_id,
-            sku:           it.sku ?? '',
-            product_name:  it.product_name,
-            qty:           String(it.qty),
-            unit_price:    String(it.unit_price),
-            line_discount: String(it.discount_amount),
-            line_total:    String(it.line_total),
-          })
-        }
-
-        stepsDone.add('items')
-        await localDb.syncQueue.update(item.id!, { steps_done: [...stepsDone] })
-      }
-
-      // ── Step 3: Payments — dedupe by comparing total paid on server ──
-      if (!stepsDone.has('payments')) {
-        const existing = await this.get('payments', { order_id: serverId, limit: '50' })
-        const serverPaid = existing.reduce((s, r) => s + parseFloat(r.amount || '0'), 0)
-        const localPaid  = payments.reduce((s, p) => s + p.amount, 0)
-
-        // Only create payments if the server is missing some (compare by method too)
-        if (serverPaid < localPaid - 0.01) {
-          const existingMethods = existing.map((r) => r.method)
-          for (const pay of payments) {
-            // Skip if this method already has a payment recorded (simple dedupe)
-            if (existingMethods.includes(pay.method)) continue
-
-            await this.post('payments', {
-              order_id:     serverId,
-              order_no:     orderNo,
-              method:       pay.method,
-              amount:       String(pay.amount),
-              reference_no: pay.reference_no ?? '',
-              note:         pay.note ?? '',
+          const delta = calcMovementDelta(mv.type, mv.qty)
+          if (delta !== 0) {
+            await this.post('inventory/adjust', {
+              product_id: mv.product_id,
+              delta:      String(delta),
+              branch_id:  mv.branch_id ?? '',
             })
           }
+
+          stepsDone.add(invKey)
+          await localDb.syncQueue.update(syncItem.id!, { steps_done: [...stepsDone] })
         }
 
-        stepsDone.add('payments')
-        await localDb.syncQueue.update(item.id!, { steps_done: [...stepsDone] })
-      }
-
-      // ── Step 4: Stock movements — dedupe by product_id against server ──
-      if (!stepsDone.has('movements')) {
-        const existing = await this.get('stock-movements', {
-          product_id: '', // no product filter — fetch by order reference
-          limit: '200',
-        })
-        // Reference_no in existing movements equals the local_order_id written on checkout
-        const existingRefs = existing
-          .filter((r) => r.reference_no === item.local_order_id || r.reference_no === orderNo)
-          .map((r) => r.product_id)
-        const synced = new Set(existingRefs)
-
-        for (const mv of stockMovements) {
-          if (synced.has(mv.product_id)) continue // already recorded
-
-          await this.post('stock-movements', {
-            type:         mv.type,
-            product_id:   mv.product_id,
-            qty:          String(Math.abs(mv.qty)),
-            branch_id:    mv.branch_id ?? '',
-            reference_no: orderNo || mv.reference_no,
-          })
-        }
-
-        stepsDone.add('movements')
-        await localDb.syncQueue.update(item.id!, { steps_done: [...stepsDone] })
+        stepsDone.add('inventory')
+        await localDb.syncQueue.update(syncItem.id!, { steps_done: [...stepsDone] })
       }
 
       // ── Done ──
       await localDb.transaction('rw', [localDb.syncQueue, localDb.orders], async () => {
-        await localDb.syncQueue.update(item.id!, {
-          status:   'done',
+        await localDb.syncQueue.update(syncItem.id!, {
+          status:    'done',
           synced_at: new Date().toISOString(),
         })
         await localDb.orders
-          .where('local_id').equals(item.local_order_id)
+          .where('local_id').equals(syncItem.local_order_id)
           .modify({ server_id: serverId, sync_status: 'done' })
       })
 
-      broadcastOrderSynced({ local_id: item.local_order_id, server_id: serverId })
+      broadcastOrderSynced({ local_id: syncItem.local_order_id, server_id: serverId })
 
     } catch (err) {
-      const retries = (item.retry_count ?? 0) + 1
+      const retries = (syncItem.retry_count ?? 0) + 1
       const isFinal = retries >= MAX_RETRY
       await localDb.syncQueue.update(item.id!, {
         status:      isFinal ? 'failed' : 'pending',

@@ -29,7 +29,7 @@ export interface DataTableProps<T extends object> {
   onSelectionChange?: (selected: T[]) => void
   pagination?: PaginationConfig
   emptyState?: React.ReactNode
-  rowKey?: (row: T) => string
+  rowKey?: (row: T, idx: number) => string
 }
 
 type SortDir = 'asc' | 'desc' | null
@@ -73,7 +73,7 @@ export function DataTable<T extends object>({
   const [selected, setSelected] = useState<Set<string>>(new Set())
 
   const getKey = (row: T, idx: number): string =>
-    rowKey ? rowKey(row) : String((row as Record<string, unknown>)['id'] ?? idx)
+    rowKey ? rowKey(row, idx) : String((row as Record<string, unknown>)['id'] ?? idx)
 
   const handleSort = (key: string) => {
     if (sortKey !== key) {

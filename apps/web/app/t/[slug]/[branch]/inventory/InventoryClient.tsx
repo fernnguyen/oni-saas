@@ -149,6 +149,7 @@ export function InventoryClient({ shopId }: Props) {
       if (!res.ok) throw new Error('Không tải được dữ liệu')
       return res.json() as Promise<{ data: Row[]; total: number }>
     },
+    staleTime: 0,
   })
 
   // Products — for name + cost_price lookup (cost_price lives on Product, not Inventory)

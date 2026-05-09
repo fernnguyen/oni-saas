@@ -1,0 +1,204 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { requireShopAccess } from '@/lib/server/shopAccess'
+import { invalidate } from '@/lib/server/cache'
+import { handleApiError } from '../../../_helpers'
+
+const INBOUND_TYPES = ['purchase_in', 'return_in', 'transfer_in']
+const OUTBOUND_TYPES = ['sale_out', 'transfer_out']
+
+function calcDelta(type: string, qty: number): number {
+  if (INBOUND_TYPES.includes(type)) return Math.abs(qty)
+  if (OUTBOUND_TYPES.includes(type)) return -Math.abs(qty)
+  return qty
+}
+
+interface SyncItem {
+  product_id: string
+  sku?: string
+  product_name: string
+  qty: number
+  unit_price: number
+  discount_amount: number
+  line_total: number
+}
+
+interface SyncPayment {
+  method: string
+  amount: number
+  reference_no?: string
+  note?: string
+}
+
+interface SyncMovement {
+  type: string
+  product_id: string
+  qty: number
+  branch_id?: string
+  reference_no?: string
+}
+
+interface SyncOrder {
+  status: string
+  customer_id?: string
+  customer_name?: string
+  branch_id?: string
+  employee_id?: string
+  subtotal: number
+  discount_amount: number
+  tax_amount: number
+  total_amount: number
+  paid_amount: number
+  note?: string
+}
+
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ shopId: string }> }
+) {
+  try {
+    const { shopId } = await params
+    const { connector } = await requireShopAccess(shopId)
+
+    const body = await req.json() as {
+      local_order_id: string
+      server_order_id?: string
+      order: SyncOrder
+      items: SyncItem[]
+      payments: SyncPayment[]
+      stock_movements: SyncMovement[]
+    }
+
+    const { local_order_id, server_order_id, order, items, payments, stock_movements } = body
+
+    // ── Step 1: Find or create order ──
+    let serverId = server_order_id ?? ''
+    let orderNo = ''
+
+    if (!serverId && local_order_id) {
+      // Idempotency check: if a previous call created the order but the client
+      // never received the response (e.g. F5 mid-request), find it by reference_no.
+      // Requires an Orders tab with a "reference_no" column; silently falls back
+      // to creating a new order if the column is absent.
+      const existing = await connector.list('orders', {
+        page: 1, limit: 1,
+        filters: { reference_no: local_order_id },
+      })
+      if (existing.data.length > 0) {
+        const row = existing.data[0] as Record<string, string>
+        serverId = row.order_id
+        orderNo = row.order_no ?? ''
+      }
+    }
+
+    if (!serverId) {
+      const created = await connector.create('orders', {
+        status:          order.status,
+        channel:         'pos',
+        customer_id:     order.customer_id   ?? '',
+        customer_name:   order.customer_name ?? '',
+        branch_id:       order.branch_id     ?? '',
+        employee_id:     order.employee_id   ?? '',
+        subtotal:        String(order.subtotal),
+        discount_amount: String(order.discount_amount),
+        tax_amount:      String(order.tax_amount),
+        total_amount:    String(order.total_amount),
+        paid_amount:     String(order.paid_amount),
+        note:            order.note ?? '',
+        reference_no:    local_order_id ?? '',
+      } as Record<string, string>)
+      serverId = (created as Record<string, string>).order_id
+      orderNo = (created as Record<string, string>).order_no ?? ''
+    }
+
+    // If we reused an existing order and don't have order_no yet, fetch it
+    if (!orderNo && serverId) {
+      const row = await connector.list('orders', {
+        page: 1, limit: 1,
+        filters: { order_id: serverId },
+      })
+      if (row.data.length > 0) {
+        orderNo = (row.data[0] as Record<string, string>).order_no ?? ''
+      }
+    }
+
+    // ── Step 2: Order items — dedup by product_id ──
+    const existingItems = await connector.list('order-items', {
+      page: 1, limit: 200,
+      filters: { order_id: serverId },
+    })
+    const existingProductIds = new Set(
+      (existingItems.data as Record<string, string>[]).map((r) => r.product_id)
+    )
+
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i]
+      if (existingProductIds.has(it.product_id)) continue
+      await connector.create('order-items', {
+        order_id:      serverId,
+        order_no:      orderNo,
+        line_no:       String(i + 1),
+        product_id:    it.product_id,
+        sku:           it.sku ?? '',
+        product_name:  it.product_name,
+        qty:           String(it.qty),
+        unit_price:    String(it.unit_price),
+        line_discount: String(it.discount_amount),
+        line_total:    String(it.line_total),
+      })
+    }
+
+    // ── Step 3: Payments — dedup by method ──
+    const existingPays = await connector.list('payments', {
+      page: 1, limit: 50,
+      filters: { order_id: serverId },
+    })
+    const serverPaid = (existingPays.data as Record<string, string>[])
+      .reduce((s, r) => s + parseFloat(r.amount || '0'), 0)
+    const localPaid = payments.reduce((s, p) => s + p.amount, 0)
+
+    if (serverPaid < localPaid - 0.01) {
+      const existingMethods = new Set(
+        (existingPays.data as Record<string, string>[]).map((r) => r.method)
+      )
+      for (const pay of payments) {
+        if (existingMethods.has(pay.method)) continue
+        await connector.create('payments', {
+          order_id:     serverId,
+          order_no:     orderNo,
+          method:       pay.method,
+          amount:       String(pay.amount),
+          reference_no: pay.reference_no ?? '',
+          note:         pay.note ?? '',
+        })
+      }
+    }
+
+    // ── Step 4: Stock movements — dedup by (reference_no, product_id) ──
+    // Inventory is NOT updated here; the sync worker handles it as a separate
+    // idempotent step so a failed inventory update can be retried independently.
+    for (const mv of stock_movements) {
+      const check = await connector.list('stock-movements', {
+        page: 1, limit: 1,
+        filters: { reference_no: orderNo, product_id: mv.product_id },
+      })
+      if (check.data.length > 0) continue
+
+      await connector.create('stock-movements', {
+        type:         mv.type,
+        product_id:   mv.product_id,
+        qty:          String(Math.abs(mv.qty)),
+        branch_id:    mv.branch_id ?? '',
+        reference_no: orderNo || mv.reference_no || '',
+      } as Record<string, string>)
+    }
+
+    invalidate(shopId, 'orders')
+    invalidate(shopId, 'order-items')
+    invalidate(shopId, 'payments')
+    invalidate(shopId, 'stock-movements')
+
+    return NextResponse.json({ order_id: serverId, order_no: orderNo }, { status: 201 })
+  } catch (e) {
+    return handleApiError(e, 'POST orders/sync-batch')
+  }
+}

@@ -6,6 +6,7 @@ import { localDb } from '@/lib/localDb/schema'
 interface Props {
   isOnline: boolean
   onRetryFailed: () => void
+  onRetryAll: () => void
 }
 
 interface SyncCounts {
@@ -14,7 +15,7 @@ interface SyncCounts {
   failed: number
 }
 
-export function SyncStatusBar({ isOnline, onRetryFailed }: Props) {
+export function SyncStatusBar({ isOnline, onRetryFailed, onRetryAll }: Props) {
   const [counts, setCounts] = useState<SyncCounts>({ pending: 0, syncing: 0, failed: 0 })
 
   useEffect(() => {
@@ -59,9 +60,17 @@ export function SyncStatusBar({ isOnline, onRetryFailed }: Props) {
 
   if (syncing > 0) {
     return (
-      <div className="flex items-center gap-2 border-b border-yellow-200 bg-yellow-50 px-4 py-1.5 text-xs text-yellow-700">
-        <span className="h-3 w-3 animate-spin rounded-full border-2 border-yellow-500 border-t-transparent" />
-        <span>Đang đồng bộ {syncing} đơn...</span>
+      <div className="flex items-center justify-between border-b border-yellow-200 bg-yellow-50 px-4 py-1.5 text-xs text-yellow-700">
+        <div className="flex items-center gap-2">
+          <span className="h-3 w-3 animate-spin rounded-full border-2 border-yellow-500 border-t-transparent" />
+          <span>Đang đồng bộ {syncing} đơn...</span>
+        </div>
+        <button
+          onClick={onRetryAll}
+          className="rounded bg-yellow-200 px-2 py-0.5 font-medium hover:bg-yellow-300 transition-colors"
+        >
+          Thử lại
+        </button>
       </div>
     )
   }

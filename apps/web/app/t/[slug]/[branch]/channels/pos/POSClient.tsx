@@ -35,15 +35,25 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath }: P
   const cart = useCart()
   const [customer, setCustomer] = useState<LocalCustomer | null>(null)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
-  const [heldCarts, setHeldCarts] = useState<HeldCart[]>(() => {
-    try { return JSON.parse(localStorage.getItem('oni-held-carts') ?? '[]') } catch { return [] }
-  })
+  const [heldCarts, setHeldCarts] = useState<HeldCart[]>([])
   const [orderPanelOpen, setOrderPanelOpen] = useState(false)
+  const cartHydratedRef = useRef(false)
+  const workerRef = useRef<SyncWorker | null>(null)
 
+  // Read held carts from localStorage after mount (avoids SSR hydration mismatch)
   useEffect(() => {
+    try {
+      const stored = localStorage.getItem('oni-held-carts')
+      if (stored) setHeldCarts(JSON.parse(stored))
+    } catch {}
+    cartHydratedRef.current = true
+  }, [])
+
+  // Persist held carts — skip the first run before the read effect above has fired
+  useEffect(() => {
+    if (!cartHydratedRef.current) return
     localStorage.setItem('oni-held-carts', JSON.stringify(heldCarts))
   }, [heldCarts])
-  const workerRef = useRef<SyncWorker | null>(null)
 
   // Start sync worker on mount, stop on unmount
   useEffect(() => {
@@ -208,6 +218,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath }: P
       <SyncStatusBar
         isOnline={isOnline}
         onRetryFailed={() => workerRef.current?.retryFailed()}
+        onRetryAll={() => workerRef.current?.retryAll()}
       />
 
       {/* Main content */}

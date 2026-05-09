@@ -132,6 +132,7 @@ export interface SyncQueueItem {
   server_order_id?: string
   server_order_no?: string  // saved after step 1 so retries can skip order creation
   steps_done?: string[]     // ['items', 'payments', 'movements'] — completed bulk steps
+  syncing_since?: string    // ISO timestamp when set to 'syncing' — used to detect stale locks
   retry_count: number
   last_error?: string
   created_at: string
