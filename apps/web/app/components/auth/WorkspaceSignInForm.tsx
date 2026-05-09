@@ -24,9 +24,13 @@ export function WorkspaceSignInForm({ tenantName, tenantSlug }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ identifier, password, tenant_slug: tenantSlug }),
       });
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
         throw new Error(data.message || 'Đăng nhập thất bại');
+      }
+      if (data.mfa_required) {
+        window.location.href = '/auth/2fa?next=/';
+        return;
       }
       window.location.href = '/';
     } catch (err: unknown) {

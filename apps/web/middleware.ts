@@ -4,6 +4,9 @@ import { createServerClient } from '@supabase/ssr';
 // Paths that are public on the MAIN domain (no auth required)
 const MAIN_DOMAIN_PUBLIC = ['/auth', '/api', '/_next', '/favicon', '/register'];
 
+// Paths on subdomain that bypass AAL check (auth flows themselves)
+const SUBDOMAIN_AUTH_BYPASS = ['/auth/', '/api/', '/_next/'];
+
 function isMainPublic(pathname: string) {
   return pathname === '/' ||
     MAIN_DOMAIN_PUBLIC.some((p) => pathname === p || pathname.startsWith(p + '/'));
@@ -32,6 +35,13 @@ export async function middleware(req: NextRequest) {
       pathname.startsWith('/super')
     ) {
       return NextResponse.redirect(new URL('/', `http://${rootDomain}`));
+    }
+
+    // AAL guard: if user has 2FA enabled but session is only AAL1, redirect to 2FA page
+    const needsBypass = SUBDOMAIN_AUTH_BYPASS.some((p) => pathname.startsWith(p));
+    if (!needsBypass) {
+      const mfaRedirect = await checkMFARedirect(req, pathname);
+      if (mfaRedirect) return withSupabaseSession(req, mfaRedirect);
     }
 
     // Rewrite all other subdomain paths to /t/[slug]/...
@@ -91,6 +101,49 @@ async function getUser(req: NextRequest) {
   );
   const { data } = await supabase.auth.getUser();
   return { user: data.user };
+}
+
+// Checks if user needs MFA upgrade. Returns a redirect Response or null.
+async function checkMFARedirect(req: NextRequest, pathname: string): Promise<NextResponse | null> {
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+    {
+      cookies: {
+        get(name: string) { return req.cookies.get(name)?.value; },
+        set() {},
+        remove() {},
+      },
+    },
+  );
+
+  // getSession reads cookies — no network call
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.user) return null;
+
+  // Check if user has any verified TOTP factors
+  const verifiedFactors = (session.user.factors ?? []).filter(
+    (f: { status: string }) => f.status === 'verified',
+  );
+  if (verifiedFactors.length === 0) return null;
+
+  // Decode AAL claim from JWT (no network call)
+  const currentAAL = decodeJWTClaim(session.access_token, 'aal');
+  if (currentAAL === 'aal2') return null;
+
+  // User has 2FA but session is only AAL1 — redirect to 2FA challenge
+  const url = req.nextUrl.clone();
+  url.pathname = '/auth/2fa';
+  url.searchParams.set('next', pathname);
+  return NextResponse.redirect(url);
+}
+
+function decodeJWTClaim(token: string, claim: string): string | null {
+  try {
+    const base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const payload = JSON.parse(atob(base64));
+    return payload[claim] ?? null;
+  } catch { return null; }
 }
 
 async function withSupabaseSession(req: NextRequest, res: NextResponse): Promise<NextResponse> {

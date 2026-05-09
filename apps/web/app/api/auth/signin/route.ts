@@ -56,6 +56,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message }, { status: 400 });
   }
 
+  // ── MFA check: if user has 2FA enrolled, require AAL2 ────────
+  const { data: aalData } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (aalData && aalData.nextLevel === 'aal2' && aalData.currentLevel !== 'aal2') {
+    return NextResponse.json({ ok: true, mfa_required: true });
+  }
+
   // ── Main domain guard: only superadmins allowed ─────────────
   const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
   const host = req.headers.get('host') ?? '';
