@@ -70,7 +70,7 @@ export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd
       .then(({ data }) => {
         if (data && data.length > 0) setPlans(data as PlanRow[]);
       })
-      .finally(() => setPlansLoading(false));
+      .then(() => setPlansLoading(false), () => setPlansLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

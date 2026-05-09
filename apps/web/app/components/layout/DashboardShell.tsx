@@ -1,3 +1,6 @@
+'use client';
+
+import { useState } from 'react';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
 import { ConfirmProvider } from '@/app/components/ui/ConfirmProvider';
@@ -20,6 +23,8 @@ interface DashboardShellProps {
   planName?: string;
   periodStart?: string;
   periodEnd?: string;
+  currentBranchSlug?: string;
+  currentBranchAddress?: string | null;
 }
 
 export function DashboardShell({
@@ -39,7 +44,11 @@ export function DashboardShell({
   planName,
   periodStart,
   periodEnd,
+  currentBranchSlug,
+  currentBranchAddress,
 }: DashboardShellProps) {
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
   return (
     <ConfirmProvider>
       <div className="min-h-screen bg-slate-50 flex">
@@ -51,6 +60,12 @@ export function DashboardShell({
           settingsHref={settingsHref}
           permissions={permissions}
           context={sidebarContext}
+          tenantId={tenantId}
+          currentBranchSlug={currentBranchSlug}
+          currentBranchName={shopName}
+          currentBranchAddress={currentBranchAddress}
+          mobileOpen={mobileNavOpen}
+          onMobileClose={() => setMobileNavOpen(false)}
         />
         <div className="flex-1 min-w-0 flex flex-col">
           <Topbar
@@ -64,6 +79,7 @@ export function DashboardShell({
             planName={planName}
             periodStart={periodStart}
             periodEnd={periodEnd}
+            onMobileMenuClick={() => setMobileNavOpen(true)}
           />
           <main className="flex-1 p-4 md:p-6">
             {children}

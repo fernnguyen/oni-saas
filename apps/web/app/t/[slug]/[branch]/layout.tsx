@@ -97,6 +97,8 @@ export default async function BranchLayout({ params, children }: Props) {
       planName={planName}
       periodStart={periodStart}
       periodEnd={periodEnd}
+      currentBranchSlug={branch}
+      currentBranchAddress={shop.address}
     >
       {children}
     </DashboardShell>

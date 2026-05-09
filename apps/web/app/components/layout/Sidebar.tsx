@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { buildNavGroups, IconHelp } from './nav';
+import { BranchSelector } from './BranchSelector';
 
 interface SidebarProps {
   basePath?: string;
@@ -13,6 +14,13 @@ interface SidebarProps {
   settingsHref?: string;
   permissions?: string[];
   context?: 'control' | 'shop' | 'super';
+  tenantId?: string;
+  currentBranchSlug?: string;
+  currentBranchName?: string;
+  currentBranchAddress?: string | null;
+  /** Controlled open state for mobile overlay */
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
 }
 
 /** Fixed-position tooltip that escapes any overflow container */
@@ -47,34 +55,42 @@ function NavTooltip({ label, children }: { label: string; children: React.ReactN
   );
 }
 
-export function Sidebar({
-  basePath = '/dashboard',
-  supportHref = '/dashboard/support',
+function SidebarContent({
+  collapsed,
+  basePath,
+  supportHref,
   tenantHref,
   connectorsHref,
   settingsHref,
-  permissions = [],
-  context = 'shop',
-}: SidebarProps) {
+  permissions,
+  context,
+  tenantId,
+  currentBranchSlug,
+  currentBranchName,
+  currentBranchAddress,
+  onToggleCollapsed,
+  onClose,
+}: {
+  collapsed: boolean;
+  basePath: string;
+  supportHref: string;
+  tenantHref?: string;
+  connectorsHref?: string;
+  settingsHref?: string;
+  permissions: string[];
+  context: 'control' | 'shop' | 'super';
+  tenantId?: string;
+  currentBranchSlug?: string;
+  currentBranchName?: string;
+  currentBranchAddress?: string | null;
+  onToggleCollapsed?: () => void;
+  onClose?: () => void;
+}) {
   const pathname = usePathname();
-  const [collapsed, setCollapsed] = useState(false);
   const navGroups = buildNavGroups(
     { basePath, supportHref, tenantHref, connectorsHref, settingsHref, context },
     permissions,
   );
-
-  useEffect(() => {
-    const saved = localStorage.getItem('sidebar-collapsed');
-    if (saved !== null) setCollapsed(saved === 'true');
-  }, []);
-
-  function toggleCollapsed() {
-    setCollapsed((prev) => {
-      const next = !prev;
-      localStorage.setItem('sidebar-collapsed', String(next));
-      return next;
-    });
-  }
 
   function isActive(href: string, exact?: boolean) {
     if (exact) return pathname === href;
@@ -82,11 +98,7 @@ export function Sidebar({
   }
 
   return (
-    <aside
-      className={`hidden md:flex md:flex-col bg-white border-r border-slate-200 shrink-0 overflow-hidden transition-all duration-200 ${
-        collapsed ? 'md:w-[64px]' : 'md:w-[220px]'
-      }`}
-    >
+    <div className="flex flex-col h-full">
       {/* Logo + toggle */}
       <div
         className={`flex items-center border-b border-slate-200 ${
@@ -112,19 +124,42 @@ export function Sidebar({
             )}
           </>
         )}
-        <button
-          onClick={toggleCollapsed}
-          className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 cursor-pointer shrink-0"
-        >
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            {collapsed ? (
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-            ) : (
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-            )}
-          </svg>
-        </button>
+        {onToggleCollapsed && (
+          <button
+            onClick={onToggleCollapsed}
+            className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 cursor-pointer shrink-0"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              {collapsed ? (
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+              ) : (
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+              )}
+            </svg>
+          </button>
+        )}
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 cursor-pointer shrink-0"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        )}
       </div>
+
+      {/* Branch selector */}
+      {context === 'shop' && tenantId && currentBranchSlug && currentBranchName && (
+        <BranchSelector
+          tenantId={tenantId}
+          currentSlug={currentBranchSlug}
+          currentName={currentBranchName}
+          currentAddress={currentBranchAddress}
+          collapsed={collapsed}
+        />
+      )}
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-4">
@@ -142,6 +177,7 @@ export function Sidebar({
                 const linkEl = (
                   <Link
                     href={item.href}
+                    onClick={onClose}
                     className={`flex items-center rounded-md py-2 text-sm transition-colors ${
                       collapsed ? 'justify-center px-2' : 'gap-2.5 px-2.5'
                     } ${
@@ -181,6 +217,7 @@ export function Sidebar({
         ) : (
           <Link
             href={supportHref}
+            onClick={onClose}
             className="flex items-center gap-2.5 px-2.5 rounded-md py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors"
           >
             <IconHelp className="h-4 w-4 shrink-0" />
@@ -188,6 +225,85 @@ export function Sidebar({
           </Link>
         )}
       </div>
-    </aside>
+    </div>
+  );
+}
+
+export function Sidebar({
+  basePath = '/dashboard',
+  supportHref = '/dashboard/support',
+  tenantHref,
+  connectorsHref,
+  settingsHref,
+  permissions = [],
+  context = 'shop',
+  tenantId,
+  currentBranchSlug,
+  currentBranchName,
+  currentBranchAddress,
+  mobileOpen = false,
+  onMobileClose,
+}: SidebarProps) {
+  const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('sidebar-collapsed');
+    if (saved !== null) setCollapsed(saved === 'true');
+  }, []);
+
+  function toggleCollapsed() {
+    setCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem('sidebar-collapsed', String(next));
+      return next;
+    });
+  }
+
+  const sharedProps = {
+    basePath,
+    supportHref,
+    tenantHref,
+    connectorsHref,
+    settingsHref,
+    permissions,
+    context,
+    tenantId,
+    currentBranchSlug,
+    currentBranchName,
+    currentBranchAddress,
+  };
+
+  return (
+    <>
+      {/* Desktop sidebar */}
+      <aside
+        className={`hidden md:flex md:flex-col bg-white border-r border-slate-200 shrink-0 overflow-hidden transition-all duration-200 ${
+          collapsed ? 'md:w-[64px]' : 'md:w-[220px]'
+        }`}
+      >
+        <SidebarContent
+          {...sharedProps}
+          collapsed={collapsed}
+          onToggleCollapsed={toggleCollapsed}
+        />
+      </aside>
+
+      {/* Mobile overlay */}
+      {mobileOpen && (
+        <>
+          <div
+            className="fixed inset-0 bg-black/40 z-40 md:hidden"
+            onClick={onMobileClose}
+          />
+          <aside className="fixed inset-y-0 left-0 w-[280px] bg-white z-50 flex flex-col md:hidden shadow-xl">
+            <SidebarContent
+              {...sharedProps}
+              collapsed={false}
+              onClose={onMobileClose}
+            />
+          </aside>
+        </>
+      )}
+    </>
   );
 }
