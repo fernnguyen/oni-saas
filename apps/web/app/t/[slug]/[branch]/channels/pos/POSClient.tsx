@@ -58,6 +58,13 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath }: P
   // Start sync worker on mount, stop on unmount
   useEffect(() => {
     const worker = new SyncWorker(shopId)
+    worker.setNotifyCallback(({ name, action }) => {
+      toast.success(
+        action === 'created'
+          ? `Đã lưu khách hàng mới: ${name}`
+          : `Đã cập nhật khách hàng: ${name}`
+      )
+    })
     workerRef.current = worker
     void worker.start()
     return () => worker.stop()

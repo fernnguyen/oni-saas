@@ -180,6 +180,7 @@ export function CheckoutModal({
             branch_id: branchId,
             reference_no: local_id,
           })),
+          customer: customer ? { name: customer.name, phone: customer.phone } : undefined,
         },
         local_order_id: local_id,
         retry_count: 0,

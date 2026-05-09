@@ -14,14 +14,21 @@ const SYNC_INTERVAL_MS = 3_000
 const MAX_RETRY = 5
 const BACKOFF_MS = [2_000, 4_000, 8_000, 16_000, 32_000]
 
+type NotifyInfo = { name: string; action: 'created' | 'updated' }
+
 export class SyncWorker {
   private timer: ReturnType<typeof setInterval> | null = null
   private running = false
   private stopped = false
   private shopId: string
+  private onNotify?: (info: NotifyInfo) => void
 
   constructor(shopId: string) {
     this.shopId = shopId
+  }
+
+  setNotifyCallback(cb: (info: NotifyInfo) => void) {
+    this.onNotify = cb
   }
 
   async start() {
@@ -109,6 +116,16 @@ export class SyncWorker {
       body: JSON.stringify(body),
     })
     if (!res.ok) throw new Error(`POST ${path} → ${res.status}`)
+    return res.json() as Promise<T>
+  }
+
+  private async putJson<T = Record<string, unknown>>(path: string, body: unknown): Promise<T> {
+    const res = await fetch(`/api/shops/${this.shopId}/${path}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) throw new Error(`PUT ${path} → ${res.status}`)
     return res.json() as Promise<T>
   }
 
@@ -212,6 +229,16 @@ export class SyncWorker {
         await localDb.syncQueue.update(syncItem.id!, { steps_done: [...stepsDone] })
       }
 
+      // ── Step 3: Customer upsert ──
+      if (!stepsDone.has('customer')) {
+        const cust = syncItem.payload.customer
+        if (cust?.name) {
+          await this.upsertCustomer(cust.name, cust.phone)
+        }
+        stepsDone.add('customer')
+        await localDb.syncQueue.update(syncItem.id!, { steps_done: [...stepsDone] })
+      }
+
       // ── Done ──
       await localDb.transaction('rw', [localDb.syncQueue, localDb.orders], async () => {
         await localDb.syncQueue.update(syncItem.id!, {
@@ -239,5 +266,34 @@ export class SyncWorker {
         )
       }
     }
+  }
+
+  private async upsertCustomer(name: string, phone?: string) {
+    const trimPhone = phone?.trim()
+    const trimName  = name.trim()
+
+    if (trimPhone) {
+      // Phone is the primary key: search by phone, exact match
+      const rows = await this.get('customers', { search: trimPhone, limit: '10' })
+      const existing = rows.find(
+        (r) => (r.phone ?? '').replace(/\s/g, '') === trimPhone.replace(/\s/g, '')
+      )
+      if (existing) {
+        if (existing.name !== trimName) {
+          await this.putJson(`customers/${existing.customer_id}`, { name: trimName })
+        }
+        this.onNotify?.({ name: trimName, action: 'updated' })
+        return
+      }
+    } else {
+      // No phone — fall back to name dedup (case-insensitive)
+      const rows = await this.get('customers', { search: trimName, limit: '10' })
+      const existing = rows.find((r) => r.name?.toLowerCase() === trimName.toLowerCase())
+      if (existing) return  // already in system, nothing to update without a phone key
+    }
+
+    // Create new customer
+    await this.postJson('customers', { name: trimName, ...(trimPhone ? { phone: trimPhone } : {}) })
+    this.onNotify?.({ name: trimName, action: 'created' })
   }
 }

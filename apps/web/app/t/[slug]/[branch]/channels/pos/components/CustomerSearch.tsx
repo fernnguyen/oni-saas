@@ -93,6 +93,16 @@ export function CustomerSearch({ selected, onSelect }: Props) {
             value={query}
             onChange={(e) => { setQuery(e.target.value); setOpen(true) }}
             onFocus={() => setOpen(true)}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return
+              if (results.length > 0) {
+                onSelect(results[0]!)
+                setQuery('')
+                setOpen(false)
+              } else if (query.trim()) {
+                handleUseVirtual()
+              }
+            }}
             placeholder="Tìm tên hoặc số điện thoại..."
             className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm placeholder:text-slate-400 focus:border-[#0268FF] focus:outline-none"
           />
@@ -137,6 +147,7 @@ export function CustomerSearch({ selected, onSelect }: Props) {
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && query.trim()) handleUseVirtual() }}
             placeholder="Tên khách *"
             className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm focus:border-[#0268FF] focus:outline-none"
             autoFocus
@@ -145,6 +156,7 @@ export function CustomerSearch({ selected, onSelect }: Props) {
             type="tel"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && query.trim()) handleUseVirtual() }}
             placeholder="Số điện thoại (tùy chọn)"
             className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm focus:border-[#0268FF] focus:outline-none"
           />

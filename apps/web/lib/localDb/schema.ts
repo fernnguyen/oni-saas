@@ -127,6 +127,7 @@ export interface SyncQueueItem {
     items: LocalOrderItem[]
     payments: LocalPayment[]
     stockMovements: StockMovementPayload[]
+    customer?: { name: string; phone?: string }
   }
   local_order_id: string
   server_order_id?: string
