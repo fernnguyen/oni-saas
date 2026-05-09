@@ -15,8 +15,10 @@ interface DashboardShellProps {
   permissions?: string[];
   /** 'control' = org management; 'shop' = shop operations (default); 'super' = superadmin */
   sidebarContext?: 'control' | 'shop' | 'super';
+  planCode?: string;
   planName?: string;
-  planDuration?: string;
+  periodStart?: string;
+  periodEnd?: string;
 }
 
 export function DashboardShell({
@@ -31,8 +33,10 @@ export function DashboardShell({
   settingsHref,
   permissions = [],
   sidebarContext = 'shop',
+  planCode,
   planName,
-  planDuration,
+  periodStart,
+  periodEnd,
 }: DashboardShellProps) {
   return (
     <ConfirmProvider>
@@ -53,8 +57,10 @@ export function DashboardShell({
             userEmail={userEmail}
             settingsHref={settingsHref}
             permissions={permissions}
+            planCode={planCode}
             planName={planName}
-            planDuration={planDuration}
+            periodStart={periodStart}
+            periodEnd={periodEnd}
           />
           <main className="flex-1 p-4 md:p-6">
             {children}

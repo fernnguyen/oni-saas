@@ -3,7 +3,6 @@ import { getSupabaseServerClient } from '@/lib/server/supabaseServer';
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
 import { getUserPermissions } from '@/lib/server/permissions';
 import { listTenantUsers } from '@/lib/server/tenantUsers';
-import { DashboardShell } from '@/app/components/layout/DashboardShell';
 import { TeamClient } from './TeamClient';
 
 interface Props {
@@ -46,29 +45,15 @@ export default async function TeamPage({ params }: Props) {
     admin.from('shops').select('id, name, slug').eq('tenant_id', tenant.id),
   ]);
 
-  const homePath = `/${branch}`;
-
   return (
-    <DashboardShell
-      tenantName={tenant.name}
-      shopName={shop.name}
-      userEmail={authData.user.email}
-      sidebarBasePath={homePath}
-      tenantHref={`${controlPlaneOrigin}/dashboard/tenants`}
-      connectorsHref={`${homePath}/connectors`}
-      settingsHref={`${homePath}/settings`}
-      supportHref={`${homePath}/support`}
-      permissions={permissions}
-    >
-      <TeamClient
-        tenantId={tenant.id}
-        tenantSlug={tenant.slug}
-        initialUsers={users}
-        shops={shops ?? []}
-        canInvite={permissions.includes('users.invite') as boolean}
-        canRemove={permissions.includes('users.remove') as boolean}
-        currentUserId={authData.user.id}
-      />
-    </DashboardShell>
+    <TeamClient
+      tenantId={tenant.id}
+      tenantSlug={tenant.slug}
+      initialUsers={users}
+      shops={shops ?? []}
+      canInvite={permissions.includes('users.invite') as boolean}
+      canRemove={permissions.includes('users.remove') as boolean}
+      currentUserId={authData.user.id}
+    />
   );
 }

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { getSupabaseBrowserClient } from '../../../lib/supabaseBrowser';
 import { ConnectorStatusPill } from '../connectors/ConnectorStatusPill';
+import { PlanBadge } from './PlanBadge';
 
 interface TopbarProps {
   tenantName: string;
@@ -11,8 +12,10 @@ interface TopbarProps {
   userEmail?: string;
   settingsHref?: string;
   permissions?: string[];
+  planCode?: string;
   planName?: string;
-  planDuration?: string;
+  periodStart?: string;
+  periodEnd?: string;
 }
 
 export function Topbar({
@@ -21,8 +24,10 @@ export function Topbar({
   userEmail,
   settingsHref = '/dashboard/settings',
   permissions = [],
+  planCode,
   planName,
-  planDuration,
+  periodStart,
+  periodEnd,
 }: TopbarProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [logoutConfirm, setLogoutConfirm] = useState(false);
@@ -48,17 +53,13 @@ export function Topbar({
           </button>
 
           {/* Plan info card */}
-          {planName && (
-            <div className="hidden sm:flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#EC4899] to-[#F97316] pl-2.5 pr-4 py-1.5 text-white relative overflow-hidden shrink-0">
-              <div className="absolute right-0 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-white/10" />
-              <IconCrown className="h-4 w-4 text-yellow-300 shrink-0 relative" />
-              <div className="relative">
-                <div className="font-semibold text-xs leading-tight">{planName}</div>
-                {planDuration && (
-                  <div className="text-[10px] text-white/80 leading-tight">{planDuration}</div>
-                )}
-              </div>
-            </div>
+          {planCode && planName && (
+            <PlanBadge
+              planCode={planCode}
+              planName={planName}
+              periodStart={periodStart}
+              periodEnd={periodEnd}
+            />
           )}
 
           {/* Connector status — only shows when not connected or error */}
@@ -180,10 +181,4 @@ export function Topbar({
   );
 }
 
-function IconCrown({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
-      <path d="M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm0 3a1 1 0 000 2h14a1 1 0 000-2H5z" />
-    </svg>
-  );
-}
+
