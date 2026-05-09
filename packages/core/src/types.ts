@@ -21,12 +21,12 @@ export interface Shop {
   connectorStatus: 'pending' | 'active' | 'error' | null;
 }
 
-export interface PlanMetadata {
-  max_shops: number;                 // -1 = unlimited
-  max_users: number;
-  max_connectors_per_shop: number;
-  max_custom_domains: number;
-}
+/**
+ * Plan metadata: action key → max count (-1 = unlimited, 0 = blocked).
+ * Keys are action names registered in planLimits.ts (e.g. "create_shop").
+ * Adding a new limit = add a key here + register the counter in planLimits.ts.
+ */
+export type PlanMetadata = Record<string, number>;
 
 export interface Plan {
   id: number;

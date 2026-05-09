@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { getSupabaseServerClient } from '../../../lib/server/supabaseServer';
 import { getSupabaseAdminClient } from '../../../lib/server/supabaseAdmin';
 import { hasPermission } from '../../../lib/server/permissions';
-import { enforceShopLimit, isPlanLimitError, planLimitResponse } from '../../../lib/server/planLimits';
+import { enforceLimit, isPlanLimitError, planLimitResponse } from '../../../lib/server/planLimits';
 
 const createSchema = z.object({
   tenant_id: z.string().uuid(),
@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
   if (!allowed) return NextResponse.json({ message: 'Forbidden' }, { status: 403 });
 
   try {
-    await enforceShopLimit(tenant_id);
+    await enforceLimit('create_shop', { tenantId: tenant_id }, tenant_id);
   } catch (err) {
     if (isPlanLimitError(err)) return planLimitResponse(err);
     throw err;

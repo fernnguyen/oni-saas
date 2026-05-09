@@ -47,8 +47,8 @@ export async function createTenantUser(params: CreateTenantUserParams) {
   const admin = getSupabaseAdminClient();
 
   // ── Plan limit check ────────────────────────────────────────
-  const { enforceUserLimit } = await import('./planLimits');
-  await enforceUserLimit(params.tenantId);
+  const { enforceLimit } = await import('./planLimits');
+  await enforceLimit('create_shop_user', { tenantId: params.tenantId }, params.tenantId);
 
   if (params.accountType === 'workspace') {
     return _createWorkspaceUser(params);

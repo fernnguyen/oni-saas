@@ -4,7 +4,7 @@ import { getSupabaseServerClient } from '../../../../../lib/server/supabaseServe
 import { getSupabaseAdminClient } from '../../../../../lib/server/supabaseAdmin';
 import { extractGoogleSheetId } from '../../../../../lib/googleSheets';
 import { getServiceAccountToken } from '../../../../../lib/server/googleServiceAccount';
-import { enforceConnectorLimit, isPlanLimitError, planLimitResponse } from '../../../../../lib/server/planLimits';
+import { enforceLimit, isPlanLimitError, planLimitResponse } from '../../../../../lib/server/planLimits';
 
 const schema = z.object({
   shop_id: z.string().uuid(),
@@ -81,11 +81,15 @@ export async function POST(req: NextRequest) {
   };
 
   if (!existing) {
-    try {
-      await enforceConnectorLimit(shop_id);
-    } catch (err) {
-      if (isPlanLimitError(err)) return planLimitResponse(err);
-      throw err;
+    // Resolve tenant for limit check
+    const { data: shopRow } = await admin.from('shops').select('tenant_id').eq('id', shop_id).maybeSingle();
+    if (shopRow) {
+      try {
+        await enforceLimit('create_connector', { shopId: shop_id }, shopRow.tenant_id);
+      } catch (err) {
+        if (isPlanLimitError(err)) return planLimitResponse(err);
+        throw err;
+      }
     }
   }
 

@@ -24,11 +24,12 @@ export default async function SuperPlans() {
       <div className="space-y-4">
         {(plans as any[]).map((plan) => {
           const meta = plan.metadata ?? {};
+          const fmtVal = (v: number | undefined) => v === undefined ? '—' : v === -1 ? '∞' : v;
           const limits = [
-            { label: 'Chi nhánh tối đa', value: meta.max_shops === -1 ? '∞' : (meta.max_shops ?? '—') },
-            { label: 'Người dùng tối đa', value: meta.max_users === -1 ? '∞' : (meta.max_users ?? '—') },
-            { label: 'Connector/chi nhánh', value: meta.max_connectors_per_shop === -1 ? '∞' : (meta.max_connectors_per_shop ?? '—') },
-            { label: 'Custom domain', value: meta.max_custom_domains === -1 ? '∞' : (meta.max_custom_domains ?? '—') },
+            { label: 'Chi nhánh tối đa',   value: fmtVal(meta.create_shop) },
+            { label: 'Người dùng tối đa',  value: fmtVal(meta.create_shop_user) },
+            { label: 'Connector/chi nhánh',value: fmtVal(meta.create_connector) },
+            { label: 'Custom domain',       value: fmtVal(meta.create_domain) },
           ];
 
           return (

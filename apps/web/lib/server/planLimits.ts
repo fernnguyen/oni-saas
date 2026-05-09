@@ -1,26 +1,74 @@
+/**
+ * Dynamic plan limit enforcement.
+ *
+ * How to add a new limit:
+ *   1. Register the action in ACTION_REGISTRY below (key + how to count usage).
+ *   2. Add the key to plans.metadata in a DB migration (value = max count).
+ *   3. Call enforceLimit(actionKey, context, tenantId) in the API route.
+ *
+ * Limit is only applied when the key exists in the tenant's plan metadata.
+ * If the key is absent, no limit is enforced for that action.
+ */
+
 import { NextResponse } from 'next/server';
 import { getSupabaseAdminClient } from './supabaseAdmin';
 import { getTenantPlanMeta } from './subscriptions';
-import type { PlanMetadata } from '@oni/core/types';
+
+// ─── Action registry ──────────────────────────────────────────────────────────
+
+export interface LimitContext {
+  tenantId?: string;
+  shopId?: string;
+}
+
+interface ActionDef {
+  /** Human-readable label used in error messages and UI. */
+  label: string;
+  /** How to count current usage given the context. */
+  count: (ctx: LimitContext) => Promise<number>;
+}
+
+const admin = () => getSupabaseAdminClient();
+
+async function countRows(table: string, column: string, value: string): Promise<number> {
+  const { count } = await admin()
+    .from(table)
+    .select('*', { count: 'exact', head: true })
+    .eq(column, value);
+  return count ?? 0;
+}
+
+export const ACTION_REGISTRY: Record<string, ActionDef> = {
+  create_shop: {
+    label: 'chi nhánh',
+    count: ({ tenantId }) => countRows('shops', 'tenant_id', tenantId!),
+  },
+  create_shop_user: {
+    label: 'người dùng',
+    count: ({ tenantId }) => countRows('tenant_user_profiles', 'tenant_id', tenantId!),
+  },
+  create_connector: {
+    label: 'kết nối dữ liệu',
+    count: ({ shopId }) => countRows('connectors', 'shop_id', shopId!),
+  },
+  create_domain: {
+    label: 'domain tùy chỉnh',
+    count: ({ shopId }) => countRows('domains', 'shop_id', shopId!),
+  },
+};
 
 // ─── Error type ───────────────────────────────────────────────────────────────
-
-const DIMENSION_LABELS: Record<keyof PlanMetadata, string> = {
-  max_shops:               'chi nhánh',
-  max_users:               'người dùng',
-  max_connectors_per_shop: 'kết nối dữ liệu',
-  max_custom_domains:      'domain tùy chỉnh',
-};
 
 export class PlanLimitError extends Error {
   readonly name = 'PlanLimitError';
   constructor(
-    public readonly dimension: keyof PlanMetadata,
+    public readonly action: string,
     public readonly current: number,
     public readonly limit: number,
   ) {
+    const label = ACTION_REGISTRY[action]?.label ?? action;
     super(
-      `Đã đạt giới hạn ${DIMENSION_LABELS[dimension]} của gói hiện tại (${current}/${limit}). Vui lòng nâng cấp gói để tiếp tục.`,
+      `Đã đạt giới hạn ${label} của gói hiện tại (${current}/${limit}). Vui lòng nâng cấp gói để tiếp tục.`,
     );
   }
 }
@@ -29,12 +77,12 @@ export function isPlanLimitError(err: unknown): err is PlanLimitError {
   return err instanceof PlanLimitError;
 }
 
-/** Standard 402 response for plan limit exceeded */
+/** Standard 402 response returned to the client when a plan limit is hit. */
 export function planLimitResponse(err: PlanLimitError): NextResponse {
   return NextResponse.json(
     {
       error: 'plan_limit_exceeded',
-      dimension: err.dimension,
+      action: err.action,
       current: err.current,
       limit: err.limit,
       message: err.message,
@@ -43,100 +91,57 @@ export function planLimitResponse(err: PlanLimitError): NextResponse {
   );
 }
 
-// ─── Enforce helpers — throw PlanLimitError if at limit ───────────────────────
+// ─── Core enforcement ─────────────────────────────────────────────────────────
 
-export async function enforceShopLimit(tenantId: string): Promise<void> {
+/**
+ * Throws PlanLimitError if the tenant's plan has a limit for this action
+ * and that limit is already reached.
+ *
+ * No-op when:
+ *   - action key is not in the plan metadata (no limit declared)
+ *   - action key is not in ACTION_REGISTRY (not yet wired up)
+ *   - limit value is -1 (unlimited)
+ */
+export async function enforceLimit(
+  action: string,
+  context: LimitContext,
+  tenantId: string,
+): Promise<void> {
   const meta = await getTenantPlanMeta(tenantId);
-  if (meta.max_shops === -1) return;
+  const limit = meta[action];
+  if (limit === undefined || limit === -1) return;
 
-  const admin = getSupabaseAdminClient();
-  const { count } = await admin
-    .from('shops')
-    .select('*', { count: 'exact', head: true })
-    .eq('tenant_id', tenantId);
+  const def = ACTION_REGISTRY[action];
+  if (!def) return;
 
-  const current = count ?? 0;
-  if (current >= meta.max_shops) throw new PlanLimitError('max_shops', current, meta.max_shops);
+  const current = await def.count(context);
+  if (current >= limit) throw new PlanLimitError(action, current, limit);
 }
 
-export async function enforceUserLimit(tenantId: string): Promise<void> {
-  const meta = await getTenantPlanMeta(tenantId);
-  if (meta.max_users === -1) return;
-
-  const admin = getSupabaseAdminClient();
-  // tenant_user_profiles tracks all users (workspace + personal) for a tenant
-  const { count } = await admin
-    .from('tenant_user_profiles')
-    .select('*', { count: 'exact', head: true })
-    .eq('tenant_id', tenantId);
-
-  const current = count ?? 0;
-  if (current >= meta.max_users) throw new PlanLimitError('max_users', current, meta.max_users);
-}
-
-export async function enforceConnectorLimit(shopId: string): Promise<void> {
-  const admin = getSupabaseAdminClient();
-
-  // Resolve tenant from shop
-  const { data: shop } = await admin
-    .from('shops')
-    .select('tenant_id')
-    .eq('id', shopId)
-    .maybeSingle();
-  if (!shop) return;
-
-  const meta = await getTenantPlanMeta(shop.tenant_id);
-  if (meta.max_connectors_per_shop === -1) return;
-
-  const { count } = await admin
-    .from('connectors')
-    .select('*', { count: 'exact', head: true })
-    .eq('shop_id', shopId);
-
-  const current = count ?? 0;
-  if (current >= meta.max_connectors_per_shop) {
-    throw new PlanLimitError('max_connectors_per_shop', current, meta.max_connectors_per_shop);
-  }
-}
-
-// ─── Status queries — for UI display ─────────────────────────────────────────
+// ─── Status query — for UI display ───────────────────────────────────────────
 
 export interface LimitStatus {
   current: number;
-  limit: number;       // -1 = unlimited
+  limit: number;   // -1 = unlimited
   atLimit: boolean;
 }
 
-export async function getShopLimitStatus(tenantId: string): Promise<LimitStatus> {
-  const admin = getSupabaseAdminClient();
+/**
+ * Returns current usage and limit for a given action.
+ * Returns null if the action has no limit declared in the plan metadata.
+ */
+export async function getLimitStatus(
+  action: string,
+  context: LimitContext,
+  tenantId: string,
+): Promise<LimitStatus | null> {
   const meta = await getTenantPlanMeta(tenantId);
+  const limit = meta[action];
+  if (limit === undefined) return null;
 
-  const { count } = await admin
-    .from('shops')
-    .select('*', { count: 'exact', head: true })
-    .eq('tenant_id', tenantId);
+  const def = ACTION_REGISTRY[action];
+  if (!def) return null;
 
-  const current = count ?? 0;
-  return {
-    current,
-    limit: meta.max_shops,
-    atLimit: meta.max_shops !== -1 && current >= meta.max_shops,
-  };
-}
-
-export async function getUserLimitStatus(tenantId: string): Promise<LimitStatus> {
-  const admin = getSupabaseAdminClient();
-  const meta = await getTenantPlanMeta(tenantId);
-
-  const { count } = await admin
-    .from('tenant_user_profiles')
-    .select('*', { count: 'exact', head: true })
-    .eq('tenant_id', tenantId);
-
-  const current = count ?? 0;
-  return {
-    current,
-    limit: meta.max_users,
-    atLimit: meta.max_users !== -1 && current >= meta.max_users,
-  };
+  const current = await def.count(context);
+  return { current, limit, atLimit: limit !== -1 && current >= limit };
 }

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '@/lib/server/supabaseServer';
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
-import { getShopLimitStatus } from '@/lib/server/planLimits';
+import { getLimitStatus } from '@/lib/server/planLimits';
 
 export async function GET(req: NextRequest) {
   const supabase = await getSupabaseServerClient();
@@ -49,7 +49,9 @@ export async function GET(req: NextRequest) {
   }
 
   // Limit status — only for tenant-level members (who can create branches)
-  const limit = tenantAccess ? await getShopLimitStatus(tenant_id) : null;
+  const limit = tenantAccess
+    ? await getLimitStatus('create_shop', { tenantId: tenant_id }, tenant_id)
+    : null;
 
   return NextResponse.json({ branches, limit });
 }

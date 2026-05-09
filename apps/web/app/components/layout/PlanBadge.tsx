@@ -17,12 +17,7 @@ interface PlanRow {
   name:          string;
   price_monthly: number;
   price_yearly:  number;
-  metadata: {
-    max_shops:               number; // -1 = unlimited
-    max_users:               number;
-    max_connectors_per_shop: number;
-    max_custom_domains:      number;
-  };
+  metadata: Record<string, number>;
 }
 
 interface SepayOrder {
@@ -377,20 +372,20 @@ export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd
                         <tbody className="bg-white dark:bg-zinc-900">
                           <tr>
                             <td className="p-4 px-5 border-b border-zinc-100 dark:border-zinc-800 text-zinc-600 font-medium">Chi nhánh đa kho</td>
-                            {plans.map(p => <td key={p.code} className="p-4 border-b border-zinc-100 dark:border-zinc-800 text-center text-zinc-800 dark:text-zinc-200 font-bold">{fmtLimit(p.metadata?.max_shops)}</td>)}
+                            {plans.map(p => <td key={p.code} className="p-4 border-b border-zinc-100 dark:border-zinc-800 text-center text-zinc-800 dark:text-zinc-200 font-bold">{fmtLimit(p.metadata?.create_shop)}</td>)}
                           </tr>
                           <tr>
                             <td className="p-4 px-5 border-b border-zinc-100 dark:border-zinc-800 text-zinc-600 font-medium">Nhân sự vận hành (Users)</td>
-                            {plans.map(p => <td key={p.code} className="p-4 border-b border-zinc-100 dark:border-zinc-800 text-center text-zinc-800 dark:text-zinc-200 font-bold">{fmtLimit(p.metadata?.max_users)}</td>)}
+                            {plans.map(p => <td key={p.code} className="p-4 border-b border-zinc-100 dark:border-zinc-800 text-center text-zinc-800 dark:text-zinc-200 font-bold">{fmtLimit(p.metadata?.create_shop_user)}</td>)}
                           </tr>
                           <tr>
                             <td className="p-4 px-5 border-b border-zinc-100 dark:border-zinc-800 text-zinc-600 font-medium">Connectors & API / Chi nhánh</td>
-                            {plans.map(p => <td key={p.code} className="p-4 border-b border-zinc-100 dark:border-zinc-800 text-center text-zinc-800 dark:text-zinc-200 font-bold">{fmtLimit(p.metadata?.max_connectors_per_shop)}</td>)}
+                            {plans.map(p => <td key={p.code} className="p-4 border-b border-zinc-100 dark:border-zinc-800 text-center text-zinc-800 dark:text-zinc-200 font-bold">{fmtLimit(p.metadata?.create_connector)}</td>)}
                           </tr>
                           <tr>
                             <td className="p-4 px-5 border-b border-zinc-100 dark:border-zinc-800 text-zinc-600 font-medium">Custom Domain</td>
                             {plans.map(p => {
-                              const d = p.metadata?.max_custom_domains;
+                              const d = p.metadata?.create_domain;
                               return <td key={p.code} className="p-4 border-b border-zinc-100 dark:border-zinc-800 text-center text-zinc-800 dark:text-zinc-200 font-bold">{d === -1 ? '∞' : d === 0 ? <IconDash /> : d}</td>;
                             })}
                           </tr>

@@ -80,10 +80,10 @@ export default async function SuperTenantDetail({
   const defaultShop = shops[0];
 
   const limits = [
-    { label: 'Chi nhánh', used: shops.length, max: planMeta.max_shops ?? 0 },
-    { label: 'Thành viên', used: members.length, max: planMeta.max_users ?? 0 },
-    { label: 'Connectors', used: connectors.length, max: (planMeta.max_connectors_per_shop ?? 0) * Math.max(shops.length, 1) },
-    { label: 'Custom domain', used: domains.length, max: planMeta.max_custom_domains ?? 0 },
+    { label: 'Chi nhánh',    used: shops.length,     max: planMeta.create_shop ?? 0 },
+    { label: 'Thành viên',   used: members.length,   max: planMeta.create_shop_user ?? 0 },
+    { label: 'Connectors',   used: connectors.length, max: (planMeta.create_connector ?? 0) * Math.max(shops.length, 1) },
+    { label: 'Custom domain',used: domains.length,   max: planMeta.create_domain ?? 0 },
   ];
 
   const enabledFeatures = features.filter((f) => f.enabled);
