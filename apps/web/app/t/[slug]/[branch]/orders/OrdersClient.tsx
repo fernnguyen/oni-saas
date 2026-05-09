@@ -239,12 +239,21 @@ export function OrdersClient({ shopId }: Props) {
           })
         )
       )
+      // Update order status → processing (chờ xác nhận trả hàng)
+      await fetch(`/api/shops/${shopId}/orders/${order.order_id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'processing' }),
+      })
       return ret
     },
     onSuccess: () => {
       toast.success('Đã tạo phiếu trả hàng — xem trong mục Đơn trả hàng')
       setShowReturnForm(false)
+      setSelectedOrder((prev) => prev ? { ...prev, status: 'processing' } : prev)
+      setEditStatus('processing')
       queryClient.invalidateQueries({ queryKey: ['returns', shopId] })
+      queryClient.invalidateQueries({ queryKey: ['orders', shopId] })
     },
     onError: (err: Error) => toast.error(err.message),
   })
@@ -281,7 +290,18 @@ export function OrdersClient({ shopId }: Props) {
   }
 
   const columns = useMemo<Column<Row>[]>(() => [
-    { key: 'order_id', label: 'Mã đơn' },
+    {
+      key: 'order_id',
+      label: 'Mã đơn',
+      render: (row) => (
+        <button
+          onClick={() => openDetail(row)}
+          className="font-mono text-[#0268FF] hover:underline"
+        >
+          {row.order_id}
+        </button>
+      ),
+    },
     {
       key: 'customer_name',
       label: 'Khách hàng',
@@ -410,18 +430,27 @@ export function OrdersClient({ shopId }: Props) {
         width={640}
         footer={
           <div className="flex w-full items-center justify-between">
-            <button
-              onClick={() => {
-                setShowReturnForm((v) => !v)
-                setReturnReason('other')
-                setReturnRefundMethod('cash')
-                setReturnNote('')
-                setReturnRefundAmount(selectedOrder?.total_amount ?? '')
-              }}
-              className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-medium text-orange-700 hover:bg-orange-100"
-            >
-              Tạo phiếu trả hàng
-            </button>
+            {selectedOrder?.status === 'completed' ? (
+              <button
+                onClick={() => {
+                  setShowReturnForm((v) => !v)
+                  setReturnReason('other')
+                  setReturnRefundMethod('cash')
+                  setReturnNote('')
+                  setReturnRefundAmount(selectedOrder?.total_amount ?? '')
+                }}
+                className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-medium text-orange-700 hover:bg-orange-100"
+              >
+                Tạo phiếu trả hàng
+              </button>
+            ) : (
+              <span
+                title={selectedOrder?.status === 'refunded' ? 'Đơn đã hoàn tiền' : 'Chỉ tạo được phiếu trả khi đơn đã Hoàn thành'}
+                className="cursor-not-allowed rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-medium text-slate-400"
+              >
+                Tạo phiếu trả hàng
+              </span>
+            )}
             <button onClick={closeDetail} className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">
               Đóng
             </button>

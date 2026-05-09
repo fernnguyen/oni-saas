@@ -101,6 +101,12 @@ export async function POST(
       processed_at: now,
     })
 
+    // 5. Update linked order → refunded
+    if (r.order_id) {
+      await connector.update('orders', r.order_id, { status: 'refunded' })
+      invalidate(shopId, 'orders')
+    }
+
     invalidate(shopId, 'returns')
     invalidate(shopId, 'stock-movements')
     invalidate(shopId, 'inventory')
