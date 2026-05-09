@@ -83,6 +83,7 @@ export default async function BranchLayout({ params, children }: Props) {
 
   return (
     <DashboardShell
+      tenantId={tenant.id}
       tenantName={tenant.name}
       shopName={shop.name}
       userEmail={authData.user.email}

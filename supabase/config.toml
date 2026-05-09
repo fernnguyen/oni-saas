@@ -1,0 +1,16 @@
+project_id = "ddkjsthxnskdncefnuhi"
+
+# Disable Supabase's built-in JWT middleware for all edge functions.
+# Each function handles auth manually:
+#   - sepay-webhook   : checks "Apikey {SEPAY_WEBHOOK_API_KEY}" header
+#   - create-sepay-order : verifies Bearer JWT via _shared/auth.ts
+#   - check-sepay-order  : verifies Bearer JWT via _shared/auth.ts
+
+[functions.sepay-webhook]
+verify_jwt = false
+
+[functions.create-sepay-order]
+verify_jwt = false
+
+[functions.check-sepay-order]
+verify_jwt = false

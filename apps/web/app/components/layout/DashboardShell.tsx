@@ -4,6 +4,7 @@ import { ConfirmProvider } from '@/app/components/ui/ConfirmProvider';
 
 interface DashboardShellProps {
   children: React.ReactNode;
+  tenantId?: string;
   tenantName: string;
   shopName?: string;
   userEmail?: string;
@@ -23,6 +24,7 @@ interface DashboardShellProps {
 
 export function DashboardShell({
   children,
+  tenantId,
   tenantName,
   shopName,
   userEmail,
@@ -52,6 +54,7 @@ export function DashboardShell({
         />
         <div className="flex-1 min-w-0 flex flex-col">
           <Topbar
+            tenantId={tenantId}
             tenantName={tenantName}
             shopName={shopName}
             userEmail={userEmail}

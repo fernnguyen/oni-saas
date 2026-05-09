@@ -7,6 +7,7 @@ import { ConnectorStatusPill } from '../connectors/ConnectorStatusPill';
 import { PlanBadge } from './PlanBadge';
 
 interface TopbarProps {
+  tenantId?: string;
   tenantName: string;
   shopName?: string;
   userEmail?: string;
@@ -19,6 +20,7 @@ interface TopbarProps {
 }
 
 export function Topbar({
+  tenantId,
   tenantName,
   shopName,
   userEmail,
@@ -53,8 +55,9 @@ export function Topbar({
           </button>
 
           {/* Plan info card */}
-          {planCode && planName && (
+          {planCode && planName && tenantId && (
             <PlanBadge
+              tenantId={tenantId}
               planCode={planCode}
               planName={planName}
               periodStart={periodStart}
