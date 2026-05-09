@@ -7,3 +7,4 @@ dist
 .serena
 *.tsbuildinfo
 supabase/.temp
+.claude
