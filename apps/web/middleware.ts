@@ -117,17 +117,19 @@ async function checkMFARedirect(req: NextRequest, pathname: string): Promise<Nex
     },
   );
 
-  // getSession reads cookies — no network call
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.user) return null;
+  // getUser() verifies the user server-side (secure)
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
 
-  // Check if user has any verified TOTP factors
-  const verifiedFactors = (session.user.factors ?? []).filter(
+  // Check if user has any verified TOTP factors (from verified user object)
+  const verifiedFactors = (user.factors ?? []).filter(
     (f: { status: string }) => f.status === 'verified',
   );
   if (verifiedFactors.length === 0) return null;
 
-  // Decode AAL claim from JWT (no network call)
+  // getSession only for access_token to decode AAL claim from JWT (no extra network call)
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return null;
   const currentAAL = decodeJWTClaim(session.access_token, 'aal');
   if (currentAAL === 'aal2') return null;
 
@@ -167,5 +169,5 @@ async function withSupabaseSession(req: NextRequest, res: NextResponse): Promise
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:wav|mp3|svg|png|jpg|jpeg|gif|webp|ico)$).*)'],
 };
