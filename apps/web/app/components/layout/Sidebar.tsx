@@ -158,6 +158,7 @@ function SidebarContent({
           currentName={currentBranchName}
           currentAddress={currentBranchAddress}
           collapsed={collapsed}
+          canCreate={permissions.includes('shops.create')}
         />
       )}
 
