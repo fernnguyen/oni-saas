@@ -58,6 +58,12 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
           { href: '/super/audit-logs', label: 'Nhật ký hệ thống', icon: IconActivity },
         ],
       },
+      {
+        label: 'Cá nhân',
+        items: [
+          { href: '/super/account', label: 'Tài khoản', icon: IconSettings },
+        ],
+      },
     ]);
   }
 
