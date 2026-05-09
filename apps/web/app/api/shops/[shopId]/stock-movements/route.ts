@@ -57,10 +57,10 @@ export async function POST(
     const body = await req.json()
     const data = stockMovementCreateSchema.parse(body)
 
-    // 1. Create the stock movement record
+    // 1. Create movement record
     const created = await connector.create('stock-movements', data as unknown as Record<string, string>)
 
-    // 2. Upsert inventory
+    // 2. Upsert inventory stock_qty
     const delta = calcDelta(data.type, parseFloat(data.qty))
     const branchId = data.branch_id ?? ''
 
@@ -74,17 +74,29 @@ export async function POST(
       const newQty = Math.max(0, parseFloat(inv.stock_qty || '0') + delta)
       await connector.update('inventory', inv.inventory_id as string, {
         stock_qty: String(newQty),
-        ...(data.unit_cost ? { cost_price: data.unit_cost } : {}),
       })
     } else if (delta > 0) {
+      // Create inventory row — note: cost_price is NOT stored here because the
+      // Inventory tab may not have that column. Cost is tracked on the Product record.
       await connector.create('inventory', {
         product_id: data.product_id,
         branch_id: branchId,
         stock_qty: String(delta),
         min_stock: '0',
-        cost_price: data.unit_cost || '0',
         sku: data.sku || '',
       } as Record<string, string>)
+    }
+
+    // 3. Update product cost_price (Products tab always has this column).
+    //    For inbound movements with a unit_cost, use the new cost as the product's cost price.
+    //    This acts as a "last purchase price" — simple and practical for small shops.
+    if (data.unit_cost && INBOUND_TYPES.includes(data.type)) {
+      try {
+        await connector.update('products', data.product_id, { cost_price: data.unit_cost })
+        invalidate(shopId, 'products')
+      } catch {
+        // best-effort: don't fail nhập kho if product update fails
+      }
     }
 
     invalidate(shopId, 'stock-movements')
