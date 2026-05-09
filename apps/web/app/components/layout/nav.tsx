@@ -134,9 +134,10 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
     {
       label: 'Báo cáo',
       items: [
+        { href: joinPath(base, '/reports/overview'),    label: 'Tổng quan',    icon: IconBarChart, permission: 'reports.view_shop' },
         { href: joinPath(base, '/reports/accounting'), label: 'Kế toán',      icon: IconChart,    permission: 'accounting.view' },
+        { href: joinPath(base, '/reports/tax'),        label: 'Báo cáo thuế', icon: IconReceipt,  permission: 'accounting.view' },
         { href: joinPath(base, '/reports/cod'),        label: 'Đối soát COD', icon: IconMoney,    permission: 'cod.view' },
-        { href: joinPath(base, '/reports'),            label: 'Báo cáo',      icon: IconBarChart, permission: 'reports.view_shop' },
       ],
     },
     {
@@ -259,6 +260,13 @@ export function IconBarChart({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+    </svg>
+  );
+}
+export function IconReceipt({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 14l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
     </svg>
   );
 }

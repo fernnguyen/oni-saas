@@ -294,6 +294,61 @@ Khi thêm tính năng mới cần thêm cột:
 
 ---
 
+## 14. Returns — Phiếu trả hàng
+
+| Cột             | Kiểu     | Mô tả                                                        |
+|-----------------|----------|--------------------------------------------------------------|
+| `return_id`     | string   | `RET-001`, do Oni generate                                   |
+| `return_no`     | string   | Số phiếu hiển thị                                            |
+| `order_id`      | string   | **Bắt buộc** — tham chiếu `Orders.order_id`                  |
+| `order_no`      | string   | Số đơn hàng gốc (snapshot)                                   |
+| `customer_id`   | string   | Tham chiếu `Customers.customer_id`                           |
+| `customer_name` | string   | Snapshot tên khách                                           |
+| `reason`        | string   | `defective / damaged / wrong_item / changed_mind / other`    |
+| `status`        | string   | `pending / approved / processed / rejected`                  |
+| `total_refund`  | number   | Tổng tiền hoàn lại                                           |
+| `refund_method` | string   | `cash / bank_transfer / store_credit / none`                 |
+| `processed_by`  | string   | `employee_id` người xử lý                                   |
+| `processed_at`  | datetime |                                                              |
+| `note`          | string   |                                                              |
+| `created_at`    | datetime |                                                              |
+
+---
+
+## 15. ReturnItems — Chi tiết phiếu trả
+
+| Cột             | Kiểu    | Mô tả                                                          |
+|-----------------|---------|----------------------------------------------------------------|
+| `item_id`       | string  | `RI-001`                                                       |
+| `return_id`     | string  | **Bắt buộc** — tham chiếu `Returns.return_id`                  |
+| `return_no`     | string  | Số phiếu (snapshot)                                            |
+| `order_item_id` | string  | Tham chiếu `OrderItems.item_id` (nếu có)                       |
+| `product_id`    | string  | **Bắt buộc**                                                   |
+| `product_name`  | string  | Snapshot tên sản phẩm                                          |
+| `sku`           | string  |                                                                |
+| `qty_returned`  | number  | Số lượng trả về                                                |
+| `unit_price`    | number  | Đơn giá (lấy từ đơn gốc)                                      |
+| `line_total`    | number  | = qty_returned × unit_price                                    |
+
+> **Luồng kho**: khi phiếu chuyển sang `processed`, hệ thống tự tạo `StockMovements` type=`return_in` cho mỗi dòng ReturnItems và tăng `Inventory.stock_qty` tương ứng.
+
+---
+
+## Settings — Cài đặt hệ thống
+
+| key | Giá trị mặc định | Mô tả |
+|-----|-----------------|-------|
+| `schema_version` | `1` | **Không sửa** — Oni dùng để detect schema cũ |
+| `shop_name` | _(trống)_ | Tên cửa hàng |
+| `currency` | `VND` | Đơn vị tiền tệ |
+| `tax_rate` | `0` | Thuế GTGT mặc định (%) |
+| `invoice_prefix` | `ORD` | Tiền tố số đơn → `ORD-2025-0001` |
+| `low_stock_threshold` | `5` | Cảnh báo khi tồn kho < giá trị này |
+| `allow_negative_stock` | `false` | Cho phép bán khi hết hàng |
+| `default_price_type` | `retail` | Loại giá mặc định khi tạo đơn |
+
+---
+
 ## Roadmap nâng cấp schema (v2+)
 
 | Tính năng | Thay đổi schema |

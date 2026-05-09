@@ -23,6 +23,8 @@ export const cacheTTL = {
   stockMovements:  parseInt(process.env.CACHE_TTL_STOCK_MOVEMENTS ?? '120'),
   /** Đơn hàng */
   orders:          parseInt(process.env.CACHE_TTL_ORDERS          ?? '60'),
+  /** Phiếu trả hàng */
+  returns:         parseInt(process.env.CACHE_TTL_RETURNS         ?? '60'),
 } as const
 
 // ─── Client-side TanStack Query (milliseconds) ────────────────────────────────

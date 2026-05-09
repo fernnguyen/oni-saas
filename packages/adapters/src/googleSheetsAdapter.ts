@@ -20,6 +20,8 @@ const ENTITY_CONFIG: Record<string, EntityConfig> = {
   'payments':         { tab: 'Payments',        idKey: 'payment_id',   prefix: 'PAY'  },
   'branches':         { tab: 'Branches',        idKey: 'branch_id',    prefix: 'BR'   },
   'employees':        { tab: 'Employees',       idKey: 'employee_id',  prefix: 'EMP'  },
+  'returns':          { tab: 'Returns',         idKey: 'return_id',    prefix: 'RET'  },
+  'return-items':     { tab: 'ReturnItems',     idKey: 'item_id',      prefix: 'RI'   },
 }
 
 const BASE = 'https://sheets.googleapis.com/v4/spreadsheets'
