@@ -10,6 +10,7 @@ import { ProductGrid } from './components/ProductGrid'
 import { CartPanel } from './components/CartPanel'
 import { CheckoutModal } from './components/CheckoutModal'
 import { SyncStatusBar } from './components/SyncStatusBar'
+import { OrderHistoryPanel } from './components/OrderHistoryPanel'
 
 interface Props {
   shopId: string
@@ -19,7 +20,7 @@ interface Props {
   backPath: string
 }
 
-interface HeldCart {
+export interface HeldCart {
   id: string
   label: string
   items: CartItem[]
@@ -35,7 +36,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath }: P
   const [customer, setCustomer] = useState<LocalCustomer | null>(null)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [heldCarts, setHeldCarts] = useState<HeldCart[]>([])
-  const [showHeld, setShowHeld] = useState(false)
+  const [orderPanelOpen, setOrderPanelOpen] = useState(false)
   const workerRef = useRef<SyncWorker | null>(null)
 
   // Start sync worker on mount, stop on unmount
@@ -102,7 +103,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath }: P
   }
 
   function loadHeldCart(held: HeldCart) {
-    // Save current cart back to held list if non-empty
+    // If current cart has items, push it to held list before swapping
     if (cart.items.length > 0) {
       const currentLabel = `Đơn ${heldCarts.length + 1}`
       setHeldCarts((prev) => [
@@ -119,10 +120,8 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath }: P
     } else {
       setHeldCarts((prev) => prev.filter((h) => h.id !== held.id))
     }
-
     cart.restore({ items: held.items, discount_amount: held.discount_amount, note: held.note })
     setCustomer(held.customer)
-    setShowHeld(false)
     toast(`Đã tải "${held.label}"`)
   }
 
@@ -134,6 +133,9 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath }: P
     cart.clear()
     setCustomer(null)
   }
+
+  // Badge: held carts + today's pending orders (to surface attention needed)
+  const headerBadge = heldCarts.length
 
   return (
     <div className="flex h-screen flex-col bg-slate-50">
@@ -154,18 +156,22 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath }: P
           </span>
         </div>
 
-        <div className="flex items-center gap-3 shrink-0">
-          {/* Held carts button */}
-          {heldCarts.length > 0 && (
-            <button
-              onClick={() => setShowHeld((v) => !v)}
-              className="relative rounded-lg border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-medium text-orange-700 hover:bg-orange-100 transition-colors"
-            >
-              📋 {heldCarts.length} đơn giữ
-            </button>
-          )}
+        <div className="flex items-center gap-2 shrink-0">
+          {/* Orders panel button — held carts + today's history */}
+          <button
+            onClick={() => setOrderPanelOpen(true)}
+            className="relative flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50 transition-colors"
+            title="Đơn đang giữ và đơn hôm nay"
+          >
+            📋 Đơn hàng
+            {headerBadge > 0 && (
+              <span className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-orange-500 text-[10px] font-bold text-white">
+                {headerBadge}
+              </span>
+            )}
+          </button>
 
-          {/* Sync button — always visible */}
+          {/* Sync button */}
           <button
             onClick={() => {
               if (!isOnline) { toast.error('Không có kết nối mạng'); return }
@@ -198,31 +204,6 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath }: P
         onRetryFailed={() => workerRef.current?.retryFailed()}
       />
 
-      {/* Held carts dropdown */}
-      {showHeld && heldCarts.length > 0 && (
-        <div className="z-30 border-b border-orange-100 bg-orange-50 px-4 py-2">
-          <div className="flex items-center gap-2 overflow-x-auto">
-            <span className="shrink-0 text-xs font-medium text-orange-700">Đơn đang giữ:</span>
-            {heldCarts.map((h) => (
-              <div key={h.id} className="flex shrink-0 items-center gap-1 rounded-lg border border-orange-200 bg-white px-2 py-1">
-                <button
-                  onClick={() => loadHeldCart(h)}
-                  className="text-xs font-medium text-slate-700 hover:text-[#0268FF]"
-                >
-                  {h.label} ({h.items.length} sp)
-                </button>
-                <button
-                  onClick={() => discardHeldCart(h.id)}
-                  className="text-slate-300 hover:text-red-400 text-xs"
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Main content */}
       <div className="flex flex-1 overflow-hidden">
         {/* Product grid */}
@@ -251,6 +232,16 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath }: P
           />
         </div>
       </div>
+
+      {/* Order history + held carts panel */}
+      <OrderHistoryPanel
+        open={orderPanelOpen}
+        onClose={() => setOrderPanelOpen(false)}
+        heldCarts={heldCarts}
+        onLoadHeld={loadHeldCart}
+        onDiscardHeld={discardHeldCart}
+        shopName={shopName}
+      />
 
       {/* Checkout modal */}
       <CheckoutModal

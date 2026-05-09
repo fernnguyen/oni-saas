@@ -130,6 +130,8 @@ export interface SyncQueueItem {
   }
   local_order_id: string
   server_order_id?: string
+  server_order_no?: string  // saved after step 1 so retries can skip order creation
+  steps_done?: string[]     // ['items', 'payments', 'movements'] — completed bulk steps
   retry_count: number
   last_error?: string
   created_at: string
