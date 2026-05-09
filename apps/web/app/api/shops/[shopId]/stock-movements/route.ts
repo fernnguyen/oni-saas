@@ -61,13 +61,22 @@ export async function POST(
     const created = await connector.create('stock-movements', data as unknown as Record<string, string>)
 
     // 2. Upsert inventory stock_qty
+    // Sheets rows often store branch_id as empty string while callers pass a UUID.
+    // Try the exact branch_id first, then fall back to empty-string branch_id so
+    // sale_out movements (delta < 0) actually find and update the right row.
     const delta = calcDelta(data.type, parseFloat(data.qty))
     const branchId = data.branch_id ?? ''
 
-    const invResult = await connector.list('inventory', {
+    let invResult = await connector.list('inventory', {
       page: 1, limit: 5,
       filters: { product_id: data.product_id, branch_id: branchId },
     })
+    if (invResult.data.length === 0 && branchId !== '') {
+      invResult = await connector.list('inventory', {
+        page: 1, limit: 5,
+        filters: { product_id: data.product_id, branch_id: '' },
+      })
+    }
 
     if (invResult.data.length > 0) {
       const inv = invResult.data[0] as Record<string, string>
@@ -76,11 +85,11 @@ export async function POST(
         stock_qty: String(newQty),
       })
     } else if (delta > 0) {
-      // Create inventory row — note: cost_price is NOT stored here because the
-      // Inventory tab may not have that column. Cost is tracked on the Product record.
+      // Create inventory row only for inbound movements.
+      // cost_price is NOT stored here — Inventory tab may lack the column.
       await connector.create('inventory', {
         product_id: data.product_id,
-        branch_id: branchId,
+        branch_id: '',
         stock_qty: String(delta),
         min_stock: '0',
         sku: data.sku || '',

@@ -99,12 +99,15 @@ export function OrderHistoryPanel({ open, onClose, heldCarts, onLoadHeld, onDisc
       <div className="absolute right-0 top-0 flex h-full w-full max-w-sm flex-col bg-white shadow-2xl">
         {/* Header */}
         <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-4 py-3">
-          <h2 className="text-sm font-semibold text-slate-900">Quản lý đơn hàng</h2>
+          <div className="flex items-center gap-2 min-w-0">
+            <h2 className="text-sm font-semibold text-slate-900">Quản lý đơn hàng</h2>
+            <a href={ordersPath} className="text-xs text-[#0268FF] hover:underline shrink-0">Xem tất cả →</a>
+          </div>
           <button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100">✕</button>
         </div>
 
-        {/* Tabs + link to full orders page */}
-        <div className="flex shrink-0 items-center border-b border-slate-100">
+        {/* Tabs */}
+        <div className="flex shrink-0 border-b border-slate-100">
           <button
             onClick={() => setTab('held')}
             className={[
@@ -137,13 +140,6 @@ export function OrderHistoryPanel({ open, onClose, heldCarts, onLoadHeld, onDisc
               </span>
             )}
           </button>
-          <a
-            href={ordersPath}
-            className="shrink-0 px-3 py-2.5 text-xs text-[#0268FF] hover:underline"
-            title="Xem tất cả đơn hàng"
-          >
-            Tất cả →
-          </a>
         </div>
 
         {/* Content */}

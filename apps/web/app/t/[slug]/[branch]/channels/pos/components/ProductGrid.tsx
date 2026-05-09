@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { liveQuery } from 'dexie'
 import { localDb, type LocalCategory, type LocalInventory } from '@/lib/localDb/schema'
 import { usePOSProductSearch } from '@/hooks/usePOSProductSearch'
 import type { LocalProduct } from '@/lib/localDb/schema'
@@ -25,15 +26,20 @@ export function ProductGrid({ branchId, onAddToCart }: Props) {
     localDb.categories.filter((c) => c.active).sortBy('sort_order').then(setCategories)
   }, [])
 
+  // liveQuery so stock counts update immediately after checkout modifies local inventory
   useEffect(() => {
-    localDb.inventory.toArray().then((rows) => {
-      const map = new Map<string, number>()
-      rows.forEach((r: LocalInventory) => {
-        map.set(r.product_id, (map.get(r.product_id) ?? 0) + Number(r.stock_qty))
-      })
-      setInventory(map)
+    const sub = liveQuery(() => localDb.inventory.toArray()).subscribe({
+      next: (rows: LocalInventory[]) => {
+        const map = new Map<string, number>()
+        rows.forEach((r) => {
+          map.set(r.product_id, (map.get(r.product_id) ?? 0) + Number(r.stock_qty))
+        })
+        setInventory(map)
+      },
+      error: () => {},
     })
-  }, [branchId])
+    return () => sub.unsubscribe()
+  }, [])
 
   return (
     <div className="flex h-full flex-col">

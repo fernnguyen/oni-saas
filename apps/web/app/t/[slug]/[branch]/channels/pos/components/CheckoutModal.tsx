@@ -195,18 +195,17 @@ export function CheckoutModal({
           await localDb.payments.bulkAdd(localPayments)
           await localDb.syncQueue.add(syncItem)
 
-          // Delta inventory
+          // Delta inventory — search by product_id only; branch_id in Sheets is often
+          // empty string while branchId here is a UUID, compound key would never match.
           await Promise.all(
             items.map(async (item) => {
               const inv = await localDb.inventory
-                .where('[product_id+branch_id]')
-                .equals([item.product_id, branchId])
+                .where('product_id').equals(item.product_id)
                 .first()
               if (inv) {
                 await localDb.inventory
-                  .where('[product_id+branch_id]')
-                  .equals([item.product_id, branchId])
-                  .modify({ stock_qty: Math.max(0, inv.stock_qty - item.qty) })
+                  .where('product_id').equals(item.product_id)
+                  .modify({ stock_qty: Math.max(0, Number(inv.stock_qty) - item.qty) })
               }
             })
           )

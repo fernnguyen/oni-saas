@@ -35,8 +35,14 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath }: P
   const cart = useCart()
   const [customer, setCustomer] = useState<LocalCustomer | null>(null)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
-  const [heldCarts, setHeldCarts] = useState<HeldCart[]>([])
+  const [heldCarts, setHeldCarts] = useState<HeldCart[]>(() => {
+    try { return JSON.parse(localStorage.getItem('oni-held-carts') ?? '[]') } catch { return [] }
+  })
   const [orderPanelOpen, setOrderPanelOpen] = useState(false)
+
+  useEffect(() => {
+    localStorage.setItem('oni-held-carts', JSON.stringify(heldCarts))
+  }, [heldCarts])
   const workerRef = useRef<SyncWorker | null>(null)
 
   // Start sync worker on mount, stop on unmount
