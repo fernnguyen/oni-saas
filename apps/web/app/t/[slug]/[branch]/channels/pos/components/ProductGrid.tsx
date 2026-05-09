@@ -26,7 +26,6 @@ export function ProductGrid({ branchId, onAddToCart }: Props) {
     localDb.categories.filter((c) => c.active).sortBy('sort_order').then(setCategories)
   }, [])
 
-  // liveQuery so stock counts update immediately after checkout modifies local inventory
   useEffect(() => {
     const sub = liveQuery(() => localDb.inventory.toArray()).subscribe({
       next: (rows: LocalInventory[]) => {
@@ -44,23 +43,23 @@ export function ProductGrid({ branchId, onAddToCart }: Props) {
   return (
     <div className="flex h-full flex-col">
       {/* Search */}
-      <div className="border-b border-slate-100 p-3">
+      <div className="border-b border-slate-100 px-3 py-2">
         <input
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Tìm sản phẩm (tên, SKU, barcode)..."
-          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm placeholder:text-slate-400 focus:border-[#0268FF] focus:outline-none"
+          className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm placeholder:text-slate-400 focus:border-[#0268FF] focus:outline-none"
         />
       </div>
 
       {/* Category tabs */}
       {categories.length > 0 && (
-        <div className="flex gap-2 overflow-x-auto border-b border-slate-100 p-2 scrollbar-hide">
+        <div className="flex gap-1.5 overflow-x-auto border-b border-slate-100 px-2 py-1.5 scrollbar-hide">
           <button
             onClick={() => setCategoryId(undefined)}
             className={[
-              'shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+              'shrink-0 rounded px-2.5 py-1 text-xs font-medium transition-colors',
               categoryId === undefined
                 ? 'bg-[#0268FF] text-white'
                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
@@ -73,7 +72,7 @@ export function ProductGrid({ branchId, onAddToCart }: Props) {
               key={cat.category_id}
               onClick={() => setCategoryId(cat.category_id)}
               className={[
-                'shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+                'shrink-0 rounded px-2.5 py-1 text-xs font-medium transition-colors',
                 categoryId === cat.category_id
                   ? 'bg-[#0268FF] text-white'
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
@@ -86,7 +85,7 @@ export function ProductGrid({ branchId, onAddToCart }: Props) {
       )}
 
       {/* Product grid */}
-      <div className="flex-1 overflow-y-auto p-3">
+      <div className="flex-1 overflow-y-auto p-2">
         {isLoading ? (
           <div className="flex h-32 items-center justify-center text-sm text-slate-400">Đang tải...</div>
         ) : results.length === 0 ? (
@@ -94,7 +93,7 @@ export function ProductGrid({ branchId, onAddToCart }: Props) {
             {search ? 'Không tìm thấy sản phẩm' : 'Chưa có sản phẩm'}
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {results.map((product) => {
               const stock = inventory.get(product.product_id) ?? 0
               const outOfStock = stock <= 0
@@ -104,10 +103,10 @@ export function ProductGrid({ branchId, onAddToCart }: Props) {
                   onClick={() => !outOfStock && onAddToCart(product)}
                   disabled={outOfStock}
                   className={[
-                    'flex flex-col items-start rounded-xl border p-3 text-left transition-all',
+                    'flex flex-col items-start rounded-lg border p-2 text-left transition-all',
                     outOfStock
                       ? 'border-slate-100 bg-slate-50 opacity-50 cursor-not-allowed'
-                      : 'border-slate-200 bg-white hover:border-[#0268FF] hover:shadow-md active:scale-[0.98]',
+                      : 'border-slate-200 bg-white hover:border-[#0268FF] hover:shadow-sm active:scale-[0.98]',
                   ].join(' ')}
                 >
                   {product.image_url ? (
@@ -115,16 +114,16 @@ export function ProductGrid({ branchId, onAddToCart }: Props) {
                     <img
                       src={product.image_url}
                       alt={product.name}
-                      className="mb-2 h-16 w-full rounded-lg object-cover"
+                      className="mb-1.5 h-12 w-full rounded object-cover"
                     />
                   ) : (
-                    <div className="mb-2 flex h-16 w-full items-center justify-center rounded-lg bg-slate-100">
-                      <span className="text-2xl">📦</span>
+                    <div className="mb-1.5 flex h-12 w-full items-center justify-center rounded bg-slate-100">
+                      <span className="text-xl">📦</span>
                     </div>
                   )}
-                  <p className="line-clamp-2 text-xs font-medium text-slate-900">{product.name}</p>
-                  <p className="mt-1 text-xs font-semibold text-[#0268FF]">{fmtVND(product.sell_price)}</p>
-                  <p className={['mt-0.5 text-xs', outOfStock ? 'text-red-500' : 'text-slate-400'].join(' ')}>
+                  <p className="line-clamp-2 text-xs font-medium leading-tight text-slate-900">{product.name}</p>
+                  <p className="mt-0.5 text-xs font-semibold text-[#0268FF]">{fmtVND(product.sell_price)}</p>
+                  <p className={['mt-0.5 text-[10px]', outOfStock ? 'text-red-500' : 'text-slate-400'].join(' ')}>
                     Kho: {stock}
                   </p>
                 </button>
