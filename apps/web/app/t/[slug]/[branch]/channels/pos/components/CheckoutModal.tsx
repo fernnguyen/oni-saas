@@ -213,8 +213,13 @@ export function CheckoutModal({
       )
 
       broadcastOrderCreated(order)
-      toast.success('Đơn hàng tạo thành công!')
-      printBill({ order, items: orderItems, payments: localPayments, shopName })
+      toast.success('Đơn hàng tạo thành công!', {
+        action: {
+          label: 'In bill',
+          onClick: () => printBill({ order, items: orderItems, payments: localPayments, shopName }),
+        },
+        duration: 8000,
+      })
       onSuccess()
     } catch (err) {
       console.error(err)
