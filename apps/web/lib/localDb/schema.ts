@@ -1,0 +1,177 @@
+import Dexie, { type Table } from 'dexie'
+
+export interface LocalProduct {
+  product_id: string
+  sku: string
+  barcode?: string
+  name: string
+  category_id?: string
+  unit?: string
+  sell_price: number
+  cost_price: number
+  min_price: number
+  description?: string
+  image_url?: string
+  active: boolean
+}
+
+export interface LocalCategory {
+  category_id: string
+  name: string
+  parent_id?: string
+  sort_order: number
+  active: boolean
+}
+
+export interface LocalPriceList {
+  price_id: string
+  product_id: string
+  price_type: string
+  price: number
+  active: boolean
+}
+
+export interface LocalDiscount {
+  discount_id: string
+  name: string
+  type: string
+  value: number
+  active: boolean
+  end_date?: string
+}
+
+export interface LocalEmployee {
+  employee_id: string
+  name: string
+  employee_code?: string
+  phone?: string
+  role: string
+  branch_id?: string
+  active: boolean
+}
+
+export interface LocalInventory {
+  product_id: string
+  branch_id: string
+  stock_qty: number
+  min_stock: number
+  cost_price: number
+  sku?: string
+}
+
+export interface LocalCustomer {
+  customer_id: string
+  name: string
+  phone?: string
+  email?: string
+  customer_type?: string
+  debt_amount?: number
+  last_seen_at?: string
+}
+
+export interface LocalOrderItem {
+  local_id: string
+  order_local_id: string
+  product_id: string
+  product_name: string
+  sku?: string
+  qty: number
+  unit_price: number
+  cost_price: number
+  discount_amount: number
+  line_total: number
+}
+
+export interface LocalPayment {
+  local_id: string
+  order_local_id: string
+  method: string
+  amount: number
+  reference_no?: string
+  note?: string
+}
+
+export interface LocalOrder {
+  local_id: string
+  server_id?: string
+  sync_status: 'pending' | 'syncing' | 'done' | 'failed'
+  customer_id?: string
+  customer_name?: string
+  branch_id: string
+  employee_id: string
+  subtotal: number
+  discount_amount: number
+  tax_amount: number
+  total_amount: number
+  paid_amount: number
+  note?: string
+  created_at: string
+  status: string
+  items: LocalOrderItem[]
+}
+
+export interface StockMovementPayload {
+  type: string
+  product_id: string
+  qty: number
+  branch_id: string
+  reference_no: string
+}
+
+export interface SyncQueueItem {
+  id?: number
+  status: 'pending' | 'syncing' | 'done' | 'failed'
+  entity: 'order'
+  payload: {
+    order: Omit<LocalOrder, 'items'>
+    items: LocalOrderItem[]
+    payments: LocalPayment[]
+    stockMovements: StockMovementPayload[]
+  }
+  local_order_id: string
+  server_order_id?: string
+  retry_count: number
+  last_error?: string
+  created_at: string
+  synced_at?: string
+}
+
+export interface MetaEntry {
+  key: string
+  value: string
+}
+
+export class OniLocalDB extends Dexie {
+  products!:    Table<LocalProduct>
+  categories!:  Table<LocalCategory>
+  priceLists!:  Table<LocalPriceList>
+  discounts!:   Table<LocalDiscount>
+  employees!:   Table<LocalEmployee>
+  inventory!:   Table<LocalInventory>
+  customers!:   Table<LocalCustomer>
+  orders!:      Table<LocalOrder>
+  orderItems!:  Table<LocalOrderItem>
+  payments!:    Table<LocalPayment>
+  syncQueue!:   Table<SyncQueueItem>
+  meta!:        Table<MetaEntry>
+
+  constructor() {
+    super('oni-pos')
+    this.version(1).stores({
+      products:   'product_id, sku, barcode, category_id, active',
+      categories: 'category_id, parent_id',
+      priceLists: 'price_id, product_id, price_type, active',
+      discounts:  'discount_id, active, end_date',
+      employees:  'employee_id, branch_id, active',
+      inventory:  '[product_id+branch_id], product_id',
+      customers:  'customer_id, phone, last_seen_at',
+      orders:     'local_id, server_id, created_at, status',
+      orderItems: 'local_id, order_local_id',
+      payments:   'local_id, order_local_id',
+      syncQueue:  '++id, status, entity, created_at',
+      meta:       'key',
+    })
+  }
+}
+
+export const localDb = typeof window !== 'undefined' ? new OniLocalDB() : null as unknown as OniLocalDB

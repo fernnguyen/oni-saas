@@ -57,11 +57,11 @@
 
 ## Phase 3 — LocalDB + Hydration
 
-- [ ] `lib/localDb/schema.ts` — Dexie class, tất cả tables
-- [ ] `lib/localDb/hydration.ts` — `hydrateAll()`, background refresh
-- [ ] `lib/localDb/tabSync.ts` — BroadcastChannel setup
-- [ ] `hooks/usePOSHydration.ts` — hook quản lý hydration state
-- [ ] `hooks/useNetworkStatus.ts` — online/offline detection
+- [x] `lib/localDb/schema.ts` — Dexie class, tất cả tables
+- [x] `lib/localDb/hydration.ts` — `hydrateAll()`, background refresh
+- [x] `lib/localDb/tabSync.ts` — BroadcastChannel setup
+- [x] `hooks/usePOSHydration.ts` — hook quản lý hydration state
+- [x] `hooks/useNetworkStatus.ts` — online/offline detection
 
 ---
 
