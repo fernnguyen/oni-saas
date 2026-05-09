@@ -26,6 +26,7 @@ type CartAction =
   | { type: 'SET_ITEM_DISCOUNT'; product_id: string; discount: number }
   | { type: 'SET_ORDER_DISCOUNT'; discount: number }
   | { type: 'SET_NOTE'; note: string }
+  | { type: 'RESTORE'; state: CartState }
   | { type: 'CLEAR' }
 
 function lineTotal(item: CartItem): number {
@@ -86,6 +87,8 @@ function cartReducer(state: CartState, action: CartAction): CartState {
       return { ...state, discount_amount: action.discount }
     case 'SET_NOTE':
       return { ...state, note: action.note }
+    case 'RESTORE':
+      return action.state
     case 'CLEAR':
       return { items: [], discount_amount: 0, note: '' }
     default:
@@ -109,6 +112,11 @@ export function useCart() {
   const setOrderDiscount = useCallback((discount: number) => dispatch({ type: 'SET_ORDER_DISCOUNT', discount }), [])
   const setNote = useCallback((note: string) => dispatch({ type: 'SET_NOTE', note }), [])
   const clear = useCallback(() => dispatch({ type: 'CLEAR' }), [])
+  const restore = useCallback(
+    (state: { items: CartItem[]; discount_amount: number; note: string }) =>
+      dispatch({ type: 'RESTORE', state }),
+    []
+  )
 
   return {
     items: state.items,
@@ -123,5 +131,6 @@ export function useCart() {
     setOrderDiscount,
     setNote,
     clear,
+    restore,
   }
 }

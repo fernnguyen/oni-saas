@@ -50,7 +50,7 @@ export default async function POSPage({ params }: Props) {
     if (!shopAccess) notFound()
   }
 
-  const backPath = `/t/${slug}/${branch}`
+  const backPath = `/${branch}`
 
   return (
     <POSClient

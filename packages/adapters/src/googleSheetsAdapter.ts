@@ -177,7 +177,7 @@ export class GoogleSheetsConnector implements IDataConnector {
       }
       if (filters) {
         for (const [k, v] of Object.entries(filters)) {
-          if (row[k] !== v) return false
+          if ((row[k] ?? '').toLowerCase() !== v.toLowerCase()) return false
         }
       }
       return true
