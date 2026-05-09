@@ -6,5 +6,6 @@ dist
 .DS_Store
 .serena
 *.tsbuildinfo
+apps/web/next-env.d.ts
 supabase/.temp
 .claude

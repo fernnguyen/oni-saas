@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { CartItem } from '@/hooks/useCart'
 import type { LocalCustomer } from '@/lib/localDb/schema'
 import { CustomerSearch } from './CustomerSearch'
@@ -52,6 +52,16 @@ export function CartPanel({
 }: Props) {
   const [discountMode, setDiscountMode] = useState<'amount' | 'percent'>('amount')
   const [discountPct, setDiscountPct] = useState('')
+
+  // Recalculate discount when subtotal changes (percent mode only)
+  useEffect(() => {
+    if (discountMode !== 'percent') return
+    const pct = parseFloat(discountPct)
+    if (!isNaN(pct) && pct > 0) {
+      onDiscountChange(Math.round(subtotal * pct / 100))
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subtotal])
 
   function handlePctChange(pct: string) {
     setDiscountPct(pct)
