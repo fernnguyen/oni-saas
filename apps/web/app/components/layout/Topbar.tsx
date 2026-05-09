@@ -115,9 +115,9 @@ export function Topbar({
               className="flex items-center gap-2 rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm hover:bg-slate-50 max-w-[180px] cursor-pointer"
             >
               <div className="h-6 w-6 rounded-full bg-[#0268FF] flex items-center justify-center text-white text-xs font-bold shrink-0">
-                {(shopName || tenantName).charAt(0).toUpperCase()}
+                {(userEmail || tenantName).charAt(0).toUpperCase()}
               </div>
-              <span className="truncate text-slate-700 font-medium">{shopName || tenantName}</span>
+              <span className="truncate text-slate-700 font-medium">{userEmail || tenantName}</span>
               <svg className="h-4 w-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
               </svg>
