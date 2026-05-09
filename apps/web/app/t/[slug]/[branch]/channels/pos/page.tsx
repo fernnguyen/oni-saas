@@ -1,9 +1,7 @@
 import { redirect, notFound } from 'next/navigation'
-import dynamic from 'next/dynamic'
 import { getSupabaseServerClient } from '@/lib/server/supabaseServer'
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
-
-const POSClient = dynamic(() => import('./POSClient').then((m) => m.POSClient), { ssr: false })
+import { POSClientDynamic as POSClient } from './POSClientDynamic'
 
 interface Props {
   params: Promise<{ slug: string; branch: string }>
