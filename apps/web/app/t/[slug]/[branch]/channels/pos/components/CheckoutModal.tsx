@@ -195,32 +195,26 @@ export function CheckoutModal({
           await localDb.payments.bulkAdd(localPayments)
           await localDb.syncQueue.add(syncItem)
 
-          // Delta inventory — search by product_id only; branch_id in Sheets is often
-          // empty string while branchId here is a UUID, compound key would never match.
-          await Promise.all(
-            items.map(async (item) => {
-              const inv = await localDb.inventory
-                .where('product_id').equals(item.product_id)
-                .first()
-              if (inv) {
-                await localDb.inventory
-                  .where('product_id').equals(item.product_id)
-                  .modify({ stock_qty: Math.max(0, Number(inv.stock_qty) - item.qty) })
-              }
-            })
-          )
+          // Delta inventory — use put() with compound key from the record itself;
+          // where().modify() can drop the transaction context between first() and modify().
+          for (const item of items) {
+            const inv = await localDb.inventory
+              .where('product_id').equals(item.product_id)
+              .first()
+            if (inv) {
+              await localDb.inventory.put({
+                ...inv,
+                stock_qty: Math.max(0, Number(inv.stock_qty) - item.qty),
+              })
+            }
+          }
         }
       )
 
       broadcastOrderCreated(order)
-      toast.success('Đơn hàng tạo thành công!', {
-        action: {
-          label: 'In bill',
-          onClick: () => printBill({ order, items: orderItems, payments: localPayments, shopName }),
-        },
-        duration: 8000,
-      })
-      onSuccess()
+      toast.success('Đơn hàng tạo thành công!')
+      onSuccess() // close modal + clear cart first
+      setTimeout(() => printBill({ order, items: orderItems, payments: localPayments, shopName }), 150)
     } catch (err) {
       console.error(err)
       toast.error('Tạo đơn thất bại')
