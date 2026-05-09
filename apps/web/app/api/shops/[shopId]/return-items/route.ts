@@ -21,7 +21,7 @@ export async function GET(
     if (return_id) filters.return_id = return_id
 
     const result = await shopCache(
-      () => connector.list('return-items', { page, limit, filters }),
+      () => connector.list('return-items', { page, limit, filters }).catch(() => ({ data: [], total: 0 })),
       ['return-items', shopId, String(page), String(limit), return_id],
       { tags: [shopTag(shopId, 'returns')], revalidate: cacheTTL.returns }
     )

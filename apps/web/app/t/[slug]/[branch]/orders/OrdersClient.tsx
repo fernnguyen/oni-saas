@@ -98,6 +98,9 @@ export function OrdersClient({ shopId }: Props) {
   const [deleteTarget, setDeleteTarget] = useState<Row | null>(null)
   const [paymentForm, setPaymentForm] = useState<Record<string, string>>(EMPTY_PAYMENT)
   const [showPaymentForm, setShowPaymentForm] = useState(false)
+  const [showReturnForm, setShowReturnForm] = useState(false)
+  const [returnReason, setReturnReason] = useState('other')
+  const [returnRefundMethod, setReturnRefundMethod] = useState('cash')
 
   // Stats summary
   const { data: stats } = useQuery<OrderStats>({
@@ -187,6 +190,58 @@ export function OrdersClient({ shopId }: Props) {
       setShowPaymentForm(false)
       queryClient.invalidateQueries({ queryKey: ['payments', shopId, selectedOrder?.order_id] })
       queryClient.invalidateQueries({ queryKey: ['orders', shopId] })
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+
+  // Create return from order
+  const returnMutation = useMutation({
+    mutationFn: async (order: Row) => {
+      const items = itemsData?.data ?? []
+      const totalRefund = items.reduce((s, i) => s + parseFloat(i.line_total || '0'), 0)
+      // 1. Create return header
+      const retRes = await fetch(`/api/shops/${shopId}/returns`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          order_id:      order.order_id,
+          order_no:      order.order_no ?? order.order_id,
+          customer_id:   order.customer_id ?? '',
+          customer_name: order.customer_name ?? '',
+          reason:        returnReason,
+          refund_method: returnRefundMethod,
+          total_refund:  String(totalRefund),
+          status:        'pending',
+        }),
+      })
+      if (!retRes.ok) throw new Error((await retRes.json()).error ?? 'Lỗi tạo phiếu trả')
+      const ret = await retRes.json()
+      // 2. Create return items from order items (fire-and-forget individual failures)
+      await Promise.allSettled(
+        items.map((item) =>
+          fetch(`/api/shops/${shopId}/return-items`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              return_id:    ret.return_id,
+              return_no:    ret.return_no ?? ret.return_id,
+              order_item_id: item.item_id ?? '',
+              product_id:   item.product_id,
+              product_name: item.product_name ?? '',
+              sku:          item.sku ?? '',
+              qty_returned: item.qty,
+              unit_price:   item.unit_price,
+              line_total:   item.line_total,
+            }),
+          })
+        )
+      )
+      return ret
+    },
+    onSuccess: () => {
+      toast.success('Đã tạo phiếu trả hàng — xem trong mục Đơn trả hàng')
+      setShowReturnForm(false)
+      queryClient.invalidateQueries({ queryKey: ['returns', shopId] })
     },
     onError: (err: Error) => toast.error(err.message),
   })
@@ -346,12 +401,17 @@ export function OrdersClient({ shopId }: Props) {
         title={selectedOrder ? `Chi tiết: ${selectedOrder.order_id}` : 'Chi tiết đơn hàng'}
         width={640}
         footer={
-          <button
-            onClick={closeDetail}
-            className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
-          >
-            Đóng
-          </button>
+          <div className="flex w-full items-center justify-between">
+            <button
+              onClick={() => { setShowReturnForm((v) => !v); setReturnReason('other'); setReturnRefundMethod('cash') }}
+              className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-medium text-orange-700 hover:bg-orange-100"
+            >
+              Tạo phiếu trả hàng
+            </button>
+            <button onClick={closeDetail} className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">
+              Đóng
+            </button>
+          </div>
         }
       >
         {selectedOrder && (
@@ -554,6 +614,61 @@ export function OrdersClient({ shopId }: Props) {
                 </div>
               )}
             </div>
+
+            {/* Quick return form */}
+            {showReturnForm && (
+              <div className="rounded-xl border border-orange-200 bg-orange-50 p-4 space-y-3">
+                <p className="text-sm font-semibold text-orange-800">Tạo phiếu trả hàng</p>
+                <p className="text-xs text-orange-600">
+                  Phiếu sẽ được tạo với toàn bộ {itemsData?.data.length ?? 0} sản phẩm trong đơn.
+                  Bạn có thể chỉnh số lượng trong mục <strong>Đơn trả hàng</strong>.
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-orange-700">Lý do</label>
+                    <select
+                      value={returnReason}
+                      onChange={(e) => setReturnReason(e.target.value)}
+                      className="w-full rounded-lg border border-orange-200 bg-white px-2 py-1.5 text-sm"
+                    >
+                      <option value="defective">Hàng lỗi</option>
+                      <option value="damaged">Hàng hỏng</option>
+                      <option value="wrong_item">Sai hàng</option>
+                      <option value="changed_mind">Đổi ý</option>
+                      <option value="other">Khác</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-orange-700">Hình thức hoàn</label>
+                    <select
+                      value={returnRefundMethod}
+                      onChange={(e) => setReturnRefundMethod(e.target.value)}
+                      className="w-full rounded-lg border border-orange-200 bg-white px-2 py-1.5 text-sm"
+                    >
+                      <option value="cash">Tiền mặt</option>
+                      <option value="bank_transfer">Chuyển khoản</option>
+                      <option value="store_credit">Ghi nợ</option>
+                      <option value="none">Không hoàn</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => setShowReturnForm(false)}
+                    className="rounded-lg border border-orange-200 px-3 py-1.5 text-xs text-orange-700 hover:bg-orange-100"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    disabled={returnMutation.isPending}
+                    onClick={() => returnMutation.mutate(selectedOrder)}
+                    className="rounded-lg bg-orange-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-orange-700 disabled:opacity-50"
+                  >
+                    {returnMutation.isPending ? 'Đang tạo...' : 'Xác nhận tạo phiếu trả'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </SlideOver>
