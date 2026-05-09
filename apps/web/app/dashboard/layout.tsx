@@ -21,6 +21,8 @@ export default async function DashboardLayout({ children }: { children: ReactNod
       userEmail={ctx.user.email}
       permissions={permissions}
       sidebarContext="control"
+      planName="Chuyên nghiệp"
+      planDuration="143 ngày 1 giờ"
     >
       {children}
     </DashboardShell>

@@ -15,6 +15,8 @@ interface DashboardShellProps {
   permissions?: string[];
   /** 'control' = org management; 'shop' = shop operations (default); 'super' = superadmin */
   sidebarContext?: 'control' | 'shop' | 'super';
+  planName?: string;
+  planDuration?: string;
 }
 
 export function DashboardShell({
@@ -29,24 +31,36 @@ export function DashboardShell({
   settingsHref,
   permissions = [],
   sidebarContext = 'shop',
+  planName,
+  planDuration,
 }: DashboardShellProps) {
   return (
-    <div className="min-h-screen bg-slate-50 flex">
-      <Sidebar
-        basePath={sidebarBasePath}
-        supportHref={supportHref}
-        tenantHref={tenantHref}
-        connectorsHref={connectorsHref}
-        settingsHref={settingsHref}
-        permissions={permissions}
-        context={sidebarContext}
-      />
-      <div className="flex-1 min-w-0 flex flex-col">
-        <Topbar tenantName={tenantName} shopName={shopName} userEmail={userEmail} settingsHref={settingsHref} permissions={permissions} />
-        <main className="flex-1 p-4 md:p-6">
-          <ConfirmProvider>{children}</ConfirmProvider>
-        </main>
+    <ConfirmProvider>
+      <div className="min-h-screen bg-slate-50 flex">
+        <Sidebar
+          basePath={sidebarBasePath}
+          supportHref={supportHref}
+          tenantHref={tenantHref}
+          connectorsHref={connectorsHref}
+          settingsHref={settingsHref}
+          permissions={permissions}
+          context={sidebarContext}
+        />
+        <div className="flex-1 min-w-0 flex flex-col">
+          <Topbar
+            tenantName={tenantName}
+            shopName={shopName}
+            userEmail={userEmail}
+            settingsHref={settingsHref}
+            permissions={permissions}
+            planName={planName}
+            planDuration={planDuration}
+          />
+          <main className="flex-1 p-4 md:p-6">
+            {children}
+          </main>
+        </div>
       </div>
-    </div>
+    </ConfirmProvider>
   );
 }

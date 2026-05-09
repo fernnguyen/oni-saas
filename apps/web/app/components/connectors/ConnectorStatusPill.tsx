@@ -55,6 +55,9 @@ export function ConnectorStatusPill({ permissions, settingsHref }: Props) {
   const isConnected = data.connected && data.status !== 'error';
   const isError = data.connected && data.status === 'error';
 
+  // Only show pill when there's a problem — hide when connected OK
+  if (isConnected) return null;
+
   const pillColors = isError
     ? 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100'
     : isConnected
