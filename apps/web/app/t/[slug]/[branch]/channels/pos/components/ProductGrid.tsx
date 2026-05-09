@@ -26,14 +26,13 @@ export function ProductGrid({ branchId, onAddToCart }: Props) {
   }, [])
 
   useEffect(() => {
-    localDb.inventory
-      .filter((r: LocalInventory) => r.branch_id === branchId)
-      .toArray()
-      .then((rows) => {
-        const map = new Map<string, number>()
-        rows.forEach((r) => map.set(r.product_id, r.stock_qty))
-        setInventory(map)
+    localDb.inventory.toArray().then((rows) => {
+      const map = new Map<string, number>()
+      rows.forEach((r: LocalInventory) => {
+        map.set(r.product_id, (map.get(r.product_id) ?? 0) + r.stock_qty)
       })
+      setInventory(map)
+    })
   }, [branchId])
 
   return (

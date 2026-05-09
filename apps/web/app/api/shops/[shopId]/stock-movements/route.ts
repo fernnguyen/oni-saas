@@ -5,6 +5,15 @@ import { shopTag, invalidate, shopCache } from '@/lib/server/cache'
 import { cacheTTL } from '@/lib/env'
 import { handleApiError } from '../../_helpers'
 
+const INBOUND_TYPES = ['purchase_in', 'return_in', 'transfer_in']
+const OUTBOUND_TYPES = ['sale_out', 'transfer_out']
+
+function calcDelta(type: string, qty: number): number {
+  if (INBOUND_TYPES.includes(type)) return Math.abs(qty)
+  if (OUTBOUND_TYPES.includes(type)) return -Math.abs(qty)
+  return qty // adjustment: signed
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ shopId: string }> }
@@ -48,8 +57,36 @@ export async function POST(
     const body = await req.json()
     const data = stockMovementCreateSchema.parse(body)
 
-    const created = await connector.create('stock-movements', data)
-    // Stock movement changes both stock-movements and inventory
+    // 1. Create the stock movement record
+    const created = await connector.create('stock-movements', data as unknown as Record<string, string>)
+
+    // 2. Upsert inventory
+    const delta = calcDelta(data.type, parseFloat(data.qty))
+    const branchId = data.branch_id ?? ''
+
+    const invResult = await connector.list('inventory', {
+      page: 1, limit: 5,
+      filters: { product_id: data.product_id, branch_id: branchId },
+    })
+
+    if (invResult.data.length > 0) {
+      const inv = invResult.data[0] as Record<string, string>
+      const newQty = Math.max(0, parseFloat(inv.stock_qty || '0') + delta)
+      await connector.update('inventory', inv.inventory_id as string, {
+        stock_qty: String(newQty),
+        ...(data.unit_cost ? { cost_price: data.unit_cost } : {}),
+      })
+    } else if (delta > 0) {
+      await connector.create('inventory', {
+        product_id: data.product_id,
+        branch_id: branchId,
+        stock_qty: String(delta),
+        min_stock: '0',
+        cost_price: data.unit_cost || '0',
+        sku: data.sku || '',
+      } as Record<string, string>)
+    }
+
     invalidate(shopId, 'stock-movements')
     invalidate(shopId, 'inventory')
     return NextResponse.json(created, { status: 201 })

@@ -19,7 +19,7 @@ export async function hydrateAll(shopId: string, branchId: string): Promise<void
       safeFetch(`/api/shops/${shopId}/price-lists?active=true&limit=2000`),
       safeFetch(`/api/shops/${shopId}/discounts?active=true&limit=200`),
       safeFetch(`/api/shops/${shopId}/employees?active=true&limit=200`),
-      safeFetch(`/api/shops/${shopId}/inventory?branch_id=${branchId}&limit=2000`),
+      safeFetch(`/api/shops/${shopId}/inventory?limit=2000`),
       safeFetch(`/api/shops/${shopId}/customers?limit=500&sort=last_seen_at`),
     ])
 

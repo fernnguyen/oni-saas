@@ -174,7 +174,7 @@ export function CheckoutModal({
           items: orderItems,
           payments: localPayments,
           stockMovements: items.map((item) => ({
-            type: 'sale',
+            type: 'sale_out',
             product_id: item.product_id,
             qty: -item.qty,
             branch_id: branchId,
