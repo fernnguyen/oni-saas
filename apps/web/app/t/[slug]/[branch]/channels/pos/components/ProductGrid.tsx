@@ -9,8 +9,8 @@ interface Props {
   onAddToCart: (product: LocalProduct) => void
 }
 
-function fmtVND(v: number) {
-  return v.toLocaleString('vi-VN') + 'đ'
+function fmtVND(v: number | string | null | undefined) {
+  return Number(v ?? 0).toLocaleString('vi-VN') + 'đ'
 }
 
 export function ProductGrid({ branchId, onAddToCart }: Props) {
@@ -29,7 +29,7 @@ export function ProductGrid({ branchId, onAddToCart }: Props) {
     localDb.inventory.toArray().then((rows) => {
       const map = new Map<string, number>()
       rows.forEach((r: LocalInventory) => {
-        map.set(r.product_id, (map.get(r.product_id) ?? 0) + r.stock_qty)
+        map.set(r.product_id, (map.get(r.product_id) ?? 0) + Number(r.stock_qty))
       })
       setInventory(map)
     })

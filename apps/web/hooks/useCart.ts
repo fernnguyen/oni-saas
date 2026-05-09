@@ -30,7 +30,7 @@ type CartAction =
   | { type: 'CLEAR' }
 
 function lineTotal(item: CartItem): number {
-  return Math.max(0, item.unit_price - item.discount_amount) * item.qty
+  return Math.max(0, Number(item.unit_price) - Number(item.discount_amount)) * Number(item.qty)
 }
 
 function cartReducer(state: CartState, action: CartAction): CartState {
@@ -51,11 +51,11 @@ function cartReducer(state: CartState, action: CartAction): CartState {
         product_id: action.product.product_id,
         product_name: action.product.name,
         sku: action.product.sku,
-        unit_price: action.product.sell_price,
-        cost_price: action.product.cost_price,
+        unit_price: Number(action.product.sell_price),
+        cost_price: Number(action.product.cost_price),
         qty: 1,
         discount_amount: 0,
-        line_total: action.product.sell_price,
+        line_total: Number(action.product.sell_price),
       }
       return { ...state, items: [...state.items, newItem] }
     }
@@ -99,8 +99,8 @@ function cartReducer(state: CartState, action: CartAction): CartState {
 export function useCart() {
   const [state, dispatch] = useReducer(cartReducer, { items: [], discount_amount: 0, note: '' })
 
-  const subtotal = state.items.reduce((s, i) => s + i.line_total, 0)
-  const total = Math.max(0, subtotal - state.discount_amount)
+  const subtotal = state.items.reduce((s, i) => s + Number(i.line_total), 0)
+  const total = Math.max(0, subtotal - Number(state.discount_amount))
 
   const addItem = useCallback((product: LocalProduct) => dispatch({ type: 'ADD_ITEM', product }), [])
   const removeItem = useCallback((product_id: string) => dispatch({ type: 'REMOVE_ITEM', product_id }), [])

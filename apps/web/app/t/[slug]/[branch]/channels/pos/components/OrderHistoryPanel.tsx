@@ -22,6 +22,7 @@ interface Props {
   onLoadHeld: (held: HeldCart) => void
   onDiscardHeld: (id: string) => void
   shopName: string
+  ordersPath: string
 }
 
 const SYNC_LABELS: Record<string, { label: string; cls: string }> = {
@@ -31,8 +32,8 @@ const SYNC_LABELS: Record<string, { label: string; cls: string }> = {
   failed:   { label: 'Lỗi sync',   cls: 'bg-red-100 text-red-600' },
 }
 
-function fmtVND(v: number) {
-  return v.toLocaleString('vi-VN') + 'đ'
+function fmtVND(v: number | string | null | undefined) {
+  return Number(v ?? 0).toLocaleString('vi-VN') + 'đ'
 }
 
 function fmtTime(iso: string) {
@@ -44,7 +45,7 @@ function todayPrefix() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-export function OrderHistoryPanel({ open, onClose, heldCarts, onLoadHeld, onDiscardHeld, shopName }: Props) {
+export function OrderHistoryPanel({ open, onClose, heldCarts, onLoadHeld, onDiscardHeld, shopName, ordersPath }: Props) {
   const [tab, setTab] = useState<'held' | 'today'>('held')
   const [todayOrders, setTodayOrders] = useState<LocalOrder[]>([])
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -102,8 +103,8 @@ export function OrderHistoryPanel({ open, onClose, heldCarts, onLoadHeld, onDisc
           <button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100">✕</button>
         </div>
 
-        {/* Tabs */}
-        <div className="flex shrink-0 border-b border-slate-100">
+        {/* Tabs + link to full orders page */}
+        <div className="flex shrink-0 items-center border-b border-slate-100">
           <button
             onClick={() => setTab('held')}
             className={[
@@ -136,6 +137,13 @@ export function OrderHistoryPanel({ open, onClose, heldCarts, onLoadHeld, onDisc
               </span>
             )}
           </button>
+          <a
+            href={ordersPath}
+            className="shrink-0 px-3 py-2.5 text-xs text-[#0268FF] hover:underline"
+            title="Xem tất cả đơn hàng"
+          >
+            Tất cả →
+          </a>
         </div>
 
         {/* Content */}
@@ -157,7 +165,7 @@ export function OrderHistoryPanel({ open, onClose, heldCarts, onLoadHeld, onDisc
                         {h.discount_amount > 0 && ` · giảm ${fmtVND(h.discount_amount)}`}
                       </p>
                       <p className="text-xs font-semibold text-[#0268FF]">
-                        {fmtVND(h.items.reduce((s, i) => s + i.line_total, 0) - h.discount_amount)}
+                        {fmtVND(h.items.reduce((s, i) => s + Number(i.line_total), 0) - Number(h.discount_amount))}
                       </p>
                     </div>
                     <div className="ml-3 flex shrink-0 gap-2">

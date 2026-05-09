@@ -241,6 +241,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath }: P
         onLoadHeld={loadHeldCart}
         onDiscardHeld={discardHeldCart}
         shopName={shopName}
+        ordersPath={`${backPath}/orders`}
       />
 
       {/* Checkout modal */}

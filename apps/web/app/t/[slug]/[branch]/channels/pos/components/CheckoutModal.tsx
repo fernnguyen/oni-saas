@@ -45,8 +45,8 @@ interface PaymentRow {
   amount: string
 }
 
-function fmtVND(v: number) {
-  return v.toLocaleString('vi-VN') + 'đ'
+function fmtVND(v: number | string | null | undefined) {
+  return Number(v ?? 0).toLocaleString('vi-VN') + 'đ'
 }
 
 function nextId() {

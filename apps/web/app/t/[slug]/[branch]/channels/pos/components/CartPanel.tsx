@@ -23,8 +23,8 @@ interface Props {
   disabled?: boolean
 }
 
-function fmtVND(v: number) {
-  return v.toLocaleString('vi-VN') + 'đ'
+function fmtVND(v: number | string | null | undefined) {
+  return Number(v ?? 0).toLocaleString('vi-VN') + 'đ'
 }
 
 const DISCOUNT_PRESETS = [5, 10, 20, 50]

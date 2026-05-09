@@ -1,6 +1,57 @@
 import { localDb } from './schema'
 
-async function safeFetch(url: string): Promise<Record<string, unknown>[]> {
+// GSheets returns all cell values as strings. These parsers enforce correct runtime types
+// before bulkPut so that arithmetic (+, -, *, /) never silently becomes string concat.
+const f = (v: unknown): number => parseFloat(String(v ?? '')) || 0
+const n = (v: unknown): number => parseInt(String(v ?? ''), 10) || 0
+const bool = (v: unknown): boolean =>
+  v === true || String(v).toUpperCase() === 'TRUE'
+
+type Raw = Record<string, unknown>
+
+function parseProduct(r: Raw) {
+  return {
+    ...r,
+    sell_price: f(r.sell_price),
+    cost_price: f(r.cost_price),
+    min_price:  f(r.min_price),
+    active:     bool(r.active),
+  }
+}
+
+function parseCategory(r: Raw) {
+  return { ...r, sort_order: n(r.sort_order), active: bool(r.active) }
+}
+
+function parsePriceList(r: Raw) {
+  return { ...r, price: f(r.price), active: bool(r.active) }
+}
+
+function parseDiscount(r: Raw) {
+  return { ...r, value: f(r.value), active: bool(r.active) }
+}
+
+function parseEmployee(r: Raw) {
+  return { ...r, active: bool(r.active) }
+}
+
+function parseInventory(r: Raw) {
+  return {
+    ...r,
+    stock_qty:  f(r.stock_qty),
+    min_stock:  f(r.min_stock),
+    cost_price: f(r.cost_price),
+  }
+}
+
+function parseCustomer(r: Raw) {
+  return {
+    ...r,
+    debt_amount: r.debt_amount != null ? f(r.debt_amount) : undefined,
+  }
+}
+
+async function safeFetch(url: string): Promise<Raw[]> {
   try {
     const res = await fetch(url)
     if (!res.ok) return []
@@ -28,13 +79,13 @@ export async function hydrateAll(shopId: string, branchId: string): Promise<void
      localDb.employees, localDb.inventory, localDb.customers, localDb.meta],
     async () => {
       await Promise.all([
-        products.length   ? localDb.products.bulkPut(products as never[])   : null,
-        categories.length ? localDb.categories.bulkPut(categories as never[]) : null,
-        priceLists.length ? localDb.priceLists.bulkPut(priceLists as never[]) : null,
-        discounts.length  ? localDb.discounts.bulkPut(discounts as never[])  : null,
-        employees.length  ? localDb.employees.bulkPut(employees as never[])  : null,
-        inventory.length  ? localDb.inventory.bulkPut(inventory as never[])  : null,
-        customers.length  ? localDb.customers.bulkPut(customers as never[])  : null,
+        products.length   ? localDb.products.bulkPut(products.map(parseProduct) as never[])       : null,
+        categories.length ? localDb.categories.bulkPut(categories.map(parseCategory) as never[])  : null,
+        priceLists.length ? localDb.priceLists.bulkPut(priceLists.map(parsePriceList) as never[]) : null,
+        discounts.length  ? localDb.discounts.bulkPut(discounts.map(parseDiscount) as never[])    : null,
+        employees.length  ? localDb.employees.bulkPut(employees.map(parseEmployee) as never[])    : null,
+        inventory.length  ? localDb.inventory.bulkPut(inventory.map(parseInventory) as never[])   : null,
+        customers.length  ? localDb.customers.bulkPut(customers.map(parseCustomer) as never[])    : null,
         localDb.meta.put({ key: 'last_hydrated_at', value: new Date().toISOString() }),
         localDb.meta.put({ key: 'hydrated_branch_id', value: branchId }),
         localDb.meta.put({ key: 'hydrated_shop_id', value: shopId }),
