@@ -81,16 +81,23 @@ export default async function BranchLayout({ params, children }: Props) {
     periodEnd = subscription.current_period_end;
   }
 
+  const displayName: string =
+    (authData.user.user_metadata?.display_name as string | undefined) ??
+    (authData.user.user_metadata?.full_name as string | undefined) ??
+    '';
+
   return (
     <DashboardShell
       tenantId={tenant.id}
       tenantName={tenant.name}
       shopName={shop.name}
       userEmail={authData.user.email}
+      displayName={displayName || undefined}
       sidebarBasePath={homePath}
       tenantHref={`${controlPlaneOrigin}/dashboard/tenants`}
       connectorsHref={`${homePath}/connectors`}
       settingsHref={`${homePath}/settings`}
+      accountHref={`${homePath}/account`}
       supportHref={`${homePath}/support`}
       permissions={permissions}
       planCode={planCode}

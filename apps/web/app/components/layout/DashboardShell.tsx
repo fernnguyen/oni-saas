@@ -11,11 +11,13 @@ interface DashboardShellProps {
   tenantName: string;
   shopName?: string;
   userEmail?: string;
+  displayName?: string;
   sidebarBasePath?: string;
   supportHref?: string;
   tenantHref?: string;
   connectorsHref?: string;
   settingsHref?: string;
+  accountHref?: string;
   permissions?: string[];
   /** 'control' = org management; 'shop' = shop operations (default); 'super' = superadmin */
   sidebarContext?: 'control' | 'shop' | 'super';
@@ -33,11 +35,13 @@ export function DashboardShell({
   tenantName,
   shopName,
   userEmail,
+  displayName,
   sidebarBasePath = '/dashboard',
   supportHref = '/dashboard/support',
   tenantHref,
   connectorsHref,
   settingsHref,
+  accountHref,
   permissions = [],
   sidebarContext = 'shop',
   planCode,
@@ -73,7 +77,9 @@ export function DashboardShell({
             tenantName={tenantName}
             shopName={shopName}
             userEmail={userEmail}
+            displayName={displayName}
             settingsHref={settingsHref}
+            accountHref={accountHref}
             permissions={permissions}
             planCode={planCode}
             planName={planName}

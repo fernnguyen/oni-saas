@@ -11,7 +11,9 @@ interface TopbarProps {
   tenantName: string;
   shopName?: string;
   userEmail?: string;
+  displayName?: string;
   settingsHref?: string;
+  accountHref?: string;
   permissions?: string[];
   planCode?: string;
   planName?: string;
@@ -25,7 +27,9 @@ export function Topbar({
   tenantName,
   shopName,
   userEmail,
+  displayName,
   settingsHref = '/dashboard/settings',
+  accountHref,
   permissions = [],
   planCode,
   planName,
@@ -115,9 +119,9 @@ export function Topbar({
               className="flex items-center gap-2 rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm hover:bg-slate-50 max-w-[180px] cursor-pointer"
             >
               <div className="h-6 w-6 rounded-full bg-[#0268FF] flex items-center justify-center text-white text-xs font-bold shrink-0">
-                {(userEmail || tenantName).charAt(0).toUpperCase()}
+                {(displayName || userEmail || tenantName).charAt(0).toUpperCase()}
               </div>
-              <span className="truncate text-slate-700 font-medium">{userEmail || tenantName}</span>
+              <span className="truncate text-slate-700 font-medium">{displayName || userEmail || tenantName}</span>
               <svg className="h-4 w-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
               </svg>
@@ -132,13 +136,15 @@ export function Topbar({
                     <p className="text-sm font-medium text-slate-800 truncate">{userEmail || 'user@oni.vn'}</p>
                   </div>
                   <div className="p-1">
-                    <Link
-                      href={settingsHref}
-                      className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
-                      onClick={() => setDropdownOpen(false)}
-                    >
-                      Cài đặt tài khoản
-                    </Link>
+                    {accountHref && (
+                      <Link
+                        href={accountHref}
+                        className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                        onClick={() => setDropdownOpen(false)}
+                      >
+                        Quản lý tài khoản
+                      </Link>
+                    )}
                     <button
                       onClick={() => { setDropdownOpen(false); setLogoutConfirm(true); }}
                       className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-red-600 hover:bg-red-50 cursor-pointer"
