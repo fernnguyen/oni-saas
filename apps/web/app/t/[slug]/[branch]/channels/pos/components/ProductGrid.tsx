@@ -15,24 +15,12 @@ function fmtVND(v: number | string | null | undefined) {
   return Number(v ?? 0).toLocaleString('vi-VN') + 'đ'
 }
 
-let _audioCtx: AudioContext | null = null
+let _beep: HTMLAudioElement | null = null
 function playBeep() {
   try {
-    if (!_audioCtx || _audioCtx.state === 'closed') {
-      _audioCtx = new AudioContext()
-    }
-    const ctx = _audioCtx
-    if (ctx.state === 'suspended') ctx.resume()
-    const osc = ctx.createOscillator()
-    const gain = ctx.createGain()
-    osc.connect(gain)
-    gain.connect(ctx.destination)
-    osc.frequency.value = 880
-    osc.type = 'sine'
-    gain.gain.setValueAtTime(0.3, ctx.currentTime)
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1)
-    osc.start()
-    osc.stop(ctx.currentTime + 0.1)
+    if (!_beep) _beep = new Audio('/beep.wav')
+    _beep.currentTime = 0
+    _beep.play().catch(() => {})
   } catch {}
 }
 
@@ -115,46 +103,50 @@ export function ProductGrid({ branchId, inventory, onAddToCart }: Props) {
                   }}
                   disabled={outOfStock}
                   className={[
-                    'flex flex-col rounded-xl border overflow-hidden text-left transition-all',
+                    'flex h-full flex-col rounded-xl border overflow-hidden text-left transition-all',
                     outOfStock
                       ? 'border-slate-100 bg-slate-50 opacity-50 cursor-not-allowed'
                       : 'border-slate-200 bg-white hover:border-[#0268FF] hover:shadow-md active:scale-[0.98]',
                   ].join(' ')}
                 >
-                  {/* Image */}
-                  {product.image_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={product.image_url}
-                      alt={product.name}
-                      className="w-full aspect-[4/3] object-cover"
-                    />
-                  ) : (
-                    <div className="w-full aspect-[4/3] flex items-center justify-center bg-slate-100">
-                      <IconBox className="h-10 w-10 text-slate-300" />
-                    </div>
-                  )}
+                  {/* Image with SKU badge overlay */}
+                  <div className="relative w-full aspect-[4/3] shrink-0">
+                    {product.image_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={product.image_url}
+                        alt={product.name}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-slate-100">
+                        <IconBox className="h-10 w-10 text-slate-300" />
+                      </div>
+                    )}
+                    {product.sku && (
+                      <span className="absolute top-1.5 left-1.5 rounded bg-black/40 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm leading-none">
+                        {product.sku}
+                      </span>
+                    )}
+                  </div>
 
-                  {/* Info */}
-                  <div className="flex flex-col px-2.5 pt-2 pb-1 gap-0.5">
+                  {/* Info — flex-1 pushes price row to bottom */}
+                  <div className="flex flex-1 flex-col px-2.5 pt-2 pb-1 gap-0.5">
                     <p className="text-sm font-bold text-slate-900 line-clamp-2 leading-tight">
                       {product.name}
                     </p>
-                    {product.sku && (
-                      <p className="text-[11px] text-slate-400">{product.sku}</p>
-                    )}
-                    <p className={['text-xs font-medium mt-0.5', outOfStock ? 'text-red-400' : 'text-emerald-600'].join(' ')}>
+                    <p className={['text-xs font-medium mt-auto pt-1', outOfStock ? 'text-red-400' : 'text-emerald-600'].join(' ')}>
                       {stock} trong kho
                     </p>
                   </div>
 
                   {/* Price + add button */}
-                  <div className="px-2.5 pb-2.5 pt-1 flex items-center justify-between">
+                  <div className="px-2.5 pb-2.5 pt-1 flex items-center justify-between shrink-0">
                     <span className="text-sm font-bold text-[#0268FF]">
                       {fmtVND(product.sell_price)}
                     </span>
                     <div className={[
-                      'h-7 w-7 flex items-center justify-center rounded-full text-base font-medium transition-colors',
+                      'h-7 w-7 shrink-0 flex items-center justify-center rounded-full text-lg leading-none',
                       outOfStock ? 'bg-slate-100 text-slate-300' : 'bg-[#EEF4FF] text-[#0268FF]',
                     ].join(' ')}>
                       +
