@@ -14,7 +14,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body className="min-h-screen bg-slate-50 text-slate-900" suppressHydrationWarning>
         <QueryProvider>
           {children}
-          <Toaster position="bottom-right" richColors closeButton />
+          <Toaster position="bottom-left" richColors closeButton />
         </QueryProvider>
       </body>
     </html>
