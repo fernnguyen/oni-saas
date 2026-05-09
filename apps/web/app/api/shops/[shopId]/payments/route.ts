@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireShopAccess } from '@/lib/server/shopAccess'
-import { categoryCreateSchema } from '@/lib/validators/categories'
+import { paymentCreateSchema } from '@/lib/validators/orders'
 import { shopTag, invalidate, shopCache } from '@/lib/server/cache'
 import { cacheTTL } from '@/lib/env'
 import { handleApiError } from '../../_helpers'
@@ -16,17 +16,19 @@ export async function GET(
     const sp = req.nextUrl.searchParams
     const page = Math.max(1, parseInt(sp.get('page') ?? '1'))
     const limit = Math.min(200, Math.max(1, parseInt(sp.get('limit') ?? '50')))
-    const search = sp.get('search') ?? ''
+    const order_id = sp.get('order_id') ?? ''
+    const filters: Record<string, string> = {}
+    if (order_id) filters.order_id = order_id
 
     const result = await shopCache(
-      () => connector.list('categories', { page, limit, search: search || undefined }),
-      ['categories', shopId, String(page), String(limit), search],
-      { tags: [shopTag(shopId, 'categories')], revalidate: cacheTTL.categories }
+      () => connector.list('payments', { page, limit, filters }),
+      ['payments', shopId, order_id, String(page), String(limit)],
+      { tags: [shopTag(shopId, 'payments')], revalidate: cacheTTL.orders }
     )
 
     return NextResponse.json(result)
   } catch (e) {
-    return handleApiError(e, 'GET categories')
+    return handleApiError(e, 'GET payments')
   }
 }
 
@@ -39,12 +41,13 @@ export async function POST(
     const { connector } = await requireShopAccess(shopId)
 
     const body = await req.json()
-    const data = categoryCreateSchema.parse(body)
+    const data = paymentCreateSchema.parse(body)
 
-    const created = await connector.create('categories', data)
-    invalidate(shopId, 'categories')
+    const created = await connector.create('payments', data)
+    invalidate(shopId, 'payments')
+    invalidate(shopId, 'orders')
     return NextResponse.json(created, { status: 201 })
   } catch (e) {
-    return handleApiError(e, 'POST categories')
+    return handleApiError(e, 'POST payments')
   }
 }

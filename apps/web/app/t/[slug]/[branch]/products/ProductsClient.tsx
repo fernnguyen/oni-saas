@@ -1,5 +1,8 @@
 'use client'
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useMemo } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
+import { useDebounce } from 'use-debounce'
 import { DataTable, Column } from '@/app/components/ui/DataTable'
 import { SlideOver } from '@/app/components/ui/SlideOver'
 import { TagBadge } from '@/app/components/ui/TagBadge'
@@ -27,89 +30,72 @@ const EMPTY_FORM = {
 }
 
 export function ProductsClient({ shopId }: Props) {
-  const [data, setData] = useState<Record<string, string>[]>([])
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
   const [page, setPage] = useState(1)
-  const [total, setTotal] = useState(0)
   const [search, setSearch] = useState('')
+  const [debouncedSearch] = useDebounce(search, 300)
   const [formData, setFormData] = useState<Record<string, string>>(EMPTY_FORM)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [slideOpen, setSlideOpen] = useState(false)
-  const [saving, setSaving] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<Record<string, string> | null>(null)
-  const [deleting, setDeleting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
-  const fetchData = useCallback(async () => {
-    setLoading(true)
-    try {
+  const { data, isLoading, isFetching } = useQuery({
+    queryKey: ['products', shopId, page, debouncedSearch],
+    queryFn: async () => {
       const sp = new URLSearchParams({ page: String(page), limit: '50' })
-      if (search) sp.set('search', search)
+      if (debouncedSearch) sp.set('search', debouncedSearch)
       const res = await fetch(`/api/shops/${shopId}/products?${sp}`)
-      if (!res.ok) throw new Error('Failed to fetch')
-      const json = await res.json()
-      setData(json.data)
-      setTotal(json.total)
-    } catch (e) {
-      console.error(e)
-    } finally {
-      setLoading(false)
-    }
-  }, [shopId, page, search])
+      if (!res.ok) throw new Error('Không tải được dữ liệu')
+      return res.json() as Promise<{ data: Record<string, string>[]; total: number }>
+    },
+  })
 
-  useEffect(() => { fetchData() }, [fetchData])
-
-  function openEdit(row: Record<string, string>) {
-    setFormData(row)
-    setEditingId(row.product_id)
-    setSlideOpen(true)
-    setError(null)
-  }
-
-  function openCreate() {
-    setFormData(EMPTY_FORM)
-    setEditingId(null)
-    setSlideOpen(true)
-    setError(null)
-  }
-
-  async function handleSave() {
-    setSaving(true)
-    setError(null)
-    try {
+  const saveMutation = useMutation({
+    mutationFn: async (payload: Record<string, string>) => {
       const url = editingId
         ? `/api/shops/${shopId}/products/${editingId}`
         : `/api/shops/${shopId}/products`
       const res = await fetch(url, {
         method: editingId ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       })
       if (!res.ok) {
-        const json = await res.json()
+        const json = await res.json().catch(() => ({}))
         throw new Error(json.error ?? 'Lưu thất bại')
       }
+      return res.json()
+    },
+    onSuccess: () => {
+      toast.success(editingId ? 'Đã cập nhật' : 'Đã tạo mới')
       setSlideOpen(false)
-      fetchData()
-    } catch (e: any) {
-      setError(e.message)
-    } finally {
-      setSaving(false)
-    }
+      queryClient.invalidateQueries({ queryKey: ['products', shopId] })
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await fetch(`/api/shops/${shopId}/products/${id}`, { method: 'DELETE' })
+    },
+    onSuccess: () => {
+      toast.success('Đã xóa')
+      setDeleteTarget(null)
+      queryClient.invalidateQueries({ queryKey: ['products', shopId] })
+    },
+    onError: () => toast.error('Xóa thất bại'),
+  })
+
+  function openEdit(row: Record<string, string>) {
+    setFormData(row)
+    setEditingId(row.product_id)
+    setSlideOpen(true)
   }
 
-  async function handleDelete() {
-    if (!deleteTarget) return
-    setDeleting(true)
-    try {
-      await fetch(`/api/shops/${shopId}/products/${deleteTarget.product_id}`, { method: 'DELETE' })
-      setDeleteTarget(null)
-      fetchData()
-    } catch (e) {
-      console.error(e)
-    } finally {
-      setDeleting(false)
-    }
+  function openCreate() {
+    setFormData(EMPTY_FORM)
+    setEditingId(null)
+    setSlideOpen(true)
   }
 
   const columns = useMemo<Column<Record<string, string>>[]>(() => [
@@ -156,7 +142,10 @@ export function ProductsClient({ shopId }: Props) {
       <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold text-slate-900">Sản phẩm</h1>
-          <p className="mt-0.5 text-sm text-slate-500">{total} sản phẩm</p>
+          <p className="mt-0.5 text-sm text-slate-500">
+            {data?.total ?? 0} sản phẩm
+            {isFetching && !isLoading && <span className="ml-2 text-xs text-slate-400">Đang cập nhật...</span>}
+          </p>
         </div>
         <button
           onClick={openCreate}
@@ -174,9 +163,9 @@ export function ProductsClient({ shopId }: Props) {
 
       <DataTable
         columns={columns}
-        data={data}
-        loading={loading}
-        pagination={{ page, total, pageSize: 50, onChange: setPage }}
+        data={data?.data ?? []}
+        loading={isLoading}
+        pagination={{ page, total: data?.total ?? 0, pageSize: 50, onChange: setPage }}
         emptyState={<EmptyState title="Chưa có sản phẩm nào" description="Nhấn '+ Thêm sản phẩm' để bắt đầu." />}
         rowKey={(row) => row.product_id}
       />
@@ -187,7 +176,6 @@ export function ProductsClient({ shopId }: Props) {
         title={editingId ? 'Chỉnh sửa sản phẩm' : 'Thêm sản phẩm'}
         footer={
           <>
-            {error && <p className="mr-auto text-xs text-red-500">{error}</p>}
             <button
               onClick={() => setSlideOpen(false)}
               className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
@@ -195,11 +183,11 @@ export function ProductsClient({ shopId }: Props) {
               Hủy
             </button>
             <button
-              onClick={handleSave}
-              disabled={saving}
+              onClick={() => saveMutation.mutate(formData)}
+              disabled={saveMutation.isPending}
               className="rounded-xl bg-[#0268FF] px-4 py-2 text-sm font-medium text-white hover:bg-[#0256CC] disabled:opacity-50"
             >
-              {saving ? 'Đang lưu...' : 'Lưu'}
+              {saveMutation.isPending ? 'Đang lưu...' : 'Lưu'}
             </button>
           </>
         }
@@ -289,12 +277,12 @@ export function ProductsClient({ shopId }: Props) {
       <ConfirmDialog
         open={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
-        onConfirm={handleDelete}
+        onConfirm={() => { if (deleteTarget) deleteMutation.mutate(deleteTarget.product_id) }}
         title="Xác nhận xóa"
         description={`Bạn có chắc muốn xóa "${deleteTarget?.name}"?`}
         confirmLabel="Xóa"
         variant="danger"
-        loading={deleting}
+        loading={deleteMutation.isPending}
       />
     </div>
   )

@@ -1,5 +1,7 @@
 import './globals.css';
 import type { ReactNode } from 'react';
+import { Toaster } from 'sonner';
+import { QueryProvider } from '@/app/components/providers/QueryProvider';
 
 export const metadata = {
   title: 'ONI.vn – Multi-tenant POS',
@@ -10,7 +12,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="vi">
       <body className="min-h-screen bg-slate-50 text-slate-900" suppressHydrationWarning>
-        {children}
+        <QueryProvider>
+          {children}
+          <Toaster position="bottom-right" richColors closeButton />
+        </QueryProvider>
       </body>
     </html>
   );

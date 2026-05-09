@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireShopAccess } from '@/lib/server/shopAccess'
 import { productUpdateSchema } from '@/lib/validators/products'
+import { invalidate } from '@/lib/server/cache'
 import { handleApiError } from '../../../_helpers'
 
 export async function GET(
@@ -31,6 +32,7 @@ export async function PUT(
     const data = productUpdateSchema.parse(body)
 
     const updated = await connector.update('products', id, data)
+    invalidate(shopId, 'products')
     return NextResponse.json(updated)
   } catch (e) {
     return handleApiError(e, 'PUT product')
@@ -46,6 +48,7 @@ export async function DELETE(
     const { connector } = await requireShopAccess(shopId)
 
     await connector.delete('products', id)
+    invalidate(shopId, 'products')
     return new NextResponse(null, { status: 204 })
   } catch (e) {
     return handleApiError(e, 'DELETE product')

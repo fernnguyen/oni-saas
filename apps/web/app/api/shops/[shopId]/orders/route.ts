@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireShopAccess } from '@/lib/server/shopAccess'
-import { categoryCreateSchema } from '@/lib/validators/categories'
+import { orderCreateSchema } from '@/lib/validators/orders'
 import { shopTag, invalidate, shopCache } from '@/lib/server/cache'
 import { cacheTTL } from '@/lib/env'
 import { handleApiError } from '../../_helpers'
@@ -17,16 +17,23 @@ export async function GET(
     const page = Math.max(1, parseInt(sp.get('page') ?? '1'))
     const limit = Math.min(200, Math.max(1, parseInt(sp.get('limit') ?? '50')))
     const search = sp.get('search') ?? ''
+    const status = sp.get('status') ?? ''
+    const channel = sp.get('channel') ?? ''
+    const customer_id = sp.get('customer_id') ?? ''
+    const filters: Record<string, string> = {}
+    if (status) filters.status = status
+    if (channel) filters.channel = channel
+    if (customer_id) filters.customer_id = customer_id
 
     const result = await shopCache(
-      () => connector.list('categories', { page, limit, search: search || undefined }),
-      ['categories', shopId, String(page), String(limit), search],
-      { tags: [shopTag(shopId, 'categories')], revalidate: cacheTTL.categories }
+      () => connector.list('orders', { page, limit, search: search || undefined, filters }),
+      ['orders', shopId, String(page), String(limit), search, status, channel, customer_id],
+      { tags: [shopTag(shopId, 'orders')], revalidate: cacheTTL.orders }
     )
 
     return NextResponse.json(result)
   } catch (e) {
-    return handleApiError(e, 'GET categories')
+    return handleApiError(e, 'GET orders')
   }
 }
 
@@ -39,12 +46,12 @@ export async function POST(
     const { connector } = await requireShopAccess(shopId)
 
     const body = await req.json()
-    const data = categoryCreateSchema.parse(body)
+    const data = orderCreateSchema.parse(body)
 
-    const created = await connector.create('categories', data)
-    invalidate(shopId, 'categories')
+    const created = await connector.create('orders', data)
+    invalidate(shopId, 'orders')
     return NextResponse.json(created, { status: 201 })
   } catch (e) {
-    return handleApiError(e, 'POST categories')
+    return handleApiError(e, 'POST orders')
   }
 }

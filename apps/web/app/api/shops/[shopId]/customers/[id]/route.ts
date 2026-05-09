@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireShopAccess } from '@/lib/server/shopAccess'
 import { customerUpdateSchema } from '@/lib/validators/customers'
 import { handleApiError } from '../../../_helpers'
+import { invalidate } from '@/lib/server/cache'
 
 export async function GET(
   req: NextRequest,
@@ -31,6 +32,7 @@ export async function PUT(
     const data = customerUpdateSchema.parse(body)
 
     const updated = await connector.update('customers', id, data)
+    invalidate(shopId, 'customers')
     return NextResponse.json(updated)
   } catch (e) {
     return handleApiError(e, 'PUT customer')
@@ -46,6 +48,7 @@ export async function DELETE(
     const { connector } = await requireShopAccess(shopId)
 
     await connector.delete('customers', id)
+    invalidate(shopId, 'customers')
     return new NextResponse(null, { status: 204 })
   } catch (e) {
     return handleApiError(e, 'DELETE customer')

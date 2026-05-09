@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireShopAccess } from '@/lib/server/shopAccess'
-import { categoryUpdateSchema } from '@/lib/validators/categories'
+import { orderUpdateSchema } from '@/lib/validators/orders'
 import { invalidate } from '@/lib/server/cache'
 import { handleApiError } from '../../../_helpers'
 
@@ -12,11 +12,11 @@ export async function GET(
     const { shopId, id } = await params
     const { connector } = await requireShopAccess(shopId)
 
-    const row = await connector.findById('categories', id)
+    const row = await connector.findById('orders', id)
     if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     return NextResponse.json(row)
   } catch (e) {
-    return handleApiError(e, 'GET category')
+    return handleApiError(e, 'GET order')
   }
 }
 
@@ -29,13 +29,13 @@ export async function PUT(
     const { connector } = await requireShopAccess(shopId)
 
     const body = await req.json()
-    const data = categoryUpdateSchema.parse(body)
+    const data = orderUpdateSchema.parse(body)
 
-    const updated = await connector.update('categories', id, data)
-    invalidate(shopId, 'categories')
+    const updated = await connector.update('orders', id, data)
+    invalidate(shopId, 'orders')
     return NextResponse.json(updated)
   } catch (e) {
-    return handleApiError(e, 'PUT category')
+    return handleApiError(e, 'PUT order')
   }
 }
 
@@ -47,10 +47,10 @@ export async function DELETE(
     const { shopId, id } = await params
     const { connector } = await requireShopAccess(shopId)
 
-    await connector.delete('categories', id)
-    invalidate(shopId, 'categories')
+    await connector.delete('orders', id)
+    invalidate(shopId, 'orders')
     return new NextResponse(null, { status: 204 })
   } catch (e) {
-    return handleApiError(e, 'DELETE category')
+    return handleApiError(e, 'DELETE order')
   }
 }
