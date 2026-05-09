@@ -14,6 +14,18 @@ interface Props {
   shopId: string
 }
 
+interface StatPeriod {
+  count: number
+  revenue: number
+}
+
+interface OrderStats {
+  today: StatPeriod
+  week: StatPeriod
+  month: StatPeriod
+  returns: StatPeriod
+}
+
 type Row = Record<string, string>
 
 const STATUS_OPTIONS = [
@@ -68,6 +80,13 @@ function fmtDate(v: string | undefined) {
 
 const EMPTY_PAYMENT = { method: 'cash', amount: '', note: '', reference_no: '' }
 
+const STAT_CARDS: { key: keyof OrderStats; label: string }[] = [
+  { key: 'today',   label: 'Hôm nay' },
+  { key: 'week',    label: '7 ngày qua' },
+  { key: 'month',   label: 'Tháng này' },
+  { key: 'returns', label: 'Trả hàng' },
+]
+
 export function OrdersClient({ shopId }: Props) {
   const queryClient = useQueryClient()
   const [page, setPage] = useState(1)
@@ -79,6 +98,17 @@ export function OrdersClient({ shopId }: Props) {
   const [deleteTarget, setDeleteTarget] = useState<Row | null>(null)
   const [paymentForm, setPaymentForm] = useState<Record<string, string>>(EMPTY_PAYMENT)
   const [showPaymentForm, setShowPaymentForm] = useState(false)
+
+  // Stats summary
+  const { data: stats } = useQuery<OrderStats>({
+    queryKey: ['orders-stats', shopId],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/orders/stats`)
+      if (!res.ok) throw new Error('Không tải được thống kê')
+      return res.json()
+    },
+    staleTime: 60_000,
+  })
 
   // Orders list
   const { data, isLoading, isFetching } = useQuery({
@@ -247,6 +277,24 @@ export function OrdersClient({ shopId }: Props) {
 
   return (
     <div className="space-y-4">
+      {/* Stat cards */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {STAT_CARDS.map(({ key, label }) => {
+          const s = stats?.[key]
+          return (
+            <div key={key} className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
+              <p className="text-xs font-medium text-slate-500">{label}</p>
+              <p className="mt-1 text-lg font-semibold text-slate-900">
+                {s ? fmtVND(String(s.revenue)) : <span className="animate-pulse text-slate-300">—</span>}
+              </p>
+              <p className="mt-0.5 text-xs text-slate-400">
+                {s != null ? `${s.count} đơn` : ''}
+              </p>
+            </div>
+          )
+        })}
+      </div>
+
       {/* Header */}
       <div className="flex items-center justify-between gap-4">
         <div>
