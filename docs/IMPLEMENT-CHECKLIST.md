@@ -67,31 +67,31 @@
 
 ## Phase 4 — POS Core UI
 
-- [ ] `app/t/[slug]/[branch]/channels/pos/page.tsx` — server component + auth
-- [ ] `app/t/[slug]/[branch]/channels/pos/POSClient.tsx` — main POS layout
-- [ ] `app/t/[slug]/[branch]/channels/pos/components/ProductGrid.tsx`
-- [ ] `app/t/[slug]/[branch]/channels/pos/components/CartPanel.tsx`
-- [ ] `app/t/[slug]/[branch]/channels/pos/components/CheckoutModal.tsx`
-- [ ] `app/t/[slug]/[branch]/channels/pos/components/CustomerSearch.tsx`
-- [ ] `hooks/usePOSProductSearch.ts` — local default, advanced API
-- [ ] `hooks/useCart.ts` — cart state management
-- [ ] Ghi đơn vào LocalDB + syncQueue sau checkout
-- [ ] Delta inventory update tại LocalDB
-- [ ] `lib/pos/printBill.ts` + bill HTML template
-- [ ] Print bill sau thanh toán thành công
+- [x] `app/t/[slug]/[branch]/channels/pos/page.tsx` — server component + auth
+- [x] `app/t/[slug]/[branch]/channels/pos/POSClient.tsx` — main POS layout
+- [x] `app/t/[slug]/[branch]/channels/pos/components/ProductGrid.tsx`
+- [x] `app/t/[slug]/[branch]/channels/pos/components/CartPanel.tsx`
+- [x] `app/t/[slug]/[branch]/channels/pos/components/CheckoutModal.tsx`
+- [x] `app/t/[slug]/[branch]/channels/pos/components/CustomerSearch.tsx`
+- [x] `hooks/usePOSProductSearch.ts` — local default, advanced API
+- [x] `hooks/useCart.ts` — cart state management
+- [x] Ghi đơn vào LocalDB + syncQueue sau checkout
+- [x] Delta inventory update tại LocalDB
+- [x] `lib/pos/printBill.ts` + bill HTML template
+- [x] Print bill sau thanh toán thành công
 
 ---
 
 ## Phase 5 — Sync Worker + Offline
 
-- [ ] `lib/pos/syncWorker.ts` — SyncWorker class (tick, flushQueue, retry)
-- [ ] Worker khởi động khi mount POSClient
-- [ ] `app/t/[slug]/[branch]/channels/pos/components/SyncStatusBar.tsx`
-- [ ] Network restore → trigger hydrateAll + flush queue
-- [ ] Manual "Đồng bộ" button
-- [ ] Xử lý first-launch-offline (block UI + hướng dẫn)
-- [ ] Xử lý `failed` sync items (alert + manual retry)
-- [ ] Clear LocalDB khi logout (`/lib/localDb/clear.ts`)
+- [x] `lib/pos/syncWorker.ts` — SyncWorker class (tick, flushQueue, retry)
+- [x] Worker khởi động khi mount POSClient
+- [x] `app/t/[slug]/[branch]/channels/pos/components/SyncStatusBar.tsx`
+- [x] Network restore → trigger hydrateAll + flush queue
+- [x] Manual "Đồng bộ" button
+- [x] Xử lý first-launch-offline (block UI + hướng dẫn)
+- [x] Xử lý `failed` sync items (alert + manual retry)
+- [x] Clear LocalDB khi logout (`/lib/localDb/clear.ts`)
 
 ---
 

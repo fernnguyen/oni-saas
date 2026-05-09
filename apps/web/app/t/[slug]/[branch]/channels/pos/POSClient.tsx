@@ -1,13 +1,15 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { usePOSHydration } from '@/hooks/usePOSHydration'
 import { useNetworkStatus } from '@/hooks/useNetworkStatus'
 import { useCart, type CartItem } from '@/hooks/useCart'
 import type { LocalCustomer } from '@/lib/localDb/schema'
+import { SyncWorker } from '@/lib/pos/syncWorker'
 import { ProductGrid } from './components/ProductGrid'
 import { CartPanel } from './components/CartPanel'
 import { CheckoutModal } from './components/CheckoutModal'
+import { SyncStatusBar } from './components/SyncStatusBar'
 
 interface Props {
   shopId: string
@@ -34,6 +36,39 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath }: P
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [heldCarts, setHeldCarts] = useState<HeldCart[]>([])
   const [showHeld, setShowHeld] = useState(false)
+  const workerRef = useRef<SyncWorker | null>(null)
+
+  // Start sync worker on mount, stop on unmount
+  useEffect(() => {
+    const worker = new SyncWorker(shopId)
+    workerRef.current = worker
+    void worker.start()
+    return () => worker.stop()
+  }, [shopId])
+
+  // Flush pending queue whenever network comes back (hydration is handled by usePOSHydration)
+  useEffect(() => {
+    if (isOnline) workerRef.current?.flushAll()
+  }, [isOnline])
+
+  // No local data + no network → cannot start POS
+  if (!lastHydratedAt && !isOnline) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center gap-4 bg-slate-50 p-6 text-center">
+        <div className="text-4xl">📡</div>
+        <p className="text-base font-semibold text-slate-800">Cần kết nối mạng lần đầu</p>
+        <p className="max-w-xs text-sm text-slate-500">
+          POS cần tải dữ liệu từ server khi sử dụng lần đầu. Vui lòng bật Wifi hoặc 4G rồi thử lại.
+        </p>
+        <button
+          onClick={() => refresh()}
+          className="rounded-xl bg-[#0268FF] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#0256CC] transition-colors"
+        >
+          Thử lại
+        </button>
+      </div>
+    )
+  }
 
   // Full-screen loader only on first-ever hydration
   if (status === 'idle' || (status === 'loading' && !lastHydratedAt)) {
@@ -135,6 +170,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath }: P
             onClick={() => {
               if (!isOnline) { toast.error('Không có kết nối mạng'); return }
               refresh()
+              workerRef.current?.flushAll()
             }}
             disabled={status === 'loading'}
             className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50 transition-colors"
@@ -155,6 +191,12 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath }: P
           <span className="hidden text-xs text-slate-400 sm:block">{userEmail}</span>
         </div>
       </header>
+
+      {/* Sync status bar */}
+      <SyncStatusBar
+        isOnline={isOnline}
+        onRetryFailed={() => workerRef.current?.retryFailed()}
+      />
 
       {/* Held carts dropdown */}
       {showHeld && heldCarts.length > 0 && (

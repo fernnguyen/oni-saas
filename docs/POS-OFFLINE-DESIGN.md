@@ -436,6 +436,12 @@ export class SyncWorker {
   private async syncItem(item: SyncQueueItem) {
     await localDb.syncQueue.update(item.id!, { status: 'syncing' })
     try {
+      // Sync thực tế dùng 4 API calls riêng (không có bulk endpoint):
+      // 1. POST /orders → lấy serverId + orderNo
+      // 2. POST /order-items (lần lượt từng item, cần serverId)
+      // 3. POST /payments (lần lượt, cần serverId)
+      // 4. POST /stock-movements (lần lượt, qty = Math.abs để API calcDelta xử lý sign)
+      // Xem lib/pos/syncWorker.ts để biết chi tiết convert number → string cho validators
       const res = await fetch(`/api/shops/${this.shopId}/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
