@@ -4,14 +4,37 @@ import { stockMovementCreateSchema } from '@/lib/validators/stockMovements'
 import { shopTag, invalidate, shopCache } from '@/lib/server/cache'
 import { cacheTTL } from '@/lib/env'
 import { handleApiError } from '../../_helpers'
+import type { IDataConnector } from '@oni/adapters'
 
 const INBOUND_TYPES = ['purchase_in', 'return_in', 'transfer_in']
 const OUTBOUND_TYPES = ['sale_out', 'transfer_out']
+
+const MOVEMENT_NO_PREFIX: Record<string, string> = {
+  purchase_in:  'PN',   // Phiếu Nhập
+  sale_out:     'PX',   // Phiếu Xuất
+  return_in:    'PTH',  // Phiếu Trả Hàng
+  transfer_in:  'CKV',  // Chuyển Kho Vào
+  transfer_out: 'CKX',  // Chuyển Kho Xuất
+  adjustment:   'PDK',  // Phiếu Điều Kho
+}
 
 function calcDelta(type: string, qty: number): number {
   if (INBOUND_TYPES.includes(type)) return Math.abs(qty)
   if (OUTBOUND_TYPES.includes(type)) return -Math.abs(qty)
   return qty // adjustment: signed
+}
+
+async function generateMovementNo(connector: IDataConnector, type: string): Promise<string> {
+  const prefix = MOVEMENT_NO_PREFIX[type] ?? 'PKH'
+  const result = await connector.list('stock-movements', { page: 1, limit: 5000, filters: { type } })
+  const existing = result.data as Record<string, string>[]
+  const nums = existing
+    .map(r => r.movement_no)
+    .filter((n): n is string => !!n && n.startsWith(`${prefix}-`))
+    .map(n => parseInt(n.slice(prefix.length + 1), 10))
+    .filter(n => !isNaN(n))
+  const next = nums.length > 0 ? Math.max(...nums) + 1 : 1
+  return `${prefix}-${String(next).padStart(3, '0')}`
 }
 
 export async function GET(
@@ -35,7 +58,7 @@ export async function GET(
     if (branch_id) filters.branch_id = branch_id
 
     const result = await shopCache(
-      () => connector.list('stock-movements', { page, limit, search: search || undefined, filters }),
+      () => connector.list('stock-movements', { page, limit, search: search || undefined, filters, sortDesc: true }),
       ['stock-movements', shopId, String(page), String(limit), search, type, product_id, branch_id],
       { tags: [shopTag(shopId, 'stock-movements')], revalidate: cacheTTL.stockMovements }
     )
@@ -73,13 +96,21 @@ export async function POST(
           return NextResponse.json(check.data[0], { status: 200 })
         }
       }
-      const created = await connector.create('stock-movements', data as unknown as Record<string, string>)
+      const movNo = await generateMovementNo(connector, data.type)
+      const created = await connector.create('stock-movements', {
+        ...(data as unknown as Record<string, string>),
+        movement_no: movNo,
+      })
       invalidate(shopId, 'stock-movements')
       return NextResponse.json(created, { status: 201 })
     }
 
-    // 1. Create movement record
-    const created = await connector.create('stock-movements', data as unknown as Record<string, string>)
+    // 1. Generate mã phiếu kho and create movement record
+    const movementNo = await generateMovementNo(connector, data.type)
+    const created = await connector.create('stock-movements', {
+      ...(data as unknown as Record<string, string>),
+      movement_no: movementNo,
+    })
 
     // 2. Upsert inventory stock_qty
     // Sheets rows often store branch_id as empty string while callers pass a UUID.

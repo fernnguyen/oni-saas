@@ -7,6 +7,7 @@ import { DataTable, Column } from '@/app/components/ui/DataTable'
 import { EmptyState } from '@/app/components/ui/EmptyState'
 import { SearchBar } from '@/app/components/ui/SearchBar'
 import { SlideOver } from '@/app/components/ui/SlideOver'
+import { TagBadge, TagColor } from '@/app/components/ui/TagBadge'
 
 interface Props {
   shopId: string
@@ -14,13 +15,22 @@ interface Props {
 }
 
 type Row = Record<string, string>
+type Tab = 'stock' | 'history'
 
-const MOVEMENT_TYPE_OPTIONS = [
-  { value: 'purchase_in',  label: 'Nhập hàng',            hint: 'Hàng về từ NCC → tăng tồn kho, cập nhật giá vốn' },
-  { value: 'return_in',    label: 'Hàng trả về',           hint: 'Khách hoàn trả → tăng tồn kho' },
-  { value: 'adjustment',   label: 'Kiểm kê / điều chỉnh',  hint: 'Số dương (+) thêm, số âm (−) giảm tồn kho' },
-  { value: 'transfer_in',  label: 'Chuyển kho vào',        hint: 'Nhận hàng từ chi nhánh khác' },
+// ── Movement type metadata ────────────────────────────────────────────────────
+
+const MOVEMENT_TYPES = [
+  { value: 'purchase_in',  label: 'Nhập hàng',      color: 'blue'   as TagColor, sign: '+', hint: 'Hàng về từ NCC → tăng tồn kho, cập nhật giá vốn' },
+  { value: 'sale_out',     label: 'Bán hàng',        color: 'green'  as TagColor, sign: '-', hint: 'Xuất kho khi bán hàng' },
+  { value: 'return_in',    label: 'Hàng trả về',     color: 'red'    as TagColor, sign: '+', hint: 'Khách hoàn trả → tăng tồn kho' },
+  { value: 'transfer_out', label: 'Xuất chuyển kho', color: 'orange' as TagColor, sign: '-', hint: 'Chuyển hàng sang chi nhánh khác' },
+  { value: 'transfer_in',  label: 'Nhập chuyển kho', color: 'purple' as TagColor, sign: '+', hint: 'Nhận hàng từ chi nhánh khác' },
+  { value: 'adjustment',   label: 'Điều chỉnh',      color: 'yellow' as TagColor, sign: '±', hint: 'Kiểm kê / điều chỉnh tồn kho' },
 ]
+
+const MOVEMENT_TYPE_MAP = Object.fromEntries(MOVEMENT_TYPES.map((t) => [t.value, t]))
+
+const INPUT_TYPES = MOVEMENT_TYPES.filter((t) => ['purchase_in', 'return_in', 'adjustment', 'transfer_in'].includes(t.value))
 
 const EMPTY_FORM = {
   type: 'purchase_in',
@@ -38,7 +48,13 @@ function fmtVND(v: string | number | undefined) {
   return Number(v || 0).toLocaleString('vi-VN') + 'đ'
 }
 
+function fmtDate(v: string | undefined) {
+  if (!v) return '—'
+  return new Date(v).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' })
+}
+
 // ── Product autocomplete ──────────────────────────────────────────────────────
+
 function ProductSelect({
   shopId,
   value,
@@ -128,9 +144,13 @@ function ProductSelect({
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
+
 export function InventoryClient({ shopId }: Props) {
   const queryClient = useQueryClient()
-  const [page, setPage] = useState(1)
+  const [activeTab, setActiveTab] = useState<Tab>('stock')
+
+  // Stock tab state
+  const [stockPage, setStockPage] = useState(1)
   const [search, setSearch] = useState('')
   const [debouncedSearch] = useDebounce(search, 300)
   const [showForm, setShowForm] = useState(false)
@@ -139,11 +159,17 @@ export function InventoryClient({ shopId }: Props) {
     product_id: string; name: string; sku: string
   } | null>(null)
 
+  // History tab state
+  const [historyPage, setHistoryPage] = useState(1)
+  const [historySearch, setHistorySearch] = useState('')
+  const [debouncedHistorySearch] = useDebounce(historySearch, 300)
+  const [typeFilter, setTypeFilter] = useState('')
+
   // Inventory rows
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['inventory', shopId, page, debouncedSearch],
+    queryKey: ['inventory', shopId, stockPage, debouncedSearch],
     queryFn: async () => {
-      const sp = new URLSearchParams({ page: String(page), limit: '50' })
+      const sp = new URLSearchParams({ page: String(stockPage), limit: '50' })
       if (debouncedSearch) sp.set('search', debouncedSearch)
       const res = await fetch(`/api/shops/${shopId}/inventory?${sp}`)
       if (!res.ok) throw new Error('Không tải được dữ liệu')
@@ -152,7 +178,7 @@ export function InventoryClient({ shopId }: Props) {
     staleTime: 0,
   })
 
-  // Products — for name + cost_price lookup (cost_price lives on Product, not Inventory)
+  // Products — for name + cost_price lookup
   const { data: productsData } = useQuery({
     queryKey: ['products-all', shopId],
     queryFn: async () => {
@@ -178,6 +204,20 @@ export function InventoryClient({ shopId }: Props) {
     },
   })
 
+  // Stock movements (history tab — lazy)
+  const { data: movementsData, isLoading: movementsLoading, isFetching: movementsFetching } = useQuery({
+    queryKey: ['stock-movements', shopId, historyPage, debouncedHistorySearch, typeFilter],
+    queryFn: async () => {
+      const sp = new URLSearchParams({ page: String(historyPage), limit: '50' })
+      if (debouncedHistorySearch) sp.set('search', debouncedHistorySearch)
+      if (typeFilter) sp.set('type', typeFilter)
+      const res = await fetch(`/api/shops/${shopId}/stock-movements?${sp}`)
+      if (!res.ok) throw new Error('Không tải được lịch sử')
+      return res.json() as Promise<{ data: Row[]; total: number }>
+    },
+    enabled: activeTab === 'history',
+  })
+
   // Create movement mutation
   const mutation = useMutation({
     mutationFn: async (payload: Record<string, string>) => {
@@ -199,6 +239,7 @@ export function InventoryClient({ shopId }: Props) {
       setSelectedProduct(null)
       queryClient.invalidateQueries({ queryKey: ['inventory', shopId] })
       queryClient.invalidateQueries({ queryKey: ['products-all', shopId] })
+      queryClient.invalidateQueries({ queryKey: ['stock-movements', shopId] })
     },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -235,9 +276,11 @@ export function InventoryClient({ shopId }: Props) {
     setSelectedProduct(null)
   }
 
-  const movTypeInfo = MOVEMENT_TYPE_OPTIONS.find((o) => o.value === form.type)
+  const movTypeInfo = INPUT_TYPES.find((o) => o.value === form.type)
 
-  const columns = useMemo<Column<Row>[]>(() => [
+  // ── Stock columns ──────────────────────────────────────────────────────────
+
+  const stockColumns = useMemo<Column<Row>[]>(() => [
     {
       key: 'product_name',
       label: 'Sản phẩm',
@@ -275,9 +318,8 @@ export function InventoryClient({ shopId }: Props) {
     },
     {
       key: 'cost_price',
-      label: 'Giá vốn (từ SP)',
+      label: 'Giá vốn',
       render: (row) => {
-        // Cost price lives on the Product record, not Inventory tab
         const p = productMap.get(row.product_id)
         const cost = p?.cost_price ?? row.cost_price
         return (
@@ -307,52 +349,229 @@ export function InventoryClient({ shopId }: Props) {
     },
   ], [productMap])
 
+  // ── History columns ────────────────────────────────────────────────────────
+
+  const historyColumns = useMemo<Column<Row>[]>(() => [
+    {
+      key: 'movement_id',
+      label: 'Mã phiếu kho',
+      render: (row) => (
+        <div className="min-w-[90px]">
+          <span className="block font-mono text-xs font-semibold text-slate-800">
+            {row.movement_id || '—'}
+          </span>
+          {row.movement_no && (
+            <span className="block font-mono text-xs text-slate-400">{row.movement_no}</span>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: 'created_at',
+      label: 'Thời gian',
+      render: (row) => (
+        <span className="whitespace-nowrap text-xs text-slate-500">{fmtDate(row.created_at)}</span>
+      ),
+    },
+    {
+      key: 'type',
+      label: 'Loại phiếu',
+      render: (row) => {
+        const t = MOVEMENT_TYPE_MAP[row.type]
+        if (!t) return <span className="text-xs text-slate-400">{row.type}</span>
+        return <TagBadge label={t.label} color={t.color} />
+      },
+    },
+    {
+      key: 'product',
+      label: 'Sản phẩm',
+      render: (row) => {
+        const p = productMap.get(row.product_id)
+        return (
+          <div>
+            <p className="text-sm font-medium text-slate-900">{p?.name ?? row.product_id}</p>
+            {(p?.sku || row.sku) && <p className="text-xs text-slate-400">{p?.sku || row.sku}</p>}
+          </div>
+        )
+      },
+    },
+    {
+      key: 'qty',
+      label: 'Số lượng',
+      render: (row) => {
+        const t = MOVEMENT_TYPE_MAP[row.type]
+        const qty = Number(row.qty || 0)
+        const isIn = t?.sign === '+'
+        const isAdj = t?.sign === '±'
+        const color = isAdj
+          ? qty >= 0 ? 'text-green-600' : 'text-red-500'
+          : isIn ? 'text-green-600' : 'text-red-500'
+        const prefix = isAdj ? (qty >= 0 ? '+' : '') : (isIn ? '+' : '-')
+        return (
+          <span className={`font-semibold tabular-nums ${color}`}>
+            {prefix}{Math.abs(qty).toLocaleString('vi-VN')}
+          </span>
+        )
+      },
+    },
+    {
+      key: 'unit_cost',
+      label: 'Đơn giá',
+      render: (row) => (
+        <span className="text-sm text-slate-600">
+          {row.unit_cost && Number(row.unit_cost) > 0 ? fmtVND(row.unit_cost) : <span className="text-slate-300">—</span>}
+        </span>
+      ),
+    },
+    {
+      key: 'movement_no',
+      label: 'Mã phiếu kho',
+      render: (row) => (
+        <span className="font-mono text-sm font-semibold text-slate-800">
+          {row.movement_no || <span className="font-normal text-slate-400 text-xs">—</span>}
+        </span>
+      ),
+    },
+    {
+      key: 'reference_no',
+      label: 'Từ phiếu',
+      render: (row) => (
+        <span className="font-mono text-xs text-[#0268FF]">{row.reference_no || '—'}</span>
+      ),
+    },
+    {
+      key: 'reason',
+      label: 'Ghi chú',
+      render: (row) => (
+        <span className="text-xs text-slate-500">{row.reason || '—'}</span>
+      ),
+    },
+  ], [productMap])
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+
   return (
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900">Tồn kho</h1>
+          <h1 className="text-xl font-semibold text-slate-900">Kho hàng</h1>
           <p className="mt-0.5 text-sm text-slate-500">
-            {data?.total ?? 0} mặt hàng
-            {isFetching && !isLoading && (
-              <span className="ml-2 text-xs text-slate-400">Đang cập nhật...</span>
-            )}
+            {activeTab === 'stock'
+              ? `${data?.total ?? 0} mặt hàng${isFetching && !isLoading ? ' · Đang cập nhật...' : ''}`
+              : `${movementsData?.total ?? 0} phiếu${movementsFetching && !movementsLoading ? ' · Đang cập nhật...' : ''}`}
           </p>
         </div>
-        <button
-          onClick={() => setShowForm(true)}
-          className="rounded-xl bg-[#0268FF] px-4 py-2 text-sm font-medium text-white hover:bg-[#0256CC] transition-colors"
-        >
-          + Nhập kho
-        </button>
+        {activeTab === 'stock' && (
+          <button
+            onClick={() => setShowForm(true)}
+            className="rounded-xl bg-[#0268FF] px-4 py-2 text-sm font-medium text-white hover:bg-[#0256CC] transition-colors"
+          >
+            + Nhập / xuất kho
+          </button>
+        )}
       </div>
 
-      <SearchBar
-        value={search}
-        onChange={(v) => { setSearch(v); setPage(1) }}
-        placeholder="Tìm theo mã SP, SKU..."
-      />
+      {/* Tabs */}
+      <div className="flex gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1 w-fit">
+        {([
+          { key: 'stock',   label: 'Tồn kho hiện tại' },
+          { key: 'history', label: 'Lịch sử phiếu kho' },
+        ] as { key: Tab; label: string }[]).map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={[
+              'rounded-lg px-4 py-1.5 text-sm font-medium transition-colors',
+              activeTab === tab.key
+                ? 'bg-white text-slate-900 shadow-sm'
+                : 'text-slate-500 hover:text-slate-700',
+            ].join(' ')}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-      <DataTable
-        columns={columns}
-        data={data?.data ?? []}
-        loading={isLoading}
-        pagination={{ page, total: data?.total ?? 0, pageSize: 50, onChange: setPage }}
-        emptyState={
-          <EmptyState
-            title="Chưa có dữ liệu tồn kho"
-            description='Nhấn "+ Nhập kho" để tạo phiếu nhập hàng đầu tiên.'
+      {/* ── Stock tab ── */}
+      {activeTab === 'stock' && (
+        <>
+          <SearchBar
+            value={search}
+            onChange={(v) => { setSearch(v); setStockPage(1) }}
+            placeholder="Tìm theo mã SP, SKU..."
           />
-        }
-        rowKey={(row) => `${row.inventory_id ?? row.product_id}-${row.branch_id}`}
-      />
+          <DataTable
+            columns={stockColumns}
+            data={data?.data ?? []}
+            loading={isLoading}
+            pagination={{ page: stockPage, total: data?.total ?? 0, pageSize: 50, onChange: setStockPage }}
+            emptyState={
+              <EmptyState
+                title="Chưa có dữ liệu tồn kho"
+                description='Nhấn "+ Nhập / xuất kho" để tạo phiếu đầu tiên.'
+              />
+            }
+            rowKey={(row) => `${row.inventory_id ?? row.product_id}-${row.branch_id}`}
+          />
+        </>
+      )}
 
-      {/* Nhập kho slide-over */}
+      {/* ── History tab ── */}
+      {activeTab === 'history' && (
+        <>
+          {/* Type filter */}
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => { setTypeFilter(''); setHistoryPage(1) }}
+              className={[
+                'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+                typeFilter === '' ? 'bg-[#0268FF] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+              ].join(' ')}
+            >
+              Tất cả
+            </button>
+            {MOVEMENT_TYPES.map((t) => (
+              <button
+                key={t.value}
+                onClick={() => { setTypeFilter(t.value); setHistoryPage(1) }}
+                className={[
+                  'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+                  typeFilter === t.value ? 'bg-[#0268FF] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+                ].join(' ')}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          <SearchBar
+            value={historySearch}
+            onChange={(v) => { setHistorySearch(v); setHistoryPage(1) }}
+            placeholder="Tìm theo mã phiếu, sản phẩm..."
+          />
+
+          <DataTable
+            columns={historyColumns}
+            data={movementsData?.data ?? []}
+            loading={movementsLoading}
+            pagination={{ page: historyPage, total: movementsData?.total ?? 0, pageSize: 50, onChange: setHistoryPage }}
+            emptyState={
+              <EmptyState
+                title="Chưa có phiếu kho nào"
+                description="Các phiếu nhập hàng, bán hàng, trả hàng, điều chỉnh sẽ hiển thị ở đây."
+              />
+            }
+            rowKey={(row, idx) => `${row.movement_id ?? idx}`}
+          />
+        </>
+      )}
+
+      {/* ── Nhập kho slide-over ── */}
       <SlideOver
         open={showForm}
         onClose={closeForm}
-        title="Phiếu nhập kho"
+        title="Phiếu nhập / xuất kho"
         width={520}
         footer={
           <div className="flex gap-3">
@@ -367,7 +586,7 @@ export function InventoryClient({ shopId }: Props) {
               disabled={mutation.isPending}
               className="rounded-xl bg-[#0268FF] px-6 py-2 text-sm font-medium text-white hover:bg-[#0256CC] disabled:opacity-50 transition-colors"
             >
-              {mutation.isPending ? 'Đang lưu...' : 'Xác nhận nhập kho'}
+              {mutation.isPending ? 'Đang lưu...' : 'Xác nhận'}
             </button>
           </div>
         }
@@ -377,7 +596,7 @@ export function InventoryClient({ shopId }: Props) {
           <div>
             <label className="mb-1.5 block text-xs font-medium text-slate-600">Loại phiếu</label>
             <div className="flex flex-wrap gap-2">
-              {MOVEMENT_TYPE_OPTIONS.map((opt) => (
+              {INPUT_TYPES.map((opt) => (
                 <button
                   key={opt.value}
                   onClick={() => setForm((f) => ({ ...f, type: opt.value }))}

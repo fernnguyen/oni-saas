@@ -45,25 +45,36 @@ export async function POST(
       )
     }
 
-    // 3. For each item: POST to stock-movements (return_in) — reuse that route's inventory logic
-    //    We call the internal connector directly to avoid HTTP overhead and stay atomic.
-    const INBOUND_TYPES = ['purchase_in', 'return_in', 'transfer_in']
+    // 3. For each item: create stock-movement type=return_in
+    //    Generate movement_no sequentially using existing PTH- prefix records.
+    const existingMov = await connector.list('stock-movements', { page: 1, limit: 5000, filters: { type: 'return_in' } })
+    const pthNums = (existingMov.data as Record<string, string>[])
+      .map(r => r.movement_no)
+      .filter((n): n is string => typeof n === 'string' && n.startsWith('PTH-'))
+      .map(n => parseInt(n.slice(4), 10))
+      .filter(n => !isNaN(n))
+    let pthCounter = pthNums.length > 0 ? Math.max(...pthNums) : 0
+
+    const returnRef = r.return_no ?? r.return_id ?? id
 
     for (const item of items) {
       const qty   = parseFloat(item.qty_returned || '0')
-      const delta = Math.abs(qty) // return_in is always inbound
+      const delta = Math.abs(qty)
 
-      // Create the movement record
+      pthCounter += 1
+      const movementNo = `PTH-${String(pthCounter).padStart(3, '0')}`
+
       await connector.create('stock-movements', {
         type:         'return_in',
+        movement_no:  movementNo,
         product_id:   item.product_id,
         sku:          item.sku ?? '',
         qty:          String(qty),
         unit_cost:    item.unit_price ?? '0',
         branch_id:    '',
-        reference_no: r.return_no ?? id,
+        reference_no: returnRef,
         employee_id:  processedBy,
-        reason:       `Trả hàng: ${r.return_no ?? id}`,
+        reason:       `Trả hàng từ ${returnRef}`,
       })
 
       // Update inventory (same logic as stock-movements POST)

@@ -173,22 +173,37 @@ export async function POST(
       }
     }
 
-    // ── Step 4: Stock movements — dedup by (reference_no, product_id) ──
-    // Inventory is NOT updated here; the sync worker handles it as a separate
-    // idempotent step so a failed inventory update can be retried independently.
+    // ── Step 4: Stock movements — dedup then create with movement_no ──
+    // reference_no = order_no (ORD-001) so the movement traces back to its source order.
+    // Dedup uses the same reference_no that will be written (consistent key).
+    const movRef = orderNo || serverId || ''
+
+    // Pre-count existing PX movements to generate sequential movement_no
+    const existingPX = await connector.list('stock-movements', { page: 1, limit: 5000, filters: { type: 'sale_out' } })
+    const pxNums = (existingPX.data as Record<string, string>[])
+      .map(r => r.movement_no)
+      .filter((n): n is string => typeof n === 'string' && n.startsWith('PX-'))
+      .map(n => parseInt(n.slice(3), 10))
+      .filter(n => !isNaN(n))
+    let pxCounter = pxNums.length > 0 ? Math.max(...pxNums) : 0
+
     for (const mv of stock_movements) {
       const check = await connector.list('stock-movements', {
         page: 1, limit: 1,
-        filters: { reference_no: orderNo, product_id: mv.product_id },
+        filters: { reference_no: movRef, product_id: mv.product_id },
       })
       if (check.data.length > 0) continue
 
+      pxCounter += 1
+      const movementNo = `PX-${String(pxCounter).padStart(3, '0')}`
+
       await connector.create('stock-movements', {
         type:         mv.type,
+        movement_no:  movementNo,
         product_id:   mv.product_id,
         qty:          String(Math.abs(mv.qty)),
         branch_id:    mv.branch_id ?? '',
-        reference_no: orderNo || mv.reference_no || '',
+        reference_no: movRef,
       } as Record<string, string>)
     }
 

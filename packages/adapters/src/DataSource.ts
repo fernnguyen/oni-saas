@@ -3,6 +3,7 @@ export interface ListOptions {
   limit?: number
   search?: string
   filters?: Record<string, string>
+  sortDesc?: boolean  // true = newest-first (reverse append order)
 }
 
 export interface ListResult {

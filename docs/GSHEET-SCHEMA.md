@@ -139,7 +139,8 @@ Khi thêm tính năng mới cần thêm cột:
 
 | Cột | Kiểu | Mô tả |
 |-----|------|-------|
-| `movement_id` | string | `SM-001` |
+| `movement_id` | string | `SM-001` — ID nội bộ, do Oni generate |
+| `movement_no` | string | Mã phiếu kho theo loại: `PN-001` / `PX-001` / `PTH-001` / `CKV-001` / `CKX-001` / `PDK-001` |
 | `type` | string | `purchase_in` / `sale_out` / `transfer_in` / `transfer_out` / `adjustment` / `return_in` |
 | `product_id` | string | |
 | `sku` | string | |
@@ -148,10 +149,23 @@ Khi thêm tính năng mới cần thêm cột:
 | `unit_cost` | number | Giá vốn tại thời điểm giao dịch |
 | `branch_id` | string | Chi nhánh thực hiện |
 | `supplier_id` | string | Tham chiếu `Suppliers.supplier_id` (dùng khi type=purchase_in) |
-| `reference_no` | string | Số phiếu nhập/xuất, số đơn hàng… |
+| `reference_no` | string | Tham chiếu phiếu nguồn: `RET-007` (từ phiếu trả), `ORD-042` (từ đơn bán), `PN-001` (số phiếu nhập) |
 | `employee_id` | string | Người thực hiện |
 | `reason` | string | Lý do (đặc biệt dùng cho type=adjustment) |
 | `created_at` | datetime | |
+
+**Quy tắc `movement_no`:**
+
+| `type` | Prefix | Ý nghĩa |
+|--------|--------|---------|
+| `purchase_in` | `PN` | Phiếu Nhập hàng từ NCC |
+| `sale_out` | `PX` | Phiếu Xuất bán |
+| `return_in` | `PTH` | Phiếu Trả Hàng về kho |
+| `transfer_in` | `CKV` | Chuyển Kho Vào |
+| `transfer_out` | `CKX` | Chuyển Kho Xuất |
+| `adjustment` | `PDK` | Phiếu Điều Kho |
+
+**Trace chain:** `StockMovements.reference_no` → `Returns.return_no` hoặc `Orders.order_no` — cho phép tra ngược từ biến động kho về phiếu/đơn gốc.
 
 ---
 

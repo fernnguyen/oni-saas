@@ -78,7 +78,7 @@ export function buildOniTemplateSheets(): OniTemplateSheet[] {
       // type: purchase_in | sale_out | transfer_in | transfer_out | adjustment | return_in
       title: 'StockMovements',
       headers: [
-        'movement_id', 'type', 'product_id', 'sku', 'variant_id',
+        'movement_id', 'movement_no', 'type', 'product_id', 'sku', 'variant_id',
         'qty', 'unit_cost', 'branch_id', 'supplier_id',
         'reference_no', 'employee_id', 'reason', 'created_at',
       ],

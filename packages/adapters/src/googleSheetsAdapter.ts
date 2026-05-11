@@ -112,15 +112,24 @@ async function readTab(
   const cached = cacheGet(cacheKey)
   if (cached) return { headers: cached.headers, rows: cached.rows }
 
-  const result = await sheetsGet(token, sheetId, `/values/${encodeURIComponent(tabName)}`) as { values?: string[][] }
+  // UNFORMATTED_VALUE + FORMATTED_STRING: date cells return as ISO strings instead of
+  // locale-formatted strings (e.g. "10/05/2026 09:30:00") that break Date parsing.
+  const result = await sheetsGet(
+    token,
+    sheetId,
+    `/values/${encodeURIComponent(tabName)}?valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=FORMATTED_STRING`,
+  ) as { values?: unknown[][] }
   const values = result.values ?? []
-  const headers = values[0] ?? []
+  const headers = (values[0] ?? []).map(String)
   const rows: Record<string, string>[] = []
 
   for (let i = 1; i < values.length; i++) {
     const row: Record<string, string> = {}
     for (let j = 0; j < headers.length; j++) {
-      row[headers[j]] = values[i][j] ?? ''
+      const v = (values[i] as unknown[])[j]
+      // Normalise booleans to uppercase string so existing checks (=== 'FALSE') keep working
+      if (typeof v === 'boolean') row[headers[j]] = v ? 'TRUE' : 'FALSE'
+      else row[headers[j]] = v != null ? String(v) : ''
     }
     rows.push(row)
   }
@@ -190,7 +199,7 @@ export class GoogleSheetsConnector implements IDataConnector {
   }
 
   async list(entity: string, options: ListOptions = {}): Promise<ListResult> {
-    const { page = 1, limit = 50, search, filters } = options
+    const { page = 1, limit = 50, search, filters, sortDesc } = options
     const { tab } = this.getConfig(entity)
     const token = await this.tokenProvider()
     const { headers, rows } = await readTab(token, this.sheetId, tab)
@@ -211,6 +220,14 @@ export class GoogleSheetsConnector implements IDataConnector {
       }
       return true
     })
+
+    if (sortDesc) {
+      filtered = [...filtered].sort((a, b) => {
+        const ta = a.created_at ? Date.parse(a.created_at) : 0
+        const tb = b.created_at ? Date.parse(b.created_at) : 0
+        return tb - ta
+      })
+    }
 
     const total = filtered.length
     const start = (page - 1) * limit
