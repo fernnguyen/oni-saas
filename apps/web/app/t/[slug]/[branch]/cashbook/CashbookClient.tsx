@@ -68,6 +68,22 @@ export function CashbookClient({ shopId }: Props) {
     setSlideOpen(true)
   }
 
+  const CATEGORY_MAP: Record<string, string> = {
+    sales: 'Bán hàng',
+    debt_collection: 'Thu nợ',
+    import: 'Nhập hàng',
+    salary: 'Lương nhân viên',
+    utilities: 'Điện nước/Mặt bằng',
+    other: 'Khác',
+  }
+
+  const METHOD_MAP: Record<string, string> = {
+    cash: 'Tiền mặt',
+    bank_transfer: 'Chuyển khoản',
+    card: 'Thẻ (POS)',
+    momo: 'Ví Momo',
+  }
+
   const columns = useMemo<Column<Record<string, string>>[]>(() => [
     { key: 'transaction_id', label: 'Mã Phiếu' },
     { 
@@ -94,9 +110,9 @@ export function CashbookClient({ shopId }: Props) {
         </span>
       ),
     },
-    { key: 'category', label: 'Danh mục', render: (row) => <TagBadge label={row.category} /> },
+    { key: 'category', label: 'Danh mục', render: (row) => <TagBadge label={CATEGORY_MAP[row.category] || row.category} /> },
     { key: 'reference_name', label: 'Người nộp/nhận' },
-    { key: 'method', label: 'Phương thức' },
+    { key: 'method', label: 'Phương thức', render: (row) => METHOD_MAP[row.method] || row.method },
     { key: 'note', label: 'Ghi chú' },
   ], [])
 
