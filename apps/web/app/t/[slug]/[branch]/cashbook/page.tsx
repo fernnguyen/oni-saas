@@ -19,11 +19,25 @@ export default async function CashbookPage({ params }: Props) {
   const admin = getSupabaseAdminClient()
   const { data: shop } = await admin
   .from('shops_view')
-  .select('id, name')
+  .select('id, name, tenant_id')
   .eq('slug', branch)
   .maybeSingle()
 
   if (!shop) notFound()
+
+  const { getUserPermissions } = await import('@/lib/server/permissions')
+  const permissions = await getUserPermissions(authData.user.id, shop.tenant_id, shop.id).catch(() => [])
+  if (!permissions.includes('cashbook.view')) {
+    const { PermissionGate } = await import('@/app/components/ui/PermissionGate')
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="mt-1 text-xl font-bold text-slate-900">Sổ quỹ</h1>
+        </div>
+        <PermissionGate />
+      </div>
+    )
+  }
 
   return <CashbookClient shopId={shop.id} shopName={shop.name} />
 }
