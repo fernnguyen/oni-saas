@@ -288,6 +288,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath }: P
         total={cart.total}
         note={cart.note}
         customer={customer}
+        onCustomerChange={setCustomer}
         shopId={shopId}
         branchId={branchId}
         shopName={shopName}

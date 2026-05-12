@@ -48,6 +48,7 @@ interface SyncOrder {
   tax_amount: number
   total_amount: number
   paid_amount: number
+  debt_amount?: number
   note?: string
 }
 
@@ -103,6 +104,7 @@ export async function POST(
         tax_amount:      String(order.tax_amount),
         total_amount:    String(order.total_amount),
         paid_amount:     String(order.paid_amount),
+        debt_amount:     String(order.debt_amount ?? 0),
         note:            order.note ?? '',
         reference_no:    local_order_id ?? '',
       } as Record<string, string>)

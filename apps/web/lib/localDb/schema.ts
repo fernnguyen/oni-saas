@@ -104,6 +104,7 @@ export interface LocalOrder {
   tax_amount: number
   total_amount: number
   paid_amount: number
+  debt_amount?: number
   note?: string
   created_at: string
   status: string

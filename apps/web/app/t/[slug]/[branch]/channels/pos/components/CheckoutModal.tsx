@@ -12,6 +12,7 @@ import {
 import { broadcastOrderCreated } from '@/lib/localDb/tabSync'
 import { printBill } from '@/lib/pos/printBill'
 import type { CartItem } from '@/hooks/useCart'
+import { CustomerSearch } from './CustomerSearch'
 
 interface Props {
   open: boolean
@@ -23,6 +24,7 @@ interface Props {
   total: number
   note: string
   customer: LocalCustomer | null
+  onCustomerChange: (c: LocalCustomer | null) => void
   shopId: string
   branchId: string
   shopName: string
@@ -63,6 +65,7 @@ export function CheckoutModal({
   total,
   note,
   customer,
+  onCustomerChange,
   shopId,
   branchId,
   shopName,
@@ -119,8 +122,19 @@ export function CheckoutModal({
       return
     }
 
+    const hasDebt = payments.some((p) => p.method === 'debt' && parseFloat(p.amount) > 0)
+    if (hasDebt && !customer) {
+      toast.error('Phương thức Ghi nợ yêu cầu phải chọn Khách hàng')
+      return
+    }
+
     setSaving(true)
     try {
+      const debtAmount = payments
+        .filter((p) => p.method === 'debt')
+        .reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
+      const actualPaid = Math.max(0, total - debtAmount)
+
       const local_id = crypto.randomUUID()
       const now = new Date().toISOString()
 
@@ -148,7 +162,6 @@ export function CheckoutModal({
           note: '',
         }))
 
-      const actualPaid = Math.min(totalPaid, total)
       const order: LocalOrder = {
         local_id,
         sync_status: 'pending',
@@ -161,6 +174,7 @@ export function CheckoutModal({
         tax_amount: 0,
         total_amount: total,
         paid_amount: actualPaid,
+        debt_amount: debtAmount,
         note: localNote,
         created_at: now,
         status: 'completed',
@@ -254,11 +268,14 @@ export function CheckoutModal({
 
         <div className="p-5 space-y-4">
           {/* Customer */}
-          <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-xs font-medium text-slate-500">KHÁCH HÀNG</span>
-              <span className="font-medium text-slate-900">{customer?.name ?? 'Khách lẻ'}</span>
+          <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+            <div className="mb-1.5 flex items-center justify-between">
+              <p className="text-xs font-medium text-slate-500">KHÁCH HÀNG</p>
+              <p className="text-xs text-slate-400">
+                {customer ? customer.name : 'Khách lẻ'}
+              </p>
             </div>
+            <CustomerSearch selected={customer} onSelect={onCustomerChange} />
           </div>
 
           {/* Order summary */}
