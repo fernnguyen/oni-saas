@@ -72,9 +72,9 @@ export async function POST(
         qty:          String(qty),
         unit_cost:    item.unit_price ?? '0',
         branch_id:    '',
-        reference_no: returnRef,
+        reference_no: r.order_id || returnRef,
         employee_id:  processedBy,
-        reason:       `Trả hàng từ ${returnRef}`,
+        reason:       `Trả hàng từ ${returnRef}${r.note ? ` - Ghi chú: ${r.note}` : ''}`,
       })
 
       // Update inventory (same logic as stock-movements POST)
@@ -112,9 +112,26 @@ export async function POST(
       processed_at: now,
     })
 
-    // 5. Update linked order → refunded
+    // 5. Update linked order → refunded or partially_refunded
     if (r.order_id) {
-      await connector.update('orders', r.order_id, { status: 'refunded' })
+      const allReturnsResult = await connector.list('returns', { limit: 100, filters: { order_id: r.order_id } })
+      const allReturns = allReturnsResult.data as Record<string, string>[]
+      const validReturns = allReturns.filter(ret => ret.status === 'processed' || ret.return_id === id)
+      
+      let totalReturnedQty = 0
+      for (const vRet of validReturns) {
+        const vItemsResult = await connector.list('return-items', { limit: 500, filters: { return_id: vRet.return_id! } })
+        const vItems = vItemsResult.data as Record<string, string>[]
+        totalReturnedQty += vItems.reduce((acc, item) => acc + parseInt(item.qty_returned || '0', 10), 0)
+      }
+      
+      const orderItemsResult = await connector.list('order-items', { limit: 500, filters: { order_id: r.order_id } })
+      const orderItems = orderItemsResult.data as Record<string, string>[]
+      const totalPurchasedQty = orderItems.reduce((acc, item) => acc + parseInt(item.qty || '0', 10), 0)
+      
+      const newStatus = totalReturnedQty >= totalPurchasedQty ? 'refunded' : 'partially_refunded'
+      
+      await connector.update('orders', r.order_id, { status: newStatus })
       invalidate(shopId, 'orders')
     }
 

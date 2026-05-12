@@ -35,9 +35,9 @@ const STATUS_OPTIONS = [
   { value: 'processing', label: 'Đang xử lý' },
   { value: 'completed', label: 'Hoàn thành' },
   { value: 'cancelled', label: 'Đã hủy' },
+  { value: 'partially_refunded', label: 'Hoàn 1 phần' },
   { value: 'refunded', label: 'Hoàn tiền' },
 ]
-
 const CHANNEL_LABEL: Record<string, string> = {
   pos: 'Tại quầy',
   online: 'Online',
@@ -61,6 +61,7 @@ function statusColor(s: string): TagColor {
   if (s === 'draft') return 'yellow'
   if (s === 'confirmed') return 'blue'
   if (s === 'processing') return 'orange'
+  if (s === 'partially_refunded') return 'indigo'
   if (s === 'refunded') return 'purple'
   return 'gray'
 }
@@ -103,6 +104,20 @@ export function OrdersClient({ shopId }: Props) {
   const [returnRefundMethod, setReturnRefundMethod] = useState('cash')
   const [returnNote, setReturnNote] = useState('')
   const [returnRefundAmount, setReturnRefundAmount] = useState('')
+  const [returnItems, setReturnItems] = useState<Record<string, number>>({})
+  const [showConfirmReturn, setShowConfirmReturn] = useState(false)
+
+  const calcAutoRefund = () => {
+    const items = itemsData?.data ?? []
+    let total = 0
+    items.forEach(i => {
+      const q = returnItems[i.item_id!]
+      if (q) {
+        total += (parseFloat(i.line_total || '0') / parseFloat(i.qty || '1')) * q
+      }
+    })
+    return total
+  }
 
   // Stats summary
   const { data: stats } = useQuery<OrderStats>({
@@ -149,6 +164,40 @@ export function OrdersClient({ shopId }: Props) {
     },
     enabled: !!selectedOrder,
   })
+
+  // Returns history for order (lazy)
+  const { data: orderReturnsData } = useQuery({
+    queryKey: ['order-returns', shopId, selectedOrder?.order_id],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/returns?order_id=${selectedOrder!.order_id}&limit=50`)
+      if (!res.ok) throw new Error('Không tải được lịch sử trả hàng')
+      const returns = (await res.json()) as { data: Row[]; total: number }
+      
+      const itemsPromises = returns.data.map(async (r) => {
+        const iRes = await fetch(`/api/shops/${shopId}/return-items?return_id=${r.return_id}&limit=100`)
+        const iData = await iRes.json()
+        return { ...r, items: iData.data as Row[] }
+      })
+      return Promise.all(itemsPromises)
+    },
+    enabled: !!selectedOrder,
+  })
+
+  const alreadyReturnedQty = useMemo(() => {
+    const qtyMap: Record<string, number> = {}
+    if (!orderReturnsData) return qtyMap
+    
+    orderReturnsData.forEach(ret => {
+      if (ret.status === 'rejected') return
+      ret.items.forEach((item: any) => {
+        const id = item.order_item_id || item.product_id
+        if (id) {
+          qtyMap[id] = (qtyMap[id] || 0) + parseInt(item.qty_returned || '0', 10)
+        }
+      })
+    })
+    return qtyMap
+  }, [orderReturnsData])
 
   // Update status
   const statusMutation = useMutation({
@@ -200,7 +249,16 @@ export function OrdersClient({ shopId }: Props) {
   const returnMutation = useMutation({
     mutationFn: async (order: Row) => {
       const items = itemsData?.data ?? []
-      const totalRefund = returnRefundAmount !== '' ? parseFloat(returnRefundAmount) : items.reduce((s, i) => s + parseFloat(i.line_total || '0'), 0)
+      const returningItems = items
+        .map(i => ({ ...i, retQty: returnItems[i.item_id!] || 0 }))
+        .filter(i => i.retQty > 0)
+
+      if (returningItems.length === 0) throw new Error('Vui lòng chọn ít nhất 1 sản phẩm để trả')
+
+      const totalRefund = returnRefundAmount !== '' 
+        ? parseFloat(returnRefundAmount) 
+        : returningItems.reduce((s, i) => s + (parseFloat(i.line_total || '0') / parseFloat(i.qty || '1')) * i.retQty, 0)
+
       // 1. Create return header
       const retRes = await fetch(`/api/shops/${shopId}/returns`, {
         method: 'POST',
@@ -221,8 +279,9 @@ export function OrdersClient({ shopId }: Props) {
       const ret = await retRes.json()
       // 2. Create return items from order items (fire-and-forget individual failures)
       await Promise.allSettled(
-        items.map((item) =>
-          fetch(`/api/shops/${shopId}/return-items`, {
+        returningItems.map((item) => {
+          const retLineTotal = (parseFloat(item.line_total || '0') / parseFloat(item.qty || '1')) * item.retQty;
+          return fetch(`/api/shops/${shopId}/return-items`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -232,12 +291,12 @@ export function OrdersClient({ shopId }: Props) {
               product_id:   item.product_id,
               product_name: item.product_name ?? '',
               sku:          item.sku ?? '',
-              qty_returned: item.qty,
+              qty_returned: String(item.retQty),
               unit_price:   item.unit_price,
-              line_total:   item.line_total,
+              line_total:   String(retLineTotal),
             }),
           })
-        )
+        })
       )
       // Update order status → processing (chờ xác nhận trả hàng)
       await fetch(`/api/shops/${shopId}/orders/${order.order_id}`, {
@@ -250,6 +309,7 @@ export function OrdersClient({ shopId }: Props) {
     onSuccess: () => {
       toast.success('Đã tạo phiếu trả hàng — xem trong mục Đơn trả hàng')
       setShowReturnForm(false)
+      setShowConfirmReturn(false)
       setSelectedOrder((prev) => prev ? { ...prev, status: 'processing' } : prev)
       setEditStatus('processing')
       queryClient.invalidateQueries({ queryKey: ['returns', shopId] })
@@ -287,6 +347,8 @@ export function OrdersClient({ shopId }: Props) {
     setReturnRefundMethod('cash')
     setReturnNote('')
     setReturnRefundAmount('')
+    setReturnItems({})
+    setShowConfirmReturn(false)
   }
 
   const columns = useMemo<Column<Row>[]>(() => [
@@ -430,14 +492,15 @@ export function OrdersClient({ shopId }: Props) {
         width={640}
         footer={
           <div className="flex w-full items-center justify-between">
-            {selectedOrder?.status === 'completed' ? (
+            {selectedOrder?.status === 'completed' || selectedOrder?.status === 'partially_refunded' ? (
               <button
                 onClick={() => {
                   setShowReturnForm((v) => !v)
                   setReturnReason('other')
                   setReturnRefundMethod('cash')
                   setReturnNote('')
-                  setReturnRefundAmount(selectedOrder?.total_amount ?? '')
+                  setReturnRefundAmount('')
+                  setReturnItems({})
                 }}
                 className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-medium text-orange-700 hover:bg-orange-100"
               >
@@ -546,7 +609,14 @@ export function OrdersClient({ shopId }: Props) {
                       {(itemsData?.data ?? []).map((item) => (
                         <tr key={item.item_id} className="border-b border-slate-50 last:border-0">
                           <td className="px-3 py-2 text-slate-900">{item.product_name}</td>
-                          <td className="px-3 py-2 text-right text-slate-700">{item.qty}</td>
+                          <td className="px-3 py-2 text-right text-slate-700">
+                            {item.qty}
+                            {alreadyReturnedQty[item.item_id!] > 0 && (
+                              <span className="ml-1 block text-xs text-orange-600">
+                                (Đã trả {alreadyReturnedQty[item.item_id!]})
+                              </span>
+                            )}
+                          </td>
                           <td className="px-3 py-2 text-right text-slate-700">{fmtVND(item.unit_price)}</td>
                           <td className="px-3 py-2 text-right font-medium text-slate-900">{fmtVND(item.line_total)}</td>
                         </tr>
@@ -557,21 +627,45 @@ export function OrdersClient({ shopId }: Props) {
               )}
             </div>
 
+            {/* Return History */}
+            {orderReturnsData && orderReturnsData.length > 0 && (
+              <div>
+                <h3 className="mb-2 text-sm font-medium text-slate-700">Lịch sử trả hàng</h3>
+                <div className="space-y-2">
+                  {orderReturnsData.map(ret => (
+                    <div key={ret.return_id} className="rounded-lg border border-orange-100 bg-orange-50/30 p-3 text-sm">
+                      <div className="mb-1 flex justify-between font-medium text-slate-900">
+                        <span>{ret.return_no || ret.return_id}</span>
+                        <span className="text-orange-700">{fmtVND(ret.total_refund)}</span>
+                      </div>
+                      <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                        <TagBadge label={statusLabel(ret.status)} color={statusColor(ret.status)} />
+                        <span>{fmtDate(ret.created_at)}</span>
+                        {ret.note && <span>• {ret.note}</span>}
+                      </div>
+                      <div className="space-y-1">
+                        {ret.items.map((item: any) => (
+                          <div key={item.item_id || item.product_id} className="flex justify-between text-xs text-slate-600">
+                            <span>{item.product_name}</span>
+                            <span>SL: {item.qty_returned}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Payments */}
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <h3 className="text-sm font-medium text-slate-700">Thanh toán</h3>
-                <button
-                  onClick={() => setShowPaymentForm((v) => !v)}
-                  className="text-xs text-[#0268FF] hover:underline"
-                >
-                  {showPaymentForm ? 'Ẩn' : '+ Thêm thanh toán'}
-                </button>
               </div>
 
               {paymentsLoading ? (
                 <p className="text-sm text-slate-400">Đang tải...</p>
-              ) : (paymentsData?.data ?? []).length === 0 && !showPaymentForm ? (
+              ) : (paymentsData?.data ?? []).length === 0 ? (
                 <p className="text-sm text-slate-400">Chưa có thanh toán</p>
               ) : (
                 <div className="space-y-2">
@@ -660,12 +754,76 @@ export function OrdersClient({ shopId }: Props) {
 
             {/* Quick return form */}
             {showReturnForm && (
-              <div className="rounded-xl border border-orange-200 bg-orange-50 p-4 space-y-3">
+              <div className="rounded-xl border border-orange-200 bg-orange-50 p-4 space-y-4">
                 <p className="text-sm font-semibold text-orange-800">Tạo phiếu trả hàng</p>
                 <p className="text-xs text-orange-600">
-                  Phiếu sẽ được tạo với toàn bộ {itemsData?.data.length ?? 0} sản phẩm trong đơn.
-                  Bạn có thể chỉnh số lượng trong mục <strong>Đơn trả hàng</strong>.
+                  Chọn các sản phẩm và số lượng muốn trả lại.
                 </p>
+
+                {/* Return Items Selection */}
+                <div className="space-y-2 rounded-lg border border-orange-200 bg-white p-2">
+                  {(itemsData?.data ?? []).map((item) => {
+                    const maxPurchased = parseInt(item.qty || '0', 10)
+                    const returnedSoFar = alreadyReturnedQty[item.item_id!] || alreadyReturnedQty[item.product_id!] || 0
+                    const maxQty = Math.max(0, maxPurchased - returnedSoFar)
+                    
+                    if (maxQty === 0) return null;
+
+                    const isSelected = !!returnItems[item.item_id!]
+                    const qtyToReturn = returnItems[item.item_id!] || 0
+                    const lineTotal = parseFloat(item.line_total || '0')
+                    const retTotal = isSelected ? (lineTotal / maxPurchased) * qtyToReturn : 0
+
+                    return (
+                      <div key={item.item_id} className="flex flex-wrap items-center justify-between gap-2 p-2 text-sm border-b border-slate-50 last:border-0">
+                        <div className="flex items-center gap-3">
+                          <input 
+                            type="checkbox" 
+                            checked={isSelected}
+                            onChange={(e) => {
+                              const checked = e.target.checked
+                              setReturnItems(prev => {
+                                const next = { ...prev }
+                                if (checked) next[item.item_id!] = maxQty
+                                else delete next[item.item_id!]
+                                return next
+                              })
+                            }}
+                            className="h-4 w-4 rounded border-gray-300 text-orange-600 focus:ring-orange-600"
+                          />
+                          <div>
+                            <p className="font-medium text-slate-900">{item.product_name}</p>
+                            <p className="text-xs text-slate-500">Mua: {maxQty} | {fmtVND(item.unit_price)}</p>
+                          </div>
+                        </div>
+                        {isSelected && (
+                          <div className="flex items-center gap-4">
+                            <div className="flex items-center gap-2">
+                              <label className="text-xs text-slate-500">SL trả:</label>
+                              <input
+                                type="number"
+                                min="1"
+                                max={maxQty}
+                                value={qtyToReturn}
+                                onChange={(e) => {
+                                  let q = parseInt(e.target.value, 10)
+                                  if (isNaN(q) || q < 1) q = 1
+                                  if (q > maxQty) q = maxQty
+                                  setReturnItems(prev => ({ ...prev, [item.item_id!]: q }))
+                                }}
+                                className="w-16 rounded border border-orange-200 px-2 py-1 text-right text-sm"
+                              />
+                            </div>
+                            <div className="w-24 text-right font-medium text-orange-700">
+                              {fmtVND(String(retTotal))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="mb-1 block text-xs font-medium text-orange-700">Lý do</label>
@@ -696,12 +854,15 @@ export function OrdersClient({ shopId }: Props) {
                   </div>
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-orange-700">Số tiền hoàn</label>
+                  <label className="mb-1 block text-xs font-medium text-orange-700">
+                    Số tiền hoàn (Mặc định: {fmtVND(String(calcAutoRefund()))})
+                  </label>
                   <input
                     type="number"
                     min="0"
                     value={returnRefundAmount}
                     onChange={(e) => setReturnRefundAmount(e.target.value)}
+                    placeholder={`Để trống sẽ tự tính: ${calcAutoRefund()}`}
                     className="w-full rounded-lg border border-orange-200 bg-white px-2 py-1.5 text-sm"
                   />
                 </div>
@@ -722,11 +883,16 @@ export function OrdersClient({ shopId }: Props) {
                     Hủy
                   </button>
                   <button
-                    disabled={returnMutation.isPending}
-                    onClick={() => returnMutation.mutate(selectedOrder)}
-                    className="rounded-lg bg-orange-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-orange-700 disabled:opacity-50"
+                    onClick={() => {
+                      if (Object.keys(returnItems).length === 0) {
+                        toast.error('Vui lòng chọn ít nhất 1 sản phẩm để trả')
+                        return
+                      }
+                      setShowConfirmReturn(true)
+                    }}
+                    className="rounded-lg bg-orange-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-orange-700"
                   >
-                    {returnMutation.isPending ? 'Đang tạo...' : 'Xác nhận tạo phiếu trả'}
+                    Tạo phiếu trả hàng
                   </button>
                 </div>
               </div>
@@ -744,6 +910,17 @@ export function OrdersClient({ shopId }: Props) {
         confirmLabel="Xóa"
         variant="danger"
         loading={deleteMutation.isPending}
+      />
+
+      <ConfirmDialog
+        open={showConfirmReturn}
+        onClose={() => setShowConfirmReturn(false)}
+        onConfirm={() => { if (selectedOrder) returnMutation.mutate(selectedOrder) }}
+        title="Xác nhận tạo phiếu trả hàng"
+        description={`Bạn chuẩn bị trả ${Object.values(returnItems).reduce((a, b) => a + b, 0)} sản phẩm. Số tiền hoàn dự kiến: ${fmtVND(returnRefundAmount !== '' ? returnRefundAmount : String(calcAutoRefund()))}. Hành động này sẽ ghi nhận hoàn tiền và thay đổi trạng thái đơn hàng. Bạn có chắc chắn?`}
+        confirmLabel="Xác nhận trả hàng"
+        variant="danger"
+        loading={returnMutation.isPending}
       />
     </div>
   )

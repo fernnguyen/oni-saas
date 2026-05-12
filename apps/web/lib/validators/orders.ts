@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-const ORDER_STATUSES = ['draft', 'confirmed', 'processing', 'completed', 'cancelled', 'refunded'] as const
+const ORDER_STATUSES = ['draft', 'confirmed', 'processing', 'completed', 'cancelled', 'partially_refunded', 'refunded'] as const
 const ORDER_CHANNELS = ['pos', 'online', 'phone', 'zalo'] as const
 const PAYMENT_METHODS = ['cash', 'card', 'bank_transfer', 'momo', 'vnpay', 'zalopay', 'debt'] as const
 
