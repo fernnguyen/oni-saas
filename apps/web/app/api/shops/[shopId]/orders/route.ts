@@ -26,7 +26,7 @@ export async function GET(
     if (customer_id) filters.customer_id = customer_id
 
     const result = await shopCache(
-      () => connector.list('orders', { page, limit, search: search || undefined, filters }),
+      () => connector.list('orders', { page, limit, search: search || undefined, filters, sortDesc: true }),
       ['orders', shopId, String(page), String(limit), search, status, channel, customer_id],
       { tags: [shopTag(shopId, 'orders')], revalidate: cacheTTL.orders }
     )

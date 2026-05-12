@@ -24,7 +24,7 @@ export async function GET(
     if (role) filters.role = role
 
     const result = await shopCache(
-      () => connector.list('employees', { page, limit, search: search || undefined, filters }),
+      () => connector.list('employees', { page, limit, search: search || undefined, filters, sortDesc: true }),
       ['employees', shopId, String(page), String(limit), search, branch_id, role],
       { tags: [shopTag(shopId, 'employees')], revalidate: cacheTTL.employees }
     )

@@ -19,7 +19,7 @@ export async function GET(
     const search = sp.get('search') ?? ''
 
     const result = await shopCache(
-      () => connector.list('suppliers', { page, limit, search: search || undefined }),
+      () => connector.list('suppliers', { page, limit, search: search || undefined, sortDesc: true }),
       ['suppliers', shopId, String(page), String(limit), search],
       { tags: [shopTag(shopId, 'suppliers')], revalidate: cacheTTL.suppliers }
     )
