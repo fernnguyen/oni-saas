@@ -55,7 +55,7 @@ function fmtVND(v: string | undefined) {
 
 function fmtDate(v: string | undefined) {
   if (!v) return '—'
-  return new Date(v).toLocaleDateString('vi-VN')
+  return new Date(v).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
 const EMPTY_FORM = {
@@ -167,6 +167,7 @@ export function ReturnsClient({ shopId }: Props) {
       setSelected(updated)
     },
     onError: (e) => toast.error((e as Error).message),
+    onSettled: () => setConfirmAction(null),
   })
 
   // ── Process (approve + create stock-movements) ────────────────────────────
@@ -188,6 +189,7 @@ export function ReturnsClient({ shopId }: Props) {
       setSelected(updated)
     },
     onError: (e) => toast.error((e as Error).message),
+    onSettled: () => setConfirmAction(null),
   })
 
   // ── Delete ────────────────────────────────────────────────────────────────
@@ -242,16 +244,16 @@ export function ReturnsClient({ shopId }: Props) {
       key: 'actions',
       label: '',
       render: (row) => (
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
           <button
-            className="text-xs text-blue-600 hover:underline"
+            className="rounded-lg border border-slate-200 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50"
             onClick={() => setSelected(row)}
           >
             Xem
           </button>
           {row.status !== 'processed' && (
             <button
-              className="text-xs text-red-500 hover:underline"
+              className="rounded-lg border border-red-100 px-3 py-1 text-xs text-red-500 hover:bg-red-50"
               onClick={() => setDeleteTarget(row)}
             >
               Xóa
@@ -293,20 +295,29 @@ export function ReturnsClient({ shopId }: Props) {
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
-        <SearchBar
-          value={search}
-          onChange={(v) => { setSearch(v); setPage(1) }}
-          placeholder="Tìm mã phiếu, đơn hàng, khách hàng..."
-        />
-        <select
-          value={statusFilter}
-          onChange={(e) => { setStatusFilter(e.target.value); setPage(1) }}
-          className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
-        >
-          {STATUS_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
+        <div className="flex flex-wrap gap-2">
+          {STATUS_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => { setStatusFilter(opt.value); setPage(1) }}
+              className={[
+                'rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
+                statusFilter === opt.value
+                  ? 'bg-[#0268FF] text-white'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+              ].join(' ')}
+            >
+              {opt.label}
+            </button>
           ))}
-        </select>
+        </div>
+        <div className="ml-auto flex-1 sm:max-w-xs">
+          <SearchBar
+            value={search}
+            onChange={(v) => { setSearch(v); setPage(1) }}
+            placeholder="Tìm mã phiếu, đơn hàng, khách hàng..."
+          />
+        </div>
       </div>
 
       {/* Table */}
@@ -621,6 +632,7 @@ export function ReturnsClient({ shopId }: Props) {
         description={`Xóa phiếu ${deleteTarget?.return_no || deleteTarget?.return_id?.slice(0, 8) || ''}? Hành động này không thể hoàn tác.`}
         confirmLabel="Xóa"
         variant="danger"
+        loading={deleteMutation.isPending}
         onConfirm={() => { if (deleteTarget) deleteMutation.mutate(deleteTarget.return_id) }}
         onClose={() => setDeleteTarget(null)}
       />
@@ -630,11 +642,11 @@ export function ReturnsClient({ shopId }: Props) {
         title="Duyệt phiếu trả hàng"
         description={`Bạn có chắc chắn muốn duyệt phiếu trả hàng ${selected?.return_no || ''}?`}
         confirmLabel="Duyệt"
+        loading={statusMutation.isPending}
         onConfirm={() => {
           if (selected) {
             statusMutation.mutate({ id: selected.return_id, status: 'approved' })
           }
-          setConfirmAction(null)
         }}
         onClose={() => setConfirmAction(null)}
       />
@@ -645,11 +657,11 @@ export function ReturnsClient({ shopId }: Props) {
         description={`Bạn có chắc chắn muốn từ chối phiếu trả hàng ${selected?.return_no || ''}?`}
         confirmLabel="Từ chối"
         variant="danger"
+        loading={statusMutation.isPending}
         onConfirm={() => {
           if (selected) {
             statusMutation.mutate({ id: selected.return_id, status: 'rejected' })
           }
-          setConfirmAction(null)
         }}
         onClose={() => setConfirmAction(null)}
       />
@@ -659,11 +671,11 @@ export function ReturnsClient({ shopId }: Props) {
         title="Xử lý & nhập kho"
         description={`Xử lý phiếu trả hàng ${selected?.return_no || ''}? Hành động này sẽ tự động nhập lại sản phẩm vào kho, ghi nhận hoàn tiền (Sổ quỹ), và cập nhật trạng thái đơn hàng gốc.`}
         confirmLabel="Xử lý"
+        loading={processMutation.isPending}
         onConfirm={() => {
           if (selected) {
             processMutation.mutate(selected.return_id)
           }
-          setConfirmAction(null)
         }}
         onClose={() => setConfirmAction(null)}
       />

@@ -76,7 +76,7 @@ export async function DELETE(
       }
     }
 
-    await connector.delete('returns', id)
+    await connector.update('returns', id, { status: 'deleted' })
     invalidate(shopId, 'returns')
     return new NextResponse(null, { status: 204 })
   } catch (e) {

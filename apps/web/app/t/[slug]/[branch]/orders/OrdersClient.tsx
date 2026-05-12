@@ -78,7 +78,7 @@ function fmtVND(v: string | undefined) {
 
 function fmtDate(v: string | undefined) {
   if (!v) return '—'
-  return new Date(v).toLocaleDateString('vi-VN')
+  return new Date(v).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
 const EMPTY_PAYMENT = { method: 'cash', amount: '', note: '', reference_no: '' }
@@ -190,7 +190,7 @@ export function OrdersClient({ shopId }: Props) {
     if (!orderReturnsData) return qtyMap
     
     orderReturnsData.forEach(ret => {
-      if (ret.status === 'rejected') return
+      if (ret.status === 'rejected' || ret.status === 'deleted') return
       ret.items.forEach((item: any) => {
         const id = item.order_item_id || item.product_id
         if (id) {
@@ -299,7 +299,6 @@ export function OrdersClient({ shopId }: Props) {
             }),
           })
         })
-      )
       )
       return ret
     },

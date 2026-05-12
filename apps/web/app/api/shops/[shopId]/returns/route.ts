@@ -24,8 +24,15 @@ export async function GET(
     if (order_id) filters.order_id = order_id
 
     const result = await shopCache(
-      () => connector.list('returns', { page, limit, search: search || undefined, filters, sortDesc: true })
-              .catch(() => ({ data: [], total: 0 })),
+      async () => {
+        try {
+          const res = await connector.list('returns', { page, limit, search: search || undefined, filters, sortDesc: true })
+          const filteredData = res.data.filter((r: any) => r.status !== 'deleted')
+          return { data: filteredData, total: filteredData.length }
+        } catch {
+          return { data: [], total: 0 }
+        }
+      },
       ['returns', shopId, String(page), String(limit), search, status, order_id],
       { tags: [shopTag(shopId, 'returns')], revalidate: cacheTTL.returns }
     )
