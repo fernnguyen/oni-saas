@@ -232,7 +232,7 @@ export function BranchSelector({
 
   return (
     <>
-      <div ref={ref} className="relative px-2 py-2 border-b border-slate-200">
+      <div ref={ref} className="relative px-2 py-2">
         <button
           onClick={() => canSwitch && setOpen((o) => !o)}
           className={`w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${
@@ -243,10 +243,8 @@ export function BranchSelector({
             {initial}
           </div>
           <div className="flex-1 min-w-0">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5 leading-none">Chi nhánh</p>
             <p className="text-sm font-semibold text-slate-900 truncate leading-tight">{currentName}</p>
-            {currentAddress && (
-              <p className="text-[11px] text-slate-400 truncate leading-snug mt-0.5">{currentAddress}</p>
-            )}
           </div>
           {canSwitch && (
             <svg
@@ -262,7 +260,7 @@ export function BranchSelector({
         </button>
 
         {open && (
-          <div className="absolute left-2 right-2 top-full mt-1 rounded-lg border border-slate-200 bg-white shadow-lg z-50 py-1 overflow-hidden">
+          <div className="absolute left-2 w-[260px] top-full mt-1 rounded-lg border border-slate-200 bg-white shadow-lg z-50 py-1 overflow-hidden">
             {branches.map((b) => {
               const isCurrent = b.slug === currentSlug;
               return (

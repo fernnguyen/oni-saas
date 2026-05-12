@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { getSupabaseBrowserClient } from '../../../lib/supabaseBrowser';
 import { ConnectorStatusPill } from '../connectors/ConnectorStatusPill';
 import { PlanBadge } from './PlanBadge';
+import { BranchSelector } from './BranchSelector';
 
 interface TopbarProps {
   tenantId?: string;
@@ -20,6 +21,9 @@ interface TopbarProps {
   planName?: string;
   periodStart?: string;
   periodEnd?: string;
+  currentBranchSlug?: string;
+  currentBranchAddress?: string | null;
+  context?: 'control' | 'shop' | 'super';
   onMobileMenuClick?: () => void;
 }
 
@@ -37,6 +41,9 @@ export function Topbar({
   planName,
   periodStart,
   periodEnd,
+  currentBranchSlug,
+  currentBranchAddress,
+  context = 'shop',
   onMobileMenuClick,
 }: TopbarProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -65,15 +72,15 @@ export function Topbar({
             </svg>
           </button>
 
-          {/* Plan info card */}
-          {planCode && planName && tenantId && (
-            <PlanBadge
+          {/* Branch selector */}
+          {context === 'shop' && tenantId && currentBranchSlug && shopName && (
+            <BranchSelector
               tenantId={tenantId}
-              planCode={planCode}
-              planName={planName}
-              periodStart={periodStart}
-              periodEnd={periodEnd}
-              canUpgrade={permissions.includes('settings.manage') || permissions.includes('org.manage') || permissions.includes('billing.manage')}
+              currentSlug={currentBranchSlug}
+              currentName={shopName}
+              currentAddress={currentBranchAddress}
+              collapsed={false}
+              canCreate={permissions.includes('shops.create')}
             />
           )}
 
@@ -87,6 +94,17 @@ export function Topbar({
 
         {/* Right: actions + user menu */}
         <div className="flex items-center gap-2 ml-auto">
+          {/* Plan info card */}
+          {planCode && planName && tenantId && (
+            <PlanBadge
+              tenantId={tenantId}
+              planCode={planCode}
+              planName={planName}
+              periodStart={periodStart}
+              periodEnd={periodEnd}
+              canUpgrade={permissions.includes('settings.manage') || permissions.includes('org.manage') || permissions.includes('billing.manage')}
+            />
+          )}
           {/* Connector pill on mobile */}
           {canSeeConnector && (
             <div className="sm:hidden">

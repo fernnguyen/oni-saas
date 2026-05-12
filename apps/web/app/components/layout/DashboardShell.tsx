@@ -88,6 +88,9 @@ export function DashboardShell({
             planName={planName}
             periodStart={periodStart}
             periodEnd={periodEnd}
+            currentBranchSlug={currentBranchSlug}
+            currentBranchAddress={currentBranchAddress}
+            context={sidebarContext}
             onMobileMenuClick={() => setMobileNavOpen(true)}
           />
           <main className="flex-1 p-4 md:p-6">

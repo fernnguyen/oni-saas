@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { buildNavGroups, IconHelp } from './nav';
-import { BranchSelector } from './BranchSelector';
 
 interface SidebarProps {
   basePath?: string;
@@ -150,17 +149,7 @@ function SidebarContent({
         )}
       </div>
 
-      {/* Branch selector */}
-      {context === 'shop' && tenantId && currentBranchSlug && currentBranchName && (
-        <BranchSelector
-          tenantId={tenantId}
-          currentSlug={currentBranchSlug}
-          currentName={currentBranchName}
-          currentAddress={currentBranchAddress}
-          collapsed={collapsed}
-          canCreate={permissions.includes('shops.create')}
-        />
-      )}
+      {/* Branch selector removed, moved to Topbar */}
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-4">
