@@ -36,7 +36,7 @@ function buildAccounting(orders: Row[], returns: Row[], payments: Row[]) {
   }
 
   const monthlySeries = Object.entries(months)
-    .sort(([a], [b]) => a.localeCompare(b))
+    .sort(([a], [b]) => b.localeCompare(a))
     .map(([month, v]) => ({ month, ...v, net: v.revenue - v.refund }))
 
   // ── Payment method breakdown (all time) ──────────────────────────────────
