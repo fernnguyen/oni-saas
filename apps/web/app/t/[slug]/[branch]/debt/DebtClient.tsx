@@ -20,9 +20,9 @@ export function DebtClient({ shopId }: Props) {
   const [method, setMethod] = useState('cash')
 
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['customers-debt', shopId],
+    queryKey: ['debt', shopId],
     queryFn: async () => {
-      const res = await fetch(`/api/shops/${shopId}/customers/debt`)
+      const res = await fetch(`/api/shops/${shopId}/debt`)
       if (!res.ok) throw new Error('Không tải được dữ liệu')
       return res.json() as Promise<{ data: Record<string, string>[]; total: number, totalDebt: number }>
     },
@@ -57,7 +57,7 @@ export function DebtClient({ shopId }: Props) {
     onSuccess: () => {
       toast.success(`Đã thu ${amountToCollect.toLocaleString('vi-VN')}đ thành công!`)
       setSlideOpen(false)
-      queryClient.invalidateQueries({ queryKey: ['customers-debt', shopId] })
+      queryClient.invalidateQueries({ queryKey: ['debt', shopId] })
       queryClient.invalidateQueries({ queryKey: ['cashbook', shopId] })
       queryClient.invalidateQueries({ queryKey: ['customers', shopId] })
     },

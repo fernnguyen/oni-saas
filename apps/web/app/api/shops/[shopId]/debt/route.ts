@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireShopAccess } from '@/lib/server/shopAccess'
 import { shopTag, shopCache } from '@/lib/server/cache'
-import { handleApiError } from '../../../_helpers'
+import { handleApiError } from '../../_helpers'
 
 export async function GET(
   req: NextRequest,
@@ -9,7 +9,7 @@ export async function GET(
 ) {
   try {
     const { shopId } = await params
-    const { connector, permissions } = await requireShopAccess(shopId, 'customers.view')
+    const { connector, permissions } = await requireShopAccess(shopId, 'debt.view')
 
     if (!permissions.includes('debt.view') && !permissions.includes('customers.view')) {
       return NextResponse.json({ error: 'Permission denied' }, { status: 403 })
@@ -30,7 +30,7 @@ export async function GET(
           totalDebt: withDebt.reduce((sum, c) => sum + parseFloat(c.debt_amount || '0'), 0)
         }
       },
-      ['customers-debt', shopId],
+      ['debt', shopId],
       { tags: [shopTag(shopId, 'customers')], revalidate: 3600 }
     )
 
