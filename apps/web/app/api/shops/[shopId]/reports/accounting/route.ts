@@ -23,7 +23,7 @@ function buildAccounting(orders: Row[], returns: Row[], payments: Row[]) {
     const d = new Date(o.created_at || 0)
     const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
     if (!(k in months)) continue
-    months[k].revenue += parseAmount(o.total_amount)
+    months[k].revenue += parseAmount(o.paid_amount ?? o.total_amount)
     months[k].debt    += parseAmount(o.debt_amount)
     months[k].orders  += 1
   }

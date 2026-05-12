@@ -263,7 +263,27 @@ Khi thêm tính năng mới cần thêm cột:
 
 ---
 
-## 12. Branches — Chi nhánh
+## 12. Cashbook — Sổ Quỹ (Phiếu Thu / Chi)
+
+| Cột | Kiểu | Mô tả |
+|-----|------|-------|
+| `transaction_id` | string | `CB-001` |
+| `created_at` | datetime | |
+| `type` | string | `receipt` (Phiếu thu) / `payment` (Phiếu chi) |
+| `amount` | number | Số tiền thu/chi |
+| `method` | string | `cash` / `card` / `bank_transfer` / `momo` / `vnpay` / `zalopay` |
+| `category` | string | Mục đích: `sales` / `debt_collection` / `salary` / `utilities` / `import` / `other` |
+| `reference_id` | string | `order_id` hoặc `customer_id` hoặc `employee_id` liên quan |
+| `reference_name` | string | Tên người nộp / nhận |
+| `note` | string | Ghi chú lý do thu chi |
+| `employee_id` | string | Nhân viên tạo phiếu |
+| `branch_id` | string | Chi nhánh phát sinh giao dịch |
+
+> **Lưu ý:** Thanh toán đơn hàng tại POS sẽ tự động sinh thêm 1 Phiếu thu (`receipt`) vào Sổ quỹ với `category = 'sales'` (trừ phương thức ghi nợ). Khi Kế toán thu nợ khách hàng, sẽ sinh phiếu `receipt` với `category = 'debt_collection'`.
+
+---
+
+## 13. Branches — Chi nhánh
 
 | Cột | Kiểu | Mô tả |
 |-----|------|-------|
@@ -276,7 +296,7 @@ Khi thêm tính năng mới cần thêm cột:
 
 ---
 
-## 13. Employees — Nhân viên
+## 14. Employees — Nhân viên
 
 | Cột | Kiểu | Mô tả |
 |-----|------|-------|
@@ -293,7 +313,7 @@ Khi thêm tính năng mới cần thêm cột:
 
 ---
 
-## 14. Settings — Cài đặt hệ thống
+## 15. Settings — Cài đặt hệ thống
 
 | key | Giá trị mặc định | Mô tả |
 |-----|-----------------|-------|
@@ -308,7 +328,7 @@ Khi thêm tính năng mới cần thêm cột:
 
 ---
 
-## 14. Returns — Phiếu trả hàng
+## 16. Returns — Phiếu trả hàng
 
 | Cột             | Kiểu     | Mô tả                                                        |
 |-----------------|----------|--------------------------------------------------------------|
@@ -329,7 +349,7 @@ Khi thêm tính năng mới cần thêm cột:
 
 ---
 
-## 15. ReturnItems — Chi tiết phiếu trả
+## 17. ReturnItems — Chi tiết phiếu trả
 
 | Cột             | Kiểu    | Mô tả                                                          |
 |-----------------|---------|----------------------------------------------------------------|

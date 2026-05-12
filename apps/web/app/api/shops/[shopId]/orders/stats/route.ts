@@ -18,7 +18,7 @@ function computeStats(rows: Row[]) {
 
   for (const row of rows) {
     const t = new Date(row.created_at || 0).getTime()
-    const amount = parseFloat(row.total_amount || '0')
+    const amount = parseFloat((row.paid_amount ?? row.total_amount) || '0')
     const isReturn = row.is_return === 'TRUE'
 
     if (t >= todayStart) { today.count++;   today.revenue   += amount }

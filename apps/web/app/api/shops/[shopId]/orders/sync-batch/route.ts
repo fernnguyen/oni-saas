@@ -91,7 +91,9 @@ export async function POST(
       }
     }
 
+    let isNewOrder = false
     if (!serverId) {
+      isNewOrder = true
       const created = await connector.create('orders', {
         status:          order.status,
         channel:         'pos',
@@ -158,7 +160,7 @@ export async function POST(
       .reduce((s, r) => s + parseFloat(r.amount || '0'), 0)
     const localPaid = payments.reduce((s, p) => s + p.amount, 0)
 
-    if (serverPaid < localPaid - 0.01) {
+    if (serverPaid < localPaid - 0.01 || payments.some(p => p.method === 'debt')) {
       const existingMethods = new Set(
         (existingPays.data as Record<string, string>[]).map((r) => r.method)
       )
@@ -173,6 +175,22 @@ export async function POST(
           note:         pay.note ?? '',
           paid_at:      new Date().toISOString(),
         })
+
+        if (pay.method !== 'debt') {
+          await connector.create('cashbook', {
+            type:           'receipt',
+            amount:         String(pay.amount),
+            method:         pay.method,
+            category:       'sales',
+            reference_id:   serverId,
+            reference_name: order.customer_name ?? '',
+            note:           `Thanh toán đơn hàng ${orderNo || serverId}`,
+            employee_id:    order.employee_id ?? '',
+            branch_id:      order.branch_id ?? '',
+          }).catch(err => {
+            console.error('Failed to log cashbook for payment:', err)
+          })
+        }
       }
     }
 
@@ -208,6 +226,23 @@ export async function POST(
         branch_id:    mv.branch_id ?? '',
         reference_no: movRef,
       } as Record<string, string>)
+    }
+
+    // ── Step 5: Update Customer Debt ──
+    if (isNewOrder && order.customer_id && order.debt_amount && Number(order.debt_amount) > 0) {
+      try {
+        const customer = await connector.findById('customers', order.customer_id)
+        if (customer) {
+          const currentDebt = parseFloat((customer.debt_amount as string) || '0')
+          const newDebt = currentDebt + Number(order.debt_amount)
+          await connector.update('customers', order.customer_id, {
+            debt_amount: String(newDebt)
+          })
+          invalidate(shopId, 'customers')
+        }
+      } catch (err) {
+        console.error('Failed to update customer debt:', err)
+      }
     }
 
     invalidate(shopId, 'orders')

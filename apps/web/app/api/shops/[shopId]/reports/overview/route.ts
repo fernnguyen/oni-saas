@@ -31,7 +31,7 @@ function buildOverview(orders: Row[], returns: Row[], orderItems: Row[], payment
     const t = new Date(o.created_at || 0).getTime()
     if (t < day30) continue
     const k = dayKey(o.created_at)
-    if (k in revenueByDay) revenueByDay[k] += parseAmount(o.total_amount)
+    if (k in revenueByDay) revenueByDay[k] += parseAmount(o.paid_amount ?? o.total_amount)
   }
 
   const revenueSeries = Object.entries(revenueByDay)
@@ -99,11 +99,11 @@ function buildOverview(orders: Row[], returns: Row[], orderItems: Row[], payment
   const kpi = {
     today: {
       orders:  todayOrders.length,
-      revenue: todayOrders.reduce((s, o) => s + parseAmount(o.total_amount), 0),
+      revenue: todayOrders.reduce((s, o) => s + parseAmount(o.paid_amount ?? o.total_amount), 0),
     },
     month: {
       orders:  monthOrders.length,
-      revenue: monthOrders.reduce((s, o) => s + parseAmount(o.total_amount), 0),
+      revenue: monthOrders.reduce((s, o) => s + parseAmount(o.paid_amount ?? o.total_amount), 0),
     },
     returns: { count: returnCount, refund: returnRevenue },
   }

@@ -112,6 +112,26 @@ export async function POST(
       processed_at: now,
     })
 
+    // 4.5. Log Cashbook payment if a refund is issued
+    if (r.refund_method !== 'none' && r.refund_method !== 'store_credit') {
+      const refundAmount = parseFloat(r.total_refund || '0')
+      if (refundAmount > 0) {
+        await connector.create('cashbook', {
+          type:           'payment', // Phiếu chi
+          amount:         String(refundAmount),
+          method:         r.refund_method,
+          category:       'other',
+          reference_id:   returnRef,
+          reference_name: r.customer_name ?? '',
+          note:           `Hoàn tiền phiếu trả hàng ${returnRef}`,
+          employee_id:    processedBy,
+          branch_id:      '',
+        }).catch(err => {
+          console.error('Failed to log cashbook for return refund:', err)
+        })
+      }
+    }
+
     // 5. Update linked order → refunded or partially_refunded
     if (r.order_id) {
       const allReturnsResult = await connector.list('returns', { limit: 100, filters: { order_id: r.order_id } })
