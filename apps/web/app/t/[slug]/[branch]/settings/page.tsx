@@ -3,13 +3,14 @@ import { getSupabaseServerClient } from '@/lib/server/supabaseServer';
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
 import { getUserPermissions } from '@/lib/server/permissions';
 import { ShopSettingsForm } from '@/app/components/settings/ShopSettingsForm';
+import { PermissionGate } from '@/app/components/ui/PermissionGate';
 
 interface Props {
   params: Promise<{ slug: string; branch: string }>;
 }
 
 export default async function BranchSettingsPage({ params }: Props) {
-  const { branch } = await params;
+  const { slug, branch } = await params;
   const supabase = await getSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
 
@@ -26,6 +27,16 @@ export default async function BranchSettingsPage({ params }: Props) {
 
   if (!shop) notFound();
   const permissions: string[] = await getUserPermissions(authData.user.id, shop.tenant_id, shop.id).catch(() => []);
+  if (!permissions.includes('settings.view')) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="mt-1 text-xl font-bold text-slate-900">Cài đặt chi nhánh</h1>
+        </div>
+        <PermissionGate />
+      </div>
+    );
+  }
   const shopId: string = shop.id;
 
   const [settingsResult, connectorResult] = await Promise.all([

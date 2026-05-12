@@ -58,12 +58,12 @@ function UpgradeGate() {
         Tính năng báo cáo thuế VAT, bảng kê hóa đơn đầu ra và xuất file CSV
         chỉ dành cho gói <strong>Pro</strong> trở lên.
       </p>
-      <a
-        href="../settings/billing"
+      <button
+        onClick={() => window.dispatchEvent(new Event('open-plan-modal'))}
         className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-blue-700"
       >
         Nâng cấp lên Pro
-      </a>
+      </button>
     </div>
   )
 }

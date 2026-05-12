@@ -132,6 +132,16 @@ export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd
     }
   }, [isOpen]);
 
+  // Listen for custom event to open modal from anywhere
+  useEffect(() => {
+    const handleOpenModal = () => {
+      setIsOpen(true);
+      setIsExpanded(true); // Always expand to show pricing when triggered externally
+    };
+    window.addEventListener('open-plan-modal', handleOpenModal);
+    return () => window.removeEventListener('open-plan-modal', handleOpenModal);
+  }, []);
+
   // Countdown timer for QR
   useEffect(() => {
     if (step !== 'qr') return;
