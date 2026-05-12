@@ -283,7 +283,12 @@ export class GoogleSheetsConnector implements IDataConnector {
 
     const rowValues = headers.map(h => fullRow[h] ?? '')
     await appendRow(token, this.sheetId, tab, rowValues)
-    cacheInvalidate(`${this.sheetId}:${tab}`)
+    
+    const cacheKey = `${this.sheetId}:${tab}`
+    const cached = cacheGet(cacheKey)
+    if (cached) {
+      cached.rows.push(fullRow)
+    }
 
     return fullRow
   }
@@ -309,7 +314,15 @@ export class GoogleSheetsConnector implements IDataConnector {
     const rowValues = headers.map(h => merged[h] ?? '')
 
     await updateRow(token, this.sheetId, tab, sheetRowNumber, rowValues)
-    cacheInvalidate(`${this.sheetId}:${tab}`)
+    
+    const cacheKey = `${this.sheetId}:${tab}`
+    const cached = cacheGet(cacheKey)
+    if (cached) {
+      const idx = cached.rows.findIndex(r => r[idKey] === id)
+      if (idx !== -1) {
+        cached.rows[idx] = merged
+      }
+    }
 
     return merged
   }
@@ -349,7 +362,13 @@ export class GoogleSheetsConnector implements IDataConnector {
     }
 
     await appendRows(token, this.sheetId, tab, allRowValues)
-    cacheInvalidate(`${this.sheetId}:${tab}`)
+    
+    const cacheKey = `${this.sheetId}:${tab}`
+    const cached = cacheGet(cacheKey)
+    if (cached) {
+      cached.rows.push(...created)
+    }
+    
     return created
   }
 }
