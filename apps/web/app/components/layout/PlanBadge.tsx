@@ -10,9 +10,11 @@ interface PlanBadgeProps {
   planName:    string;
   periodStart?: string;
   periodEnd?:   string;
+  canUpgrade?:  boolean;
 }
 
 interface PlanRow {
+  id:            number;
   code:          string;
   name:          string;
   price_monthly: number;
@@ -36,7 +38,7 @@ interface SepayOrder {
 type CheckoutStep = 'select' | 'qr' | 'success';
 type BillingInterval = 'monthly' | 'yearly';
 
-export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd }: PlanBadgeProps) {
+export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd, canUpgrade = false }: PlanBadgeProps) {
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -60,8 +62,8 @@ export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd
     setPlansLoading(true);
     supabase
       .from('plans')
-      .select('code, name, price_monthly, price_yearly, metadata')
-      .order('price_monthly', { ascending: true })
+      .select('id, code, name, price_monthly, price_yearly, metadata')
+      .order('id', { ascending: true })
       .then(({ data }) => {
         if (data && data.length > 0) setPlans(data as PlanRow[]);
       })
@@ -77,13 +79,28 @@ export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd
   if (periodEnd) {
     const end = new Date(periodEnd).getTime();
     const now = new Date().getTime();
-    diffDays = Math.ceil((end - now) / (1000 * 3600 * 24));
-    if (diffDays > 0) durationText = `Còn ${diffDays} ngày`;
-    else durationText = 'Đã hết hạn';
+    const diffMs = end - now;
+    if (diffMs > 0) {
+      diffDays = Math.floor(diffMs / (1000 * 3600 * 24));
+      const diffHours = Math.floor((diffMs % (1000 * 3600 * 24)) / (1000 * 3600));
+      if (diffDays > 0) {
+        durationText = `Còn ${diffDays} ngày ${diffHours > 0 ? diffHours + ' giờ' : ''}`.trim();
+      } else {
+        durationText = `Còn ${diffHours} giờ`;
+      }
+    } else {
+      durationText = 'Đã hết hạn';
+    }
   }
 
-  const startDateFormatted = periodStart ? new Date(periodStart).toLocaleDateString('vi-VN') : 'Mặc định';
-  const endDateFormatted = periodEnd ? new Date(periodEnd).toLocaleDateString('vi-VN') : 'Không giới hạn';
+  const formatDateTime = (dateStr?: string) => {
+    if (!dateStr) return 'Không giới hạn';
+    const d = new Date(dateStr);
+    return `${d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })} - ${d.toLocaleDateString('vi-VN')}`;
+  };
+
+  const startDateFormatted = periodStart ? formatDateTime(periodStart) : 'Mặc định';
+  const endDateFormatted = periodEnd ? formatDateTime(periodEnd) : 'Không giới hạn';
 
   const isMini = planCode === 'plan_mini';
   const isEnterprise = planCode === 'plan_enterprise';
@@ -99,7 +116,7 @@ export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd
   const fmtPrice = (p: PlanRow, cycle: BillingInterval) => {
     const v = cycle === 'yearly' ? p.price_yearly : p.price_monthly;
     if (v == null) return 'Liên hệ';
-    if (v === 0) return 'Miễn phí';
+    if (v === 0) return p.id === 1 ? 'Miễn phí' : 'Liên hệ';
     return v.toLocaleString('vi-VN') + (cycle === 'yearly' ? ' đ/năm' : ' đ/tháng');
   };
 
@@ -319,14 +336,16 @@ export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd
                       </ul>
                     </div>
 
-                    <div className="pt-6">
-                      <button 
-                        onClick={() => setIsExpanded(true)}
-                        className="w-full flex justify-center items-center py-3.5 px-4 rounded-2xl font-bold text-sm text-white bg-[#0268FF] hover:bg-blue-600 focus:ring-4 focus:ring-blue-100 transition-all shadow-lg shadow-blue-500/20 cursor-pointer"
-                      >
-                        Nâng cấp / Gia hạn gói
-                      </button>
-                    </div>
+                    {canUpgrade && (
+                      <div className="pt-6">
+                        <button 
+                          onClick={() => setIsExpanded(true)}
+                          className="w-full flex justify-center items-center py-3.5 px-4 rounded-2xl font-bold text-sm text-white bg-[#0268FF] hover:bg-blue-600 focus:ring-4 focus:ring-blue-100 transition-all shadow-lg shadow-blue-500/20 cursor-pointer"
+                        >
+                          Nâng cấp / Gia hạn gói
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -398,7 +417,7 @@ export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd
                             {plans.map(p => {
                               const isCurrent = p.code === planCode;
                               const isEnterprisePlan = p.code === 'plan_enterprise';
-                              const isFree = p.price_monthly === 0 && !isCurrent;
+                              const isFree = p.id === 1 && !isCurrent;
                               let actionText = isCurrent ? (p.code === 'plan_mini' ? 'Đang sử dụng' : 'Gia hạn Online') : (isEnterprisePlan ? 'Liên hệ VIP' : 'Nâng cấp ngay');
                               const actionAllowed = !(p.code === 'plan_mini' && !isCurrent) && !isFree;
                               return (

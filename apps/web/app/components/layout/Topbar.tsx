@@ -71,6 +71,7 @@ export function Topbar({
               planName={planName}
               periodStart={periodStart}
               periodEnd={periodEnd}
+              canUpgrade={permissions.includes('settings.manage') || permissions.includes('org.manage') || permissions.includes('billing.manage')}
             />
           )}
 
