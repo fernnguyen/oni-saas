@@ -14,7 +14,7 @@ function dayKey(isoDate: string) {
   try { return isoDate.slice(0, 10) } catch { return '' }
 }
 
-function buildOverview(orders: Row[], returns: Row[], orderItems: Row[]) {
+function buildOverview(orders: Row[], returns: Row[], orderItems: Row[], payments: Row[]) {
   const now     = new Date()
   const todayMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
   const day30   = todayMs - 29 * 86_400_000
@@ -61,16 +61,30 @@ function buildOverview(orders: Row[], returns: Row[], orderItems: Row[]) {
     statusBreakdown[s] = (statusBreakdown[s] ?? 0) + 1
   }
 
-  // ── Payment method breakdown (from orders, this month) ───────────────────
-  // Note: for precise payment data, use the payments entity — orders only carry
-  // a single paid_amount aggregate. This is a good-enough approximation.
+  // ── Payment method breakdown (from payments, this month) ───────────────────
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime()
   const paymentRevenue: Record<string, number> = {}
-  for (const o of orders) {
-    const t = new Date(o.created_at || 0).getTime()
-    if (t < monthStart || o.is_return === 'TRUE') continue
-    const method = o.payment_method || 'unknown'
-    paymentRevenue[method] = (paymentRevenue[method] ?? 0) + parseAmount(o.paid_amount ?? o.total_amount)
+
+  if (payments && payments.length > 0) {
+    const orderDateMap = new Map(orders.map(o => [o.order_id, o.created_at]))
+    
+    for (const p of payments) {
+      if (!p.method && !p.amount) continue;
+      const orderDate = orderDateMap.get(p.order_id)
+      const t = new Date(p.created_at || p.paid_at || orderDate || 0).getTime()
+      if (t < monthStart) continue
+      const method = p.method || 'unknown'
+      paymentRevenue[method] = (paymentRevenue[method] ?? 0) + parseAmount(p.amount)
+    }
+  } 
+  
+  if (Object.keys(paymentRevenue).length === 0) {
+    for (const o of orders) {
+      const t = new Date(o.created_at || 0).getTime()
+      if (t < monthStart || o.is_return === 'TRUE') continue
+      const method = o.payment_method || 'cash'
+      paymentRevenue[method] = (paymentRevenue[method] ?? 0) + parseAmount(o.paid_amount ?? o.total_amount)
+    }
   }
 
   // ── Returns summary ───────────────────────────────────────────────────────
@@ -107,13 +121,14 @@ export async function GET(
 
     const result = await shopCache(
       async () => {
-        const [ordersResult, returnsResult, itemsResult] = await Promise.all([
+        const [ordersResult, returnsResult, itemsResult, paymentsResult] = await Promise.all([
           connector.list('orders',      { limit: 5000 }),
           // Tab Returns may not exist yet — fall back to empty gracefully
           connector.list('returns',     { limit: 1000 }).catch(() => ({ data: [], total: 0 })),
           connector.list('order-items', { limit: 5000 }),
+          connector.list('payments',    { limit: 5000 }).catch(() => ({ data: [], total: 0 })),
         ])
-        return buildOverview(ordersResult.data, returnsResult.data, itemsResult.data)
+        return buildOverview(ordersResult.data, returnsResult.data, itemsResult.data, paymentsResult.data)
       },
       ['reports-overview', shopId],
       { tags: [shopTag(shopId, 'orders'), shopTag(shopId, 'returns')], revalidate: 120 }

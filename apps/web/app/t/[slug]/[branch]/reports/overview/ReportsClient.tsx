@@ -53,19 +53,19 @@ function KpiCard({ label, value, sub }: { label: string; value: string; sub?: st
 }
 
 // Simple bar chart — no external chart library needed
-function MiniBarChart({ data }: { data: { label: string; value: number }[] }) {
+function MiniBarChart({ data }: { data: { label: string; tooltipLabel?: string; value: number }[] }) {
   const max = Math.max(...data.map((d) => d.value), 1)
   return (
     <div className="flex h-32 items-end gap-px">
-      {data.map((d) => (
+      {data.map((d, i) => (
         <div
-          key={d.label}
+          key={i}
           className="group relative flex-1"
           style={{ height: `${Math.max(2, (d.value / max) * 100)}%` }}
         >
           <div className="h-full w-full rounded-t bg-blue-400 transition-colors group-hover:bg-blue-600" />
-          <div className="absolute bottom-full left-1/2 hidden -translate-x-1/2 whitespace-nowrap rounded bg-slate-800 px-1.5 py-0.5 text-xs text-white group-hover:block">
-            {d.label}: {fmtShort(d.value)}đ
+          <div className="absolute bottom-full left-1/2 hidden -translate-x-1/2 whitespace-nowrap rounded bg-slate-800 px-1.5 py-0.5 text-xs text-white group-hover:block z-10">
+            {d.tooltipLabel || d.label}: {fmtShort(d.value)}đ
           </div>
         </div>
       ))}
@@ -102,11 +102,19 @@ export function ReportsClient({ shopId }: Props) {
   const { kpi, revenueSeries, topProducts, statusBreakdown, paymentRevenue } = data
 
   // Last 30 days revenue chart — show every 5th day label
-  const chartData = revenueSeries.map((d, i) => ({
-    label: i % 5 === 0 ? d.date.slice(5) : '',
-    value: d.revenue,
-    fullDate: d.date,
-  }))
+  const chartData = revenueSeries.map((d, i) => {
+    const parts = d.date.split('-')
+    const [y, m, day] = parts.length === 3 ? parts : [d.date, '', '']
+    const formattedLabel = parts.length === 3 ? `${day}/${m}` : d.date
+    const formattedTooltip = parts.length === 3 ? `${day}/${m}/${y}` : d.date
+
+    return {
+      label: i % 5 === 0 ? formattedLabel : '',
+      tooltipLabel: formattedTooltip,
+      value: d.revenue,
+      fullDate: d.date,
+    }
+  })
 
   const statusEntries  = Object.entries(statusBreakdown).sort((a, b) => b[1] - a[1])
   const paymentEntries = Object.entries(paymentRevenue).sort((a, b) => b[1] - a[1])

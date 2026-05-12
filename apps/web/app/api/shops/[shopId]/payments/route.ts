@@ -42,6 +42,9 @@ export async function POST(
 
     const body = await req.json()
     const data = paymentCreateSchema.parse(body)
+    if (!data.paid_at) {
+      data.paid_at = new Date().toISOString()
+    }
 
     const created = await connector.create('payments', data)
     invalidate(shopId, 'payments')

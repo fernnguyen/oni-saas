@@ -169,6 +169,7 @@ export async function POST(
           amount:       String(pay.amount),
           reference_no: pay.reference_no ?? '',
           note:         pay.note ?? '',
+          paid_at:      new Date().toISOString(),
         })
       }
     }
