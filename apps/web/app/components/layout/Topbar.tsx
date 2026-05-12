@@ -12,6 +12,7 @@ interface TopbarProps {
   shopName?: string;
   userEmail?: string;
   displayName?: string;
+  roleName?: string;
   settingsHref?: string;
   accountHref?: string;
   permissions?: string[];
@@ -28,6 +29,7 @@ export function Topbar({
   shopName,
   userEmail,
   displayName,
+  roleName,
   settingsHref = '/dashboard/settings',
   accountHref,
   permissions = [],
@@ -135,6 +137,11 @@ export function Topbar({
                   <div className="p-3 border-b border-slate-100">
                     <p className="text-xs text-slate-500">Đăng nhập với</p>
                     <p className="text-sm font-medium text-slate-800 truncate">{userEmail || 'user@oni.vn'}</p>
+                    {roleName && (
+                      <div className="mt-2 inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+                        Vai trò: {roleName}
+                      </div>
+                    )}
                   </div>
                   <div className="p-1">
                     {accountHref && (

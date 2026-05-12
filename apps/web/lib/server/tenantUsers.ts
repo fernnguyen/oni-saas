@@ -250,3 +250,39 @@ export async function resetTenantUserPassword(userId: string, tenantId: string, 
   const { error } = await admin.auth.admin.updateUserById(userId, { password: newPassword });
   if (error) throw new Error(error.message);
 }
+
+// ─── Update Role ──────────────────────────────────────────────────────────────
+
+export async function updateTenantUserRole(userId: string, tenantId: string, roleCode: string, shopId?: string) {
+  const admin = getSupabaseAdminClient();
+  const { data: profile } = await admin
+    .from('tenant_user_profiles')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+  if (!profile) throw new Error('Người dùng không thuộc workspace này');
+
+  const { data: role } = await admin.from('roles').select('id, scope').eq('code', roleCode).maybeSingle();
+  if (!role) throw new Error('Vai trò không tồn tại');
+
+  // Xóa các phân quyền cũ trong tenant này
+  await admin.from('user_tenants').delete().eq('user_id', userId).eq('tenant_id', tenantId);
+  const { data: tenantShops } = await admin.from('shops').select('id').eq('tenant_id', tenantId);
+  if (tenantShops && tenantShops.length > 0) {
+    const shopIds = tenantShops.map((s) => s.id);
+    await admin.from('user_shops').delete().eq('user_id', userId).in('shop_id', shopIds);
+  }
+
+  // Thêm phân quyền mới
+  if (shopId && role.scope === 'shop') {
+    const { error: e } = await admin.from('user_shops').insert({ user_id: userId, shop_id: shopId, role_id: role.id });
+    if (e) throw new Error(e.message);
+  } else {
+    const { error: e } = await admin.from('user_tenants').insert({
+      user_id: userId, tenant_id: tenantId, role_id: role.id, is_default: true,
+    });
+    if (e) throw new Error(e.message);
+  }
+}
+

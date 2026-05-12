@@ -9,7 +9,7 @@ export async function POST(
 ) {
   try {
     const { shopId } = await params
-    const { connector } = await requireShopAccess(shopId)
+    const { connector } = await requireShopAccess(shopId, 'inventory.create')
 
     const body = await req.json() as { product_id?: string; delta?: string; branch_id?: string }
     const { product_id, delta: deltaStr, branch_id = '' } = body

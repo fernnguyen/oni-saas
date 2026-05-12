@@ -10,7 +10,7 @@ export async function GET(
 ) {
   try {
     const { shopId } = await params
-    const { connector, permissions } = await requireShopAccess(shopId)
+    const { connector, permissions } = await requireShopAccess(shopId, 'accounting.view')
 
     if (!permissions.includes('cashbook.view') && !permissions.includes('cashbook.manage')) {
       return NextResponse.json({ error: 'Permission denied' }, { status: 403 })
@@ -45,7 +45,7 @@ export async function POST(
 ) {
   try {
     const { shopId } = await params
-    const { connector, permissions, user, shop } = await requireShopAccess(shopId)
+    const { connector, permissions, user, shop } = await requireShopAccess(shopId, 'accounting.create')
 
     if (!permissions.includes('cashbook.manage')) {
       return NextResponse.json({ error: 'Permission denied' }, { status: 403 })

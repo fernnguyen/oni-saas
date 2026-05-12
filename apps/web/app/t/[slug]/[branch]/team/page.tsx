@@ -3,6 +3,7 @@ import { getSupabaseServerClient } from '@/lib/server/supabaseServer';
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
 import { getUserPermissions } from '@/lib/server/permissions';
 import { listTenantUsers } from '@/lib/server/tenantUsers';
+import { listRoles } from '@/lib/server/roles';
 import { TeamClient } from './TeamClient';
 
 interface Props {
@@ -40,9 +41,10 @@ export default async function TeamPage({ params }: Props) {
   const permissions: string[] = await getUserPermissions(authData.user.id, tenant.id, shop.id).catch(() => []);
   if (!permissions.includes('users.view')) notFound();
 
-  const [users, { data: shops }] = await Promise.all([
+  const [users, { data: shops }, roles] = await Promise.all([
     listTenantUsers(tenant.id).catch((): Awaited<ReturnType<typeof listTenantUsers>> => []),
     admin.from('shops').select('id, name, slug').eq('tenant_id', tenant.id),
+    listRoles(tenant.id).catch(() => [])
   ]);
 
   return (
@@ -51,6 +53,7 @@ export default async function TeamPage({ params }: Props) {
       tenantSlug={tenant.slug}
       initialUsers={users}
       shops={shops ?? []}
+      roles={roles}
       canInvite={permissions.includes('users.invite') as boolean}
       canRemove={permissions.includes('users.remove') as boolean}
       currentUserId={authData.user.id}

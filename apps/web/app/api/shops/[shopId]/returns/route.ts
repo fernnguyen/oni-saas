@@ -11,7 +11,7 @@ export async function GET(
 ) {
   try {
     const { shopId } = await params
-    const { connector } = await requireShopAccess(shopId)
+    const { connector } = await requireShopAccess(shopId, 'returns.view')
 
     const sp = req.nextUrl.searchParams
     const page   = Math.max(1, parseInt(sp.get('page')  ?? '1'))
@@ -42,7 +42,7 @@ export async function POST(
 ) {
   try {
     const { shopId } = await params
-    const { connector } = await requireShopAccess(shopId)
+    const { connector } = await requireShopAccess(shopId, 'returns.create')
 
     const body = await req.json()
     const data = returnCreateSchema.parse(body)

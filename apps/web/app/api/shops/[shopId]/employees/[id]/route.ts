@@ -10,7 +10,7 @@ export async function GET(
 ) {
   try {
     const { shopId, id } = await params
-    const { connector } = await requireShopAccess(shopId)
+    const { connector } = await requireShopAccess(shopId, 'pos.use')
 
     const row = await connector.findById('employees', id)
     if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 })

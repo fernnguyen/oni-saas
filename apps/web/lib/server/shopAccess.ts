@@ -16,7 +16,7 @@ export class ShopAccessError extends Error {
   }
 }
 
-export async function requireShopAccess(shopId: string): Promise<{
+export async function requireShopAccess(shopId: string, requiredPermission?: string | string[]): Promise<{
   userId: string
   connector: IDataConnector
   permissions: string[]
@@ -38,6 +38,14 @@ export async function requireShopAccess(shopId: string): Promise<{
   const admin = getSupabaseAdminClient()
   const { data: shop } = await admin.from('shops').select('*').eq('id', shopId).single()
   const permissions = await getUserPermissions(data.user.id, shop.tenant_id, shopId)
+
+  if (requiredPermission) {
+    const perms = Array.isArray(requiredPermission) ? requiredPermission : [requiredPermission]
+    const hasAll = perms.every(p => permissions.includes(p))
+    if (!hasAll) {
+      throw new ShopAccessError(403, 'Bạn không có quyền thực hiện tính năng này. Vui lòng liên hệ người quản trị.')
+    }
+  }
 
   const connector = await getConnectorForShop(shopId)
   return { userId: data.user.id, connector, permissions, shop, user: data.user }

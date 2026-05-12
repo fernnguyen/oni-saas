@@ -75,7 +75,7 @@ export async function GET(
 ) {
   try {
     const { shopId } = await params
-    const { connector, userId } = await requireShopAccess(shopId)
+    const { connector, userId } = await requireShopAccess(shopId, 'reports.view_shop')
 
     // ── plan_pro gate ────────────────────────────────────────────────────────
     const admin = getSupabaseAdminClient()

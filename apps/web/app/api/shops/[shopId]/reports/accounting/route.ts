@@ -78,7 +78,7 @@ export async function GET(
 ) {
   try {
     const { shopId } = await params
-    const { connector } = await requireShopAccess(shopId)
+    const { connector } = await requireShopAccess(shopId, 'reports.view_shop')
 
     const result = await shopCache(
       async () => {

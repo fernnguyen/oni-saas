@@ -10,7 +10,7 @@ export async function GET(
 ) {
   try {
     const { shopId, id } = await params
-    const { connector } = await requireShopAccess(shopId)
+    const { connector } = await requireShopAccess(shopId, 'products.view')
 
     const row = await connector.findById('products', id)
     if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -26,7 +26,7 @@ export async function PUT(
 ) {
   try {
     const { shopId, id } = await params
-    const { connector } = await requireShopAccess(shopId)
+    const { connector } = await requireShopAccess(shopId, 'products.edit')
 
     const body = await req.json()
     const data = productUpdateSchema.parse(body)
@@ -45,7 +45,7 @@ export async function DELETE(
 ) {
   try {
     const { shopId, id } = await params
-    const { connector } = await requireShopAccess(shopId)
+    const { connector } = await requireShopAccess(shopId, 'products.delete')
 
     await connector.delete('products', id)
     invalidate(shopId, 'products')

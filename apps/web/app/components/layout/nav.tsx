@@ -141,8 +141,6 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
       label: 'Hệ thống',
       items: [
         { href: joinPath(base, '/team'),       label: 'Thành viên',      icon: IconUsers,    permission: 'users.view' },
-        { href: options.tenantHref ?? '#',     label: 'Tổ chức',         icon: IconBuilding, permission: 'tenants.view' },
-        { href: options.connectorsHref ?? '#', label: 'Kết nối dữ liệu', icon: IconPlugin,   permission: 'connectors.view' },
         { href: joinPath(base, '/roles'),      label: 'Phân quyền',      icon: IconShield,   permission: 'roles.view' },
         { href: options.settingsHref ?? '#',   label: 'Cài đặt',         icon: IconSettings, permission: 'settings.view' },
       ],

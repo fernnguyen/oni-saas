@@ -58,7 +58,7 @@ export async function POST(
 ) {
   try {
     const { shopId } = await params
-    const { connector } = await requireShopAccess(shopId)
+    const { connector } = await requireShopAccess(shopId, 'orders.create')
 
     const body = await req.json() as {
       local_order_id: string

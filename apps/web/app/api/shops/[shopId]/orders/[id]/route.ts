@@ -17,7 +17,7 @@ export async function GET(
 ) {
   try {
     const { shopId, id } = await params
-    const { connector } = await requireShopAccess(shopId)
+    const { connector } = await requireShopAccess(shopId, 'orders.view')
 
     const row = await connector.findById('orders', id)
     if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -33,7 +33,7 @@ export async function PUT(
 ) {
   try {
     const { shopId, id } = await params
-    const { connector } = await requireShopAccess(shopId)
+    const { connector } = await requireShopAccess(shopId, 'orders.edit')
 
     const body = await req.json()
     const data = orderUpdateSchema.parse(body)
@@ -52,7 +52,7 @@ export async function DELETE(
 ) {
   try {
     const { shopId, id } = await params
-    const { connector } = await requireShopAccess(shopId)
+    const { connector } = await requireShopAccess(shopId, 'orders.delete')
 
     // Restore inventory: reverse all stock movements linked to this order
     const order = await connector.findById('orders', id)

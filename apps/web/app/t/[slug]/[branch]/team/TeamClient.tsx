@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useTransition, FormEvent } from 'react';
+import type { Role } from '@/lib/server/roles';
 
 interface UserRole {
   code: string;
@@ -31,22 +32,17 @@ interface Props {
   tenantSlug: string;
   initialUsers: TenantUser[];
   shops: Shop[];
+  roles: Role[];
   canInvite: boolean;
   canRemove: boolean;
   currentUserId: string;
 }
 
-const ROLES = [
-  { code: 'owner',  name: 'Owner',    scope: 'workspace', desc: 'Toàn quyền workspace' },
-  { code: 'admin',  name: 'Admin',    scope: 'workspace', desc: 'Quản lý, không đổi billing' },
-  { code: 'staff',  name: 'Nhân viên', scope: 'shop',     desc: 'Vận hành chi nhánh' },
-  { code: 'viewer', name: 'Xem',       scope: 'shop',     desc: 'Chỉ xem dữ liệu' },
-];
-
-export function TeamClient({ tenantId, tenantSlug, initialUsers, shops, canInvite, canRemove, currentUserId }: Props) {
+export function TeamClient({ tenantId, tenantSlug, initialUsers, shops, roles, canInvite, canRemove, currentUserId }: Props) {
   const [users, setUsers] = useState<TenantUser[]>(initialUsers);
   const [showModal, setShowModal] = useState(false);
   const [resetTarget, setResetTarget] = useState<TenantUser | null>(null);
+  const [editRoleTarget, setEditRoleTarget] = useState<TenantUser | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<TenantUser | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -138,7 +134,7 @@ export function TeamClient({ tenantId, tenantSlug, initialUsers, shops, canInvit
                     </div>
                   </td>
                   <td className="px-5 py-3.5">
-                    <RoleBadge code={u.role?.code ?? ''} />
+                    <RoleBadge code={u.role?.code ?? ''} name={u.role?.name} />
                   </td>
                   <td className="px-5 py-3.5 text-sm text-slate-500">
                     {u.role?.scope === 'workspace'
@@ -150,12 +146,20 @@ export function TeamClient({ tenantId, tenantSlug, initialUsers, shops, canInvit
                   {(canInvite || canRemove) && (
                     <td className="px-5 py-3.5 text-right">
                       <div className="flex items-center justify-end gap-2">
+                        {canInvite && (
+                          <button
+                            onClick={() => setEditRoleTarget(u)}
+                            className="rounded-lg px-3 py-1.5 text-xs font-medium text-blue-600 border border-blue-100 bg-blue-50 hover:bg-blue-100 transition-colors"
+                          >
+                            Phân quyền
+                          </button>
+                        )}
                         {canInvite && u.account_type === 'workspace' && (
                           <button
                             onClick={() => setResetTarget(u)}
                             className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-600 border border-slate-200 hover:bg-slate-50 transition-colors"
                           >
-                            Đổi mật khẩu
+                            Mật khẩu
                           </button>
                         )}
                         {canRemove && u.user_id !== currentUserId && (
@@ -182,6 +186,7 @@ export function TeamClient({ tenantId, tenantSlug, initialUsers, shops, canInvit
           tenantId={tenantId}
           tenantSlug={tenantSlug}
           shops={shops}
+          roles={roles}
           onClose={() => setShowModal(false)}
           onSuccess={(msg) => {
             setShowModal(false);
@@ -203,6 +208,23 @@ export function TeamClient({ tenantId, tenantSlug, initialUsers, shops, canInvit
         />
       )}
 
+      {/* Edit role modal */}
+      {editRoleTarget && (
+        <EditRoleModal
+          tenantId={tenantId}
+          user={editRoleTarget}
+          roles={roles}
+          shops={shops}
+          onClose={() => setEditRoleTarget(null)}
+          onSuccess={() => {
+            setEditRoleTarget(null);
+            flash('Đã cập nhật vai trò');
+            startTransition(() => { refreshUsers(); });
+          }}
+          onError={(msg) => flash(msg, 'err')}
+        />
+      )}
+
       {/* Delete confirmation */}
       {deleteTarget && (
         <ConfirmDialog
@@ -220,10 +242,11 @@ export function TeamClient({ tenantId, tenantSlug, initialUsers, shops, canInvit
 
 // ─── Add Member Modal ─────────────────────────────────────────────────────────
 
-function AddMemberModal({ tenantId, tenantSlug, shops, onClose, onSuccess, onError }: {
+function AddMemberModal({ tenantId, tenantSlug, shops, roles, onClose, onSuccess, onError }: {
   tenantId: string;
   tenantSlug: string;
   shops: Shop[];
+  roles: Role[];
   onClose: () => void;
   onSuccess: (msg: string) => void;
   onError: (msg: string) => void;
@@ -238,7 +261,7 @@ function AddMemberModal({ tenantId, tenantSlug, shops, onClose, onSuccess, onErr
   const [shopId, setShopId] = useState<string>('');
   const [loading, setLoading] = useState(false);
 
-  const selectedRole = ROLES.find((r) => r.code === role);
+  const selectedRole = roles.find((r) => r.code === role);
   const isShopScoped = selectedRole?.scope === 'shop';
 
   async function onSubmit(e: FormEvent) {
@@ -337,11 +360,10 @@ function AddMemberModal({ tenantId, tenantSlug, shops, onClose, onSuccess, onErr
           </div>
         </Field>
 
-        {/* Role */}
         <div>
           <label className="mb-2 block text-sm font-medium text-slate-700">Vai trò & phạm vi</label>
-          <div className="space-y-2">
-            {ROLES.map((r) => (
+          <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1 custom-scrollbar">
+            {roles.map((r) => (
               <label key={r.code} className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors ${
                 role === r.code ? 'border-[#0268FF] bg-blue-50/50' : 'border-slate-200 hover:border-slate-300'
               }`}>
@@ -361,8 +383,8 @@ function AddMemberModal({ tenantId, tenantSlug, shops, onClose, onSuccess, onErr
                     }`}>
                       {r.scope === 'workspace' ? 'Workspace' : 'Chi nhánh'}
                     </span>
+                    {r.is_system && <span className="text-[10px] bg-slate-100 text-slate-500 px-1 rounded uppercase font-bold tracking-wider">Hệ thống</span>}
                   </div>
-                  <p className="text-xs text-slate-400">{r.desc}</p>
                 </div>
               </label>
             ))}
@@ -465,6 +487,108 @@ function ResetPasswordModal({ tenantId, user, onClose, onSuccess, onError }: {
   );
 }
 
+// ─── Edit Role Modal ──────────────────────────────────────────────────────────
+
+function EditRoleModal({ tenantId, user, roles, shops, onClose, onSuccess, onError }: {
+  tenantId: string;
+  user: TenantUser;
+  roles: Role[];
+  shops: Shop[];
+  onClose: () => void;
+  onSuccess: () => void;
+  onError: (msg: string) => void;
+}) {
+  const [role, setRole] = useState<string>(user.role?.code ?? 'staff');
+  const [shopId, setShopId] = useState<string>(user.role?.shop?.id ?? (shops[0]?.id || ''));
+  const [loading, setLoading] = useState(false);
+
+  const selectedRole = roles.find((r) => r.code === role);
+  const isShopScoped = selectedRole?.scope === 'shop';
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    const body = { roleCode: role, shopId: isShopScoped ? shopId : undefined };
+    const res = await fetch(`/api/tenants/${tenantId}/users/${user.user_id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    setLoading(false);
+    if (!res.ok) { onError(data.message || 'Không thể cập nhật vai trò'); return; }
+    onSuccess();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+      <div className="w-full max-w-[480px] rounded-2xl bg-white shadow-xl flex flex-col max-h-[90vh]">
+        <div className="flex items-center justify-between border-b border-slate-100 p-4 shrink-0">
+          <h2 className="text-lg font-semibold text-slate-900">Sửa vai trò thành viên</h2>
+          <button onClick={onClose} className="rounded-full p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors">
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+
+        <form onSubmit={onSubmit} className="p-5 flex flex-col gap-6 overflow-y-auto">
+          <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+            <p className="text-sm font-medium text-slate-900">{user.display_name || user.username || user.login_email}</p>
+            <p className="text-xs text-slate-500 mt-0.5">{user.login_email}</p>
+          </div>
+
+          <div>
+            <label className="mb-2 block text-sm font-medium text-slate-700">Vai trò & phạm vi</label>
+            <div className="space-y-2 max-h-[250px] overflow-y-auto pr-1 custom-scrollbar">
+              {roles.map((r) => (
+                <label key={r.code} className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors ${
+                  role === r.code ? 'border-[#0268FF] bg-blue-50/50' : 'border-slate-200 hover:border-slate-300'
+                }`}>
+                  <input
+                    type="radio" name="edit_role" value={r.code} checked={role === r.code} onChange={() => setRole(r.code)}
+                    className="mt-0.5 accent-[#0268FF]"
+                  />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-slate-900">{r.name}</span>
+                      <span className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded-full ${
+                        r.scope === 'workspace' ? 'bg-purple-100 text-purple-700' : 'bg-amber-100 text-amber-700'
+                      }`}>
+                        {r.scope === 'workspace' ? 'Workspace' : 'Chi nhánh'}
+                      </span>
+                      {r.is_system && <span className="text-[10px] bg-slate-100 text-slate-500 px-1 rounded uppercase font-bold tracking-wider">Hệ thống</span>}
+                    </div>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {isShopScoped && (
+            <div className="animate-in fade-in slide-in-from-top-2 duration-300">
+              <label className="mb-1.5 block text-sm font-medium text-slate-700">Chi nhánh làm việc</label>
+              <select
+                required value={shopId} onChange={e => setShopId(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none transition-all focus:border-[#0268FF] focus:ring-1 focus:ring-[#0268FF] appearance-none bg-white"
+              >
+                {shops.length === 0 && <option value="">Chưa có chi nhánh nào</option>}
+                {shops.length > 0 && <option value="" disabled>-- Chọn chi nhánh --</option>}
+                {shops.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+          )}
+
+          <div className="mt-2 flex gap-3 pt-4 border-t border-slate-100 shrink-0">
+            <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-slate-200 bg-white py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-colors">Hủy</button>
+            <button type="submit" disabled={loading || (isShopScoped && !shopId)} className="flex-1 rounded-xl bg-[#0268FF] py-2.5 text-sm font-semibold text-white hover:bg-[#0256CC] transition-colors disabled:opacity-50 flex justify-center items-center">
+              {loading ? <svg className="animate-spin h-5 w-5 text-white" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> : 'Cập nhật'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ─── Shared primitives ────────────────────────────────────────────────────────
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
@@ -519,19 +643,16 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   );
 }
 
-function RoleBadge({ code }: { code: string }) {
+function RoleBadge({ code, name }: { code: string, name?: string }) {
   const map: Record<string, string> = {
     owner: 'bg-purple-100 text-purple-700',
     admin: 'bg-blue-100 text-blue-700',
     staff: 'bg-amber-100 text-amber-700',
     viewer: 'bg-slate-100 text-slate-600',
   };
-  const label: Record<string, string> = {
-    owner: 'Owner', admin: 'Admin', staff: 'Nhân viên', viewer: 'Xem',
-  };
   return (
     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${map[code] ?? 'bg-slate-100 text-slate-500'}`}>
-      {label[code] ?? code}
+      {name || code}
     </span>
   );
 }

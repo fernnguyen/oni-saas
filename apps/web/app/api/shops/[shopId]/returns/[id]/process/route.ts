@@ -14,7 +14,7 @@ export async function POST(
 ) {
   try {
     const { shopId, id } = await params
-    const { connector } = await requireShopAccess(shopId)
+    const { connector } = await requireShopAccess(shopId, 'returns.approve')
     const body = await req.json().catch(() => ({}))
     const processedBy: string = body.processed_by ?? ''
 

@@ -4,8 +4,12 @@ import { getSupabaseServerClient } from '../../../../../../lib/server/supabaseSe
 import { hasPermission } from '../../../../../../lib/server/permissions';
 import { deleteTenantUser, resetTenantUserPassword } from '../../../../../../lib/server/tenantUsers';
 
-const resetPasswordSchema = z.object({
-  password: z.string().min(6, 'Mật khẩu tối thiểu 6 ký tự'),
+const updateUserSchema = z.object({
+  password: z.string().min(6, 'Mật khẩu tối thiểu 6 ký tự').optional(),
+  roleCode: z.string().optional(),
+  shopId: z.string().optional(),
+}).refine(data => data.password || data.roleCode, {
+  message: 'Vui lòng cung cấp mật khẩu hoặc vai trò để cập nhật',
 });
 
 export async function DELETE(
@@ -35,7 +39,7 @@ export async function DELETE(
   }
 }
 
-// PATCH /api/tenants/[tenantId]/users/[userId] — reset password (owner/admin only)
+// PATCH /api/tenants/[tenantId]/users/[userId] — update user (role or password)
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ tenantId: string; userId: string }> },
@@ -45,11 +49,12 @@ export async function PATCH(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
 
+  // For updating role, might need org.manage or users.invite
   const allowed = await hasPermission(user.id, tenantId, 'users.invite');
   if (!allowed) return NextResponse.json({ message: 'Forbidden' }, { status: 403 });
 
   const json = await req.json();
-  const parsed = resetPasswordSchema.safeParse(json);
+  const parsed = updateUserSchema.safeParse(json);
   if (!parsed.success) {
     return NextResponse.json(
       { message: parsed.error.errors[0]?.message ?? 'Dữ liệu không hợp lệ' },
@@ -57,13 +62,25 @@ export async function PATCH(
     );
   }
 
+  const { password, roleCode, shopId } = parsed.data;
+
   try {
-    await resetTenantUserPassword(userId, tenantId, parsed.data.password);
+    if (password) {
+      await resetTenantUserPassword(userId, tenantId, password);
+    }
+    
+    if (roleCode) {
+      // Import here to avoid changing the top level imports structure which could cause issues
+      const { updateTenantUserRole } = await import('../../../../../../lib/server/tenantUsers');
+      await updateTenantUserRole(userId, tenantId, roleCode, shopId);
+    }
+
     return NextResponse.json({ ok: true });
   } catch (err: unknown) {
     return NextResponse.json(
-      { message: err instanceof Error ? err.message : 'Không thể đổi mật khẩu' },
+      { message: err instanceof Error ? err.message : 'Không thể cập nhật người dùng' },
       { status: 500 },
     );
   }
 }
+

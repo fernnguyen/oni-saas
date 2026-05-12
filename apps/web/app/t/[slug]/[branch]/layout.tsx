@@ -42,19 +42,26 @@ export default async function BranchLayout({ params, children }: Props) {
 
   const { data: tenantAccess } = await admin
     .from('user_tenants')
-    .select('id')
+    .select('id, roles(name)')
     .eq('user_id', authData.user.id)
     .eq('tenant_id', tenant.id)
     .maybeSingle();
 
+  let roleName = '';
+
   if (!tenantAccess) {
     const { data: shopAccess } = await admin
       .from('user_shops')
-      .select('id')
+      .select('id, roles(name)')
       .eq('user_id', authData.user.id)
       .eq('shop_id', shop.id)
       .maybeSingle();
     if (!shopAccess) notFound();
+    // @ts-ignore
+    roleName = Array.isArray(shopAccess.roles) ? shopAccess.roles[0]?.name : shopAccess.roles?.name;
+  } else {
+    // @ts-ignore
+    roleName = Array.isArray(tenantAccess.roles) ? tenantAccess.roles[0]?.name : tenantAccess.roles?.name;
   }
 
   const permissions = await getUserPermissions(authData.user.id, tenant.id, shop.id).catch(() => []);
@@ -93,6 +100,7 @@ export default async function BranchLayout({ params, children }: Props) {
       shopName={shop.name}
       userEmail={authData.user.email}
       displayName={displayName || undefined}
+      roleName={roleName || undefined}
       sidebarBasePath={homePath}
       tenantHref={`${controlPlaneOrigin}/dashboard/tenants`}
       connectorsHref={`${homePath}/connectors`}

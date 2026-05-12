@@ -9,7 +9,7 @@ export async function GET(
 ) {
   try {
     const { shopId } = await params
-    const { connector, permissions } = await requireShopAccess(shopId)
+    const { connector, permissions } = await requireShopAccess(shopId, 'customers.view')
 
     if (!permissions.includes('debt.view') && !permissions.includes('customers.view')) {
       return NextResponse.json({ error: 'Permission denied' }, { status: 403 })

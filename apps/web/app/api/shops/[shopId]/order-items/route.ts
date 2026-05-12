@@ -11,7 +11,7 @@ export async function GET(
 ) {
   try {
     const { shopId } = await params
-    const { connector } = await requireShopAccess(shopId)
+    const { connector } = await requireShopAccess(shopId, 'orders.view')
 
     const sp = req.nextUrl.searchParams
     const page = Math.max(1, parseInt(sp.get('page') ?? '1'))
@@ -38,7 +38,7 @@ export async function POST(
 ) {
   try {
     const { shopId } = await params
-    const { connector } = await requireShopAccess(shopId)
+    const { connector } = await requireShopAccess(shopId, 'orders.edit')
 
     const body = await req.json()
     const data = orderItemCreateSchema.parse(body)

@@ -12,6 +12,7 @@ interface DashboardShellProps {
   shopName?: string;
   userEmail?: string;
   displayName?: string;
+  roleName?: string;
   sidebarBasePath?: string;
   supportHref?: string;
   tenantHref?: string;
@@ -36,6 +37,7 @@ export function DashboardShell({
   shopName,
   userEmail,
   displayName,
+  roleName,
   sidebarBasePath = '/dashboard',
   supportHref = '/dashboard/support',
   tenantHref,
@@ -78,6 +80,7 @@ export function DashboardShell({
             shopName={shopName}
             userEmail={userEmail}
             displayName={displayName}
+            roleName={roleName}
             settingsHref={settingsHref}
             accountHref={accountHref}
             permissions={permissions}
