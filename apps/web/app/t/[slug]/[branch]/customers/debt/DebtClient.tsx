@@ -118,7 +118,6 @@ export function DebtClient({ shopId }: Props) {
         columns={columns}
         data={data?.data ?? []}
         loading={isLoading}
-        pagination={false}
         emptyState={<EmptyState title="Không có công nợ" description="Tất cả khách hàng đã thanh toán đầy đủ." />}
         rowKey={(row) => row.customer_id}
       />

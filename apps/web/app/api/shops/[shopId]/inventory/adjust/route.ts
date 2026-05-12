@@ -23,28 +23,25 @@ export async function POST(
       return NextResponse.json({ ok: true })
     }
 
-    // Three fallbacks to handle branch_id mismatches between POS (UUID) and Sheets (empty string)
-    let invResult = await connector.list('inventory', {
-      page: 1, limit: 1,
-      filters: { product_id, branch_id },
+    // Fetch all inventory for this product_id to minimize connector API calls (avoids sequential fallback queries)
+    const invListResult = await connector.list('inventory', {
+      page: 1, limit: 10, // get up to 10 branches
+      filters: { product_id },
     })
-    if (invResult.data.length === 0 && branch_id !== '') {
-      invResult = await connector.list('inventory', {
-        page: 1, limit: 1,
-        filters: { product_id, branch_id: '' },
-      })
+
+    const allInv = invListResult.data as Record<string, string>[]
+    let invRow = allInv.find(i => i.branch_id === branch_id)
+    if (!invRow && branch_id !== '') {
+      invRow = allInv.find(i => i.branch_id === '')
     }
-    if (invResult.data.length === 0) {
-      invResult = await connector.list('inventory', {
-        page: 1, limit: 1,
-        filters: { product_id },
-      })
+    if (!invRow) {
+      // fallback to any row if nothing matched
+      invRow = allInv[0]
     }
 
-    if (invResult.data.length > 0) {
-      const inv = invResult.data[0] as Record<string, string>
-      const newQty = Math.max(0, parseFloat(inv.stock_qty || '0') + delta)
-      await connector.update('inventory', inv.inventory_id as string, {
+    if (invRow) {
+      const newQty = Math.max(0, parseFloat(invRow.stock_qty || '0') + delta)
+      await connector.update('inventory', invRow.inventory_id as string, {
         stock_qty: String(newQty),
       })
     } else if (delta > 0) {

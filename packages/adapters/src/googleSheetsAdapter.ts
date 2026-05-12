@@ -170,6 +170,22 @@ async function updateRow(
   )
 }
 
+async function appendRows(
+  token: string,
+  sheetId: string,
+  tabName: string,
+  rowsValues: string[][],
+): Promise<void> {
+  if (rowsValues.length === 0) return
+  const range = `${tabName}!A1`
+  await sheetsPost(
+    token,
+    sheetId,
+    `/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+    { values: rowsValues },
+  )
+}
+
 export class GoogleSheetsConnector implements IDataConnector {
   constructor(
     private readonly sheetId: string,
@@ -317,6 +333,7 @@ export class GoogleSheetsConnector implements IDataConnector {
       .reduce((max, n) => Math.max(max, n), 0)
 
     const created: Record<string, string>[] = []
+    const allRowValues: string[][] = []
 
     for (let i = 0; i < rows.length; i++) {
       const newId = `${prefix}-${String(currentMax + i + 1).padStart(3, '0')}`
@@ -327,10 +344,11 @@ export class GoogleSheetsConnector implements IDataConnector {
         fullRow.created_at = new Date().toISOString()
       }
       const rowValues = headers.map(h => fullRow[h] ?? '')
-      await appendRow(token, this.sheetId, tab, rowValues)
+      allRowValues.push(rowValues)
       created.push(fullRow)
     }
 
+    await appendRows(token, this.sheetId, tab, allRowValues)
     cacheInvalidate(`${this.sheetId}:${tab}`)
     return created
   }

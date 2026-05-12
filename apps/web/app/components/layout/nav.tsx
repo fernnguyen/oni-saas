@@ -94,11 +94,6 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
 
   return filter([
     {
-      items: [
-        { href: base || '/', label: 'Tổng quan', icon: IconHome, exact: true, permission: 'dashboard.view' },
-      ],
-    },
-    {
       label: 'Bán hàng',
       items: [
         { href: joinPath(base, '/channels/pos'), label: 'Bán tại quầy', icon: IconPos,      permission: 'pos.use' },

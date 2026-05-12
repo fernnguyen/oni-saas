@@ -134,10 +134,11 @@ export async function POST(
       (existingItems.data as Record<string, string>[]).map((r) => r.product_id)
     )
 
+    const itemsToCreate = []
     for (let i = 0; i < items.length; i++) {
       const it = items[i]
       if (existingProductIds.has(it.product_id)) continue
-      await connector.create('order-items', {
+      itemsToCreate.push({
         order_id:      serverId,
         order_no:      orderNo,
         line_no:       String(i + 1),
@@ -149,6 +150,9 @@ export async function POST(
         line_discount: String(it.discount_amount),
         line_total:    String(it.line_total),
       })
+    }
+    if (itemsToCreate.length > 0) {
+      await connector.batchCreate('order-items', itemsToCreate)
     }
 
     // ── Step 3: Payments — dedup by method ──
@@ -164,9 +168,11 @@ export async function POST(
       const existingMethods = new Set(
         (existingPays.data as Record<string, string>[]).map((r) => r.method)
       )
+      const paysToCreate = []
+      const cashbookToCreate = []
       for (const pay of payments) {
         if (existingMethods.has(pay.method)) continue
-        await connector.create('payments', {
+        paysToCreate.push({
           order_id:     serverId,
           order_no:     orderNo,
           method:       pay.method,
@@ -177,7 +183,7 @@ export async function POST(
         })
 
         if (pay.method !== 'debt') {
-          await connector.create('cashbook', {
+          cashbookToCreate.push({
             type:           'receipt',
             amount:         String(pay.amount),
             method:         pay.method,
@@ -187,10 +193,16 @@ export async function POST(
             note:           `Thanh toán đơn hàng ${orderNo || serverId}`,
             employee_id:    order.employee_id ?? '',
             branch_id:      order.branch_id ?? '',
-          }).catch(err => {
-            console.error('Failed to log cashbook for payment:', err)
           })
         }
+      }
+      if (paysToCreate.length > 0) {
+        await connector.batchCreate('payments', paysToCreate)
+      }
+      if (cashbookToCreate.length > 0) {
+        await connector.batchCreate('cashbook', cashbookToCreate).catch(err => {
+          console.error('Failed to log cashbook for payment:', err)
+        })
       }
     }
 
@@ -208,24 +220,32 @@ export async function POST(
       .filter(n => !isNaN(n))
     let pxCounter = pxNums.length > 0 ? Math.max(...pxNums) : 0
 
+    const existingMovs = await connector.list('stock-movements', {
+      page: 1, limit: 100,
+      filters: { reference_no: movRef }
+    })
+    const existingMovProductIds = new Set(
+      (existingMovs.data as Record<string, string>[]).map(r => r.product_id)
+    )
+
+    const movsToCreate = []
     for (const mv of stock_movements) {
-      const check = await connector.list('stock-movements', {
-        page: 1, limit: 1,
-        filters: { reference_no: movRef, product_id: mv.product_id },
-      })
-      if (check.data.length > 0) continue
+      if (existingMovProductIds.has(mv.product_id)) continue
 
       pxCounter += 1
       const movementNo = `PX-${String(pxCounter).padStart(3, '0')}`
 
-      await connector.create('stock-movements', {
+      movsToCreate.push({
         type:         mv.type,
         movement_no:  movementNo,
         product_id:   mv.product_id,
         qty:          String(Math.abs(mv.qty)),
         branch_id:    mv.branch_id ?? '',
         reference_no: movRef,
-      } as Record<string, string>)
+      })
+    }
+    if (movsToCreate.length > 0) {
+      await connector.batchCreate('stock-movements', movsToCreate)
     }
 
     // ── Step 5: Update Customer Debt ──
