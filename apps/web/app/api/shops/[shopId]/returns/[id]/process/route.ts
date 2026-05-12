@@ -55,7 +55,7 @@ export async function POST(
       .filter(n => !isNaN(n))
     let pthCounter = pthNums.length > 0 ? Math.max(...pthNums) : 0
 
-    const returnRef = r.return_no ?? r.return_id ?? id
+    const returnRef = r.return_no || r.return_id || id
 
     for (const item of items) {
       const qty   = parseFloat(item.qty_returned || '0')
@@ -123,7 +123,7 @@ export async function POST(
           category:       'other',
           reference_id:   returnRef,
           reference_name: r.customer_name ?? '',
-          note:           `Hoàn tiền phiếu trả hàng ${returnRef}`,
+          note:           `Hoàn tiền phiếu trả hàng ${returnRef}${r.order_no ? ` (Đơn ${r.order_no})` : ''}`,
           employee_id:    processedBy,
           branch_id:      '',
         }).catch(err => {
