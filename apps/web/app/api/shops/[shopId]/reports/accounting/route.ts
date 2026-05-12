@@ -7,7 +7,7 @@ type Row = Record<string, string>
 
 function parseAmount(v: string | undefined) { return parseFloat(v ?? '0') || 0 }
 
-function buildAccounting(orders: Row[], returns: Row[], payments: Row[]) {
+function buildAccounting(orders: Row[], returns: Row[], payments: Row[], customers: Row[]) {
   const now        = new Date()
   const months: Record<string, { revenue: number; refund: number; debt: number; orders: number }> = {}
 
@@ -46,21 +46,19 @@ function buildAccounting(orders: Row[], returns: Row[], payments: Row[]) {
     paymentBreakdown[method] = (paymentBreakdown[method] ?? 0) + parseAmount(p.amount)
   }
 
-  // ── Outstanding debt (orders where debt_amount > 0) ──────────────────────
-  const debtOrders = orders
-    .filter((o) => parseAmount(o.debt_amount) > 0 && o.status !== 'cancelled')
-    .map((o) => ({
-      order_id:      o.order_id,
-      order_no:      o.order_no,
-      customer_name: o.customer_name,
-      total_amount:  o.total_amount,
-      debt_amount:   o.debt_amount,
-      created_at:    o.created_at,
+  // ── Outstanding debt (customers where debt_amount > 0) ──────────────────────
+  const debtCustomers = customers
+    .filter((c) => parseAmount(c.debt_amount) > 0)
+    .map((c) => ({
+      customer_id:   c.customer_id,
+      customer_name: c.name,
+      phone:         c.phone,
+      debt_amount:   c.debt_amount,
     }))
     .sort((a, b) => parseAmount(b.debt_amount) - parseAmount(a.debt_amount))
     .slice(0, 50)
 
-  const totalDebt = debtOrders.reduce((s, o) => s + parseAmount(o.debt_amount), 0)
+  const totalDebt = customers.reduce((s, c) => s + parseAmount(c.debt_amount), 0)
 
   // ── Summary totals ────────────────────────────────────────────────────────
   const totalRevenue = orders
@@ -69,7 +67,7 @@ function buildAccounting(orders: Row[], returns: Row[], payments: Row[]) {
   const totalRefund  = returns.reduce((s, r) => s + parseAmount(r.total_refund), 0)
   const totalNet     = totalRevenue - totalRefund
 
-  return { monthlySeries, paymentBreakdown, debtOrders, totalDebt, totalRevenue, totalRefund, totalNet }
+  return { monthlySeries, paymentBreakdown, debtCustomers, totalDebt, totalRevenue, totalRefund, totalNet }
 }
 
 export async function GET(
@@ -82,13 +80,14 @@ export async function GET(
 
     const result = await shopCache(
       async () => {
-        const [ordersResult, returnsResult, paymentsResult] = await Promise.all([
+        const [ordersResult, returnsResult, paymentsResult, customersResult] = await Promise.all([
           connector.list('orders',   { limit: 5000 }),
           // Tab Returns may not exist yet — fall back to empty gracefully
           connector.list('returns',  { limit: 2000 }).catch(() => ({ data: [], total: 0 })),
           connector.list('payments', { limit: 5000 }),
+          connector.list('customers', { limit: 5000 }),
         ])
-        return buildAccounting(ordersResult.data, returnsResult.data, paymentsResult.data)
+        return buildAccounting(ordersResult.data, returnsResult.data, paymentsResult.data, customersResult.data)
       },
       ['reports-accounting', shopId],
       { tags: [shopTag(shopId, 'orders'), shopTag(shopId, 'returns')], revalidate: 300 }

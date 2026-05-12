@@ -5,11 +5,11 @@ import { PageHeader } from '@/app/components/ui/PageHeader'
 interface Props { shopId: string }
 
 interface MonthRow { month: string; revenue: number; refund: number; debt: number; orders: number; net: number }
-interface DebtOrder { order_id: string; order_no: string; customer_name: string; total_amount: string; debt_amount: string; created_at: string }
+interface DebtCustomer { customer_id: string; customer_name: string; phone: string; debt_amount: string }
 interface AccountingData {
   monthlySeries:    MonthRow[]
   paymentBreakdown: Record<string, number>
-  debtOrders:       DebtOrder[]
+  debtCustomers:    DebtCustomer[]
   totalDebt:        number
   totalRevenue:     number
   totalRefund:      number
@@ -60,7 +60,10 @@ export function AccountingClient({ shopId }: Props) {
 
   if (!data) return null
 
-  const { monthlySeries, paymentBreakdown, debtOrders, totalDebt, totalRevenue, totalRefund, totalNet } = data
+  // Payment breakdown code...
+
+  // Debt customers
+  const { monthlySeries, paymentBreakdown, debtCustomers, totalDebt, totalRevenue, totalRefund, totalNet } = data
   const paymentEntries = Object.entries(paymentBreakdown).sort((a, b) => b[1] - a[1])
   const totalPayments  = paymentEntries.reduce((s, [, v]) => s + v, 0)
 
@@ -149,32 +152,32 @@ export function AccountingClient({ shopId }: Props) {
           )}
         </div>
 
-        {/* Debt orders */}
+        {/* Debt customers */}
         <div className="rounded-xl border border-slate-100 bg-white shadow-sm">
           <div className="border-b border-slate-100 px-5 py-4">
             <h2 className="text-sm font-semibold text-slate-700">
-              Công nợ chưa thu ({debtOrders.length} đơn)
+              Khách hàng nợ ({debtCustomers.length} người)
             </h2>
           </div>
-          {debtOrders.length === 0 ? (
+          {debtCustomers.length === 0 ? (
             <p className="py-6 text-center text-sm text-slate-400">Không có công nợ</p>
           ) : (
             <div className="overflow-y-auto" style={{ maxHeight: 320 }}>
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 text-left text-xs text-slate-500">
-                    <th className="px-4 py-2">Đơn</th>
                     <th className="px-4 py-2">Khách hàng</th>
+                    <th className="px-4 py-2">Điện thoại</th>
                     <th className="px-4 py-2 text-right">Nợ</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {debtOrders.map((o) => (
-                    <tr key={o.order_id} className="border-b border-slate-50 hover:bg-slate-50">
-                      <td className="px-4 py-2 font-mono text-xs">{o.order_no || o.order_id.slice(0, 8)}</td>
-                      <td className="max-w-[120px] truncate px-4 py-2">{o.customer_name || '—'}</td>
+                  {debtCustomers.map((c) => (
+                    <tr key={c.customer_id} className="border-b border-slate-50 hover:bg-slate-50">
+                      <td className="max-w-[120px] truncate px-4 py-2 font-medium">{c.customer_name || '—'}</td>
+                      <td className="px-4 py-2 text-slate-500">{c.phone || '—'}</td>
                       <td className="px-4 py-2 text-right font-medium text-orange-600">
-                        {Number(o.debt_amount).toLocaleString('vi-VN')}đ
+                        {Number(c.debt_amount).toLocaleString('vi-VN')}đ
                       </td>
                     </tr>
                   ))}
