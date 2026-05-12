@@ -17,6 +17,7 @@ export const returnCreateSchema = z.object({
   processed_by:    z.string().optional().default(''),
   processed_at:    z.string().optional().default(''),
   note:            z.string().optional().default(''),
+  previous_order_status: z.string().optional().default(''),
 })
 
 export const returnUpdateSchema = returnCreateSchema.partial()

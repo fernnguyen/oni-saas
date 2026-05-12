@@ -82,6 +82,7 @@ export function ReturnsClient({ shopId }: Props) {
   const [form, setForm]                 = useState<Record<string, string>>(EMPTY_FORM)
   const [itemForm, setItemForm]         = useState<Record<string, string>>(EMPTY_ITEM)
   const [addingItem, setAddingItem]     = useState(false)
+  const [confirmAction, setConfirmAction] = useState<'approved' | 'rejected' | 'process' | null>(null)
 
   // ── List ──────────────────────────────────────────────────────────────────
   const { data, isLoading, isFetching } = useQuery({
@@ -435,16 +436,14 @@ export function ReturnsClient({ shopId }: Props) {
                 {selected.status === 'pending' && (
                   <>
                     <button
-                      disabled={statusMutation.isPending}
-                      onClick={() => statusMutation.mutate({ id: selected.return_id, status: 'approved' })}
-                      className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+                      onClick={() => setConfirmAction('approved')}
+                      className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100"
                     >
                       Duyệt
                     </button>
                     <button
-                      disabled={statusMutation.isPending}
-                      onClick={() => statusMutation.mutate({ id: selected.return_id, status: 'rejected' })}
-                      className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
+                      onClick={() => setConfirmAction('rejected')}
+                      className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"
                     >
                       Từ chối
                     </button>
@@ -452,11 +451,10 @@ export function ReturnsClient({ shopId }: Props) {
                 )}
                 {(selected.status === 'pending' || selected.status === 'approved') && (
                   <button
-                    disabled={processMutation.isPending}
-                    onClick={() => processMutation.mutate(selected.return_id)}
-                    className="rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50"
+                    onClick={() => setConfirmAction('process')}
+                    className="rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700"
                   >
-                    {processMutation.isPending ? 'Đang xử lý...' : 'Xử lý & nhập kho'}
+                    Xử lý & nhập kho
                   </button>
                 )}
               </div>
@@ -617,7 +615,6 @@ export function ReturnsClient({ shopId }: Props) {
         )}
       </SlideOver>
 
-      {/* Delete confirm */}
       <ConfirmDialog
         open={!!deleteTarget}
         title="Xóa phiếu trả hàng"
@@ -626,6 +623,49 @@ export function ReturnsClient({ shopId }: Props) {
         variant="danger"
         onConfirm={() => { if (deleteTarget) deleteMutation.mutate(deleteTarget.return_id) }}
         onClose={() => setDeleteTarget(null)}
+      />
+
+      <ConfirmDialog
+        open={confirmAction === 'approved'}
+        title="Duyệt phiếu trả hàng"
+        description={`Bạn có chắc chắn muốn duyệt phiếu trả hàng ${selected?.return_no || ''}?`}
+        confirmLabel="Duyệt"
+        onConfirm={() => {
+          if (selected) {
+            statusMutation.mutate({ id: selected.return_id, status: 'approved' })
+          }
+          setConfirmAction(null)
+        }}
+        onClose={() => setConfirmAction(null)}
+      />
+
+      <ConfirmDialog
+        open={confirmAction === 'rejected'}
+        title="Từ chối phiếu trả hàng"
+        description={`Bạn có chắc chắn muốn từ chối phiếu trả hàng ${selected?.return_no || ''}?`}
+        confirmLabel="Từ chối"
+        variant="danger"
+        onConfirm={() => {
+          if (selected) {
+            statusMutation.mutate({ id: selected.return_id, status: 'rejected' })
+          }
+          setConfirmAction(null)
+        }}
+        onClose={() => setConfirmAction(null)}
+      />
+
+      <ConfirmDialog
+        open={confirmAction === 'process'}
+        title="Xử lý & nhập kho"
+        description={`Xử lý phiếu trả hàng ${selected?.return_no || ''}? Hành động này sẽ tự động nhập lại sản phẩm vào kho, ghi nhận hoàn tiền (Sổ quỹ), và cập nhật trạng thái đơn hàng gốc.`}
+        confirmLabel="Xử lý"
+        onConfirm={() => {
+          if (selected) {
+            processMutation.mutate(selected.return_id)
+          }
+          setConfirmAction(null)
+        }}
+        onClose={() => setConfirmAction(null)}
       />
     </div>
   )

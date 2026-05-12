@@ -28,10 +28,21 @@ export async function PUT(
     const { shopId, id } = await params
     const { connector } = await requireShopAccess(shopId, 'returns.create')
 
+    const oldRet = await connector.findById('returns', id)
     const body = await req.json()
     const data = returnUpdateSchema.parse(body)
 
     const updated = await connector.update('returns', id, data)
+    
+    // Revert order status if return is rejected
+    if (data.status === 'rejected' && oldRet) {
+      const r = oldRet as Record<string, string>
+      if (r.order_id) {
+        await connector.update('orders', r.order_id, { status: r.previous_order_status || 'completed' })
+        invalidate(shopId, 'orders')
+      }
+    }
+
     invalidate(shopId, 'returns')
     return NextResponse.json(updated)
   } catch (e) {
@@ -56,6 +67,12 @@ export async function DELETE(
           { error: 'Không thể xóa phiếu trả hàng đã xử lý. Hãy tạo phiếu điều chỉnh kho thay thế.' },
           { status: 409 }
         )
+      }
+
+      // If pending and deleted, we must revert the order status
+      if (r.order_id && r.status === 'pending') {
+        await connector.update('orders', r.order_id, { status: r.previous_order_status || 'completed' })
+        invalidate(shopId, 'orders')
       }
     }
 

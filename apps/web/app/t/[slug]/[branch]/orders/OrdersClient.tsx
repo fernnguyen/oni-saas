@@ -34,6 +34,7 @@ const STATUS_OPTIONS = [
   { value: 'confirmed', label: 'Đã xác nhận' },
   { value: 'processing', label: 'Đang xử lý' },
   { value: 'completed', label: 'Hoàn thành' },
+  { value: 'returning', label: 'Đang trả hàng' },
   { value: 'cancelled', label: 'Đã hủy' },
   { value: 'partially_refunded', label: 'Hoàn 1 phần' },
   { value: 'refunded', label: 'Hoàn tiền' },
@@ -61,6 +62,7 @@ function statusColor(s: string): TagColor {
   if (s === 'draft') return 'yellow'
   if (s === 'confirmed') return 'blue'
   if (s === 'processing') return 'orange'
+  if (s === 'returning') return 'yellow'
   if (s === 'partially_refunded') return 'indigo'
   if (s === 'refunded') return 'purple'
   return 'gray'
@@ -298,20 +300,15 @@ export function OrdersClient({ shopId }: Props) {
           })
         })
       )
-      // Update order status → processing (chờ xác nhận trả hàng)
-      await fetch(`/api/shops/${shopId}/orders/${order.order_id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'processing' }),
-      })
+      )
       return ret
     },
     onSuccess: () => {
       toast.success('Đã tạo phiếu trả hàng — xem trong mục Đơn trả hàng')
       setShowReturnForm(false)
       setShowConfirmReturn(false)
-      setSelectedOrder((prev) => prev ? { ...prev, status: 'processing' } : prev)
-      setEditStatus('processing')
+      setSelectedOrder((prev) => prev ? { ...prev, status: 'returning' } : prev)
+      setEditStatus('returning')
       queryClient.invalidateQueries({ queryKey: ['returns', shopId] })
       queryClient.invalidateQueries({ queryKey: ['orders', shopId] })
     },

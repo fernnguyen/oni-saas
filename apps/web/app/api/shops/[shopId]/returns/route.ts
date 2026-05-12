@@ -47,6 +47,17 @@ export async function POST(
     const body = await req.json()
     const data = returnCreateSchema.parse(body)
 
+    // Find the original order to save its status
+    if (data.order_id) {
+      const order = await connector.findById('orders', data.order_id)
+      if (order) {
+        data.previous_order_status = (order as Record<string, string>).status || 'completed'
+        // Update order status to returning
+        await connector.update('orders', data.order_id, { status: 'returning' })
+        invalidate(shopId, 'orders')
+      }
+    }
+
     const created = await connector.create('returns', data)
     invalidate(shopId, 'returns')
     return NextResponse.json(created, { status: 201 })
