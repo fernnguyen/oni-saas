@@ -36,6 +36,15 @@ export default async function ShopsPage({ searchParams }: Props) {
     .eq('tenant_id', tenant_id)
     .order('created_at', { ascending: true });
 
+  const { data: connector } = await admin
+    .from('connectors')
+    .select('id, status')
+    .eq('tenant_id', tenant_id)
+    .eq('status', 'active')
+    .maybeSingle();
+
+  const connectorStatus = connector?.status ?? null;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -101,14 +110,14 @@ export default async function ShopsPage({ searchParams }: Props) {
                 </div>
                 <div className="flex items-center gap-3">
                   <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${
-                    shop.connector_status === 'active'
+                    connectorStatus === 'active'
                       ? 'bg-green-50 text-green-700'
                       : 'bg-amber-50 text-amber-700'
                   }`}>
                     <span className={`h-1.5 w-1.5 rounded-full ${
-                      shop.connector_status === 'active' ? 'bg-green-500' : 'bg-amber-400'
+                      connectorStatus === 'active' ? 'bg-green-500' : 'bg-amber-400'
                     }`} />
-                    {shop.connector_status === 'active' ? 'Đã kết nối' : 'Chưa kết nối'}
+                    {connectorStatus === 'active' ? 'Đã kết nối' : 'Chưa kết nối'}
                   </span>
                   <Link
                     href={`/dashboard/connectors?tenant_id=${tenant_id}`}

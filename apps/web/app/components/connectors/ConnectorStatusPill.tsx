@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 const CONNECTOR_LABELS: Record<string, string> = {
   google_sheets: 'Google Sheet',
   supabase: 'Supabase',
+  mysql: 'MySQL Database',
 };
 
 interface ConnectorInfo {
@@ -36,7 +37,7 @@ export function ConnectorStatusPill({ permissions, settingsHref }: Props) {
   const canView = canManage || permissions.includes('connectors.view');
 
   useEffect(() => {
-    fetch('/api/connectors/google-sheets/active')
+    fetch('/api/connectors/active')
       .then((r) => r.json())
       .then((d: ActiveResponse) => setData(d))
       .catch(() => setData({ connected: false }));

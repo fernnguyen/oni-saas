@@ -93,6 +93,11 @@ async function createTab(
   // Step 2: build headers — idKey first, then all data fields, created_at last if missing
   const dataKeys = Object.keys(sampleData).filter(k => k !== idKey)
   const headers = [idKey, ...dataKeys]
+  
+  if (!headers.includes('branch_id')) {
+    headers.push('branch_id')
+  }
+
   if (!headers.includes('created_at')) headers.push('created_at')
   // Step 3: write header row
   const range = `${tabName}!A1`
@@ -186,10 +191,12 @@ async function appendRows(
   )
 }
 
+
 export class GoogleSheetsConnector implements IDataConnector {
   constructor(
     private readonly sheetId: string,
     private readonly tokenProvider: () => Promise<string>,
+    private readonly branchId?: string,
   ) {}
 
   private getConfig(entity: string): EntityConfig {
@@ -222,9 +229,13 @@ export class GoogleSheetsConnector implements IDataConnector {
     const { headers, rows } = await readTab(token, this.sheetId, tab)
 
     const hasActiveField = headers.includes('active')
+    const hasBranchField = headers.includes('branch_id')
 
     let filtered = rows.filter(row => {
       if (hasActiveField && row.active === 'FALSE') return false
+      if (this.branchId && hasBranchField) {
+        if (row.branch_id !== this.branchId) return false
+      }
       if (search) {
         const q = search.toLowerCase()
         const matches = Object.values(row).some(v => v.toLowerCase().includes(q))
@@ -256,8 +267,16 @@ export class GoogleSheetsConnector implements IDataConnector {
   async findById(entity: string, id: string): Promise<Record<string, string> | null> {
     const { tab, idKey } = this.getConfig(entity)
     const token = await this.tokenProvider()
-    const { rows } = await readTab(token, this.sheetId, tab)
-    return rows.find(r => r[idKey] === id) ?? null
+    const { rows, headers } = await readTab(token, this.sheetId, tab)
+    const row = rows.find(r => r[idKey] === id) ?? null
+
+    const hasBranchField = headers.includes('branch_id')
+
+    if (row && this.branchId && hasBranchField) {
+      if (row.branch_id !== this.branchId) return null
+    }
+
+    return row
   }
 
   async create(entity: string, data: Record<string, string>): Promise<Record<string, string>> {
@@ -273,12 +292,14 @@ export class GoogleSheetsConnector implements IDataConnector {
     const { headers, rows } = tabData
 
     const newId = await this.generateId(token, tab, prefix, rows, idKey)
-
     const fullRow: Record<string, string> = { ...data }
     fullRow[idKey] = newId
     if (!fullRow.active) fullRow.active = 'TRUE'
     if (headers.includes('created_at') && !fullRow.created_at) {
       fullRow.created_at = new Date().toISOString()
+    }
+    if (this.branchId && headers.includes('branch_id')) {
+      fullRow.branch_id = this.branchId
     }
 
     const rowValues = headers.map(h => fullRow[h] ?? '')
@@ -300,6 +321,11 @@ export class GoogleSheetsConnector implements IDataConnector {
 
     const rowIndex = rows.findIndex(r => r[idKey] === id)
     if (rowIndex === -1) throw new Error(`${entity}/${id} not found`)
+
+    const hasBranchField = headers.includes('branch_id')
+    if (this.branchId && hasBranchField) {
+      if (rows[rowIndex].branch_id !== this.branchId) throw new Error(`${entity}/${id} not found`)
+    }
 
     // +2: +1 for 1-based indexing, +1 for the header row
     const sheetRowNumber = rowIndex + 2
@@ -355,6 +381,9 @@ export class GoogleSheetsConnector implements IDataConnector {
       if (!fullRow.active) fullRow.active = 'TRUE'
       if (headers.includes('created_at') && !fullRow.created_at) {
         fullRow.created_at = new Date().toISOString()
+      }
+      if (this.branchId && headers.includes('branch_id')) {
+        fullRow.branch_id = this.branchId
       }
       const rowValues = headers.map(h => fullRow[h] ?? '')
       allRowValues.push(rowValues)

@@ -12,6 +12,7 @@ type Raw = Record<string, unknown>
 function parseProduct(r: Raw) {
   return {
     ...r,
+    product_id: String(r.id || r.product_id),
     sell_price: f(r.sell_price),
     cost_price: f(r.cost_price),
     min_price:  f(r.min_price),
@@ -20,19 +21,19 @@ function parseProduct(r: Raw) {
 }
 
 function parseCategory(r: Raw) {
-  return { ...r, sort_order: n(r.sort_order), active: bool(r.active) }
+  return { ...r, category_id: String(r.id || r.category_id), sort_order: n(r.sort_order), active: bool(r.active) }
 }
 
 function parsePriceList(r: Raw) {
-  return { ...r, price: f(r.price), active: bool(r.active) }
+  return { ...r, price_id: String(r.id || r.price_id), price: f(r.price), active: bool(r.active) }
 }
 
 function parseDiscount(r: Raw) {
-  return { ...r, value: f(r.value), active: bool(r.active) }
+  return { ...r, discount_id: String(r.id || r.discount_id), value: f(r.value), active: bool(r.active) }
 }
 
 function parseEmployee(r: Raw) {
-  return { ...r, active: bool(r.active) }
+  return { ...r, employee_id: String(r.id || r.employee_id), active: bool(r.active) }
 }
 
 function parseInventory(r: Raw) {
@@ -47,19 +48,18 @@ function parseInventory(r: Raw) {
 function parseCustomer(r: Raw) {
   return {
     ...r,
+    customer_id: String(r.id || r.customer_id),
     debt_amount: r.debt_amount != null ? f(r.debt_amount) : undefined,
   }
 }
 
 async function safeFetch(url: string): Promise<Raw[]> {
-  try {
-    const res = await fetch(url)
-    if (!res.ok) return []
-    const json = await res.json()
-    return Array.isArray(json) ? json : (json.data ?? [])
-  } catch {
-    return []
+  const res = await fetch(url)
+  if (!res.ok) {
+    throw new Error(`Fetch failed with status: ${res.status}`)
   }
+  const json = await res.json()
+  return Array.isArray(json) ? json : (json.data ?? [])
 }
 
 export async function hydrateAll(shopId: string, branchId: string): Promise<void> {

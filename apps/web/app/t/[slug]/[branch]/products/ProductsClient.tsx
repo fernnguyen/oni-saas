@@ -38,6 +38,8 @@ export function ProductsClient({ shopId }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [slideOpen, setSlideOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<Record<string, string> | null>(null)
+  const [categoryModalOpen, setCategoryModalOpen] = useState(false)
+  const [catFormData, setCatFormData] = useState({ name: '', parent_id: '', description: '' })
 
   const { data, isLoading, isFetching } = useQuery({
     queryKey: ['products', shopId, page, debouncedSearch],
@@ -86,6 +88,43 @@ export function ProductsClient({ shopId }: Props) {
     onError: () => toast.error('Xóa thất bại'),
   })
 
+  const { data: catData } = useQuery({
+    queryKey: ['categories', shopId],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/categories?limit=200`)
+      if (!res.ok) return { data: [] }
+      return res.json() as Promise<{ data: Record<string, string>[] }>
+    }
+  })
+  const categories = catData?.data ?? []
+
+  const createCatMutation = useMutation({
+    mutationFn: async (payload: { name: string, parent_id: string, description: string }) => {
+      const res = await fetch(`/api/shops/${shopId}/categories`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}))
+        throw new Error(json.error ?? 'Không thể tạo danh mục')
+      }
+      return res.json()
+    },
+    onSuccess: (newCat) => {
+      toast.success('Đã tạo danh mục')
+      queryClient.invalidateQueries({ queryKey: ['categories', shopId] })
+      setFormData(prev => ({ ...prev, category_id: newCat.category_id || newCat.id || '' }))
+      setCategoryModalOpen(false)
+    },
+    onError: (err: Error) => toast.error(err.message)
+  })
+
+  function openCreateCategory() {
+    setCatFormData({ name: '', parent_id: '', description: '' })
+    setCategoryModalOpen(true)
+  }
+
   function openEdit(row: Record<string, string>) {
     setFormData(row)
     setEditingId(row.product_id)
@@ -101,7 +140,14 @@ export function ProductsClient({ shopId }: Props) {
   const columns = useMemo<Column<Record<string, string>>[]>(() => [
     { key: 'sku', label: 'SKU' },
     { key: 'name', label: 'Tên sản phẩm' },
-    { key: 'category_id', label: 'Danh mục' },
+    { 
+      key: 'category_id', 
+      label: 'Danh mục',
+      render: (row) => {
+        const cat = categories.find((c: any) => c.category_id === row.category_id)
+        return <span>{cat ? cat.name : row.category_id || '-'}</span>
+      }
+    },
     { key: 'unit', label: 'Đơn vị' },
     {
       key: 'sell_price',
@@ -135,7 +181,7 @@ export function ProductsClient({ shopId }: Props) {
         </div>
       ),
     },
-  ], [])
+  ], [categories])
 
   return (
     <div className="space-y-4">
@@ -214,14 +260,28 @@ export function ProductsClient({ shopId }: Props) {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Mã danh mục</label>
-            <input
-              type="text"
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-sm font-medium text-slate-700">Danh mục</label>
+              <button 
+                type="button" 
+                onClick={openCreateCategory} 
+                className="text-xs text-[#0268FF] hover:underline"
+              >
+                + Tạo mới
+              </button>
+            </div>
+            <select
               value={formData.category_id}
               onChange={(e) => setFormData(prev => ({ ...prev, category_id: e.target.value }))}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none"
-              placeholder="Nhập mã danh mục"
-            />
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none bg-white"
+            >
+              <option value="">-- Chọn danh mục --</option>
+              {categories.map((c: any) => (
+                <option key={c.category_id} value={c.category_id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Đơn vị</label>
@@ -284,6 +344,70 @@ export function ProductsClient({ shopId }: Props) {
         variant="danger"
         loading={deleteMutation.isPending}
       />
+
+      {/* TẠO DANH MỤC MODAL */}
+      {categoryModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <h3 className="mb-4 text-lg font-semibold text-slate-900">Tạo danh mục mới</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Tên danh mục *</label>
+                <input
+                  type="text"
+                  value={catFormData.name}
+                  onChange={(e) => setCatFormData(prev => ({ ...prev, name: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none"
+                  placeholder="Ví dụ: Đồ uống"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Danh mục cha</label>
+                <select
+                  value={catFormData.parent_id}
+                  onChange={(e) => setCatFormData(prev => ({ ...prev, parent_id: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none bg-white"
+                >
+                  <option value="">-- Không có --</option>
+                  {categories.map((c: any) => (
+                    <option key={c.category_id} value={c.category_id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Ghi chú</label>
+                <textarea
+                  value={catFormData.description}
+                  onChange={(e) => setCatFormData(prev => ({ ...prev, description: e.target.value }))}
+                  rows={3}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none resize-none"
+                  placeholder="Ghi chú thêm..."
+                />
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                onClick={() => setCategoryModalOpen(false)}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={() => {
+                  if (!catFormData.name.trim()) {
+                    toast.error('Vui lòng nhập tên danh mục'); return;
+                  }
+                  createCatMutation.mutate(catFormData)
+                }}
+                disabled={createCatMutation.isPending}
+                className="rounded-xl bg-[#0268FF] px-4 py-2 text-sm font-medium text-white hover:bg-[#0256CC] disabled:opacity-50"
+              >
+                {createCatMutation.isPending ? 'Đang lưu...' : 'Lưu'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

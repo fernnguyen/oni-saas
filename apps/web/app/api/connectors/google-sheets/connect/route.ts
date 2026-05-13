@@ -7,7 +7,7 @@ import { getServiceAccountToken } from '../../../../../lib/server/googleServiceA
 import { enforceLimit, isPlanLimitError, planLimitResponse } from '../../../../../lib/server/planLimits';
 
 const schema = z.object({
-  shop_id: z.string().uuid(),
+  tenant_id: z.string().uuid(),
   sheet_input: z.string(),
 });
 
@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
   const parsed = schema.safeParse(json);
   if (!parsed.success) return NextResponse.json({ message: 'Dữ liệu không hợp lệ' }, { status: 400 });
 
-  const { shop_id, sheet_input } = parsed.data;
+  const { tenant_id, sheet_input } = parsed.data;
 
   const sheet_id = extractGoogleSheetId(sheet_input);
   if (!sheet_id) return NextResponse.json({ message: 'Link Google Sheet không hợp lệ' }, { status: 400 });
@@ -55,10 +55,11 @@ export async function POST(req: NextRequest) {
   const sheet_title = sheetData.properties?.title ?? 'Google Sheet';
 
   const admin = getSupabaseAdminClient();
+
   const { data: existing, error: lookupError } = await admin
     .from('connectors')
     .select('id')
-    .eq('shop_id', shop_id)
+    .eq('tenant_id', tenant_id)
     .eq('type', 'google_sheets')
     .maybeSingle();
 
@@ -69,7 +70,7 @@ export async function POST(req: NextRequest) {
 
   const now = new Date().toISOString();
   const payload = {
-    shop_id,
+    tenant_id,
     type: 'google_sheets',
     status: 'active',
     config: {
@@ -81,15 +82,11 @@ export async function POST(req: NextRequest) {
   };
 
   if (!existing) {
-    // Resolve tenant for limit check
-    const { data: shopRow } = await admin.from('shops').select('tenant_id').eq('id', shop_id).maybeSingle();
-    if (shopRow) {
-      try {
-        await enforceLimit('create_connector', { shopId: shop_id }, shopRow.tenant_id);
-      } catch (err) {
-        if (isPlanLimitError(err)) return planLimitResponse(err);
-        throw err;
-      }
+    try {
+      await enforceLimit('create_connector', { tenantId: tenant_id }, tenant_id);
+    } catch (err) {
+      if (isPlanLimitError(err)) return planLimitResponse(err);
+      throw err;
     }
   }
 

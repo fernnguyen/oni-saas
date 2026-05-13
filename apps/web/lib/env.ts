@@ -11,6 +11,10 @@ export const cacheTTL = {
   products:        parseInt(process.env.CACHE_TTL_PRODUCTS        ?? '300'),
   /** Danh mục — ít thay đổi nhất */
   categories:      parseInt(process.env.CACHE_TTL_CATEGORIES      ?? '600'),
+  /** Bảng giá */
+  priceLists:      parseInt(process.env.CACHE_TTL_PRICE_LISTS     ?? '300'),
+  /** Khuyến mãi */
+  discounts:       parseInt(process.env.CACHE_TTL_DISCOUNTS       ?? '300'),
   /** Khách hàng */
   customers:       parseInt(process.env.CACHE_TTL_CUSTOMERS       ?? '300'),
   /** Nhà cung cấp */

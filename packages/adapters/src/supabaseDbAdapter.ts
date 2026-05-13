@@ -1,7 +1,7 @@
 import type { IDataConnector, ListOptions, ListResult } from './DataSource'
 
 export class StubConnector implements IDataConnector {
-  constructor(private readonly type: string) {}
+  constructor(private readonly type: string, private readonly tenantId?: string) {}
 
   private notImplemented(): never {
     throw Object.assign(new Error(`Connector type '${this.type}' is not yet implemented`), { code: 'NOT_IMPLEMENTED' })

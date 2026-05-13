@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { extractGoogleSheetId } from '../../../lib/googleSheets';
 
 interface Props {
-  shopId: string;
+  tenantId: string;
   onConnected: () => void;
   onClose?: () => void;
   returnTo?: string;
@@ -19,7 +19,7 @@ type Phase =
 
 const SERVICE_ACCOUNT_EMAIL = process.env.NEXT_PUBLIC_GOOGLE_SERVICE_ACCOUNT_EMAIL ?? '';
 
-export function SetupModal({ shopId, onConnected, onClose }: Props) {
+export function SetupModal({ tenantId, onConnected, onClose }: Props) {
   const [sheetInput, setSheetInput] = useState('');
   const [phase, setPhase] = useState<Phase>({ type: 'idle' });
   const [copied, setCopied] = useState(false);
@@ -37,7 +37,7 @@ export function SetupModal({ shopId, onConnected, onClose }: Props) {
       const res = await fetch('/api/connectors/google-sheets/connect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ shop_id: shopId, sheet_input: sheetInput }),
+        body: JSON.stringify({ tenant_id: tenantId, sheet_input: sheetInput }),
       });
       const data = await readJson(res);
       if (!res.ok) {

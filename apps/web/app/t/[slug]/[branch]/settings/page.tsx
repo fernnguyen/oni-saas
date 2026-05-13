@@ -39,18 +39,12 @@ export default async function BranchSettingsPage({ params }: Props) {
   }
   const shopId: string = shop.id;
 
-  const [settingsResult, connectorResult] = await Promise.all([
+  const [settingsResult] = await Promise.all([
     admin.from('shop_settings').select('*').eq('shop_id', shopId).maybeSingle(),
-    admin
-      .from('connectors')
-      .select('id, shop_id, status, config, updated_at')
-      .eq('shop_id', shopId)
-      .eq('type', 'google_sheets')
-      .maybeSingle(),
   ]);
 
   const canManage =
-    permissions.includes('connectors.manage') || permissions.includes('settings.manage');
+    permissions.includes('settings.manage');
 
   const defaultSettings = {
     shop_id: shopId,
@@ -67,31 +61,17 @@ export default async function BranchSettingsPage({ params }: Props) {
   };
 
   const settings = settingsResult.data ?? defaultSettings;
-  const connectorRaw = connectorResult.data;
-  const connector = connectorRaw
-    ? {
-        connector_id: connectorRaw.id as string,
-        shop_id: connectorRaw.shop_id as string,
-        shop_name: shop.name as string,
-        sheet_id: (connectorRaw.config?.sheet_id as string) ?? '',
-        sheet_title: (connectorRaw.config?.sheet_title as string) ?? 'Google Sheet',
-        sheet_url: (connectorRaw.config?.sheet_url as string) ?? '',
-        status: connectorRaw.status as string,
-        updated_at: connectorRaw.updated_at as string,
-      }
-    : null;
 
   return (
     <div className="space-y-6">
       <div>
         <div className="text-xs font-medium uppercase tracking-[0.2em] text-slate-400">{shop.name}</div>
         <h1 className="mt-1 text-xl font-bold text-slate-900">Cài đặt chi nhánh</h1>
-        <p className="text-sm text-slate-500 mt-0.5">Cấu hình thông tin chi nhánh, bán hàng và kết nối dữ liệu</p>
+        <p className="text-sm text-slate-500 mt-0.5">Cấu hình thông tin chi nhánh và bán hàng</p>
       </div>
       <ShopSettingsForm
         shop={{ id: shopId, name: shop.name, slug: shop.slug, address: shop.address ?? null }}
         settings={settings}
-        connector={connector}
         canManage={canManage}
       />
     </div>

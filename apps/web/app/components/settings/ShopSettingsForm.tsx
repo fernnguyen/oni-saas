@@ -1,8 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { ConnectorManageModal } from '../connectors/ConnectorManageModal';
-import { SetupModal } from '../connectors/SetupModal';
 
 interface ShopSettings {
   shop_id: string;
@@ -22,6 +20,7 @@ interface ConnectorData {
   connector_id: string;
   shop_id: string;
   shop_name: string;
+  type: string;
   sheet_id: string;
   sheet_title: string;
   sheet_url: string;
@@ -39,14 +38,12 @@ interface Shop {
 interface Props {
   shop: Shop;
   settings: ShopSettings;
-  connector: ConnectorData | null;
   canManage: boolean;
 }
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
-type ConnectorModal = 'closed' | 'manage' | 'setup';
 
-export function ShopSettingsForm({ shop, settings: initial, connector: initialConnector, canManage }: Props) {
+export function ShopSettingsForm({ shop, settings: initial, canManage }: Props) {
   const [form, setForm] = useState({
     shop_name: initial.shop_name ?? shop.name,
     address: shop.address ?? '',
@@ -59,8 +56,6 @@ export function ShopSettingsForm({ shop, settings: initial, connector: initialCo
     default_price_type: initial.default_price_type,
   });
   const [saveState, setSaveState] = useState<SaveState>('idle');
-  const [connector, setConnector] = useState(initialConnector);
-  const [connectorModal, setConnectorModal] = useState<ConnectorModal>('closed');
 
   function set(key: keyof typeof form, value: string | boolean) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -91,20 +86,9 @@ export function ShopSettingsForm({ shop, settings: initial, connector: initialCo
       setSaveState('error');
     }
   }
-
-  function handleConnectorStatusChange(status: string, title?: string) {
-    if (!connector) return;
-    setConnector({ ...connector, status, sheet_title: title ?? connector.sheet_title });
-  }
-
-  function handleConnected() {
-    setConnectorModal('closed');
-    window.location.reload();
-  }
-
   return (
     <>
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* ── Left column: main settings ── */}
         <div className="space-y-6 lg:col-span-2">
           {/* ── Section: Thông tin cơ bản ── */}
@@ -218,54 +202,7 @@ export function ShopSettingsForm({ shop, settings: initial, connector: initialCo
             </div>
           )}
         </div>
-
-        {/* ── Right column: connector ── */}
-        <div className="space-y-6">
-          <Section
-            id="connector"
-            title="Kết nối dữ liệu"
-            description="Google Sheet được dùng làm database cho chi nhánh này"
-          >
-            {connector ? (
-              <ConnectorCard
-                connector={connector}
-                canManage={canManage}
-                onManage={() => setConnectorModal('manage')}
-              />
-            ) : (
-              <div className="rounded-xl border border-dashed border-slate-300 p-6 text-center">
-                <p className="text-sm text-slate-500 mb-3">Chưa kết nối dữ liệu nào cho chi nhánh này.</p>
-                {canManage && (
-                  <button
-                    onClick={() => setConnectorModal('setup')}
-                    className="cursor-pointer rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-                  >
-                    + Kết nối Google Sheet
-                  </button>
-                )}
-              </div>
-            )}
-          </Section>
-        </div>
       </div>
-
-      {/* Connector modals */}
-      {connectorModal === 'manage' && connector && (
-        <ConnectorManageModal
-          connector={connector}
-          canManage={canManage}
-          onClose={() => setConnectorModal('closed')}
-          onChangeSheet={() => setConnectorModal('setup')}
-          onStatusChange={handleConnectorStatusChange}
-        />
-      )}
-      {connectorModal === 'setup' && (
-        <SetupModal
-          shopId={shop.id}
-          onConnected={handleConnected}
-          onClose={() => setConnectorModal(connector ? 'manage' : 'closed')}
-        />
-      )}
     </>
   );
 }
@@ -296,62 +233,6 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   );
 }
 
-function ConnectorCard({
-  connector,
-  canManage,
-  onManage,
-}: {
-  connector: ConnectorData;
-  canManage: boolean;
-  onManage: () => void;
-}) {
-  const isError = connector.status === 'error';
-  return (
-    <div className="rounded-xl border border-slate-200 p-4">
-      <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white shadow-sm">
-          <svg className="h-5 w-5" viewBox="0 0 18 18" fill="none">
-            <rect width="18" height="18" rx="3" fill="#0F9D58" />
-            <path d="M4 5h10v8H4z" fill="white" fillOpacity=".2" />
-            <path d="M5 7h8M5 9h8M5 11h5" stroke="white" strokeWidth="1.2" strokeLinecap="round" />
-          </svg>
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-slate-800 truncate">{connector.sheet_title || 'Google Sheet'}</p>
-          <p className="text-xs text-slate-400 font-mono truncate">{connector.sheet_id}</p>
-        </div>
-        <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium shrink-0 ${isError ? 'border-red-200 bg-red-50 text-red-700' : 'border-green-200 bg-green-50 text-green-700'}`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${isError ? 'bg-red-500' : 'bg-green-500'}`} />
-          {isError ? 'Lỗi' : 'Hoạt động'}
-        </span>
-      </div>
-      <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
-        <span>Cập nhật {formatRelative(connector.updated_at)}</span>
-        <a
-          href={connector.sheet_url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-1 text-blue-600 hover:underline"
-        >
-          Mở sheet
-          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-          </svg>
-        </a>
-      </div>
-      {canManage && (
-        <div className="mt-3 flex gap-2 border-t border-slate-100 pt-3">
-          <button
-            onClick={onManage}
-            className="cursor-pointer flex-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors"
-          >
-            Quản lý kết nối
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
 
 const inputCls = 'w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-[#0268FF] focus:outline-none focus:ring-2 focus:ring-[#0268FF]/20 disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed';
 

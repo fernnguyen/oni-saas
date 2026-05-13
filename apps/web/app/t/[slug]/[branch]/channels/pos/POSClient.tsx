@@ -125,6 +125,34 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath }: P
     )
   }
 
+  if (status === 'error' && !lastHydratedAt) {
+    return (
+      <div className={shellCls} style={shellStyle}>
+        <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
+          <div className="text-4xl">⚠️</div>
+          <p className="text-base font-semibold text-slate-800">Lỗi kết nối dữ liệu</p>
+          <p className="max-w-xs text-sm text-slate-500">
+            Không thể lấy dữ liệu sản phẩm. Vui lòng kiểm tra lại thiết lập kết nối dữ liệu (Google Sheet hoặc Database) trong Cài đặt Tổ chức.
+          </p>
+          <div className="flex items-center gap-3 mt-2">
+            <button
+              onClick={() => refresh()}
+              className="rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+            >
+              Thử lại
+            </button>
+            <a
+              href={`/t/${backPath.split('/')[1]}/settings`}
+              className="rounded-xl bg-[#0268FF] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#0256CC] transition-colors inline-block"
+            >
+              Đi tới Cài đặt
+            </a>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   function holdCurrentCart() {
     if (cart.items.length === 0) return
     const label = `Đơn ${heldCarts.length + 1}`

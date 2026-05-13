@@ -96,6 +96,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: shopError.message }, { status: 400 });
   }
 
+  // 5 — Assign default Local DB connector
+  await admin.from('connectors').insert({
+    tenant_id: tenantId,
+    type: 'mysql_local',
+    status: 'active',
+    config: {}
+  });
+
   const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
   const protocol   = rootDomain.startsWith('localhost') ? 'http' : 'https';
   const workspaceUrl = `${protocol}://${slug}.${rootDomain}`;

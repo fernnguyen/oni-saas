@@ -57,6 +57,16 @@ export default async function ShopPage({ params }: Props) {
 
   const permissions = await getUserPermissions(authData.user.id, shop.tenant_id, shop.id).catch(() => []);
 
+  const { data: connector } = await admin
+    .from('connectors')
+    .select('id, status')
+    .eq('tenant_id', shop.tenant_id)
+    .eq('status', 'active')
+    .maybeSingle();
+
+  const connectorStatus = connector?.status ?? null;
+  const connectorId = connector?.id ?? null;
+
   return (
     <DashboardShell
       tenantName={shop.name}
@@ -71,8 +81,8 @@ export default async function ShopPage({ params }: Props) {
     >
       <ShopDashboard
         shop={{ id: shop.id, tenantId: shop.tenant_id, name: shop.name, slug: shop.slug }}
-        connectorStatus={shop.connector_status ?? null}
-        connectorId={shop.connector_id ?? null}
+        connectorStatus={connectorStatus}
+        connectorId={connectorId}
         homePath={homePath}
       />
     </DashboardShell>

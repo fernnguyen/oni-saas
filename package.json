@@ -10,7 +10,9 @@
     "dev": "next dev apps/web",
     "build": "next build apps/web",
     "start": "next start apps/web",
-    "lint": "eslint apps/web --ext .ts,.tsx"
+    "lint": "eslint apps/web --ext .ts,.tsx",
+    "db:push": "pnpm -C packages/adapters run db:push",
+    "db:generate": "pnpm -C packages/adapters run db:generate"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
