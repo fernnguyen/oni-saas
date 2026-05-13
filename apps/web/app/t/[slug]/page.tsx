@@ -1,4 +1,4 @@
-import { redirect } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { getSupabaseServerClient } from '@/lib/server/supabaseServer';
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
 import { getShopsForTenant } from '@/lib/server/shops';
@@ -21,13 +21,7 @@ export default async function TenantRootPage({ params }: Props) {
     .maybeSingle();
 
   if (!tenant) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="text-center">
-          <p className="text-slate-500 text-sm">Workspace không tồn tại.</p>
-        </div>
-      </div>
-    );
+    notFound();
   }
 
   // Auth check after tenant is known — can show personalized login if not authenticated
