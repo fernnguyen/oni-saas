@@ -47,13 +47,13 @@ const FEATURES = [
   { icon: <BellIcon />, title: 'Zalo & Telegram', desc: 'Nhận thông báo đơn hàng, cảnh báo hết hàng qua Zalo OA và Telegram Bot theo thời gian thực.' },
   { icon: <ShopIcon />, title: 'POS & Kho hàng', desc: 'Bán hàng, quản lý kho, đa chi nhánh, quét barcode — mọi thứ gói gọn trong một nền tảng.' },
   { icon: <ShieldIcon />, title: 'Bảo mật cao cấp', desc: 'Xác thực 2 lớp (2FA), phân quyền chi tiết theo vai trò, audit log đầy đủ.' },
-  { icon: <GlobeIcon />, title: 'Subdomain riêng', desc: 'Mỗi doanh nghiệp có workspace riêng tại your-shop.oni.vn — sẵn sàng trong 60 giây.' },
+  { icon: <GlobeIcon />, title: 'Subdomain riêng', desc: 'Mỗi doanh nghiệp có workspace riêng tại your-shop.oni.vn - sẵn sàng trong 60 giây.' },
 ];
 
 const STEPS = [
-  { num: '01', title: 'Đăng ký workspace', desc: 'Chọn subdomain, nhập thông tin — workspace sẵn sàng trong 60 giây.' },
-  { num: '02', title: 'Kết nối dữ liệu', desc: 'Chọn Google Sheets hoặc Supabase. Dữ liệu nằm trên tài khoản của bạn.' },
-  { num: '03', title: 'Bắt đầu bán hàng', desc: 'Mở POS, nhập hàng, quản lý kho — tất cả trên trình duyệt.' },
+  { num: '01', title: 'Đăng ký workspace', desc: 'Chọn subdomain, nhập thông tin - workspace sẵn sàng trong 60 giây.' },
+  { num: '02', title: 'Kết nối dữ liệu', desc: 'Tùy chỉnh sử dụng Google Sheets hoặc Supabase. Bạn quản lý toàn quyền dữ liệu của mình.' },
+  { num: '03', title: 'Bắt đầu bán hàng', desc: 'Mở POS, nhập hàng, quản lý kho, công nợ, báo cáo - tất cả trên trình duyệt.' },
 ];
 
 const PLAN_DETAILS: Record<string, any> = {
@@ -136,7 +136,7 @@ export default async function LandingPage() {
               <span className="inline-block h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
               Sẵn sàng kết nối BYOD
             </div>
-            <h1 className="text-4xl md:text-6xl lg:text-[4.5rem] font-extrabold leading-[1.1] tracking-tight text-white mb-6 drop-shadow-sm">
+            <h1 className="text-4xl md:text-6xl lg:text-[3.5rem] font-extrabold leading-[1.1] tracking-tight text-white mb-6 drop-shadow-sm">
               Sở hữu dữ liệu. <br/>
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-200 to-cyan-200">
                 Làm chủ kinh doanh.
@@ -221,7 +221,7 @@ export default async function LandingPage() {
         <div className="mx-auto max-w-7xl px-6">
           <div className="text-center mb-16 lg:mb-20">
             <p className="text-sm font-bold uppercase tracking-widest text-primary mb-3">Cách hoạt động</p>
-            <h2 className="text-3xl md:text-5xl font-extrabold text-slate-900 tracking-tight">Thiết lập trong chớp mắt</h2>
+            <h2 className="text-3xl md:text-5xl font-extrabold text-slate-900 tracking-tight">Thiết lập chỉ vài click chuột</h2>
           </div>
           <div className="grid gap-8 md:grid-cols-3 relative">
             {/* Connecting line */}
@@ -254,11 +254,11 @@ export default async function LandingPage() {
             Bắt đầu quản lý kinh doanh thông minh
           </h2>
           <p className="text-xl text-blue-100/90 font-medium mb-10 max-w-2xl mx-auto">
-            Không cần thẻ tín dụng. Thiết lập trong 60 giây. Làm chủ dữ liệu kinh doanh của bạn ngay hôm nay.
+            Bắt đầu kinh doanh với chi phí 0đ. Thiết lập trong 60 giây. Làm chủ dữ liệu kinh doanh của bạn ngay hôm nay.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link href="/register" className="group flex items-center justify-center gap-2 rounded-xl bg-white px-8 py-4 text-lg font-bold text-primary shadow-2xl hover:bg-blue-50 transition-all hover:scale-105">
-              Đăng ký miễn phí
+              Đăng ký ngay
               <svg className="h-5 w-5 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
               </svg>
