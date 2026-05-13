@@ -2,6 +2,7 @@
 
 import { useState, FormEvent, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
+import Image from 'next/image';
 import { getSupabaseBrowserClient } from '../../../lib/supabaseBrowser';
 
 export function SuperSignInForm() {
@@ -74,10 +75,8 @@ export function SuperSignInForm() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-900 to-slate-800 p-4">
       <div className="w-full max-w-sm">
-        <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-accent text-white font-bold text-lg shadow-lg shadow-primary/30">
-            O
-          </div>
+        <div className="mb-8 text-center flex flex-col items-center">
+          <Image src="/logo.png" alt="ONI.vn" width={48} height={48} className="mb-4 rounded-xl shadow-lg shadow-primary/30" />
           <h1 className="text-2xl font-bold text-white">ONI Superadmin</h1>
           <p className="mt-1 text-sm text-slate-400">Chỉ dành cho quản trị hệ thống</p>
         </div>
