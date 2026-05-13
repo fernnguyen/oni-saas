@@ -11,11 +11,12 @@ export async function GET(req: NextRequest) {
   }
 
   const admin = getSupabaseAdminClient();
-  const [{ count: tenantCount }, { count: shopCount }] = await Promise.all([
+  const [{ count: tenantCount }, { count: shopCount }, { count: reservedCount }] = await Promise.all([
     admin.from('tenants').select('*', { count: 'exact', head: true }).eq('slug', slug),
     admin.from('shops').select('*',   { count: 'exact', head: true }).eq('slug', slug),
+    admin.from('reserved_subdomains').select('*', { count: 'exact', head: true }).eq('subdomain', slug),
   ]);
 
-  const taken = (tenantCount ?? 0) > 0 || (shopCount ?? 0) > 0;
+  const taken = (tenantCount ?? 0) > 0 || (shopCount ?? 0) > 0 || (reservedCount ?? 0) > 0;
   return NextResponse.json({ available: !taken });
 }

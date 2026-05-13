@@ -21,11 +21,11 @@ function slugify(val: string) {
     .slice(0, 50);
 }
 
-export function RegisterForm({ plans }: { plans: any[] }) {
+export function RegisterForm({ plans, initialDomain }: { plans: any[], initialDomain?: string }) {
   const router = useRouter();
-  const [slug, setSlug]           = useState('');
+  const [slug, setSlug]           = useState(initialDomain || '');
   const [slugStatus, setSlugStatus] = useState<'idle' | 'checking' | 'available' | 'taken' | 'invalid'>('idle');
-  const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
+  const [slugManuallyEdited, setSlugManuallyEdited] = useState(!!initialDomain);
   const [name, setName]           = useState('');
   const [email, setEmail]         = useState('');
   const [password, setPassword]   = useState('');
