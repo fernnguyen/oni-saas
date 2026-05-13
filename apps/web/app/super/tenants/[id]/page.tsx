@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { getSupabaseAdminClient } from '../../../../lib/server/supabaseAdmin';
 import { TenantActions } from './TenantActions';
 import { AddDomainForm } from './AddDomainForm';
+import { EditPlanDialog } from './EditPlanDialog';
 
 const FEATURE_LABELS: Record<string, string> = {
   pos: 'Bán tại quầy (POS)',
@@ -193,26 +194,14 @@ export default async function SuperTenantDetail({
                 </svg>
                 <span className="font-semibold text-slate-800 text-sm">Plan limits & features</span>
               </div>
-              <form action={`/api/super/tenants/${tenant.id}/plan`} method="POST" className="flex items-center gap-2">
-                <select
-                  name="plan_id"
-                  defaultValue={sub?.plan_id ?? ''}
-                  className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary"
-                >
-                  {plans.map((p: any) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
-                <button
-                  type="submit"
-                  className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-primary transition-colors"
-                >
-                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                  </svg>
-                  Edit plan
-                </button>
-              </form>
+              <EditPlanDialog
+                tenantId={tenant.id}
+                currentPlanId={sub?.plan_id ?? null}
+                currentPlanName={sub?.plans?.name ?? null}
+                currentEndDate={sub?.current_period_end ?? null}
+                currentNotes={sub?.notes ?? null}
+                plans={plans}
+              />
             </div>
 
             <div className="p-5 space-y-5">

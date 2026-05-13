@@ -59,6 +59,7 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
           { href: '/super/tenants',    label: 'Tất cả tổ chức',  icon: IconBuilding },
           { href: '/super/plans',      label: 'Gói dịch vụ',     icon: IconMoney },
           { href: '/super/users',      label: 'Tìm người dùng',  icon: IconUsers },
+          { href: '/super/reserved-subdomains', label: 'Tên miền dự trữ', icon: IconShield },
           { href: '/super/audit-logs', label: 'Nhật ký hệ thống', icon: IconActivity },
         ],
       },

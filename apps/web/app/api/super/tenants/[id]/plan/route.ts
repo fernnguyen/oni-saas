@@ -9,6 +9,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { id } = await params;
   const body = await req.formData();
   const plan_id = Number(body.get('plan_id'));
+  const end_date = body.get('end_date') as string | null;
+  const notes = body.get('notes') as string | null;
 
   if (!plan_id) return NextResponse.json({ error: 'plan_id required' }, { status: 400 });
 
@@ -19,9 +21,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     admin.from('plans').select('name').eq('id', plan_id).maybeSingle(),
   ]);
 
+  const updateData: any = { plan_id };
+  if (end_date) {
+    updateData.current_period_end = new Date(end_date).toISOString();
+  } else if (end_date === '') {
+    updateData.current_period_end = null;
+  }
+  if (notes !== null) {
+    updateData.notes = notes;
+  }
+
   const { error } = await admin
     .from('subscriptions')
-    .update({ plan_id })
+    .update(updateData)
     .eq('tenant_id', id);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -35,8 +47,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       previous_plan_name: (prev as any)?.plans?.name ?? null,
       new_plan_id: plan_id,
       new_plan_name: (newPlan as any)?.name ?? null,
+      notes,
+      end_date,
     },
   });
 
-  return NextResponse.redirect(new URL(`/super/tenants/${id}`, req.url));
+  return NextResponse.json({ success: true });
 }
