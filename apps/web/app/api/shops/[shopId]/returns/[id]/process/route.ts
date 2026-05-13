@@ -158,6 +158,7 @@ export async function POST(
     invalidate(shopId, 'returns')
     invalidate(shopId, 'stock-movements')
     invalidate(shopId, 'inventory')
+    invalidate(shopId, 'cashbook')
 
     return NextResponse.json(updated)
   } catch (e) {

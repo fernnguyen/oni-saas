@@ -30,6 +30,7 @@ export const orders = mysqlTable('orders', {
   points_redeemed: varchar('points_redeemed', { length: 50 }),
   note: text('note'),
   payment_method: varchar('payment_method', { length: 50 }),
+  reference_no: varchar('reference_no', { length: 255 }),
 });
 
 export const orderItems = mysqlTable('order_items', {
@@ -96,8 +97,13 @@ export const customers = mysqlTable('customers', {
   phone: varchar('phone', { length: 50 }),
   email: varchar('email', { length: 255 }),
   address: text('address'),
-  debt_balance: varchar('debt_balance', { length: 50 }),
-  points: varchar('points', { length: 50 }),
+  customer_code: varchar('customer_code', { length: 255 }),
+  birthday: varchar('birthday', { length: 50 }),
+  customer_type: varchar('customer_type', { length: 50 }),
+  credit_limit: varchar('credit_limit', { length: 50 }),
+  debt_amount: varchar('debt_amount', { length: 50 }),
+  loyalty_points: varchar('loyalty_points', { length: 50 }),
+  note: text('note'),
 });
 
 export const cashbook = mysqlTable('cashbook', {
@@ -106,8 +112,11 @@ export const cashbook = mysqlTable('cashbook', {
   branch_id: varchar('branch_id', { length: 255 }),
   type: varchar('type', { length: 50 }), // income / expense
   amount: varchar('amount', { length: 50 }),
+  method: varchar('method', { length: 50 }),
   category: varchar('category', { length: 255 }),
   reference_id: varchar('reference_id', { length: 255 }),
+  reference_name: varchar('reference_name', { length: 255 }),
+  employee_id: varchar('employee_id', { length: 255 }),
   note: text('note'),
   date: varchar('date', { length: 50 }),
 });
@@ -199,5 +208,39 @@ export const suppliers = mysqlTable('suppliers', {
   address: text('address'),
   payment_terms: varchar('payment_terms', { length: 255 }),
   note: text('note'),
+});
+
+export const returns = mysqlTable('returns', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  return_no: varchar('return_no', { length: 255 }),
+  order_id: varchar('order_id', { length: 255 }),
+  order_no: varchar('order_no', { length: 255 }),
+  customer_id: varchar('customer_id', { length: 255 }),
+  customer_name: varchar('customer_name', { length: 255 }),
+  reason: varchar('reason', { length: 50 }),
+  status: varchar('status', { length: 50 }),
+  total_refund: varchar('total_refund', { length: 50 }),
+  refund_method: varchar('refund_method', { length: 50 }),
+  processed_by: varchar('processed_by', { length: 255 }),
+  processed_at: varchar('processed_at', { length: 50 }),
+  note: text('note'),
+  previous_order_status: varchar('previous_order_status', { length: 50 }),
+  branch_id: varchar('branch_id', { length: 255 }),
+});
+
+export const return_items = mysqlTable('return_items', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  return_id: varchar('return_id', { length: 255 }),
+  return_no: varchar('return_no', { length: 255 }),
+  order_item_id: varchar('order_item_id', { length: 255 }),
+  product_id: varchar('product_id', { length: 255 }),
+  product_name: varchar('product_name', { length: 255 }),
+  sku: varchar('sku', { length: 255 }),
+  qty_returned: varchar('qty_returned', { length: 50 }),
+  unit_price: varchar('unit_price', { length: 50 }),
+  line_total: varchar('line_total', { length: 50 }),
+  branch_id: varchar('branch_id', { length: 255 }),
 });
 

@@ -269,6 +269,7 @@ export async function POST(
     invalidate(shopId, 'order-items')
     invalidate(shopId, 'payments')
     invalidate(shopId, 'stock-movements')
+    invalidate(shopId, 'cashbook')
 
     return NextResponse.json({ order_id: serverId, order_no: orderNo }, { status: 201 })
   } catch (e) {

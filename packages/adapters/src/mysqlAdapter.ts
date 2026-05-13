@@ -85,6 +85,12 @@ export class MysqlConnector implements IDataConnector {
     'employees': 'employee_id',
     'customers': 'customer_id',
     'orders': 'order_id',
+    'inventory': 'inventory_id',
+    'stock-movements': 'movement_id',
+    'order-items': 'item_id',
+    'returns': 'return_id',
+    'return-items': 'item_id',
+    'cashbook': 'transaction_id',
   }
 
   private formatRow(entity: string, row: any): Record<string, string> {
@@ -117,8 +123,10 @@ export class MysqlConnector implements IDataConnector {
     }
 
     if (filters) {
+      const legacyIdField = this.LEGACY_ID_MAP[entity]
       for (const [k, v] of Object.entries(filters)) {
-        whereClauses.push(`${k} = ?`)
+        const queryKey = (k === legacyIdField) ? 'id' : k
+        whereClauses.push(`\`${queryKey}\` = ?`)
         params.push(v)
       }
     }
@@ -171,6 +179,13 @@ export class MysqlConnector implements IDataConnector {
     const tableName = this.getTableName(entity)
     
     const insertData = { ...data }
+    
+    const legacyIdField = this.LEGACY_ID_MAP[entity]
+    if (legacyIdField && insertData[legacyIdField]) {
+      if (!insertData.id) insertData.id = insertData[legacyIdField]
+      delete insertData[legacyIdField]
+    }
+
     if (this.tenantId) {
       insertData.tenant_id = this.tenantId
     }
@@ -204,11 +219,17 @@ export class MysqlConnector implements IDataConnector {
   async update(entity: string, id: string, data: Partial<Record<string, string>>): Promise<Record<string, string>> {
     const tableName = this.getTableName(entity)
 
+    const updateData = { ...data }
+    const legacyIdField = this.LEGACY_ID_MAP[entity]
+    if (legacyIdField && updateData[legacyIdField] !== undefined) {
+      delete updateData[legacyIdField]
+    }
+
     const setClauses: string[] = []
     const values: unknown[] = []
 
-    for (const [k, v] of Object.entries(data)) {
-      if (v !== undefined) {
+    for (const [k, v] of Object.entries(updateData)) {
+      if (v !== undefined && k !== 'id') {
         setClauses.push(`\`${k}\` = ?`)
         values.push(v)
       }
@@ -262,6 +283,9 @@ export class MysqlConnector implements IDataConnector {
     const tableName = this.getTableName(entity)
     
     const insertRows = []
+    let nextIdNumber = -1
+    let idPrefix = ''
+
     for (const row of rows) {
       const insertData = { ...row }
       if (this.tenantId) insertData.tenant_id = this.tenantId
@@ -269,11 +293,29 @@ export class MysqlConnector implements IDataConnector {
       if (!insertData.created_at) insertData.created_at = new Date().toISOString().slice(0, 19).replace('T', ' ')
       
       const legacyIdField = this.LEGACY_ID_MAP[entity]
-      if (legacyIdField && insertData[legacyIdField] && !insertData.id) {
-        insertData.id = insertData[legacyIdField]
+      if (legacyIdField && insertData[legacyIdField]) {
+        if (!insertData.id) insertData.id = insertData[legacyIdField]
+        delete insertData[legacyIdField]
       }
       
-      if (!insertData.id) insertData.id = await this.generateSequentialId(entity)
+      if (!insertData.id) {
+        if (nextIdNumber === -1) {
+          const firstId = await this.generateSequentialId(entity)
+          const match = firstId.match(/^([A-Z]+)-(\d+)$/)
+          if (match) {
+            idPrefix = match[1]
+            nextIdNumber = parseInt(match[2], 10)
+          } else {
+            insertData.id = firstId
+          }
+        }
+        
+        if (nextIdNumber !== -1) {
+          insertData.id = `${idPrefix}-${String(nextIdNumber).padStart(3, '0')}`
+          nextIdNumber++
+        }
+      }
+      
       if (entity === 'products' && !insertData.sku) insertData.sku = insertData.id
       insertRows.push(insertData)
     }
