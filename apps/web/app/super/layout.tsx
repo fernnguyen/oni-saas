@@ -5,7 +5,7 @@ import { DashboardShell } from '../components/layout/DashboardShell';
 
 export default async function SuperLayout({ children }: { children: ReactNode }) {
   const user = await getSuperAdminUser();
-  if (!user) redirect('/auth/signin');
+  if (!user) redirect('/admin-login');
 
   const displayName: string =
     user.user_metadata?.display_name ?? user.user_metadata?.full_name ?? '';

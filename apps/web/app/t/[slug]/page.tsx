@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation';
 import { getSupabaseServerClient } from '@/lib/server/supabaseServer';
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
 import { getShopsForTenant } from '@/lib/server/shops';
-import { WorkspaceSignInForm } from '@/app/components/auth/WorkspaceSignInForm';
+import { SignInForm } from '@/app/components/auth/SignInForm';
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -35,7 +35,7 @@ export default async function TenantRootPage({ params }: Props) {
   const { data: authData } = await supabase.auth.getUser();
 
   if (!authData.user) {
-    return <WorkspaceSignInForm tenantName={tenant.name} tenantSlug={tenant.slug} />;
+    return <SignInForm tenantName={tenant.name} tenantSlug={tenant.slug} />;
   }
 
   // Check tenant-level membership (owner/admin)

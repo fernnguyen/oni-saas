@@ -67,6 +67,23 @@ export async function POST(req: NextRequest) {
   }
   const tenantId = (tenant as any).id as string;
 
+  // Update subscription to selected plan and set 3-year expiration for plan_mini
+  const planCode = parsed.data.plan_code || 'plan_mini';
+  const { data: plan } = await admin.from('plans').select('id, code').eq('code', planCode).single();
+  
+  if (plan) {
+    const updateData: any = { plan_id: plan.id };
+    
+    // Set 3 years expiration for plan_mini
+    if (plan.code === 'plan_mini') {
+      const threeYearsLater = new Date();
+      threeYearsLater.setFullYear(threeYearsLater.getFullYear() + 3);
+      updateData.current_period_end = threeYearsLater.toISOString();
+    }
+    
+    await admin.from('subscriptions').update(updateData).eq('tenant_id', tenantId);
+  }
+
   // 4 — Create default branch (same slug as tenant)
   const { error: shopError } = await admin.rpc('create_shop', {
     p_tenant_id: tenantId,

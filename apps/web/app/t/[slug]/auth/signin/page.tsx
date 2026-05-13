@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { getSupabaseAdminClient } from '../../../../../lib/server/supabaseAdmin';
-import { WorkspaceSignInForm } from '../../../../components/auth/WorkspaceSignInForm';
+import { SignInForm } from '../../../../components/auth/SignInForm';
 
 export default async function WorkspaceSignIn({
   params,
@@ -18,5 +18,5 @@ export default async function WorkspaceSignIn({
 
   if (!tenant) redirect('/');
 
-  return <WorkspaceSignInForm tenantName={tenant.name} tenantSlug={tenant.slug} />;
+  return <SignInForm tenantName={tenant.name} tenantSlug={tenant.slug} />;
 }

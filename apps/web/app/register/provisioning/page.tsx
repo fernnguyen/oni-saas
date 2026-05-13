@@ -2,14 +2,15 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { AuthSplitLayout } from '../../components/layout/AuthSplitLayout';
 
 type StepState = 'pending' | 'running' | 'done' | 'error';
 
 const STEPS = [
-  { key: 'user',         label: 'Tạo tài khoản' },
-  { key: 'workspace',    label: 'Khởi tạo workspace' },
-  { key: 'branch',       label: 'Tạo chi nhánh mặc định' },
-  { key: 'ready',        label: 'Workspace sẵn sàng' },
+  { key: 'user',         label: 'Tạo tài khoản admin' },
+  { key: 'workspace',    label: 'Khởi tạo hệ thống quản lý' },
+  { key: 'branch',       label: 'Tạo chi nhánh cửa hàng' },
+  { key: 'ready',        label: 'Hoàn tất thiết lập' },
 ];
 
 const STEP_DELAYS_MS = [300, 900, 1500, 2200];
@@ -28,7 +29,7 @@ export default function ProvisioningPage() {
     const raw = sessionStorage.getItem('oni_register');
     if (!raw) { router.replace('/register'); return; }
 
-    let data: { slug: string; name: string; email: string; password: string };
+    let data: { slug: string; name: string; email: string; password: string; plan_code?: string };
     try { data = JSON.parse(raw); } catch { router.replace('/register'); return; }
 
     const ROOT = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
@@ -91,75 +92,72 @@ export default function ProvisioningPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50 p-4">
-      <div className="w-full max-w-md overflow-hidden rounded-2xl shadow-lg">
-
-        {/* Header */}
-        <div className="bg-gradient-to-br from-[#0D1526] to-[#0268FF] px-8 py-8 text-white">
-          <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-white/10">
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
-          </div>
-          <h1 className="text-xl font-bold">Đang thiết lập workspace</h1>
-          <p className="mt-1 text-sm text-white/70">Thường mất chưa đến 30 giây. Vui lòng đừng đóng trang này.</p>
-        </div>
-
-        {/* Body */}
-        <div className="bg-white px-8 py-6 space-y-5">
-
-          {/* Progress bar */}
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
-            <div
-              className="h-full rounded-full bg-[#0268FF] transition-all duration-700"
-              style={{ width: `${(steps.filter((s) => s === 'done').length / STEPS.length) * 100}%` }}
-            />
-          </div>
-
-          {/* Workspace URL */}
-          {workspaceUrl && (
-            <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5">
-              <svg className="h-4 w-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9" />
-              </svg>
-              <span className="text-sm text-slate-600 font-mono truncate">{workspaceUrl}</span>
-            </div>
-          )}
-
-          {/* Steps */}
-          <div className="space-y-3">
-            {STEPS.map((step, i) => (
-              <div key={step.key} className="flex items-center gap-3">
-                <StepIcon state={steps[i]} />
-                <span className={`text-sm ${
-                  steps[i] === 'done'    ? 'text-green-700 font-medium' :
-                  steps[i] === 'running' ? 'text-slate-800 font-medium' :
-                  steps[i] === 'error'   ? 'text-red-600 font-medium' :
-                  'text-slate-400'
-                }`}>
-                  {step.label}
-                </span>
-              </div>
-            ))}
-          </div>
-
-          {/* Error */}
-          {errorMsg && (
-            <div className="space-y-3">
-              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
-                {errorMsg}
-              </div>
-              <button
-                onClick={handleRetry}
-                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                ← Quay lại
-              </button>
-            </div>
-          )}
-        </div>
+    <AuthSplitLayout
+      title="Hệ thống đang chuẩn bị"
+      subtitle="Quá trình này chỉ mất vài giây. Chúng tôi đang thiết lập cơ sở dữ liệu riêng biệt và an toàn cho cửa hàng của bạn."
+      features={[
+        { label: "BẢO MẬT", value: "Database riêng" },
+        { label: "TỐC ĐỘ", value: "Siêu tốc" },
+      ]}
+    >
+      <div className="mb-8 text-center lg:text-left">
+        <div className="mb-4 flex h-10 w-10 mx-auto lg:mx-0 items-center justify-center rounded-xl bg-[#0268FF] text-white font-bold text-lg">O</div>
+        <h1 className="text-2xl font-bold text-slate-900">Đang thiết lập cửa hàng</h1>
+        <p className="mt-1 text-sm text-slate-500">Thường mất chưa đến 30 giây. Vui lòng đừng đóng trang này.</p>
       </div>
-    </main>
+
+      <div className="space-y-5">
+        {/* Progress bar */}
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+          <div
+            className="h-full rounded-full bg-[#0268FF] transition-all duration-700"
+            style={{ width: `${(steps.filter((s) => s === 'done').length / STEPS.length) * 100}%` }}
+          />
+        </div>
+
+        {/* Workspace URL */}
+        {workspaceUrl && (
+          <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5">
+            <svg className="h-4 w-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9" />
+            </svg>
+            <span className="text-sm text-slate-600 font-mono truncate">{workspaceUrl}</span>
+          </div>
+        )}
+
+        {/* Steps */}
+        <div className="space-y-3">
+          {STEPS.map((step, i) => (
+            <div key={step.key} className="flex items-center gap-3">
+              <StepIcon state={steps[i]} />
+              <span className={`text-sm ${
+                steps[i] === 'done'    ? 'text-green-700 font-medium' :
+                steps[i] === 'running' ? 'text-slate-800 font-medium' :
+                steps[i] === 'error'   ? 'text-red-600 font-medium' :
+                'text-slate-400'
+              }`}>
+                {step.label}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* Error */}
+        {errorMsg && (
+          <div className="space-y-3 mt-6">
+            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+              {errorMsg}
+            </div>
+            <button
+              onClick={handleRetry}
+              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              ← Quay lại
+            </button>
+          </div>
+        )}
+      </div>
+    </AuthSplitLayout>
   );
 }
 

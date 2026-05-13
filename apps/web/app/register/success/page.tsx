@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
+import { AuthSplitLayout } from '../../components/layout/AuthSplitLayout';
 
 interface WorkspaceInfo {
   slug:          string;
@@ -64,17 +64,24 @@ export default function RegisterSuccessPage() {
   const signinUrl = `${info.workspace_url}/auth/signin`;
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50 p-4">
-      <div className="w-full max-w-md space-y-6">
-
-        {/* Success badge */}
+    <AuthSplitLayout
+      title="Hoàn tất! Bắt đầu trải nghiệm."
+      subtitle="Cửa hàng của bạn đã sẵn sàng. Bạn có thể đăng nhập ngay bằng mật khẩu được cung cấp bên dưới."
+      features={[
+        { label: "BẢO MẬT", value: "Database riêng" },
+        { label: "SẴN SÀNG", value: "Trực tuyến" },
+      ]}
+    >
+      <div className="space-y-6">
+        {/* Header - matching login/register layout */}
         <div className="flex flex-col items-center text-center">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-green-100">
-            <svg className="h-8 w-8 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-[#0268FF] text-white font-bold text-lg lg:hidden">O</div>
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-green-100 mb-3">
+            <svg className="h-6 w-6 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h1 className="mt-4 text-2xl font-bold text-slate-900">Workspace sẵn sàng!</h1>
+          <h1 className="text-2xl font-bold text-slate-900">Hoàn tất thiết lập!</h1>
           <p className="mt-1 text-sm text-slate-500">
             <span className="font-semibold text-slate-700">{info.slug}</span> đã được thiết lập thành công.
             Bạn có thể đăng nhập và bắt đầu sử dụng ngay.
@@ -87,10 +94,10 @@ export default function RegisterSuccessPage() {
             <svg className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9" />
             </svg>
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Workspace</span>
+            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Thông tin cửa hàng</span>
           </div>
           <div className="divide-y divide-slate-100">
-            <InfoRow label="Subdomain" value={info.slug} mono />
+            <InfoRow label="Tên miền" value={info.slug} mono />
             <InfoRow label="URL" value={info.workspace_url} mono link={info.workspace_url} />
           </div>
         </div>
@@ -107,7 +114,7 @@ export default function RegisterSuccessPage() {
             <InfoRow label="Email" value={info.email} mono />
             {/* Password row with reveal toggle */}
             <div className="flex items-center justify-between px-5 py-3.5">
-              <span className="text-xs text-slate-500 uppercase tracking-wider font-medium w-24 shrink-0">Password</span>
+              <span className="text-xs text-slate-500 uppercase tracking-wider font-medium w-24 shrink-0">Mật khẩu</span>
               <div className="flex items-center gap-1 min-w-0 flex-1 justify-end">
                 <span className="font-mono text-sm text-slate-800 select-all">
                   {showPassword ? info.password : '•'.repeat(Math.min(info.password.length, 12))}
@@ -153,7 +160,7 @@ export default function RegisterSuccessPage() {
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
             </svg>
-            Mở Workspace
+            Truy cập cửa hàng
           </a>
           <a
             href={signinUrl}
@@ -166,11 +173,11 @@ export default function RegisterSuccessPage() {
           </a>
         </div>
 
-        <p className="text-center text-xs text-slate-400">
-          Workspace được bảo mật và sẵn sàng sử dụng. © {new Date().getFullYear()} ONI.vn
+        <p className="text-center text-xs text-slate-400 mt-6">
+          Hệ thống được bảo mật và sẵn sàng sử dụng. © {new Date().getFullYear()} ONI.vn
         </p>
       </div>
-    </main>
+    </AuthSplitLayout>
   );
 }
 
