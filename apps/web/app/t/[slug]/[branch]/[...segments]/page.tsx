@@ -115,7 +115,7 @@ export default async function BranchSectionPage({ params }: Props) {
           <Link
             key={item.href}
             href={item.href}
-            className="rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm font-medium text-slate-700 hover:border-[#0268FF] hover:text-[#0268FF]"
+            className="rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm font-medium text-slate-700 hover:border-primary hover:text-primary"
           >
             {item.label}
           </Link>

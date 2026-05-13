@@ -103,7 +103,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath }: P
           </p>
           <button
             onClick={() => refresh()}
-            className="rounded-xl bg-[#0268FF] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#0256CC] transition-colors"
+            className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-dark transition-colors"
           >
             Thử lại
           </button>
@@ -117,7 +117,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath }: P
       <div className={shellCls} style={shellStyle}>
         <div className="flex h-full items-center justify-center">
           <div className="text-center">
-            <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-[#0268FF] border-t-transparent" />
+            <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent" />
             <p className="text-sm text-slate-500">Đang tải dữ liệu POS...</p>
           </div>
         </div>
@@ -143,7 +143,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath }: P
             </button>
             <a
               href={`/t/${backPath.split('/')[1]}/settings`}
-              className="rounded-xl bg-[#0268FF] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#0256CC] transition-colors inline-block"
+              className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-dark transition-colors inline-block"
             >
               Đi tới Cài đặt
             </a>
@@ -212,7 +212,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath }: P
           >
             ←
           </a>
-          <span className="shrink-0 rounded bg-[#0268FF]/10 px-2 py-0.5 text-xs font-semibold text-[#0268FF]">
+          <span className="shrink-0 rounded bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
             POS
           </span>
           <span className="hidden truncate text-xs font-medium text-slate-500 sm:block">{shopName}</span>

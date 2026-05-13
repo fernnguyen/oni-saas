@@ -64,7 +64,7 @@ export function ConfirmDialog({
               'disabled:cursor-not-allowed disabled:opacity-70',
               variant === 'danger'
                 ? 'bg-red-500 hover:bg-red-600'
-                : 'bg-[#0268FF] hover:bg-blue-600',
+                : 'bg-primary hover:bg-blue-600',
             ].join(' ')}
           >
             {loading && (

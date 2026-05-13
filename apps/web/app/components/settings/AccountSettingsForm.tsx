@@ -206,7 +206,7 @@ export function AccountSettingsForm({ initialDisplayName, userEmail }: Props) {
             <button
               onClick={handleSaveProfile}
               disabled={profileState === 'saving'}
-              className="cursor-pointer rounded-xl bg-[#0268FF] px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+              className="cursor-pointer rounded-xl bg-primary px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
             >
               {profileState === 'saving' ? 'Đang lưu...' : 'Lưu tên'}
             </button>
@@ -264,7 +264,7 @@ export function AccountSettingsForm({ initialDisplayName, userEmail }: Props) {
             <button
               onClick={handleChangePassword}
               disabled={passwordState === 'saving'}
-              className="cursor-pointer rounded-xl bg-[#0268FF] px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+              className="cursor-pointer rounded-xl bg-primary px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
             >
               {passwordState === 'saving' ? 'Đang cập nhật...' : 'Cập nhật mật khẩu'}
             </button>
@@ -337,7 +337,7 @@ export function AccountSettingsForm({ initialDisplayName, userEmail }: Props) {
               <p className="text-sm text-slate-500 mb-3">Chưa bật xác thực 2 yếu tố.</p>
               <button
                 onClick={() => { setEnrollError(''); setEnrollState('confirm-password'); }}
-                className="cursor-pointer rounded-xl bg-[#0268FF] px-5 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                className="cursor-pointer rounded-xl bg-primary px-5 py-2 text-sm font-medium text-white hover:bg-blue-700"
               >
                 Bật xác thực 2FA
               </button>
@@ -389,7 +389,7 @@ function EnrollPasswordConfirm({
         <button
           onClick={onConfirm}
           disabled={loading || !password}
-          className="cursor-pointer rounded-xl bg-[#0268FF] px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+          className="cursor-pointer rounded-xl bg-primary px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
         >
           {loading ? 'Đang xác minh...' : 'Tiếp tục'}
         </button>
@@ -462,7 +462,7 @@ function EnrollFlow({
         <button
           onClick={onVerify}
           disabled={loading || totpCode.length !== 6}
-          className="cursor-pointer rounded-xl bg-[#0268FF] px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+          className="cursor-pointer rounded-xl bg-primary px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
         >
           {loading ? 'Đang xác minh...' : 'Xác minh & Bật 2FA'}
         </button>
@@ -574,4 +574,4 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 }
 
 const inputCls =
-  'w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-[#0268FF] focus:outline-none focus:ring-2 focus:ring-[#0268FF]/20 disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed';
+  'w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed';

@@ -70,7 +70,7 @@ export function TwoFactorForm({ tenantName, tenantSlug, next }: Props) {
     <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50 p-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-[#0268FF] text-white font-bold text-sm">
+          <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-white font-bold text-sm">
             {tenantName.charAt(0).toUpperCase()}
           </div>
           <h1 className="text-xl font-bold text-slate-900">Xác thực 2 yếu tố</h1>
@@ -100,7 +100,7 @@ export function TwoFactorForm({ tenantName, tenantSlug, next }: Props) {
                 }}
                 placeholder="000000"
                 autoComplete="one-time-code"
-                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-2xl font-mono tracking-[0.4em] text-center focus:border-[#0268FF] focus:outline-none focus:ring-2 focus:ring-[#0268FF]/20"
+                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-2xl font-mono tracking-[0.4em] text-center focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                 disabled={loading}
               />
             </div>
@@ -114,7 +114,7 @@ export function TwoFactorForm({ tenantName, tenantSlug, next }: Props) {
             <button
               type="submit"
               disabled={loading || code.length !== 6}
-              className="w-full rounded-xl bg-[#0268FF] px-4 py-3 text-sm font-semibold text-white hover:bg-[#0256CC] disabled:opacity-60 transition-colors"
+              className="w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-white hover:bg-primary-dark disabled:opacity-60 transition-colors"
             >
               {loading ? 'Đang xác thực...' : 'Xác nhận'}
             </button>

@@ -99,7 +99,7 @@ export function CustomerSearch({ selected, onSelect }: Props) {
               setOpen(false)
             }}
             placeholder="Tìm tên hoặc số điện thoại..."
-            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm placeholder:text-slate-400 focus:border-[#0268FF] focus:outline-none"
+            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm placeholder:text-slate-400 focus:border-primary focus:outline-none"
           />
 
           {/* Dropdown */}
@@ -120,7 +120,7 @@ export function CustomerSearch({ selected, onSelect }: Props) {
               {query.trim() && (
                 <button
                   onClick={() => setShowQuickForm(true)}
-                  className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-sm text-[#0268FF] hover:bg-blue-50"
+                  className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-sm text-primary hover:bg-blue-50"
                 >
                   <span>+</span>
                   <span>Dùng tạm &ldquo;{query.trim()}&rdquo;</span>
@@ -144,7 +144,7 @@ export function CustomerSearch({ selected, onSelect }: Props) {
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && query.trim()) handleUseVirtual() }}
             placeholder="Tên khách *"
-            className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm focus:border-[#0268FF] focus:outline-none"
+            className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm focus:border-primary focus:outline-none"
           />
           <input
             type="tel"
@@ -152,7 +152,7 @@ export function CustomerSearch({ selected, onSelect }: Props) {
             onChange={(e) => setPhone(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && query.trim()) handleUseVirtual() }}
             placeholder="Số điện thoại (tùy chọn)"
-            className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm focus:border-[#0268FF] focus:outline-none"
+            className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm focus:border-primary focus:outline-none"
             autoFocus
           />
           <div className="flex gap-2">
@@ -165,7 +165,7 @@ export function CustomerSearch({ selected, onSelect }: Props) {
             <button
               onClick={handleUseVirtual}
               disabled={!query.trim()}
-              className="flex-1 rounded-lg bg-[#0268FF] py-1.5 text-xs font-medium text-white hover:bg-[#0256CC] disabled:opacity-50"
+              className="flex-1 rounded-lg bg-primary py-1.5 text-xs font-medium text-white hover:bg-primary-dark disabled:opacity-50"
             >
               Xác nhận
             </button>

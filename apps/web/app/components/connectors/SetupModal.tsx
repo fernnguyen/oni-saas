@@ -161,7 +161,7 @@ export function SetupModal({ tenantId, onConnected, onClose }: Props) {
                     value={sheetInput}
                     onChange={(e) => { setSheetInput(e.target.value); if (phase.type === 'error') setPhase({ type: 'idle' }); }}
                     placeholder="https://docs.google.com/spreadsheets/d/..."
-                    className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm focus:border-[#0268FF] focus:outline-none focus:ring-2 focus:ring-[#0268FF]/20"
+                    className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                   />
                   {parsedSheetId && phase.type !== 'error' && (
                     <p className="mt-1.5 text-xs text-slate-400">

@@ -87,7 +87,7 @@ export default async function RolesPage() {
           <button
             disabled
             title="Tính năng sắp ra mắt"
-            className="inline-flex items-center gap-2 rounded-xl bg-[#0268FF] px-4 py-2 text-sm font-semibold text-white opacity-50 cursor-not-allowed"
+            className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white opacity-50 cursor-not-allowed"
           >
             + Thêm vai trò
           </button>
@@ -97,7 +97,7 @@ export default async function RolesPage() {
       {/* Legend */}
       <div className="flex items-center gap-6 text-xs text-slate-500">
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-4 w-4 rounded bg-[#0268FF]/10 border border-[#0268FF]/30 text-[#0268FF] text-center leading-4">✓</span>
+          <span className="inline-block h-4 w-4 rounded bg-primary/10 border border-primary/30 text-primary text-center leading-4">✓</span>
           Được phép
         </span>
         <span className="flex items-center gap-1.5">
@@ -126,7 +126,7 @@ export default async function RolesPage() {
                         Hệ thống
                       </span>
                     ) : (
-                      <span className="text-[10px] font-normal text-[#0268FF] bg-[#0268FF]/10 px-1.5 py-0.5 rounded">
+                      <span className="text-[10px] font-normal text-primary bg-primary/10 px-1.5 py-0.5 rounded">
                         Tùy chỉnh
                       </span>
                     )}
@@ -166,7 +166,7 @@ export default async function RolesPage() {
                           {role.is_system ? (
                             // System role: display only
                             granted ? (
-                              <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-[#0268FF]/10 text-[#0268FF] text-xs font-bold mx-auto">
+                              <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-primary/10 text-primary text-xs font-bold mx-auto">
                                 ✓
                               </span>
                             ) : (
@@ -180,7 +180,7 @@ export default async function RolesPage() {
                               type="checkbox"
                               defaultChecked={granted}
                               disabled={!isOwnerCanManage}
-                              className="h-4 w-4 rounded border-slate-300 text-[#0268FF] focus:ring-[#0268FF] cursor-pointer disabled:cursor-not-allowed"
+                              className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer disabled:cursor-not-allowed"
                             />
                           )}
                         </td>

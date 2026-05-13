@@ -14,7 +14,7 @@ export function AuthSplitLayout({
   return (
     <div className="flex min-h-screen bg-slate-50" style={{ fontFamily: "'Inter', sans-serif" }}>
       {/* Left panel — decorative */}
-      <div className="hidden lg:flex lg:w-[55%] relative bg-[#0268FF] overflow-hidden flex-col justify-center px-16 xl:px-24">
+      <div className="hidden lg:flex lg:w-[55%] relative bg-primary overflow-hidden flex-col justify-center px-16 xl:px-24">
         {/* Decorative shapes */}
         <div className="absolute -top-40 -left-40 h-[600px] w-[600px] rounded-full bg-white/10 blur-[80px]" />
         <div className="absolute -bottom-20 -right-20 h-[500px] w-[500px] rounded-full bg-blue-400/20 blur-[60px]" />

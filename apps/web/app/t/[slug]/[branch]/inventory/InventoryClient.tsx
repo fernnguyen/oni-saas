@@ -112,7 +112,7 @@ function ProductSelect({
         onChange={(e) => { setQ(e.target.value); setOpen(true) }}
         onFocus={() => setOpen(true)}
         placeholder="Gõ tên hoặc SKU sản phẩm..."
-        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none"
+        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
       />
       {open && (
         <div className="absolute z-50 mt-1 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
@@ -436,7 +436,7 @@ export function InventoryClient({ shopId }: Props) {
       key: 'reference_no',
       label: 'Từ phiếu',
       render: (row) => (
-        <span className="font-mono text-xs text-[#0268FF]">{row.reference_no || '—'}</span>
+        <span className="font-mono text-xs text-primary">{row.reference_no || '—'}</span>
       ),
     },
     {
@@ -465,7 +465,7 @@ export function InventoryClient({ shopId }: Props) {
         {activeTab === 'stock' && (
           <button
             onClick={() => setShowForm(true)}
-            className="rounded-xl bg-[#0268FF] px-4 py-2 text-sm font-medium text-white hover:bg-[#0256CC] transition-colors"
+            className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark transition-colors"
           >
             + Nhập / xuất kho
           </button>
@@ -526,7 +526,7 @@ export function InventoryClient({ shopId }: Props) {
               onClick={() => { setTypeFilter(''); setHistoryPage(1) }}
               className={[
                 'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
-                typeFilter === '' ? 'bg-[#0268FF] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+                typeFilter === '' ? 'bg-primary text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
               ].join(' ')}
             >
               Tất cả
@@ -537,7 +537,7 @@ export function InventoryClient({ shopId }: Props) {
                 onClick={() => { setTypeFilter(t.value); setHistoryPage(1) }}
                 className={[
                   'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
-                  typeFilter === t.value ? 'bg-[#0268FF] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+                  typeFilter === t.value ? 'bg-primary text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
                 ].join(' ')}
               >
                 {t.label}
@@ -584,7 +584,7 @@ export function InventoryClient({ shopId }: Props) {
             <button
               onClick={handleSubmit}
               disabled={mutation.isPending}
-              className="rounded-xl bg-[#0268FF] px-6 py-2 text-sm font-medium text-white hover:bg-[#0256CC] disabled:opacity-50 transition-colors"
+              className="rounded-xl bg-primary px-6 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50 transition-colors"
             >
               {mutation.isPending ? 'Đang lưu...' : 'Xác nhận'}
             </button>
@@ -603,7 +603,7 @@ export function InventoryClient({ shopId }: Props) {
                   className={[
                     'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
                     form.type === opt.value
-                      ? 'bg-[#0268FF] text-white'
+                      ? 'bg-primary text-white'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
                   ].join(' ')}
                 >
@@ -636,7 +636,7 @@ export function InventoryClient({ shopId }: Props) {
                 value={form.qty}
                 onChange={(e) => setForm((f) => ({ ...f, qty: e.target.value }))}
                 placeholder={form.type === 'adjustment' ? '±10' : '0'}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none"
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
               />
             </div>
             <div>
@@ -651,7 +651,7 @@ export function InventoryClient({ shopId }: Props) {
                 value={form.unit_cost}
                 onChange={(e) => setForm((f) => ({ ...f, unit_cost: e.target.value }))}
                 placeholder="0"
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none"
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
               />
             </div>
           </div>
@@ -663,7 +663,7 @@ export function InventoryClient({ shopId }: Props) {
               <select
                 value={form.supplier_id}
                 onChange={(e) => setForm((f) => ({ ...f, supplier_id: e.target.value }))}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none"
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
               >
                 <option value="">— Không chọn —</option>
                 {(suppliersData?.data ?? []).map((s) => (
@@ -682,7 +682,7 @@ export function InventoryClient({ shopId }: Props) {
                 value={form.reference_no}
                 onChange={(e) => setForm((f) => ({ ...f, reference_no: e.target.value }))}
                 placeholder="PN-001"
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none"
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
               />
             </div>
             <div>
@@ -692,7 +692,7 @@ export function InventoryClient({ shopId }: Props) {
                 value={form.reason}
                 onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))}
                 placeholder="Tùy chọn"
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none"
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
               />
             </div>
           </div>

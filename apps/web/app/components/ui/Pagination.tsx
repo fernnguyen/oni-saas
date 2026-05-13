@@ -55,7 +55,7 @@ export function Pagination({ page, total, pageSize, onChange }: PaginationProps)
               className={[
                 'min-w-[34px] rounded-lg px-2 py-1.5 text-sm',
                 p === page
-                  ? 'bg-[#0268FF] text-white'
+                  ? 'bg-primary text-white'
                   : 'text-slate-700 hover:bg-slate-100',
               ].join(' ')}
             >

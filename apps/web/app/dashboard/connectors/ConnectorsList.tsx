@@ -59,7 +59,7 @@ export function ConnectorsList({ shops, connectors }: Props) {
             <div key={shop.id} className="rounded-2xl border border-slate-200 bg-white p-5">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#0268FF]/10 text-[#0268FF] font-bold text-sm">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary font-bold text-sm">
                     {shop.name.charAt(0).toUpperCase()}
                   </div>
                   <div>
@@ -97,7 +97,7 @@ export function ConnectorsList({ shops, connectors }: Props) {
               ) : (
                 <button
                   onClick={() => setSelectedShop(shop.id)}
-                  className="w-full rounded-xl bg-[#0268FF] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#0256CC] transition-colors"
+                  className="w-full rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-white hover:bg-primary-dark transition-colors"
                 >
                   + Kết nối ngay
                 </button>

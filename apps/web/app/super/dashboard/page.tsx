@@ -66,7 +66,7 @@ export default async function SuperDashboard() {
                 <div className="flex items-center gap-3">
                   <div className="w-32 h-2 rounded-full bg-slate-100 overflow-hidden">
                     <div
-                      className="h-2 rounded-full bg-[#0268FF]"
+                      className="h-2 rounded-full bg-primary"
                       style={{ width: `${totalTenants > 0 ? (count / totalTenants) * 100 : 0}%` }}
                     />
                   </div>

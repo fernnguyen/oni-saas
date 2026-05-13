@@ -354,7 +354,7 @@ export function OrdersClient({ shopId }: Props) {
       render: (row) => (
         <button
           onClick={() => openDetail(row)}
-          className="font-mono text-[#0268FF] hover:underline"
+          className="font-mono text-primary hover:underline"
         >
           {row.order_id}
         </button>
@@ -456,7 +456,7 @@ export function OrdersClient({ shopId }: Props) {
             className={[
               'rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
               statusFilter === opt.value
-                ? 'bg-[#0268FF] text-white'
+                ? 'bg-primary text-white'
                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
             ].join(' ')}
           >
@@ -567,7 +567,7 @@ export function OrdersClient({ shopId }: Props) {
                 <select
                   value={editStatus}
                   onChange={(e) => setEditStatus(e.target.value)}
-                  className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none"
+                  className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
                 >
                   {STATUS_OPTIONS.filter((o) => o.value).map((opt) => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -576,7 +576,7 @@ export function OrdersClient({ shopId }: Props) {
                 <button
                   onClick={() => statusMutation.mutate({ id: selectedOrder.order_id, status: editStatus })}
                   disabled={statusMutation.isPending || editStatus === selectedOrder.status}
-                  className="rounded-xl bg-[#0268FF] px-4 py-2 text-sm font-medium text-white hover:bg-[#0256CC] disabled:opacity-50"
+                  className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
                 >
                   {statusMutation.isPending ? 'Đang lưu...' : 'Lưu'}
                 </button>
@@ -687,7 +687,7 @@ export function OrdersClient({ shopId }: Props) {
                       <select
                         value={paymentForm.method}
                         onChange={(e) => setPaymentForm((p) => ({ ...p, method: e.target.value }))}
-                        className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:border-[#0268FF] focus:outline-none"
+                        className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:border-primary focus:outline-none"
                       >
                         {Object.entries(METHOD_LABEL).map(([v, l]) => (
                           <option key={v} value={v}>{l}</option>
@@ -700,7 +700,7 @@ export function OrdersClient({ shopId }: Props) {
                         type="number"
                         value={paymentForm.amount}
                         onChange={(e) => setPaymentForm((p) => ({ ...p, amount: e.target.value }))}
-                        className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:border-[#0268FF] focus:outline-none"
+                        className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:border-primary focus:outline-none"
                         placeholder="0"
                       />
                     </div>
@@ -711,7 +711,7 @@ export function OrdersClient({ shopId }: Props) {
                       type="text"
                       value={paymentForm.reference_no}
                       onChange={(e) => setPaymentForm((p) => ({ ...p, reference_no: e.target.value }))}
-                      className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:border-[#0268FF] focus:outline-none"
+                      className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:border-primary focus:outline-none"
                       placeholder="Tùy chọn"
                     />
                   </div>
@@ -721,7 +721,7 @@ export function OrdersClient({ shopId }: Props) {
                       type="text"
                       value={paymentForm.note}
                       onChange={(e) => setPaymentForm((p) => ({ ...p, note: e.target.value }))}
-                      className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:border-[#0268FF] focus:outline-none"
+                      className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:border-primary focus:outline-none"
                       placeholder="Tùy chọn"
                     />
                   </div>
@@ -739,7 +739,7 @@ export function OrdersClient({ shopId }: Props) {
                         order_no: selectedOrder.order_no ?? selectedOrder.order_id,
                       })}
                       disabled={paymentMutation.isPending || !paymentForm.amount}
-                      className="rounded-lg bg-[#0268FF] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#0256CC] disabled:opacity-50"
+                      className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary-dark disabled:opacity-50"
                     >
                       {paymentMutation.isPending ? 'Đang lưu...' : 'Xác nhận'}
                     </button>

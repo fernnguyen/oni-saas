@@ -74,12 +74,12 @@ export default async function SuperTenants({
           name="q"
           defaultValue={q}
           placeholder="Tìm theo tên hoặc slug..."
-          className="rounded-xl border border-slate-200 px-3 py-2 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-[#0268FF]"
+          className="rounded-xl border border-slate-200 px-3 py-2 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-primary"
         />
         <select
           name="plan"
           defaultValue={plan ?? ''}
-          className="rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0268FF]"
+          className="rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
         >
           <option value="">Tất cả gói</option>
           {planOptions.map((p) => (
@@ -89,7 +89,7 @@ export default async function SuperTenants({
         <select
           name="status"
           defaultValue={status ?? ''}
-          className="rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0268FF]"
+          className="rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
         >
           <option value="">Tất cả trạng thái</option>
           {statusOptions.map((s) => (
@@ -98,7 +98,7 @@ export default async function SuperTenants({
         </select>
         <button
           type="submit"
-          className="rounded-xl bg-[#0268FF] px-4 py-2 text-sm font-medium text-white hover:bg-[#0256CC] transition-colors"
+          className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark transition-colors"
         >
           Lọc
         </button>
@@ -151,7 +151,7 @@ export default async function SuperTenants({
                   <tr key={tenant.id} className="hover:bg-slate-50 transition-colors group">
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-3">
-                        <div className="h-8 w-8 rounded-lg bg-[#0268FF]/10 text-[#0268FF] flex items-center justify-center font-bold text-xs shrink-0">
+                        <div className="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0">
                           {tenant.name.charAt(0).toUpperCase()}
                         </div>
                         <span className="font-medium text-slate-900">{tenant.name}</span>
@@ -183,7 +183,7 @@ export default async function SuperTenants({
                     <td className="px-4 py-3.5 text-right">
                       <Link
                         href={`/super/tenants/${tenant.id}`}
-                        className="text-xs font-medium text-[#0268FF] hover:underline opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="text-xs font-medium text-primary hover:underline opacity-0 group-hover:opacity-100 transition-opacity"
                       >
                         Chi tiết →
                       </Link>

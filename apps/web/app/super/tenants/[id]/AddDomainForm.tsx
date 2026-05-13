@@ -41,7 +41,7 @@ export function AddDomainForm({ tenantId, defaultShopId, rootDomain }: AddDomain
     <div className="mt-4 pt-4 border-t border-slate-100">
       <p className="text-xs font-medium text-slate-600 mb-2">Thêm subdomain</p>
       <form onSubmit={handleSubmit} className="flex items-center gap-2">
-        <div className="flex flex-1 items-center rounded-lg border border-slate-200 overflow-hidden focus-within:ring-2 focus-within:ring-[#0268FF] bg-white">
+        <div className="flex flex-1 items-center rounded-lg border border-slate-200 overflow-hidden focus-within:ring-2 focus-within:ring-primary bg-white">
           <input
             value={slug}
             onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}

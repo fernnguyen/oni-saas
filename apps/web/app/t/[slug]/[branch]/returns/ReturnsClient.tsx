@@ -303,7 +303,7 @@ export function ReturnsClient({ shopId }: Props) {
               className={[
                 'rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
                 statusFilter === opt.value
-                  ? 'bg-[#0268FF] text-white'
+                  ? 'bg-primary text-white'
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
               ].join(' ')}
             >

@@ -296,7 +296,7 @@ export function CheckoutModal({
               )}
               <div className="flex justify-between font-bold text-slate-900 text-base">
                 <span>Tổng cộng:</span>
-                <span className="text-[#0268FF]">{fmtVND(total)}</span>
+                <span className="text-primary">{fmtVND(total)}</span>
               </div>
             </div>
           </div>
@@ -307,7 +307,7 @@ export function CheckoutModal({
             value={localNote}
             onChange={(e) => setLocalNote(e.target.value)}
             placeholder="Ghi chú đơn hàng..."
-            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm placeholder:text-slate-400 focus:border-[#0268FF] focus:outline-none"
+            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm placeholder:text-slate-400 focus:border-primary focus:outline-none"
           />
 
           {/* Payments */}
@@ -317,7 +317,7 @@ export function CheckoutModal({
               <button
                 onClick={addPayment}
                 disabled={payments.length >= METHODS.length}
-                className="text-xs text-[#0268FF] hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
+                className="text-xs text-primary hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 + Thêm
               </button>
@@ -328,7 +328,7 @@ export function CheckoutModal({
                 <select
                   value={p.method}
                   onChange={(e) => updatePayment(p.id, 'method', e.target.value)}
-                  className="w-32 shrink-0 rounded-lg border border-slate-200 px-2 py-2 text-sm focus:border-[#0268FF] focus:outline-none"
+                  className="w-32 shrink-0 rounded-lg border border-slate-200 px-2 py-2 text-sm focus:border-primary focus:outline-none"
                 >
                   {METHODS.filter(
                     (m) => m.value === p.method || !payments.some((other) => other.id !== p.id && other.method === m.value)
@@ -342,12 +342,12 @@ export function CheckoutModal({
                     value={p.amount}
                     onChange={(e) => updatePayment(p.id, 'amount', e.target.value)}
                     placeholder="0"
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-right text-sm focus:border-[#0268FF] focus:outline-none"
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-right text-sm focus:border-primary focus:outline-none"
                   />
                   {idx === payments.length - 1 && remaining > 0 && (
                     <button
                       onClick={distributeRemaining}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-[#0268FF] hover:underline"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-primary hover:underline"
                       title="Điền số tiền còn thiếu"
                     >
                       Điền
@@ -398,7 +398,7 @@ export function CheckoutModal({
           <button
             onClick={handleSubmit}
             disabled={saving || items.length === 0 || remaining > 0}
-            className="flex-1 rounded-xl bg-[#0268FF] py-2.5 text-sm font-semibold text-white hover:bg-[#0256CC] disabled:opacity-40 transition-colors"
+            className="flex-1 rounded-xl bg-primary py-2.5 text-sm font-semibold text-white hover:bg-primary-dark disabled:opacity-40 transition-colors"
           >
             {saving ? 'Đang xử lý...' : 'Hoàn tất · Ctrl+Enter'}
           </button>

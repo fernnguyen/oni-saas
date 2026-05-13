@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { buildNavGroups, IconHelp } from './nav';
@@ -116,9 +117,7 @@ function SidebarContent({
           collapsed ? 'flex-col py-3 px-2 gap-2' : 'px-3 py-[13px] gap-2'
         }`}
       >
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#0268FF] text-white font-bold text-sm shrink-0">
-          O
-        </div>
+        <Image src="/logo.png" alt="ONI Logo" width={32} height={32} className="shrink-0 rounded-lg shadow-sm" />
         {!collapsed && (
           <>
             <span className="font-bold text-slate-900 text-base tracking-wide flex-1 truncate">
@@ -129,7 +128,7 @@ function SidebarContent({
                 SUPER
               </span>
             ) : (
-              <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-medium">
+              <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-medium">
                 BETA
               </span>
             )}
@@ -192,7 +191,7 @@ function SidebarContent({
                       collapsed ? 'justify-center px-2' : 'gap-2.5 px-2.5'
                     } ${
                       active
-                        ? 'bg-[#0268FF] text-white'
+                        ? 'bg-primary text-white'
                         : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                     }`}
                   >

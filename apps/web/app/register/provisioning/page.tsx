@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { AuthSplitLayout } from '../../components/layout/AuthSplitLayout';
 
 type StepState = 'pending' | 'running' | 'done' | 'error';
@@ -101,7 +102,7 @@ export default function ProvisioningPage() {
       ]}
     >
       <div className="mb-8 text-center lg:text-left">
-        <div className="mb-4 flex h-10 w-10 mx-auto lg:mx-0 items-center justify-center rounded-xl bg-[#0268FF] text-white font-bold text-lg">O</div>
+        <Image src="/logo.png" alt="ONI.vn" width={40} height={40} className="mb-4 mx-auto lg:mx-0 rounded-xl shadow-sm" />
         <h1 className="text-2xl font-bold text-slate-900">Đang thiết lập cửa hàng</h1>
         <p className="mt-1 text-sm text-slate-500">Thường mất chưa đến 30 giây. Vui lòng đừng đóng trang này.</p>
       </div>
@@ -110,7 +111,7 @@ export default function ProvisioningPage() {
         {/* Progress bar */}
         <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
           <div
-            className="h-full rounded-full bg-[#0268FF] transition-all duration-700"
+            className="h-full rounded-full bg-primary transition-all duration-700"
             style={{ width: `${(steps.filter((s) => s === 'done').length / STEPS.length) * 100}%` }}
           />
         </div>
@@ -173,7 +174,7 @@ function StepIcon({ state }: { state: StepState }) {
   }
   if (state === 'running') {
     return (
-      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 border-[#0268FF] border-t-transparent animate-spin" />
+      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 border-primary border-t-transparent animate-spin" />
     );
   }
   if (state === 'error') {

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { AuthSplitLayout } from '../../components/layout/AuthSplitLayout';
 
 interface WorkspaceInfo {
@@ -75,7 +76,7 @@ export default function RegisterSuccessPage() {
       <div className="space-y-6">
         {/* Header - matching login/register layout */}
         <div className="flex flex-col items-center text-center">
-          <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-[#0268FF] text-white font-bold text-lg lg:hidden">O</div>
+          <Image src="/logo.png" alt="ONI.vn" width={40} height={40} className="mb-4 rounded-xl lg:hidden shadow-sm" />
           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-green-100 mb-3">
             <svg className="h-6 w-6 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -155,7 +156,7 @@ export default function RegisterSuccessPage() {
         <div className="grid grid-cols-2 gap-3">
           <a
             href={info.workspace_url}
-            className="flex items-center justify-center gap-2 rounded-xl bg-[#0268FF] px-4 py-3 text-sm font-semibold text-white hover:bg-[#0256CC] transition-colors"
+            className="flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-white hover:bg-primary-dark transition-colors"
           >
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
@@ -187,7 +188,7 @@ function InfoRow({ label, value, mono, link }: { label: string; value: string; m
       <span className="text-xs text-slate-500 uppercase tracking-wider font-medium w-24 shrink-0">{label}</span>
       <div className="flex items-center gap-1 min-w-0 flex-1 justify-end">
         {link ? (
-          <a href={link} className={`text-sm text-[#0268FF] hover:underline truncate ${mono ? 'font-mono' : ''}`}>{value}</a>
+          <a href={link} className={`text-sm text-primary hover:underline truncate ${mono ? 'font-mono' : ''}`}>{value}</a>
         ) : (
           <span className={`text-sm text-slate-800 truncate select-all ${mono ? 'font-mono' : ''}`}>{value}</span>
         )}

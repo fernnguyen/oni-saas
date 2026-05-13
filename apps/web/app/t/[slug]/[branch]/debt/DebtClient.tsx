@@ -87,7 +87,7 @@ export function DebtClient({ shopId }: Props) {
         <div className="flex items-center gap-2 justify-end">
           <button
             onClick={() => openCollect(row)}
-            className="rounded-lg bg-[#0268FF] px-4 py-1.5 text-xs font-medium text-white hover:bg-[#0256CC]"
+            className="rounded-lg bg-primary px-4 py-1.5 text-xs font-medium text-white hover:bg-primary-dark"
           >
             Thu nợ
           </button>
@@ -173,7 +173,7 @@ export function DebtClient({ shopId }: Props) {
               <div className="flex justify-end">
                 <button
                   type="button"
-                  className="text-xs text-[#0268FF] hover:underline"
+                  className="text-xs text-primary hover:underline"
                   onClick={() => setAmountToCollect(parseFloat(selectedCustomer.debt_amount || '0'))}
                 >
                   Thu toàn bộ
@@ -185,7 +185,7 @@ export function DebtClient({ shopId }: Props) {
                 <select
                   value={method}
                   onChange={(e) => setMethod(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none"
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
                 >
                   <option value="cash">Tiền mặt</option>
                   <option value="bank_transfer">Chuyển khoản</option>

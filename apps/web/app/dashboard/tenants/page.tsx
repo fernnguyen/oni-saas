@@ -12,8 +12,8 @@ export default async function TenantsPage() {
           <p className="text-sm text-slate-500 mt-0.5">Quản lý tổ chức và chi nhánh kinh doanh</p>
         </div>
         <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 bg-white py-16 text-center">
-          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#0268FF]/10">
-            <svg className="h-7 w-7 text-[#0268FF]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
+            <svg className="h-7 w-7 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
             </svg>
           </div>
@@ -23,7 +23,7 @@ export default async function TenantsPage() {
           </p>
           <Link
             href="/dashboard/tenants/new"
-            className="mt-6 inline-flex items-center gap-2 rounded-xl bg-[#0268FF] px-5 py-3 text-sm font-semibold text-white hover:bg-[#0256CC] transition-colors"
+            className="mt-6 inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-semibold text-white hover:bg-primary-dark transition-colors"
           >
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -49,7 +49,7 @@ export default async function TenantsPage() {
           <div key={t.id} className="rounded-2xl border border-slate-200 bg-white p-5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#0268FF]/10 text-[#0268FF] font-bold text-base">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary font-bold text-base">
                   {t.name.charAt(0).toUpperCase()}
                 </div>
                 <div>
@@ -57,7 +57,7 @@ export default async function TenantsPage() {
                   <div className="text-xs text-slate-400 mt-0.5">
                     {t.slug}.oni.vn
                     {t.plan_name && (
-                      <span className="ml-2 rounded-full bg-blue-50 text-[#0268FF] px-2 py-0.5 text-[10px] font-medium">
+                      <span className="ml-2 rounded-full bg-blue-50 text-primary px-2 py-0.5 text-[10px] font-medium">
                         {t.plan_name}
                       </span>
                     )}
@@ -74,7 +74,7 @@ export default async function TenantsPage() {
                 </Link>
                 <Link
                   href={`/dashboard/shops?tenant_id=${t.id}`}
-                  className="rounded-lg bg-[#0268FF] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#0256CC] transition-colors"
+                  className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary-dark transition-colors"
                 >
                   Xem chi nhánh →
                 </Link>

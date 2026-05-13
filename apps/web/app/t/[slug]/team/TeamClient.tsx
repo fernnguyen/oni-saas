@@ -81,7 +81,7 @@ export function TeamClient({ tenantId, tenantSlug, initialUsers, shops, roles, c
         {canInvite && (
           <button
             onClick={() => setShowModal(true)}
-            className="flex items-center gap-1.5 rounded-xl bg-[#0268FF] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0256CC] transition-colors"
+            className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-dark transition-colors"
           >
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -294,7 +294,7 @@ function AddMemberModal({ tenantId, tenantSlug, shops, roles, onClose, onSuccess
             type="button"
             onClick={() => setTab(t)}
             className={`flex-1 rounded-lg py-1.5 text-sm font-medium transition-colors ${
-              tab === t ? 'bg-[#0268FF] text-white' : 'text-slate-500 hover:text-slate-800'
+              tab === t ? 'bg-primary text-white' : 'text-slate-500 hover:text-slate-800'
             }`}
           >
             {t === 'workspace' ? 'Tài khoản workspace' : 'Email cá nhân'}
@@ -365,7 +365,7 @@ function AddMemberModal({ tenantId, tenantSlug, shops, roles, onClose, onSuccess
           <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1 custom-scrollbar">
             {roles.map((r) => (
               <label key={r.code} className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors ${
-                role === r.code ? 'border-[#0268FF] bg-blue-50/50' : 'border-slate-200 hover:border-slate-300'
+                role === r.code ? 'border-primary bg-blue-50/50' : 'border-slate-200 hover:border-slate-300'
               }`}>
                 <input
                   type="radio"
@@ -373,7 +373,7 @@ function AddMemberModal({ tenantId, tenantSlug, shops, roles, onClose, onSuccess
                   value={r.code}
                   checked={role === r.code}
                   onChange={() => setRole(r.code)}
-                  className="mt-0.5 accent-[#0268FF]"
+                  className="mt-0.5 accent-primary"
                 />
                 <div>
                   <div className="flex items-center gap-2">
@@ -420,7 +420,7 @@ function AddMemberModal({ tenantId, tenantSlug, shops, roles, onClose, onSuccess
           <button
             type="submit"
             disabled={loading}
-            className="flex-1 rounded-xl bg-[#0268FF] py-2.5 text-sm font-semibold text-white hover:bg-[#0256CC] disabled:opacity-60"
+            className="flex-1 rounded-xl bg-primary py-2.5 text-sm font-semibold text-white hover:bg-primary-dark disabled:opacity-60"
           >
             {loading ? 'Đang tạo...' : 'Thêm thành viên'}
           </button>
@@ -478,7 +478,7 @@ function ResetPasswordModal({ tenantId, user, onClose, onSuccess, onError }: {
         </Field>
         <div className="flex gap-3 pt-1">
           <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-slate-200 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50">Hủy</button>
-          <button type="submit" disabled={loading} className="flex-1 rounded-xl bg-[#0268FF] py-2.5 text-sm font-semibold text-white hover:bg-[#0256CC] disabled:opacity-60">
+          <button type="submit" disabled={loading} className="flex-1 rounded-xl bg-primary py-2.5 text-sm font-semibold text-white hover:bg-primary-dark disabled:opacity-60">
             {loading ? 'Đang lưu...' : 'Đặt lại mật khẩu'}
           </button>
         </div>
@@ -541,11 +541,11 @@ function EditRoleModal({ tenantId, user, roles, shops, onClose, onSuccess, onErr
             <div className="space-y-2 max-h-[250px] overflow-y-auto pr-1 custom-scrollbar">
               {roles.map((r) => (
                 <label key={r.code} className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors ${
-                  role === r.code ? 'border-[#0268FF] bg-blue-50/50' : 'border-slate-200 hover:border-slate-300'
+                  role === r.code ? 'border-primary bg-blue-50/50' : 'border-slate-200 hover:border-slate-300'
                 }`}>
                   <input
                     type="radio" name="edit_role" value={r.code} checked={role === r.code} onChange={() => setRole(r.code)}
-                    className="mt-0.5 accent-[#0268FF]"
+                    className="mt-0.5 accent-primary"
                   />
                   <div>
                     <div className="flex items-center gap-2">
@@ -568,7 +568,7 @@ function EditRoleModal({ tenantId, user, roles, shops, onClose, onSuccess, onErr
               <label className="mb-1.5 block text-sm font-medium text-slate-700">Chi nhánh làm việc</label>
               <select
                 required value={shopId} onChange={e => setShopId(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none transition-all focus:border-[#0268FF] focus:ring-1 focus:ring-[#0268FF] appearance-none bg-white"
+                className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary appearance-none bg-white"
               >
                 {shops.length === 0 && <option value="">Chưa có chi nhánh nào</option>}
                 {shops.length > 0 && <option value="" disabled>-- Chọn chi nhánh --</option>}
@@ -579,7 +579,7 @@ function EditRoleModal({ tenantId, user, roles, shops, onClose, onSuccess, onErr
 
           <div className="mt-2 flex gap-3 pt-4 border-t border-slate-100 shrink-0">
             <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-slate-200 bg-white py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-colors">Hủy</button>
-            <button type="submit" disabled={loading || (isShopScoped && !shopId)} className="flex-1 rounded-xl bg-[#0268FF] py-2.5 text-sm font-semibold text-white hover:bg-[#0256CC] transition-colors disabled:opacity-50 flex justify-center items-center">
+            <button type="submit" disabled={loading || (isShopScoped && !shopId)} className="flex-1 rounded-xl bg-primary py-2.5 text-sm font-semibold text-white hover:bg-primary-dark transition-colors disabled:opacity-50 flex justify-center items-center">
               {loading ? <svg className="animate-spin h-5 w-5 text-white" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> : 'Cập nhật'}
             </button>
           </div>
@@ -622,7 +622,7 @@ function ConfirmDialog({ title, message, confirmLabel, danger, onConfirm, onCanc
         <button
           onClick={async () => { setLoading(true); await onConfirm(); setLoading(false); }}
           disabled={loading}
-          className={`flex-1 rounded-xl py-2.5 text-sm font-semibold text-white disabled:opacity-60 ${danger ? 'bg-red-600 hover:bg-red-700' : 'bg-[#0268FF] hover:bg-[#0256CC]'}`}
+          className={`flex-1 rounded-xl py-2.5 text-sm font-semibold text-white disabled:opacity-60 ${danger ? 'bg-red-600 hover:bg-red-700' : 'bg-primary hover:bg-primary-dark'}`}
         >
           {loading ? 'Đang xử lý...' : confirmLabel}
         </button>
@@ -658,7 +658,7 @@ function RoleBadge({ code, name }: { code: string, name?: string }) {
 }
 
 const inputCls =
-  'w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-[#0268FF] focus:outline-none focus:ring-2 focus:ring-[#0268FF]/20';
+  'w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20';
 
 function IconEye() {
   return (

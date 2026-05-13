@@ -350,7 +350,7 @@ export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd
                       <div className="pt-6">
                         <button 
                           onClick={() => setIsExpanded(true)}
-                          className="w-full flex justify-center items-center py-3.5 px-4 rounded-2xl font-bold text-sm text-white bg-[#0268FF] hover:bg-blue-600 focus:ring-4 focus:ring-blue-100 transition-all shadow-lg shadow-blue-500/20 cursor-pointer"
+                          className="w-full flex justify-center items-center py-3.5 px-4 rounded-2xl font-bold text-sm text-white bg-primary hover:bg-blue-600 focus:ring-4 focus:ring-blue-100 transition-all shadow-lg shadow-blue-500/20 cursor-pointer"
                         >
                           Nâng cấp / Gia hạn gói
                         </button>
@@ -436,7 +436,7 @@ export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd
                                     <button
                                       disabled={loadingQr}
                                       onClick={() => isEnterprisePlan ? (window.location.href = 'mailto:support@oni.vn') : handleSubscribe(p)}
-                                      className={`w-full py-3 px-4 rounded-2xl text-sm font-bold transition-all ${isCurrent ? 'bg-zinc-800 text-white hover:bg-zinc-700 shadow-md' : (isEnterprisePlan ? 'bg-white border-2 border-zinc-200 text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50' : 'bg-[#0268FF] text-white hover:bg-blue-600 shadow-lg shadow-blue-500/20')}`}
+                                      className={`w-full py-3 px-4 rounded-2xl text-sm font-bold transition-all ${isCurrent ? 'bg-zinc-800 text-white hover:bg-zinc-700 shadow-md' : (isEnterprisePlan ? 'bg-white border-2 border-zinc-200 text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50' : 'bg-primary text-white hover:bg-blue-600 shadow-lg shadow-blue-500/20')}`}
                                     >
                                       {loadingQr ? '...' : actionText}
                                     </button>

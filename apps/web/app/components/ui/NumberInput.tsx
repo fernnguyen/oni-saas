@@ -80,7 +80,7 @@ export function NumberInput({
           disabled={disabled}
           className={[
             'w-full rounded-xl border border-slate-200 py-2 text-right text-sm',
-            'focus:outline-none focus:ring-2 focus:ring-[#0268FF]/30',
+            'focus:outline-none focus:ring-2 focus:ring-primary/30',
             disabled ? 'cursor-not-allowed bg-slate-50 opacity-60' : 'bg-white',
             suffix ? 'pl-3 pr-8' : 'px-3',
           ].join(' ')}

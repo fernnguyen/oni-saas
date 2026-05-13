@@ -136,7 +136,7 @@ export function CategoriesClient({ shopId }: Props) {
         </div>
         <button
           onClick={openCreate}
-          className="rounded-xl bg-[#0268FF] px-4 py-2 text-sm font-medium text-white hover:bg-[#0256CC]"
+          className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
         >
           + Thêm danh mục
         </button>
@@ -172,7 +172,7 @@ export function CategoriesClient({ shopId }: Props) {
             <button
               onClick={() => saveMutation.mutate(formData)}
               disabled={saveMutation.isPending}
-              className="rounded-xl bg-[#0268FF] px-4 py-2 text-sm font-medium text-white hover:bg-[#0256CC] disabled:opacity-50"
+              className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
             >
               {saveMutation.isPending ? 'Đang lưu...' : 'Lưu'}
             </button>
@@ -186,7 +186,7 @@ export function CategoriesClient({ shopId }: Props) {
               type="text"
               value={formData.name}
               onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
               placeholder="Nhập tên danh mục"
             />
           </div>
@@ -196,7 +196,7 @@ export function CategoriesClient({ shopId }: Props) {
               type="text"
               value={formData.parent_id}
               onChange={(e) => setFormData(prev => ({ ...prev, parent_id: e.target.value }))}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
               placeholder="Nhập ID danh mục cha"
             />
           </div>
@@ -206,7 +206,7 @@ export function CategoriesClient({ shopId }: Props) {
               type="text"
               value={formData.sort_order}
               onChange={(e) => setFormData(prev => ({ ...prev, sort_order: e.target.value }))}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
               placeholder="0"
             />
           </div>

@@ -141,7 +141,7 @@ export function Topbar({
               onClick={() => setDropdownOpen(!dropdownOpen)}
               className="flex items-center gap-2 rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm hover:bg-slate-50 max-w-[180px] cursor-pointer"
             >
-              <div className="h-6 w-6 rounded-full bg-[#0268FF] flex items-center justify-center text-white text-xs font-bold shrink-0">
+              <div className="h-6 w-6 rounded-full bg-primary flex items-center justify-center text-white text-xs font-bold shrink-0">
                 {(displayName || userEmail || tenantName).charAt(0).toUpperCase()}
               </div>
               <span className="truncate text-slate-700 font-medium">{displayName || userEmail || tenantName}</span>

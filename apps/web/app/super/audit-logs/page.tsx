@@ -45,17 +45,17 @@ export default async function SuperAuditLogs({
           name="tenant_id"
           defaultValue={tenant_id}
           placeholder="Tenant ID..."
-          className="rounded-xl border border-slate-200 px-3 py-2 text-sm w-72 focus:outline-none focus:ring-2 focus:ring-[#0268FF] font-mono"
+          className="rounded-xl border border-slate-200 px-3 py-2 text-sm w-72 focus:outline-none focus:ring-2 focus:ring-primary font-mono"
         />
         <input
           name="action"
           defaultValue={action}
           placeholder="Loại hành động..."
-          className="rounded-xl border border-slate-200 px-3 py-2 text-sm w-48 focus:outline-none focus:ring-2 focus:ring-[#0268FF]"
+          className="rounded-xl border border-slate-200 px-3 py-2 text-sm w-48 focus:outline-none focus:ring-2 focus:ring-primary"
         />
         <button
           type="submit"
-          className="rounded-xl bg-[#0268FF] px-4 py-2 text-sm font-medium text-white hover:bg-[#0256CC] transition-colors"
+          className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark transition-colors"
         >
           Lọc
         </button>

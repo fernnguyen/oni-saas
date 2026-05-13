@@ -2,6 +2,7 @@
 
 import { useState, FormEvent } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { getSupabaseBrowserClient } from '../../../lib/supabaseBrowser';
 
 export function SignUpForm() {
@@ -70,7 +71,7 @@ export function SignUpForm() {
     <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50 p-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-[#0268FF] text-white font-bold">O</div>
+          <Image src="/logo.png" alt="ONI.vn" width={40} height={40} className="mx-auto mb-4 rounded-xl shadow-sm" />
           <h1 className="text-2xl font-bold text-slate-900">Tạo tài khoản</h1>
           <p className="mt-1 text-sm text-slate-500">Bắt đầu quản lý bán hàng miễn phí</p>
         </div>
@@ -105,7 +106,7 @@ export function SignUpForm() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="ban@example.com"
-                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm focus:border-[#0268FF] focus:outline-none focus:ring-2 focus:ring-[#0268FF]/20"
+                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                 required
               />
             </div>
@@ -116,7 +117,7 @@ export function SignUpForm() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Tối thiểu 6 ký tự"
-                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm focus:border-[#0268FF] focus:outline-none focus:ring-2 focus:ring-[#0268FF]/20"
+                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                 required
               />
             </div>
@@ -126,7 +127,7 @@ export function SignUpForm() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded-xl bg-[#0268FF] px-4 py-3 text-sm font-semibold text-white hover:bg-[#0256CC] disabled:opacity-60 transition-colors"
+              className="w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-white hover:bg-primary-dark disabled:opacity-60 transition-colors"
             >
               {loading ? 'Đang đăng ký...' : 'Đăng ký'}
             </button>
@@ -134,7 +135,7 @@ export function SignUpForm() {
 
           <p className="text-center text-sm text-slate-500">
             Đã có tài khoản?{' '}
-            <Link href="/auth/signin" className="font-medium text-[#0268FF] hover:underline">
+            <Link href="/auth/signin" className="font-medium text-primary hover:underline">
               Đăng nhập
             </Link>
           </p>

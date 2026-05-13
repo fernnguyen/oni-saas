@@ -3,6 +3,7 @@
 import { useState, FormEvent, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import Image from 'next/image';
 import { AuthSplitLayout } from '../layout/AuthSplitLayout';
 import { getSupabaseBrowserClient } from '../../../lib/supabaseBrowser';
 
@@ -107,13 +108,9 @@ export function SignInForm({ tenantName, tenantSlug }: Props) {
       <div className="mb-8 text-center lg:text-left">
         {tenantName ? (
           <>
-            <div className="mb-4 flex h-10 w-10 mx-auto lg:mx-0 items-center justify-center rounded-xl bg-[#0268FF] text-white font-bold text-lg lg:hidden">
-              {tenantName.charAt(0).toUpperCase()}
-            </div>
+            <Image src="/logo.png" alt="ONI.vn" width={40} height={40} className="mb-4 mx-auto lg:mx-0 rounded-xl lg:hidden shadow-sm" />
             <div className="hidden lg:inline-flex items-center gap-2.5 mb-6">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#0268FF] text-white font-bold text-sm">
-                {tenantName.charAt(0).toUpperCase()}
-              </div>
+              <Image src="/logo.png" alt="ONI.vn" width={32} height={32} className="rounded-lg shadow-sm" />
               <span className="font-bold text-slate-900 text-lg truncate max-w-[200px]" title={tenantName}>{tenantName}</span>
             </div>
             <h1 className="text-2xl font-bold text-slate-900">Đăng nhập tổ chức</h1>
@@ -122,10 +119,10 @@ export function SignInForm({ tenantName, tenantSlug }: Props) {
         ) : (
           <>
             <Link href="/" className="inline-flex items-center gap-2.5 mb-4 lg:hidden">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#0268FF] text-white font-bold text-lg">O</div>
+              <Image src="/logo.png" alt="ONI.vn" width={40} height={40} className="rounded-xl shadow-sm" />
             </Link>
             <div className="hidden lg:inline-flex items-center gap-2.5 mb-6">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#0268FF] text-white font-bold text-sm">O</div>
+              <Image src="/logo.png" alt="ONI.vn" width={32} height={32} className="rounded-lg shadow-sm" />
               <span className="font-bold text-slate-900 text-lg">ONI.vn</span>
             </div>
             <h1 className="text-2xl font-bold text-slate-900">Đăng nhập</h1>
@@ -165,7 +162,7 @@ export function SignInForm({ tenantName, tenantSlug }: Props) {
           {!isPreFilled && (
             <div>
               <label className="mb-1.5 block text-sm font-medium text-slate-700">Subdomain</label>
-              <div className="flex overflow-hidden rounded-xl border border-slate-200 focus-within:border-[#0268FF] focus-within:ring-2 focus-within:ring-[#0268FF]/20 transition-all">
+              <div className="flex overflow-hidden rounded-xl border border-slate-200 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-all">
                 <input
                   type="text"
                   value={subdomain}
@@ -191,7 +188,7 @@ export function SignInForm({ tenantName, tenantSlug }: Props) {
               onChange={(e) => setIdentifier(e.target.value.trim())}
               placeholder="ten_dang_nhap hoặc email@gmail.com"
               autoComplete="username"
-              className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-[#0268FF] focus:outline-none focus:ring-2 focus:ring-[#0268FF]/20 transition-all"
+              className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
               required
               autoFocus={isPreFilled}
             />
@@ -201,9 +198,9 @@ export function SignInForm({ tenantName, tenantSlug }: Props) {
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="block text-sm font-medium text-slate-700">Mật khẩu</label>
-              <Link href="#" className="text-xs font-semibold text-[#0268FF] hover:underline">Quên mật khẩu?</Link>
+              <Link href="#" className="text-xs font-semibold text-primary hover:underline">Quên mật khẩu?</Link>
             </div>
-            <div className="flex overflow-hidden rounded-xl border border-slate-200 focus-within:border-[#0268FF] focus-within:ring-2 focus-within:ring-[#0268FF]/20 transition-all">
+            <div className="flex overflow-hidden rounded-xl border border-slate-200 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-all">
               <input
                 type={showPassword ? 'text' : 'password'}
                 value={password}
@@ -240,7 +237,7 @@ export function SignInForm({ tenantName, tenantSlug }: Props) {
           <button
             type="submit"
             disabled={loading}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#0268FF] px-4 py-3 text-sm font-semibold text-white hover:bg-[#0256CC] disabled:opacity-50 transition-colors"
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-white hover:bg-primary-dark disabled:opacity-50 transition-colors"
           >
             {loading ? 'Đang đăng nhập...' : 'Đăng nhập'}
             {!loading && (
@@ -261,7 +258,7 @@ export function SignInForm({ tenantName, tenantSlug }: Props) {
 
             <p className="mt-6 text-center text-sm text-slate-500">
               Chưa có workspace?{' '}
-              <Link href="/register" className="font-semibold text-[#0268FF] hover:underline">
+              <Link href="/register" className="font-semibold text-primary hover:underline">
                 Đăng ký miễn phí
               </Link>
             </p>

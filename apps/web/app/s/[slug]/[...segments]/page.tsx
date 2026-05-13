@@ -115,7 +115,7 @@ export default async function ShopSectionPage({ params }: Props) {
 
 function QuickLink({ href, label }: { href: string; label: string }) {
   return (
-    <Link href={href} className="rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm font-medium text-slate-700 hover:border-[#0268FF] hover:text-[#0268FF]">
+    <Link href={href} className="rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm font-medium text-slate-700 hover:border-primary hover:text-primary">
       {label}
     </Link>
   );

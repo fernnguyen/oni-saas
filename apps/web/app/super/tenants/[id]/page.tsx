@@ -112,7 +112,7 @@ export default async function SuperTenantDetail({
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-center gap-4">
-          <div className="h-12 w-12 rounded-2xl bg-[#0268FF] flex items-center justify-center text-white text-xl font-bold shrink-0">
+          <div className="h-12 w-12 rounded-2xl bg-primary flex items-center justify-center text-white text-xl font-bold shrink-0">
             {tenant.name.charAt(0).toUpperCase()}
           </div>
           <div>
@@ -197,7 +197,7 @@ export default async function SuperTenantDetail({
                 <select
                   name="plan_id"
                   defaultValue={sub?.plan_id ?? ''}
-                  className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#0268FF]"
+                  className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary"
                 >
                   {plans.map((p: any) => (
                     <option key={p.id} value={p.id}>{p.name}</option>
@@ -205,7 +205,7 @@ export default async function SuperTenantDetail({
                 </select>
                 <button
                   type="submit"
-                  className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-[#0268FF] transition-colors"
+                  className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-primary transition-colors"
                 >
                   <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -224,7 +224,7 @@ export default async function SuperTenantDetail({
                     const pct = unlimited || max === 0 ? 0 : Math.min((used / max) * 100, 100);
                     const over = !unlimited && max > 0 && used > max;
                     const high = !unlimited && max > 0 && pct >= 80;
-                    const barColor = over ? 'bg-red-500' : high ? 'bg-amber-400' : 'bg-[#0268FF]';
+                    const barColor = over ? 'bg-red-500' : high ? 'bg-amber-400' : 'bg-primary';
                     return (
                       <div key={label}>
                         <div className="flex items-center justify-between mb-1">
@@ -493,7 +493,7 @@ export default async function SuperTenantDetail({
           </div>
           <a
             href={`/super/audit-logs?tenant_id=${tenant.id}`}
-            className="text-xs text-[#0268FF] hover:underline"
+            className="text-xs text-primary hover:underline"
           >
             Xem tất cả →
           </a>

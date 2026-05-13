@@ -12,8 +12,8 @@ export default async function DashboardHome() {
   if (!tenant) {
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center text-center">
-        <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-[#0268FF]/10">
-          <svg className="h-8 w-8 text-[#0268FF]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
+          <svg className="h-8 w-8 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
           </svg>
         </div>
@@ -23,7 +23,7 @@ export default async function DashboardHome() {
         </p>
         <Link
           href="/dashboard/tenants/new"
-          className="mt-6 inline-flex items-center gap-2 rounded-xl bg-[#0268FF] px-5 py-3 text-sm font-semibold text-white hover:bg-[#0256CC] transition-colors"
+          className="mt-6 inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-semibold text-white hover:bg-primary-dark transition-colors"
         >
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -66,7 +66,7 @@ export default async function DashboardHome() {
             <h2 className="font-semibold text-slate-800">Chi nhánh — {tenant.name}</h2>
             <Link
               href={`/dashboard/shops/new?tenant_id=${tenant.id}`}
-              className="text-xs font-medium text-[#0268FF] hover:underline"
+              className="text-xs font-medium text-primary hover:underline"
             >
               + Thêm chi nhánh
             </Link>
@@ -76,7 +76,7 @@ export default async function DashboardHome() {
               <p className="text-sm text-slate-400 mb-3">Chưa có chi nhánh nào</p>
               <Link
                 href={`/dashboard/shops/new?tenant_id=${tenant.id}`}
-                className="rounded-xl bg-[#0268FF] px-4 py-2 text-sm font-medium text-white hover:bg-[#0256CC] transition-colors"
+                className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark transition-colors"
               >
                 Tạo chi nhánh đầu tiên
               </Link>
@@ -86,7 +86,7 @@ export default async function DashboardHome() {
               {(shops as any[]).map((shop) => (
                 <div key={shop.id} className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3">
                   <div className="flex items-center gap-3">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#0268FF]/10 text-[#0268FF] font-bold text-xs">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary font-bold text-xs">
                       {shop.name.charAt(0).toUpperCase()}
                     </div>
                     <div>
@@ -94,7 +94,7 @@ export default async function DashboardHome() {
                       <div className="text-xs text-slate-400">{shop.slug}</div>
                     </div>
                   </div>
-                  <Link href="/dashboard/connectors" className="text-xs text-[#0268FF] hover:underline">
+                  <Link href="/dashboard/connectors" className="text-xs text-primary hover:underline">
                     Quản lý →
                   </Link>
                 </div>
@@ -104,8 +104,8 @@ export default async function DashboardHome() {
         </div>
 
         <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-6 flex flex-col items-center justify-center text-center">
-          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-[#0268FF]/10">
-            <svg className="h-6 w-6 text-[#0268FF]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
+            <svg className="h-6 w-6 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
             </svg>
           </div>
@@ -113,7 +113,7 @@ export default async function DashboardHome() {
           <p className="text-sm text-slate-400 mt-1 mb-4">Đồng bộ sản phẩm & đơn hàng từ bảng tính</p>
           <Link
             href="/dashboard/connectors"
-            className="rounded-xl bg-[#0268FF] px-4 py-2 text-sm font-medium text-white hover:bg-[#0256CC] transition-colors"
+            className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark transition-colors"
           >
             Thiết lập ngay
           </Link>

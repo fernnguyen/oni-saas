@@ -97,7 +97,7 @@ export function CartPanel({
             <IconWarehouse className="h-12 w-12" />
             <p className="text-sm">Chọn sản phẩm để bắt đầu</p>
             {heldCount > 0 && (
-              <p className="text-xs text-[#0268FF]">{heldCount} đơn đang giữ</p>
+              <p className="text-xs text-primary">{heldCount} đơn đang giữ</p>
             )}
           </div>
         ) : (
@@ -143,7 +143,7 @@ export function CartPanel({
                           'h-6 w-10 rounded border text-center text-sm focus:outline-none',
                           atMax
                             ? 'border-orange-300 text-orange-600 focus:border-orange-400'
-                            : 'border-slate-200 focus:border-[#0268FF]',
+                            : 'border-slate-200 focus:border-primary',
                         ].join(' ')}
                       />
                       <button
@@ -183,7 +183,7 @@ export function CartPanel({
           value={note}
           onChange={(e) => onNoteChange(e.target.value)}
           placeholder="Ghi chú đơn hàng..."
-          className="w-full rounded-xl border border-slate-200 px-3 py-1.5 text-sm placeholder:text-slate-400 focus:border-[#0268FF] focus:outline-none"
+          className="w-full rounded-xl border border-slate-200 px-3 py-1.5 text-sm placeholder:text-slate-400 focus:border-primary focus:outline-none"
         />
 
         {/* Discount section */}
@@ -238,7 +238,7 @@ export function CartPanel({
                   max={subtotal}
                   onChange={(e) => onDiscountChange(Math.min(Number(e.target.value) || 0, subtotal))}
                   placeholder="0"
-                  className="flex-1 rounded-lg border border-slate-200 px-2 py-1 text-right text-sm focus:border-[#0268FF] focus:outline-none"
+                  className="flex-1 rounded-lg border border-slate-200 px-2 py-1 text-right text-sm focus:border-primary focus:outline-none"
                 />
               ) : (
                 <input
@@ -248,7 +248,7 @@ export function CartPanel({
                   max={100}
                   onChange={(e) => handlePctChange(e.target.value)}
                   placeholder="0"
-                  className="flex-1 rounded-lg border border-slate-200 px-2 py-1 text-right text-sm focus:border-[#0268FF] focus:outline-none"
+                  className="flex-1 rounded-lg border border-slate-200 px-2 py-1 text-right text-sm focus:border-primary focus:outline-none"
                 />
               )}
             </div>
@@ -269,7 +269,7 @@ export function CartPanel({
           )}
           <div className="flex items-center justify-between font-bold text-slate-900">
             <span>Tổng cộng:</span>
-            <span className="text-lg text-[#0268FF]">{fmtVND(total)}</span>
+            <span className="text-lg text-primary">{fmtVND(total)}</span>
           </div>
         </div>
 
@@ -301,7 +301,7 @@ export function CartPanel({
           <button
             onClick={onCheckout}
             disabled={items.length === 0 || disabled}
-            className="flex-1 rounded-xl bg-[#0268FF] py-2.5 text-sm font-semibold text-white hover:bg-[#0256CC] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className="flex-1 rounded-xl bg-primary py-2.5 text-sm font-semibold text-white hover:bg-primary-dark disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             {total > 0 ? `Thanh toán ${fmtVND(total)}` : 'Thanh toán'}
           </button>

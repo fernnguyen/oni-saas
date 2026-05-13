@@ -88,7 +88,7 @@ export function SelectField({
           'bg-white text-left transition-colors',
           disabled
             ? 'cursor-not-allowed opacity-50'
-            : 'cursor-pointer hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#0268FF]/30',
+            : 'cursor-pointer hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-primary/30',
         ].join(' ')}
       >
         <span className={selectedLabel ? 'text-slate-900' : 'text-slate-400'}>
@@ -121,7 +121,7 @@ export function SelectField({
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Tìm kiếm..."
-                className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0268FF]/30"
+                className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
               />
             </div>
           )}
@@ -136,7 +136,7 @@ export function SelectField({
                   className={[
                     'flex cursor-pointer items-center justify-between px-3 py-2 text-sm',
                     opt.value === value
-                      ? 'bg-blue-50 text-[#0268FF]'
+                      ? 'bg-blue-50 text-primary'
                       : 'text-slate-700 hover:bg-slate-50',
                   ].join(' ')}
                 >

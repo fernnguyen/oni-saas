@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, FormEvent } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { AuthSplitLayout } from '../components/layout/AuthSplitLayout';
 
@@ -85,10 +86,10 @@ export function RegisterForm({ plans }: { plans: any[] }) {
     >
       <div className="mb-8 text-center lg:text-left">
         <Link href="/" className="inline-flex items-center gap-2.5 mb-4 lg:hidden">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#0268FF] text-white font-bold text-lg">O</div>
+          <Image src="/logo.png" alt="ONI.vn" width={40} height={40} className="rounded-xl shadow-sm" />
         </Link>
         <div className="hidden lg:inline-flex items-center gap-2.5 mb-6">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#0268FF] text-white font-bold text-sm">O</div>
+          <Image src="/logo.png" alt="ONI.vn" width={32} height={32} className="rounded-lg shadow-sm" />
           <span className="font-bold text-slate-900 text-lg">ONI.vn</span>
         </div>
         <h1 className="text-2xl font-bold text-slate-900">Thiết lập hệ thống</h1>
@@ -104,7 +105,7 @@ export function RegisterForm({ plans }: { plans: any[] }) {
             value={name}
             onChange={(e) => handleNameChange(e.target.value)}
             placeholder="Hộ kinh doanh Oni"
-            className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm focus:border-[#0268FF] focus:outline-none focus:ring-2 focus:ring-[#0268FF]/20"
+            className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
             required
           />
         </div>
@@ -112,10 +113,10 @@ export function RegisterForm({ plans }: { plans: any[] }) {
         {/* Subdomain */}
         <div>
           <label className="mb-1.5 block text-sm font-medium text-slate-700">Đường dẫn truy cập (Tên miền)</label>
-          <div className={`flex overflow-hidden rounded-xl border transition-colors focus-within:ring-2 focus-within:ring-[#0268FF]/20 ${
+          <div className={`flex overflow-hidden rounded-xl border transition-colors focus-within:ring-2 focus-within:ring-primary/20 ${
             slugStatus === 'available' ? 'border-green-400' :
             slugStatus === 'taken' || slugStatus === 'invalid' ? 'border-red-400' :
-            'border-slate-200 focus-within:border-[#0268FF]'
+            'border-slate-200 focus-within:border-primary'
           }`}>
             <input
               value={slug}
@@ -154,7 +155,7 @@ export function RegisterForm({ plans }: { plans: any[] }) {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="tenhokinhdoanh@gmail.com"
-            className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm focus:border-[#0268FF] focus:outline-none focus:ring-2 focus:ring-[#0268FF]/20"
+            className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
             required
           />
         </div>
@@ -162,7 +163,7 @@ export function RegisterForm({ plans }: { plans: any[] }) {
         {/* Password */}
         <div>
           <label className="mb-1.5 block text-sm font-medium text-slate-700">Mật khẩu</label>
-          <div className="flex overflow-hidden rounded-xl border border-slate-200 focus-within:border-[#0268FF] focus-within:ring-2 focus-within:ring-[#0268FF]/20">
+          <div className="flex overflow-hidden rounded-xl border border-slate-200 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20">
             <input
               type={showPassword ? 'text' : 'password'}
               value={password}
@@ -196,15 +197,15 @@ export function RegisterForm({ plans }: { plans: any[] }) {
         {defaultPlan && (
           <div>
             <label className="mb-1.5 block text-sm font-medium text-slate-700">Gói dịch vụ</label>
-            <div className="flex items-center gap-3 rounded-xl border border-[#0268FF] bg-blue-50/50 px-4 py-3 text-[#0268FF]">
+            <div className="flex items-center gap-3 rounded-xl border border-primary bg-blue-50/50 px-4 py-3 text-primary">
               <svg className="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               <div className="flex-1 flex items-center gap-2">
                 <span className="font-semibold">{defaultPlan.name}</span>
-                <span className="rounded-md bg-[#0268FF] px-1.5 py-0.5 text-[10px] font-bold text-white uppercase tracking-wide">Miễn phí</span>
+                <span className="rounded-md bg-primary px-1.5 py-0.5 text-[10px] font-bold text-white uppercase tracking-wide">Miễn phí</span>
               </div>
-              <span className="text-xs font-medium text-[#0268FF]/70">Có thể nâng cấp sau</span>
+              <span className="text-xs font-medium text-primary/70">Có thể nâng cấp sau</span>
             </div>
           </div>
         )}
@@ -216,7 +217,7 @@ export function RegisterForm({ plans }: { plans: any[] }) {
         <button
           type="submit"
           disabled={!canSubmit || loading}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#0268FF] px-4 py-3 text-sm font-semibold text-white hover:bg-[#0256CC] disabled:opacity-50 transition-colors"
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-white hover:bg-primary-dark disabled:opacity-50 transition-colors"
         >
           Hoàn tất thiết lập
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -227,7 +228,7 @@ export function RegisterForm({ plans }: { plans: any[] }) {
 
       <p className="mt-6 text-center text-sm text-slate-500">
         Đã có tài khoản?{' '}
-        <Link href="/auth/signin" className="font-medium text-[#0268FF] hover:underline">
+        <Link href="/auth/signin" className="font-medium text-primary hover:underline">
           Đăng nhập
         </Link>
       </p>

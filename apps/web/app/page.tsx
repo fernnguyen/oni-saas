@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import Image from 'next/image';
 import { getSupabaseAdminClient } from '../lib/server/supabaseAdmin';
 import { PricingSection } from './PricingSection';
 
@@ -34,7 +35,7 @@ const GlobeIcon = () => (
   </svg>
 );
 const CheckIcon = () => (
-  <svg className="h-5 w-5 shrink-0 text-[#0268FF]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+  <svg className="h-5 w-5 shrink-0 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
   </svg>
 );
@@ -96,19 +97,19 @@ export default async function LandingPage() {
       <nav className="fixed top-0 left-0 right-0 z-50 border-b border-slate-200 bg-white/95 backdrop-blur-md shadow-sm">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
           <Link href="/" className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#0268FF] text-white font-bold text-sm shadow-md">O</div>
-            <span className="text-xl font-extrabold tracking-tight text-[#0268FF]">ONI.vn</span>
+            <Image src="/logo.png" alt="ONI.vn" width={32} height={32} className="rounded-lg shadow-md" />
+            <span className="text-xl font-extrabold tracking-tight text-primary">ONI.vn</span>
           </Link>
           <div className="hidden md:flex items-center gap-8 text-sm font-semibold text-slate-600">
-            <a href="#features" className="hover:text-[#0268FF] transition-colors">Tính năng</a>
-            <a href="#how" className="hover:text-[#0268FF] transition-colors">Cách hoạt động</a>
-            <a href="#pricing" className="hover:text-[#0268FF] transition-colors">Bảng giá</a>
+            <a href="#features" className="hover:text-primary transition-colors">Tính năng</a>
+            <a href="#how" className="hover:text-primary transition-colors">Cách hoạt động</a>
+            <a href="#pricing" className="hover:text-primary transition-colors">Bảng giá</a>
           </div>
           <div className="flex items-center gap-3">
             <Link href="/auth/signin" className="rounded-lg px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 transition-colors">
               Đăng nhập
             </Link>
-            <Link href="/register" className="rounded-lg bg-[#0268FF] px-5 py-2.5 text-sm font-bold text-white shadow-md hover:bg-[#0256CC] hover:shadow-lg transition-all">
+            <Link href="/register" className="rounded-lg bg-primary px-5 py-2.5 text-sm font-bold text-white shadow-md hover:bg-primary-dark hover:shadow-lg transition-all">
               Dùng thử miễn phí
             </Link>
           </div>
@@ -116,7 +117,7 @@ export default async function LandingPage() {
       </nav>
 
       {/* ═══ HERO (SPLIT LAYOUT VIBE) ═══ */}
-      <section className="relative pt-32 pb-24 lg:pt-40 lg:pb-32 overflow-hidden bg-[#0268FF]">
+      <section className="relative pt-32 pb-24 lg:pt-40 lg:pb-32 overflow-hidden bg-primary">
         {/* Dynamic Shapes for modern SaaS feel */}
         <div className="absolute top-0 left-0 right-0 bottom-0 overflow-hidden pointer-events-none">
           <div className="absolute -top-[20%] -left-[10%] h-[800px] w-[800px] rounded-full bg-white/5 blur-[100px]" />
@@ -145,7 +146,7 @@ export default async function LandingPage() {
               Nền tảng POS & quản lý bán hàng đa chi nhánh đột phá. Giữ toàn quyền dữ liệu với cơ chế BYOD, tích hợp AI thông minh và thông báo đa kênh.
             </p>
             <div className="mt-10 flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4">
-              <Link href="/register" className="group flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl bg-white px-8 py-4 text-base font-bold text-[#0268FF] shadow-xl hover:bg-blue-50 transition-all hover:scale-105">
+              <Link href="/register" className="group flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl bg-white px-8 py-4 text-base font-bold text-primary shadow-xl hover:bg-blue-50 transition-all hover:scale-105">
                 Bắt đầu hoàn toàn miễn phí
                 <svg className="h-4 w-4 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
@@ -174,7 +175,7 @@ export default async function LandingPage() {
               <div className="mt-8 rounded-xl bg-white p-4 shadow-inner">
                 <div className="flex gap-4 mb-4">
                   <div className="w-1/3 h-24 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center flex-col">
-                    <span className="text-2xl font-bold text-[#0268FF]">4.2M</span>
+                    <span className="text-2xl font-bold text-primary">4.2M</span>
                     <span className="text-xs font-semibold text-blue-600 uppercase tracking-widest mt-1">Doanh thu</span>
                   </div>
                   <div className="w-1/3 h-24 rounded-lg bg-emerald-50 border border-emerald-100 flex items-center justify-center flex-col">
@@ -197,14 +198,14 @@ export default async function LandingPage() {
       <section id="features" className="relative py-24 md:py-32 bg-slate-50">
         <div className="mx-auto max-w-7xl px-6">
           <div className="text-center mb-16 lg:mb-24">
-            <p className="text-sm font-bold uppercase tracking-widest text-[#0268FF] mb-3">Tính năng</p>
+            <p className="text-sm font-bold uppercase tracking-widest text-primary mb-3">Tính năng</p>
             <h2 className="text-3xl md:text-5xl font-extrabold text-slate-900 tracking-tight">Hệ sinh thái hoàn chỉnh</h2>
             <p className="mt-4 max-w-2xl mx-auto text-lg text-slate-500 font-medium">Kiến trúc Provider-Agnostic — kết nối bất kỳ nguồn dữ liệu nào. Bạn giữ toàn quyền kiểm soát.</p>
           </div>
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             {FEATURES.map((f) => (
-              <div key={f.title} className="group rounded-3xl border border-slate-200 bg-white p-8 hover:border-[#0268FF]/30 hover:shadow-2xl hover:shadow-[#0268FF]/5 transition-all duration-300 transform hover:-translate-y-1">
-                <div className="mb-6 inline-flex items-center justify-center rounded-2xl bg-blue-50 p-4 text-[#0268FF] group-hover:bg-[#0268FF] group-hover:text-white transition-colors duration-300">
+              <div key={f.title} className="group rounded-3xl border border-slate-200 bg-white p-8 hover:border-primary/30 hover:shadow-2xl hover:shadow-primary/5 transition-all duration-300 transform hover:-translate-y-1">
+                <div className="mb-6 inline-flex items-center justify-center rounded-2xl bg-blue-50 p-4 text-primary group-hover:bg-primary group-hover:text-white transition-colors duration-300">
                   {f.icon}
                 </div>
                 <h3 className="text-xl font-bold text-slate-900 mb-3">{f.title}</h3>
@@ -219,7 +220,7 @@ export default async function LandingPage() {
       <section id="how" className="relative py-24 md:py-32 bg-white border-y border-slate-100">
         <div className="mx-auto max-w-7xl px-6">
           <div className="text-center mb-16 lg:mb-20">
-            <p className="text-sm font-bold uppercase tracking-widest text-[#0268FF] mb-3">Cách hoạt động</p>
+            <p className="text-sm font-bold uppercase tracking-widest text-primary mb-3">Cách hoạt động</p>
             <h2 className="text-3xl md:text-5xl font-extrabold text-slate-900 tracking-tight">Thiết lập trong chớp mắt</h2>
           </div>
           <div className="grid gap-8 md:grid-cols-3 relative">
@@ -229,7 +230,7 @@ export default async function LandingPage() {
             {STEPS.map((s, idx) => (
               <div key={s.num} className="relative z-10 text-center flex flex-col items-center">
                 <div className="flex h-24 w-24 items-center justify-center rounded-full bg-white border-4 border-slate-50 shadow-xl shadow-blue-900/5 mb-6 group-hover:border-blue-100 transition-colors">
-                  <span className="text-3xl font-black text-[#0268FF]">{s.num}</span>
+                  <span className="text-3xl font-black text-primary">{s.num}</span>
                 </div>
                 <h3 className="text-xl font-bold text-slate-900 mb-3">{s.title}</h3>
                 <p className="text-slate-500 leading-relaxed font-medium max-w-xs">{s.desc}</p>
@@ -243,7 +244,7 @@ export default async function LandingPage() {
       <PricingSection plans={displayPlans} />
 
       {/* ═══ CTA ═══ */}
-      <section className="relative py-24 md:py-32 bg-[#0268FF] overflow-hidden">
+      <section className="relative py-24 md:py-32 bg-primary overflow-hidden">
         <div className="pointer-events-none absolute inset-0">
           <div className="absolute top-0 left-0 h-[500px] w-[500px] rounded-full bg-white/5 blur-[100px]" />
           <div className="absolute bottom-0 right-0 h-[400px] w-[400px] rounded-full bg-cyan-400/20 blur-[80px]" />
@@ -256,7 +257,7 @@ export default async function LandingPage() {
             Không cần thẻ tín dụng. Thiết lập trong 60 giây. Làm chủ dữ liệu kinh doanh của bạn ngay hôm nay.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Link href="/register" className="group flex items-center justify-center gap-2 rounded-xl bg-white px-8 py-4 text-lg font-bold text-[#0268FF] shadow-2xl hover:bg-blue-50 transition-all hover:scale-105">
+            <Link href="/register" className="group flex items-center justify-center gap-2 rounded-xl bg-white px-8 py-4 text-lg font-bold text-primary shadow-2xl hover:bg-blue-50 transition-all hover:scale-105">
               Đăng ký miễn phí
               <svg className="h-5 w-5 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
@@ -270,14 +271,14 @@ export default async function LandingPage() {
       <footer className="bg-white py-16 border-t border-slate-100">
         <div className="mx-auto max-w-7xl px-6 flex flex-col md:flex-row items-center justify-between gap-8">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#0268FF] text-white font-bold text-lg shadow-md">O</div>
+            <Image src="/logo.png" alt="ONI.vn" width={40} height={40} className="rounded-xl shadow-md" />
             <span className="text-xl font-bold tracking-tight text-slate-900">ONI.vn</span>
           </div>
           <div className="flex flex-wrap items-center justify-center gap-8 text-sm font-medium text-slate-500">
-            <a href="#features" className="hover:text-[#0268FF] transition-colors">Tính năng</a>
-            <a href="#how" className="hover:text-[#0268FF] transition-colors">Cách hoạt động</a>
-            <a href="#pricing" className="hover:text-[#0268FF] transition-colors">Bảng giá</a>
-            <Link href="/auth/signin" className="hover:text-[#0268FF] transition-colors">Đăng nhập</Link>
+            <a href="#features" className="hover:text-primary transition-colors">Tính năng</a>
+            <a href="#how" className="hover:text-primary transition-colors">Cách hoạt động</a>
+            <a href="#pricing" className="hover:text-primary transition-colors">Bảng giá</a>
+            <Link href="/auth/signin" className="hover:text-primary transition-colors">Đăng nhập</Link>
           </div>
           <p className="text-sm font-medium text-slate-400">&copy; {new Date().getFullYear()} ONI.vn. Đã đăng ký bản quyền.</p>
         </div>

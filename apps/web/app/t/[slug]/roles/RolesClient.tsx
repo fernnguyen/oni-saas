@@ -73,7 +73,7 @@ export function RolesClient({ tenantId, initialRoles, permissions, canManage }: 
         {canManage && (
           <button
             onClick={handleAdd}
-            className="flex items-center gap-1.5 rounded-xl bg-[#0268FF] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0256CC] transition-colors"
+            className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-dark transition-colors"
           >
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -267,7 +267,7 @@ function RoleModal({ tenantId, role, permissions, onClose, onSuccess, onError }:
               placeholder="VD: Quản lý kho, Kế toán..."
               required
               disabled={isReadOnly}
-              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-[#0268FF] focus:outline-none focus:ring-2 focus:ring-[#0268FF]/20 disabled:bg-slate-50 disabled:text-slate-500"
+              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:bg-slate-50 disabled:text-slate-500"
             />
           </div>
           <div>
@@ -276,7 +276,7 @@ function RoleModal({ tenantId, role, permissions, onClose, onSuccess, onError }:
               value={scope}
               onChange={e => setScope(e.target.value as any)}
               disabled={!!role} // scope cannot be changed after creation
-              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-[#0268FF] focus:outline-none focus:ring-2 focus:ring-[#0268FF]/20 disabled:bg-slate-50 disabled:text-slate-500"
+              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:bg-slate-50 disabled:text-slate-500"
             >
               <option value="workspace">Toàn bộ Workspace (Tất cả chi nhánh)</option>
               <option value="shop">Chi nhánh cụ thể (Được gán sau)</option>
@@ -299,7 +299,7 @@ function RoleModal({ tenantId, role, permissions, onClose, onSuccess, onError }:
                       type="button"
                       onClick={() => toggleGroup(g.perms)}
                       disabled={isReadOnly}
-                      className="text-xs font-semibold text-[#0268FF] hover:text-[#0256CC] disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="text-xs font-semibold text-primary hover:text-primary-dark disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {allChecked ? 'Bỏ chọn tất cả' : 'Chọn tất cả'}
                     </button>
@@ -312,7 +312,7 @@ function RoleModal({ tenantId, role, permissions, onClose, onSuccess, onError }:
                           checked={selectedPerms.has(p.code)}
                           onChange={() => togglePerm(p.code)}
                           disabled={isReadOnly}
-                          className="w-4 h-4 rounded border-slate-300 text-[#0268FF] focus:ring-[#0268FF] disabled:opacity-50"
+                          className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary disabled:opacity-50"
                         />
                         <div>
                           <p className="text-sm font-medium text-slate-700">{p.name}</p>
@@ -332,7 +332,7 @@ function RoleModal({ tenantId, role, permissions, onClose, onSuccess, onError }:
             {isReadOnly ? 'Đóng' : 'Hủy'}
           </button>
           {!isReadOnly && (
-            <button type="submit" disabled={loading} className="flex-1 rounded-xl bg-[#0268FF] py-2.5 text-sm font-semibold text-white hover:bg-[#0256CC] disabled:opacity-60 transition-colors">
+            <button type="submit" disabled={loading} className="flex-1 rounded-xl bg-primary py-2.5 text-sm font-semibold text-white hover:bg-primary-dark disabled:opacity-60 transition-colors">
               {loading ? 'Đang lưu...' : 'Lưu vai trò'}
             </button>
           )}
@@ -376,7 +376,7 @@ function ConfirmDialog({ title, message, confirmLabel, danger, onConfirm, onCanc
         <button
           onClick={async () => { setLoading(true); await onConfirm(); setLoading(false); }}
           disabled={loading}
-          className={`flex-1 rounded-xl py-2.5 text-sm font-semibold text-white disabled:opacity-60 transition-colors ${danger ? 'bg-red-600 hover:bg-red-700' : 'bg-[#0268FF] hover:bg-[#0256CC]'}`}
+          className={`flex-1 rounded-xl py-2.5 text-sm font-semibold text-white disabled:opacity-60 transition-colors ${danger ? 'bg-red-600 hover:bg-red-700' : 'bg-primary hover:bg-primary-dark'}`}
         >
           {loading ? 'Đang xử lý...' : confirmLabel}
         </button>

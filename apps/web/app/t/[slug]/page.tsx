@@ -94,7 +94,7 @@ export default async function TenantRootPage({ params }: Props) {
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-[#0268FF] text-white font-bold text-sm">
+          <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-white font-bold text-sm">
             {tenant.name.charAt(0).toUpperCase()}
           </div>
           <h1 className="text-xl font-semibold text-slate-900">{tenant.name}</h1>
@@ -105,7 +105,7 @@ export default async function TenantRootPage({ params }: Props) {
             <a
               key={branch.id}
               href={`/${branch.slug}`}
-              className="block rounded-2xl border border-slate-200 bg-white px-5 py-4 hover:border-[#0268FF] hover:bg-blue-50/40 transition-colors"
+              className="block rounded-2xl border border-slate-200 bg-white px-5 py-4 hover:border-primary hover:bg-blue-50/40 transition-colors"
             >
               <div className="text-sm font-semibold text-slate-900">{branch.name}</div>
               <div className="mt-0.5 text-xs text-slate-400 font-mono">{branch.slug}</div>

@@ -138,7 +138,7 @@ export function DataTable<T extends object>({
                 type="checkbox"
                 checked={selected.has(k)}
                 onChange={() => toggleRow(k, row)}
-                className="h-4 w-4 rounded border-slate-300 accent-[#0268FF]"
+                className="h-4 w-4 rounded border-slate-300 accent-primary"
               />
             )
           },
@@ -163,7 +163,7 @@ export function DataTable<T extends object>({
                     if (el) el.indeterminate = someSelected
                   }}
                   onChange={toggleAll}
-                  className="h-4 w-4 rounded border-slate-300 accent-[#0268FF]"
+                  className="h-4 w-4 rounded border-slate-300 accent-primary"
                 />
               </th>
             )}
@@ -225,7 +225,7 @@ export function DataTable<T extends object>({
                         type="checkbox"
                         checked={selected.has(key)}
                         onChange={() => toggleRow(key, row)}
-                        className="h-4 w-4 rounded border-slate-300 accent-[#0268FF]"
+                        className="h-4 w-4 rounded border-slate-300 accent-primary"
                       />
                     </td>
                   )}
@@ -295,7 +295,7 @@ function PaginationInline({
               className={[
                 'min-w-[32px] rounded-lg px-2 py-1 text-sm',
                 p === page
-                  ? 'bg-[#0268FF] text-white'
+                  ? 'bg-primary text-white'
                   : 'text-slate-700 hover:bg-slate-100',
               ].join(' ')}
             >

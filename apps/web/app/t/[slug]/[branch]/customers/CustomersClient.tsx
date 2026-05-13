@@ -143,7 +143,7 @@ export function CustomersClient({ shopId }: Props) {
         </div>
         <button
           onClick={openCreate}
-          className="rounded-xl bg-[#0268FF] px-4 py-2 text-sm font-medium text-white hover:bg-[#0256CC]"
+          className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
         >
           + Thêm khách hàng
         </button>
@@ -179,7 +179,7 @@ export function CustomersClient({ shopId }: Props) {
             <button
               onClick={() => saveMutation.mutate(formData)}
               disabled={saveMutation.isPending}
-              className="rounded-xl bg-[#0268FF] px-4 py-2 text-sm font-medium text-white hover:bg-[#0256CC] disabled:opacity-50"
+              className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
             >
               {saveMutation.isPending ? 'Đang lưu...' : 'Lưu'}
             </button>
@@ -193,7 +193,7 @@ export function CustomersClient({ shopId }: Props) {
               type="text"
               value={formData.name}
               onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
               placeholder="Nhập tên khách hàng"
             />
           </div>
@@ -203,7 +203,7 @@ export function CustomersClient({ shopId }: Props) {
               type="text"
               value={formData.phone}
               onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
               placeholder="Nhập số điện thoại"
             />
           </div>
@@ -213,7 +213,7 @@ export function CustomersClient({ shopId }: Props) {
               type="text"
               value={formData.email}
               onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
               placeholder="Nhập email"
             />
           </div>
@@ -223,7 +223,7 @@ export function CustomersClient({ shopId }: Props) {
               type="text"
               value={formData.address}
               onChange={(e) => setFormData(prev => ({ ...prev, address: e.target.value }))}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
               placeholder="Nhập địa chỉ"
             />
           </div>
@@ -232,7 +232,7 @@ export function CustomersClient({ shopId }: Props) {
             <select
               value={formData.customer_type}
               onChange={(e) => setFormData(prev => ({ ...prev, customer_type: e.target.value }))}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
             >
               <option value="retail">Bán lẻ</option>
               <option value="wholesale">Sỉ</option>
@@ -252,7 +252,7 @@ export function CustomersClient({ shopId }: Props) {
               value={formData.note}
               onChange={(e) => setFormData(prev => ({ ...prev, note: e.target.value }))}
               rows={3}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none resize-none"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none resize-none"
               placeholder="Nhập ghi chú"
             />
           </div>

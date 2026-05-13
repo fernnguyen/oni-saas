@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { redirect } from 'next/navigation';
 import { getSessionUserWithTenant } from '../../lib/server/auth';
 import { AuthSplitLayout } from '../components/layout/AuthSplitLayout';
+import Image from 'next/image';
 
 export default async function OnboardingLayout({ children }: { children: ReactNode }) {
   const ctx = await getSessionUserWithTenant();
@@ -16,9 +17,9 @@ export default async function OnboardingLayout({ children }: { children: ReactNo
       ]}
     >
       <div className="mb-8 text-center lg:text-left">
-        <div className="mb-4 flex h-10 w-10 mx-auto lg:mx-0 items-center justify-center rounded-xl bg-[#0268FF] text-white font-bold text-lg lg:hidden">O</div>
+        <Image src="/logo.png" alt="ONI.vn" width={40} height={40} className="mb-4 mx-auto lg:mx-0 rounded-xl lg:hidden" />
         <div className="hidden lg:inline-flex items-center gap-2.5 mb-6">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#0268FF] text-white font-bold text-sm">O</div>
+          <Image src="/logo.png" alt="ONI.vn" width={32} height={32} className="rounded-lg" />
           <span className="font-bold text-slate-900 text-lg">ONI.vn</span>
         </div>
         <h1 className="text-2xl font-bold text-slate-900">Thiết lập hồ sơ</h1>

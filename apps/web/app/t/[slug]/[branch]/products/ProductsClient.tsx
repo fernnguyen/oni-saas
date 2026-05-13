@@ -195,7 +195,7 @@ export function ProductsClient({ shopId }: Props) {
         </div>
         <button
           onClick={openCreate}
-          className="rounded-xl bg-[#0268FF] px-4 py-2 text-sm font-medium text-white hover:bg-[#0256CC]"
+          className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
         >
           + Thêm sản phẩm
         </button>
@@ -231,7 +231,7 @@ export function ProductsClient({ shopId }: Props) {
             <button
               onClick={() => saveMutation.mutate(formData)}
               disabled={saveMutation.isPending}
-              className="rounded-xl bg-[#0268FF] px-4 py-2 text-sm font-medium text-white hover:bg-[#0256CC] disabled:opacity-50"
+              className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
             >
               {saveMutation.isPending ? 'Đang lưu...' : 'Lưu'}
             </button>
@@ -245,7 +245,7 @@ export function ProductsClient({ shopId }: Props) {
               type="text"
               value={formData.sku}
               onChange={(e) => setFormData(prev => ({ ...prev, sku: e.target.value }))}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
               placeholder="Nhập SKU"
             />
           </div>
@@ -255,7 +255,7 @@ export function ProductsClient({ shopId }: Props) {
               type="text"
               value={formData.name}
               onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
               placeholder="Nhập tên sản phẩm"
             />
           </div>
@@ -265,7 +265,7 @@ export function ProductsClient({ shopId }: Props) {
               <button 
                 type="button" 
                 onClick={openCreateCategory} 
-                className="text-xs text-[#0268FF] hover:underline"
+                className="text-xs text-primary hover:underline"
               >
                 + Tạo mới
               </button>
@@ -273,7 +273,7 @@ export function ProductsClient({ shopId }: Props) {
             <select
               value={formData.category_id}
               onChange={(e) => setFormData(prev => ({ ...prev, category_id: e.target.value }))}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none bg-white"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white"
             >
               <option value="">-- Chọn danh mục --</option>
               {categories.map((c: any) => (
@@ -289,7 +289,7 @@ export function ProductsClient({ shopId }: Props) {
               type="text"
               value={formData.unit}
               onChange={(e) => setFormData(prev => ({ ...prev, unit: e.target.value }))}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
               placeholder="Cái, Hộp, Kg..."
             />
           </div>
@@ -317,7 +317,7 @@ export function ProductsClient({ shopId }: Props) {
               value={formData.description}
               onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
               rows={3}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none resize-none"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none resize-none"
               placeholder="Nhập mô tả sản phẩm"
             />
           </div>
@@ -327,7 +327,7 @@ export function ProductsClient({ shopId }: Props) {
               type="text"
               value={formData.image_url}
               onChange={(e) => setFormData(prev => ({ ...prev, image_url: e.target.value }))}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
               placeholder="https://..."
             />
           </div>
@@ -357,7 +357,7 @@ export function ProductsClient({ shopId }: Props) {
                   type="text"
                   value={catFormData.name}
                   onChange={(e) => setCatFormData(prev => ({ ...prev, name: e.target.value }))}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none"
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
                   placeholder="Ví dụ: Đồ uống"
                 />
               </div>
@@ -366,7 +366,7 @@ export function ProductsClient({ shopId }: Props) {
                 <select
                   value={catFormData.parent_id}
                   onChange={(e) => setCatFormData(prev => ({ ...prev, parent_id: e.target.value }))}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none bg-white"
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white"
                 >
                   <option value="">-- Không có --</option>
                   {categories.map((c: any) => (
@@ -380,7 +380,7 @@ export function ProductsClient({ shopId }: Props) {
                   value={catFormData.description}
                   onChange={(e) => setCatFormData(prev => ({ ...prev, description: e.target.value }))}
                   rows={3}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none resize-none"
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none resize-none"
                   placeholder="Ghi chú thêm..."
                 />
               </div>
@@ -400,7 +400,7 @@ export function ProductsClient({ shopId }: Props) {
                   createCatMutation.mutate(catFormData)
                 }}
                 disabled={createCatMutation.isPending}
-                className="rounded-xl bg-[#0268FF] px-4 py-2 text-sm font-medium text-white hover:bg-[#0256CC] disabled:opacity-50"
+                className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
               >
                 {createCatMutation.isPending ? 'Đang lưu...' : 'Lưu'}
               </button>

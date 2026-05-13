@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 
 const CheckIcon = () => (
-  <svg className="h-5 w-5 shrink-0 text-[#0268FF]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+  <svg className="h-5 w-5 shrink-0 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
   </svg>
 );
@@ -64,7 +64,7 @@ export function PricingSection({ plans }: { plans: any[] }) {
       <div className="pointer-events-none absolute top-0 left-1/3 h-[500px] w-[500px] rounded-full bg-blue-200/30 blur-[120px]" />
       <div className="relative mx-auto max-w-7xl px-6">
         <div className="text-center mb-16 lg:mb-20">
-          <p className="text-sm font-bold uppercase tracking-widest text-[#0268FF] mb-3">Bảng giá</p>
+          <p className="text-sm font-bold uppercase tracking-widest text-primary mb-3">Bảng giá</p>
           <h2 className="text-3xl md:text-5xl font-extrabold text-slate-900 tracking-tight">Chi phí tối ưu, hiệu quả tối đa</h2>
           <p className="mt-4 text-lg text-slate-500 font-medium max-w-xl mx-auto">
             Khởi đầu vững chắc với gói Tiên phong miễn phí 3 năm hỗ trợ Chuyển đổi số. Nâng cấp linh hoạt khi quy mô mở rộng.
@@ -82,7 +82,7 @@ export function PricingSection({ plans }: { plans: any[] }) {
             <button
               onClick={() => setBillingCycle('yearly')}
               className={`rounded-full px-6 py-2 text-sm font-semibold transition-all ${
-                billingCycle === 'yearly' ? 'bg-white text-[#0268FF] shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                billingCycle === 'yearly' ? 'bg-white text-primary shadow-sm' : 'text-slate-500 hover:text-slate-700'
               }`}
             >
               Hàng năm <span className="ml-1 rounded-full bg-green-100 px-2 py-0.5 text-[10px] text-green-700">-20%</span>
@@ -94,12 +94,12 @@ export function PricingSection({ plans }: { plans: any[] }) {
           {plans.map((p) => (
             <div key={p.code} className={`relative rounded-[2rem] p-10 transition-all duration-300 ${
               p.highlight
-                ? 'border-2 border-[#0268FF] bg-white shadow-2xl shadow-blue-900/10 scale-100 lg:scale-105 z-10'
+                ? 'border-2 border-primary bg-white shadow-2xl shadow-blue-900/10 scale-100 lg:scale-105 z-10'
                 : 'border border-slate-200 bg-white hover:border-blue-200 hover:shadow-xl hover:shadow-blue-900/5'
             }`}>
               {p.badge && (
-                <div className="absolute -top-4 left-1/2 -translate-x-1/2 rounded-full bg-gradient-to-r from-[#0268FF] to-cyan-500 p-[2px]">
-                  <span className="block rounded-full bg-[#0268FF] px-4 py-1 text-xs font-bold text-white uppercase tracking-widest">
+                <div className="absolute -top-4 left-1/2 -translate-x-1/2 rounded-full bg-gradient-to-r from-primary to-cyan-500 p-[2px]">
+                  <span className="block rounded-full bg-primary px-4 py-1 text-xs font-bold text-white uppercase tracking-widest">
                     {p.badge}
                   </span>
                 </div>
@@ -125,8 +125,8 @@ export function PricingSection({ plans }: { plans: any[] }) {
               
               <Link href="/register" className={`mt-10 flex w-full items-center justify-center rounded-xl px-6 py-4 text-base font-bold transition-all ${
                 p.highlight
-                  ? 'bg-[#0268FF] text-white shadow-xl shadow-[#0268FF]/30 hover:bg-[#0256CC] hover:shadow-2xl hover:shadow-[#0268FF]/40'
-                  : 'bg-blue-50 text-[#0268FF] hover:bg-blue-100'
+                  ? 'bg-primary text-white shadow-xl shadow-primary/30 hover:bg-primary-dark hover:shadow-2xl hover:shadow-primary/40'
+                  : 'bg-blue-50 text-primary hover:bg-blue-100'
               }`}>
                 {p.cta}
               </Link>

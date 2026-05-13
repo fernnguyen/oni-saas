@@ -1,12 +1,21 @@
 import './globals.css';
 import type { ReactNode } from 'react';
+import type { Metadata } from 'next';
 import { Toaster } from 'sonner';
 import { QueryProvider } from '@/app/components/providers/QueryProvider';
 
-export const metadata = {
+export const metadata: Metadata = {
   title: 'ONI.vn – Nền tảng quản lý bán hàng SaaS',
   description:
     'Hệ thống POS & quản lý kho đa chi nhánh. Dữ liệu thuộc về bạn — BYOD (Bring Your Own Database). AI, Zalo, Telegram tích hợp sẵn.',
+  icons: {
+    icon: [
+      { url: '/logos/favicon-32x32.png', sizes: '32x32', type: 'image/png' },
+      { url: '/logos/favicon-16x16.png', sizes: '16x16', type: 'image/png' },
+    ],
+    apple: '/logos/apple-touch-icon.png',
+  },
+  manifest: '/logos/site.webmanifest',
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

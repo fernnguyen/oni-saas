@@ -47,7 +47,7 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
           {!connected && (
             <button
               onClick={() => setShowModal(true)}
-              className="rounded-xl bg-[#0268FF] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#0256CC]"
+              className="rounded-xl bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary-dark"
             >
               Cấu hình dữ liệu
             </button>
@@ -72,7 +72,7 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
           <p className="text-slate-500 mb-4">Chi nhánh chưa có nguồn dữ liệu.</p>
           <button
             onClick={() => setShowModal(true)}
-            className="rounded-xl bg-[#0268FF] px-4 py-2 text-sm text-white hover:bg-[#0256CC]"
+            className="rounded-xl bg-primary px-4 py-2 text-sm text-white hover:bg-primary-dark"
           >
             Bắt đầu cấu hình
           </button>
@@ -84,11 +84,11 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
           <a
             key={module.href}
             href={`${homePath === '/' ? '' : homePath}${module.href}`}
-            className="rounded-2xl border border-slate-200 bg-white p-5 transition-colors hover:border-[#0268FF] hover:bg-blue-50/40"
+            className="rounded-2xl border border-slate-200 bg-white p-5 transition-colors hover:border-primary hover:bg-blue-50/40"
           >
             <div className="text-sm font-semibold text-slate-900">{module.label}</div>
             <p className="mt-2 text-sm leading-6 text-slate-500">{module.description}</p>
-            <div className="mt-4 text-xs font-medium text-[#0268FF]">Mở module →</div>
+            <div className="mt-4 text-xs font-medium text-primary">Mở module →</div>
           </a>
         ))}
       </section>

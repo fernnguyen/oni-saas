@@ -145,7 +145,7 @@ export function CashbookClient({ shopId }: Props) {
       <div className="flex gap-2">
         <button 
           onClick={() => setTypeFilter('')}
-          className={`px-3 py-1.5 text-sm rounded-lg border ${!typeFilter ? 'bg-[#0268FF] text-white border-[#0268FF]' : 'bg-white text-slate-600 border-slate-200'}`}
+          className={`px-3 py-1.5 text-sm rounded-lg border ${!typeFilter ? 'bg-primary text-white border-primary' : 'bg-white text-slate-600 border-slate-200'}`}
         >
           Tất cả
         </button>
@@ -206,7 +206,7 @@ export function CashbookClient({ shopId }: Props) {
             <select
               value={formData.method}
               onChange={(e) => setFormData(prev => ({ ...prev, method: e.target.value }))}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
             >
               <option value="cash">Tiền mặt</option>
               <option value="bank_transfer">Chuyển khoản</option>
@@ -219,7 +219,7 @@ export function CashbookClient({ shopId }: Props) {
             <select
               value={formData.category}
               onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value }))}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
             >
               {formData.type === 'receipt' ? (
                 <>
@@ -245,7 +245,7 @@ export function CashbookClient({ shopId }: Props) {
               type="text"
               value={formData.reference_name}
               onChange={(e) => setFormData(prev => ({ ...prev, reference_name: e.target.value }))}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
               placeholder="VD: Nguyễn Văn A..."
             />
           </div>
@@ -255,7 +255,7 @@ export function CashbookClient({ shopId }: Props) {
               value={formData.note}
               onChange={(e) => setFormData(prev => ({ ...prev, note: e.target.value }))}
               rows={3}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#0268FF] focus:outline-none resize-none"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none resize-none"
               placeholder="Lý do thu chi..."
             />
           </div>

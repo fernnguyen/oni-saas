@@ -101,7 +101,7 @@ export function OrderHistoryPanel({ open, onClose, heldCarts, onLoadHeld, onDisc
         <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-4 py-3">
           <div className="flex items-center gap-2 min-w-0">
             <h2 className="text-sm font-semibold text-slate-900">Quản lý đơn hàng</h2>
-            <a href={ordersPath} className="text-xs text-[#0268FF] hover:underline shrink-0">Xem tất cả →</a>
+            <a href={ordersPath} className="text-xs text-primary hover:underline shrink-0">Xem tất cả →</a>
           </div>
           <button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100">✕</button>
         </div>
@@ -113,7 +113,7 @@ export function OrderHistoryPanel({ open, onClose, heldCarts, onLoadHeld, onDisc
             className={[
               'flex-1 py-2.5 text-xs font-medium transition-colors',
               tab === 'held'
-                ? 'border-b-2 border-[#0268FF] text-[#0268FF]'
+                ? 'border-b-2 border-primary text-primary'
                 : 'text-slate-500 hover:text-slate-700',
             ].join(' ')}
           >
@@ -129,7 +129,7 @@ export function OrderHistoryPanel({ open, onClose, heldCarts, onLoadHeld, onDisc
             className={[
               'flex-1 py-2.5 text-xs font-medium transition-colors',
               tab === 'today'
-                ? 'border-b-2 border-[#0268FF] text-[#0268FF]'
+                ? 'border-b-2 border-primary text-primary'
                 : 'text-slate-500 hover:text-slate-700',
             ].join(' ')}
           >
@@ -160,14 +160,14 @@ export function OrderHistoryPanel({ open, onClose, heldCarts, onLoadHeld, onDisc
                         {h.customer && ` · ${h.customer.name}`}
                         {h.discount_amount > 0 && ` · giảm ${fmtVND(h.discount_amount)}`}
                       </p>
-                      <p className="text-xs font-semibold text-[#0268FF]">
+                      <p className="text-xs font-semibold text-primary">
                         {fmtVND(h.items.reduce((s, i) => s + Number(i.line_total), 0) - Number(h.discount_amount))}
                       </p>
                     </div>
                     <div className="ml-3 flex shrink-0 gap-2">
                       <button
                         onClick={() => { onLoadHeld(h); onClose() }}
-                        className="rounded-lg bg-[#0268FF] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#0256CC] transition-colors"
+                        className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary-dark transition-colors"
                       >
                         Tải
                       </button>

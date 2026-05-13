@@ -98,7 +98,7 @@ function NewShopForm() {
                 <select
                   value={tenantId}
                   onChange={(e) => setTenantId(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm focus:border-[#0268FF] focus:outline-none focus:ring-2 focus:ring-[#0268FF]/20"
+                  className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                   required
                 >
                   <option value="">— Chọn tổ chức —</option>
@@ -116,7 +116,7 @@ function NewShopForm() {
               value={name}
               onChange={(e) => handleNameChange(e.target.value)}
               placeholder="VD: Cơ sở 1 – Quận 1"
-              className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm focus:border-[#0268FF] focus:outline-none focus:ring-2 focus:ring-[#0268FF]/20"
+              className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
               required
             />
           </div>
@@ -127,12 +127,12 @@ function NewShopForm() {
               value={slug}
               onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
               placeholder="co-so-1"
-              className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-mono focus:border-[#0268FF] focus:outline-none focus:ring-2 focus:ring-[#0268FF]/20"
+              className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-mono focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
               required
             />
             {urlPreview && (
               <p className="mt-1.5 text-xs text-slate-400">
-                Subdomain: <span className="font-mono text-[#0268FF]">{urlPreview}</span>
+                Subdomain: <span className="font-mono text-primary">{urlPreview}</span>
               </p>
             )}
           </div>
@@ -145,7 +145,7 @@ function NewShopForm() {
               value={address}
               onChange={(e) => setAddress(e.target.value)}
               placeholder="123 Nguyễn Trãi, Q.1, TP.HCM"
-              className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm focus:border-[#0268FF] focus:outline-none focus:ring-2 focus:ring-[#0268FF]/20"
+              className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
             />
           </div>
 
@@ -158,7 +158,7 @@ function NewShopForm() {
             <button
               type="submit"
               disabled={loading || !name || !slug || !tenantId}
-              className="flex-1 rounded-xl bg-[#0268FF] px-4 py-3 text-sm font-semibold text-white hover:bg-[#0256CC] disabled:opacity-50 transition-colors"
+              className="flex-1 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-white hover:bg-primary-dark disabled:opacity-50 transition-colors"
             >
               {loading ? 'Đang tạo...' : 'Tạo chi nhánh'}
             </button>

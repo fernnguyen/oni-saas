@@ -54,12 +54,12 @@ export default async function EditTenantPage({
             name="name"
             defaultValue={tenant.name}
             required
-            className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0268FF]"
+            className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
           />
         </div>
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1.5">Slug (subdomain)</label>
-          <div className="flex items-center rounded-xl border border-slate-200 overflow-hidden focus-within:ring-2 focus-within:ring-[#0268FF]">
+          <div className="flex items-center rounded-xl border border-slate-200 overflow-hidden focus-within:ring-2 focus-within:ring-primary">
             <input
               name="slug"
               defaultValue={tenant.slug}
@@ -75,7 +75,7 @@ export default async function EditTenantPage({
         <div className="flex items-center gap-3 pt-2">
           <button
             type="submit"
-            className="rounded-xl bg-[#0268FF] px-5 py-2.5 text-sm font-medium text-white hover:bg-[#0256CC] transition-colors"
+            className="rounded-xl bg-primary px-5 py-2.5 text-sm font-medium text-white hover:bg-primary-dark transition-colors"
           >
             Lưu thay đổi
           </button>
