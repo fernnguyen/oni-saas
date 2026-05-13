@@ -25,6 +25,7 @@ interface TopbarProps {
   currentBranchAddress?: string | null;
   context?: 'control' | 'shop' | 'super';
   onMobileMenuClick?: () => void;
+  hidePlanBadge?: boolean;
 }
 
 export function Topbar({
@@ -45,6 +46,7 @@ export function Topbar({
   currentBranchAddress,
   context = 'shop',
   onMobileMenuClick,
+  hidePlanBadge,
 }: TopbarProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [logoutConfirm, setLogoutConfirm] = useState(false);
@@ -95,7 +97,7 @@ export function Topbar({
         {/* Right: actions + user menu */}
         <div className="flex items-center gap-2 ml-auto">
           {/* Plan info card */}
-          {planCode && planName && tenantId && (
+          {!hidePlanBadge && planCode && planName && tenantId && (
             <PlanBadge
               tenantId={tenantId}
               planCode={planCode}

@@ -11,6 +11,10 @@ interface SidebarProps {
   tenantHref?: string;
   connectorsHref?: string;
   settingsHref?: string;
+  tenantBillingHref?: string;
+  tenantSettingsHref?: string;
+  tenantTeamHref?: string;
+  tenantRolesHref?: string;
   permissions?: string[];
   context?: 'control' | 'shop' | 'super';
   tenantId?: string;
@@ -61,6 +65,10 @@ function SidebarContent({
   tenantHref,
   connectorsHref,
   settingsHref,
+  tenantBillingHref,
+  tenantSettingsHref,
+  tenantTeamHref,
+  tenantRolesHref,
   permissions,
   context,
   tenantId,
@@ -76,6 +84,10 @@ function SidebarContent({
   tenantHref?: string;
   connectorsHref?: string;
   settingsHref?: string;
+  tenantBillingHref?: string;
+  tenantSettingsHref?: string;
+  tenantTeamHref?: string;
+  tenantRolesHref?: string;
   permissions: string[];
   context: 'control' | 'shop' | 'super';
   tenantId?: string;
@@ -87,7 +99,7 @@ function SidebarContent({
 }) {
   const pathname = usePathname();
   const navGroups = buildNavGroups(
-    { basePath, supportHref, tenantHref, connectorsHref, settingsHref, context },
+    { basePath, supportHref, tenantHref, connectorsHref, settingsHref, tenantBillingHref, tenantSettingsHref, tenantTeamHref, tenantRolesHref, context },
     permissions,
   );
 
@@ -167,7 +179,15 @@ function SidebarContent({
                 const linkEl = (
                   <Link
                     href={item.href}
-                    onClick={onClose}
+                    onClick={(e) => {
+                      if (item.href === '#plan-modal') {
+                        e.preventDefault();
+                        window.dispatchEvent(new CustomEvent('open-plan-modal'));
+                        if (onClose) onClose();
+                        return;
+                      }
+                      if (onClose) onClose();
+                    }}
                     className={`flex items-center rounded-md py-2 text-sm transition-colors ${
                       collapsed ? 'justify-center px-2' : 'gap-2.5 px-2.5'
                     } ${
@@ -225,6 +245,10 @@ export function Sidebar({
   tenantHref,
   connectorsHref,
   settingsHref,
+  tenantBillingHref,
+  tenantSettingsHref,
+  tenantTeamHref,
+  tenantRolesHref,
   permissions = [],
   context = 'shop',
   tenantId,
@@ -255,6 +279,10 @@ export function Sidebar({
     tenantHref,
     connectorsHref,
     settingsHref,
+    tenantBillingHref,
+    tenantSettingsHref,
+    tenantTeamHref,
+    tenantRolesHref,
     permissions,
     context,
     tenantId,

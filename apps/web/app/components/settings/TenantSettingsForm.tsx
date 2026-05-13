@@ -163,10 +163,17 @@ function ConnectorCard({
             {isMysql ? 'Shared Local DB' : connector.sheet_id}
           </p>
         </div>
-        <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium shrink-0 ${isError ? 'border-red-200 bg-red-50 text-red-700' : 'border-green-200 bg-green-50 text-green-700'}`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${isError ? 'bg-red-500' : 'bg-green-500'}`} />
-          {isError ? 'Lỗi' : 'Hoạt động'}
-        </span>
+        <div className="flex flex-col items-end gap-1.5 shrink-0">
+          <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${isError ? 'border-red-200 bg-red-50 text-red-700' : 'border-green-200 bg-green-50 text-green-700'}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${isError ? 'bg-red-500' : 'bg-green-500'}`} />
+            {isError ? 'Lỗi' : 'Hoạt động'}
+          </span>
+          {isMysql && (
+            <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 border border-slate-200">
+              Chỉ đọc
+            </span>
+          )}
+        </div>
       </div>
       <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
         <span>Cập nhật {formatRelative(connector.updated_at)}</span>

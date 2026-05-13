@@ -4,6 +4,7 @@ import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
 import { TenantSettingsForm } from '@/app/components/settings/TenantSettingsForm';
 import { DashboardShell } from '@/app/components/layout/DashboardShell';
 import { getUserPermissions } from '@/lib/server/permissions';
+import { getTenantActivePlanDetails } from '@/lib/server/subscriptions';
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -67,6 +68,13 @@ export default async function TenantSettingsPage({ params }: Props) {
       }
     : null;
 
+  // Fetch all shops to find the default one for the sidebar
+  const { data: shops } = await admin.from('shops').select('id, name, slug').eq('tenant_id', tenant.id);
+  if (!shops || shops.length === 0) notFound();
+  
+  const defaultShop = shops[0];
+  const homePath = `/${defaultShop.slug}`;
+
   const permissions = await getUserPermissions(authData.user.id, tenant.id, null).catch(() => []);
   
   const displayName: string =
@@ -78,23 +86,35 @@ export default async function TenantSettingsPage({ params }: Props) {
     process.env.NEXT_PUBLIC_SITE_URL ??
     `http://${process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000'}`;
 
+  const planDetails = await getTenantActivePlanDetails(tenant.id);
+
   return (
     <DashboardShell
       tenantId={tenant.id}
       tenantName={tenant.name}
+      shopName={defaultShop.name}
       userEmail={authData.user.email}
       displayName={displayName || undefined}
       roleName={roleName || undefined}
-      sidebarBasePath={`/t/${slug}`}
+      sidebarBasePath={homePath}
       tenantHref={`${controlPlaneOrigin}/dashboard/tenants`}
-      connectorsHref={`/t/${slug}/settings`}
-      settingsHref={`/t/${slug}/settings`}
-      accountHref={`/t/${slug}/account`}
-      supportHref={`/t/${slug}/support`}
+      connectorsHref={`${homePath}/connectors`}
+      settingsHref={`${homePath}/settings`}
+      tenantBillingHref={`/billing`}
+      tenantSettingsHref={`/settings`}
+      tenantTeamHref={`/team`}
+      tenantRolesHref={`/roles`}
+      accountHref={`${homePath}/account`}
+      supportHref={`${homePath}/support`}
       permissions={permissions}
-      sidebarContext="control"
+      sidebarContext="shop"
+      currentBranchSlug={defaultShop.slug}
+      planCode={planDetails?.planCode}
+      planName={planDetails?.planName}
+      periodStart={planDetails?.periodStart}
+      periodEnd={planDetails?.periodEnd}
     >
-      <div className="mx-auto max-w-4xl">
+      <div className="space-y-6">
         <div className="mb-6">
           <h1 className="text-xl font-semibold text-slate-900">Cài đặt workspace</h1>
           <p className="mt-1 text-sm text-slate-500">{tenant.name} · {tenant.slug}</p>

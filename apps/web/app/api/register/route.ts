@@ -96,12 +96,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: shopError.message }, { status: 400 });
   }
 
-  // 5 — Assign default Local DB connector
+  // 5 — Assign default Local DB connector (System worker, Read-only)
   await admin.from('connectors').insert({
     tenant_id: tenantId,
     type: 'mysql_local',
     status: 'active',
-    config: {}
+    config: {
+      is_system: true,
+      read_only: true,
+      worker_name: 'Database Hệ thống'
+    }
   });
 
   const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';

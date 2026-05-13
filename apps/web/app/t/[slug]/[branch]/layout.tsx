@@ -105,6 +105,10 @@ export default async function BranchLayout({ params, children }: Props) {
       tenantHref={`${controlPlaneOrigin}/dashboard/tenants`}
       connectorsHref={`${homePath}/connectors`}
       settingsHref={`${homePath}/settings`}
+      tenantBillingHref={`/billing`}
+      tenantSettingsHref={`/settings`}
+      tenantTeamHref={`/team`}
+      tenantRolesHref={`/roles`}
       accountHref={`${homePath}/account`}
       supportHref={`${homePath}/support`}
       permissions={permissions}

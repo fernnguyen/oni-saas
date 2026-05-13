@@ -18,6 +18,10 @@ interface DashboardShellProps {
   tenantHref?: string;
   connectorsHref?: string;
   settingsHref?: string;
+  tenantBillingHref?: string;
+  tenantSettingsHref?: string;
+  tenantTeamHref?: string;
+  tenantRolesHref?: string;
   accountHref?: string;
   permissions?: string[];
   /** 'control' = org management; 'shop' = shop operations (default); 'super' = superadmin */
@@ -28,6 +32,7 @@ interface DashboardShellProps {
   periodEnd?: string;
   currentBranchSlug?: string;
   currentBranchAddress?: string | null;
+  hidePlanBadge?: boolean;
 }
 
 export function DashboardShell({
@@ -43,6 +48,10 @@ export function DashboardShell({
   tenantHref,
   connectorsHref,
   settingsHref,
+  tenantBillingHref,
+  tenantSettingsHref,
+  tenantTeamHref,
+  tenantRolesHref,
   accountHref,
   permissions = [],
   sidebarContext = 'shop',
@@ -52,6 +61,7 @@ export function DashboardShell({
   periodEnd,
   currentBranchSlug,
   currentBranchAddress,
+  hidePlanBadge,
 }: DashboardShellProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
@@ -64,6 +74,10 @@ export function DashboardShell({
           tenantHref={tenantHref}
           connectorsHref={connectorsHref}
           settingsHref={settingsHref}
+          tenantBillingHref={tenantBillingHref}
+          tenantSettingsHref={tenantSettingsHref}
+          tenantTeamHref={tenantTeamHref}
+          tenantRolesHref={tenantRolesHref}
           permissions={permissions}
           context={sidebarContext}
           tenantId={tenantId}
@@ -92,6 +106,7 @@ export function DashboardShell({
             currentBranchAddress={currentBranchAddress}
             context={sidebarContext}
             onMobileMenuClick={() => setMobileNavOpen(true)}
+            hidePlanBadge={hidePlanBadge}
           />
           <main className="flex-1 p-4 md:p-6">
             {children}

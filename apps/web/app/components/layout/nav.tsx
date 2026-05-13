@@ -22,6 +22,10 @@ interface BuildNavOptions {
   tenantHref?: string;
   connectorsHref?: string;
   settingsHref?: string;
+  tenantBillingHref?: string;
+  tenantSettingsHref?: string;
+  tenantTeamHref?: string;
+  tenantRolesHref?: string;
   /** 'control' = org management; 'shop' = shop operations; 'super' = superadmin panel */
   context?: 'control' | 'shop' | 'super';
 }
@@ -84,7 +88,7 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
       {
         label: 'Hệ thống',
         items: [
-          { href: joinPath(base, '/billing'), label: 'Gói dịch vụ', icon: IconMoney,    permission: 'settings.view' },
+          { href: '#plan-modal', label: 'Gói dịch vụ', icon: IconMoney,    permission: 'settings.view' },
           { href: joinPath(base, '/roles'),   label: 'Phân quyền',  icon: IconShield,   permission: 'roles.view' },
           { href: options.settingsHref ?? '#', label: 'Cài đặt',   icon: IconSettings, permission: 'settings.view' },
         ],
@@ -138,11 +142,18 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
       ],
     },
     {
+      label: 'Quản lý chi nhánh',
+      items: [
+        { href: options.settingsHref ?? '#',   label: 'Cài đặt',         icon: IconSettings, permission: 'settings.view' },
+      ],
+    },
+    {
       label: 'Hệ thống',
       items: [
-        { href: joinPath(base, '/team'),       label: 'Thành viên',      icon: IconUsers,    permission: 'users.view' },
-        { href: joinPath(base, '/roles'),      label: 'Phân quyền',      icon: IconShield,   permission: 'roles.view' },
-        { href: options.settingsHref ?? '#',   label: 'Cài đặt',         icon: IconSettings, permission: 'settings.view' },
+        { href: options.tenantBillingHref ?? '#', label: 'Gói dịch vụ', icon: IconMoney,    permission: 'settings.view' },
+        { href: options.tenantTeamHref ?? '#',    label: 'Thành viên',      icon: IconUsers,    permission: 'users.view' },
+        { href: options.tenantRolesHref ?? '#',   label: 'Phân quyền',      icon: IconShield,   permission: 'roles.view' },
+        { href: options.tenantSettingsHref ?? '#', label: 'Cài đặt tổ chức', icon: IconSettings, permission: 'settings.view' },
       ],
     },
   ]);
