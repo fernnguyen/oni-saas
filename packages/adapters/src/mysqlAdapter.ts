@@ -91,6 +91,8 @@ export class MysqlConnector implements IDataConnector {
     'returns': 'return_id',
     'return-items': 'item_id',
     'cashbook': 'transaction_id',
+    'payments': 'payment_id',
+    'branches': 'branch_id',
   }
 
   private formatRow(entity: string, row: any): Record<string, string> {
