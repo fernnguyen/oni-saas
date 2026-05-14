@@ -11,6 +11,13 @@ import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog'
 import { SearchBar } from '@/app/components/ui/SearchBar'
 import { PageHeader } from '@/app/components/ui/PageHeader'
 
+const Plus = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+const Eye = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+const Trash2 = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+const Check = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polyline points="20 6 9 17 4 12"/></svg>
+const X = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+const PackageCheck = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M16 16l2 2 4-4"/><path d="M21 10V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l2-1.14"/><path d="M16.5 9.4L7.55 4.24"/><polyline points="3.29 7 12 12 20.71 7"/><line x1="12" y1="22" x2="12" y2="12"/></svg>
+
 interface Props { shopId: string }
 type Row = Record<string, string>
 
@@ -246,17 +253,17 @@ export function ReturnsClient({ shopId }: Props) {
       render: (row) => (
         <div className="flex items-center gap-2">
           <button
-            className="rounded-lg border border-slate-200 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50"
+            className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50"
             onClick={() => setSelected(row)}
           >
-            Xem
+            <Eye className="h-3.5 w-3.5" /> Xem
           </button>
           {row.status !== 'processed' && (
             <button
-              className="rounded-lg border border-red-100 px-3 py-1 text-xs text-red-500 hover:bg-red-50"
+              className="flex items-center gap-1.5 rounded-lg border border-red-100 px-3 py-1 text-xs text-red-500 hover:bg-red-50"
               onClick={() => setDeleteTarget(row)}
             >
-              Xóa
+              <Trash2 className="h-3.5 w-3.5" /> Xóa
             </button>
           )}
         </div>
@@ -286,9 +293,9 @@ export function ReturnsClient({ shopId }: Props) {
         actions={
           <button
             onClick={() => setShowCreate(true)}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
           >
-            + Tạo phiếu trả
+            <Plus className="h-4 w-4" /> Tạo phiếu trả
           </button>
         }
       />
@@ -448,24 +455,24 @@ export function ReturnsClient({ shopId }: Props) {
                   <>
                     <button
                       onClick={() => setConfirmAction('approved')}
-                      className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100"
+                      className="flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100"
                     >
-                      Duyệt
+                      <Check className="h-3.5 w-3.5" /> Duyệt
                     </button>
                     <button
                       onClick={() => setConfirmAction('rejected')}
-                      className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"
+                      className="flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"
                     >
-                      Từ chối
+                      <X className="h-3.5 w-3.5" /> Từ chối
                     </button>
                   </>
                 )}
                 {(selected.status === 'pending' || selected.status === 'approved') && (
                   <button
                     onClick={() => setConfirmAction('process')}
-                    className="rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700"
+                    className="flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700"
                   >
-                    Xử lý & nhập kho
+                    <PackageCheck className="h-3.5 w-3.5" /> Xử lý & nhập kho
                   </button>
                 )}
               </div>
@@ -518,9 +525,9 @@ export function ReturnsClient({ shopId }: Props) {
                 {selected.status !== 'processed' && (
                   <button
                     onClick={() => setAddingItem(true)}
-                    className="text-xs text-blue-600 hover:underline"
+                    className="flex items-center gap-1 text-xs text-blue-600 hover:underline"
                   >
-                    + Thêm sản phẩm
+                    <Plus className="h-3 w-3" /> Thêm sản phẩm
                   </button>
                 )}
               </div>
