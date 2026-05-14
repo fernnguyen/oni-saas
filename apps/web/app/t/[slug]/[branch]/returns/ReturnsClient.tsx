@@ -547,8 +547,8 @@ export function ReturnsClient({ shopId }: Props) {
                     </tr>
                   </thead>
                   <tbody>
-                    {items.map((item) => (
-                      <tr key={item.item_id} className="border-b border-slate-50">
+                    {items.map((item, index) => (
+                      <tr key={`${item.item_id || item.product_id}-${index}`} className="border-b border-slate-50">
                         <td className="py-2">
                           <p className="font-medium">{item.product_name || item.product_id}</p>
                           {item.sku && <p className="text-xs text-slate-400">{item.sku}</p>}

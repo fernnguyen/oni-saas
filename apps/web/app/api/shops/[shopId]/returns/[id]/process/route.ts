@@ -15,7 +15,7 @@ export async function POST(
 ) {
   try {
     const { shopId, id } = await params
-    const { connector, shop } = await requireShopAccess(shopId, 'returns.approve')
+    const { connector, shop, user } = await requireShopAccess(shopId, 'returns.approve')
     const body = await req.json().catch(() => ({}))
     const processedBy: string = body.processed_by ?? ''
 
@@ -58,12 +58,14 @@ export async function POST(
 
     const returnRef = r.return_no || r.return_id || id
 
+    const generatedStockMovements: string[] = []
     for (const item of items) {
       const qty   = parseFloat(item.qty_returned || '0')
       const delta = Math.abs(qty)
 
       pthCounter += 1
       const movementNo = `PTH-${String(pthCounter).padStart(3, '0')}`
+      generatedStockMovements.push(movementNo)
 
       await connector.create('stock-movements', {
         type:         'return_in',
@@ -114,22 +116,26 @@ export async function POST(
     })
 
     // 4.5. Log Cashbook payment if a refund is issued
+    let cashbookId = ''
     if (r.refund_method !== 'none' && r.refund_method !== 'store_credit') {
       const refundAmount = parseFloat(r.total_refund || '0')
       if (refundAmount > 0) {
-        await connector.create('cashbook', {
-          type:           'payment', // Phiếu chi
-          amount:         String(refundAmount),
-          method:         r.refund_method,
-          category:       'other',
-          reference_id:   returnRef,
-          reference_name: r.customer_name ?? '',
-          note:           `Hoàn tiền phiếu trả hàng ${returnRef}${r.order_no ? ` (Đơn ${r.order_no})` : ''}`,
-          employee_id:    processedBy,
-          branch_id:      '',
-        }).catch(err => {
+        try {
+          const cb = await connector.create('cashbook', {
+            type:           'payment', // Phiếu chi
+            amount:         String(refundAmount),
+            method:         r.refund_method,
+            category:       'other',
+            reference_id:   returnRef,
+            reference_name: r.customer_name ?? '',
+            note:           `Hoàn tiền phiếu trả hàng ${returnRef}${r.order_no ? ` (Đơn ${r.order_no})` : ''}`,
+            employee_id:    processedBy,
+            branch_id:      '',
+          })
+          cashbookId = (cb as Record<string, string>).transaction_id || ''
+        } catch (err) {
           console.error('Failed to log cashbook for return refund:', err)
-        })
+        }
       }
     }
 
@@ -157,14 +163,32 @@ export async function POST(
     }
 
     const domainName = process.env.NEXT_PUBLIC_ROOT_DOMAIN || 'oni.vn'
+    const tenantDomain = `${shop.slug}.${domainName}`
     const processedByEmail = user.user_metadata?.display_name || user.user_metadata?.full_name || user.email || 'Hệ thống'
     const totalRefund = Number(r.total_refund || 0)
-    const orderNo = r.order_no || 'Không có'
+    
+    let actualOrderNo = r.order_no || r.order_id || 'Không có'
+    if (r.order_id && (!r.order_no || r.order_no === '')) {
+      try {
+        const orderData = await connector.findById('orders', r.order_id)
+        if (orderData) {
+          actualOrderNo = (orderData as any).order_no || r.order_id
+        }
+      } catch (err) {
+        console.error('Failed to fetch order for return payload:', err)
+      }
+    }
+
     const customerName = r.customer_name || 'Khách lẻ'
+    
+    // Build extra details
+    const stockMovementsText = generatedStockMovements.length > 0 ? `Đã tạo phiếu nhập kho ${generatedStockMovements.map(m => `#${m}`).join(', ')}` : ''
+    const cashbookText = cashbookId ? `\nSổ quỹ: Đã tạo phiếu chi #${cashbookId}` : (r.refund_method !== 'none' && r.refund_method !== 'store_credit' && totalRefund > 0 ? `\nSổ quỹ: Đã tạo phiếu chi hoàn tiền` : '')
+    const inventoryInfo = stockMovementsText ? `\nKho hàng: ${stockMovementsText}` : ''
 
     dispatchNotification(shop.tenant_id, 'ORDER_RETURNED', {
       title: 'Khách trả hàng',
-      message: `Phiếu trả hàng: ${returnRef}\nĐơn gốc: ${orderNo}\nKhách hàng: ${customerName}\nHoàn tiền: ${totalRefund.toLocaleString('vi-VN')}đ${r.note ? `\nGhi chú: ${r.note}` : ''}\n\n📝 Người xử lý: ${processedByEmail} (${domainName})`
+      message: `Phiếu trả hàng: ${returnRef}\nĐơn gốc: ${actualOrderNo}\nKhách hàng: ${customerName}\nHoàn tiền: ${totalRefund.toLocaleString('vi-VN')}đ${inventoryInfo}${cashbookText}${r.note ? `\nGhi chú: ${r.note}` : ''}\n\n📝 Người xử lý: ${processedByEmail} (${tenantDomain})`
     }).catch(err => console.error('Failed to dispatch ORDER_RETURNED:', err))
 
     invalidate(shopId, 'returns')
