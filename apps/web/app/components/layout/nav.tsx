@@ -112,7 +112,6 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
       items: [
         { href: joinPath(base, '/products'),   label: 'Sản phẩm',    icon: IconBox,       permission: 'products.view' },
         { href: joinPath(base, '/categories'), label: 'Danh mục',    icon: IconGrid,      permission: 'products.view' },
-        { href: joinPath(base, '/suppliers'),  label: 'Nhà cung cấp', icon: IconTruck,    permission: 'inventory.view' },
         { href: joinPath(base, '/employees'),  label: 'Nhân viên',   icon: IconUsers,     permission: 'dashboard.view' },
       ],
     },
@@ -121,6 +120,7 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
       items: [
         { href: joinPath(base, '/shipping'),  label: 'Vận chuyển',      icon: IconTruck,     permission: 'shipping.view' },
         { href: joinPath(base, '/inventory'), label: 'Kho',             icon: IconWarehouse, permission: 'inventory.view' },
+        { href: joinPath(base, '/suppliers'),  label: 'Nhà cung cấp',   icon: IconTruck,     permission: 'inventory.view' },
         { href: joinPath(base, '/partners'),  label: 'Quản lý đối tác', icon: IconUsers,     permission: 'partners.view' },
         { href: joinPath(base, '/debt'),       label: 'Công nợ',          icon: IconMoney,     permission: 'debt.view' },
         { href: joinPath(base, '/cashbook'),           label: 'Sổ quỹ',       icon: IconReceipt,  permission: 'cashbook.view' },

@@ -160,6 +160,12 @@ export const stock_movements = mysqlTable('stock_movements', {
   reference_no: varchar('reference_no', { length: 255 }),
   employee_id: varchar('employee_id', { length: 255 }),
   reason: text('reason'),
+  batch_no: varchar('batch_no', { length: 255 }),
+  shipment_no: varchar('shipment_no', { length: 255 }),
+  workflow_status: varchar('workflow_status', { length: 50 }),
+  payment_status: varchar('payment_status', { length: 50 }),
+  paid_amount: varchar('paid_amount', { length: 50 }),
+  payment_method: varchar('payment_method', { length: 50 }),
 });
 
 export const price_lists = mysqlTable('price_lists', {

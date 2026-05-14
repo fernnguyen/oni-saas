@@ -21,6 +21,12 @@ export const stockMovementCreateSchema = z.object({
   reference_no: z.string().optional().default(''),
   employee_id:  z.string().optional().default(''),
   reason:       z.string().optional().default(''),
+  batch_no:     z.string().optional().default(''),
+  shipment_no:  z.string().optional().default(''),
+  workflow_status: z.enum(['draft', 'completed']).optional().default('completed'),
+  payment_status: z.enum(['paid', 'partial', 'unpaid']).optional().default('paid'),
+  paid_amount:  z.string().optional().default('0'),
+  payment_method: z.string().optional().default('cash'),
 })
 
 export const stockMovementUpdateSchema = stockMovementCreateSchema.partial()

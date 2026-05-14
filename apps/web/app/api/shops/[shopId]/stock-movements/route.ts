@@ -112,57 +112,77 @@ export async function POST(
       movement_no: movementNo,
     })
 
-    // 2. Upsert inventory stock_qty
-    // Sheets rows often store branch_id as empty string while callers pass a UUID.
-    // Try the exact branch_id first, then fall back to empty-string branch_id so
-    // sale_out movements (delta < 0) actually find and update the right row.
-    const delta = calcDelta(data.type, parseFloat(data.qty))
-    const branchId = data.branch_id ?? ''
+    if (data.workflow_status === 'completed') {
+      // 2. Upsert inventory stock_qty
+      const delta = calcDelta(data.type, parseFloat(data.qty))
+      const branchId = data.branch_id ?? ''
 
-    let invResult = await connector.list('inventory', {
-      page: 1, limit: 1,
-      filters: { product_id: data.product_id, branch_id: branchId },
-    })
-    if (invResult.data.length === 0 && branchId !== '') {
-      invResult = await connector.list('inventory', {
+      let invResult = await connector.list('inventory', {
         page: 1, limit: 1,
-        filters: { product_id: data.product_id, branch_id: '' },
+        filters: { product_id: data.product_id, branch_id: branchId },
       })
-    }
-    if (invResult.data.length === 0) {
-      invResult = await connector.list('inventory', {
-        page: 1, limit: 1,
-        filters: { product_id: data.product_id },
-      })
+      if (invResult.data.length === 0 && branchId !== '') {
+        invResult = await connector.list('inventory', {
+          page: 1, limit: 1,
+          filters: { product_id: data.product_id, branch_id: '' },
+        })
+      }
+      if (invResult.data.length === 0) {
+        invResult = await connector.list('inventory', {
+          page: 1, limit: 1,
+          filters: { product_id: data.product_id },
+        })
+      }
+
+      if (invResult.data.length > 0) {
+        const inv = invResult.data[0] as Record<string, string>
+        const newQty = Math.max(0, parseFloat(inv.stock_qty || '0') + delta)
+        await connector.update('inventory', inv.inventory_id as string, {
+          stock_qty: String(newQty),
+        })
+      } else if (delta > 0) {
+        // Create inventory row only for inbound movements.
+        await connector.create('inventory', {
+          product_id: data.product_id,
+          branch_id: '',
+          stock_qty: String(delta),
+          min_stock: '0',
+          sku: data.sku || '',
+        } as Record<string, string>)
+      }
+
+      // 3. Update product cost_price
+      if (data.unit_cost && INBOUND_TYPES.includes(data.type)) {
+        try {
+          await connector.update('products', data.product_id, { cost_price: data.unit_cost })
+          invalidate(shopId, 'products')
+        } catch {
+          // best-effort: don't fail nhập kho if product update fails
+        }
+      }
     }
 
-    if (invResult.data.length > 0) {
-      const inv = invResult.data[0] as Record<string, string>
-      const newQty = Math.max(0, parseFloat(inv.stock_qty || '0') + delta)
-      await connector.update('inventory', inv.inventory_id as string, {
-        stock_qty: String(newQty),
-      })
-    } else if (delta > 0) {
-      // Create inventory row only for inbound movements.
-      // cost_price is NOT stored here — Inventory tab may lack the column.
-      await connector.create('inventory', {
-        product_id: data.product_id,
-        branch_id: '',
-        stock_qty: String(delta),
-        min_stock: '0',
-        sku: data.sku || '',
-      } as Record<string, string>)
-    }
-
-    // 3. Update product cost_price (Products tab always has this column).
-    //    For inbound movements with a unit_cost, use the new cost as the product's cost price.
-    //    This acts as a "last purchase price" — simple and practical for small shops.
-    if (data.unit_cost && INBOUND_TYPES.includes(data.type)) {
-      try {
-        await connector.update('products', data.product_id, { cost_price: data.unit_cost })
-        invalidate(shopId, 'products')
-      } catch {
-        // best-effort: don't fail nhập kho if product update fails
+    // 4. Log cashbook payment if paid
+    if (data.type === 'purchase_in' && data.payment_status && data.payment_status !== 'unpaid') {
+      const paidAmt = parseFloat(data.paid_amount || '0')
+      if (paidAmt > 0) {
+        try {
+          // If there is a supplier ID, we could fetch their name, but for now we just log the ID
+          const supplierName = data.supplier_id ? `Nhà cung cấp` : 'Khách lẻ / Không xác định'
+          await connector.create('cashbook', {
+            type:           'payment',
+            amount:         String(paidAmt),
+            method:         data.payment_method || 'cash',
+            category:       'inventory',
+            reference_id:   movementNo,
+            reference_name: supplierName,
+            note:           `Thanh toán phiếu nhập kho ${movementNo}`,
+            employee_id:    data.employee_id || '',
+            branch_id:      data.branch_id || '',
+          })
+        } catch (err) {
+          console.error('Failed to log cashbook for stock movement:', err)
+        }
       }
     }
 
