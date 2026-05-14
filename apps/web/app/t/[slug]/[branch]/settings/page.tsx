@@ -27,7 +27,7 @@ export default async function BranchSettingsPage({ params }: Props) {
 
   if (!shop) notFound();
   const permissions: string[] = await getUserPermissions(authData.user.id, shop.tenant_id, shop.id).catch(() => []);
-  if (!permissions.includes('settings.view')) {
+  if (!permissions.includes('settings.view') && !permissions.includes('shops.view') && !permissions.includes('shops.manage')) {
     return (
       <div className="space-y-6">
         <div>
@@ -44,7 +44,7 @@ export default async function BranchSettingsPage({ params }: Props) {
   ]);
 
   const canManage =
-    permissions.includes('settings.manage');
+    permissions.includes('settings.manage') || permissions.includes('shops.manage');
 
   const defaultSettings = {
     shop_id: shopId,
@@ -56,6 +56,7 @@ export default async function BranchSettingsPage({ params }: Props) {
     low_stock_threshold: 5,
     allow_negative_stock: false,
     auto_print_receipt: true,
+    mute_pos_sound: false,
     default_price_type: 'retail',
     synced_from_sheet_at: null as string | null,
     updated_at: new Date().toISOString(),

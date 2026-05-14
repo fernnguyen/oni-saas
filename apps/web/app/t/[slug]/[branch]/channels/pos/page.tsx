@@ -52,11 +52,12 @@ export default async function POSPage({ params }: Props) {
 
   const { data: settings } = await admin
     .from('shop_settings')
-    .select('auto_print_receipt')
+    .select('auto_print_receipt, mute_pos_sound')
     .eq('shop_id', shop.id)
     .maybeSingle()
 
   const autoPrintReceipt = settings?.auto_print_receipt ?? true
+  const mutePosSound = settings?.mute_pos_sound ?? false
 
   const backPath = `/${branch}`
 
@@ -68,6 +69,7 @@ export default async function POSPage({ params }: Props) {
       userEmail={authData.user.email ?? ''}
       backPath={backPath}
       autoPrintReceipt={autoPrintReceipt}
+      mutePosSound={mutePosSound}
     />
   )
 }

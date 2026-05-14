@@ -8,6 +8,7 @@ import { IconBox } from '@/app/components/layout/nav'
 interface Props {
   branchId: string
   inventory: Map<string, number>
+  mutePosSound: boolean
   onAddToCart: (product: LocalProduct) => void
 }
 
@@ -24,7 +25,7 @@ function playBeep() {
   } catch {}
 }
 
-export function ProductGrid({ branchId, inventory, onAddToCart }: Props) {
+export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart }: Props) {
   const [search, setSearch] = useState('')
   const [categoryId, setCategoryId] = useState<string | undefined>(undefined)
   const [categories, setCategories] = useState<LocalCategory[]>([])
@@ -97,7 +98,7 @@ export function ProductGrid({ branchId, inventory, onAddToCart }: Props) {
                   key={product.product_id}
                   onClick={() => {
                     if (!outOfStock) {
-                      playBeep()
+                      if (!mutePosSound) playBeep()
                       onAddToCart(product)
                     }
                   }}

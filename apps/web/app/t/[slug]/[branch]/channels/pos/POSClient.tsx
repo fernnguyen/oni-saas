@@ -22,6 +22,7 @@ interface Props {
   userEmail: string
   backPath: string
   autoPrintReceipt: boolean
+  mutePosSound: boolean
 }
 
 export interface HeldCart {
@@ -37,7 +38,7 @@ export interface HeldCart {
 const shellCls = '-mx-4 -my-4 md:-mx-6 md:-my-6 flex flex-col bg-slate-50 overflow-hidden'
 const shellStyle = { height: 'calc(100vh - 3.5rem)' } as const
 
-export function POSClient({ shopId, branchId, shopName, userEmail, backPath, autoPrintReceipt }: Props) {
+export function POSClient({ shopId, branchId, shopName, userEmail, backPath, autoPrintReceipt, mutePosSound }: Props) {
   const { status, lastHydratedAt, refresh } = usePOSHydration(shopId, branchId)
   const isOnline = useNetworkStatus()
   const confirm = useConfirm()
@@ -45,21 +46,21 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
   const cart = useCart(inventory)
   const [customer, setCustomer] = useState<LocalCustomer | null>(null)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
-  const [heldCarts, setHeldCarts] = useState<HeldCart[]>([])
+  const [heldCarts, setHeldCarts] = useState<HeldCart[]>(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('oni-held-carts')
+      if (stored) {
+        try {
+          return JSON.parse(stored)
+        } catch (e) {}
+      }
+    }
+    return []
+  })
   const [orderPanelOpen, setOrderPanelOpen] = useState(false)
-  const cartHydratedRef = useRef(false)
   const workerRef = useRef<SyncWorker | null>(null)
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem('oni-held-carts')
-      if (stored) setHeldCarts(JSON.parse(stored))
-    } catch {}
-    cartHydratedRef.current = true
-  }, [])
-
-  useEffect(() => {
-    if (!cartHydratedRef.current) return
     localStorage.setItem('oni-held-carts', JSON.stringify(heldCarts))
   }, [heldCarts])
 
@@ -266,7 +267,12 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
       <div className="flex flex-1 overflow-hidden">
         {/* Product grid */}
         <div className="flex-1 overflow-hidden border-r border-slate-200 bg-white">
-          <ProductGrid branchId={branchId} inventory={inventory} onAddToCart={cart.addItem} />
+          <ProductGrid
+            branchId={branchId}
+            inventory={inventory}
+            mutePosSound={mutePosSound}
+            onAddToCart={cart.addItem}
+          />
         </div>
 
         {/* Cart panel */}

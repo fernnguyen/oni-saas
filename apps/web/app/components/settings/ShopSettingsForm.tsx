@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { toast } from 'sonner';
+import { BANKS } from '@/lib/constants/banks';
 
 interface ShopSettings {
   shop_id: string;
@@ -11,8 +13,16 @@ interface ShopSettings {
   invoice_prefix: string;
   low_stock_threshold: number;
   allow_negative_stock: boolean;
-  default_price_type: string;
   auto_print_receipt: boolean;
+  mute_pos_sound: boolean;
+  tax_id?: string | null;
+  wifi_info?: string | null;
+  bank_code?: string | null;
+  bank_account_number?: string | null;
+  bank_account_name?: string | null;
+  qr_template?: string | null;
+  receipt_footer?: string | null;
+  default_price_type: string;
   synced_from_sheet_at: string | null;
   updated_at: string;
 }
@@ -33,7 +43,8 @@ interface Shop {
   id: string;
   name: string;
   slug: string;
-  address: string | null;
+  address?: string | null;
+  phone?: string | null;
 }
 
 interface Props {
@@ -46,8 +57,9 @@ type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
 export function ShopSettingsForm({ shop, settings: initial, canManage }: Props) {
   const [form, setForm] = useState({
-    shop_name: initial.shop_name ?? shop.name,
+    shop_name: shop.name, // always prefer the canonical name from the shops table
     address: shop.address ?? '',
+    phone: shop.phone ?? '',
     currency: initial.currency,
     timezone: initial.timezone,
     tax_rate: String(initial.tax_rate),
@@ -55,6 +67,14 @@ export function ShopSettingsForm({ shop, settings: initial, canManage }: Props) 
     low_stock_threshold: String(initial.low_stock_threshold),
     allow_negative_stock: initial.allow_negative_stock,
     auto_print_receipt: initial.auto_print_receipt ?? true,
+    mute_pos_sound: initial.mute_pos_sound ?? false,
+    tax_id: initial.tax_id ?? '',
+    wifi_info: initial.wifi_info ?? '',
+    bank_code: initial.bank_code ?? '',
+    bank_account_number: initial.bank_account_number ?? '',
+    bank_account_name: initial.bank_account_name ?? '',
+    qr_template: initial.qr_template ?? 'compact2',
+    receipt_footer: initial.receipt_footer ?? '',
     default_price_type: initial.default_price_type,
   });
   const [saveState, setSaveState] = useState<SaveState>('idle');
@@ -72,6 +92,8 @@ export function ShopSettingsForm({ shop, settings: initial, canManage }: Props) 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           shop_name: form.shop_name || undefined,
+          address: form.address || undefined,
+          phone: form.phone || undefined,
           currency: form.currency,
           timezone: form.timezone,
           tax_rate: parseFloat(form.tax_rate) || 0,
@@ -79,14 +101,24 @@ export function ShopSettingsForm({ shop, settings: initial, canManage }: Props) 
           low_stock_threshold: parseInt(form.low_stock_threshold, 10) || 0,
           allow_negative_stock: form.allow_negative_stock,
           auto_print_receipt: form.auto_print_receipt,
+          mute_pos_sound: form.mute_pos_sound,
+          tax_id: form.tax_id || undefined,
+          wifi_info: form.wifi_info || undefined,
+          bank_code: form.bank_code || undefined,
+          bank_account_number: form.bank_account_number || undefined,
+          bank_account_name: form.bank_account_name || undefined,
+          qr_template: form.qr_template || undefined,
+          receipt_footer: form.receipt_footer || undefined,
           default_price_type: form.default_price_type,
         }),
       });
       if (!res.ok) throw new Error();
       setSaveState('saved');
+      toast.success('Đã lưu cấu hình chi nhánh!');
       setTimeout(() => setSaveState('idle'), 2500);
     } catch {
       setSaveState('error');
+      toast.error('Có lỗi xảy ra khi lưu cấu hình. Vui lòng thử lại.');
     }
   }
   return (
@@ -114,11 +146,125 @@ export function ShopSettingsForm({ shop, settings: initial, canManage }: Props) 
                 placeholder="123 Nguyễn Văn A, TP.HCM"
               />
             </Field>
-            <Field label="Subdomain" hint="Không thể thay đổi sau khi tạo">
-              <div className={`${inputCls} bg-slate-50 text-slate-400 cursor-not-allowed`}>
-                {shop.slug}.oni.vn
-              </div>
+            <Field label="Số điện thoại">
+              <input
+                value={form.phone}
+                onChange={(e) => set('phone', e.target.value)}
+                disabled={!canManage}
+                className={inputCls}
+                placeholder="0912 345 678"
+              />
             </Field>
+          </Section>
+
+          {/* ── Section: Thông tin Hóa đơn ── */}
+          <Section title="Thông tin Hóa đơn" description="Các thông tin sẽ được in trên bill thanh toán cho khách">
+            <Field label="Mã số thuế (Tax ID)">
+              <input
+                value={form.tax_id}
+                onChange={(e) => set('tax_id', e.target.value)}
+                disabled={!canManage}
+                className={inputCls}
+                placeholder="0123456789"
+              />
+            </Field>
+            <Field label="Thông tin Wi-Fi" hint="Ví dụ: ONI / 12345678">
+              <input
+                value={form.wifi_info}
+                onChange={(e) => set('wifi_info', e.target.value)}
+                disabled={!canManage}
+                className={inputCls}
+                placeholder="ONI / 12345678"
+              />
+            </Field>
+            <div className="border-t border-slate-100 pt-4 mt-4 lg:flex lg:gap-6">
+              <div className="flex-1 space-y-4">
+                <Field label="Ngân hàng nhận thanh toán" hint="Để khách hàng dễ dàng chuyển khoản">
+                  <select
+                    value={form.bank_code}
+                    onChange={(e) => set('bank_code', e.target.value)}
+                    disabled={!canManage}
+                    className={inputCls}
+                  >
+                    <option value="">-- Chọn ngân hàng --</option>
+                    {BANKS.map((bank: any) => (
+                      <option key={bank.code} value={bank.code}>
+                        {bank.shortName} - {bank.name}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                {form.bank_code && (
+                  <>
+                    <Field label="Số tài khoản">
+                      <input
+                        value={form.bank_account_number}
+                        onChange={(e) => set('bank_account_number', e.target.value)}
+                        disabled={!canManage}
+                        className={inputCls}
+                        placeholder="0123456789"
+                      />
+                    </Field>
+                    <Field label="Tên chủ tài khoản">
+                      <input
+                        value={form.bank_account_name}
+                        onChange={(e) => set('bank_account_name', e.target.value)}
+                        disabled={!canManage}
+                        className={inputCls}
+                        placeholder="NGUYEN VAN A"
+                        style={{ textTransform: 'uppercase' }}
+                      />
+                    </Field>
+                    <Field label="Giao diện QR">
+                      <select
+                        value={form.qr_template}
+                        onChange={(e) => set('qr_template', e.target.value)}
+                        disabled={!canManage}
+                        className={inputCls}
+                      >
+                        <option value="compact2">Compact 2 (Kèm Logo, Thông tin chuyển khoản)</option>
+                        <option value="compact">Compact (QR kèm logo)</option>
+                        <option value="qr_only">QR Only (Chỉ ảnh QR)</option>
+                        <option value="print">Print (Đầy đủ thông tin)</option>
+                      </select>
+                    </Field>
+                  </>
+                )}
+              </div>
+
+              {form.bank_code && (
+                <div className="w-full lg:w-48 xl:w-56 mt-6 lg:mt-0 flex flex-col items-center border-l-0 lg:border-l border-slate-100 lg:pl-6">
+                  <span className="text-xs font-medium text-slate-500 uppercase mb-3 text-center block w-full">Xem trước mã QR</span>
+                  {form.bank_account_number && form.bank_account_name ? (
+                    <div className="bg-slate-50 p-2 rounded-xl border border-slate-200 flex-shrink-0">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img 
+                        src={`https://img.vietqr.io/image/${form.bank_code}-${form.bank_account_number}-${form.qr_template}.png?amount=990000&addInfo=ONIAB12CD34&accountName=${encodeURIComponent(form.bank_account_name)}`} 
+                        alt="VietQR Preview" 
+                        className="w-full max-w-[200px] h-auto rounded-lg shadow-sm"
+                      />
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-500 italic text-center p-4 bg-slate-50 rounded-xl border border-slate-200 border-dashed w-full h-full flex items-center justify-center min-h-[150px]">
+                      Nhập Số TK và Tên để xem trước.
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            
+            <div className="border-t border-slate-100 pt-4 mt-4">
+              <Field label="Lời cảm ơn (Cuối bill)">
+                <textarea
+                  value={form.receipt_footer}
+                  onChange={(e) => set('receipt_footer', e.target.value)}
+                  disabled={!canManage}
+                  className={inputCls}
+                  rows={2}
+                  placeholder="Cảm ơn quý khách đã mua hàng tại ONI!"
+                />
+              </Field>
+            </div>
           </Section>
 
           {/* ── Section: Cài đặt bán hàng ── */}
@@ -174,34 +320,55 @@ export function ShopSettingsForm({ shop, settings: initial, canManage }: Props) 
               </Field>
             </div>
             <Field label="Bán khi hết hàng">
-              <label className="flex cursor-pointer items-center gap-3">
+              <div
+                onClick={() => canManage && set('allow_negative_stock', !form.allow_negative_stock)}
+                className="flex cursor-pointer items-center gap-3"
+              >
                 <div
-                  onClick={() => canManage && set('allow_negative_stock', !form.allow_negative_stock)}
-                  className={`relative h-6 w-11 rounded-full transition-colors ${form.allow_negative_stock ? 'bg-blue-600' : 'bg-slate-200'} ${canManage ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
+                  className={`relative h-6 w-11 rounded-full transition-colors ${form.allow_negative_stock ? 'bg-primary' : 'bg-slate-200'} ${canManage ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
                 >
                   <span
                     className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${form.allow_negative_stock ? 'translate-x-5' : ''}`}
                   />
                 </div>
-                <span className="text-sm text-slate-600">
+                <span className="text-sm text-slate-600 select-none">
                   {form.allow_negative_stock ? 'Cho phép bán khi tồn kho = 0' : 'Không cho phép bán khi hết hàng'}
                 </span>
-              </label>
+              </div>
             </Field>
             <Field label="Tự động in hóa đơn">
-              <label className="flex cursor-pointer items-center gap-3 mt-1">
+              <div
+                onClick={() => canManage && set('auto_print_receipt', !form.auto_print_receipt)}
+                className="flex cursor-pointer items-center gap-3 mt-1"
+              >
                 <div
-                  onClick={() => canManage && set('auto_print_receipt', !form.auto_print_receipt)}
-                  className={`relative h-6 w-11 rounded-full transition-colors ${form.auto_print_receipt ? 'bg-blue-600' : 'bg-slate-200'} ${canManage ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
+                  className={`relative h-6 w-11 rounded-full transition-colors ${form.auto_print_receipt ? 'bg-primary' : 'bg-slate-200'} ${canManage ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
                 >
                   <span
                     className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${form.auto_print_receipt ? 'translate-x-5' : ''}`}
                   />
                 </div>
-                <span className="text-sm text-slate-600">
+                <span className="text-sm text-slate-600 select-none">
                   {form.auto_print_receipt ? 'Tự động in sau khi tạo đơn POS' : 'Tắt tự động in hóa đơn'}
                 </span>
-              </label>
+              </div>
+            </Field>
+            <Field label="Âm thanh POS">
+              <div
+                onClick={() => canManage && set('mute_pos_sound', !form.mute_pos_sound)}
+                className="flex cursor-pointer items-center gap-3 mt-1"
+              >
+                <div
+                  className={`relative h-6 w-11 rounded-full transition-colors ${!form.mute_pos_sound ? 'bg-primary' : 'bg-slate-200'} ${canManage ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${!form.mute_pos_sound ? 'translate-x-5' : ''}`}
+                  />
+                </div>
+                <span className="text-sm text-slate-600 select-none">
+                  {!form.mute_pos_sound ? 'Phát âm thanh khi quét mã/chọn món' : 'Đã tắt âm thanh (Mute)'}
+                </span>
+              </div>
             </Field>
           </Section>
 
@@ -211,7 +378,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage }: Props) 
               <button
                 onClick={handleSave}
                 disabled={saveState === 'saving'}
-                className="cursor-pointer rounded-xl bg-blue-600 px-6 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+                className="cursor-pointer rounded-xl bg-primary px-6 py-2.5 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-60 transition-colors"
               >
                 {saveState === 'saving' ? 'Đang lưu...' : 'Lưu thay đổi'}
               </button>
