@@ -29,6 +29,8 @@ interface Props {
   branchId: string
   shopName: string
   employeeId: string
+  isOnline: boolean
+  autoPrintReceipt: boolean
 }
 
 const METHODS = [
@@ -70,6 +72,8 @@ export function CheckoutModal({
   branchId,
   shopName,
   employeeId,
+  isOnline,
+  autoPrintReceipt,
 }: Props) {
   const [payments, setPayments] = useState<PaymentRow[]>([
     { id: nextId(), method: 'cash', amount: String(total) },
@@ -184,22 +188,58 @@ export function CheckoutModal({
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { items: _embedded, ...orderWithoutItems } = order
 
+      const syncPayload = {
+        order: orderWithoutItems,
+        items: orderItems,
+        payments: localPayments,
+        stockMovements: items.map((item) => ({
+          type: 'sale_out',
+          product_id: item.product_id,
+          qty: -item.qty,
+          branch_id: branchId,
+          reference_no: local_id,
+        })),
+        customer: customer ? { name: customer.name, phone: customer.phone } : undefined,
+      }
+
+      let isSuccessDirect = false
+      let serverId = undefined
+      let serverOrderNo = undefined
+
+      if (isOnline) {
+        try {
+          const res = await fetch(`/api/shops/${shopId}/orders/sync-batch`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              local_order_id: local_id,
+              ...syncPayload,
+              stock_movements: syncPayload.stockMovements // API expects stock_movements, local payload expects stockMovements
+            }),
+          })
+          if (res.ok) {
+            const data = await res.json()
+            isSuccessDirect = true
+            serverId = data.order_id
+            serverOrderNo = data.order_no
+          }
+        } catch (e) {
+          console.error('Direct sync failed, falling back to queue:', e)
+        }
+      }
+
+      if (isSuccessDirect) {
+        order.sync_status = 'done'
+        order.server_id = serverId
+        // Update local items with server_order_id maybe? not strictly necessary.
+      } else {
+        order.sync_status = 'pending'
+      }
+
       const syncItem: SyncQueueItem = {
         status: 'pending',
         entity: 'order',
-        payload: {
-          order: orderWithoutItems,
-          items: orderItems,
-          payments: localPayments,
-          stockMovements: items.map((item) => ({
-            type: 'sale_out',
-            product_id: item.product_id,
-            qty: -item.qty,
-            branch_id: branchId,
-            reference_no: local_id,
-          })),
-          customer: customer ? { name: customer.name, phone: customer.phone } : undefined,
-        },
+        payload: syncPayload,
         local_order_id: local_id,
         retry_count: 0,
         created_at: now,
@@ -212,10 +252,11 @@ export function CheckoutModal({
           await localDb.orders.add(order)
           await localDb.orderItems.bulkAdd(orderItems)
           await localDb.payments.bulkAdd(localPayments)
-          await localDb.syncQueue.add(syncItem)
+          
+          if (!isSuccessDirect) {
+            await localDb.syncQueue.add(syncItem)
+          }
 
-          // Delta inventory — use put() with compound key from the record itself;
-          // where().modify() can drop the transaction context between first() and modify().
           for (const item of items) {
             const inv = await localDb.inventory
               .where('product_id').equals(item.product_id)
@@ -231,9 +272,11 @@ export function CheckoutModal({
       )
 
       broadcastOrderCreated(order)
-      toast.success('Đơn hàng tạo thành công!')
+      toast.success(isSuccessDirect ? 'Tạo mới đơn hàng thành công!' : 'Tạo mới đơn hàng thành công (chờ đồng bộ)')
       onSuccess() // close modal + clear cart first
-      setTimeout(() => printBill({ order, items: orderItems, payments: localPayments, shopName }), 150)
+      if (autoPrintReceipt) {
+        setTimeout(() => printBill({ order, items: orderItems, payments: localPayments, shopName }), 150)
+      }
     } catch (err) {
       console.error(err)
       toast.error('Tạo đơn thất bại')
@@ -398,8 +441,14 @@ export function CheckoutModal({
           <button
             onClick={handleSubmit}
             disabled={saving || items.length === 0 || remaining > 0}
-            className="flex-1 rounded-xl bg-primary py-2.5 text-sm font-semibold text-white hover:bg-primary-dark disabled:opacity-40 transition-colors"
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-primary py-2.5 text-sm font-semibold text-white hover:bg-primary-dark disabled:opacity-40 transition-colors"
           >
+            {saving && (
+              <svg className="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+            )}
             {saving ? 'Đang xử lý...' : 'Hoàn tất · Ctrl+Enter'}
           </button>
         </div>

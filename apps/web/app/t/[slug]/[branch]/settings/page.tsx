@@ -55,6 +55,7 @@ export default async function BranchSettingsPage({ params }: Props) {
     invoice_prefix: 'ORD',
     low_stock_threshold: 5,
     allow_negative_stock: false,
+    auto_print_receipt: true,
     default_price_type: 'retail',
     synced_from_sheet_at: null as string | null,
     updated_at: new Date().toISOString(),

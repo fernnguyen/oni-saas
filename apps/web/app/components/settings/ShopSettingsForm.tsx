@@ -12,6 +12,7 @@ interface ShopSettings {
   low_stock_threshold: number;
   allow_negative_stock: boolean;
   default_price_type: string;
+  auto_print_receipt: boolean;
   synced_from_sheet_at: string | null;
   updated_at: string;
 }
@@ -53,6 +54,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage }: Props) 
     invoice_prefix: initial.invoice_prefix,
     low_stock_threshold: String(initial.low_stock_threshold),
     allow_negative_stock: initial.allow_negative_stock,
+    auto_print_receipt: initial.auto_print_receipt ?? true,
     default_price_type: initial.default_price_type,
   });
   const [saveState, setSaveState] = useState<SaveState>('idle');
@@ -76,6 +78,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage }: Props) 
           invoice_prefix: form.invoice_prefix,
           low_stock_threshold: parseInt(form.low_stock_threshold, 10) || 0,
           allow_negative_stock: form.allow_negative_stock,
+          auto_print_receipt: form.auto_print_receipt,
           default_price_type: form.default_price_type,
         }),
       });
@@ -182,6 +185,21 @@ export function ShopSettingsForm({ shop, settings: initial, canManage }: Props) 
                 </div>
                 <span className="text-sm text-slate-600">
                   {form.allow_negative_stock ? 'Cho phép bán khi tồn kho = 0' : 'Không cho phép bán khi hết hàng'}
+                </span>
+              </label>
+            </Field>
+            <Field label="Tự động in hóa đơn">
+              <label className="flex cursor-pointer items-center gap-3 mt-1">
+                <div
+                  onClick={() => canManage && set('auto_print_receipt', !form.auto_print_receipt)}
+                  className={`relative h-6 w-11 rounded-full transition-colors ${form.auto_print_receipt ? 'bg-blue-600' : 'bg-slate-200'} ${canManage ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${form.auto_print_receipt ? 'translate-x-5' : ''}`}
+                  />
+                </div>
+                <span className="text-sm text-slate-600">
+                  {form.auto_print_receipt ? 'Tự động in sau khi tạo đơn POS' : 'Tắt tự động in hóa đơn'}
                 </span>
               </label>
             </Field>

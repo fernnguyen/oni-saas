@@ -21,6 +21,7 @@ interface Props {
   shopName: string
   userEmail: string
   backPath: string
+  autoPrintReceipt: boolean
 }
 
 export interface HeldCart {
@@ -36,7 +37,7 @@ export interface HeldCart {
 const shellCls = '-mx-4 -my-4 md:-mx-6 md:-my-6 flex flex-col bg-slate-50 overflow-hidden'
 const shellStyle = { height: 'calc(100vh - 3.5rem)' } as const
 
-export function POSClient({ shopId, branchId, shopName, userEmail, backPath }: Props) {
+export function POSClient({ shopId, branchId, shopName, userEmail, backPath, autoPrintReceipt }: Props) {
   const { status, lastHydratedAt, refresh } = usePOSHydration(shopId, branchId)
   const isOnline = useNetworkStatus()
   const confirm = useConfirm()
@@ -205,17 +206,12 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath }: P
       {/* POS toolbar — slim, POS-specific controls only */}
       <header className="flex h-10 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-3 gap-2">
         <div className="flex items-center gap-2 min-w-0">
-          <a
-            href={backPath}
-            className="shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors text-sm leading-none"
-            title="Về trang quản lý"
-          >
-            ←
-          </a>
-          <span className="shrink-0 rounded bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
-            POS
-          </span>
-          <span className="hidden truncate text-xs font-medium text-slate-500 sm:block">{shopName}</span>
+          <div className="flex items-center gap-1.5 text-xs bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-full">
+            <span className={['h-2 w-2 rounded-full shrink-0', isOnline ? 'bg-green-500' : 'bg-red-500'].join(' ')} />
+            <span className={['tracking-wide', isOnline ? 'text-green-600' : 'text-red-500'].join(' ')}>
+              {isOnline ? 'Online' : 'Offline'}
+            </span>
+          </div>
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
@@ -242,25 +238,29 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath }: P
             className="flex items-center gap-1 rounded border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50 transition-colors"
             title="Đồng bộ dữ liệu mới nhất từ server"
           >
-            <span className={status === 'loading' ? 'animate-spin inline-block' : ''}>⟳</span>
-            <span className="hidden sm:inline">{status === 'loading' ? 'Đồng bộ...' : 'Đồng bộ'}</span>
+            {status === 'loading' ? (
+              <svg className="h-3 w-3 animate-spin text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+            ) : (
+              <svg
+                className="h-3.5 w-3.5 shrink-0"
+                xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+              </svg>
+            )}
+            <span className="hidden sm:inline">{status === 'loading' ? 'Đang đồng bộ...' : 'Đồng bộ'}</span>
           </button>
 
-          <div className="flex items-center gap-1 text-xs">
-            <span className={['h-2 w-2 rounded-full shrink-0', isOnline ? 'bg-green-500' : 'bg-red-500'].join(' ')} />
-            <span className={['hidden sm:inline', isOnline ? 'text-green-600' : 'text-red-500'].join(' ')}>
-              {isOnline ? 'Online' : 'Offline'}
-            </span>
-          </div>
+          <SyncStatusBar
+            isOnline={isOnline}
+            onRetryFailed={() => workerRef.current?.retryFailed()}
+            onRetryAll={() => workerRef.current?.retryAll()}
+          />
         </div>
       </header>
-
-      {/* Sync status banner */}
-      <SyncStatusBar
-        isOnline={isOnline}
-        onRetryFailed={() => workerRef.current?.retryFailed()}
-        onRetryAll={() => workerRef.current?.retryAll()}
-      />
 
       {/* Main content — fills all remaining height */}
       <div className="flex flex-1 overflow-hidden">
@@ -321,6 +321,8 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath }: P
         branchId={branchId}
         shopName={shopName}
         employeeId={userEmail}
+        isOnline={isOnline}
+        autoPrintReceipt={autoPrintReceipt}
       />
     </div>
   )

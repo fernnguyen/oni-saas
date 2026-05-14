@@ -34,51 +34,38 @@ export function SyncStatusBar({ isOnline, onRetryFailed, onRetryAll }: Props) {
   }, [])
 
   const { pending, syncing, failed } = counts
-  const inFlight = pending + syncing
 
   if (failed > 0) {
     return (
-      <div className="flex items-center justify-between bg-red-500 px-4 py-1.5 text-xs text-white">
-        <span>{failed} đơn không đồng bộ được — kiểm tra kết nối</span>
+      <div className="flex items-center gap-1.5 shrink-0 ml-2 border-l border-slate-200 pl-2">
+        <span className="text-[10px] font-medium text-red-500">Lỗi {failed} đơn</span>
         <button
           onClick={onRetryFailed}
-          className="rounded bg-white/20 px-2 py-0.5 font-medium hover:bg-white/30 transition-colors"
+          className="rounded bg-red-50 border border-red-200 px-1.5 py-0.5 text-[10px] font-medium text-red-600 hover:bg-red-100 transition-colors"
         >
           Thử lại
         </button>
-      </div>
-    )
-  }
-
-  if (!isOnline) {
-    return (
-      <div className="bg-orange-500 px-4 py-1.5 text-xs text-white">
-        Offline{inFlight > 0 ? ` — ${inFlight} đơn chờ đồng bộ khi có mạng` : ' — đơn hàng vẫn được lưu'}
       </div>
     )
   }
 
   if (syncing > 0) {
     return (
-      <div className="flex items-center justify-between border-b border-yellow-200 bg-yellow-50 px-4 py-1.5 text-xs text-yellow-700">
-        <div className="flex items-center gap-2">
-          <span className="h-3 w-3 animate-spin rounded-full border-2 border-yellow-500 border-t-transparent" />
-          <span>Đang đồng bộ {syncing} đơn...</span>
-        </div>
-        <button
-          onClick={onRetryAll}
-          className="rounded bg-yellow-200 px-2 py-0.5 font-medium hover:bg-yellow-300 transition-colors"
-        >
-          Thử lại
-        </button>
+      <div className="flex items-center gap-1.5 shrink-0 ml-2 border-l border-slate-200 pl-2 text-[10px] font-medium text-yellow-600">
+        <svg className="h-3 w-3 animate-spin text-yellow-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+        </svg>
+        <span className="hidden sm:inline">Đang sync {syncing}...</span>
       </div>
     )
   }
 
   if (pending > 0) {
     return (
-      <div className="border-b border-yellow-200 bg-yellow-50 px-4 py-1.5 text-xs text-yellow-700">
-        {pending} đơn chờ đồng bộ...
+      <div className="flex items-center gap-1.5 shrink-0 ml-2 border-l border-slate-200 pl-2 text-[10px] font-medium text-yellow-600">
+        <span className="hidden sm:inline">{pending} chờ sync</span>
+        {!isOnline && <span className="text-orange-500">(Offline)</span>}
       </div>
     )
   }

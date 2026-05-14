@@ -16,6 +16,7 @@ const DEFAULT_SETTINGS = {
   low_stock_threshold: 5,
   allow_negative_stock: false,
   default_price_type: 'retail',
+  auto_print_receipt: true,
   synced_from_sheet_at: null as string | null,
   updated_at: new Date().toISOString(),
 };
@@ -28,6 +29,7 @@ const putSchema = z.object({
   invoice_prefix: z.string().max(20).optional(),
   low_stock_threshold: z.number().int().min(0).optional(),
   allow_negative_stock: z.boolean().optional(),
+  auto_print_receipt: z.boolean().optional(),
   default_price_type: z.enum(['retail', 'wholesale', 'vip', 'staff']).optional(),
 });
 
