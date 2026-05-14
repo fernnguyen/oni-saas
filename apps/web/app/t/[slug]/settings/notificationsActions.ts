@@ -37,8 +37,9 @@ export async function saveNotificationSettings(
           is_active: true
         });
     }
-  } else {
-    // If empty, disable channel
+  } else if (!botToken && !chatId) {
+    // If both are empty, user cleared custom bot config. Disable channel.
+    // If it's a shared bot (!botToken && chatId), do nothing to the channel config here.
     await admin
       .from('tenant_notification_channels')
       .update({ is_active: false })
@@ -88,4 +89,36 @@ export async function generatePairingCode(tenantId: string) {
 
   if (error) throw new Error(error.message);
   return code;
+}
+
+export async function checkSharedBotConnection(tenantId: string) {
+  const admin = getSupabaseAdminClient();
+  const { data } = await admin
+    .from('tenant_notification_channels')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .eq('provider', 'telegram')
+    .is('config->bot_token', null)
+    .eq('is_active', true)
+    .maybeSingle();
+
+  return !!data;
+}
+
+export async function clearPairingCode(code: string) {
+  const admin = getSupabaseAdminClient();
+  await admin.from('bot_pairing_codes').delete().eq('code', code);
+}
+
+export async function revokeSharedBotConnection(tenantId: string, slug: string) {
+  const admin = getSupabaseAdminClient();
+  await admin
+    .from('tenant_notification_channels')
+    .update({ is_active: false, config: {} })
+    .eq('tenant_id', tenantId)
+    .eq('provider', 'telegram')
+    .is('config->bot_token', null);
+    
+  revalidatePath(`/t/${slug}/settings`);
+  return { success: true };
 }

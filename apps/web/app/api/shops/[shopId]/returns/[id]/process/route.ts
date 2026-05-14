@@ -156,13 +156,15 @@ export async function POST(
       invalidate(shopId, 'orders')
     }
 
+    const domainName = process.env.NEXT_PUBLIC_ROOT_DOMAIN || 'oni.vn'
+    const processedByEmail = user.user_metadata?.display_name || user.user_metadata?.full_name || user.email || 'Hệ thống'
+    const totalRefund = Number(r.total_refund || 0)
+    const orderNo = r.order_no || 'Không có'
+    const customerName = r.customer_name || 'Khách lẻ'
+
     dispatchNotification(shop.tenant_id, 'ORDER_RETURNED', {
-      shopName: shop.name,
-      returnNo: returnRef,
-      orderNo: r.order_no,
-      amount: r.total_refund,
-      customerName: r.customer_name,
-      note: r.note
+      title: 'Khách trả hàng',
+      message: `Phiếu trả hàng: ${returnRef}\nĐơn gốc: ${orderNo}\nKhách hàng: ${customerName}\nHoàn tiền: ${totalRefund.toLocaleString('vi-VN')}đ${r.note ? `\nGhi chú: ${r.note}` : ''}\n\n📝 Người xử lý: ${processedByEmail} (${domainName})`
     }).catch(err => console.error('Failed to dispatch ORDER_RETURNED:', err))
 
     invalidate(shopId, 'returns')

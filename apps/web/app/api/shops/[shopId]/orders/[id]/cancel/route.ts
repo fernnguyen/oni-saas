@@ -147,12 +147,13 @@ export async function POST(
     const updatedNote = oldNote ? `${oldNote}\n[Hủy] ${reason}` : `[Hủy] ${reason}`
     await connector.update('orders', id, { status: 'cancelled', note: updatedNote })
 
+    const domainName = process.env.NEXT_PUBLIC_ROOT_DOMAIN || 'oni.vn'
+    const cancelledBy = user.user_metadata?.display_name || user.user_metadata?.full_name || user.email || 'Hệ thống'
+    const totalAmount = Number((order as Record<string, string>).total_amount || 0)
+
     dispatchNotification(shop.tenant_id, 'ORDER_CANCELLED', {
-      shopName: shop.name,
-      orderNo: orderNo,
-      amount: String(order.total_amount || 0),
-      customerName: (order as Record<string, string>).customer_name || 'Khách lẻ',
-      reason: reason
+      title: 'Đơn hàng bị hủy',
+      message: `Mã đơn: ${orderNo}\nKhách hàng: ${(order as Record<string, string>).customer_name || 'Khách lẻ'}\nTổng tiền: ${totalAmount.toLocaleString('vi-VN')}đ\nLý do hủy: ${reason}\n\n📝 Người hủy: ${cancelledBy} (${domainName})`,
     }).catch(err => console.error('Failed to dispatch ORDER_CANCELLED:', err))
 
     invalidate(shopId, 'orders')
