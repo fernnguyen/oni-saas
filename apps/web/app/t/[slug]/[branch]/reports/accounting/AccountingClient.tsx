@@ -6,11 +6,14 @@ interface Props { shopId: string }
 
 interface MonthRow { month: string; revenue: number; refund: number; debt: number; orders: number; net: number }
 interface DebtCustomer { customer_id: string; customer_name: string; phone: string; debt_amount: string }
+interface DebtSupplier { supplier_id: string; supplier_name: string; phone: string; debt_amount: string }
 interface AccountingData {
   monthlySeries:    MonthRow[]
   paymentBreakdown: Record<string, number>
   debtCustomers:    DebtCustomer[]
+  debtSuppliers:    DebtSupplier[]
   totalDebt:        number
+  totalPayable:     number
   totalRevenue:     number
   totalRefund:      number
   totalNet:         number
@@ -62,8 +65,8 @@ export function AccountingClient({ shopId }: Props) {
 
   // Payment breakdown code...
 
-  // Debt customers
-  const { monthlySeries, paymentBreakdown, debtCustomers, totalDebt, totalRevenue, totalRefund, totalNet } = data
+  // Debt customers and suppliers
+  const { monthlySeries, paymentBreakdown, debtCustomers, debtSuppliers, totalDebt, totalPayable, totalRevenue, totalRefund, totalNet } = data
   const paymentEntries = Object.entries(paymentBreakdown).sort((a, b) => b[1] - a[1])
   const totalPayments  = paymentEntries.reduce((s, [, v]) => s + v, 0)
 
@@ -72,11 +75,12 @@ export function AccountingClient({ shopId }: Props) {
       <PageHeader title="Kế toán" />
 
       {/* Summary KPIs */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
         <SummaryCard label="Tổng doanh thu"    value={fmtVND(totalRevenue)} />
         <SummaryCard label="Tổng hoàn trả"     value={fmtVND(totalRefund)} />
         <SummaryCard label="Doanh thu thuần"   value={fmtVND(totalNet)} />
-        <SummaryCard label="Tổng công nợ"      value={fmtVND(totalDebt)} className="border-orange-200" />
+        <SummaryCard label="Nợ cần thu"        value={fmtVND(totalDebt)} className="border-red-200" />
+        <SummaryCard label="Nợ cần trả"        value={fmtVND(totalPayable)} className="border-orange-200" />
       </div>
 
       {/* Monthly table */}
@@ -153,38 +157,71 @@ export function AccountingClient({ shopId }: Props) {
         </div>
 
         {/* Debt customers */}
-        <div className="rounded-xl border border-slate-100 bg-white shadow-sm">
-          <div className="border-b border-slate-100 px-5 py-4">
-            <h2 className="text-sm font-semibold text-slate-700">
-              Khách hàng nợ ({debtCustomers.length} người)
-            </h2>
-          </div>
-          {debtCustomers.length === 0 ? (
-            <p className="py-6 text-center text-sm text-slate-400">Không có công nợ</p>
-          ) : (
-            <div className="overflow-y-auto" style={{ maxHeight: 320 }}>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-100 text-left text-xs text-slate-500">
-                    <th className="px-4 py-2">Khách hàng</th>
-                    <th className="px-4 py-2">Điện thoại</th>
-                    <th className="px-4 py-2 text-right">Nợ</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {debtCustomers.map((c) => (
-                    <tr key={c.customer_id} className="border-b border-slate-50 hover:bg-slate-50">
-                      <td className="max-w-[120px] truncate px-4 py-2 font-medium">{c.customer_name || '—'}</td>
-                      <td className="px-4 py-2 text-slate-500">{c.phone || '—'}</td>
-                      <td className="px-4 py-2 text-right font-medium text-orange-600">
-                        {Number(c.debt_amount).toLocaleString('vi-VN')}đ
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        <div className="space-y-5">
+          <div className="rounded-xl border border-slate-100 bg-white shadow-sm">
+            <div className="border-b border-slate-100 px-5 py-4">
+              <h2 className="text-sm font-semibold text-slate-700">
+                Khách hàng nợ ({debtCustomers.length} người)
+              </h2>
             </div>
-          )}
+            {debtCustomers.length === 0 ? (
+              <p className="py-6 text-center text-sm text-slate-400">Không có nợ cần thu</p>
+            ) : (
+              <div className="overflow-y-auto" style={{ maxHeight: 200 }}>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-left text-xs text-slate-500">
+                      <th className="px-4 py-2">Khách hàng</th>
+                      <th className="px-4 py-2 text-right">Nợ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {debtCustomers.map((c) => (
+                      <tr key={c.customer_id} className="border-b border-slate-50 hover:bg-slate-50">
+                        <td className="max-w-[120px] truncate px-4 py-2 font-medium">{c.customer_name || '—'}</td>
+                        <td className="px-4 py-2 text-right font-medium text-red-600">
+                          {Number(c.debt_amount).toLocaleString('vi-VN')}đ
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Debt suppliers */}
+          <div className="rounded-xl border border-slate-100 bg-white shadow-sm">
+            <div className="border-b border-slate-100 px-5 py-4">
+              <h2 className="text-sm font-semibold text-slate-700">
+                Nợ nhà cung cấp ({debtSuppliers.length} đối tác)
+              </h2>
+            </div>
+            {debtSuppliers.length === 0 ? (
+              <p className="py-6 text-center text-sm text-slate-400">Không có nợ cần trả</p>
+            ) : (
+              <div className="overflow-y-auto" style={{ maxHeight: 200 }}>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-left text-xs text-slate-500">
+                      <th className="px-4 py-2">Nhà cung cấp</th>
+                      <th className="px-4 py-2 text-right">Nợ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {debtSuppliers.map((s) => (
+                      <tr key={s.supplier_id} className="border-b border-slate-50 hover:bg-slate-50">
+                        <td className="max-w-[120px] truncate px-4 py-2 font-medium">{s.supplier_name || '—'}</td>
+                        <td className="px-4 py-2 text-right font-medium text-orange-600">
+                          {Number(s.debt_amount).toLocaleString('vi-VN')}đ
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
