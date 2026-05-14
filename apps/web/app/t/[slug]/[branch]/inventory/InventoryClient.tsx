@@ -1,5 +1,7 @@
 'use client'
 import { useState, useMemo, useEffect, useRef } from 'react'
+import Link from 'next/link'
+import { useParams, usePathname } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useDebounce } from 'use-debounce'
@@ -12,6 +14,7 @@ import { PaymentStatusLabel, PaymentStatus } from '@/app/components/ui/PaymentSt
 import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog'
 
 const Eye = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+const ArrowRight = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
 
 interface Props {
   shopId: string
@@ -50,12 +53,43 @@ const EMPTY_FORM = {
   shipment_no: '',
   workflow_status: 'completed' as 'draft' | 'completed',
   payment_status: 'paid' as PaymentStatus,
-  paid_amount: '',
-  payment_method: 'cash',
+  discount: '',
+  payments: [{ amount: '', method: 'cash' }] as { amount: string, method: string }[],
 }
 
 function fmtVND(v: string | number | undefined) {
   return Number(v || 0).toLocaleString('vi-VN') + 'đ'
+}
+
+function FormattedNumberInput({
+  value,
+  onChange,
+  disabled,
+  placeholder,
+  className
+}: {
+  value: string;
+  onChange: (val: string) => void;
+  disabled?: boolean;
+  placeholder?: string;
+  className?: string;
+}) {
+  const rawValue = value.replace(/\D/g, '')
+  const displayValue = rawValue ? parseInt(rawValue, 10).toLocaleString('vi-VN') : ''
+
+  return (
+    <input
+      type="text"
+      value={displayValue}
+      disabled={disabled}
+      placeholder={placeholder}
+      className={className}
+      onChange={(e) => {
+        const val = e.target.value.replace(/\D/g, '')
+        onChange(val)
+      }}
+    />
+  )
 }
 
 function fmtDate(v: string | undefined) {
@@ -157,6 +191,8 @@ function ProductSelect({
 
 export function InventoryClient({ shopId }: Props) {
   const queryClient = useQueryClient()
+  const params = useParams()
+  const pathname = usePathname()
   const [activeTab, setActiveTab] = useState<Tab>('history')
 
   // Stock tab state
@@ -165,6 +201,8 @@ export function InventoryClient({ shopId }: Props) {
   const [debouncedSearch] = useDebounce(search, 300)
   const [showForm, setShowForm] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
+  const [showSupplierModal, setShowSupplierModal] = useState(false)
+  const [supplierForm, setSupplierForm] = useState({ name: '', phone: '', email: '', address: '', note: '' })
   const [form, setForm] = useState(EMPTY_FORM)
   const [viewMovement, setViewMovement] = useState<Row | null>(null)
   const [selectedProduct, setSelectedProduct] = useState<{
@@ -257,6 +295,32 @@ export function InventoryClient({ shopId }: Props) {
     onError: (e: Error) => toast.error(e.message),
   })
 
+  const createSupplierMutation = useMutation({
+    mutationFn: async (payload: Record<string, string>) => {
+      const res = await fetch(`/api/shops/${shopId}/suppliers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok) throw new Error('Không thể tạo nhà cung cấp')
+      return res.json()
+    },
+    onSuccess: (data) => {
+      toast.success('Đã thêm nhà cung cấp!')
+      setShowSupplierModal(false)
+      setForm(f => ({ ...f, supplier_id: data.id }))
+      setSupplierForm({ name: '', phone: '', email: '', address: '', note: '' })
+      queryClient.invalidateQueries({ queryKey: ['suppliers', shopId] })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  function handleCreateSupplier(e: React.FormEvent) {
+    e.preventDefault()
+    if (!supplierForm.name) { toast.error('Vui lòng nhập tên nhà cung cấp'); return }
+    createSupplierMutation.mutate(supplierForm)
+  }
+
   function handleSelectProduct(p: { product_id: string; name: string; sku: string; cost_price?: string }) {
     if (!p.product_id) {
       setSelectedProduct(null)
@@ -271,12 +335,19 @@ export function InventoryClient({ shopId }: Props) {
     if (!form.product_id) { toast.error('Vui lòng chọn sản phẩm'); return }
     if (!form.qty || Number(form.qty) === 0) { toast.error('Số lượng phải khác 0'); return }
     
-    let finalPaidAmount = form.paid_amount
+    let finalPayments = form.payments
     if (form.type === 'purchase_in') {
+      const totalCost = Number(form.unit_cost || 0) * Math.abs(Number(form.qty || 0))
+      const discount = Number(form.discount || 0)
+      const afterDiscount = Math.max(0, totalCost - discount)
+      
       if (form.payment_status === 'paid') {
-        finalPaidAmount = String(Number(form.unit_cost || 0) * Math.abs(Number(form.qty || 0)))
+        finalPayments = [{ amount: String(afterDiscount), method: form.payments[0]?.method || 'cash' }]
       } else if (form.payment_status === 'unpaid') {
-        finalPaidAmount = '0'
+        finalPayments = []
+      } else {
+        // filter out zero amount payments
+        finalPayments = form.payments.filter(p => Number(p.amount) > 0)
       }
     }
 
@@ -294,9 +365,33 @@ export function InventoryClient({ shopId }: Props) {
       shipment_no: form.shipment_no,
       workflow_status: form.workflow_status,
       payment_status: form.payment_status,
-      paid_amount: finalPaidAmount,
-      payment_method: form.payment_method,
-    })
+      discount: form.discount,
+      payments: finalPayments,
+    } as unknown as Record<string, string>)
+  }
+
+  function handleOpenConfirm() {
+    let finalPayments = form.payments.filter(p => Number(p.amount) > 0)
+    let finalStatus = form.payment_status
+
+    if (finalStatus === 'partial' && form.type === 'purchase_in') {
+      const totalCost = Number(form.unit_cost || 0) * Math.abs(Number(form.qty || 0))
+      const discount = Number(form.discount || 0)
+      const afterDiscount = Math.max(0, totalCost - discount)
+      const paid = finalPayments.reduce((sum, p) => sum + Number(p.amount), 0)
+      const remain = Math.max(0, afterDiscount - paid)
+
+      if (remain === 0 && afterDiscount > 0) {
+        finalStatus = 'paid'
+      }
+    }
+
+    if (finalPayments.length === 0 && finalStatus !== 'unpaid') {
+      finalPayments = [{ amount: '', method: form.payments[0]?.method || 'cash' }]
+    }
+
+    setForm(f => ({ ...f, payments: finalPayments, payment_status: finalStatus }))
+    setShowConfirm(true)
   }
 
   function closeForm() {
@@ -449,11 +544,35 @@ export function InventoryClient({ shopId }: Props) {
       label: 'Thanh toán',
       render: (row) => {
         if (row.type !== 'purchase_in') return <span className="text-slate-300 text-xs">—</span>
+        let parsedPayments: any[] = []
+        try {
+          if (typeof row.payments === 'string' && row.payments.trim()) {
+            parsedPayments = JSON.parse(row.payments)
+          } else if (Array.isArray(row.payments)) {
+            parsedPayments = row.payments
+          }
+        } catch(e) {}
+        
+        const methodMap: Record<string, string> = {
+          'cash': 'Tiền mặt',
+          'transfer': 'CK',
+          'card': 'Thẻ'
+        }
+        
+        const methods = Array.from(new Set(parsedPayments.map(p => methodMap[p.method] || p.method)))
+
         return (
-          <PaymentStatusLabel 
-            status={(row.payment_status as PaymentStatus) || 'paid'} 
-            amount={Number(row.paid_amount || (Number(row.unit_cost || 0) * Math.abs(Number(row.qty || 0))))} 
-          />
+          <div className="flex flex-col gap-1">
+            <PaymentStatusLabel 
+              status={(row.payment_status as PaymentStatus) || 'paid'} 
+              amount={Number(row.paid_amount || (Number(row.unit_cost || 0) * Math.abs(Number(row.qty || 0))))} 
+            />
+            {methods.length > 0 && (
+              <span className="text-[10px] text-slate-500 font-medium">
+                {methods.join(' + ')}
+              </span>
+            )}
+          </div>
         )
       },
     },
@@ -625,7 +744,7 @@ export function InventoryClient({ shopId }: Props) {
               Hủy
             </button>
             <button
-              onClick={() => setShowConfirm(true)}
+              onClick={handleOpenConfirm}
               disabled={mutation.isPending || !form.product_id || !form.qty}
               className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50 transition-colors"
             >
@@ -689,10 +808,9 @@ export function InventoryClient({ shopId }: Props) {
                   <span className="ml-1 text-blue-500">→ cập nhật giá vốn SP</span>
                 )}
               </label>
-              <input
-                type="number"
+              <FormattedNumberInput
                 value={form.unit_cost}
-                onChange={(e) => setForm((f) => ({ ...f, unit_cost: e.target.value }))}
+                onChange={(val) => setForm((f) => ({ ...f, unit_cost: val }))}
                 placeholder="0"
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
               />
@@ -702,7 +820,15 @@ export function InventoryClient({ shopId }: Props) {
           {/* Supplier */}
           {['purchase_in', 'return_in'].includes(form.type) && (
             <div>
-              <label className="mb-1.5 block text-xs font-medium text-slate-600">Nhà cung cấp</label>
+              <div className="mb-1.5 flex items-center justify-between">
+                <label className="text-xs font-medium text-slate-600">Nhà cung cấp</label>
+                <button
+                  onClick={() => setShowSupplierModal(true)}
+                  className="text-xs font-medium text-primary hover:underline"
+                >
+                  + Tạo mới
+                </button>
+              </div>
               <select
                 value={form.supplier_id}
                 onChange={(e) => setForm((f) => ({ ...f, supplier_id: e.target.value }))}
@@ -710,35 +836,25 @@ export function InventoryClient({ shopId }: Props) {
               >
                 <option value="">— Không chọn —</option>
                 {(suppliersData?.data ?? []).map((s) => (
-                  <option key={s.supplier_id} value={s.supplier_id}>{s.name}</option>
+                  <option key={s.supplier_id} value={s.id || s.supplier_id}>{s.name}</option>
                 ))}
               </select>
             </div>
           )}
 
-          {/* Reference + Notes */}
-          <div className="grid grid-cols-2 gap-3">
+          {/* Reference No - only show for certain types or keep it optional, we can hide it for purchase_in if generated, but maybe keep it for others. Let's hide it completely and use reason at the bottom. But what if we still want it? The plan says hide it. We will not render Reference No. */}
+          {form.type !== 'purchase_in' && (
             <div>
-              <label className="mb-1.5 block text-xs font-medium text-slate-600">Số phiếu</label>
+              <label className="mb-1.5 block text-xs font-medium text-slate-600">Số phiếu (Tùy chọn)</label>
               <input
                 type="text"
                 value={form.reference_no}
                 onChange={(e) => setForm((f) => ({ ...f, reference_no: e.target.value }))}
-                placeholder="PN-001"
+                placeholder="Ví dụ: PN-001"
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
               />
             </div>
-            <div>
-              <label className="mb-1.5 block text-xs font-medium text-slate-600">Ghi chú</label>
-              <input
-                type="text"
-                value={form.reason}
-                onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))}
-                placeholder="Tùy chọn"
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
-              />
-            </div>
-          </div>
+          )}
 
           {['purchase_in'].includes(form.type) && (
             <>
@@ -766,8 +882,17 @@ export function InventoryClient({ shopId }: Props) {
                 </div>
               </div>
 
-              {/* Payment Details */}
+              {/* Discount & Payment Status */}
               <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-slate-600">Giảm giá (VNĐ)</label>
+                  <FormattedNumberInput
+                    value={form.discount}
+                    onChange={(val) => setForm((f) => ({ ...f, discount: val }))}
+                    placeholder="0"
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                  />
+                </div>
                 <div>
                   <label className="mb-1.5 block text-xs font-medium text-slate-600">Trạng thái thanh toán</label>
                   <select
@@ -780,31 +905,106 @@ export function InventoryClient({ shopId }: Props) {
                     <option value="unpaid">Còn nợ / Chưa thanh toán</option>
                   </select>
                 </div>
-                <div>
-                  <label className="mb-1.5 block text-xs font-medium text-slate-600">Số tiền đã trả</label>
-                  <input
-                    type="number"
-                    value={form.paid_amount}
-                    onChange={(e) => setForm((f) => ({ ...f, paid_amount: e.target.value }))}
-                    placeholder="0"
-                    disabled={form.payment_status === 'unpaid'}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none disabled:bg-slate-50 disabled:text-slate-400"
-                  />
-                </div>
               </div>
 
+              {/* Payments Array */}
               {form.payment_status !== 'unpaid' && (
-                <div>
-                  <label className="mb-1.5 block text-xs font-medium text-slate-600">Phương thức thanh toán</label>
-                  <select
-                    value={form.payment_method}
-                    onChange={(e) => setForm((f) => ({ ...f, payment_method: e.target.value }))}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
-                  >
-                    <option value="cash">Tiền mặt</option>
-                    <option value="transfer">Chuyển khoản</option>
-                    <option value="card">Quẹt thẻ</option>
-                  </select>
+                <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-medium text-slate-700">Chi tiết thanh toán</label>
+                    <span className="text-[10px] text-slate-500">
+                      Tổng tiền: {fmtVND(Number(form.unit_cost || 0) * Math.abs(Number(form.qty || 0)))}
+                    </span>
+                  </div>
+                  
+                  {form.payment_status === 'partial' && (
+                    <div className="flex flex-wrap gap-1.5 pb-1">
+                      {[10, 30, 50, 80, 100].map(pct => (
+                        <button
+                          key={pct}
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault()
+                            const totalCost = Number(form.unit_cost || 0) * Math.abs(Number(form.qty || 0))
+                            const discount = Number(form.discount || 0)
+                            const afterDiscount = Math.max(0, totalCost - discount)
+                            const amount = Math.floor(afterDiscount * (pct / 100))
+                            setForm(f => ({ 
+                              ...f, 
+                              payments: [{ amount: String(amount), method: f.payments[0]?.method || 'cash' }] 
+                            }))
+                          }}
+                          className="rounded text-[10px] font-medium bg-slate-200 px-2 py-1 text-slate-700 hover:bg-slate-300 transition-colors"
+                        >
+                          {pct}%
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {form.payments.map((p, idx) => (
+                    <div key={idx} className="flex gap-2">
+                      <div className="flex-1">
+                        <FormattedNumberInput
+                          value={form.payment_status === 'paid' ? String(Math.max(0, (Number(form.unit_cost || 0) * Math.abs(Number(form.qty || 0))) - Number(form.discount || 0))) : p.amount}
+                          disabled={form.payment_status === 'paid'}
+                          onChange={(val) => {
+                            const newP = [...form.payments]
+                            newP[idx].amount = val
+                            setForm(f => ({ ...f, payments: newP }))
+                          }}
+                          placeholder="Số tiền"
+                          className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:border-primary focus:outline-none disabled:bg-slate-100 disabled:text-slate-400"
+                        />
+                      </div>
+                      <div className="w-1/2">
+                        <select
+                          value={p.method}
+                          onChange={(e) => {
+                            const newP = [...form.payments]
+                            newP[idx].method = e.target.value
+                            setForm(f => ({ ...f, payments: newP }))
+                          }}
+                          className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:border-primary focus:outline-none"
+                        >
+                          <option value="cash" disabled={form.payments.some((x, i) => i !== idx && x.method === 'cash')}>Tiền mặt</option>
+                          <option value="transfer" disabled={form.payments.some((x, i) => i !== idx && x.method === 'transfer')}>Chuyển khoản</option>
+                          <option value="card" disabled={form.payments.some((x, i) => i !== idx && x.method === 'card')}>Quẹt thẻ</option>
+                        </select>
+                      </div>
+                      {form.payments.length > 1 && form.payment_status === 'partial' && (
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault()
+                            const newP = form.payments.filter((_, i) => i !== idx)
+                            setForm(f => ({ ...f, payments: newP }))
+                          }}
+                          className="text-slate-400 hover:text-red-500 px-1"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  
+                  {form.payment_status === 'partial' && form.payments.length < 3 && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault()
+                        const totalCost = Number(form.unit_cost || 0) * Math.abs(Number(form.qty || 0))
+                        const discount = Number(form.discount || 0)
+                        const paid = form.payments.reduce((sum, p) => sum + Number(p.amount || 0), 0)
+                        const remain = Math.max(0, totalCost - discount - paid)
+                        const used = form.payments.map(p => p.method)
+                        const avail = ['cash', 'transfer', 'card'].find(m => !used.includes(m)) || 'transfer'
+                        setForm(f => ({ ...f, payments: [...f.payments, { amount: String(remain), method: avail }] }))
+                      }}
+                      className="text-xs font-medium text-primary hover:underline"
+                    >
+                      + Thêm thanh toán (Còn lại: {fmtVND(Math.max(0, (Number(form.unit_cost || 0) * Math.abs(Number(form.qty || 0))) - Number(form.discount || 0) - form.payments.reduce((sum, p) => sum + Number(p.amount || 0), 0)))})
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -819,12 +1019,24 @@ export function InventoryClient({ shopId }: Props) {
                   />
                   <div>
                     <p className="text-sm font-medium text-slate-900">Lưu phiếu tạm (Chưa nhập kho)</p>
-                    <p className="text-xs text-slate-500">Chỉ tạo phiếu trên hệ thống để theo dõi (chờ kiểm duyệt/nhận hàng). Tồn kho và giá vốn chưa bị ảnh hưởng.</p>
+                    <p className="text-xs text-slate-500">Chỉ tạo phiếu trên hệ thống để theo dõi. Tồn kho và giá vốn chưa cập nhật.</p>
                   </div>
                 </label>
               </div>
             </>
           )}
+
+          {/* Ghi chú full-width */}
+          <div className="col-span-full pt-2">
+            <label className="mb-1.5 block text-xs font-medium text-slate-600">Ghi chú</label>
+            <textarea
+              rows={2}
+              value={form.reason}
+              onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))}
+              placeholder="Ghi chú thêm về phiếu nhập/xuất này..."
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none resize-none"
+            />
+          </div>
         </div>
       </SlideOver>
 
@@ -866,17 +1078,27 @@ export function InventoryClient({ shopId }: Props) {
                   
                   {(() => {
                     const totalCost = Number(form.unit_cost) * Math.abs(Number(form.qty))
+                    const discount = Number(form.discount || 0)
+                    const afterDiscount = Math.max(0, totalCost - discount)
                     let paid = 0
-                    if (form.payment_status === 'paid') paid = totalCost
-                    else if (form.payment_status === 'partial') paid = Number(form.paid_amount || 0)
-                    const debt = Math.max(0, totalCost - paid)
+                    if (form.payment_status === 'paid') paid = afterDiscount
+                    else if (form.payment_status === 'partial') {
+                      paid = form.payments.reduce((sum, p) => sum + Number(p.amount || 0), 0)
+                    }
+                    const debt = Math.max(0, afterDiscount - paid)
                     
                     return (
                       <>
                         <div className="flex justify-between text-base">
-                          <span className="font-medium text-slate-700">Tổng tiền:</span>
+                          <span className="font-medium text-slate-700">Tổng tiền hàng:</span>
                           <span className="font-bold text-slate-900">{fmtVND(totalCost)}</span>
                         </div>
+                        {discount > 0 && (
+                          <div className="flex justify-between">
+                            <span className="text-slate-500">Giảm giá:</span>
+                            <span className="font-medium text-orange-600">-{fmtVND(discount)}</span>
+                          </div>
+                        )}
                         <div className="flex justify-between">
                           <span className="text-slate-500">Đã thanh toán:</span>
                           <span className="font-medium text-green-600">{fmtVND(paid)}</span>
@@ -998,12 +1220,42 @@ export function InventoryClient({ shopId }: Props) {
                         status={(viewMovement.payment_status as PaymentStatus) || 'paid'} 
                         amount={paid} 
                       />
-                      {viewMovement.payment_method && (
-                        <span className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded">
-                          {methodMap[viewMovement.payment_method] || viewMovement.payment_method}
-                        </span>
-                      )}
                     </div>
+                    
+                    {(() => {
+                      let parsedPayments: any[] = []
+                      try {
+                        if (typeof viewMovement.payments === 'string' && viewMovement.payments.trim()) {
+                          parsedPayments = JSON.parse(viewMovement.payments)
+                        } else if (Array.isArray(viewMovement.payments)) {
+                          parsedPayments = viewMovement.payments
+                        }
+                      } catch(e) {}
+
+                      if (parsedPayments.length > 0) {
+                        return (
+                          <div className="space-y-1.5 mb-3">
+                            {parsedPayments.map((p, idx) => (
+                              <div key={idx} className="flex gap-4 text-sm">
+                                <span className="text-slate-500 w-24">{methodMap[p.method] || p.method}</span>
+                                <span className="font-medium text-slate-900">{fmtVND(p.amount)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )
+                      }
+                      
+                      if (viewMovement.payment_method) {
+                        return (
+                          <div className="mb-3">
+                            <span className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded">
+                              {methodMap[viewMovement.payment_method] || viewMovement.payment_method}
+                            </span>
+                          </div>
+                        )
+                      }
+                      return null
+                    })()}
                     
                     <div className="space-y-1.5 text-sm bg-slate-50 p-3 rounded-xl border border-slate-100">
                       <div className="flex justify-between">
@@ -1022,13 +1274,17 @@ export function InventoryClient({ shopId }: Props) {
                       )}
                     </div>
 
-                    {debt > 0 && (
-                      <button
-                        onClick={() => toast.info('Chức năng ghi nhận thêm thanh toán đang được phát triển')}
-                        className="mt-3 w-full rounded-xl border border-primary text-primary px-4 py-2 text-sm font-medium hover:bg-primary/5 transition-colors"
-                      >
-                        + Ghi nhận thanh toán
-                      </button>
+                    {debt > 0 && viewMovement.supplier_id && (
+                      <div className="mt-4 p-3 bg-blue-50/50 rounded-xl text-sm border border-blue-100">
+                        <p className="text-slate-600 mb-2">Công nợ đã được ghi nhận vào hệ thống.</p>
+                        <Link 
+                          href={`${pathname.replace('/inventory', '/debt')}?supplier=${viewMovement.supplier_id}`}
+                          className="text-primary font-medium hover:underline flex items-center gap-1"
+                        >
+                          Thanh toán công nợ 
+                          <ArrowRight className="w-4 h-4" />
+                        </Link>
+                      </div>
                     )}
                   </div>
                 )
@@ -1056,6 +1312,72 @@ export function InventoryClient({ shopId }: Props) {
           </div>
         )}
       </SlideOver>
+
+      {/* Quick Add Supplier Modal */}
+      {showSupplierModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <h3 className="mb-4 text-lg font-semibold text-slate-900">Thêm nhà cung cấp mới</h3>
+            <form onSubmit={handleCreateSupplier} className="space-y-4">
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-slate-600">Tên nhà cung cấp <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  required
+                  value={supplierForm.name}
+                  onChange={(e) => setSupplierForm(f => ({ ...f, name: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-slate-600">Số điện thoại</label>
+                  <input
+                    type="tel"
+                    value={supplierForm.phone}
+                    onChange={(e) => setSupplierForm(f => ({ ...f, phone: e.target.value }))}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-slate-600">Mã số thuế</label>
+                  <input
+                    type="text"
+                    value={supplierForm.note} // Reuse note for tax ID or extra details
+                    onChange={(e) => setSupplierForm(f => ({ ...f, note: e.target.value }))}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-slate-600">Địa chỉ</label>
+                <input
+                  type="text"
+                  value={supplierForm.address}
+                  onChange={(e) => setSupplierForm(f => ({ ...f, address: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                />
+              </div>
+              <div className="mt-6 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowSupplierModal(false)}
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  disabled={createSupplierMutation.isPending}
+                  className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
+                >
+                  {createSupplierMutation.isPending ? 'Đang lưu...' : 'Lưu thông tin'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

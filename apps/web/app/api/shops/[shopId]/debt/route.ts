@@ -15,23 +15,33 @@ export async function GET(
       return NextResponse.json({ error: 'Permission denied' }, { status: 403 })
     }
 
+    const sp = req.nextUrl.searchParams
+    const type = sp.get('type') ?? 'customer' // 'customer' or 'supplier'
+
     const result = await shopCache(
       async () => {
-        // Fetch all customers to filter and sort
-        const all = await connector.list('customers', { limit: 5000 })
-        const withDebt = all.data.filter(c => parseFloat(c.debt_amount || '0') > 0)
-        
-        // Sort by highest debt amount by default
-        withDebt.sort((a, b) => parseFloat(b.debt_amount || '0') - parseFloat(a.debt_amount || '0'))
-        
-        return {
-          data: withDebt,
-          total: withDebt.length,
-          totalDebt: withDebt.reduce((sum, c) => sum + parseFloat(c.debt_amount || '0'), 0)
+        if (type === 'supplier') {
+          const all = await connector.list('suppliers', { limit: 5000 })
+          const withDebt = all.data.filter(s => parseFloat(s.debt_amount || '0') > 0)
+          withDebt.sort((a, b) => parseFloat(b.debt_amount || '0') - parseFloat(a.debt_amount || '0'))
+          return {
+            data: withDebt,
+            total: withDebt.length,
+            totalDebt: withDebt.reduce((sum, s) => sum + parseFloat(s.debt_amount || '0'), 0)
+          }
+        } else {
+          const all = await connector.list('customers', { limit: 5000 })
+          const withDebt = all.data.filter(c => parseFloat(c.debt_amount || '0') > 0)
+          withDebt.sort((a, b) => parseFloat(b.debt_amount || '0') - parseFloat(a.debt_amount || '0'))
+          return {
+            data: withDebt,
+            total: withDebt.length,
+            totalDebt: withDebt.reduce((sum, c) => sum + parseFloat(c.debt_amount || '0'), 0)
+          }
         }
       },
-      ['debt', shopId],
-      { tags: [shopTag(shopId, 'customers')], revalidate: 3600 }
+      ['debt', shopId, type],
+      { tags: [shopTag(shopId, type === 'supplier' ? 'suppliers' : 'customers')], revalidate: 3600 }
     )
 
     return NextResponse.json(result)

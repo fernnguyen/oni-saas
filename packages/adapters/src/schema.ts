@@ -214,6 +214,7 @@ export const suppliers = mysqlTable('suppliers', {
   email: varchar('email', { length: 255 }),
   address: text('address'),
   payment_terms: varchar('payment_terms', { length: 255 }),
+  debt_amount: varchar('debt_amount', { length: 50 }),
   note: text('note'),
 });
 

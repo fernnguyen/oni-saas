@@ -72,8 +72,23 @@ export async function POST(
         }
       } catch (err) {
         console.error('Failed to update customer debt:', err)
-        // We still return 201 for the cashbook transaction even if debt update fails,
-        // but ideally this should be a transaction. In GSheets it's separate.
+      }
+    }
+
+    // If this is a debt payment, reduce supplier debt
+    if (payload.category === 'debt_payment' && payload.reference_id) {
+      try {
+        const supplier = await connector.findById('suppliers', payload.reference_id)
+        if (supplier) {
+          const currentDebt = parseFloat((supplier.debt_amount as string) || '0')
+          const newDebt = Math.max(0, currentDebt - payload.amount)
+          await connector.update('suppliers', payload.reference_id, {
+            debt_amount: String(newDebt)
+          })
+          invalidate(shopId, 'suppliers')
+        }
+      } catch (err) {
+        console.error('Failed to update supplier debt:', err)
       }
     }
 

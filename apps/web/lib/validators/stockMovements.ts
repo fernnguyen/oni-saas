@@ -27,6 +27,11 @@ export const stockMovementCreateSchema = z.object({
   payment_status: z.enum(['paid', 'partial', 'unpaid']).optional().default('paid'),
   paid_amount:  z.string().optional().default('0'),
   payment_method: z.string().optional().default('cash'),
+  discount: z.string().optional().default('0'),
+  payments: z.array(z.object({
+    amount: z.string(),
+    method: z.string()
+  })).optional().default([]),
 })
 
 export const stockMovementUpdateSchema = stockMovementCreateSchema.partial()

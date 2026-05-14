@@ -96,21 +96,32 @@ export async function POST(
           return NextResponse.json(check.data[0], { status: 200 })
         }
       }
-      const movNo = await generateMovementNo(connector, data.type)
-      const created = await connector.create('stock-movements', {
+      const totalPaidAmt = data.payments.reduce((sum: number, p: { amount: string }) => sum + parseFloat(p.amount || '0'), 0)
+      const payload = {
         ...(data as unknown as Record<string, string>),
+        discount: data.discount || '0',
+        unit_cost: data.unit_cost || '0',
+        paid_amount: String(totalPaidAmt),
+        payments: JSON.stringify(data.payments),
         movement_no: movNo,
-      })
+      }
+      const created = await connector.create('stock-movements', payload)
       invalidate(shopId, 'stock-movements')
       return NextResponse.json(created, { status: 201 })
     }
 
     // 1. Generate mã phiếu kho and create movement record
     const movementNo = await generateMovementNo(connector, data.type)
-    const created = await connector.create('stock-movements', {
+    const totalPaidAmt = data.payments.reduce((sum: number, p: { amount: string }) => sum + parseFloat(p.amount || '0'), 0)
+    const payload = {
       ...(data as unknown as Record<string, string>),
+      discount: data.discount || '0',
+      unit_cost: data.unit_cost || '0',
+      paid_amount: String(totalPaidAmt),
+      payments: JSON.stringify(data.payments),
       movement_no: movementNo,
-    })
+    }
+    const created = await connector.create('stock-movements', payload)
 
     if (data.workflow_status === 'completed') {
       // 2. Upsert inventory stock_qty
@@ -162,24 +173,64 @@ export async function POST(
       }
     }
 
-    // 4. Log cashbook payment if paid
-    if (data.type === 'purchase_in' && data.payment_status && data.payment_status !== 'unpaid') {
-      const paidAmt = parseFloat(data.paid_amount || '0')
-      if (paidAmt > 0) {
+    // 4. Log cashbook payment and update supplier debt
+    if (data.type === 'purchase_in') {
+      const totalCost = parseFloat(data.unit_cost || '0') * Math.abs(parseFloat(data.qty || '0'))
+      const discountAmt = parseFloat(data.discount || '0')
+      const debtAmt = Math.max(0, totalCost - discountAmt - totalPaidAmt)
+
+      // Add a note about discount if applicable
+      if (discountAmt > 0) {
+        const dNote = `Giảm giá: ${discountAmt.toLocaleString('vi-VN')}đ`
+        data.reason = data.reason ? `${data.reason} | ${dNote}` : dNote
+        
+        // Let's also update the movement reason so it is recorded
+        await connector.update('stock-movements', created.id as string, {
+          reason: data.reason
+        })
+      }
+
+      let supplierName = 'Khách lẻ / Không xác định'
+      if (data.supplier_id) {
         try {
-          // If there is a supplier ID, we could fetch their name, but for now we just log the ID
-          const supplierName = data.supplier_id ? `Nhà cung cấp` : 'Khách lẻ / Không xác định'
-          await connector.create('cashbook', {
-            type:           'payment',
-            amount:         String(paidAmt),
-            method:         data.payment_method || 'cash',
-            category:       'inventory',
-            reference_id:   movementNo,
-            reference_name: supplierName,
-            note:           `Thanh toán phiếu nhập kho ${movementNo}`,
-            employee_id:    data.employee_id || '',
-            branch_id:      data.branch_id || '',
+          const supResult = await connector.list('suppliers', { 
+            page: 1, limit: 1, filters: { id: data.supplier_id } 
           })
+          if (supResult.data.length > 0) {
+            const supplier = supResult.data[0] as Record<string, string>
+            supplierName = supplier.name || 'Nhà cung cấp'
+            
+            if (debtAmt > 0 && data.workflow_status === 'completed') {
+              const currentDebt = parseFloat(supplier.debt_amount || '0')
+              await connector.update('suppliers', supplier.id as string, {
+                debt_amount: String(currentDebt + debtAmt)
+              })
+              invalidate(shopId, 'suppliers')
+            }
+          }
+        } catch (err) {
+          console.error('Failed to update supplier debt:', err)
+        }
+      }
+
+      if (data.payments.length > 0 && data.payment_status !== 'unpaid') {
+        try {
+          for (const payment of data.payments) {
+            const pAmt = parseFloat(payment.amount || '0')
+            if (pAmt > 0) {
+              await connector.create('cashbook', {
+                type:           'payment',
+                amount:         String(pAmt),
+                method:         payment.method || 'cash',
+                category:       'inventory',
+                reference_id:   movementNo,
+                reference_name: supplierName,
+                note:           `Thanh toán phiếu nhập kho ${movementNo}`,
+                employee_id:    data.employee_id || '',
+                branch_id:      data.branch_id || '',
+              })
+            }
+          }
         } catch (err) {
           console.error('Failed to log cashbook for stock movement:', err)
         }
