@@ -191,6 +191,41 @@ async function appendRows(
   )
 }
 
+async function ensureHeaders(
+  token: string,
+  sheetId: string,
+  tabName: string,
+  currentHeaders: string[],
+  newData: Record<string, unknown> | Record<string, unknown>[]
+): Promise<string[]> {
+  const dataKeys = Array.isArray(newData) 
+    ? Array.from(new Set(newData.flatMap(Object.keys)))
+    : Object.keys(newData)
+    
+  const missingHeaders = dataKeys.filter(k => k !== undefined && !currentHeaders.includes(k))
+  
+  if (missingHeaders.length > 0) {
+    const updatedHeaders = [...currentHeaders, ...missingHeaders]
+    
+    const range = `${tabName}!A1`
+    await sheetsPut(
+      token,
+      sheetId,
+      `/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`,
+      { range, values: [updatedHeaders] },
+    )
+    
+    const cacheKey = `${sheetId}:${tabName}`
+    const cached = cacheGet(cacheKey)
+    if (cached) {
+      cached.headers = updatedHeaders
+    }
+    
+    return updatedHeaders
+  }
+  
+  return currentHeaders
+}
 
 export class GoogleSheetsConnector implements IDataConnector {
   constructor(
@@ -289,7 +324,9 @@ export class GoogleSheetsConnector implements IDataConnector {
       // Tab doesn't exist yet — auto-create it with headers from the data
       tabData = await createTab(token, this.sheetId, tab, data, idKey)
     }
-    const { headers, rows } = tabData
+    const { headers: initialHeaders, rows } = tabData
+
+    const headers = await ensureHeaders(token, this.sheetId, tab, initialHeaders, data)
 
     const newId = await this.generateId(token, tab, prefix, rows, idKey)
     const fullRow: Record<string, string> = { ...data }
@@ -317,7 +354,13 @@ export class GoogleSheetsConnector implements IDataConnector {
   async update(entity: string, id: string, data: Partial<Record<string, string>>): Promise<Record<string, string>> {
     const { tab, idKey } = this.getConfig(entity)
     const token = await this.tokenProvider()
-    const { headers, rows } = await readTab(token, this.sheetId, tab)
+    const { headers: initialHeaders, rows } = await readTab(token, this.sheetId, tab)
+
+    const sanitizedData = Object.fromEntries(
+      Object.entries(data).filter(([, value]) => value !== undefined),
+    ) as Record<string, string>
+
+    const headers = await ensureHeaders(token, this.sheetId, tab, initialHeaders, sanitizedData)
 
     const rowIndex = rows.findIndex(r => r[idKey] === id)
     if (rowIndex === -1) throw new Error(`${entity}/${id} not found`)
@@ -331,10 +374,6 @@ export class GoogleSheetsConnector implements IDataConnector {
     const sheetRowNumber = rowIndex + 2
     const currentRow = rows[rowIndex]
     if (!currentRow) throw new Error(`${entity}/${id} not found`)
-
-    const sanitizedData = Object.fromEntries(
-      Object.entries(data).filter(([, value]) => value !== undefined),
-    ) as Record<string, string>
 
     const merged: Record<string, string> = { ...currentRow, ...sanitizedData }
     const rowValues = headers.map(h => merged[h] ?? '')
@@ -362,7 +401,9 @@ export class GoogleSheetsConnector implements IDataConnector {
 
     const { tab, idKey, prefix } = this.getConfig(entity)
     const token = await this.tokenProvider()
-    const { headers, rows: existingRows } = await readTab(token, this.sheetId, tab)
+    const { headers: initialHeaders, rows: existingRows } = await readTab(token, this.sheetId, tab)
+
+    const headers = await ensureHeaders(token, this.sheetId, tab, initialHeaders, rows)
 
     const currentMax = existingRows
       .map(r => r[idKey])

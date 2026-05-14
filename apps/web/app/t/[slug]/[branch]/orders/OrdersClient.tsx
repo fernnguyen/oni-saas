@@ -9,9 +9,16 @@ import { TagBadge, TagColor } from '@/app/components/ui/TagBadge'
 import { EmptyState } from '@/app/components/ui/EmptyState'
 import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog'
 import { SearchBar } from '@/app/components/ui/SearchBar'
+import { printBill } from '@/lib/pos/printBill'
+
+const Eye = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+const Trash2 = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+const Printer = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect width="12" height="8" x="6" y="14"/></svg>
+const RotateCcw = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
 
 interface Props {
   shopId: string
+  shopName: string
 }
 
 interface StatPeriod {
@@ -63,8 +70,8 @@ function statusColor(s: string): TagColor {
   if (s === 'confirmed') return 'blue'
   if (s === 'processing') return 'orange'
   if (s === 'returning') return 'yellow'
-  if (s === 'partially_refunded') return 'indigo'
-  if (s === 'refunded') return 'purple'
+  if (s === 'partially_refunded') return 'purple'
+  if (s === 'refunded') return 'gray'
   return 'gray'
 }
 
@@ -90,7 +97,7 @@ const STAT_CARDS: { key: keyof OrderStats; label: string }[] = [
   { key: 'returns', label: 'Trả hàng' },
 ]
 
-export function OrdersClient({ shopId }: Props) {
+export function OrdersClient({ shopId, shopName }: Props) {
   const queryClient = useQueryClient()
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
@@ -108,6 +115,17 @@ export function OrdersClient({ shopId }: Props) {
   const [returnRefundAmount, setReturnRefundAmount] = useState('')
   const [returnItems, setReturnItems] = useState<Record<string, number>>({})
   const [showConfirmReturn, setShowConfirmReturn] = useState(false)
+  const [printTarget, setPrintTarget] = useState<Row | null>(null)
+
+  const { data: settings } = useQuery({
+    queryKey: ['settings', shopId],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/settings`)
+      if (!res.ok) return {}
+      return res.json()
+    },
+    enabled: !!shopId,
+  })
 
   const calcAutoRefund = () => {
     const items = itemsData?.data ?? []
@@ -173,14 +191,14 @@ export function OrdersClient({ shopId }: Props) {
     queryFn: async () => {
       const res = await fetch(`/api/shops/${shopId}/returns?order_id=${selectedOrder!.order_id}&limit=50`)
       if (!res.ok) throw new Error('Không tải được lịch sử trả hàng')
-      const returns = (await res.json()) as { data: Row[]; total: number }
+      const returns = (await res.json()) as { data: any[]; total: number }
       
       const itemsPromises = returns.data.map(async (r) => {
         const iRes = await fetch(`/api/shops/${shopId}/return-items?return_id=${r.return_id}&limit=100`)
         const iData = await iRes.json()
-        return { ...r, items: iData.data as Row[] }
+        return { ...r, items: iData.data as any[] }
       })
-      return Promise.all(itemsPromises)
+      return Promise.all(itemsPromises) as Promise<any[]>
     },
     enabled: !!selectedOrder,
   })
@@ -329,6 +347,56 @@ export function OrdersClient({ shopId }: Props) {
     onError: () => toast.error('Xóa thất bại'),
   })
 
+  // Reprint logic
+  async function handleReprint(order: Row) {
+    try {
+      // items and payments must be fetched or available
+      // Actually we have them if we open detail, but if we click print from the list, we need to fetch them
+      let localItems = itemsData?.data ?? []
+      let localPayments = paymentsData?.data ?? []
+      
+      if (selectedOrder?.order_id !== order.order_id) {
+        const [resItems, resPayments] = await Promise.all([
+          fetch(`/api/shops/${shopId}/order-items?order_id=${order.order_id}&limit=100`),
+          fetch(`/api/shops/${shopId}/payments?order_id=${order.order_id}&limit=50`)
+        ])
+        const dataItems = await resItems.json()
+        const dataPayments = await resPayments.json()
+        localItems = dataItems.data || []
+        localPayments = dataPayments.data || []
+      }
+
+      const currentCount = parseInt(order.print_count || '0', 10)
+      const newCount = currentCount + 1
+
+      // print first
+      await printBill({
+        order,
+        items: localItems,
+        payments: localPayments,
+        shopName,
+        settings,
+        printCount: newCount,
+        shopId
+      })
+
+      // update count on server
+      await fetch(`/api/shops/${shopId}/orders/${order.order_id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ print_count: String(newCount) })
+      })
+
+      queryClient.invalidateQueries({ queryKey: ['orders', shopId] })
+      if (selectedOrder?.order_id === order.order_id) {
+        setSelectedOrder(prev => prev ? { ...prev, print_count: String(newCount) } : prev)
+      }
+    } catch (err) {
+      console.error(err)
+      toast.error('Có lỗi xảy ra khi in hóa đơn')
+    }
+  }
+
   function openDetail(row: Row) {
     setSelectedOrder(row)
     setEditStatus(row.status)
@@ -401,15 +469,27 @@ export function OrdersClient({ shopId }: Props) {
         <div className="flex items-center gap-2">
           <button
             onClick={() => openDetail(row)}
-            className="rounded-lg border border-slate-200 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50"
+            className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50"
           >
-            Xem
+            <Eye className="h-3.5 w-3.5" /> Xem
+          </button>
+          <button
+            onClick={() => {
+              if (parseInt(row.print_count || '0', 10) > 0) {
+                setPrintTarget(row)
+              } else {
+                handleReprint(row)
+              }
+            }}
+            className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50"
+          >
+            <Printer className="h-3.5 w-3.5" /> In
           </button>
           <button
             onClick={() => setDeleteTarget(row)}
-            className="rounded-lg border border-red-100 px-3 py-1 text-xs text-red-500 hover:bg-red-50"
+            className="flex items-center gap-1.5 rounded-lg border border-red-100 px-3 py-1 text-xs text-red-500 hover:bg-red-50"
           >
-            Xóa
+            <Trash2 className="h-3.5 w-3.5" /> Xóa
           </button>
         </div>
       ),
@@ -480,7 +560,31 @@ export function OrdersClient({ shopId }: Props) {
         rowKey={(row, idx) => `${row.order_id}__${idx}`}
       />
 
-      {/* Detail slide-over */}
+      <ConfirmDialog
+        open={!!printTarget}
+        title="Xác nhận in lại hóa đơn"
+        description={`Bạn đang thực hiện thao tác in lại hóa đơn. Hóa đơn sẽ hiển thị (In lại lần ${parseInt(printTarget?.print_count || '0', 10)}). Bạn có chắc chắn muốn in?`}
+        confirmLabel="In hóa đơn"
+        cancelLabel="Hủy bỏ"
+        onConfirm={() => {
+          if (printTarget) handleReprint(printTarget)
+          setPrintTarget(null)
+        }}
+        onClose={() => setPrintTarget(null)}
+      />
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="Xác nhận xóa"
+        description="Bạn có chắc chắn muốn xóa đơn hàng này? Thao tác này không thể hoàn tác."
+        confirmLabel="Xóa đơn hàng"
+        cancelLabel="Hủy bỏ"
+        onConfirm={() => deleteMutation.mutate(deleteTarget!.order_id)}
+        onClose={() => setDeleteTarget(null)}
+        isLoading={deleteMutation.isPending}
+        isDestructive
+      />
+
       <SlideOver
         open={!!selectedOrder}
         onClose={closeDetail}
@@ -488,28 +592,42 @@ export function OrdersClient({ shopId }: Props) {
         width={640}
         footer={
           <div className="flex w-full items-center justify-between">
-            {selectedOrder?.status === 'completed' || selectedOrder?.status === 'partially_refunded' ? (
+            <div className="flex gap-2">
+              {selectedOrder?.status === 'completed' || selectedOrder?.status === 'partially_refunded' ? (
+                <button
+                  onClick={() => {
+                    setShowReturnForm((v) => !v)
+                    setReturnReason('other')
+                    setReturnRefundMethod('cash')
+                    setReturnNote('')
+                    setReturnRefundAmount('')
+                    setReturnItems({})
+                  }}
+                  className="flex items-center gap-1.5 rounded-xl border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-medium text-orange-700 hover:bg-orange-100"
+                >
+                  <RotateCcw className="h-4 w-4" /> Tạo phiếu trả
+                </button>
+              ) : (
+                <span
+                  title={selectedOrder?.status === 'refunded' ? 'Đơn đã hoàn tiền' : 'Chỉ tạo được phiếu trả khi đơn đã Hoàn thành'}
+                  className="flex items-center gap-1.5 cursor-not-allowed rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-medium text-slate-400"
+                >
+                  <RotateCcw className="h-4 w-4" /> Tạo phiếu trả
+                </span>
+              )}
               <button
                 onClick={() => {
-                  setShowReturnForm((v) => !v)
-                  setReturnReason('other')
-                  setReturnRefundMethod('cash')
-                  setReturnNote('')
-                  setReturnRefundAmount('')
-                  setReturnItems({})
+                  if (parseInt(selectedOrder?.print_count || '0', 10) > 0) {
+                    setPrintTarget(selectedOrder)
+                  } else {
+                    handleReprint(selectedOrder!)
+                  }
                 }}
-                className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-medium text-orange-700 hover:bg-orange-100"
+                className="flex items-center gap-1.5 rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
               >
-                Tạo phiếu trả hàng
+                <Printer className="h-4 w-4" /> In lại
               </button>
-            ) : (
-              <span
-                title={selectedOrder?.status === 'refunded' ? 'Đơn đã hoàn tiền' : 'Chỉ tạo được phiếu trả khi đơn đã Hoàn thành'}
-                className="cursor-not-allowed rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-medium text-slate-400"
-              >
-                Tạo phiếu trả hàng
-              </span>
-            )}
+            </div>
             <button onClick={closeDetail} className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">
               Đóng
             </button>

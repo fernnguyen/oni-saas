@@ -13,6 +13,7 @@ import { broadcastOrderCreated } from '@/lib/localDb/tabSync'
 import { printBill } from '@/lib/pos/printBill'
 import type { CartItem } from '@/hooks/useCart'
 import { CustomerSearch } from './CustomerSearch'
+import { useQuery } from '@tanstack/react-query'
 
 interface Props {
   open: boolean
@@ -80,6 +81,16 @@ export function CheckoutModal({
   ])
   const [saving, setSaving] = useState(false)
   const [localNote, setLocalNote] = useState(note)
+
+  const { data: settings } = useQuery({
+    queryKey: ['settings', shopId],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/settings`)
+      if (!res.ok) return {}
+      return res.json()
+    },
+    enabled: !!shopId && autoPrintReceipt,
+  })
 
   useEffect(() => {
     if (open) {
@@ -182,6 +193,7 @@ export function CheckoutModal({
         note: localNote,
         created_at: now,
         status: 'completed',
+        print_count: autoPrintReceipt ? 1 : 0,
         items: orderItems,
       }
 
@@ -275,7 +287,17 @@ export function CheckoutModal({
       toast.success(isSuccessDirect ? 'Tạo mới đơn hàng thành công!' : 'Tạo mới đơn hàng thành công (chờ đồng bộ)')
       onSuccess() // close modal + clear cart first
       if (autoPrintReceipt) {
-        setTimeout(() => printBill({ order, items: orderItems, payments: localPayments, shopName }), 150)
+        setTimeout(async () => {
+          await printBill({ 
+            order, 
+            items: orderItems, 
+            payments: localPayments, 
+            shopName, 
+            settings, 
+            printCount: 1,
+            shopId
+          })
+        }, 150)
       }
     } catch (err) {
       console.error(err)

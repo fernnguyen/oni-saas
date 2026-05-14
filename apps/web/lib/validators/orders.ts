@@ -25,6 +25,7 @@ export const orderCreateSchema = z.object({
   points_redeemed:   z.string().optional().default('0'),
   note:              z.string().optional().default(''),
   payment_method:    z.string().optional().default(''),
+  print_count:       z.string().optional().default('0'),
 })
 
 export const orderUpdateSchema = orderCreateSchema.partial()

@@ -24,18 +24,62 @@ function fmtDate(iso: string) {
   })
 }
 
-export function printBill({
+export async function printBill({
   order,
   items,
   payments,
   shopName,
+  settings,
+  printCount = 1,
+  shopId,
 }: {
-  order: LocalOrder
-  items: LocalOrderItem[]
-  payments: LocalPayment[]
+  order: LocalOrder | Record<string, any>
+  items: LocalOrderItem[] | Record<string, any>[]
+  payments: LocalPayment[] | Record<string, any>[]
   shopName: string
+  settings?: any
+  printCount?: number
+  shopId?: string
 }) {
-  const shortId = order.local_id.slice(-8).toUpperCase()
+  let currentSettings = settings
+  if (!currentSettings && shopId) {
+    try {
+      const res = await fetch(`/api/shops/${shopId}/settings`)
+      if (res.ok) currentSettings = await res.json()
+    } catch (e) {
+      console.error('Failed to fetch settings for printBill', e)
+    }
+  }
+
+  // Support both LocalOrder and Server Order structures
+  const orderId = (order as any).local_id || (order as any).order_id || ''
+  const shortId = orderId.slice(-8).toUpperCase()
+  
+  const createdDate = order.created_at || new Date().toISOString()
+  const subtotal = Number(order.subtotal || 0)
+  const discount = Number(order.discount_amount || 0)
+  const total = Number(order.total_amount || 0)
+  const customerName = order.customer_name
+
+  const billTitle = 'HOÁ ĐƠN BÁN HÀNG'
+  const reprintHtml = printCount > 1 ? `<p class="sub" style="font-style: italic; margin-top: 2px;">(In lại lần ${printCount - 1})</p>` : ''
+  
+  const taxIdHtml = currentSettings?.tax_id ? `<p class="sub">MST: ${currentSettings.tax_id}</p>` : ''
+  const addressHtml = currentSettings?.address ? `<p class="sub">${currentSettings.address}</p>` : ''
+  const phoneHtml = currentSettings?.phone ? `<p class="sub">ĐT: ${currentSettings.phone}</p>` : ''
+  
+  let qrHtml = ''
+  if (currentSettings?.bank_code && currentSettings?.bank_account_number && currentSettings?.qr_template) {
+    const qrUrl = `https://img.vietqr.io/image/${currentSettings.bank_code}-${currentSettings.bank_account_number}-${currentSettings.qr_template}.png?amount=${total}&addInfo=${shortId}&accountName=${currentSettings.bank_account_name || ''}`
+    qrHtml = `<div class="sep"></div>
+    <div style="text-align:center; margin-top: 10px;">
+      <p style="font-weight:bold; margin-bottom: 4px;">Quét QR để thanh toán</p>
+      <img src="${qrUrl}" style="width: 100%; max-width: 250px; margin: 0 auto;" />
+    </div>`
+  }
+  
+  const wifiHtml = currentSettings?.wifi_info ? `<div class="sep"></div><p style="text-align:center;">Wi-Fi: ${currentSettings.wifi_info}</p>` : ''
+  const footerHtml = currentSettings?.receipt_footer ? `<p class="footer">${currentSettings.receipt_footer}</p>` : '<p class="footer">Cảm ơn quý khách!</p>'
 
   const html = `<!DOCTYPE html>
 <html>
@@ -46,11 +90,14 @@ export function printBill({
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: 'Courier New', monospace; font-size: 12px; width: 80mm; padding: 8px; color: #000; }
 h1 { font-size: 15px; text-align: center; font-weight: bold; }
+h2 { font-size: 18px; text-align: center; font-weight: bold; margin-top: 8px; margin-bottom: 6px; }
 .sub { font-size: 11px; text-align: center; color: #444; margin-bottom: 2px; }
 .sep { border-top: 1px dashed #000; margin: 6px 0; }
 table { width: 100%; border-collapse: collapse; }
 td { padding: 2px 0; vertical-align: top; }
 .r { text-align: right; }
+.c { text-align: center; }
+.pl { padding-left: 4px; }
 .bold { font-weight: bold; }
 .total-row td { font-size: 14px; font-weight: bold; padding-top: 4px; }
 .footer { text-align: center; font-size: 11px; margin-top: 6px; }
@@ -61,38 +108,44 @@ td { padding: 2px 0; vertical-align: top; }
 </head>
 <body>
 <h1>${shopName}</h1>
-<p class="sub">HOÁ ĐƠN BÁN HÀNG</p>
-<p class="sub">${fmtDate(order.created_at)}</p>
+${addressHtml}
+${phoneHtml}
+${taxIdHtml}
+<h2>${billTitle}</h2>
+${reprintHtml}
+<p class="sub">${fmtDate(createdDate)}</p>
 <p class="sub">Mã đơn: #${shortId}</p>
 <div class="sep"></div>
-<p>${order.customer_name ? 'Khách: ' + order.customer_name : 'Khách lẻ'}</p>
+<p>${customerName ? 'Khách: ' + customerName : 'Khách lẻ'}</p>
 <div class="sep"></div>
 <table>
-<tr><td class="bold">Sản phẩm</td><td class="r bold">SL</td><td class="r bold">Đ.giá</td><td class="r bold">T.tiền</td></tr>
+<tr><td class="bold">Sản phẩm</td><td class="c bold pl" style="width: 12%">SL</td><td class="r bold pl" style="width: 25%">Đ.giá</td><td class="r bold pl" style="width: 28%">T.tiền</td></tr>
 ${items
   .map(
     (it) => `<tr>
   <td>${it.product_name}${it.sku ? '<br/><span style="font-size:10px;color:#666">' + it.sku + '</span>' : ''}</td>
-  <td class="r">${it.qty}</td>
-  <td class="r">${fmtVND(it.unit_price)}</td>
-  <td class="r">${fmtVND(it.line_total)}</td>
+  <td class="c pl">${it.qty}</td>
+  <td class="r pl">${fmtVND(Number(it.unit_price))}</td>
+  <td class="r pl">${fmtVND(Number(it.line_total))}</td>
 </tr>`
   )
   .join('')}
 </table>
 <div class="sep"></div>
 <table>
-<tr><td>Tạm tính:</td><td class="r">${fmtVND(order.subtotal)}</td></tr>
-${order.discount_amount > 0 ? `<tr><td>Giảm giá:</td><td class="r">-${fmtVND(order.discount_amount)}</td></tr>` : ''}
-<tr class="total-row"><td>TỔNG CỘNG:</td><td class="r">${fmtVND(order.total_amount)}</td></tr>
+<tr><td>Tạm tính:</td><td class="r">${fmtVND(subtotal)}</td></tr>
+${discount > 0 ? `<tr><td>Giảm giá:</td><td class="r">-${fmtVND(discount)}</td></tr>` : ''}
+<tr class="total-row"><td>TỔNG CỘNG:</td><td class="r">${fmtVND(total)}</td></tr>
 </table>
 <div class="sep"></div>
 <table>
-${payments.map((p) => `<tr><td>${METHOD_LABEL[p.method] ?? p.method}:</td><td class="r">${fmtVND(p.amount)}</td></tr>`).join('')}
+${payments.map((p) => `<tr><td>${METHOD_LABEL[p.method] ?? p.method}:</td><td class="r">${fmtVND(Number(p.amount))}</td></tr>`).join('')}
 </table>
 ${order.note ? `<div class="sep"></div><p>Ghi chú: ${order.note}</p>` : ''}
+${qrHtml}
+${wifiHtml}
 <div class="sep"></div>
-<p class="footer">Cảm ơn quý khách!</p>
+${footerHtml}
 </body>
 </html>`
 
@@ -105,3 +158,4 @@ ${order.note ? `<div class="sep"></div><p>Ghi chú: ${order.note}</p>` : ''}
     win.print()
   }
 }
+

@@ -2,9 +2,11 @@
 import { useEffect, useState } from 'react'
 import { liveQuery } from 'dexie'
 import { localDb, type LocalOrder, type LocalOrderItem } from '@/lib/localDb/schema'
+import { useQuery } from '@tanstack/react-query'
 import { printBill } from '@/lib/pos/printBill'
 import type { CartItem } from '@/hooks/useCart'
 import type { LocalCustomer } from '@/lib/localDb/schema'
+import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog'
 
 interface HeldCart {
   id: string
@@ -23,6 +25,7 @@ interface Props {
   onDiscardHeld: (id: string) => void
   shopName: string
   ordersPath: string
+  shopId: string
 }
 
 const SYNC_LABELS: Record<string, { label: string; cls: string }> = {
@@ -45,11 +48,22 @@ function todayPrefix() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-export function OrderHistoryPanel({ open, onClose, heldCarts, onLoadHeld, onDiscardHeld, shopName, ordersPath }: Props) {
+export function OrderHistoryPanel({ open, onClose, heldCarts, onLoadHeld, onDiscardHeld, shopName, ordersPath, shopId }: Props) {
   const [tab, setTab] = useState<'held' | 'today'>('held')
   const [todayOrders, setTodayOrders] = useState<LocalOrder[]>([])
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [expandedItems, setExpandedItems] = useState<LocalOrderItem[]>([])
+  const [reprintTarget, setReprintTarget] = useState<LocalOrder | null>(null)
+
+  const { data: settings } = useQuery({
+    queryKey: ['settings', shopId],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/settings`)
+      if (!res.ok) return {}
+      return res.json()
+    },
+    enabled: !!shopId && open,
+  })
 
   useEffect(() => {
     const prefix = todayPrefix()
@@ -85,7 +99,21 @@ export function OrderHistoryPanel({ open, onClose, heldCarts, onLoadHeld, onDisc
   async function handleReprint(order: LocalOrder) {
     const items = await localDb.orderItems.where('order_local_id').equals(order.local_id).toArray()
     const payments = await localDb.payments.where('order_local_id').equals(order.local_id).toArray()
-    printBill({ order, items, payments, shopName })
+    
+    // Update print count
+    const newCount = (order.print_count || 0) + 1
+    await localDb.orders.update(order.local_id, { print_count: newCount })
+    
+    await printBill({ order, items, payments, shopName, settings, printCount: newCount, shopId })
+    
+    // Fire and forget server update if order was synced
+    if (order.server_id) {
+      fetch(`/api/shops/${shopId}/orders/${order.server_id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ print_count: String(newCount) })
+      }).catch(console.error)
+    }
   }
 
   if (!open) return null
@@ -241,7 +269,14 @@ export function OrderHistoryPanel({ open, onClose, heldCarts, onLoadHeld, onDisc
                             <p className="mt-2 text-xs italic text-slate-400">{order.note}</p>
                           )}
                           <button
-                            onClick={() => handleReprint(order)}
+                            onClick={() => {
+                              const currentCount = parseInt(String(order.print_count || '0'), 10)
+                              if (currentCount > 0) {
+                                setReprintTarget(order)
+                              } else {
+                                handleReprint(order)
+                              }
+                            }}
                             className="mt-3 w-full rounded-lg border border-slate-200 py-1.5 text-xs text-slate-600 hover:bg-white transition-colors"
                           >
                             In lại bill
@@ -256,6 +291,19 @@ export function OrderHistoryPanel({ open, onClose, heldCarts, onLoadHeld, onDisc
           )}
         </div>
       </div>
+      
+      <ConfirmDialog
+        open={!!reprintTarget}
+        title="In lại phiếu thanh toán"
+        description={`Đơn hàng này đã được in. In lại sẽ ghi chú "(In lại lần ${parseInt(String(reprintTarget?.print_count || '0'), 10)})" trên phiếu. Bạn có muốn tiếp tục?`}
+        confirmLabel="In lại"
+        cancelLabel="Hủy"
+        onConfirm={() => {
+          if (reprintTarget) handleReprint(reprintTarget)
+          setReprintTarget(null)
+        }}
+        onClose={() => setReprintTarget(null)}
+      />
     </div>
   )
 }

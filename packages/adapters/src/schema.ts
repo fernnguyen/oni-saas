@@ -31,6 +31,7 @@ export const orders = mysqlTable('orders', {
   note: text('note'),
   payment_method: varchar('payment_method', { length: 50 }),
   reference_no: varchar('reference_no', { length: 255 }),
+  print_count: varchar('print_count', { length: 10 }),
 });
 
 export const orderItems = mysqlTable('order_items', {

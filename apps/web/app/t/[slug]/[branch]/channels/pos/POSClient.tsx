@@ -305,7 +305,8 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
         onLoadHeld={loadHeldCart}
         onDiscardHeld={discardHeldCart}
         shopName={shopName}
-        ordersPath={`${backPath}/orders`}
+        ordersPath={`/t/${backPath.split('/')[1]}/${branchId}/orders`}
+        shopId={shopId}
       />
 
       <CheckoutModal

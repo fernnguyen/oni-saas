@@ -108,6 +108,7 @@ export interface LocalOrder {
   note?: string
   created_at: string
   status: string
+  print_count: number
   items: LocalOrderItem[]
 }
 
