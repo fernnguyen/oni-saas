@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireShopAccess } from '@/lib/server/shopAccess'
 import { invalidate } from '@/lib/server/cache'
 import { handleApiError } from '../../../../_helpers'
+import { dispatchNotification } from '@/lib/server/notifications'
 
 // POST /api/shops/[shopId]/returns/[id]/process
 // Chuyển trạng thái phiếu trả hàng sang 'processed':
@@ -14,7 +15,7 @@ export async function POST(
 ) {
   try {
     const { shopId, id } = await params
-    const { connector } = await requireShopAccess(shopId, 'returns.approve')
+    const { connector, shop } = await requireShopAccess(shopId, 'returns.approve')
     const body = await req.json().catch(() => ({}))
     const processedBy: string = body.processed_by ?? ''
 
@@ -154,6 +155,15 @@ export async function POST(
       await connector.update('orders', r.order_id, { status: newStatus })
       invalidate(shopId, 'orders')
     }
+
+    dispatchNotification(shop.tenant_id, 'ORDER_RETURNED', {
+      shopName: shop.name,
+      returnNo: returnRef,
+      orderNo: r.order_no,
+      amount: r.total_refund,
+      customerName: r.customer_name,
+      note: r.note
+    }).catch(err => console.error('Failed to dispatch ORDER_RETURNED:', err))
 
     invalidate(shopId, 'returns')
     invalidate(shopId, 'stock-movements')

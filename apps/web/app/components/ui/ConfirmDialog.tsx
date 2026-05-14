@@ -12,6 +12,7 @@ export interface ConfirmDialogProps {
   cancelLabel?: string
   variant?: 'danger' | 'default'
   loading?: boolean
+  children?: React.ReactNode
 }
 
 export function ConfirmDialog({
@@ -24,6 +25,7 @@ export function ConfirmDialog({
   cancelLabel = 'Hủy',
   variant = 'default',
   loading = false,
+  children,
 }: ConfirmDialogProps) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -46,8 +48,9 @@ export function ConfirmDialog({
       >
         <h2 className="text-base font-semibold text-slate-900">{title}</h2>
         {description && (
-          <p className="mt-2 text-sm text-slate-500">{description}</p>
+          <p className="mt-2 text-sm text-slate-500 whitespace-pre-line">{description}</p>
         )}
+        {children && <div className="mt-4">{children}</div>}
         <div className="mt-6 flex justify-end gap-3">
           <button
             onClick={onClose}

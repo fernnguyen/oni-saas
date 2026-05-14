@@ -91,9 +91,28 @@ export async function DELETE(
       }
     }
 
+    // Cascade delete order_items
+    const itemsRes = await connector.list('order-items', { filters: { order_id: id }, limit: 100 })
+    for (const it of itemsRes.data as Record<string, string>[]) {
+      if (it.item_id) await connector.delete('order-items', it.item_id)
+    }
+
+    // Cascade delete payments
+    const paymentsRes = await connector.list('payments', { filters: { order_id: id }, limit: 100 })
+    for (const p of paymentsRes.data as Record<string, string>[]) {
+      if (p.payment_id) await connector.delete('payments', p.payment_id)
+    }
+
+    // Cascade delete cashbook entries (linked by reference_id)
+    const cashbookRes = await connector.list('cashbook', { filters: { reference_id: id }, limit: 100 })
+    for (const cb of cashbookRes.data as Record<string, string>[]) {
+      if (cb.transaction_id) await connector.delete('cashbook', cb.transaction_id)
+    }
+
     await connector.delete('orders', id)
     invalidate(shopId, 'orders')
     invalidate(shopId, 'inventory')
+    invalidate(shopId, 'cashbook')
     return new NextResponse(null, { status: 204 })
   } catch (e) {
     return handleApiError(e, 'DELETE order')

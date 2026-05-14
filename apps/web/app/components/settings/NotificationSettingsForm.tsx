@@ -17,6 +17,8 @@ const AVAILABLE_EVENTS = [
   { id: 'ORDER_CREATED', label: 'Đơn hàng mới' },
   { id: 'PAYMENT_RECEIVED', label: 'Thanh toán thành công' },
   { id: 'CUSTOMER_CREATED', label: 'Khách hàng mới' },
+  { id: 'ORDER_CANCELLED', label: 'Hủy đơn hàng' },
+  { id: 'ORDER_RETURNED', label: 'Khách trả hàng' },
 ];
 
 export function NotificationSettingsForm({

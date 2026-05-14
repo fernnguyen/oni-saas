@@ -12,7 +12,7 @@ import { SearchBar } from '@/app/components/ui/SearchBar'
 import { printBill } from '@/lib/pos/printBill'
 
 const Eye = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
-const Trash2 = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+const Ban = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>
 const Printer = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect width="12" height="8" x="6" y="14"/></svg>
 const RotateCcw = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
 
@@ -105,7 +105,9 @@ export function OrdersClient({ shopId, shopName }: Props) {
   const [statusFilter, setStatusFilter] = useState('')
   const [selectedOrder, setSelectedOrder] = useState<Row | null>(null)
   const [editStatus, setEditStatus] = useState('')
-  const [deleteTarget, setDeleteTarget] = useState<Row | null>(null)
+  const [cancelTarget, setCancelTarget] = useState<Row | null>(null)
+  const [cancelReason, setCancelReason] = useState('Sai sót hệ thống')
+  const [customCancelReason, setCustomCancelReason] = useState('')
   const [paymentForm, setPaymentForm] = useState<Record<string, string>>(EMPTY_PAYMENT)
   const [showPaymentForm, setShowPaymentForm] = useState(false)
   const [showReturnForm, setShowReturnForm] = useState(false)
@@ -332,19 +334,29 @@ export function OrdersClient({ shopId, shopName }: Props) {
     onError: (err: Error) => toast.error(err.message),
   })
 
-  // Delete order
-  const deleteMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const res = await fetch(`/api/shops/${shopId}/orders/${id}`, { method: 'DELETE' })
-      if (!res.ok) throw new Error('Xóa thất bại')
+  // Cancel order
+  const cancelMutation = useMutation({
+    mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
+      const res = await fetch(`/api/shops/${shopId}/orders/${id}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      })
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}))
+        throw new Error(json.error ?? 'Hủy thất bại')
+      }
     },
     onSuccess: () => {
-      toast.success('Đã xóa đơn hàng')
-      setDeleteTarget(null)
-      setSelectedOrder(null)
+      toast.success('Đã hủy đơn hàng')
+      setCancelTarget(null)
+      if (selectedOrder) {
+        setEditStatus('cancelled')
+        setSelectedOrder({ ...selectedOrder, status: 'cancelled' })
+      }
       queryClient.invalidateQueries({ queryKey: ['orders', shopId] })
     },
-    onError: () => toast.error('Xóa thất bại'),
+    onError: (err: Error) => toast.error(err.message),
   })
 
   // Reprint logic
@@ -485,12 +497,14 @@ export function OrdersClient({ shopId, shopName }: Props) {
           >
             <Printer className="h-3.5 w-3.5" /> In
           </button>
-          <button
-            onClick={() => setDeleteTarget(row)}
-            className="flex items-center gap-1.5 rounded-lg border border-red-100 px-3 py-1 text-xs text-red-500 hover:bg-red-50"
-          >
-            <Trash2 className="h-3.5 w-3.5" /> Xóa
-          </button>
+          {row.status !== 'cancelled' && (
+            <button
+              onClick={() => setCancelTarget(row)}
+              className="flex items-center gap-1.5 rounded-lg border border-red-100 px-3 py-1 text-xs text-red-500 hover:bg-red-50"
+            >
+              <Ban className="h-3.5 w-3.5" /> Hủy
+            </button>
+          )}
         </div>
       ),
     },
@@ -571,18 +585,6 @@ export function OrdersClient({ shopId, shopName }: Props) {
           setPrintTarget(null)
         }}
         onClose={() => setPrintTarget(null)}
-      />
-
-      <ConfirmDialog
-        open={!!deleteTarget}
-        title="Xác nhận xóa"
-        description="Bạn có chắc chắn muốn xóa đơn hàng này? Thao tác này không thể hoàn tác."
-        confirmLabel="Xóa đơn hàng"
-        cancelLabel="Hủy bỏ"
-        onConfirm={() => deleteMutation.mutate(deleteTarget!.order_id)}
-        onClose={() => setDeleteTarget(null)}
-        isLoading={deleteMutation.isPending}
-        isDestructive
       />
 
       <SlideOver
@@ -685,7 +687,8 @@ export function OrdersClient({ shopId, shopName }: Props) {
                 <select
                   value={editStatus}
                   onChange={(e) => setEditStatus(e.target.value)}
-                  className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                  disabled={selectedOrder.status === 'cancelled'}
+                  className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none disabled:opacity-50 disabled:bg-slate-50"
                 >
                   {STATUS_OPTIONS.filter((o) => o.value).map((opt) => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -693,7 +696,7 @@ export function OrdersClient({ shopId, shopName }: Props) {
                 </select>
                 <button
                   onClick={() => statusMutation.mutate({ id: selectedOrder.order_id, status: editStatus })}
-                  disabled={statusMutation.isPending || editStatus === selectedOrder.status}
+                  disabled={statusMutation.isPending || editStatus === selectedOrder.status || selectedOrder.status === 'cancelled'}
                   className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
                 >
                   {statusMutation.isPending ? 'Đang lưu...' : 'Lưu'}
@@ -775,6 +778,7 @@ export function OrdersClient({ shopId, shopName }: Props) {
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <h3 className="text-sm font-medium text-slate-700">Thanh toán</h3>
+                {selectedOrder.status === 'cancelled' && <span className="text-xs text-red-500 font-medium">Đơn đã hủy</span>}
               </div>
 
               {paymentsLoading ? (
@@ -797,7 +801,7 @@ export function OrdersClient({ shopId, shopName }: Props) {
               )}
 
               {/* Add payment form */}
-              {showPaymentForm && (
+              {showPaymentForm && selectedOrder.status !== 'cancelled' && (
                 <div className="mt-3 space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
@@ -1016,15 +1020,52 @@ export function OrdersClient({ shopId, shopName }: Props) {
       </SlideOver>
 
       <ConfirmDialog
-        open={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={() => { if (deleteTarget) deleteMutation.mutate(deleteTarget.order_id) }}
-        title="Xác nhận xóa"
-        description={`Bạn có chắc muốn xóa đơn hàng "${deleteTarget?.order_id}"?`}
-        confirmLabel="Xóa"
+        open={!!cancelTarget}
+        onClose={() => setCancelTarget(null)}
+        onConfirm={() => { 
+          if (cancelTarget) {
+            const finalReason = cancelReason === 'other' ? customCancelReason : cancelReason
+            cancelMutation.mutate({ id: cancelTarget.order_id, reason: finalReason || 'Không rõ' })
+          }
+        }}
+        title="Xác nhận hủy đơn hàng"
+        description={`Khách hàng: ${cancelTarget?.customer_name || 'Khách lẻ'} - Tổng tiền: ${fmtVND(cancelTarget?.total_amount || '0')} \nBạn có chắc muốn hủy đơn hàng "${cancelTarget?.order_id}"? Việc này không thể hoàn tác. Hệ thống sẽ tự động tạo phiếu chi để hoàn lại dòng tiền tương ứng và khôi phục tồn kho.${
+          parseFloat(cancelTarget?.debt_amount || '0') > 0 ? `\nĐồng thời xóa công nợ ${fmtVND(cancelTarget?.debt_amount || '0')} cho khách hàng này.` : ''
+        }`}
+        confirmLabel="Hủy đơn"
         variant="danger"
-        loading={deleteMutation.isPending}
-      />
+        loading={cancelMutation.isPending}
+      >
+        <div className="space-y-3">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">Lý do hủy</label>
+            <select
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-red-500 focus:outline-none"
+            >
+              <option value="Sai sót hệ thống">Sai sót hệ thống</option>
+              <option value="Nhập nhầm đơn">Nhập nhầm đơn</option>
+              <option value="Khách không nhận hàng">Khách không nhận hàng</option>
+              <option value="Khách hủy trước khi giao">Khách hủy trước khi giao</option>
+              <option value="other">Khác</option>
+            </select>
+          </div>
+          {cancelReason === 'other' && (
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">Lý do khác</label>
+              <input
+                autoFocus
+                type="text"
+                value={customCancelReason}
+                onChange={(e) => setCustomCancelReason(e.target.value)}
+                placeholder="Nhập lý do hủy..."
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-red-500 focus:outline-none"
+              />
+            </div>
+          )}
+        </div>
+      </ConfirmDialog>
 
       <ConfirmDialog
         open={showConfirmReturn}
