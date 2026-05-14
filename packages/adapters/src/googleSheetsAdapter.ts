@@ -259,7 +259,7 @@ export class GoogleSheetsConnector implements IDataConnector {
 
   async list(entity: string, options: ListOptions = {}): Promise<ListResult> {
     const { page = 1, limit = 50, search, filters, sortDesc } = options
-    const { tab } = this.getConfig(entity)
+    const { tab, idKey } = this.getConfig(entity)
     const token = await this.tokenProvider()
     const { headers, rows } = await readTab(token, this.sheetId, tab)
 
@@ -295,7 +295,10 @@ export class GoogleSheetsConnector implements IDataConnector {
 
     const total = filtered.length
     const start = (page - 1) * limit
-    const data = filtered.slice(start, start + limit)
+    const data = filtered.slice(start, start + limit).map(row => ({
+      ...row,
+      id: row[idKey]
+    }))
 
     return { data, total, page, limit }
   }
