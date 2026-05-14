@@ -5,6 +5,7 @@ import { shopTag, invalidate, shopCache } from '@/lib/server/cache'
 import { cacheTTL } from '@/lib/env'
 import { handleApiError } from '../../_helpers'
 import { dispatchNotification } from '@/lib/server/notifications'
+import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
 
 export async function GET(
   req: NextRequest,
@@ -44,7 +45,7 @@ export async function POST(
 ) {
   try {
     const { shopId } = await params
-    const { connector, shop } = await requireShopAccess(shopId, 'orders.create')
+    const { connector, shop, user } = await requireShopAccess(shopId, 'orders.create')
 
     const body = await req.json()
     const data = orderCreateSchema.parse(body)
@@ -63,8 +64,45 @@ export async function POST(
       return txt;
     }).join('\n');
 
+    const admin = getSupabaseAdminClient();
+    const { data: tenant } = await admin.from('tenants').select('slug').eq('id', shop.tenant_id).maybeSingle();
+    const domainName = tenant?.slug ? `${tenant.slug}.oni.vn` : 'oni.vn';
+    const creatorEmail = user?.email || 'Unknown';
+
+    let customerPhone = ''
+    if (data.customer_id) {
+      try {
+        const customer = await connector.findById('customers', data.customer_id)
+        if (customer) {
+          customerPhone = (customer.phone as string) || ''
+        }
+      } catch (err) {
+        console.error('Failed to fetch customer:', err)
+      }
+    }
+
+    const paymentMethodMap: Record<string, string> = {
+      cash: 'Tiền mặt',
+      card: 'Quẹt thẻ',
+      bank_transfer: 'Chuyển khoản',
+      momo: 'MoMo',
+      vnpay: 'VNPay',
+      zalopay: 'ZaloPay',
+      debt: 'Ghi nợ'
+    };
+
+    let paidText = `${Number(data.paid_amount).toLocaleString('vi-VN')}đ`;
+    if (data.payment_method) {
+      const methodName = paymentMethodMap[data.payment_method] || data.payment_method;
+      paidText += ` (${methodName})`;
+    }
+
+    const customerDisplay = data.customer_name 
+      ? `${data.customer_name}${customerPhone ? ` (${customerPhone})` : ''}` 
+      : 'Khách lẻ';
+
     const message = `Mã đơn: #${data.order_no}
-Khách hàng: ${data.customer_name || 'Khách lẻ'}
+Khách hàng: ${customerDisplay}
 ${data.note ? `Ghi chú: ${data.note}\n` : ''}
 🛍 MẶT HÀNG:
 ${itemsList}
@@ -73,8 +111,10 @@ ${itemsList}
 Tiền hàng: ${Number(data.subtotal).toLocaleString('vi-VN')}đ
 Giảm giá: ${Number(data.discount_amount).toLocaleString('vi-VN')}đ
 Tổng cộng: ${Number(data.total_amount).toLocaleString('vi-VN')}đ
-Đã thu: ${Number(data.paid_amount).toLocaleString('vi-VN')}đ
-Còn nợ: ${Number(data.debt_amount || 0).toLocaleString('vi-VN')}đ`;
+Đã thu: ${paidText}
+Còn nợ: ${Number(data.debt_amount || 0).toLocaleString('vi-VN')}đ
+
+📝 Người tạo phiếu: ${creatorEmail} (${domainName})`;
 
     // Dispatch notification asynchronously without blocking response
     dispatchNotification(shop.tenant_id, 'ORDER_CREATED', {

@@ -3,6 +3,7 @@ import { requireShopAccess } from '@/lib/server/shopAccess'
 import { invalidate } from '@/lib/server/cache'
 import { handleApiError } from '../../../_helpers'
 import { dispatchNotification } from '@/lib/server/notifications'
+import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
 
 const INBOUND_TYPES = ['purchase_in', 'return_in', 'transfer_in']
 const OUTBOUND_TYPES = ['sale_out', 'transfer_out']
@@ -59,7 +60,7 @@ export async function POST(
 ) {
   try {
     const { shopId } = await params
-    const { connector, shop } = await requireShopAccess(shopId, 'orders.create')
+    const { connector, shop, user } = await requireShopAccess(shopId, 'orders.create')
 
     const body = await req.json() as {
       local_order_id: string
@@ -317,6 +318,11 @@ export async function POST(
         ? `${order.customer_name}${customerPhone ? ` (${customerPhone})` : ''}` 
         : 'Khách lẻ';
 
+      const admin = getSupabaseAdminClient();
+      const { data: tenant } = await admin.from('tenants').select('slug').eq('id', shop.tenant_id).maybeSingle();
+      const domainName = tenant?.slug ? `${tenant.slug}.oni.vn` : 'oni.vn';
+      const creatorEmail = user?.email || 'Unknown';
+
       const message = `Mã đơn: #${orderNo || serverId}
 Khách hàng: ${customerDisplay}
 ${order.note ? `Ghi chú: ${order.note}\n` : ''}
@@ -328,7 +334,9 @@ Tiền hàng: ${Number(order.subtotal).toLocaleString('vi-VN')}đ
 Giảm giá: ${Number(order.discount_amount).toLocaleString('vi-VN')}đ
 Tổng cộng: ${Number(order.total_amount).toLocaleString('vi-VN')}đ
 Đã thu: ${paidText}
-Còn nợ: ${Number(order.debt_amount || 0).toLocaleString('vi-VN')}đ`;
+Còn nợ: ${Number(order.debt_amount || 0).toLocaleString('vi-VN')}đ
+
+📝 Người tạo phiếu: ${creatorEmail} (${domainName})`;
 
       // Dispatch notification asynchronously without blocking response
       dispatchNotification(shop.tenant_id, 'ORDER_CREATED', {
