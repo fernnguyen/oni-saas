@@ -4,7 +4,8 @@ import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
 import { TenantSettingsForm } from '@/app/components/settings/TenantSettingsForm';
 import { DashboardShell } from '@/app/components/layout/DashboardShell';
 import { getUserPermissions } from '@/lib/server/permissions';
-import { getTenantActivePlanDetails } from '@/lib/server/subscriptions';
+import { getTenantActivePlanDetails, getTenantPlanMeta } from '@/lib/server/subscriptions';
+import { NotificationSettingsForm } from '@/app/components/settings/NotificationSettingsForm';
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -87,6 +88,27 @@ export default async function TenantSettingsPage({ params }: Props) {
     `http://${process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000'}`;
 
   const planDetails = await getTenantActivePlanDetails(tenant.id);
+  const planMeta = await getTenantPlanMeta(tenant.id);
+  const canUsePushNotify = !!planMeta?.can_use_push_notify;
+  const canUseCustomNotify = !!planMeta?.can_use_custom_notify;
+
+  const { data: channels } = await admin
+    .from('tenant_notification_channels')
+    .select('config')
+    .eq('tenant_id', tenant.id)
+    .eq('provider', 'telegram')
+    .eq('is_active', true)
+    .maybeSingle();
+
+  const { data: eventsData } = await admin
+    .from('tenant_notification_events')
+    .select('event_name, is_enabled')
+    .eq('tenant_id', tenant.id);
+
+  const eventsConfig = (eventsData || []).reduce((acc: any, curr: any) => {
+    acc[curr.event_name] = curr.is_enabled;
+    return acc;
+  }, {});
 
   return (
     <DashboardShell
@@ -124,6 +146,16 @@ export default async function TenantSettingsPage({ params }: Props) {
           tenantId={tenant.id}
           connector={connector}
           canManage={canManage}
+        />
+
+        <NotificationSettingsForm
+          tenantId={tenant.id}
+          slug={tenant.slug}
+          canManage={canManage}
+          canUsePushNotify={canUsePushNotify}
+          canUseCustomNotify={canUseCustomNotify}
+          telegramConfig={channels?.config as any}
+          eventsConfig={eventsConfig}
         />
       </div>
     </DashboardShell>

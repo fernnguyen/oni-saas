@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireShopAccess } from '@/lib/server/shopAccess'
 import { invalidate } from '@/lib/server/cache'
 import { handleApiError } from '../../../_helpers'
+import { dispatchNotification } from '@/lib/server/notifications'
 
 const INBOUND_TYPES = ['purchase_in', 'return_in', 'transfer_in']
 const OUTBOUND_TYPES = ['sale_out', 'transfer_out']
@@ -58,7 +59,7 @@ export async function POST(
 ) {
   try {
     const { shopId } = await params
-    const { connector } = await requireShopAccess(shopId, 'orders.create')
+    const { connector, shop } = await requireShopAccess(shopId, 'orders.create')
 
     const body = await req.json() as {
       local_order_id: string
@@ -248,20 +249,25 @@ export async function POST(
       await connector.batchCreate('stock-movements', movsToCreate)
     }
 
-    // ── Step 5: Update Customer Debt ──
-    if (isNewOrder && order.customer_id && order.debt_amount && Number(order.debt_amount) > 0) {
+    // ── Step 5: Update Customer Debt & Fetch Info ──
+    let customerPhone = ''
+    if (isNewOrder && order.customer_id) {
       try {
         const customer = await connector.findById('customers', order.customer_id)
         if (customer) {
-          const currentDebt = parseFloat((customer.debt_amount as string) || '0')
-          const newDebt = currentDebt + Number(order.debt_amount)
-          await connector.update('customers', order.customer_id, {
-            debt_amount: String(newDebt)
-          })
-          invalidate(shopId, 'customers')
+          customerPhone = (customer.phone as string) || ''
+          
+          if (order.debt_amount && Number(order.debt_amount) > 0) {
+            const currentDebt = parseFloat((customer.debt_amount as string) || '0')
+            const newDebt = currentDebt + Number(order.debt_amount)
+            await connector.update('customers', order.customer_id, {
+              debt_amount: String(newDebt)
+            })
+            invalidate(shopId, 'customers')
+          }
         }
       } catch (err) {
-        console.error('Failed to update customer debt:', err)
+        console.error('Failed to fetch customer:', err)
       }
     }
 
@@ -270,6 +276,66 @@ export async function POST(
     invalidate(shopId, 'payments')
     invalidate(shopId, 'stock-movements')
     invalidate(shopId, 'cashbook')
+
+    if (isNewOrder) {
+      // Format items
+      const itemsList = items.map((it, i) => {
+        const itemTotal = Number(it.line_total).toLocaleString('vi-VN');
+        const unitPrice = Number(it.unit_price).toLocaleString('vi-VN');
+        let txt = `${i + 1}. ${it.product_name}\n   ${it.qty} x ${unitPrice}đ = ${itemTotal}đ`;
+        if (Number(it.discount_amount) > 0) {
+          txt += ` (Giảm: ${Number(it.discount_amount).toLocaleString('vi-VN')}đ)`;
+        }
+        return txt;
+      }).join('\n');
+
+      const paymentMethodMap: Record<string, string> = {
+        cash: 'Tiền mặt',
+        card: 'Quẹt thẻ',
+        bank_transfer: 'Chuyển khoản',
+        momo: 'MoMo',
+        vnpay: 'VNPay',
+        zalopay: 'ZaloPay',
+        debt: 'Ghi nợ'
+      };
+
+      let paidText = '';
+      if (payments.length === 0) {
+        paidText = `${Number(order.paid_amount).toLocaleString('vi-VN')}đ`;
+      } else if (payments.length === 1) {
+        const p = payments[0];
+        const methodName = paymentMethodMap[p.method] || p.method;
+        paidText = `${Number(p.amount).toLocaleString('vi-VN')}đ (${methodName})`;
+      } else {
+        paidText = '\n' + payments.map(p => {
+          const methodName = paymentMethodMap[p.method] || p.method;
+          return `- ${Number(p.amount).toLocaleString('vi-VN')}đ (${methodName})`;
+        }).join('\n');
+      }
+
+      const customerDisplay = order.customer_name 
+        ? `${order.customer_name}${customerPhone ? ` (${customerPhone})` : ''}` 
+        : 'Khách lẻ';
+
+      const message = `Mã đơn: #${orderNo || serverId}
+Khách hàng: ${customerDisplay}
+${order.note ? `Ghi chú: ${order.note}\n` : ''}
+🛍 MẶT HÀNG:
+${itemsList}
+
+💰 THANH TOÁN:
+Tiền hàng: ${Number(order.subtotal).toLocaleString('vi-VN')}đ
+Giảm giá: ${Number(order.discount_amount).toLocaleString('vi-VN')}đ
+Tổng cộng: ${Number(order.total_amount).toLocaleString('vi-VN')}đ
+Đã thu: ${paidText}
+Còn nợ: ${Number(order.debt_amount || 0).toLocaleString('vi-VN')}đ`;
+
+      // Dispatch notification asynchronously without blocking response
+      dispatchNotification(shop.tenant_id, 'ORDER_CREATED', {
+        title: `📦 Đơn hàng mới (POS) - ${shop.name}`,
+        message,
+      }).catch(console.error);
+    }
 
     return NextResponse.json({ order_id: serverId, order_no: orderNo }, { status: 201 })
   } catch (e) {

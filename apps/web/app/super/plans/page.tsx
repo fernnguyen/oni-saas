@@ -1,5 +1,5 @@
 import { getSupabaseAdminClient } from '../../../lib/server/supabaseAdmin';
-
+import { TogglePlanNotify } from './TogglePlanNotify';
 export default async function SuperPlans() {
   const admin = getSupabaseAdminClient();
 
@@ -47,6 +47,9 @@ export default async function SuperPlans() {
                   <p className="text-xs text-slate-400 font-mono mt-0.5">{plan.code}</p>
                 </div>
                 <span className="text-xs text-slate-400">ID: {plan.id}</span>
+              </div>
+              <div className="mb-4">
+                <TogglePlanNotify planId={plan.id} meta={meta} />
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
