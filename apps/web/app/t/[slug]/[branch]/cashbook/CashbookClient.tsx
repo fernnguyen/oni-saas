@@ -10,6 +10,8 @@ import { SearchBar } from '@/app/components/ui/SearchBar'
 import { NumberInput } from '@/app/components/ui/NumberInput'
 import { format } from 'date-fns'
 
+const Clock = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+
 interface Props {
   shopId: string
   shopName: string
@@ -85,11 +87,18 @@ export function CashbookClient({ shopId }: Props) {
   }
 
   const columns = useMemo<Column<Record<string, string>>[]>(() => [
-    { key: 'transaction_id', label: 'Mã Phiếu' },
     { 
-      key: 'created_at', 
-      label: 'Thời gian',
-      render: (row) => format(new Date(row.created_at || new Date()), 'HH:mm dd/MM/yyyy')
+      key: 'transaction_id', 
+      label: 'Số phiếu',
+      render: (row) => (
+        <div>
+          <span className="block font-semibold text-slate-900">{row.transaction_id || '—'}</span>
+          <div className="flex items-center text-[11px] text-slate-500 mt-1 gap-1">
+            <Clock className="w-3 h-3" />
+            <span>{format(new Date(row.created_at || new Date()), 'HH:mm dd/MM/yy')}</span>
+          </div>
+        </div>
+      )
     },
     {
       key: 'type',
@@ -105,15 +114,34 @@ export function CashbookClient({ shopId }: Props) {
       key: 'amount',
       label: 'Số tiền',
       render: (row) => (
-        <span className={`font-medium ${row.type === 'receipt' ? 'text-green-600' : 'text-red-600'}`}>
-          {row.type === 'receipt' ? '+' : '-'}{Number(row.amount || 0).toLocaleString('vi-VN')}đ
-        </span>
+        <div>
+          <span className={`block font-medium ${row.type === 'receipt' ? 'text-green-600' : 'text-red-600'}`}>
+            {row.type === 'receipt' ? '+' : '-'}{Number(row.amount || 0).toLocaleString('vi-VN')}đ
+          </span>
+          <div className="mt-1">
+            <span className="inline-flex text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200">
+              {METHOD_MAP[row.method] || row.method}
+            </span>
+          </div>
+        </div>
       ),
     },
-    { key: 'category', label: 'Danh mục', render: (row) => <TagBadge label={CATEGORY_MAP[row.category] || row.category} /> },
+    { 
+      key: 'category', 
+      label: 'Danh mục', 
+      render: (row) => {
+        let color: any = 'gray'
+        if (row.category === 'sales') color = 'blue'
+        else if (row.category === 'debt_collection' || row.category === 'debt_payment') color = 'orange'
+        else if (row.category === 'import' || row.category === 'inventory_payment' || row.category === 'inventory_receipt' || row.category === 'inventory') color = 'purple'
+        else if (row.category === 'salary') color = 'yellow'
+        else if (row.category === 'utilities') color = 'blue'
+        
+        return <TagBadge label={CATEGORY_MAP[row.category] || row.category} color={color} />
+      } 
+    },
     { key: 'reference_name', label: 'Người nộp/nhận' },
-    { key: 'method', label: 'Phương thức', render: (row) => METHOD_MAP[row.method] || row.method },
-    { key: 'note', label: 'Ghi chú' },
+    { key: 'note', label: 'Ghi chú', render: (row) => <span className="text-[11px] text-slate-500 block max-w-xs">{row.note}</span> },
   ], [])
 
   return (
