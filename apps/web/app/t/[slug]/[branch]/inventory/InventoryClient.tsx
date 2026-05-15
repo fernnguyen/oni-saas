@@ -1199,7 +1199,7 @@ export function InventoryClient({ shopId }: Props) {
                 </>
               )}
               
-              {['purchase_in', 'return_in'].includes(viewMovement.type) && (() => {
+              {viewMovement.type === 'purchase_in' && (() => {
                 const totalCost = Number(viewMovement.unit_cost || 0) * Math.abs(Number(viewMovement.qty || 0));
                 let paid = Number(viewMovement.paid_amount || 0);
                 if (!viewMovement.paid_amount && viewMovement.payment_status === 'paid') paid = totalCost;
