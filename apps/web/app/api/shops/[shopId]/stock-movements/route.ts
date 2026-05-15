@@ -5,6 +5,7 @@ import { shopTag, invalidate, shopCache } from '@/lib/server/cache'
 import { cacheTTL } from '@/lib/env'
 import { handleApiError } from '../../_helpers'
 import type { IDataConnector } from '@oni/adapters'
+import { RollbackContext } from '@oni/adapters'
 
 const INBOUND_TYPES = ['purchase_in', 'return_in', 'transfer_in']
 const OUTBOUND_TYPES = ['sale_out', 'transfer_out']
@@ -73,9 +74,11 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ shopId: string }> }
 ) {
+  let tx: RollbackContext | undefined;
   try {
     const { shopId } = await params
     const { connector } = await requireShopAccess(shopId)
+    tx = new RollbackContext()
 
     const body = await req.json()
     // Extract POS-sync flag before schema parse (Zod strips unknown fields)
@@ -106,6 +109,9 @@ export async function POST(
         movement_no: movNo,
       }
       const created = await connector.create('stock-movements', payload)
+      tx.add(async () => {
+        await connector.delete('stock-movements', (created as any).movement_id).catch(() => {})
+      })
       invalidate(shopId, 'stock-movements')
       return NextResponse.json(created, { status: 201 })
     }
@@ -122,6 +128,9 @@ export async function POST(
       movement_no: movementNo,
     }
     const created = await connector.create('stock-movements', payload)
+    tx.add(async () => {
+      await connector.delete('stock-movements', (created as any).movement_id).catch(() => {})
+    })
 
     if (data.workflow_status === 'completed') {
       // 2. Upsert inventory stock_qty
@@ -146,30 +155,37 @@ export async function POST(
       }
 
       if (invResult.data.length > 0) {
-        const inv = invResult.data[0] as Record<string, string>
-        const newQty = Math.max(0, parseFloat(inv.stock_qty || '0') + delta)
+        const oldQty = parseFloat(inv.stock_qty || '0')
+        const newQty = Math.max(0, oldQty + delta)
         await connector.update('inventory', inv.inventory_id as string, {
           stock_qty: String(newQty),
         })
+        tx.add(async () => {
+          await connector.update('inventory', inv.inventory_id as string, { stock_qty: String(oldQty) }).catch(() => {})
+        })
       } else if (delta > 0) {
         // Create inventory row only for inbound movements.
-        await connector.create('inventory', {
+        const createdInv = await connector.create('inventory', {
           product_id: data.product_id,
           branch_id: '',
           stock_qty: String(delta),
           min_stock: '0',
           sku: data.sku || '',
         } as Record<string, string>)
+        tx.add(async () => {
+          await connector.delete('inventory', (createdInv as any).inventory_id).catch(() => {})
+        })
       }
 
       // 3. Update product cost_price
       if (data.unit_cost && INBOUND_TYPES.includes(data.type)) {
-        try {
-          await connector.update('products', data.product_id, { cost_price: data.unit_cost })
-          invalidate(shopId, 'products')
-        } catch {
-          // best-effort: don't fail nhập kho if product update fails
-        }
+        const prod = await connector.findById('products', data.product_id)
+        const oldCost = prod ? (prod as any).cost_price : '0'
+        await connector.update('products', data.product_id, { cost_price: data.unit_cost })
+        tx.add(async () => {
+          await connector.update('products', data.product_id, { cost_price: oldCost }).catch(() => {})
+        })
+        invalidate(shopId, 'products')
       }
     }
 
@@ -185,8 +201,12 @@ export async function POST(
         data.reason = data.reason ? `${data.reason} | ${dNote}` : dNote
         
         // Let's also update the movement reason so it is recorded
+        const oldReason = (created as any).reason || ''
         await connector.update('stock-movements', created.id as string, {
           reason: data.reason
+        })
+        tx.add(async () => {
+          await connector.update('stock-movements', created.id as string, { reason: oldReason }).catch(() => {})
         })
       }
 
@@ -205,6 +225,9 @@ export async function POST(
               await connector.update('suppliers', supplier.id as string, {
                 debt_amount: String(currentDebt + debtAmt)
               })
+              tx.add(async () => {
+                await connector.update('suppliers', supplier.id as string, { debt_amount: String(currentDebt) }).catch(() => {})
+              })
               invalidate(shopId, 'suppliers')
             }
           }
@@ -214,25 +237,24 @@ export async function POST(
       }
 
       if (data.payments.length > 0 && data.payment_status !== 'unpaid') {
-        try {
-          for (const payment of data.payments) {
-            const pAmt = parseFloat(payment.amount || '0')
-            if (pAmt > 0) {
-              await connector.create('cashbook', {
-                type:           'payment',
-                amount:         String(pAmt),
-                method:         payment.method || 'cash',
-                category:       'inventory',
-                reference_id:   movementNo,
-                reference_name: supplierName,
-                note:           `Thanh toán phiếu nhập kho ${movementNo}`,
-                employee_id:    data.employee_id || '',
-                branch_id:      data.branch_id || '',
-              })
-            }
+        for (const payment of data.payments) {
+          const pAmt = parseFloat(payment.amount || '0')
+          if (pAmt > 0) {
+            const createdCb = await connector.create('cashbook', {
+              type:           'payment',
+              amount:         String(pAmt),
+              method:         payment.method || 'cash',
+              category:       'inventory',
+              reference_id:   movementNo,
+              reference_name: supplierName,
+              note:           `Thanh toán phiếu nhập kho ${movementNo}`,
+              employee_id:    data.employee_id || '',
+              branch_id:      data.branch_id || '',
+            })
+            tx.add(async () => {
+              await connector.delete('cashbook', (createdCb as any).transaction_id).catch(() => {})
+            })
           }
-        } catch (err) {
-          console.error('Failed to log cashbook for stock movement:', err)
         }
       }
     }
@@ -241,6 +263,9 @@ export async function POST(
     invalidate(shopId, 'inventory')
     return NextResponse.json(created, { status: 201 })
   } catch (e) {
+    if (tx) {
+      await tx.rollback()
+    }
     return handleApiError(e, 'POST stock-movements')
   }
 }

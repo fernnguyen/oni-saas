@@ -4,6 +4,7 @@ import { invalidate } from '@/lib/server/cache'
 import { handleApiError } from '../../../_helpers'
 import { dispatchNotification } from '@/lib/server/notifications'
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
+import { RollbackContext } from '@oni/adapters'
 
 const INBOUND_TYPES = ['purchase_in', 'return_in', 'transfer_in']
 const OUTBOUND_TYPES = ['sale_out', 'transfer_out']
@@ -58,9 +59,11 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ shopId: string }> }
 ) {
+  let tx: RollbackContext | undefined;
   try {
     const { shopId } = await params
     const { connector, shop, user } = await requireShopAccess(shopId, 'orders.create')
+    tx = new RollbackContext()
 
     const body = await req.json() as {
       local_order_id: string
@@ -114,6 +117,8 @@ export async function POST(
       } as Record<string, string>)
       serverId = (created as Record<string, string>).order_id
       orderNo = (created as Record<string, string>).order_no ?? ''
+      
+      tx.add(async () => { await connector.delete('orders', serverId) })
     }
 
     // If we reused an existing order and don't have order_no yet, fetch it
@@ -154,7 +159,13 @@ export async function POST(
       })
     }
     if (itemsToCreate.length > 0) {
-      await connector.batchCreate('order-items', itemsToCreate)
+      const createdItems = await connector.batchCreate('order-items', itemsToCreate)
+      tx.add(async () => {
+        // delete newly created items
+        for (const item of createdItems) {
+          await connector.delete('order-items', item.item_id).catch(() => {})
+        }
+      })
     }
 
     // ── Step 3: Payments — dedup by method ──
@@ -199,11 +210,19 @@ export async function POST(
         }
       }
       if (paysToCreate.length > 0) {
-        await connector.batchCreate('payments', paysToCreate)
+        const createdPays = await connector.batchCreate('payments', paysToCreate)
+        tx.add(async () => {
+          for (const p of createdPays) {
+            await connector.delete('payments', p.payment_id).catch(() => {})
+          }
+        })
       }
       if (cashbookToCreate.length > 0) {
-        await connector.batchCreate('cashbook', cashbookToCreate).catch(err => {
-          console.error('Failed to log cashbook for payment:', err)
+        const createdCb = await connector.batchCreate('cashbook', cashbookToCreate)
+        tx.add(async () => {
+          for (const cb of createdCb) {
+            await connector.delete('cashbook', cb.transaction_id).catch(() => {})
+          }
         })
       }
     }
@@ -247,7 +266,12 @@ export async function POST(
       })
     }
     if (movsToCreate.length > 0) {
-      await connector.batchCreate('stock-movements', movsToCreate)
+      const createdMovs = await connector.batchCreate('stock-movements', movsToCreate)
+      tx.add(async () => {
+        for (const mov of createdMovs) {
+          await connector.delete('stock-movements', mov.movement_id).catch(() => {})
+        }
+      })
     }
 
     // ── Step 5: Update Customer Debt & Fetch Info ──
@@ -263,6 +287,11 @@ export async function POST(
             const newDebt = currentDebt + Number(order.debt_amount)
             await connector.update('customers', order.customer_id, {
               debt_amount: String(newDebt)
+            })
+            tx.add(async () => {
+              await connector.update('customers', order.customer_id!, {
+                debt_amount: String(currentDebt)
+              }).catch(() => {})
             })
             invalidate(shopId, 'customers')
           }
@@ -347,6 +376,9 @@ Còn nợ: ${Number(order.debt_amount || 0).toLocaleString('vi-VN')}đ
 
     return NextResponse.json({ order_id: serverId, order_no: orderNo }, { status: 201 })
   } catch (e) {
+    if (tx) {
+      await tx.rollback()
+    }
     return handleApiError(e, 'POST orders/sync-batch')
   }
 }

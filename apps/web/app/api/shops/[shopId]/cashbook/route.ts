@@ -3,6 +3,7 @@ import { requireShopAccess } from '@/lib/server/shopAccess'
 import { invalidate, shopTag, shopCache } from '@/lib/server/cache'
 import { handleApiError } from '../../_helpers'
 import { cashbookCreateSchema } from '@/lib/validators/cashbook'
+import { RollbackContext } from '@oni/adapters'
 
 export async function GET(
   req: NextRequest,
@@ -39,14 +40,16 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ shopId: string }> }
 ) {
+  let tx: RollbackContext | undefined;
   try {
     const { shopId } = await params
     const { connector, permissions, user, shop } = await requireShopAccess(shopId, 'cashbook.manage')
+    tx = new RollbackContext()
 
     const body = await req.json()
     const payload = cashbookCreateSchema.parse(body)
 
-    const created = await connector.create('cashbook', {
+    const createdCb = await connector.create('cashbook', {
       type: payload.type,
       amount: String(payload.amount),
       method: payload.method,
@@ -57,44 +60,48 @@ export async function POST(
       branch_id: payload.branch_id ?? '',
       employee_id: payload.employee_id ?? user.email ?? '',
     })
+    tx.add(async () => {
+      await connector.delete('cashbook', (createdCb as any).transaction_id).catch(() => {})
+    })
 
     // If this is a debt collection, reduce customer debt
     if (payload.category === 'debt_collection' && payload.reference_id) {
-      try {
-        const customer = await connector.findById('customers', payload.reference_id)
-        if (customer) {
-          const currentDebt = parseFloat((customer.debt_amount as string) || '0')
-          const newDebt = Math.max(0, currentDebt - payload.amount)
-          await connector.update('customers', payload.reference_id, {
-            debt_amount: String(newDebt)
-          })
-          invalidate(shopId, 'customers')
-        }
-      } catch (err) {
-        console.error('Failed to update customer debt:', err)
+      const customer = await connector.findById('customers', payload.reference_id)
+      if (customer) {
+        const currentDebt = parseFloat((customer.debt_amount as string) || '0')
+        const newDebt = Math.max(0, currentDebt - payload.amount)
+        await connector.update('customers', payload.reference_id, {
+          debt_amount: String(newDebt)
+        })
+        tx.add(async () => {
+          await connector.update('customers', payload.reference_id!, { debt_amount: String(currentDebt) }).catch(() => {})
+        })
+        invalidate(shopId, 'customers')
       }
     }
 
     // If this is a debt payment, reduce supplier debt
     if (payload.category === 'debt_payment' && payload.reference_id) {
-      try {
-        const supplier = await connector.findById('suppliers', payload.reference_id)
-        if (supplier) {
-          const currentDebt = parseFloat((supplier.debt_amount as string) || '0')
-          const newDebt = Math.max(0, currentDebt - payload.amount)
-          await connector.update('suppliers', payload.reference_id, {
-            debt_amount: String(newDebt)
-          })
-          invalidate(shopId, 'suppliers')
-        }
-      } catch (err) {
-        console.error('Failed to update supplier debt:', err)
+      const supplier = await connector.findById('suppliers', payload.reference_id)
+      if (supplier) {
+        const currentDebt = parseFloat((supplier.debt_amount as string) || '0')
+        const newDebt = Math.max(0, currentDebt - payload.amount)
+        await connector.update('suppliers', payload.reference_id, {
+          debt_amount: String(newDebt)
+        })
+        tx.add(async () => {
+          await connector.update('suppliers', payload.reference_id!, { debt_amount: String(currentDebt) }).catch(() => {})
+        })
+        invalidate(shopId, 'suppliers')
       }
     }
 
     invalidate(shopId, 'cashbook')
-    return NextResponse.json(created, { status: 201 })
+    return NextResponse.json(createdCb, { status: 201 })
   } catch (e) {
+    if (tx) {
+      await tx.rollback()
+    }
     return handleApiError(e, 'POST cashbook')
   }
 }

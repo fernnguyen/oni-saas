@@ -3,6 +3,7 @@ import { requireShopAccess } from '@/lib/server/shopAccess'
 import { invalidate } from '@/lib/server/cache'
 import { handleApiError } from '../../../../_helpers'
 import { dispatchNotification } from '@/lib/server/notifications'
+import { RollbackContext } from '@oni/adapters'
 
 const INBOUND_TYPES = ['purchase_in', 'return_in', 'transfer_in']
 const OUTBOUND_TYPES = ['sale_out', 'transfer_out']
@@ -17,9 +18,11 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ shopId: string; id: string }> }
 ) {
+  let tx: RollbackContext | undefined;
   try {
     const { shopId, id } = await params
     const { connector, user, shop } = await requireShopAccess(shopId, 'orders.delete')
+    tx = new RollbackContext()
 
     const body = await req.json().catch(() => ({}))
     const reason = body.reason || 'Không rõ'
@@ -43,7 +46,7 @@ export async function POST(
       const alreadyRefunded = existingCb.data.some((cb: any) => cb.note && cb.note.includes('Điều chỉnh tiền hủy đơn hàng'))
       
       if (!alreadyRefunded) {
-        await connector.create('cashbook', {
+        const createdCb = await connector.create('cashbook', {
           type: 'payment',
           amount: String(paidAmount),
           method: 'cash',
@@ -54,6 +57,9 @@ export async function POST(
           employee_id: user.id,
           branch_id: (order as Record<string, string>).branch_id || '',
           created_at: new Date().toISOString()
+        })
+        tx.add(async () => {
+          await connector.delete('cashbook', (createdCb as any).transaction_id).catch(() => {})
         })
       }
     }
@@ -105,14 +111,18 @@ export async function POST(
           }
           if (invResult.data.length > 0) {
             const inv = invResult.data[0] as Record<string, string>
-            const newQty = Math.max(0, parseFloat(inv.stock_qty || '0') + delta)
+            const oldQty = parseFloat(inv.stock_qty || '0')
+            const newQty = Math.max(0, oldQty + delta)
             await connector.update('inventory', inv.inventory_id, { stock_qty: String(newQty) })
+            tx.add(async () => {
+              await connector.update('inventory', inv.inventory_id, { stock_qty: String(oldQty) }).catch(() => {})
+            })
           }
 
           pthCounter += 1
           const movementNo = `PTH-${String(pthCounter).padStart(3, '0')}`
 
-          await connector.create('stock-movements', {
+          const createdMv = await connector.create('stock-movements', {
             type: 'return_in',
             movement_no: movementNo,
             product_id: mv.product_id,
@@ -122,6 +132,9 @@ export async function POST(
             employee_id: user.id,
             reason: `Điều chỉnh kho do hủy đơn hàng ${orderNo} - Lý do: ${reason}`,
             created_at: new Date().toISOString()
+          })
+          tx.add(async () => {
+            await connector.delete('stock-movements', (createdMv as any).movement_id).catch(() => {})
           })
         }
       }
@@ -138,14 +151,21 @@ export async function POST(
         const currentDebt = parseFloat((customer.debt_amount as string) || '0')
         const newDebt = Math.max(0, currentDebt - debtAmount)
         await connector.update('customers', customerId, { debt_amount: String(newDebt) })
+        tx.add(async () => {
+          await connector.update('customers', customerId, { debt_amount: String(currentDebt) }).catch(() => {})
+        })
         invalidate(shopId, 'customers')
       }
     }
 
     // 3. Update order status to cancelled (Done last to act as commit!)
     const oldNote = (order as Record<string, string>).note || ''
+    const oldStatus = (order as Record<string, string>).status || 'completed'
     const updatedNote = oldNote ? `${oldNote}\n[Hủy] ${reason}` : `[Hủy] ${reason}`
     await connector.update('orders', id, { status: 'cancelled', note: updatedNote })
+    tx.add(async () => {
+      await connector.update('orders', id, { status: oldStatus, note: oldNote }).catch(() => {})
+    })
 
     const domainName = process.env.NEXT_PUBLIC_ROOT_DOMAIN || 'oni.vn'
     const cancelledBy = user.user_metadata?.display_name || user.user_metadata?.full_name || user.email || 'Hệ thống'
@@ -162,6 +182,9 @@ export async function POST(
     invalidate(shopId, 'stock-movements')
     return NextResponse.json({ success: true })
   } catch (e) {
+    if (tx) {
+      await tx.rollback()
+    }
     return handleApiError(e, 'CANCEL order')
   }
 }

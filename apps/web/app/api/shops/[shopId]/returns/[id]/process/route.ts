@@ -3,6 +3,7 @@ import { requireShopAccess } from '@/lib/server/shopAccess'
 import { invalidate } from '@/lib/server/cache'
 import { handleApiError } from '../../../../_helpers'
 import { dispatchNotification } from '@/lib/server/notifications'
+import { RollbackContext } from '@oni/adapters'
 
 // POST /api/shops/[shopId]/returns/[id]/process
 // Chuyển trạng thái phiếu trả hàng sang 'processed':
@@ -13,9 +14,11 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ shopId: string; id: string }> }
 ) {
+  let tx: RollbackContext | undefined;
   try {
     const { shopId, id } = await params
     const { connector, shop, user } = await requireShopAccess(shopId, 'returns.approve')
+    tx = new RollbackContext()
     const body = await req.json().catch(() => ({}))
     const processedBy: string = body.processed_by ?? ''
 
@@ -67,7 +70,7 @@ export async function POST(
       const movementNo = `PTH-${String(pthCounter).padStart(3, '0')}`
       generatedStockMovements.push(movementNo)
 
-      await connector.create('stock-movements', {
+      const createdMov = await connector.create('stock-movements', {
         type:         'return_in',
         movement_no:  movementNo,
         product_id:   item.product_id,
@@ -78,6 +81,9 @@ export async function POST(
         reference_no: r.order_id || returnRef,
         employee_id:  processedBy,
         reason:       `Trả hàng từ ${returnRef}${r.note ? ` - Ghi chú: ${r.note}` : ''}`,
+      })
+      tx.add(async () => {
+        await connector.delete('stock-movements', (createdMov as any).movement_id).catch(() => {})
       })
 
       // Update inventory (same logic as stock-movements POST)
@@ -94,25 +100,40 @@ export async function POST(
 
       if (invResult.data.length > 0) {
         const inv = invResult.data[0] as Record<string, string>
-        const newQty = Math.max(0, parseFloat(inv.stock_qty || '0') + delta)
+        const oldQty = parseFloat(inv.stock_qty || '0')
+        const newQty = Math.max(0, oldQty + delta)
         await connector.update('inventory', inv.inventory_id, { stock_qty: String(newQty) })
+        tx.add(async () => {
+          await connector.update('inventory', inv.inventory_id, { stock_qty: String(oldQty) }).catch(() => {})
+        })
       } else {
-        await connector.create('inventory', {
+        const createdInv = await connector.create('inventory', {
           product_id: item.product_id,
           branch_id:  '',
           stock_qty:  String(delta),
           min_stock:  '0',
           sku:        item.sku ?? '',
         })
+        tx.add(async () => {
+          await connector.delete('inventory', (createdInv as any).inventory_id).catch(() => {})
+        })
       }
     }
 
     // 4. Mark return as processed
     const now = new Date().toISOString()
+    const previousStatus = r.status || 'pending'
     const updated = await connector.update('returns', id, {
       status:       'processed',
       processed_by: processedBy,
       processed_at: now,
+    })
+    tx.add(async () => {
+      await connector.update('returns', id, {
+        status: previousStatus,
+        processed_by: '',
+        processed_at: '',
+      }).catch(() => {})
     })
 
     // 4.5. Log Cashbook payment if a refund is issued
@@ -133,6 +154,9 @@ export async function POST(
             branch_id:      '',
           })
           cashbookId = (cb as Record<string, string>).transaction_id || ''
+          tx.add(async () => {
+            await connector.delete('cashbook', cashbookId).catch(() => {})
+          })
         } catch (err) {
           console.error('Failed to log cashbook for return refund:', err)
         }
@@ -158,7 +182,11 @@ export async function POST(
       
       const newStatus = totalReturnedQty >= totalPurchasedQty ? 'refunded' : 'partially_refunded'
       
+      const previousOrderStatus = (r as any).previous_order_status || 'completed'
       await connector.update('orders', r.order_id, { status: newStatus })
+      tx.add(async () => {
+        await connector.update('orders', r.order_id!, { status: previousOrderStatus }).catch(() => {})
+      })
       invalidate(shopId, 'orders')
     }
 
@@ -198,6 +226,9 @@ export async function POST(
 
     return NextResponse.json(updated)
   } catch (e) {
+    if (tx) {
+      await tx.rollback()
+    }
     return handleApiError(e, 'POST returns/process')
   }
 }
