@@ -65,16 +65,31 @@ export async function POST(
     }
 
     // 2. Reverse inventory and stock movements (Idempotent)
-    if (orderNo) {
-      const mvResult = await connector.list('stock-movements', {
+    if (orderNo || id) {
+      const mvResult1 = orderNo ? await connector.list('stock-movements', {
         page: 1, limit: 200,
         filters: { reference_no: orderNo },
-      })
+      }) : { data: [] }
+      const mvResult2 = (id && id !== orderNo) ? await connector.list('stock-movements', {
+        page: 1, limit: 200,
+        filters: { reference_no: id },
+      }) : { data: [] }
+
+      const allMvs = [...mvResult1.data, ...mvResult2.data]
+      const mvMap = new Map()
+      allMvs.forEach((m: any) => mvMap.set(m.movement_id, m))
+      const mvsToProcess = Array.from(mvMap.values())
       
-      const existingCancelMvs = await connector.list('stock-movements', {
+      const existingCancelMvs1 = orderNo ? await connector.list('stock-movements', {
         page: 1, limit: 200,
         filters: { reference_no: orderNo, type: 'return_in' }
-      })
+      }) : { data: [] }
+      const existingCancelMvs2 = (id && id !== orderNo) ? await connector.list('stock-movements', {
+        page: 1, limit: 200,
+        filters: { reference_no: id, type: 'return_in' }
+      }) : { data: [] }
+      
+      const allExistingCancelMvs = [...existingCancelMvs1.data, ...existingCancelMvs2.data]
 
       const existingMovAll = await connector.list('stock-movements', { page: 1, limit: 5000, filters: { type: 'return_in' } })
       const pthNums = (existingMovAll.data as Record<string, string>[])
@@ -84,11 +99,11 @@ export async function POST(
         .filter(n => !isNaN(n))
       let pthCounter = pthNums.length > 0 ? Math.max(...pthNums) : 0
 
-      for (const mv of mvResult.data as Record<string, string>[]) {
+      for (const mv of mvsToProcess as Record<string, string>[]) {
         const delta = calcReverseDelta(mv.type, parseFloat(mv.qty || '0'))
         if (delta === 0) continue
 
-        const alreadyRestored = existingCancelMvs.data.some((ex: any) => 
+        const alreadyRestored = allExistingCancelMvs.some((ex: any) => 
           ex.product_id === mv.product_id && 
           parseFloat(ex.qty || '0') === delta &&
           ex.reason && ex.reason.includes('Điều chỉnh kho do hủy')
@@ -128,9 +143,9 @@ export async function POST(
             product_id: mv.product_id,
             qty: String(delta),
             branch_id: branchId,
-            reference_no: orderNo,
+            reference_no: orderNo || id,
             employee_id: user.id,
-            reason: `Điều chỉnh kho do hủy đơn hàng ${orderNo} - Lý do: ${reason}`,
+            reason: `Điều chỉnh kho do hủy đơn hàng ${orderNo || id} - Lý do: ${reason}`,
             created_at: new Date().toISOString()
           })
           tx.add(async () => {

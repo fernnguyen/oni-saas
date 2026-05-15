@@ -73,10 +73,15 @@ export function CashbookClient({ shopId }: Props) {
   const CATEGORY_MAP: Record<string, string> = {
     sales: 'Bán hàng',
     debt_collection: 'Thu nợ',
+    debt_payment: 'Trả nợ',
     import: 'Nhập hàng',
     salary: 'Lương nhân viên',
     utilities: 'Điện nước/Mặt bằng',
     other: 'Khác',
+    refund: 'Hoàn tiền',
+    inventory: 'Kho hàng',
+    inventory_payment: 'Thanh toán nhập kho',
+    inventory_receipt: 'Thu nhập kho',
   }
 
   const METHOD_MAP: Record<string, string> = {
