@@ -169,5 +169,5 @@ async function withSupabaseSession(req: NextRequest, res: NextResponse): Promise
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:wav|mp3|svg|png|jpg|jpeg|gif|webp|ico)$).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:wav|mp3|svg|png|jpg|jpeg|gif|webp|ico|webmanifest)$).*)'],
 };
