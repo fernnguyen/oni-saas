@@ -64,7 +64,7 @@ export default async function BranchLayout({ params, children }: Props) {
     roleName = Array.isArray(tenantAccess.roles) ? tenantAccess.roles[0]?.name : tenantAccess.roles?.name;
   }
 
-  const permissions = await getUserPermissions(authData.user.id, tenant.id, shop.id).catch(() => []);
+  const permissions = await getUserPermissions(authData.user.id, tenant.id, shop.id).catch(() => [] as string[]);
   const homePath = `/${branch}`;
 
   // Lấy thông tin gói cước

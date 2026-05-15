@@ -35,6 +35,6 @@ export async function getTenantForUser(userId: string) {
   }
   if (!data) return null;
 
-  // @ts-ignore
-  return data.tenants;
+  const tenants = data.tenants as any;
+  return Array.isArray(tenants) ? tenants[0] : tenants;
 }

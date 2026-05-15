@@ -76,7 +76,7 @@ export default async function TenantSettingsPage({ params }: Props) {
   const defaultShop = shops[0];
   const homePath = `/${defaultShop.slug}`;
 
-  const permissions = await getUserPermissions(authData.user.id, tenant.id, null).catch(() => []);
+  const permissions = await getUserPermissions(authData.user.id, tenant.id, undefined).catch(() => [] as string[]);
   
   const displayName: string =
     (authData.user.user_metadata?.display_name as string | undefined) ??

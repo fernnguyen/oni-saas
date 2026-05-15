@@ -54,7 +54,7 @@ export async function POST(
     invalidate(shopId, 'orders')
     
     // Format items
-    const itemsList = data.items.map((it: any, i: number) => {
+    const itemsList = Array.isArray(body.items) ? body.items.map((it: any, i: number) => {
       const itemTotal = Number(it.line_total).toLocaleString('vi-VN');
       const unitPrice = Number(it.unit_price).toLocaleString('vi-VN');
       let txt = `${i + 1}. ${it.product_name}\n   ${it.qty} x ${unitPrice}đ = ${itemTotal}đ`;
@@ -62,7 +62,7 @@ export async function POST(
         txt += ` (Giảm: ${Number(it.line_discount).toLocaleString('vi-VN')}đ)`;
       }
       return txt;
-    }).join('\n');
+    }).join('\n') : '';
 
     const admin = getSupabaseAdminClient();
     const { data: tenant } = await admin.from('tenants').select('slug').eq('id', shop.tenant_id).maybeSingle();

@@ -39,7 +39,7 @@ export default async function RolesPage({ params }: Props) {
   const homePath = `/${defaultShop.slug}`;
 
   // Must have roles.view
-  const userPermissions = await getUserPermissions(authData.user.id, tenant.id, null).catch(() => []);
+  const userPermissions = await getUserPermissions(authData.user.id, tenant.id, undefined).catch(() => [] as string[]);
   if (!userPermissions.includes('roles.view')) notFound();
 
   const [roles, permissions] = await Promise.all([

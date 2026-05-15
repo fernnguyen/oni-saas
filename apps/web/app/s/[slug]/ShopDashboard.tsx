@@ -95,7 +95,7 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
 
       {showModal && !connected && (
         <SetupModal
-          shopId={shop.id}
+          tenantId={shop.tenantId}
           onConnected={() => { setConnected(true); setShowModal(false); }}
           onClose={() => setShowModal(false)}
           returnTo={homePath}

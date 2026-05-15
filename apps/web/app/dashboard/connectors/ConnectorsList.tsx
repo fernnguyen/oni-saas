@@ -17,11 +17,12 @@ interface Connector {
 }
 
 interface Props {
+  tenantId: string;
   shops: Shop[];
   connectors: Connector[];
 }
 
-export function ConnectorsList({ shops, connectors }: Props) {
+export function ConnectorsList({ tenantId, shops, connectors }: Props) {
   const [selectedShop, setSelectedShop] = useState<string | null>(null);
   const [localConnectors, setLocalConnectors] = useState(connectors);
 
@@ -109,7 +110,7 @@ export function ConnectorsList({ shops, connectors }: Props) {
 
       {selectedShop && (
         <SetupModal
-          shopId={selectedShop}
+          tenantId={tenantId}
           onConnected={handleConnected}
           onClose={() => setSelectedShop(null)}
         />

@@ -32,7 +32,7 @@ export class MysqlConnector implements IDataConnector {
     private readonly branchId?: string,
   ) {
     const poolConnection = mysql.createPool(connectionUri)
-    this.db = drizzle(poolConnection)
+    this.db = drizzle(poolConnection as any)
   }
 
   // Helper to ensure table names are safe
@@ -56,7 +56,7 @@ export class MysqlConnector implements IDataConnector {
 
     const tableName = this.getTableName(entity)
     let query = `SELECT id FROM \`${tableName}\` WHERE id LIKE ?`
-    const params: unknown[] = [`${prefix}-%`]
+    const params: any[] = [`${prefix}-%`]
 
     if (this.tenantId) {
       query += ' AND tenant_id = ?'
@@ -64,7 +64,7 @@ export class MysqlConnector implements IDataConnector {
     }
 
     const [rows] = await this.db.execute(sql.raw(mysql.format(query, params)))
-    const resultRows = rows as any[]
+    const resultRows = rows as unknown as any[]
 
     const existing = resultRows
       .map(r => r.id)
@@ -112,7 +112,7 @@ export class MysqlConnector implements IDataConnector {
     const tableName = this.getTableName(entity)
     
     let whereClauses: string[] = []
-    const params: unknown[] = []
+    const params: any[] = []
 
     if (this.tenantId) {
       whereClauses.push('tenant_id = ?')
@@ -149,7 +149,7 @@ export class MysqlConnector implements IDataConnector {
     const total = (countResult as any)[0]?.total || 0
 
     // Convert all values to string and alias legacy id for IDataConnector compatibility
-    const data = (rows as any[]).map(row => this.formatRow(entity, row))
+    const data = (rows as unknown as any[]).map(row => this.formatRow(entity, row))
 
     return { data, total, page, limit }
   }
@@ -157,7 +157,7 @@ export class MysqlConnector implements IDataConnector {
   async findById(entity: string, id: string): Promise<Record<string, string> | null> {
     const tableName = this.getTableName(entity)
     let query = `SELECT * FROM \`${tableName}\` WHERE id = ?`
-    const params: unknown[] = [id]
+    const params: any[] = [id]
 
     if (this.tenantId) {
       query += ' AND tenant_id = ?'
@@ -170,7 +170,7 @@ export class MysqlConnector implements IDataConnector {
     }
 
     const [rows] = await this.db.execute(sql.raw(mysql.format(query, params)))
-    const resultRows = rows as any[]
+    const resultRows = rows as unknown as any[]
 
     if (resultRows.length === 0) return null
 
@@ -228,7 +228,7 @@ export class MysqlConnector implements IDataConnector {
     }
 
     const setClauses: string[] = []
-    const values: unknown[] = []
+    const values: any[] = []
 
     for (const [k, v] of Object.entries(updateData)) {
       if (v !== undefined && k !== 'id') {
@@ -265,7 +265,7 @@ export class MysqlConnector implements IDataConnector {
   async delete(entity: string, id: string): Promise<void> {
     const tableName = this.getTableName(entity)
     let query = `UPDATE \`${tableName}\` SET active = 'FALSE' WHERE id = ?`
-    const params: unknown[] = [id]
+    const params: any[] = [id]
 
     if (this.tenantId) {
       query += ' AND tenant_id = ?'
@@ -326,7 +326,7 @@ export class MysqlConnector implements IDataConnector {
     const columns = Object.keys(insertRows[0])
     const columnsSql = columns.map(k => `\`${k}\``).join(', ')
     
-    const values: unknown[] = []
+    const values: any[] = []
     const placeholders = insertRows.map(row => {
       const rowPlaceholders = columns.map(k => {
         values.push(row[k] ?? null)

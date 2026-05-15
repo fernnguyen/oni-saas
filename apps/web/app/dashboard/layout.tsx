@@ -12,7 +12,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
   const tenant = ctx.tenant as unknown as { id: string; name: string } | null;
 
   const permissions = tenant
-    ? await getUserPermissions(ctx.user.id, tenant.id).catch(() => [])
+    ? await getUserPermissions(ctx.user.id, tenant.id).catch(() => [] as string[])
     : [];
 
   return (

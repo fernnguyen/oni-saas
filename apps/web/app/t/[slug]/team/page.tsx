@@ -40,7 +40,7 @@ export default async function TeamPage({ params }: Props) {
   const homePath = `/${defaultShop.slug}`;
 
   // Must have at least users.view
-  const permissions: string[] = await getUserPermissions(authData.user.id, tenant.id, null).catch(() => []);
+  const permissions: string[] = await getUserPermissions(authData.user.id, tenant.id, undefined).catch(() => [] as string[]);
   if (!permissions.includes('users.view')) notFound();
 
   const [users, roles] = await Promise.all([

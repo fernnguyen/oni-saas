@@ -272,7 +272,7 @@ export function OrdersClient({ shopId, shopName }: Props) {
     mutationFn: async (order: Row) => {
       const items = itemsData?.data ?? []
       const returningItems = items
-        .map(i => ({ ...i, retQty: returnItems[i.item_id!] || 0 }))
+        .map(i => ({ ...i, retQty: returnItems[i.item_id!] || 0 } as Row & { retQty: number }))
         .filter(i => i.retQty > 0)
 
       if (returningItems.length === 0) throw new Error('Vui lòng chọn ít nhất 1 sản phẩm để trả')

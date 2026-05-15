@@ -56,7 +56,7 @@ export default async function ConnectorsPage({ searchParams }: Props) {
         </div>
       </div>
 
-      <ConnectorsList shops={shops} connectors={connectors ?? []} />
+      <ConnectorsList tenantId={tenantId} shops={shops} connectors={connectors ?? []} />
     </div>
   );
 }

@@ -26,7 +26,7 @@ export default async function CashbookPage({ params }: Props) {
   if (!shop) notFound()
 
   const { getUserPermissions } = await import('@/lib/server/permissions')
-  const permissions = await getUserPermissions(authData.user.id, shop.tenant_id, shop.id).catch(() => [])
+  const permissions = await getUserPermissions(authData.user.id, shop.tenant_id, shop.id).catch(() => [] as string[])
   if (!permissions.includes('cashbook.view')) {
     const { PermissionGate } = await import('@/app/components/ui/PermissionGate')
     return (

@@ -26,7 +26,7 @@ export default async function BranchSettingsPage({ params }: Props) {
     .maybeSingle();
 
   if (!shop) notFound();
-  const permissions: string[] = await getUserPermissions(authData.user.id, shop.tenant_id, shop.id).catch(() => []);
+  const permissions: string[] = await getUserPermissions(authData.user.id, shop.tenant_id, shop.id).catch(() => [] as string[]);
   if (!permissions.includes('settings.view') && !permissions.includes('shops.view') && !permissions.includes('shops.manage')) {
     return (
       <div className="space-y-6">

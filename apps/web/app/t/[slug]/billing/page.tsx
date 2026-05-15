@@ -36,7 +36,7 @@ export default async function BillingPage({ params }: Props) {
   const homePath = `/${defaultShop.slug}`;
 
   // Use settings.view permission for billing
-  const permissions = await getUserPermissions(authData.user.id, tenant.id, null).catch(() => []);
+  const permissions = await getUserPermissions(authData.user.id, tenant.id, undefined).catch(() => [] as string[]);
   if (!permissions.includes('settings.view')) notFound();
 
   const displayName: string =

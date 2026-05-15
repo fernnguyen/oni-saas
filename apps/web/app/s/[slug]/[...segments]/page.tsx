@@ -63,7 +63,7 @@ export default async function ShopSectionPage({ params }: Props) {
   const hasAccess = await assertUserShopAccess(authData.user.id, shop.id);
   if (!hasAccess) redirect('/dashboard');
 
-  const permissions = await getUserPermissions(authData.user.id, shop.tenant_id, shop.id).catch(() => []);
+  const permissions = await getUserPermissions(authData.user.id, shop.tenant_id, shop.id).catch(() => [] as string[]);
 
   const key = segments[0] ?? 'overview';
   const meta = moduleMeta[key] ?? {

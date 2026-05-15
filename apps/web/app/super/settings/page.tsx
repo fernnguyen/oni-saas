@@ -1,12 +1,12 @@
 import React from 'react'
-import { createServerClient } from '@oni/core'
+import { getSupabaseServerClient } from '@/lib/server/supabaseServer'
 import { SettingsClient } from './SettingsClient'
 import { unstable_cache } from 'next/cache'
 
 // We cache the system settings so that when handleApiError runs, it's fast
 export const getSystemSettings = unstable_cache(
   async () => {
-    const supabase = await createServerClient()
+    const supabase = await getSupabaseServerClient()
     const { data } = await supabase
       .from('system_settings')
       .select('config')

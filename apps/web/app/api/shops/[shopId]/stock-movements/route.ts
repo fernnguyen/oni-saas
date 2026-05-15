@@ -100,6 +100,7 @@ export async function POST(
         }
       }
       const totalPaidAmt = data.payments.reduce((sum: number, p: { amount: string }) => sum + parseFloat(p.amount || '0'), 0)
+      const movNo = (data as any).movement_no || await generateMovementNo(connector, data.type)
       const payload = {
         ...(data as unknown as Record<string, string>),
         discount: data.discount || '0',
@@ -155,6 +156,7 @@ export async function POST(
       }
 
       if (invResult.data.length > 0) {
+        const inv = invResult.data[0] as any
         const oldQty = parseFloat(inv.stock_qty || '0')
         const newQty = Math.max(0, oldQty + delta)
         await connector.update('inventory', inv.inventory_id as string, {

@@ -1130,7 +1130,6 @@ export function InventoryClient({ shopId }: Props) {
         open={!!viewMovement}
         onClose={() => setViewMovement(null)}
         title="Chi tiết phiếu kho"
-        description="Xem thông tin chi tiết và xử lý chứng từ."
         footer={
           viewMovement?.workflow_status === 'draft' ? (
             <div className="flex w-full items-center justify-between border-t border-slate-100 p-4 bg-slate-50 mt-auto">
