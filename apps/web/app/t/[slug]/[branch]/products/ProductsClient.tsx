@@ -1,5 +1,5 @@
 'use client'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useDebounce } from 'use-debounce'
@@ -29,6 +29,41 @@ const EMPTY_FORM = {
   active: 'TRUE',
 }
 
+async function compressImageToWebP(file: File, maxWidth = 1024, maxHeight = 1024): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      const img = new Image()
+      img.onload = () => {
+        let { width, height } = img
+        if (width > maxWidth || height > maxHeight) {
+          const ratio = Math.min(maxWidth / width, maxHeight / height)
+          width = width * ratio
+          height = height * ratio
+        }
+        const canvas = document.createElement('canvas')
+        canvas.width = width
+        canvas.height = height
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return reject(new Error('Failed to get canvas context'))
+        ctx.drawImage(img, 0, 0, width, height)
+        canvas.toBlob(
+          (blob) => {
+            if (blob) resolve(blob)
+            else reject(new Error('Canvas to Blob failed'))
+          },
+          'image/webp',
+          0.8
+        )
+      }
+      img.onerror = () => reject(new Error('Failed to load image'))
+      img.src = event.target?.result as string
+    }
+    reader.onerror = () => reject(new Error('Failed to read file'))
+    reader.readAsDataURL(file)
+  })
+}
+
 export function ProductsClient({ shopId }: Props) {
   const queryClient = useQueryClient()
   const [page, setPage] = useState(1)
@@ -40,6 +75,12 @@ export function ProductsClient({ shopId }: Props) {
   const [deleteTarget, setDeleteTarget] = useState<Record<string, string> | null>(null)
   const [categoryModalOpen, setCategoryModalOpen] = useState(false)
   const [catFormData, setCatFormData] = useState({ name: '', parent_id: '', description: '' })
+  
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [imageInputMode, setImageInputMode] = useState<'url' | 'file'>('file')
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'uploading'>('idle')
+  const [fileInputKey, setFileInputKey] = useState(Date.now())
 
   const { data, isLoading, isFetching } = useQuery({
     queryKey: ['products', shopId, page, debouncedSearch],
@@ -54,6 +95,7 @@ export function ProductsClient({ shopId }: Props) {
 
   const saveMutation = useMutation({
     mutationFn: async (payload: Record<string, string>) => {
+      setSaveStatus('saving')
       const url = editingId
         ? `/api/shops/${shopId}/products/${editingId}`
         : `/api/shops/${shopId}/products`
@@ -66,14 +108,48 @@ export function ProductsClient({ shopId }: Props) {
         const json = await res.json().catch(() => ({}))
         throw new Error(json.error ?? 'Lưu thất bại')
       }
-      return res.json()
+      
+      const savedProduct = await res.json()
+      const productId = editingId || savedProduct.product_id || savedProduct.id
+
+      if (imageInputMode === 'file' && selectedFile && productId) {
+        try {
+          setSaveStatus('uploading')
+          const webpBlob = await compressImageToWebP(selectedFile)
+          const uploadUrlRes = await fetch(`/api/shops/${shopId}/products/${productId}/upload-url`)
+          if (!uploadUrlRes.ok) throw new Error('Không lấy được link upload')
+          
+          const { uploadUrl, publicUrl } = await uploadUrlRes.json()
+          
+          const uploadRes = await fetch(uploadUrl, {
+            method: 'PUT',
+            body: webpBlob,
+            headers: { 'Content-Type': 'image/webp' },
+          })
+          if (!uploadRes.ok) throw new Error('Upload ảnh thất bại')
+
+          await fetch(`/api/shops/${shopId}/products/${productId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image_url: publicUrl })
+          })
+        } catch (error: any) {
+          throw new Error(`Đã lưu thông tin nhưng tải ảnh lỗi: ${error.message}`)
+        }
+      }
+
+      return savedProduct
     },
     onSuccess: () => {
+      setSaveStatus('idle')
       toast.success(editingId ? 'Đã cập nhật' : 'Đã tạo mới')
       setSlideOpen(false)
       queryClient.invalidateQueries({ queryKey: ['products', shopId] })
     },
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => {
+      setSaveStatus('idle')
+      toast.error(err.message)
+    },
   })
 
   const deleteMutation = useMutation({
@@ -128,12 +204,20 @@ export function ProductsClient({ shopId }: Props) {
   function openEdit(row: Record<string, string>) {
     setFormData(row)
     setEditingId(row.product_id)
+    setSelectedFile(null)
+    setPreviewUrl(row.image_url || null)
+    setImageInputMode(row.image_url ? 'url' : 'file')
+    setFileInputKey(Date.now())
     setSlideOpen(true)
   }
 
   function openCreate() {
     setFormData(EMPTY_FORM)
     setEditingId(null)
+    setSelectedFile(null)
+    setPreviewUrl(null)
+    setImageInputMode('file')
+    setFileInputKey(Date.now())
     setSlideOpen(true)
   }
 
@@ -233,7 +317,7 @@ export function ProductsClient({ shopId }: Props) {
               disabled={saveMutation.isPending}
               className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
             >
-              {saveMutation.isPending ? 'Đang lưu...' : 'Lưu'}
+              {saveStatus === 'uploading' ? 'Đang tải ảnh...' : saveStatus === 'saving' ? 'Đang lưu...' : 'Lưu'}
             </button>
           </>
         }
@@ -322,14 +406,94 @@ export function ProductsClient({ shopId }: Props) {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">URL ảnh</label>
-            <input
-              type="text"
-              value={formData.image_url}
-              onChange={(e) => setFormData(prev => ({ ...prev, image_url: e.target.value }))}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
-              placeholder="https://..."
-            />
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-medium text-slate-700">Ảnh sản phẩm</label>
+              <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-lg">
+                <button
+                  type="button"
+                  onClick={() => setImageInputMode('file')}
+                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${imageInputMode === 'file' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  Tải ảnh lên
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setImageInputMode('url')}
+                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${imageInputMode === 'url' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  Dùng đường dẫn (URL)
+                </button>
+              </div>
+            </div>
+
+            {imageInputMode === 'file' ? (
+              <div className="space-y-3">
+                <div className="flex items-center justify-center w-full">
+                  <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-slate-300 border-dashed rounded-xl cursor-pointer bg-slate-50 hover:bg-slate-100 transition-colors">
+                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                      <svg className="w-8 h-8 mb-3 text-slate-400" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 20 16">
+                        <path stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 13h3a3 3 0 0 0 0-6h-.025A5.56 5.56 0 0 0 16 6.5 5.5 5.5 0 0 0 5.207 5.021C5.137 5.017 5.071 5 5 5a4 4 0 0 0 0 8h2.167M10 15V6m0 0L8 8m2-2 2 2"/>
+                      </svg>
+                      <p className="mb-2 text-sm text-slate-500"><span className="font-semibold">Bấm để tải ảnh</span> hoặc chụp ảnh</p>
+                      <p className="text-xs text-slate-400">Hỗ trợ tự động nén WebP</p>
+                    </div>
+                    <input 
+                      key={fileInputKey}
+                      type="file" 
+                      className="hidden" 
+                      accept="image/*"
+                      capture="environment"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (file) {
+                          setSelectedFile(file)
+                          setPreviewUrl(URL.createObjectURL(file))
+                          setFormData(prev => ({ ...prev, image_url: '' }))
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+                {previewUrl && !previewUrl.startsWith('http') && (
+                  <div className="relative w-24 h-24 rounded-xl overflow-hidden border border-slate-200">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={previewUrl} alt="Preview" className="w-full h-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedFile(null)
+                        setPreviewUrl(null)
+                        setFileInputKey(Date.now())
+                      }}
+                      className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 shadow-sm"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div>
+                <input
+                  type="text"
+                  value={formData.image_url}
+                  onChange={(e) => {
+                    setFormData(prev => ({ ...prev, image_url: e.target.value }))
+                    setPreviewUrl(e.target.value)
+                  }}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                  placeholder="https://..."
+                />
+                {previewUrl && formData.image_url === previewUrl && (
+                  <div className="mt-3 relative w-24 h-24 rounded-xl overflow-hidden border border-slate-200">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={previewUrl} alt="Preview" className="w-full h-full object-cover" onError={(e) => (e.currentTarget.style.display = 'none')} />
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </SlideOver>
