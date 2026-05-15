@@ -22,12 +22,12 @@ export function handleApiError(e: unknown, label: string): NextResponse {
   // Fire and forget: check global debug flag before sending to Sentry
   ;(async () => {
     try {
-      const { getSupabaseServerClient } = await import('@/lib/server/supabaseServer')
+      const { getSupabaseAdminClient } = await import('@/lib/server/supabaseAdmin')
       const { unstable_cache } = await import('next/cache')
       
       const getSentryFlag = unstable_cache(
         async () => {
-          const supabase = await getSupabaseServerClient()
+          const supabase = getSupabaseAdminClient()
           const { data } = await supabase
             .from('system_settings')
             .select('config')

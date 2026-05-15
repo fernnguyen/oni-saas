@@ -23,16 +23,16 @@ export function SettingsClient({ initialConfig }: { initialConfig: any }) {
   }
 
   return (
-    <div className="bg-white border rounded-xl overflow-hidden">
-      <div className="px-6 py-5">
-        <h3 className="text-base font-medium text-gray-900">Tính năng thử nghiệm & Gỡ lỗi</h3>
-        <p className="text-sm text-gray-500 mt-1">Thiết lập các tính năng theo dõi và thu thập lỗi tập trung cho toàn bộ hệ thống.</p>
+    <div className="rounded-2xl border border-slate-200 bg-white">
+      <div className="border-b border-slate-100 px-6 py-4">
+        <h2 className="text-sm font-semibold text-slate-900">Tính năng thử nghiệm & Gỡ lỗi</h2>
+        <p className="text-xs text-slate-400 mt-0.5">Thiết lập các tính năng theo dõi và thu thập lỗi tập trung cho toàn bộ hệ thống.</p>
       </div>
-      <div className="border-t">
-        <div className="flex items-center justify-between px-6 py-5">
+      <div className="px-6 py-5">
+        <div className="flex items-center justify-between">
           <div>
-            <h4 className="text-sm font-medium text-gray-900">Gửi log lỗi lên Sentry</h4>
-            <p className="text-sm text-gray-500 mt-0.5 max-w-2xl">
+            <h4 className="text-sm font-medium text-slate-800">Gửi log lỗi lên Sentry</h4>
+            <p className="text-sm text-slate-500 mt-0.5 max-w-2xl">
               Tự động thu thập các ngoại lệ (exception) server (mã 500) và đẩy lên Sentry thay vì chỉ báo lỗi ra Console. Nếu tắt, lỗi sẽ chỉ hiển thị ở log của server.
             </p>
           </div>
@@ -45,7 +45,7 @@ export function SettingsClient({ initialConfig }: { initialConfig: any }) {
                 onChange={(e) => handleToggle(e.target.checked)}
                 disabled={isPending}
               />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+              <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
             </label>
           </div>
         </div>
