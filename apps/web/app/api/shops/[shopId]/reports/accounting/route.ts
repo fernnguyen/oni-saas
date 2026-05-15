@@ -64,7 +64,7 @@ function buildAccounting(orders: Row[], returns: Row[], payments: Row[], custome
   const debtSuppliers = suppliers
     .filter((s) => parseAmount(s.debt_amount) > 0)
     .map((s) => ({
-      supplier_id:   s.id,
+      supplier_id:   s.supplier_id || s.id,
       supplier_name: s.name,
       phone:         s.phone,
       debt_amount:   s.debt_amount,
@@ -105,7 +105,7 @@ export async function GET(
         return buildAccounting(ordersResult.data, returnsResult.data, paymentsResult.data, customersResult.data, suppliersResult.data)
       },
       ['reports-accounting', shopId],
-      { tags: [shopTag(shopId, 'orders'), shopTag(shopId, 'returns')], revalidate: 300 }
+      { tags: [shopTag(shopId, 'orders'), shopTag(shopId, 'returns'), shopTag(shopId, 'payments'), shopTag(shopId, 'customers'), shopTag(shopId, 'suppliers')], revalidate: 300 }
     )
 
     return NextResponse.json(result)
