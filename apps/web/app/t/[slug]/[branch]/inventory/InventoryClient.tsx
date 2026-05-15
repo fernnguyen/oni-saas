@@ -12,6 +12,7 @@ import { SlideOver } from '@/app/components/ui/SlideOver'
 import { TagBadge, TagColor } from '@/app/components/ui/TagBadge'
 import { PaymentStatusLabel, PaymentStatus } from '@/app/components/ui/PaymentStatusLabel'
 import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog'
+import { CopyableId } from '@/app/components/ui/CopyableId'
 
 const Eye = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
 const ArrowRight = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
@@ -481,9 +482,11 @@ export function InventoryClient({ shopId }: Props) {
       label: 'Mã phiếu',
       render: (row) => (
         <div className="min-w-[90px]">
-          <span className="block font-mono text-xs font-semibold text-slate-800">
-            {row.movement_id || '—'}
-          </span>
+          {row.movement_id ? (
+            <CopyableId id={row.movement_id} className="text-sm font-semibold text-slate-800" />
+          ) : (
+            <span className="block text-sm font-semibold text-slate-800">—</span>
+          )}
           <span className="flex items-center gap-1 text-[11px] text-slate-500 mt-0.5">
             <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
             {fmtDate(row.created_at)}
@@ -581,9 +584,13 @@ export function InventoryClient({ shopId }: Props) {
       label: 'Từ phiếu',
       render: (row) => (
         <div>
-          <span className="block font-mono text-xs text-primary">{row.reference_no || '—'}</span>
+          {row.reference_no ? (
+            <CopyableId id={row.reference_no} className="text-sm font-semibold text-primary" />
+          ) : (
+            <span className="block text-sm text-primary">—</span>
+          )}
           {row.movement_no && (
-            <span className="block font-mono text-[11px] text-slate-400 mt-0.5" title="Mã phiếu kho">{row.movement_no}</span>
+            <span className="block text-xs text-slate-400 mt-0.5" title="Mã phiếu kho">{row.movement_no}</span>
           )}
         </div>
       ),

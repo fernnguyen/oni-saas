@@ -10,6 +10,7 @@ import { EmptyState } from '@/app/components/ui/EmptyState'
 import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog'
 import { SearchBar } from '@/app/components/ui/SearchBar'
 import { NumberInput } from '@/app/components/ui/NumberInput'
+import { CopyableId } from '@/app/components/ui/CopyableId'
 
 interface Props {
   shopId: string
@@ -250,7 +251,11 @@ export function ProductsClient({ shopId }: Props) {
         </div>
       )
     },
-    { key: 'sku', label: 'SKU' },
+    { 
+      key: 'sku', 
+      label: 'SKU',
+      render: (row) => row.sku ? <CopyableId id={row.sku} className="text-sm font-semibold text-slate-800" /> : '—'
+    },
     { key: 'name', label: 'Tên sản phẩm' },
     { 
       key: 'category_id', 

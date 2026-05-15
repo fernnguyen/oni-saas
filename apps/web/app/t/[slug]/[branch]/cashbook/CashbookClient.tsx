@@ -9,6 +9,7 @@ import { EmptyState } from '@/app/components/ui/EmptyState'
 import { SearchBar } from '@/app/components/ui/SearchBar'
 import { NumberInput } from '@/app/components/ui/NumberInput'
 import { format } from 'date-fns'
+import { CopyableId } from '@/app/components/ui/CopyableId'
 
 const Clock = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
 
@@ -97,7 +98,11 @@ export function CashbookClient({ shopId }: Props) {
       label: 'Số phiếu',
       render: (row) => (
         <div>
-          <span className="block font-semibold text-slate-900">{row.transaction_id || '—'}</span>
+          {row.transaction_id ? (
+            <CopyableId id={row.transaction_id} className="text-sm font-semibold text-slate-900" />
+          ) : (
+            <span className="block text-sm font-semibold text-slate-900">—</span>
+          )}
           <div className="flex items-center text-[11px] text-slate-500 mt-1 gap-1">
             <Clock className="w-3 h-3" />
             <span>{format(new Date(row.created_at || new Date()), 'HH:mm dd/MM/yy')}</span>

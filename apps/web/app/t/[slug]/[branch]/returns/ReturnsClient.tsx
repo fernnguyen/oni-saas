@@ -10,6 +10,7 @@ import { EmptyState } from '@/app/components/ui/EmptyState'
 import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog'
 import { SearchBar } from '@/app/components/ui/SearchBar'
 import { PageHeader } from '@/app/components/ui/PageHeader'
+import { CopyableId } from '@/app/components/ui/CopyableId'
 
 const Plus = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
 const Eye = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -220,15 +221,17 @@ export function ReturnsClient({ shopId }: Props) {
       key: 'return_no',
       label: 'Mã phiếu',
       render: (row) => (
-        <button
-          className="font-mono text-sm font-semibold text-blue-600 hover:underline"
-          onClick={() => setSelected(row)}
-        >
-          {row.return_no || row.return_id?.slice(0, 8)}
-        </button>
+        <CopyableId 
+          id={row.return_no || row.return_id?.slice(0, 8)} 
+          onClick={() => setSelected(row)} 
+        />
       ),
     },
-    { key: 'order_no',       label: 'Đơn hàng',   render: (row) => row.order_no || '—' },
+    { 
+      key: 'order_no', 
+      label: 'Đơn hàng', 
+      render: (row) => row.order_no ? <CopyableId id={row.order_no} /> : '—' 
+    },
     { key: 'customer_name',  label: 'Khách hàng',  render: (row) => row.customer_name || '—' },
     {
       key: 'reason',

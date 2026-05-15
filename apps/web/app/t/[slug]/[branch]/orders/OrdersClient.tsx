@@ -9,6 +9,7 @@ import { TagBadge, TagColor } from '@/app/components/ui/TagBadge'
 import { EmptyState } from '@/app/components/ui/EmptyState'
 import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog'
 import { SearchBar } from '@/app/components/ui/SearchBar'
+import { CopyableId } from '@/app/components/ui/CopyableId'
 import { printBill } from '@/lib/pos/printBill'
 
 const Eye = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -432,12 +433,10 @@ export function OrdersClient({ shopId, shopName }: Props) {
       key: 'order_id',
       label: 'Mã đơn',
       render: (row) => (
-        <button
-          onClick={() => openDetail(row)}
-          className="font-mono text-primary hover:underline"
-        >
-          {row.order_id}
-        </button>
+        <CopyableId 
+          id={row.order_id} 
+          onClick={() => openDetail(row)} 
+        />
       ),
     },
     {
