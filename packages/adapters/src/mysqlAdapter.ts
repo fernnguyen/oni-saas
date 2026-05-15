@@ -127,6 +127,7 @@ export class MysqlConnector implements IDataConnector {
     if (filters) {
       const legacyIdField = this.LEGACY_ID_MAP[entity]
       for (const [k, v] of Object.entries(filters)) {
+        if (k === 'active' && v === 'ALL') continue
         const queryKey = (k === legacyIdField) ? 'id' : k
         whereClauses.push(`\`${queryKey}\` = ?`)
         params.push(v)

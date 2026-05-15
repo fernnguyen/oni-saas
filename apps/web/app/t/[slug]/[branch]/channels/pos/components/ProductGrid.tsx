@@ -111,16 +111,26 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart }: 
                   ].join(' ')}
                 >
                   {/* Image with SKU badge overlay */}
-                  <div className="relative w-full aspect-[4/3] shrink-0">
+                  <div className="relative w-full aspect-[4/3] shrink-0 bg-white border-b border-slate-100 overflow-hidden">
                     {product.image_url ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={product.image_url}
                         alt={product.name}
-                        className="w-full h-full object-cover"
+                        className="absolute inset-0 w-full h-full object-contain p-2"
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none'
+                          const sibling = e.currentTarget.nextElementSibling
+                          if (sibling) sibling.classList.remove('hidden')
+                        }}
                       />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-slate-100">
+                      <div className="absolute inset-0 flex items-center justify-center bg-slate-50">
+                        <IconBox className="h-10 w-10 text-slate-300" />
+                      </div>
+                    )}
+                    {product.image_url && (
+                      <div className="absolute inset-0 items-center justify-center bg-slate-50 hidden z-0">
                         <IconBox className="h-10 w-10 text-slate-300" />
                       </div>
                     )}

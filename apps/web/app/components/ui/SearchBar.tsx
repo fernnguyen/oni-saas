@@ -2,11 +2,12 @@ interface SearchBarProps {
   value?: string
   onChange?: (value: string) => void
   placeholder?: string
+  hideFilter?: boolean
 }
 
-export function SearchBar({ value, onChange, placeholder = 'Tìm kiếm...' }: SearchBarProps) {
+export function SearchBar({ value, onChange, placeholder = 'Tìm kiếm...', hideFilter }: SearchBarProps) {
   return (
-    <div className="flex flex-col gap-3 md:flex-row md:items-center">
+    <div className="flex flex-col gap-3 md:flex-row md:items-center w-full">
       <div className="flex-1">
         <input
           value={value}
@@ -15,7 +16,11 @@ export function SearchBar({ value, onChange, placeholder = 'Tìm kiếm...' }: S
           placeholder={placeholder}
         />
       </div>
-      <button className="rounded border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50">Bộ lọc khác</button>
+      {!hideFilter && (
+        <button className="rounded border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50 shrink-0">
+          Bộ lọc khác
+        </button>
+      )}
     </div>
   );
 }

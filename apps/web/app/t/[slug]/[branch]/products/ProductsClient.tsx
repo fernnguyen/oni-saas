@@ -72,9 +72,10 @@ export function ProductsClient({ shopId }: Props) {
   const [formData, setFormData] = useState<Record<string, string>>(EMPTY_FORM)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [slideOpen, setSlideOpen] = useState(false)
-  const [deleteTarget, setDeleteTarget] = useState<Record<string, string> | null>(null)
+  const [actionTarget, setActionTarget] = useState<Record<string, string> | null>(null)
   const [categoryModalOpen, setCategoryModalOpen] = useState(false)
   const [catFormData, setCatFormData] = useState({ name: '', parent_id: '', description: '' })
+  const [filterActive, setFilterActive] = useState<string>('TRUE')
   
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
@@ -83,10 +84,11 @@ export function ProductsClient({ shopId }: Props) {
   const [fileInputKey, setFileInputKey] = useState(Date.now())
 
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['products', shopId, page, debouncedSearch],
+    queryKey: ['products', shopId, page, debouncedSearch, filterActive],
     queryFn: async () => {
       const sp = new URLSearchParams({ page: String(page), limit: '50' })
       if (debouncedSearch) sp.set('search', debouncedSearch)
+      if (filterActive) sp.set('active', filterActive)
       const res = await fetch(`/api/shops/${shopId}/products?${sp}`)
       if (!res.ok) throw new Error('Không tải được dữ liệu')
       return res.json() as Promise<{ data: Record<string, string>[]; total: number }>
@@ -152,16 +154,23 @@ export function ProductsClient({ shopId }: Props) {
     },
   })
 
-  const deleteMutation = useMutation({
-    mutationFn: async (id: string) => {
-      await fetch(`/api/shops/${shopId}/products/${id}`, { method: 'DELETE' })
+  const toggleActiveMutation = useMutation({
+    mutationFn: async (row: Record<string, string>) => {
+      const newActive = row.active === 'TRUE' ? 'FALSE' : 'TRUE'
+      const res = await fetch(`/api/shops/${shopId}/products/${row.product_id || row.id}`, { 
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: newActive })
+      })
+      if (!res.ok) throw new Error('Cập nhật trạng thái thất bại')
+      return newActive
     },
-    onSuccess: () => {
-      toast.success('Đã xóa')
-      setDeleteTarget(null)
+    onSuccess: (newActive) => {
+      toast.success(newActive === 'TRUE' ? 'Đã mở bán lại sản phẩm' : 'Đã ngừng kinh doanh sản phẩm')
+      setActionTarget(null)
       queryClient.invalidateQueries({ queryKey: ['products', shopId] })
     },
-    onError: () => toast.error('Xóa thất bại'),
+    onError: () => toast.error('Lỗi thao tác'),
   })
 
   const { data: catData } = useQuery({
@@ -222,6 +231,25 @@ export function ProductsClient({ shopId }: Props) {
   }
 
   const columns = useMemo<Column<Record<string, string>>[]>(() => [
+    { 
+      key: 'image', 
+      label: 'Ảnh',
+      render: (row) => (
+        <div className="h-10 w-10 rounded-lg overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center shrink-0">
+          {row.image_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img 
+              src={row.image_url} 
+              alt={row.name} 
+              className="w-full h-full object-cover" 
+              onError={(e) => (e.currentTarget.style.display = 'none')}
+            />
+          ) : (
+            <span className="text-slate-300 text-[10px]">Trống</span>
+          )}
+        </div>
+      )
+    },
     { key: 'sku', label: 'SKU' },
     { key: 'name', label: 'Tên sản phẩm' },
     { 
@@ -242,7 +270,7 @@ export function ProductsClient({ shopId }: Props) {
       key: 'active',
       label: 'Trạng thái',
       render: (row) => (
-        <TagBadge label={row.active === 'TRUE' ? 'Hoạt động' : 'Ngừng'} />
+        <TagBadge label={row.active === 'TRUE' ? 'Hoạt động' : 'Tạm ngừng'} />
       ),
     },
     {
@@ -252,15 +280,30 @@ export function ProductsClient({ shopId }: Props) {
         <div className="flex items-center gap-2">
           <button
             onClick={() => openEdit(row)}
-            className="rounded-lg border border-slate-200 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50"
+            className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors"
           >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3.5 h-3.5"><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" /></svg>
             Sửa
           </button>
           <button
-            onClick={() => setDeleteTarget(row)}
-            className="rounded-lg border border-red-100 px-3 py-1 text-xs text-red-500 hover:bg-red-50"
+            onClick={() => setActionTarget(row)}
+            className={
+              row.active === 'TRUE'
+                ? "flex items-center gap-1.5 rounded-lg border border-red-100 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors"
+                : "flex items-center gap-1.5 rounded-lg border border-green-100 px-3 py-1.5 text-xs font-medium text-green-600 hover:bg-green-50 transition-colors"
+            }
           >
-            Xóa
+            {row.active === 'TRUE' ? (
+              <>
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3.5 h-3.5"><path strokeLinecap="round" strokeLinejoin="round" d="M14.25 9v6m-4.5 0V9M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                Ngừng bán
+              </>
+            ) : (
+              <>
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3.5 h-3.5"><path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 010 1.972l-11.54 6.347a1.125 1.125 0 01-1.667-.986V5.653z" /></svg>
+                Mở bán lại
+              </>
+            )}
           </button>
         </div>
       ),
@@ -285,11 +328,25 @@ export function ProductsClient({ shopId }: Props) {
         </button>
       </div>
 
-      <SearchBar
-        value={search}
-        onChange={(v) => { setSearch(v); setPage(1) }}
-        placeholder="Tìm kiếm..."
-      />
+      <div className="flex flex-col md:flex-row gap-3 w-full">
+        <div className="flex-1">
+          <SearchBar
+            value={search}
+            onChange={(v) => { setSearch(v); setPage(1) }}
+            placeholder="Tìm kiếm sản phẩm..."
+            hideFilter={true}
+          />
+        </div>
+        <select
+          value={filterActive}
+          onChange={(e) => { setFilterActive(e.target.value); setPage(1) }}
+          className="rounded border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-[#0F766E] focus:outline-none bg-white min-w-[150px] shrink-0"
+        >
+          <option value="ALL">Tất cả trạng thái</option>
+          <option value="TRUE">Đang hoạt động</option>
+          <option value="FALSE">Đã ngừng bán</option>
+        </select>
+      </div>
 
       <DataTable
         columns={columns}
@@ -455,9 +512,9 @@ export function ProductsClient({ shopId }: Props) {
                   </label>
                 </div>
                 {previewUrl && !previewUrl.startsWith('http') && (
-                  <div className="relative w-24 h-24 rounded-xl overflow-hidden border border-slate-200">
+                  <div className="relative w-24 h-24 rounded-xl overflow-hidden border border-slate-200 bg-slate-50">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={previewUrl} alt="Preview" className="w-full h-full object-cover" />
+                    <img src={previewUrl} alt="Preview" className="w-full h-full object-cover" onError={(e) => (e.currentTarget.style.display = 'none')} />
                     <button
                       type="button"
                       onClick={() => {
@@ -499,14 +556,18 @@ export function ProductsClient({ shopId }: Props) {
       </SlideOver>
 
       <ConfirmDialog
-        open={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={() => { if (deleteTarget) deleteMutation.mutate(deleteTarget.product_id) }}
-        title="Xác nhận xóa"
-        description={`Bạn có chắc muốn xóa "${deleteTarget?.name}"?`}
-        confirmLabel="Xóa"
-        variant="danger"
-        loading={deleteMutation.isPending}
+        open={!!actionTarget}
+        onClose={() => setActionTarget(null)}
+        onConfirm={() => { if (actionTarget) toggleActiveMutation.mutate(actionTarget) }}
+        title={actionTarget?.active === 'TRUE' ? "Ngừng kinh doanh" : "Mở bán lại"}
+        description={
+          actionTarget?.active === 'TRUE' 
+            ? `Bạn có chắc muốn ngừng kinh doanh "${actionTarget?.name}"? Sản phẩm sẽ bị ẩn khỏi các màn hình bán hàng.`
+            : `Sản phẩm "${actionTarget?.name}" sẽ được bán trở lại trên toàn hệ thống.`
+        }
+        confirmLabel={actionTarget?.active === 'TRUE' ? "Ngừng bán" : "Mở bán lại"}
+        variant={actionTarget?.active === 'TRUE' ? "danger" : "primary"}
+        loading={toggleActiveMutation.isPending}
       />
 
       {/* TẠO DANH MỤC MODAL */}

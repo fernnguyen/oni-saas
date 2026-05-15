@@ -267,7 +267,7 @@ export class GoogleSheetsConnector implements IDataConnector {
     const hasBranchField = headers.includes('branch_id')
 
     let filtered = rows.filter(row => {
-      if (hasActiveField && row.active === 'FALSE') return false
+      if (hasActiveField && !filters?.active && row.active === 'FALSE') return false
       if (this.branchId && hasBranchField) {
         if (row.branch_id !== this.branchId) return false
       }
@@ -278,6 +278,7 @@ export class GoogleSheetsConnector implements IDataConnector {
       }
       if (filters) {
         for (const [k, v] of Object.entries(filters)) {
+          if (k === 'active' && v === 'ALL') continue
           const filterKey = k === 'id' ? idKey : k
           if ((row[filterKey] ?? '').toLowerCase() !== v.toLowerCase()) return false
         }
