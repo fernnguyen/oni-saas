@@ -33,6 +33,8 @@ interface DashboardShellProps {
   currentBranchSlug?: string;
   currentBranchAddress?: string | null;
   hidePlanBadge?: boolean;
+  /** Industry type of the tenant for vertical-aware nav filtering */
+  industryType?: string;
 }
 
 export function DashboardShell({
@@ -62,6 +64,7 @@ export function DashboardShell({
   currentBranchSlug,
   currentBranchAddress,
   hidePlanBadge,
+  industryType,
 }: DashboardShellProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
@@ -84,6 +87,7 @@ export function DashboardShell({
           currentBranchSlug={currentBranchSlug}
           currentBranchName={shopName}
           currentBranchAddress={currentBranchAddress}
+          industryType={industryType}
           mobileOpen={mobileNavOpen}
           onMobileClose={() => setMobileNavOpen(false)}
         />

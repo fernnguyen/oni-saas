@@ -23,7 +23,7 @@ export default async function BillingPage({ params }: Props) {
 
   const { data: tenant } = await admin
     .from('tenants')
-    .select('id, name, slug')
+    .select('id, name, slug, industry_type')
     .eq('slug', slug)
     .maybeSingle();
   if (!tenant) notFound();
@@ -87,6 +87,7 @@ export default async function BillingPage({ params }: Props) {
       planName={planDetails?.planName}
       periodStart={planDetails?.periodStart}
       periodEnd={planDetails?.periodEnd}
+      industryType={tenant.industry_type}
     >
       <div className="space-y-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">

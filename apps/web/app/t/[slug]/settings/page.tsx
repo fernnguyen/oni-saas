@@ -24,7 +24,7 @@ export default async function TenantSettingsPage({ params }: Props) {
 
   const { data: tenant } = await admin
     .from('tenants')
-    .select('id, name, slug')
+    .select('id, name, slug, industry_type')
     .eq('slug', slug)
     .maybeSingle();
 
@@ -135,6 +135,7 @@ export default async function TenantSettingsPage({ params }: Props) {
       planName={planDetails?.planName}
       periodStart={planDetails?.periodStart}
       periodEnd={planDetails?.periodEnd}
+      industryType={tenant.industry_type}
     >
       <div className="space-y-6">
         <div className="mb-6">

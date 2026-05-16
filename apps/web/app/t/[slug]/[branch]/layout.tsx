@@ -25,7 +25,7 @@ export default async function BranchLayout({ params, children }: Props) {
 
   const { data: tenant } = await admin
     .from('tenants')
-    .select('id, name, slug')
+    .select('id, name, slug, industry_type')
     .eq('slug', slug)
     .maybeSingle();
 
@@ -118,6 +118,7 @@ export default async function BranchLayout({ params, children }: Props) {
       periodEnd={periodEnd}
       currentBranchSlug={branch}
       currentBranchAddress={shop.address}
+      industryType={tenant.industry_type}
     >
       {children}
     </DashboardShell>

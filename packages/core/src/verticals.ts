@@ -1,0 +1,200 @@
+/**
+ * Vertical Registry — defines features and behavior per industry type.
+ *
+ * Consumed by:
+ * - Frontend: nav filtering, POS layout selection, registration form
+ * - Backend: entity validation, feature gating
+ */
+
+export const INDUSTRY_TYPES = [
+  'retail',
+  'fnb',
+  'billiards',
+  'sports_court',
+  'lodging',
+  'fashion',
+  'service_hourly',
+] as const;
+
+export type IndustryType = (typeof INDUSTRY_TYPES)[number];
+
+export interface VerticalFeatures {
+  /** Barcode scanning in POS */
+  barcode_scan: boolean;
+  /** Location resources: tables, courts, rooms */
+  location_resource: boolean;
+  /** Time-based billing (hourly rate) */
+  hourly_billing: boolean;
+  /** Kitchen Display System for order preparation */
+  kitchen_display: boolean;
+  /** Reservation / booking system */
+  reservation: boolean;
+  /** Product variants (size, color) */
+  product_variants: boolean;
+}
+
+export interface VerticalConfig {
+  label: string;
+  icon: string;
+  description: string;
+  features: VerticalFeatures;
+  /** POS screen layout type */
+  posLayout: 'product_grid' | 'table_map' | 'room_map';
+  /** Extra data-plane entities beyond the core 15 */
+  extraEntities: string[];
+  /** Resource type label for Location Resources (if applicable) */
+  resourceLabel?: string;
+  /** Resource type value for Location Resources */
+  resourceType?: string;
+}
+
+export const VERTICAL_REGISTRY: Record<IndustryType, VerticalConfig> = {
+  retail: {
+    label: 'Bán lẻ',
+    icon: '🛒',
+    description: 'Cửa hàng tạp hóa, siêu thị mini, shop bán lẻ tổng hợp',
+    features: {
+      barcode_scan: true,
+      location_resource: false,
+      hourly_billing: false,
+      kitchen_display: false,
+      reservation: false,
+      product_variants: false,
+    },
+    posLayout: 'product_grid',
+    extraEntities: [],
+  },
+
+  fnb: {
+    label: 'Nhà hàng / Quán cafe',
+    icon: '🍔',
+    description: 'Quán ăn, quán cafe, trà sữa, nhà hàng nhỏ',
+    features: {
+      barcode_scan: false,
+      location_resource: true,
+      hourly_billing: false,
+      kitchen_display: true,
+      reservation: true,
+      product_variants: false,
+    },
+    posLayout: 'table_map',
+    extraEntities: ['location_resources'],
+    resourceLabel: 'Bàn',
+    resourceType: 'table',
+  },
+
+  billiards: {
+    label: 'Bi-a',
+    icon: '🎱',
+    description: 'Quán bi-a, bi-a phỏm, pool',
+    features: {
+      barcode_scan: false,
+      location_resource: true,
+      hourly_billing: true,
+      kitchen_display: false,
+      reservation: false,
+      product_variants: false,
+    },
+    posLayout: 'table_map',
+    extraEntities: ['location_resources'],
+    resourceLabel: 'Bàn',
+    resourceType: 'table',
+  },
+
+  sports_court: {
+    label: 'Sân thể thao',
+    icon: '🏸',
+    description: 'Sân Pickleball, cầu lông, bóng đá mini, tennis',
+    features: {
+      barcode_scan: false,
+      location_resource: true,
+      hourly_billing: true,
+      kitchen_display: false,
+      reservation: true,
+      product_variants: false,
+    },
+    posLayout: 'table_map',
+    extraEntities: ['location_resources'],
+    resourceLabel: 'Sân',
+    resourceType: 'court',
+  },
+
+  lodging: {
+    label: 'Nhà nghỉ / Khách sạn',
+    icon: '🏨',
+    description: 'Nhà nghỉ, khách sạn mini, homestay, nhà trọ',
+    features: {
+      barcode_scan: false,
+      location_resource: true,
+      hourly_billing: true,
+      kitchen_display: false,
+      reservation: true,
+      product_variants: false,
+    },
+    posLayout: 'room_map',
+    extraEntities: ['location_resources'],
+    resourceLabel: 'Phòng',
+    resourceType: 'room',
+  },
+
+  fashion: {
+    label: 'Thời trang',
+    icon: '👗',
+    description: 'Shop quần áo, giày dép, phụ kiện thời trang',
+    features: {
+      barcode_scan: true,
+      location_resource: false,
+      hourly_billing: false,
+      kitchen_display: false,
+      reservation: false,
+      product_variants: true,
+    },
+    posLayout: 'product_grid',
+    extraEntities: [],
+  },
+
+  service_hourly: {
+    label: 'Dịch vụ theo giờ',
+    icon: '⏰',
+    description: 'Quán game, karaoke, phòng tập, coworking space',
+    features: {
+      barcode_scan: false,
+      location_resource: true,
+      hourly_billing: true,
+      kitchen_display: false,
+      reservation: false,
+      product_variants: false,
+    },
+    posLayout: 'table_map',
+    extraEntities: ['location_resources'],
+    resourceLabel: 'Phòng/Máy',
+    resourceType: 'room',
+  },
+};
+
+/**
+ * Check if a given industry type is valid.
+ */
+export function isValidIndustryType(value: string): value is IndustryType {
+  return INDUSTRY_TYPES.includes(value as IndustryType);
+}
+
+/**
+ * Get vertical config for an industry type. Falls back to 'retail' if invalid.
+ */
+export function getVerticalConfig(industryType: string): VerticalConfig {
+  if (isValidIndustryType(industryType)) {
+    return VERTICAL_REGISTRY[industryType];
+  }
+  return VERTICAL_REGISTRY.retail;
+}
+
+/**
+ * Nav-level visibility keys that map to vertical features.
+ * Used by Sidebar to filter nav items based on tenant's industry.
+ */
+export const NAV_FEATURE_GATES: Record<string, keyof VerticalFeatures> = {
+  'location_resources': 'location_resource',
+  'kitchen_display': 'kitchen_display',
+  'reservations': 'reservation',
+};

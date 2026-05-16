@@ -4,6 +4,7 @@ import { getSupabaseAdminClient } from '../../../../lib/server/supabaseAdmin';
 import { TenantActions } from './TenantActions';
 import { AddDomainForm } from './AddDomainForm';
 import { EditPlanDialog } from './EditPlanDialog';
+import { getVerticalConfig } from '@oni/core';
 
 const FEATURE_LABELS: Record<string, string> = {
   pos: 'Bán tại quầy (POS)',
@@ -60,7 +61,7 @@ export default async function SuperTenantDetail({
   if (tenantRes.error || !tenantRes.data) notFound();
 
   const tenant = tenantRes.data as {
-    id: string; name: string; slug: string; created_at: string; updated_at: string;
+    id: string; name: string; slug: string; industry_type: string; created_at: string; updated_at: string;
   };
   const sub = subsRes.data as any;
   const shops = (shopsRes.data ?? []) as any[];
@@ -150,6 +151,11 @@ export default async function SuperTenantDetail({
               </DetailRow>
               <DetailRow label="TRẠNG THÁI">
                 <StatusBadge status={subStatus} />
+              </DetailRow>
+              <DetailRow label="NGÀNH NGHỀ">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-indigo-700">
+                  {getVerticalConfig(tenant.industry_type).icon} {getVerticalConfig(tenant.industry_type).label}
+                </span>
               </DetailRow>
               <DetailRow label="GÓI DỊCH VỤ">
                 <span className="font-semibold text-slate-900">{sub?.plans?.name ?? '—'}</span>

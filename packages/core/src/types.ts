@@ -6,6 +6,7 @@ export interface Tenant {
   id: string;
   name: string;
   slug: string;
+  industryType: string;
   createdAt: string;
 }
 

@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { getVerticalConfig, type VerticalFeatures } from '@oni/core';
 
 export interface NavItem {
   href: string;
@@ -8,6 +9,8 @@ export interface NavItem {
   icon: ({ className }: { className?: string }) => React.ReactElement;
   /** Permission code required to see this item. Omit = always visible. */
   permission?: string;
+  /** Vertical feature gate. If set, item only shows when this feature is enabled. */
+  featureGate?: keyof VerticalFeatures;
   exact?: boolean;
 }
 
@@ -28,6 +31,8 @@ interface BuildNavOptions {
   tenantRolesHref?: string;
   /** 'control' = org management; 'shop' = shop operations; 'super' = superadmin panel */
   context?: 'control' | 'shop' | 'super';
+  /** Industry type of the tenant — controls which nav items are visible */
+  industryType?: string;
 }
 
 /**
@@ -38,13 +43,21 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
   const base = normalizeBasePath(options.basePath);
   const can = (p: string) => permissions.includes(p);
 
-  const filter = (groups: NavGroup[]) =>
-    groups
+  const filter = (groups: NavGroup[]) => {
+    const vertical = getVerticalConfig(options.industryType || 'retail');
+    return groups
       .map((group) => ({
         ...group,
-        items: group.items.filter((item) => !item.permission || can(item.permission)),
+        items: group.items.filter((item) => {
+          // Permission check
+          if (item.permission && !can(item.permission)) return false;
+          // Vertical feature gate check
+          if (item.featureGate && !vertical.features[item.featureGate]) return false;
+          return true;
+        }),
       }))
       .filter((group) => group.items.length > 0);
+  };
 
   if (options.context === 'super') {
     return filter([
@@ -103,6 +116,7 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
       label: 'Bán hàng',
       items: [
         { href: joinPath(base, '/channels/pos'), label: 'Bán tại quầy', icon: IconPos,      permission: 'pos.use' },
+        { href: joinPath(base, '/resources'),     label: 'Bàn / Sân',    icon: IconTable,    permission: 'pos.use', featureGate: 'location_resource' },
         { href: joinPath(base, '/orders'),   label: 'Đơn hàng',      icon: IconClipboard, permission: 'orders.view' },
         { href: joinPath(base, '/returns'),  label: 'Đơn trả hàng',  icon: IconReturn,    permission: 'returns.view' },
         { href: joinPath(base, '/customers'), label: 'Khách hàng',   icon: IconUsers,     permission: 'customers.view' },
@@ -319,6 +333,13 @@ export function IconActivity({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+    </svg>
+  );
+}
+export function IconTable({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 6v12a2 2 0 002 2h12a2 2 0 002-2V6M4 6l2-2h12l2 2M10 12h4m-2-2v4" />
     </svg>
   );
 }

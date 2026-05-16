@@ -25,6 +25,8 @@ interface SidebarProps {
   /** Controlled open state for mobile overlay */
   mobileOpen?: boolean;
   onMobileClose?: () => void;
+  /** Industry type for vertical-aware nav */
+  industryType?: string;
 }
 
 /** Fixed-position tooltip that escapes any overflow container */
@@ -76,6 +78,7 @@ function SidebarContent({
   currentBranchSlug,
   currentBranchName,
   currentBranchAddress,
+  industryType,
   onToggleCollapsed,
   onClose,
 }: {
@@ -95,12 +98,13 @@ function SidebarContent({
   currentBranchSlug?: string;
   currentBranchName?: string;
   currentBranchAddress?: string | null;
+  industryType?: string;
   onToggleCollapsed?: () => void;
   onClose?: () => void;
 }) {
   const pathname = usePathname();
   const navGroups = buildNavGroups(
-    { basePath, supportHref, tenantHref, connectorsHref, settingsHref, tenantBillingHref, tenantSettingsHref, tenantTeamHref, tenantRolesHref, context },
+    { basePath, supportHref, tenantHref, connectorsHref, settingsHref, tenantBillingHref, tenantSettingsHref, tenantTeamHref, tenantRolesHref, context, industryType },
     permissions,
   );
 
@@ -256,6 +260,7 @@ export function Sidebar({
   currentBranchAddress,
   mobileOpen = false,
   onMobileClose,
+  industryType,
 }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
 
@@ -288,6 +293,7 @@ export function Sidebar({
     currentBranchSlug,
     currentBranchName,
     currentBranchAddress,
+    industryType,
   };
 
   return (

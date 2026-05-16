@@ -5,6 +5,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { AuthSplitLayout } from '../components/layout/AuthSplitLayout';
+import { VERTICAL_REGISTRY, INDUSTRY_TYPES, type IndustryType } from '@oni/core';
 
 const SLUG_REGEX = /^[a-z0-9-]+$/;
 const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
@@ -34,6 +35,7 @@ export function RegisterForm({ plans, initialDomain }: { plans: any[], initialDo
   const [selectedPlanCode, setSelectedPlanCode] = useState(defaultPlan?.code || '');
   const [error, setError]         = useState<string | null>(null);
   const [loading, setLoading]     = useState(false);
+  const [industryType, setIndustryType] = useState<IndustryType>('retail');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function handleNameChange(val: string) {
@@ -72,7 +74,7 @@ export function RegisterForm({ plans, initialDomain }: { plans: any[], initialDo
     setLoading(true);
     setError(null);
 
-    sessionStorage.setItem('oni_register', JSON.stringify({ slug, name, email, password, plan_code: selectedPlanCode }));
+    sessionStorage.setItem('oni_register', JSON.stringify({ slug, name, email, password, plan_code: selectedPlanCode, industry_type: industryType }));
     router.push('/register/provisioning');
   }
 
@@ -98,7 +100,36 @@ export function RegisterForm({ plans, initialDomain }: { plans: any[], initialDo
 
       <form onSubmit={onSubmit} className="space-y-5">
 
-        {/* Company name */}
+        {/* Industry Type Selection */}
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">Ngành nghề kinh doanh</label>
+          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+            {INDUSTRY_TYPES.map((type) => {
+              const v = VERTICAL_REGISTRY[type];
+              const selected = industryType === type;
+              return (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => setIndustryType(type)}
+                  className={`flex flex-col items-center gap-1.5 rounded-xl border-2 px-2 py-3 text-center transition-all hover:border-primary/50 hover:bg-primary/5 ${
+                    selected
+                      ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
+                      : 'border-slate-200 bg-white'
+                  }`}
+                >
+                  <span className="text-xl leading-none">{v.icon}</span>
+                  <span className={`text-[11px] font-medium leading-tight ${
+                    selected ? 'text-primary' : 'text-slate-600'
+                  }`}>{v.label}</span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-1.5 text-xs text-slate-400">
+            {VERTICAL_REGISTRY[industryType].description}. Có thể đổi sau trong Cài đặt.
+          </p>
+        </div>
         <div>
           <label className="mb-1.5 block text-sm font-medium text-slate-700">Tên cửa hàng / Hộ kinh doanh</label>
           <input

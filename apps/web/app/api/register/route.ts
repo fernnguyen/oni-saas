@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getSupabaseAdminClient } from '../../../lib/server/supabaseAdmin';
+import { INDUSTRY_TYPES } from '@oni/core';
 
 // Reject fake tenant emails — these are reserved for tenant user accounts
 const ONI_FAKE_EMAIL_RE = /^[^@]+@[^.]+\.oni\.vn$/i;
@@ -14,6 +15,7 @@ const schema = z.object({
   ),
   password:  z.string().min(8),
   plan_code: z.string().optional(),
+  industry_type: z.enum(INDUSTRY_TYPES).default('retail'),
 });
 
 export async function POST(req: NextRequest) {
@@ -28,7 +30,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { slug, name, email, password } = parsed.data;
+  const { slug, name, email, password, industry_type } = parsed.data;
   const admin = getSupabaseAdminClient();
 
   // 1 — Check slug uniqueness (tenant + shop + reserved subdomains share global slug namespace)
@@ -65,6 +67,7 @@ export async function POST(req: NextRequest) {
     p_name:     name,
     p_slug:     slug,
     p_owner_id: userId,
+    p_industry_type: industry_type,
   });
   if (tenantError) {
     await admin.auth.admin.deleteUser(userId).catch(() => {});
@@ -104,7 +107,7 @@ export async function POST(req: NextRequest) {
   // 5 — Assign default Local DB connector (System worker, Read-only)
   await admin.from('connectors').insert({
     tenant_id: tenantId,
-    type: 'mysql_local',
+    type: 'postgres_local',
     status: 'active',
     config: {
       is_system: true,
