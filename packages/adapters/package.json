@@ -5,8 +5,10 @@
   "main": "src/index.ts",
   "types": "src/index.ts",
   "dependencies": {
+    "@types/pg": "^8.20.0",
     "drizzle-orm": "^0.45.2",
-    "mysql2": "^3.22.3"
+    "mysql2": "^3.22.3",
+    "pg": "^8.20.0"
   },
   "scripts": {
     "db:generate": "drizzle-kit generate",

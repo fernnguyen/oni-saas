@@ -88,6 +88,7 @@ export const products = mysqlTable('products', {
   image_url: text('image_url'),
   description: text('description'),
   stock_qty: varchar('stock_qty', { length: 50 }),
+  metadata: text('metadata'),
 });
 
 export const customers = mysqlTable('customers', {
@@ -251,4 +252,21 @@ export const return_items = mysqlTable('return_items', {
   line_total: varchar('line_total', { length: 50 }),
   branch_id: varchar('branch_id', { length: 255 }),
 });
+
+// ── Location Resources (tables / courts / rooms) ─────────────────────────
+export const location_resources = mysqlTable('location_resources', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  name: varchar('name', { length: 255 }),
+  type: varchar('type', { length: 50 }),             // table | court | room
+  status: varchar('status', { length: 50 }),          // available | occupied | cleaning | reserved
+  current_order_id: varchar('current_order_id', { length: 255 }),
+  zone: varchar('zone', { length: 255 }),
+  capacity: varchar('capacity', { length: 50 }),
+  hourly_rate: varchar('hourly_rate', { length: 50 }),
+  sort_order: varchar('sort_order', { length: 50 }),
+  branch_id: varchar('branch_id', { length: 255 }),
+  metadata: text('metadata'),
+});
+
 

@@ -2,6 +2,7 @@ import type { IDataConnector } from './DataSource'
 import { GoogleSheetsConnector } from './googleSheetsAdapter'
 import { StubConnector } from './supabaseDbAdapter'
 import { MysqlConnector } from './mysqlAdapter'
+import { PostgresConnector } from './postgresAdapter'
 
 export function createConnector(
   type: string,
@@ -26,6 +27,16 @@ export function createConnector(
       const connectionUri = config['connection_uri'] as string
       if (!connectionUri) throw new Error('connection_uri is required in mysql connector config')
       return new MysqlConnector(connectionUri, tenantId, branchId)
+    }
+    case 'postgres_local': {
+      const connectionUri = process.env.LOCAL_PG_URI || process.env.DATABASE_URL
+      if (!connectionUri) throw new Error('LOCAL_PG_URI is not set in environment variables')
+      return new PostgresConnector(connectionUri, tenantId, branchId)
+    }
+    case 'postgres_remote': {
+      const connectionUri = config['connection_uri'] as string
+      if (!connectionUri) throw new Error('connection_uri is required in postgres connector config')
+      return new PostgresConnector(connectionUri, tenantId, branchId)
     }
     default:
       return new StubConnector(type, tenantId)
