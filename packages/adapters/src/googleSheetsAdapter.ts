@@ -253,8 +253,8 @@ export class GoogleSheetsConnector implements IDataConnector {
       .map(id => parseInt(id.slice(prefix.length + 1), 10))
       .filter(n => !isNaN(n))
 
-    const max = existing.length > 0 ? Math.max(...existing) : 0
-    return `${prefix}-${String(max + 1).padStart(3, '0')}`
+    const max = existing.length > 0 ? Math.max(...existing) : 9999
+    return `${prefix}-${max + 1}`
   }
 
   async list(entity: string, options: ListOptions = {}): Promise<ListResult> {
@@ -415,13 +415,13 @@ export class GoogleSheetsConnector implements IDataConnector {
       .filter(id => id?.startsWith(`${prefix}-`))
       .map(id => parseInt(id.slice(prefix.length + 1), 10))
       .filter(n => !isNaN(n))
-      .reduce((max, n) => Math.max(max, n), 0)
+      .reduce((max, n) => Math.max(max, n), 9999)
 
     const created: Record<string, string>[] = []
     const allRowValues: string[][] = []
 
     for (let i = 0; i < rows.length; i++) {
-      const newId = `${prefix}-${String(currentMax + i + 1).padStart(3, '0')}`
+      const newId = `${prefix}-${currentMax + i + 1}`
       const fullRow: Record<string, string> = { ...rows[i] }
       fullRow[idKey] = newId
       if (!fullRow.active) fullRow.active = 'TRUE'

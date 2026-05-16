@@ -72,8 +72,8 @@ export class MysqlConnector implements IDataConnector {
       .map(id => parseInt(id.slice(prefix.length + 1), 10))
       .filter(n => !isNaN(n))
 
-    const max = existing.length > 0 ? Math.max(...existing) : 0
-    return `${prefix}-${String(max + 1).padStart(3, '0')}`
+    const max = existing.length > 0 ? Math.max(...existing) : 9999
+    return `${prefix}-${max + 1}`
   }
 
   private readonly LEGACY_ID_MAP: Record<string, string> = {
@@ -314,7 +314,7 @@ export class MysqlConnector implements IDataConnector {
         }
         
         if (nextIdNumber !== -1) {
-          insertData.id = `${idPrefix}-${String(nextIdNumber).padStart(3, '0')}`
+          insertData.id = `${idPrefix}-${nextIdNumber}`
           nextIdNumber++
         }
       }
