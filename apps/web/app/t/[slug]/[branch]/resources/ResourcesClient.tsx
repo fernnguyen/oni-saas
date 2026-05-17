@@ -102,12 +102,12 @@ export function ResourcesClient({ shopId, industryType }: Props) {
       const json = await res.json()
       if (json.resource_sub_types) {
         const parsed = safeParseJSON(json.resource_sub_types)
-        if (parsed[vertical.id]) {
-          setCustomSubTypes(parsed[vertical.id])
+        if (parsed[industryType]) {
+          setCustomSubTypes(parsed[industryType])
         }
       }
     } catch {}
-  }, [shopId, vertical.id])
+  }, [shopId, industryType])
 
   useEffect(() => { fetchResources(); fetchSettings() }, [fetchResources, fetchSettings])
 
@@ -119,7 +119,7 @@ export function ResourcesClient({ shopId, industryType }: Props) {
       const parsed = currentSettings.resource_sub_types ? safeParseJSON(currentSettings.resource_sub_types) : {}
       
       // 2. Update vertical
-      parsed[vertical.id] = newList
+      parsed[industryType] = newList
 
       // 3. Save
       const res = await fetch(`/api/shops/${shopId}/settings`, {
