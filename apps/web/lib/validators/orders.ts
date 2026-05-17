@@ -52,6 +52,7 @@ export const orderItemCreateSchema = z.object({
 })
 
 export const paymentCreateSchema = z.object({
+  id:           z.string().optional().default(''),
   order_id:     z.string().min(1),
   order_no:     z.string().optional().default(''),
   method:       z.enum(PAYMENT_METHODS),

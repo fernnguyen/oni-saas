@@ -77,10 +77,11 @@ export function CheckoutModal({
   autoPrintReceipt,
   orderId,
   metadata,
-}: Props & { orderId?: string, metadata?: Record<string, any> }) {
+  orderPaidAmount = 0,
+}: Props & { orderId?: string, metadata?: Record<string, any>, orderPaidAmount?: number }) {
   const [localCustomer, setLocalCustomer] = useState(customer)
   const [payments, setPayments] = useState<PaymentRow[]>([
-    { id: nextId(), method: 'cash', amount: String(total - discount_amount) },
+    { id: nextId(), method: 'cash', amount: String(total - discount_amount - orderPaidAmount) },
   ])
   const [saving, setSaving] = useState(false)
   const [localNote, setLocalNote] = useState(note)
@@ -105,16 +106,18 @@ export function CheckoutModal({
       setLocalCustomer(customer)
       setLocalDiscount(discount_amount)
       setDiscountInput(String(discount_amount))
-      const newTotal = Math.max(0, subtotal - discount_amount)
+      const newTotal = Math.max(0, subtotal - discount_amount - orderPaidAmount)
       setPayments([{ id: nextId(), method: 'cash', amount: String(newTotal) }])
       setLocalNote(note)
     }
-  }, [open, subtotal, discount_amount, note, customer])
+  }, [open, subtotal, discount_amount, note, customer, orderPaidAmount])
 
+  const overPaid = Math.max(0, orderPaidAmount - finalTotal)
+  const remainingTotal = Math.max(0, finalTotal - orderPaidAmount)
   const totalPaid = payments.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
-  const remaining = finalTotal - totalPaid
+  const remaining = remainingTotal - totalPaid
   const cashRows = payments.filter((p) => p.method === 'cash')
-  const cashChange = cashRows.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0) - (finalTotal - payments.filter((p) => p.method !== 'cash').reduce((s, p) => s + (parseFloat(p.amount) || 0), 0))
+  const cashChange = overPaid + cashRows.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0) - (remainingTotal - payments.filter((p) => p.method !== 'cash').reduce((s, p) => s + (parseFloat(p.amount) || 0), 0))
 
   function updatePayment(id: string, field: 'method' | 'amount', value: string) {
     setPayments((prev) => prev.map((p) => (p.id === id ? { ...p, [field]: value } : p)))
@@ -137,7 +140,7 @@ export function CheckoutModal({
       if (prev.length === 0) return prev
       const othersPaid = prev.slice(0, -1).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
       return prev.map((p, i) =>
-        i === prev.length - 1 ? { ...p, amount: String(Math.max(0, finalTotal - othersPaid)) } : p
+        i === prev.length - 1 ? { ...p, amount: String(Math.max(0, remainingTotal - othersPaid)) } : p
       )
     })
   }
@@ -155,8 +158,8 @@ export function CheckoutModal({
 
   async function handleSubmit() {
     if (items.length === 0) return
-    if (totalPaid < finalTotal) {
-      toast.error(`Còn thiếu ${fmtVND(finalTotal - totalPaid)}`)
+    if (totalPaid < remainingTotal) {
+      toast.error(`Còn thiếu ${fmtVND(remainingTotal - totalPaid)}`)
       return
     }
 
@@ -199,6 +202,17 @@ export function CheckoutModal({
           reference_no: '',
           note: '',
         }))
+
+      if (cashChange > 0) {
+        localPayments.push({
+          local_id: crypto.randomUUID(),
+          order_local_id: local_id,
+          method: 'cash',
+          amount: -cashChange,
+          reference_no: '',
+          note: 'Tiền thừa trả khách',
+        })
+      }
 
       const order: LocalOrder = {
         local_id,
@@ -348,14 +362,14 @@ export function CheckoutModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
 
-      <div className="relative z-10 w-full max-w-md rounded-2xl bg-white shadow-2xl">
+      <div className="relative z-10 w-full max-w-md max-h-[90vh] flex flex-col rounded-2xl bg-white shadow-2xl">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 shrink-0">
           <h2 className="text-base font-semibold text-slate-900">Thanh toán đơn hàng</h2>
           <button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100">✕</button>
         </div>
 
-        <div className="p-5 space-y-4">
+        <div className="p-5 space-y-4 overflow-y-auto">
           {/* Customer */}
           <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
             <div className="mb-1.5 flex items-center justify-between">
@@ -427,8 +441,26 @@ export function CheckoutModal({
               </div>
               <div className="flex justify-between font-bold text-slate-900 text-base border-t border-dashed border-slate-200 pt-2">
                 <span>Tổng cộng:</span>
-                <span className="text-primary">{fmtVND(finalTotal)}</span>
+                <span className={orderPaidAmount > 0 ? "text-slate-900" : "text-primary"}>{fmtVND(finalTotal)}</span>
               </div>
+              {orderPaidAmount > 0 && (
+                <div className="flex justify-between font-medium text-slate-600 text-sm mt-1">
+                  <span>Đã thu đợt trước:</span>
+                  <span className="text-green-600">-{fmtVND(orderPaidAmount)}</span>
+                </div>
+              )}
+              {overPaid > 0 && (
+                <div className="flex justify-between font-bold text-red-600 text-sm mt-1 border-t border-red-100 pt-1">
+                  <span>Tiền thừa trả khách:</span>
+                  <span>{fmtVND(overPaid)}</span>
+                </div>
+              )}
+              {orderPaidAmount > 0 && overPaid === 0 && (
+                <div className="flex justify-between font-black text-slate-900 text-base border-t border-slate-200 pt-2 mt-2">
+                  <span>CẦN THANH TOÁN:</span>
+                  <span className="text-primary">{fmtVND(remainingTotal)}</span>
+                </div>
+              )}
             </div>
           </div>
 

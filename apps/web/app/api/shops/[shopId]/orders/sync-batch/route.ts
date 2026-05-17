@@ -189,63 +189,63 @@ export async function POST(
       })
     }
 
-    // ── Step 3: Payments — dedup by method ──
+    // ── Step 3: Payments — dedup by id ──
     const existingPays = await connector.list('payments', {
-      page: 1, limit: 50,
+      page: 1, limit: 100,
       filters: { order_id: serverId },
     })
-    const serverPaid = (existingPays.data as Record<string, string>[])
-      .reduce((s, r) => s + parseFloat(r.amount || '0'), 0)
-    const localPaid = payments.reduce((s, p) => s + p.amount, 0)
+    const existingPayIds = new Set(
+      (existingPays.data as Record<string, string>[]).map((r) => r.id)
+    )
 
-    if (serverPaid < localPaid - 0.01 || payments.some(p => p.method === 'debt')) {
-      const existingMethods = new Set(
-        (existingPays.data as Record<string, string>[]).map((r) => r.method)
-      )
-      const paysToCreate = []
-      const cashbookToCreate = []
-      for (const pay of payments) {
-        if (existingMethods.has(pay.method)) continue
-        paysToCreate.push({
-          order_id:     serverId,
-          order_no:     orderNo,
-          method:       pay.method,
-          amount:       String(pay.amount),
-          reference_no: pay.reference_no ?? '',
-          note:         pay.note ?? '',
-          paid_at:      getGMT7Time(),
+    const paysToCreate = []
+    const cashbookToCreate = []
+    for (const pay of payments) {
+      if (pay.id && existingPayIds.has(pay.id)) continue
+      
+      const newPayId = pay.id || `PAY-${Date.now()}-${Math.floor(Math.random()*1000)}`
+      paysToCreate.push({
+        id:           newPayId,
+        order_id:     serverId,
+        order_no:     orderNo,
+        method:       pay.method,
+        amount:       String(pay.amount),
+        reference_no: pay.reference_no ?? '',
+        note:         pay.note ?? '',
+        paid_at:      getGMT7Time(),
+      })
+
+      if (pay.method !== 'debt') {
+        const isRefund = Number(pay.amount) < 0
+        cashbookToCreate.push({
+          type:           isRefund ? 'expense' : 'receipt',
+          amount:         String(Math.abs(Number(pay.amount))),
+          method:         pay.method,
+          category:       isRefund ? 'refund' : 'sales',
+          reference_id:   serverId,
+          reference_name: order.customer_name ?? '',
+          note:           isRefund ? `Hoàn tiền thừa đơn hàng ${orderNo || serverId}` : `Thanh toán đơn hàng ${orderNo || serverId}`,
+          employee_id:    order.employee_id ?? '',
+          branch_id:      order.branch_id ?? '',
         })
-
-        if (pay.method !== 'debt') {
-          cashbookToCreate.push({
-            type:           'receipt',
-            amount:         String(pay.amount),
-            method:         pay.method,
-            category:       'sales',
-            reference_id:   serverId,
-            reference_name: order.customer_name ?? '',
-            note:           `Thanh toán đơn hàng ${orderNo || serverId}`,
-            employee_id:    order.employee_id ?? '',
-            branch_id:      order.branch_id ?? '',
-          })
+      }
+    }
+    
+    if (paysToCreate.length > 0) {
+      const createdPays = await connector.batchCreate('payments', paysToCreate)
+      tx.add(async () => {
+        for (const p of createdPays) {
+          await connector.delete('payments', p.payment_id || p.id).catch(() => {})
         }
-      }
-      if (paysToCreate.length > 0) {
-        const createdPays = await connector.batchCreate('payments', paysToCreate)
-        tx.add(async () => {
-          for (const p of createdPays) {
-            await connector.delete('payments', p.payment_id).catch(() => {})
-          }
-        })
-      }
-      if (cashbookToCreate.length > 0) {
-        const createdCb = await connector.batchCreate('cashbook', cashbookToCreate)
-        tx.add(async () => {
-          for (const cb of createdCb) {
-            await connector.delete('cashbook', cb.transaction_id).catch(() => {})
-          }
-        })
-      }
+      })
+    }
+    if (cashbookToCreate.length > 0) {
+      const createdCb = await connector.batchCreate('cashbook', cashbookToCreate)
+      tx.add(async () => {
+        for (const cb of createdCb) {
+          await connector.delete('cashbook', cb.transaction_id || cb.id).catch(() => {})
+        }
+      })
     }
 
     // ── Step 4: Stock movements — dedup then create with movement_no ──

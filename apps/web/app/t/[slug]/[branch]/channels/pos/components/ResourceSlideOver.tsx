@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { CustomerSearch } from './CustomerSearch'
 import { SlideProductSearch } from './SlideProductSearch'
 import { CheckoutModal } from './CheckoutModal'
+import { useConfirm } from '@/app/components/ui/ConfirmProvider'
 import type { LocalCustomer, LocalProduct } from '@/lib/localDb/schema'
 
 interface Resource {
@@ -87,9 +88,14 @@ export function ResourceSlideOver({
   }])
 
   // --- Occupied State ---
-  const [deposit, setDeposit] = useState('0')
   const [bookingSource, setBookingSource] = useState('Khách lẻ (Walk-in)')
+  const [installments, setInstallments] = useState<any[]>([])
+  const [installmentAmount, setInstallmentAmount] = useState('')
+  const [installmentMethod, setInstallmentMethod] = useState('cash')
+  const [installmentNote, setInstallmentNote] = useState('')
+  const [isPayingInstallment, setIsPayingInstallment] = useState(false)
   const [isUpdatingMeta, setIsUpdatingMeta] = useState(false)
+  const confirm = useConfirm()
   const [order, setOrder] = useState<OrderData | null>(null)
   const [existingItems, setExistingItems] = useState<OrderItem[]>([])
   const [cartItems, setCartItems] = useState<OrderItem[]>([])
@@ -114,16 +120,16 @@ export function ResourceSlideOver({
     setLoadingOrder(true)
     try {
       const orderId = resource.current_order_id
-      const [orderRes, itemsRes] = await Promise.all([
+      const [orderRes, itemsRes, paymentsRes] = await Promise.all([
         fetch(`/api/shops/${shopId}/orders/${orderId}`),
         fetch(`/api/shops/${shopId}/order-items?order_id=${orderId}&limit=200`),
+        fetch(`/api/shops/${shopId}/payments?order_id=${orderId}&limit=100`),
       ])
       if (orderRes.ok) {
         const oData = await orderRes.json()
         setOrder(oData)
         const meta = safeParse(oData.metadata)
         if (meta.guests) setGuests(meta.guests)
-        if (meta.deposit !== undefined) setDeposit(String(meta.deposit))
         if (meta.booking_source) setBookingSource(meta.booking_source)
         if (meta.note || oData.note) setNote(meta.note || oData.note || '')
         if (meta.expected_checkout) setExpectedCheckout(meta.expected_checkout)
@@ -131,6 +137,10 @@ export function ResourceSlideOver({
       if (itemsRes.ok) {
         const iData = await itemsRes.json()
         setExistingItems(iData.data || [])
+      }
+      if (paymentsRes.ok) {
+        const pData = await paymentsRes.json()
+        setInstallments(pData.data || [])
       }
     } catch {
       // ignore
@@ -262,7 +272,6 @@ export function ResourceSlideOver({
       const newMeta = {
         ...meta,
         guests: isRoom ? validGuests : undefined,
-        deposit: Number(deposit) || 0,
         booking_source: bookingSource,
         expected_checkout: expectedCheckout,
         note: note,
@@ -286,6 +295,44 @@ export function ResourceSlideOver({
       toast.error('Lỗi khi lưu thông tin')
     } finally {
       setIsUpdatingMeta(false)
+    }
+  }
+
+  async function handlePayInstallment() {
+    if (!order) return
+    const amt = Number(installmentAmount.replace(/,/g, ''))
+    if (!amt || amt <= 0) {
+      toast.error('Vui lòng nhập số tiền hợp lệ')
+      return
+    }
+    
+    const ok = await confirm({
+      title: 'Xác nhận thu tiền',
+      body: `Khoản thu đợt ${fmtVND(amt)} sẽ lập tức được ghi nhận vào Sổ Quỹ. Bạn có chắc chắn?`,
+      confirmLabel: 'Xác nhận thu',
+      cancelLabel: 'Hủy'
+    })
+    if (!ok) return
+
+    setIsPayingInstallment(true)
+    try {
+      const res = await fetch(`/api/shops/${shopId}/orders/${order.id}/pay-installment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ method: installmentMethod, amount: String(amt), note: installmentNote })
+      })
+      if (!res.ok) throw new Error('Thu tiền thất bại')
+      const data = await res.json()
+      setOrder(data.order)
+      setInstallments([...installments, data.payment])
+      setInstallmentAmount('')
+      setInstallmentNote('')
+      toast.success('Đã ghi nhận thu tiền vào Sổ quỹ')
+    } catch (err) {
+      console.error(err)
+      toast.error('Lỗi khi thu tiền đợt')
+    } finally {
+      setIsPayingInstallment(false)
     }
   }
 
@@ -418,7 +465,7 @@ export function ResourceSlideOver({
       />
       
       {/* Panel */}
-      <div className={`fixed inset-y-0 right-0 z-50 w-full max-w-[500px] bg-white shadow-2xl flex flex-col transition-transform duration-300 ease-in-out ${open ? 'translate-x-0' : 'translate-x-full'}`}>
+      <div className={`fixed inset-y-0 right-0 z-50 w-full max-w-[800px] bg-white shadow-2xl flex flex-col transition-transform duration-300 ease-in-out ${open ? 'translate-x-0' : 'translate-x-full'}`}>
         {/* Header */}
         <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between shrink-0 bg-white">
           <div className="flex items-center gap-3">
@@ -613,53 +660,124 @@ export function ResourceSlideOver({
                 ) : (
                   <div className="space-y-6">
                     {activeTab === 'general' && (
-                      <>
-                        {/* Summary Card */}
-                        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                          <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-3">
-                            <div>
-                              <p className="text-xs text-slate-500 mb-0.5">Khách hàng</p>
-                              <p className="text-sm font-bold text-slate-900">
-                                {order?.customer_name || 'Khách lẻ'}
-                                {orderMeta?.customer_phone && <span className="font-normal text-slate-500 ml-1">({orderMeta.customer_phone})</span>}
-                              </p>
+                      <div className="grid grid-cols-1 md:grid-cols-12 gap-6 h-full">
+                        {/* LEFT COLUMN: Summary + Payments */}
+                        <div className="md:col-span-5 space-y-6 flex flex-col">
+                          {/* Summary Card */}
+                          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shrink-0">
+                            <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-3">
+                              <div>
+                                <p className="text-xs text-slate-500 mb-0.5">Khách hàng</p>
+                                <p className="text-sm font-bold text-slate-900">
+                                  {order?.customer_name || 'Khách lẻ'}
+                                  {orderMeta?.customer_phone && <span className="font-normal text-slate-500 ml-1">({orderMeta.customer_phone})</span>}
+                                </p>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-xs text-slate-500 mb-0.5">Đã sử dụng</p>
+                                <p className="text-sm font-bold text-slate-900">{fmtDuration(elapsed)}</p>
+                              </div>
                             </div>
-                            <div className="text-right">
-                              <p className="text-xs text-slate-500 mb-0.5">Đã sử dụng</p>
-                              <p className="text-sm font-bold text-slate-900">{fmtDuration(elapsed)}</p>
+
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between text-xs text-slate-600">
+                                <span>Giờ vào:</span>
+                                <span className="font-medium">{orderMeta?.check_in ? new Date(orderMeta.check_in).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }) : '—'}</span>
+                              </div>
+                              <div className="flex items-center justify-between text-xs text-slate-600">
+                                <span>Giờ ra (HT):</span>
+                                <span className="font-medium">{new Date().toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}</span>
+                              </div>
                             </div>
+                            
+                            {timeCharge > 0 && (
+                              <div className="mt-3 pt-3 border-t border-dashed border-slate-200 flex items-center justify-between">
+                                <span className="text-xs font-medium text-slate-600">Tiền giờ ({billableHours}h)</span>
+                                <span className="text-sm font-bold text-slate-900">{fmtVND(timeCharge)}</span>
+                              </div>
+                            )}
                           </div>
 
-                          <div className="space-y-1">
-                            <div className="flex items-center justify-between text-xs text-slate-600">
-                              <span>Giờ vào:</span>
-                              <span className="font-medium">{orderMeta?.check_in ? new Date(orderMeta.check_in).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }) : '—'}</span>
+                          {/* Lịch sử thu tiền */}
+                          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm flex-1 flex flex-col">
+                            <div className="flex items-center justify-between mb-3">
+                              <label className="block text-xs font-bold text-slate-800 uppercase tracking-wide">Lịch sử thu tiền đợt</label>
+                              <span className="text-xs font-medium text-slate-500">Tổng: <span className="font-bold text-slate-900">{fmtVND(installments.reduce((sum, p) => sum + Number(p.amount), 0))}</span></span>
                             </div>
-                            <div className="flex items-center justify-between text-xs text-slate-600">
-                              <span>Giờ ra (HT):</span>
-                              <span className="font-medium">{new Date().toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}</span>
+                            
+                            <div className="flex-1 overflow-y-auto mb-3 min-h-[100px]">
+                              {installments.length > 0 ? (
+                                <div className="space-y-2">
+                                  {installments.map((p, i) => {
+                                    const mName = { cash: 'Tiền mặt', card: 'Thẻ', bank_transfer: 'CK', momo: 'MoMo', vnpay: 'VNPay', zalopay: 'ZaloPay' }[p.method as string] || p.method
+                                    return (
+                                      <div key={p.id || i} className="flex items-center justify-between rounded-lg bg-slate-50 border border-slate-100 p-2.5">
+                                        <div>
+                                          <p className="text-xs font-medium text-slate-700">{mName}</p>
+                                          <p className="text-[10px] text-slate-400">{new Date(p.paid_at || Date.now()).toLocaleString('vi-VN')}</p>
+                                          {p.note && <p className="text-[10px] text-slate-500 mt-0.5">Ghi chú: {p.note}</p>}
+                                        </div>
+                                        <p className="text-sm font-bold text-slate-900">{fmtVND(p.amount)}</p>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              ) : (
+                                <div className="rounded-lg bg-slate-50 border border-slate-100 p-3 text-center h-full flex items-center justify-center">
+                                  <p className="text-xs text-slate-400">Chưa thu đợt nào</p>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 shrink-0">
+                              <label className="block text-[10px] font-bold text-primary mb-1 uppercase tracking-wide">Thu đợt mới</label>
+                              <div className="flex bg-white rounded-md border border-primary/20 overflow-hidden mb-2">
+                                <select value={installmentMethod} onChange={e => setInstallmentMethod(e.target.value)} className="bg-transparent text-sm border-r border-primary/20 px-2 py-1.5 focus:outline-none text-slate-700 w-1/3">
+                                  <option value="cash">Tiền mặt</option>
+                                  <option value="bank_transfer">Chuyển khoản</option>
+                                  <option value="card">Thẻ/Quẹt máy</option>
+                                  <option value="momo">MoMo</option>
+                                  <option value="vnpay">VNPay</option>
+                                  <option value="zalopay">ZaloPay</option>
+                                </select>
+                                <input 
+                                  type="text" 
+                                  placeholder="0"
+                                  value={installmentAmount}
+                                  onChange={e => {
+                                    const val = e.target.value.replace(/\D/g, '')
+                                    setInstallmentAmount(val ? Number(val).toLocaleString('en-US') : '')
+                                  }}
+                                  className="flex-1 w-full bg-transparent text-sm px-3 py-1.5 focus:outline-none text-right font-bold text-primary" 
+                                />
+                              </div>
+                              <div className="flex gap-2">
+                                <input 
+                                  type="text" 
+                                  placeholder="Ghi chú (tùy chọn)..."
+                                  value={installmentNote}
+                                  onChange={e => setInstallmentNote(e.target.value)}
+                                  className="flex-1 rounded-md border border-slate-200 px-2 py-1.5 text-xs focus:outline-none focus:border-primary bg-white" 
+                                />
+                                <button onClick={handlePayInstallment} disabled={isPayingInstallment || !installmentAmount} className="rounded-md bg-primary px-3 py-1.5 text-xs font-bold text-white hover:bg-primary-dark transition-colors disabled:opacity-50 shrink-0">
+                                  {isPayingInstallment ? 'Đang lưu...' : 'Thu'}
+                                </button>
+                              </div>
                             </div>
                           </div>
-                          
-                          {timeCharge > 0 && (
-                            <div className="mt-3 pt-3 border-t border-dashed border-slate-200 flex items-center justify-between">
-                              <span className="text-xs font-medium text-slate-600">Tiền giờ ({billableHours}h)</span>
-                              <span className="text-sm font-bold text-slate-900">{fmtVND(timeCharge)}</span>
-                            </div>
-                          )}
                         </div>
 
-                        {/* Order Items */}
-                        <div className="flex flex-col h-full">
+                        {/* RIGHT COLUMN: Order Items */}
+                        <div className="md:col-span-7 flex flex-col h-full rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                           <p className="text-xs font-bold text-slate-800 uppercase tracking-wide mb-3">Sản phẩm/Dịch vụ</p>
                           
-                          <div className="mb-4">
+                          <div className="mb-4 shrink-0">
                             <SlideProductSearch onSelect={handleProductSelect} />
                           </div>
 
-                          <div className="space-y-3">
+                          <div className="space-y-3 flex-1 overflow-y-auto">
                             {existingItems.length === 0 && cartItems.length === 0 && (
-                              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 py-6 text-center text-xs text-slate-400">
+                              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 py-10 text-center text-sm text-slate-400">
                                 Chưa gọi món nào
                               </div>
                             )}
@@ -698,7 +816,7 @@ export function ResourceSlideOver({
                             ))}
                           </div>
                         </div>
-                      </>
+                      </div>
                     )}
 
                     {activeTab === 'guests' && (
@@ -796,11 +914,7 @@ export function ResourceSlideOver({
                             {isUpdatingMeta ? 'Đang lưu...' : 'Lưu thay đổi'}
                           </button>
                         </div>
-                        <div className="space-y-4 rounded-xl border border-slate-200 p-4">
-                          <div>
-                            <label className="block text-xs font-medium text-slate-600 mb-1">Tiền cọc (VND)</label>
-                            <input type="number" value={deposit} onChange={(e) => setDeposit(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none" />
-                          </div>
+                        <div className="space-y-4 rounded-xl border border-slate-200 p-4 bg-white shadow-sm">
                           <div>
                             <label className="block text-xs font-medium text-slate-600 mb-1">Dự kiến trả phòng</label>
                             <input type="datetime-local" value={expectedCheckout} onChange={(e) => setExpectedCheckout(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none" />
@@ -879,6 +993,7 @@ export function ResourceSlideOver({
           subtotal={buildCheckoutItems().reduce((a, b) => a + b.line_total, 0)}
           discount_amount={0}
           total={buildCheckoutItems().reduce((a, b) => a + b.line_total, 0)}
+          orderPaidAmount={installments.reduce((sum, p) => sum + Number(p.amount || 0), 0)}
           note=""
           shopId={shopId}
           branchId={branchId}
