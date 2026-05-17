@@ -54,7 +54,7 @@ export async function POST(
       category: 'sales',
       reference_id: orderId,
       reference_name: order.customer_name || '',
-      note: `Thanh toán đợt cho đơn ${order.order_no || orderId}${note ? ` - ${note}` : ''}`,
+      note: `Thanh toán cho đơn ${order.order_no || orderId}${note ? ` - ${note}` : ''}`,
       employee_id: order.employee_id || '',
       branch_id: order.branch_id || '',
       date: getGMT7Time().split('T')[0],

@@ -59,6 +59,7 @@ interface SyncOrder {
   paid_amount: number
   debt_amount?: number
   note?: string
+  metadata?: string
 }
 
 export async function POST(
@@ -105,7 +106,7 @@ export async function POST(
     let isNewOrder = false
     if (!serverId) {
       isNewOrder = true
-      const created = await connector.create('orders', {
+      const createData: Record<string, string> = {
         status:          order.status,
         channel:         'pos',
         customer_id:     order.customer_id   ?? '',
@@ -121,14 +122,18 @@ export async function POST(
         note:            order.note ?? '',
         reference_no:    local_order_id ?? '',
         created_at:      getGMT7Time(),
-      } as Record<string, string>)
+      }
+      if (order.metadata !== undefined) {
+        createData.metadata = order.metadata
+      }
+      const created = await connector.create('orders', createData)
       serverId = (created as Record<string, string>).order_id
       orderNo = (created as Record<string, string>).order_no ?? ''
       
       tx.add(async () => { await connector.delete('orders', serverId) })
     } else {
       // Update existing order totals when checking out from a session (TableMapPOS)
-      await connector.update('orders', serverId, {
+      const updateData: Record<string, string> = {
         status:          order.status,
         customer_id:     order.customer_id   ?? '',
         customer_name:   order.customer_name ?? '',
@@ -139,7 +144,11 @@ export async function POST(
         paid_amount:     String(order.paid_amount),
         debt_amount:     String(order.debt_amount ?? 0),
         note:            order.note ?? '',
-      })
+      }
+      if (order.metadata !== undefined) {
+        updateData.metadata = order.metadata
+      }
+      await connector.update('orders', serverId, updateData)
     }
 
     // If we reused an existing order and don't have order_no yet, fetch it

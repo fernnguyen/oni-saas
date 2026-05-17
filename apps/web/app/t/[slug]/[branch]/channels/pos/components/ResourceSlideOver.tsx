@@ -57,6 +57,8 @@ interface Props {
   onSessionClosed: () => void
 }
 
+import { fmtDateTimeVN } from './CheckoutModal'
+
 function fmtVND(v: number | string | null | undefined) {
   return Number(v ?? 0).toLocaleString('vi-VN') + 'đ'
 }
@@ -102,6 +104,9 @@ export function ResourceSlideOver({
   const [loadingOrder, setLoadingOrder] = useState(false)
   const [elapsed, setElapsed] = useState(0)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
+  const [customCheckoutTime, setCustomCheckoutTime] = useState<string>('')
+  const [isEditingCheckout, setIsEditingCheckout] = useState(false)
+  const [checkoutInput, setCheckoutInput] = useState('')
   const [savingItems, setSavingItems] = useState(false)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -159,6 +164,8 @@ export function ResourceSlideOver({
       setExistingItems([])
       setCartItems([])
       fetchOrder()
+      setCustomCheckoutTime('')
+      setIsEditingCheckout(false)
     } else {
       if (timerRef.current) clearInterval(timerRef.current)
     }
@@ -178,13 +185,14 @@ export function ResourceSlideOver({
     }
 
     const updateTimer = () => {
-      const diff = Math.floor((Date.now() - checkInDate.getTime()) / 1000)
+      const nowTime = customCheckoutTime ? new Date(customCheckoutTime).getTime() : Date.now()
+      const diff = Math.floor((nowTime - checkInDate.getTime()) / 1000)
       setElapsed(diff > 0 ? diff : 0)
     }
     updateTimer()
     timerRef.current = setInterval(updateTimer, 60000) // Update every minute
     return () => clearInterval(timerRef.current!)
-  }, [order])
+  }, [order, customCheckoutTime])
 
   // Calculate Time Charge
   const hourlyRate = Number(resource.hourly_rate) || 0
@@ -300,7 +308,7 @@ export function ResourceSlideOver({
 
   async function handlePayInstallment() {
     if (!order) return
-    const amt = Number(installmentAmount.replace(/,/g, ''))
+    const amt = Number(installmentAmount.replace(/\./g, ''))
     if (!amt || amt <= 0) {
       toast.error('Vui lòng nhập số tiền hợp lệ')
       return
@@ -308,7 +316,7 @@ export function ResourceSlideOver({
     
     const ok = await confirm({
       title: 'Xác nhận thu tiền',
-      body: `Khoản thu đợt ${fmtVND(amt)} sẽ lập tức được ghi nhận vào Sổ Quỹ. Hệ thống sẽ tạo phiếu thu ${fmtVND(amt)} cho lần thanh toán này. Bạn có chắc chắn?`,
+      description: `Khoản thanh toán ${fmtVND(amt)} sẽ lập tức được ghi nhận vào Sổ Quỹ (phiếu thu ${fmtVND(amt)}). Bạn có chắc chắn?`,
       confirmLabel: 'Xác nhận thu',
       cancelLabel: 'Hủy'
     })
@@ -330,7 +338,7 @@ export function ResourceSlideOver({
       toast.success('Đã ghi nhận thu tiền vào Sổ quỹ')
     } catch (err) {
       console.error(err)
-      toast.error('Lỗi khi thu tiền đợt')
+      toast.error('Lỗi khi lưu thanh toán')
     } finally {
       setIsPayingInstallment(false)
     }
@@ -662,7 +670,7 @@ export function ResourceSlideOver({
                     {activeTab === 'general' && (
                       <div className="grid grid-cols-1 md:grid-cols-12 gap-6 h-full">
                         {/* LEFT COLUMN: Summary + Payments */}
-                        <div className="md:col-span-5 space-y-6 flex flex-col">
+                        <div className="md:col-span-6 space-y-6 flex flex-col">
                           {/* Summary Card */}
                           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shrink-0">
                             <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-3">
@@ -682,11 +690,28 @@ export function ResourceSlideOver({
                             <div className="space-y-1">
                               <div className="flex items-center justify-between text-xs text-slate-600">
                                 <span>Giờ vào:</span>
-                                <span className="font-medium">{orderMeta?.check_in ? new Date(orderMeta.check_in).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }) : '—'}</span>
+                                <span className="font-medium">{orderMeta?.check_in ? fmtDateTimeVN(new Date(orderMeta.check_in)) : '—'}</span>
                               </div>
                               <div className="flex items-center justify-between text-xs text-slate-600">
-                                <span>Giờ ra (HT):</span>
-                                <span className="font-medium">{new Date().toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}</span>
+                                <span>{customCheckoutTime ? 'Giờ ra:' : 'Giờ ra (Hiện tại):'}</span>
+                                {isEditingCheckout ? (
+                                  <div className="flex items-center gap-2">
+                                    <input 
+                                      type="datetime-local" 
+                                      value={checkoutInput}
+                                      onChange={e => setCheckoutInput(e.target.value)}
+                                      className="text-xs border border-slate-300 rounded px-1 py-0.5 outline-none"
+                                    />
+                                    <button onClick={() => { setCustomCheckoutTime(checkoutInput); setIsEditingCheckout(false); }} className="text-primary font-bold">OK</button>
+                                  </div>
+                                ) : (
+                                  <button onClick={() => { 
+                                    setCheckoutInput(customCheckoutTime || new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)); 
+                                    setIsEditingCheckout(true); 
+                                  }} className="font-medium border-b border-dotted border-slate-400 hover:text-primary transition-colors cursor-pointer">
+                                    {customCheckoutTime ? fmtDateTimeVN(new Date(customCheckoutTime)) : fmtDateTimeVN(new Date())}
+                                  </button>
+                                )}
                               </div>
                             </div>
                             
@@ -701,7 +726,7 @@ export function ResourceSlideOver({
                           {/* Lịch sử thu tiền */}
                           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm flex-1 flex flex-col">
                             <div className="flex items-center justify-between mb-3">
-                              <label className="block text-xs font-bold text-slate-800 uppercase tracking-wide">Lịch sử thu tiền đợt</label>
+                              <label className="block text-xs font-bold text-slate-800 uppercase tracking-wide">Lịch sử thanh toán</label>
                               <span className="text-xs font-medium text-slate-500">Tổng: <span className="font-bold text-slate-900">{fmtVND(installments.reduce((sum, p) => sum + Number(p.amount), 0))}</span></span>
                             </div>
                             
@@ -724,13 +749,13 @@ export function ResourceSlideOver({
                                 </div>
                               ) : (
                                 <div className="rounded-lg bg-slate-50 border border-slate-100 p-3 text-center h-full flex items-center justify-center">
-                                  <p className="text-xs text-slate-400">Chưa thu đợt nào</p>
+                                  <p className="text-xs text-slate-400">Chưa có giao dịch</p>
                                 </div>
                               )}
                             </div>
 
                             <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 shrink-0">
-                              <label className="block text-[10px] font-bold text-primary mb-1 uppercase tracking-wide">Thu đợt mới</label>
+                              <label className="block text-[10px] font-bold text-primary mb-1 uppercase tracking-wide">Thêm thanh toán</label>
                               <div className="flex bg-white rounded-md border border-primary/20 overflow-hidden mb-2">
                                 <select value={installmentMethod} onChange={e => setInstallmentMethod(e.target.value)} className="bg-transparent text-sm border-r border-primary/20 px-2 py-1.5 focus:outline-none text-slate-700 w-1/3">
                                   <option value="cash">Tiền mặt</option>
@@ -746,7 +771,7 @@ export function ResourceSlideOver({
                                   value={installmentAmount}
                                   onChange={e => {
                                     const val = e.target.value.replace(/\D/g, '')
-                                    setInstallmentAmount(val ? Number(val).toLocaleString('en-US') : '')
+                                    setInstallmentAmount(val ? Number(val).toLocaleString('vi-VN') : '')
                                   }}
                                   className="flex-1 w-full bg-transparent text-sm px-3 py-1.5 focus:outline-none text-right font-bold text-primary" 
                                 />
@@ -768,7 +793,7 @@ export function ResourceSlideOver({
                         </div>
 
                         {/* RIGHT COLUMN: Order Items */}
-                        <div className="md:col-span-7 flex flex-col h-full rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                        <div className="md:col-span-6 flex flex-col h-full rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                           <p className="text-xs font-bold text-slate-800 uppercase tracking-wide mb-3">Sản phẩm/Dịch vụ</p>
                           
                           <div className="mb-4 shrink-0">
@@ -1001,6 +1026,7 @@ export function ResourceSlideOver({
           employeeId={employeeId}
           isOnline={true}
           autoPrintReceipt={false}
+          customCheckoutTime={customCheckoutTime}
         />
       )}
     </>

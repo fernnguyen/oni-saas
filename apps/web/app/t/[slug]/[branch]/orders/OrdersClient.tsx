@@ -10,6 +10,7 @@ import { EmptyState } from '@/app/components/ui/EmptyState'
 import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog'
 import { SearchBar } from '@/app/components/ui/SearchBar'
 import { CopyableId } from '@/app/components/ui/CopyableId'
+import { useConfirm } from '@/app/components/ui/ConfirmProvider'
 import { printBill } from '@/lib/pos/printBill'
 
 const Eye = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -102,6 +103,7 @@ const STAT_CARDS: { key: keyof OrderStats; label: string }[] = [
 
 export function OrdersClient({ shopId, shopName }: Props) {
   const queryClient = useQueryClient()
+  const confirm = useConfirm()
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
   const [debouncedSearch] = useDebounce(search, 300)
@@ -280,7 +282,7 @@ export function OrdersClient({ shopId, shopName }: Props) {
   // Add payment
   const paymentMutation = useMutation({
     mutationFn: async (payload: Record<string, string>) => {
-      const res = await fetch(`/api/shops/${shopId}/payments`, {
+      const res = await fetch(`/api/shops/${shopId}/orders/${selectedOrder?.order_id}/pay-installment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -873,9 +875,12 @@ export function OrdersClient({ shopId, shopName }: Props) {
                     <div>
                       <label className="mb-1 block text-xs font-medium text-slate-600">Số tiền</label>
                       <input
-                        type="number"
-                        value={paymentForm.amount}
-                        onChange={(e) => setPaymentForm((p) => ({ ...p, amount: e.target.value }))}
+                        type="text"
+                        value={paymentForm.amount ? Number(String(paymentForm.amount).replace(/\D/g, '')).toLocaleString('vi-VN') : ''}
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/\D/g, '')
+                          setPaymentForm((p) => ({ ...p, amount: val }))
+                        }}
                         className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:border-primary focus:outline-none"
                         placeholder="0"
                       />
@@ -909,11 +914,21 @@ export function OrdersClient({ shopId, shopName }: Props) {
                       Hủy
                     </button>
                     <button
-                      onClick={() => paymentMutation.mutate({
-                        ...paymentForm,
-                        order_id: selectedOrder.order_id,
-                        order_no: selectedOrder.order_no ?? selectedOrder.order_id,
-                      })}
+                      onClick={async () => {
+                        const amt = Number(paymentForm.amount || 0)
+                        const ok = await confirm({
+                          title: 'Xác nhận thu tiền',
+                          description: `Khoản thu ${fmtVND(String(amt))} sẽ lập tức được ghi nhận vào Sổ Quỹ (phiếu thu ${fmtVND(String(amt))}). Bạn có chắc chắn?`,
+                          confirmLabel: 'Xác nhận thu',
+                          cancelLabel: 'Hủy'
+                        })
+                        if (!ok) return
+                        paymentMutation.mutate({
+                          ...paymentForm,
+                          order_id: selectedOrder.order_id,
+                          order_no: selectedOrder.order_no ?? selectedOrder.order_id,
+                        })
+                      }}
                       disabled={paymentMutation.isPending || !paymentForm.amount}
                       className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary-dark disabled:opacity-50"
                     >

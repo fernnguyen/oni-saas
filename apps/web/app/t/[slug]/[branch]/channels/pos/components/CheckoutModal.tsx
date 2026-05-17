@@ -32,6 +32,10 @@ interface Props {
   employeeId: string
   isOnline: boolean
   autoPrintReceipt: boolean
+  orderId?: string
+  metadata?: Record<string, any>
+  orderPaidAmount?: number
+  customCheckoutTime?: string
 }
 
 const METHODS = [
@@ -52,6 +56,14 @@ interface PaymentRow {
 
 function fmtVND(v: number | string | null | undefined) {
   return Number(v ?? 0).toLocaleString('vi-VN') + 'đ'
+}
+
+export function fmtDateTimeVN(d: Date) {
+  const hh = d.getHours().toString().padStart(2, '0')
+  const mm = d.getMinutes().toString().padStart(2, '0')
+  const dd = d.getDate().toString().padStart(2, '0')
+  const mo = (d.getMonth() + 1).toString().padStart(2, '0')
+  return `${hh}:${mm} ${dd}/${mo}`
 }
 
 function nextId() {
@@ -78,7 +90,8 @@ export function CheckoutModal({
   orderId,
   metadata,
   orderPaidAmount = 0,
-}: Props & { orderId?: string, metadata?: Record<string, any>, orderPaidAmount?: number }) {
+  customCheckoutTime,
+}: Props) {
   const [localCustomer, setLocalCustomer] = useState(customer)
   const [payments, setPayments] = useState<PaymentRow[]>([
     { id: nextId(), method: 'cash', amount: String(total - discount_amount - orderPaidAmount) },
@@ -88,6 +101,9 @@ export function CheckoutModal({
   const [localDiscount, setLocalDiscount] = useState(discount_amount)
   const [isEditingDiscount, setIsEditingDiscount] = useState(false)
   const [discountInput, setDiscountInput] = useState(String(discount_amount))
+  const [localCheckoutTime, setLocalCheckoutTime] = useState('')
+  const [isEditingCheckout, setIsEditingCheckout] = useState(false)
+  const [checkoutInput, setCheckoutInput] = useState('')
 
   const finalTotal = Math.max(0, subtotal - localDiscount)
 
@@ -110,7 +126,8 @@ export function CheckoutModal({
       setPayments([{ id: nextId(), method: 'cash', amount: String(newTotal) }])
       setLocalNote(note)
     }
-  }, [open, subtotal, discount_amount, note, customer, orderPaidAmount])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
 
   const overPaid = Math.max(0, orderPaidAmount - finalTotal)
   const remainingTotal = Math.max(0, finalTotal - orderPaidAmount)
@@ -237,8 +254,16 @@ export function CheckoutModal({
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { items: _embedded, ...orderWithoutItems } = order
 
+      const orderData: any = { ...orderWithoutItems }
+      if (metadata) {
+        orderData.metadata = JSON.stringify({
+          ...metadata,
+          checkout_time: localCheckoutTime || customCheckoutTime || new Date().toISOString()
+        })
+      }
+
       const syncPayload = {
-        order: orderWithoutItems,
+        order: orderData,
         items: orderItems,
         payments: localPayments,
         stockMovements: items.map((item) => ({
@@ -393,11 +418,37 @@ export function CheckoutModal({
             <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-3 text-sm space-y-1.5 mb-4">
               <div className="flex justify-between">
                 <span className="text-slate-600">Giờ vào:</span>
-                <span className="font-medium text-slate-900">{new Date(metadata.check_in).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}</span>
+                <span className="font-medium text-slate-900">{fmtDateTimeVN(new Date(metadata.check_in))}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-slate-600">Giờ ra (HT):</span>
-                <span className="font-medium text-slate-900">{new Date().toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}</span>
+              <div className="flex justify-between items-center mt-1">
+                <span className="text-slate-600">{localCheckoutTime || customCheckoutTime ? 'Giờ ra:' : 'Giờ ra (Hiện tại):'}</span>
+                {isEditingCheckout ? (
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="datetime-local" 
+                      value={checkoutInput}
+                      onChange={e => setCheckoutInput(e.target.value)}
+                      className="text-xs border border-slate-300 rounded px-1 py-0.5 outline-none"
+                    />
+                    <button onClick={() => { 
+                      const checkInDate = new Date(metadata.check_in)
+                      const selectedDate = new Date(checkoutInput)
+                      if (selectedDate < checkInDate) {
+                        import('sonner').then(({ toast }) => toast.error('Giờ ra không được nhỏ hơn giờ vào!'))
+                        return
+                      }
+                      setLocalCheckoutTime(checkoutInput)
+                      setIsEditingCheckout(false)
+                    }} className="text-primary font-bold">OK</button>
+                  </div>
+                ) : (
+                  <button onClick={() => { 
+                    setCheckoutInput(localCheckoutTime || customCheckoutTime || new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)); 
+                    setIsEditingCheckout(true); 
+                  }} className="font-medium text-slate-900 border-b border-dotted border-slate-400 hover:text-primary transition-colors cursor-pointer">
+                    {localCheckoutTime || customCheckoutTime ? fmtDateTimeVN(new Date(localCheckoutTime || customCheckoutTime)) : fmtDateTimeVN(new Date())}
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -445,7 +496,7 @@ export function CheckoutModal({
               </div>
               {orderPaidAmount > 0 && (
                 <div className="flex justify-between font-medium text-slate-600 text-sm mt-1">
-                  <span>Đã thu đợt trước:</span>
+                  <span>Đã thu:</span>
                   <span className="text-green-600">-{fmtVND(orderPaidAmount)}</span>
                 </div>
               )}
@@ -456,8 +507,8 @@ export function CheckoutModal({
                 </div>
               )}
               {orderPaidAmount > 0 && overPaid === 0 && (
-                <div className="flex justify-between font-black text-slate-900 text-base border-t border-slate-200 pt-2 mt-2">
-                  <span>CẦN THANH TOÁN:</span>
+                <div className="flex justify-between font-bold text-slate-700 text-sm border-t border-slate-200 pt-2 mt-2">
+                  <span>Cần thanh toán:</span>
                   <span className="text-primary">{fmtVND(remainingTotal)}</span>
                 </div>
               )}
@@ -501,9 +552,12 @@ export function CheckoutModal({
                 </select>
                 <div className="relative flex-1">
                   <input
-                    type="number"
-                    value={p.amount}
-                    onChange={(e) => updatePayment(p.id, 'amount', e.target.value)}
+                    type="text"
+                    value={p.amount ? Number(String(p.amount).replace(/\D/g, '')).toLocaleString('vi-VN') : ''}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, '')
+                      updatePayment(p.id, 'amount', val)
+                    }}
                     placeholder="0"
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-right text-sm focus:border-primary focus:outline-none"
                   />
