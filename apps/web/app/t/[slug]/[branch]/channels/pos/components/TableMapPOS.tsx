@@ -134,9 +134,10 @@ export function TableMapPOS({
   }
 
   // --- Grid View ---
-  // Group by zone
+  // Group by zone (filter out deleted)
+  const activeResources = resources.filter(r => r.status !== 'deleted')
   const zones = new Map<string, Resource[]>()
-  for (const r of resources) {
+  for (const r of activeResources) {
     const zone = r.zone || 'Chưa phân vùng'
     if (!zones.has(zone)) zones.set(zone, [])
     zones.get(zone)!.push(r)
@@ -144,10 +145,10 @@ export function TableMapPOS({
 
   // Stats
   const stats = {
-    total: resources.length,
-    available: resources.filter(r => r.status === 'available').length,
-    occupied: resources.filter(r => r.status === 'occupied').length,
-    cleaning: resources.filter(r => r.status === 'cleaning').length,
+    total: activeResources.length,
+    available: activeResources.filter(r => r.status === 'available').length,
+    occupied: activeResources.filter(r => r.status === 'occupied').length,
+    cleaning: activeResources.filter(r => r.status === 'cleaning').length,
   }
 
   return (
@@ -294,6 +295,8 @@ export function TableMapPOS({
         onCheckInSuccess={handleCheckInSuccess}
         onSessionClosed={handleSessionClosed}
         resourceTemplate={resourceTemplate}
+        allResources={activeResources}
+        onRefresh={fetchResources}
       />
     </div>
   )

@@ -56,6 +56,8 @@ interface Props {
   onCheckInSuccess: (orderId: string) => void
   onSessionClosed: () => void
   resourceTemplate?: import('@oni/core').ResourceTemplate
+  allResources?: any[]
+  onRefresh?: () => void
 }
 
 import { fmtDateTimeVN } from './CheckoutModal'
@@ -82,6 +84,7 @@ const DEFAULT_TEMPLATE: import('@oni/core').ResourceTemplate = {
 export function ResourceSlideOver({
   open, onClose, resource, shopId, branchId, shopName, employeeId,
   onCheckInSuccess, onSessionClosed, resourceTemplate,
+  allResources = [], onRefresh,
 }: Props) {
   const tpl = resourceTemplate ?? DEFAULT_TEMPLATE
   const sec = tpl.sections
@@ -121,6 +124,14 @@ export function ResourceSlideOver({
   const [checkoutInput, setCheckoutInput] = useState('')
   const [savingItems, setSavingItems] = useState(false)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // --- Operations State ---
+  const [transferModalOpen, setTransferModalOpen] = useState(false)
+  const [transferSearch, setTransferSearch] = useState('')
+  const [splitModalOpen, setSplitModalOpen] = useState(false)
+  const [mergeModalOpen, setMergeModalOpen] = useState(false)
+  const [splitSelectedItems, setSplitSelectedItems] = useState<Set<string>>(new Set())
+  const [transferring, setTransferring] = useState(false)
 
   const meta = safeParse(resource.metadata)
   const isRoom = resource.type === 'room'
@@ -455,6 +466,194 @@ export function ResourceSlideOver({
     setCheckoutOpen(false)
     onSessionClosed()
     onClose()
+  }
+
+  async function handleTransfer(targetId: string) {
+    if (!order || !resource.current_order_id) return
+    const targetResource = allResources.find(r => r.id === targetId)
+    const confirmed = await confirm({
+      title: 'Xác nhận chuyển',
+      description: `Bạn có chắc chắn muốn chuyển sang ${targetResource?.name}?`,
+      variant: 'default',
+    })
+    if (!confirmed) return
+
+    setTransferring(true)
+    try {
+      // 1. Release current resource
+      await fetch(`/api/shops/${shopId}/location-resources/${resource.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'cleaning', current_order_id: '' }),
+      })
+      // 2. Occupy target resource
+      await fetch(`/api/shops/${shopId}/location-resources/${targetId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'occupied', current_order_id: order.id }),
+      })
+      // 3. Update order metadata
+      const newOrderMeta = { ...(safeParse(order.metadata)), resource_id: targetId, resource_name: targetResource?.name }
+      await fetch(`/api/shops/${shopId}/orders/${order.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ metadata: JSON.stringify(newOrderMeta) }),
+      })
+
+      toast.success(`Đã chuyển sang ${targetResource?.name}`)
+      setTransferModalOpen(false)
+      onRefresh?.()
+      onClose()
+    } catch {
+      toast.error('Lỗi khi chuyển')
+    } finally {
+      setTransferring(false)
+    }
+  }
+
+  async function handleSplit(targetId: string) {
+    if (!order || !resource.current_order_id) return
+    if (splitSelectedItems.size === 0) { toast.error('Vui lòng chọn ít nhất 1 món để tách'); return }
+    setTransferring(true)
+    const targetResource = allResources.find(r => r.id === targetId)
+    
+    // Separate items
+    const remainingItems = existingItems.filter(it => !splitSelectedItems.has(it.id!))
+    const itemsToMove = existingItems.filter(it => splitSelectedItems.has(it.id!))
+    
+    try {
+      // 1. Update old order (sync-batch)
+      const oldSubtotal = remainingItems.reduce((acc, it) => acc + Number(it.line_total), 0)
+      await fetch(`/api/shops/${shopId}/orders/sync-batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          order: { ...order, subtotal: String(oldSubtotal), total_amount: String(oldSubtotal) },
+          items: remainingItems,
+          payments: [] // keep payments as is
+        })
+      })
+
+      // 2. Create new order
+      const newOrderMeta = { 
+        resource_id: targetId, 
+        resource_name: targetResource?.name,
+        check_in: new Date().toISOString()
+      }
+      const newSubtotal = itemsToMove.reduce((acc, it) => acc + Number(it.line_total), 0)
+      
+      const createRes = await fetch(`/api/shops/${shopId}/orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status: 'in_progress',
+          customer_name: order.customer_name || 'Khách lẻ',
+          branch_id: branchId,
+          employee_id: employeeId,
+          subtotal: String(newSubtotal),
+          total_amount: String(newSubtotal),
+          paid_amount: '0',
+          metadata: JSON.stringify(newOrderMeta)
+        })
+      })
+      const newOrder = await createRes.json()
+
+      // 3. Add items to new order
+      for (const item of itemsToMove) {
+        await fetch(`/api/shops/${shopId}/order-items`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            order_id: newOrder.id,
+            order_no: newOrder.order_no || '',
+            product_id: item.product_id,
+            sku: item.sku,
+            product_name: item.product_name,
+            qty: String(item.qty),
+            unit_price: String(item.unit_price),
+            line_total: String(item.line_total),
+          })
+        })
+      }
+
+      // 4. Occupy target resource
+      await fetch(`/api/shops/${shopId}/location-resources/${targetId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'occupied', current_order_id: newOrder.id }),
+      })
+
+      toast.success(`Đã tách sang ${targetResource?.name}`)
+      setSplitModalOpen(false)
+      setSplitSelectedItems(new Set())
+      fetchOrder()
+      onRefresh?.()
+    } catch {
+      toast.error('Lỗi khi tách')
+    } finally {
+      setTransferring(false)
+    }
+  }
+
+  async function handleMerge(sourceId: string) {
+    if (!order || !resource.current_order_id) return
+    setTransferring(true)
+    const sourceResource = allResources.find(r => r.id === sourceId)
+    if (!sourceResource?.current_order_id) return
+
+    try {
+      // 1. Fetch source order items
+      const itemsRes = await fetch(`/api/shops/${shopId}/order-items?order_id=${sourceResource.current_order_id}`)
+      if (!itemsRes.ok) throw new Error()
+      const itemsJson = await itemsRes.json()
+      const sourceItems = itemsJson.data || []
+
+      // 2. Add source items to current order
+      const combinedItems = [...existingItems]
+      for (const item of sourceItems) {
+        const payload = {
+          order_id: order.id,
+          order_no: order.order_no || '',
+          product_id: item.product_id,
+          sku: item.sku,
+          product_name: item.product_name,
+          qty: String(item.qty),
+          unit_price: String(item.unit_price),
+          line_total: String(item.line_total),
+        }
+        await fetch(`/api/shops/${shopId}/order-items`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+        })
+        combinedItems.push(payload as any)
+      }
+
+      // 3. Update current order totals
+      const newSubtotal = combinedItems.reduce((acc, it) => acc + Number(it.line_total), 0)
+      await fetch(`/api/shops/${shopId}/orders/${order.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subtotal: String(newSubtotal), total_amount: String(newSubtotal) })
+      })
+
+      // 4. Cancel source order
+      await fetch(`/api/shops/${shopId}/orders/${sourceResource.current_order_id}/cancel`, { method: 'POST' })
+
+      // 5. Release source resource
+      await fetch(`/api/shops/${shopId}/location-resources/${sourceId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'cleaning', current_order_id: '' }),
+      })
+
+      toast.success(`Đã gộp từ ${sourceResource.name}`)
+      setMergeModalOpen(false)
+      fetchOrder()
+      onRefresh?.()
+    } catch {
+      toast.error('Lỗi khi gộp')
+    } finally {
+      setTransferring(false)
+    }
   }
 
   const buildCheckoutItems = () => {
@@ -1001,8 +1200,20 @@ export function ResourceSlideOver({
               {saving ? `Đang ${tpl.actions.checkIn.toLowerCase()}...` : tpl.actions.checkIn}
             </button>
           ) : (
-            <div className="flex gap-3">
-              {cartItems.length > 0 ? (
+            <div className="flex flex-col gap-3">
+              <div className="grid grid-cols-3 gap-2">
+                <button onClick={() => setTransferModalOpen(true)} className="rounded-xl border border-slate-200 bg-white py-2 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition-colors">
+                  🔄 Chuyển {tpl.label.toLowerCase()}
+                </button>
+                <button onClick={() => setSplitModalOpen(true)} className="rounded-xl border border-slate-200 bg-white py-2 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition-colors">
+                  ✂️ Tách
+                </button>
+                <button onClick={() => setMergeModalOpen(true)} className="rounded-xl border border-slate-200 bg-white py-2 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition-colors">
+                  🔗 Gộp
+                </button>
+              </div>
+              <div className="flex gap-3">
+                {cartItems.length > 0 ? (
                 <button
                   onClick={handleSaveCartItems}
                   disabled={savingItems}
@@ -1019,6 +1230,7 @@ export function ResourceSlideOver({
                 </button>
               )}
             </div>
+          </div>
           )}
         </div>
       </div>
@@ -1050,6 +1262,169 @@ export function ResourceSlideOver({
           customCheckoutTime={customCheckoutTime}
           hourlyRate={hourlyRate}
         />
+      )}
+      {/* Resource Picker Modal for Transfer */}
+      {transferModalOpen && (() => {
+        const availableResources = allResources.filter(r => r.status === 'available')
+        const filteredResources = availableResources.filter(r => r.name.toLowerCase().includes(transferSearch.toLowerCase()) || r.zone?.toLowerCase().includes(transferSearch.toLowerCase()))
+        return (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+            <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl flex flex-col max-h-[85vh]">
+              <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4 shrink-0">
+                <h3 className="text-lg font-bold text-slate-900">Chọn {tpl.label.toLowerCase()} chuyển đến</h3>
+                <button onClick={() => { setTransferModalOpen(false); setTransferSearch('') }} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors">
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+              <div className="px-6 py-3 border-b border-slate-100">
+                <input
+                  type="text"
+                  placeholder="Tìm kiếm theo tên hoặc khu vực..."
+                  value={transferSearch}
+                  onChange={e => setTransferSearch(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 px-4 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+              <div className="flex-1 overflow-y-auto p-4">
+                {availableResources.length === 0 ? (
+                  <div className="text-center py-8 text-slate-500 text-sm">Không có {tpl.label.toLowerCase()} nào đang trống</div>
+                ) : filteredResources.length === 0 ? (
+                  <div className="text-center py-8 text-slate-500 text-sm">Không tìm thấy kết quả phù hợp</div>
+                ) : (
+                  <div className="rounded-xl border border-slate-200 overflow-hidden">
+                    <table className="w-full text-left text-sm whitespace-nowrap">
+                      <thead className="bg-slate-50 text-slate-500">
+                        <tr>
+                          <th className="px-4 py-3 font-medium">Tên</th>
+                          <th className="px-4 py-3 font-medium">Khu vực</th>
+                          <th className="px-4 py-3 font-medium">Sức chứa</th>
+                          <th className="px-4 py-3 font-medium text-right">Giá theo giờ</th>
+                          <th className="px-4 py-3 font-medium text-right">Thao tác</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {filteredResources.map(r => (
+                          <tr key={r.id} className="hover:bg-slate-50/50 transition-colors">
+                            <td className="px-4 py-3">
+                              <div className="font-semibold text-slate-800">{r.name}</div>
+                            </td>
+                            <td className="px-4 py-3 text-slate-600">{r.zone || '-'}</td>
+                            <td className="px-4 py-3 text-slate-600">{r.capacity ? `${r.capacity} người` : '-'}</td>
+                            <td className="px-4 py-3 text-slate-600 text-right">{r.hourly_rate ? `${Number(r.hourly_rate).toLocaleString('vi-VN')}₫` : '-'}</td>
+                            <td className="px-4 py-3 text-right">
+                              <button
+                                onClick={() => handleTransfer(r.id)}
+                                disabled={transferring}
+                                className="rounded-lg bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary/20 disabled:opacity-50 transition-colors"
+                              >
+                                Chuyển đến
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* Split Modal */}
+      {splitModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl flex flex-col max-h-[80vh]">
+            <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4 shrink-0">
+              <h3 className="text-lg font-bold text-slate-900">Tách {tpl.label.toLowerCase()}</h3>
+              <button onClick={() => { setSplitModalOpen(false); setSplitSelectedItems(new Set()) }} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors">
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              <div>
+                <p className="text-sm font-semibold text-slate-800 mb-2">1. Chọn món cần tách ({splitSelectedItems.size}/{existingItems.length})</p>
+                {existingItems.length === 0 ? <p className="text-xs text-slate-500">Chưa có món nào</p> : (
+                  <div className="space-y-1">
+                    {existingItems.map(it => (
+                      <label key={it.id} className="flex items-center gap-2 p-2 rounded hover:bg-slate-50 cursor-pointer border border-transparent hover:border-slate-100">
+                        <input 
+                          type="checkbox" 
+                          checked={splitSelectedItems.has(it.id!)}
+                          onChange={(e) => {
+                            const newSet = new Set(splitSelectedItems)
+                            if (e.target.checked) newSet.add(it.id!)
+                            else newSet.delete(it.id!)
+                            setSplitSelectedItems(newSet)
+                          }}
+                          className="rounded text-primary focus:ring-primary h-4 w-4"
+                        />
+                        <span className="text-sm flex-1">{it.product_name}</span>
+                        <span className="text-sm text-slate-500">x{it.qty}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="border-t border-slate-100 pt-4">
+                <p className="text-sm font-semibold text-slate-800 mb-2">2. Chọn {tpl.label.toLowerCase()} đích</p>
+                {allResources.filter(r => r.status === 'available').length === 0 ? (
+                  <div className="text-xs text-slate-500">Không có {tpl.label.toLowerCase()} nào đang trống</div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+                    {allResources.filter(r => r.status === 'available').map(r => (
+                      <button
+                        key={r.id}
+                        onClick={() => handleSplit(r.id)}
+                        disabled={transferring || splitSelectedItems.size === 0}
+                        className="flex flex-col items-start p-2 border border-slate-200 rounded-lg hover:border-primary hover:bg-primary/5 transition-all text-left disabled:opacity-50"
+                      >
+                        <span className="font-semibold text-slate-800 text-sm">{r.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Merge Modal */}
+      {mergeModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl flex flex-col max-h-[80vh]">
+            <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4 shrink-0">
+              <h3 className="text-lg font-bold text-slate-900">Gộp từ {tpl.label.toLowerCase()} khác</h3>
+              <button onClick={() => setMergeModalOpen(false)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors">
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="p-4 bg-blue-50 border-b border-blue-100">
+              <p className="text-xs text-blue-700">Tất cả món từ {tpl.label.toLowerCase()} được chọn sẽ chuyển sang <b>{resource.name}</b>. {tpl.label} gốc sẽ được trả trống.</p>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+              {allResources.filter(r => r.status === 'occupied' && r.id !== resource.id).length === 0 ? (
+                <div className="text-center py-8 text-slate-500 text-sm">Không có {tpl.label.toLowerCase()} nào khác đang dùng</div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  {allResources.filter(r => r.status === 'occupied' && r.id !== resource.id).map(r => (
+                    <button
+                      key={r.id}
+                      onClick={() => handleMerge(r.id)}
+                      disabled={transferring}
+                      className="flex flex-col items-start p-3 border border-slate-200 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all text-left disabled:opacity-50"
+                    >
+                      <span className="font-semibold text-slate-800">{r.name}</span>
+                      <span className="text-xs text-slate-500 mt-1">{r.zone || 'Chưa phân vùng'}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </>
   )

@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { toast } from 'sonner'
 import { getVerticalConfig } from '@oni/core'
+import { useConfirm } from '@/app/components/ui/ConfirmProvider'
 
 interface Resource {
   id: string
@@ -55,6 +56,12 @@ export function ResourcesClient({ shopId, industryType }: Props) {
   const [creating, setCreating] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const confirm = useConfirm()
+
+  // Custom Settings
+  const [customSubTypes, setCustomSubTypes] = useState<{value:string, label:string}[]>([])
+  const [subTypeModalOpen, setSubTypeModalOpen] = useState(false)
+  const combinedSubTypes = [...(tpl?.subTypes || []), ...customSubTypes]
 
   // Form state
   const [formName, setFormName] = useState('')
@@ -88,7 +95,45 @@ export function ResourcesClient({ shopId, industryType }: Props) {
     }
   }, [shopId])
 
-  useEffect(() => { fetchResources() }, [fetchResources])
+  const fetchSettings = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/shops/${shopId}/settings`)
+      if (!res.ok) return
+      const json = await res.json()
+      if (json.resource_sub_types) {
+        const parsed = safeParseJSON(json.resource_sub_types)
+        if (parsed[vertical.id]) {
+          setCustomSubTypes(parsed[vertical.id])
+        }
+      }
+    } catch {}
+  }, [shopId, vertical.id])
+
+  useEffect(() => { fetchResources(); fetchSettings() }, [fetchResources, fetchSettings])
+
+  async function handleSaveCustomSubTypes(newList: {value:string, label:string}[]) {
+    try {
+      // 1. Fetch current settings first
+      const getRes = await fetch(`/api/shops/${shopId}/settings`)
+      const currentSettings = await getRes.json()
+      const parsed = currentSettings.resource_sub_types ? safeParseJSON(currentSettings.resource_sub_types) : {}
+      
+      // 2. Update vertical
+      parsed[vertical.id] = newList
+
+      // 3. Save
+      const res = await fetch(`/api/shops/${shopId}/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resource_sub_types: JSON.stringify(parsed) }),
+      })
+      if (!res.ok) throw new Error()
+      setCustomSubTypes(newList)
+      toast.success('Đã lưu cấu hình hạng')
+    } catch {
+      toast.error('Lỗi khi lưu cấu hình')
+    }
+  }
 
   function resetForm() {
     setFormName('')
@@ -207,9 +252,20 @@ export function ResourcesClient({ shopId, industryType }: Props) {
   }
 
   async function handleDelete(r: Resource) {
-    if (!confirm(`Xóa "${r.name}"?`)) return
+    const ok = await confirm({
+      title: `Xóa "${r.name}"?`,
+      description: `${r.name} sẽ bị ẩn khỏi danh sách. Dữ liệu lịch sử vẫn được giữ lại và có thể khôi phục sau.`,
+      confirmLabel: 'Xóa',
+      cancelLabel: 'Hủy',
+      variant: 'danger',
+    })
+    if (!ok) return
     try {
-      const res = await fetch(`/api/shops/${shopId}/location-resources/${r.id}`, { method: 'DELETE' })
+      const res = await fetch(`/api/shops/${shopId}/location-resources/${r.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'deleted' }),
+      })
       if (!res.ok) throw new Error()
       toast.success(`Đã xóa ${r.name}`)
       fetchResources()
@@ -232,9 +288,10 @@ export function ResourcesClient({ shopId, industryType }: Props) {
     }
   }
 
-  // Group by zone
+  // Group by zone (filter out deleted)
   const zones = new Map<string, Resource[]>()
   for (const r of resources) {
+    if (r.status === 'deleted') continue
     const zone = r.zone || 'Chưa phân vùng'
     if (!zones.has(zone)) zones.set(zone, [])
     zones.get(zone)!.push(r)
@@ -322,7 +379,7 @@ export function ResourcesClient({ shopId, industryType }: Props) {
                         <div className="flex items-center gap-1"><span>🌙</span><span className="font-semibold text-slate-700">{Number(rmd.overnight_rate).toLocaleString('vi-VN')}₫/đêm</span></div>
                       )}
                       {rmd.sub_type && (
-                        <div className="flex items-center gap-1"><span>⭐</span><span className="capitalize">{tpl?.subTypes?.find(s => s.value === rmd.sub_type)?.label || rmd.sub_type}</span></div>
+                        <div className="flex items-center gap-1"><span>⭐</span><span className="capitalize">{combinedSubTypes.find(s => s.value === rmd.sub_type)?.label || rmd.sub_type}</span></div>
                       )}
                       {!rmd.sub_type && isRoomType && rmd.room_class && (
                         <div className="flex items-center gap-1"><span>⭐</span><span className="capitalize">{rmd.room_class}</span></div>
@@ -375,12 +432,17 @@ export function ResourcesClient({ shopId, industryType }: Props) {
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2"><label className="block text-xs font-medium text-slate-600 mb-1">Tên *</label>
                   <input value={formName} onChange={e => setFormName(e.target.value)} placeholder={`Ví dụ: ${typeLabel} 1`} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary" /></div>
-                {tpl && tpl.subTypes.length > 0 && (
-                  <div><label className="block text-xs font-medium text-slate-600 mb-1">Hạng {tpl.label.toLowerCase()}</label>
+                {tpl && combinedSubTypes.length > 0 && (
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-medium text-slate-600">Hạng {tpl.label.toLowerCase()}</label>
+                      <button onClick={() => setSubTypeModalOpen(true)} className="text-[10px] font-semibold text-primary hover:underline">Quản lý hạng</button>
+                    </div>
                     <select value={formSubType} onChange={e => setFormSubType(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary">
                       <option value="">Chọn</option>
-                      {tpl.subTypes.map(st => <option key={st.value} value={st.value}>{st.label}</option>)}
-                    </select></div>
+                      {combinedSubTypes.map(st => <option key={st.value} value={st.value}>{st.label}</option>)}
+                    </select>
+                  </div>
                 )}
                 <div><label className="block text-xs font-medium text-slate-600 mb-1">Khu vực</label>
                   <input value={formZone} onChange={e => setFormZone(e.target.value)} placeholder="Tầng 1" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary" /></div>
@@ -432,6 +494,48 @@ export function ResourcesClient({ shopId, industryType }: Props) {
             </div>
           </div>
         </>
+      )}
+      {/* Manage SubTypes Modal */}
+      {subTypeModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" onClick={() => setSubTypeModalOpen(false)}>
+          <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl flex flex-col max-h-[80vh]" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+              <h3 className="text-base font-semibold text-slate-900">Tùy chỉnh hạng {tpl?.label.toLowerCase()}</h3>
+              <button onClick={() => setSubTypeModalOpen(false)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100"><svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
+              <p className="text-xs text-slate-500 mb-2">Hệ thống ({tpl?.subTypes?.length || 0})</p>
+              {tpl?.subTypes?.map(st => (
+                <div key={st.value} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-50 text-sm text-slate-600 font-medium">
+                  {st.label} <span className="text-[10px] bg-slate-200 text-slate-500 px-1.5 py-0.5 rounded-full ml-auto">Mặc định</span>
+                </div>
+              ))}
+              <p className="text-xs text-slate-500 mt-4 mb-2">Tùy chỉnh ({customSubTypes.length})</p>
+              {customSubTypes.map((st, idx) => (
+                <div key={idx} className="flex items-center gap-2">
+                  <input value={st.label} onChange={e => {
+                    const clone = [...customSubTypes]
+                    clone[idx].label = e.target.value
+                    setCustomSubTypes(clone)
+                  }} className="flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-primary focus:ring-1" />
+                  <button onClick={() => {
+                    const clone = customSubTypes.filter((_, i) => i !== idx)
+                    setCustomSubTypes(clone)
+                  }} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg">×</button>
+                </div>
+              ))}
+              <button onClick={() => setCustomSubTypes([...customSubTypes, { value: `custom_${Date.now()}`, label: 'Hạng mới' }])} className="w-full mt-2 rounded-lg border border-dashed border-slate-300 py-2 text-xs font-medium text-slate-500 hover:text-primary hover:border-primary bg-white">
+                + Thêm hạng tùy chỉnh
+              </button>
+            </div>
+            <div className="border-t border-slate-100 px-6 py-4">
+              <button onClick={() => {
+                handleSaveCustomSubTypes(customSubTypes.filter(st => st.label.trim()))
+                setSubTypeModalOpen(false)
+              }} className="w-full rounded-xl bg-primary py-2 text-sm font-semibold text-white hover:bg-primary-dark">Lưu thay đổi</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

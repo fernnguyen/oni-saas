@@ -42,6 +42,7 @@ const putSchema = z.object({
   auto_print_receipt: z.boolean().optional(),
   mute_pos_sound: z.boolean().optional(),
   default_price_type: z.enum(['retail', 'wholesale', 'vip', 'staff']).optional(),
+  resource_sub_types: z.string().optional(),
 });
 
 async function resolveAuth(req: NextRequest, shopId: string) {
