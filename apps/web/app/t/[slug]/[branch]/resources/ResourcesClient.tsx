@@ -48,6 +48,8 @@ function unmaskVND(masked: string): string {
 
 export function ResourcesClient({ shopId, industryType }: Props) {
   const vertical = getVerticalConfig(industryType)
+  const tpl = vertical.resourceTemplate
+  const sec = tpl?.sections
   const [resources, setResources] = useState<Resource[]>([])
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
@@ -56,7 +58,8 @@ export function ResourcesClient({ shopId, industryType }: Props) {
 
   // Form state
   const [formName, setFormName] = useState('')
-  const [formType, setFormType] = useState<string>(vertical.posLayout === 'table_map' ? 'table' : 'court')
+  const [formType, setFormType] = useState<string>(vertical.resourceType || 'table')
+  const [formSubType, setFormSubType] = useState<string>(tpl?.subTypes?.[0]?.value || '')
   const [formZone, setFormZone] = useState('')
   const [formCapacity, setFormCapacity] = useState('')
   const [formHourlyRate, setFormHourlyRate] = useState('')
@@ -89,7 +92,8 @@ export function ResourcesClient({ shopId, industryType }: Props) {
 
   function resetForm() {
     setFormName('')
-    setFormType(vertical.posLayout === 'table_map' ? 'table' : 'court')
+    setFormType(vertical.resourceType || 'table')
+    setFormSubType(tpl?.subTypes?.[0]?.value || '')
     setFormZone('')
     setFormCapacity('')
     setFormHourlyRate('')
@@ -109,6 +113,7 @@ export function ResourcesClient({ shopId, industryType }: Props) {
     setFormCapacity(r.capacity || '')
     setFormHourlyRate(maskVND(r.hourly_rate || ''))
     const md = safeParseJSON(r.metadata)
+    setFormSubType(md.sub_type || '')
     setFormRoomClass(md.room_class || ''); setFormBedType(md.bed_type || '')
     setFormWeekendRate(maskVND(md.weekend_rate || '')); setFormOvernightRate(maskVND(md.overnight_rate || ''))
     setFormSurchargePct(md.surcharge_pct?.toString() || ''); setFormCheckinTime(md.checkin_time || '14:00')
@@ -125,6 +130,7 @@ export function ResourcesClient({ shopId, industryType }: Props) {
     setFormCapacity(r.capacity || '')
     setFormHourlyRate(maskVND(r.hourly_rate || ''))
     const md = safeParseJSON(r.metadata)
+    setFormSubType(md.sub_type || '')
     setFormRoomClass(md.room_class || ''); setFormBedType(md.bed_type || '')
     setFormWeekendRate(maskVND(md.weekend_rate || '')); setFormOvernightRate(maskVND(md.overnight_rate || ''))
     setFormSurchargePct(md.surcharge_pct?.toString() || ''); setFormCheckinTime(md.checkin_time || '14:00')
@@ -151,6 +157,7 @@ export function ResourcesClient({ shopId, industryType }: Props) {
 
     // Build metadata from extended fields
     const meta: Record<string, unknown> = {}
+    if (formSubType) meta.sub_type = formSubType
     if (formRoomClass) meta.room_class = formRoomClass
     if (formBedType) meta.bed_type = formBedType
     if (formWeekendRate) meta.weekend_rate = unmaskVND(formWeekendRate)
@@ -241,10 +248,10 @@ export function ResourcesClient({ shopId, industryType }: Props) {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold text-slate-900">
-            {vertical.icon} Quản lý {vertical.label === 'F&B' ? 'Bàn' : 'Vị trí'}
+            {vertical.icon} Quản lý {tpl?.label || vertical.resourceLabel || 'Vị trí'}
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Quản lý bàn, sân, phòng cho {vertical.label}. Tổng: {resources.length} vị trí
+            Quản lý {(tpl?.label || 'vị trí').toLowerCase()} cho {vertical.label}. Tổng: {resources.length} vị trí
           </p>
         </div>
         {!creating && (
@@ -298,7 +305,7 @@ export function ResourcesClient({ shopId, industryType }: Props) {
                     }`} />
                     <div className="flex items-start justify-between mb-2 mt-1">
                       <div className="flex items-center gap-1.5">
-                        <span className="text-lg">{isRoomType ? '🛏️' : r.type === 'court' ? '🏸' : '🪑'}</span>
+                        <span className="text-lg">{tpl?.icon || (isRoomType ? '🛏️' : r.type === 'court' ? '🏸' : '🪑')}</span>
                         <p className="text-sm font-bold text-slate-800 truncate">{r.name}</p>
                       </div>
                       <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${st.bg} ${st.text}`}>
@@ -314,7 +321,10 @@ export function ResourcesClient({ shopId, industryType }: Props) {
                       {isRoomType && rmd.overnight_rate && (
                         <div className="flex items-center gap-1"><span>🌙</span><span className="font-semibold text-slate-700">{Number(rmd.overnight_rate).toLocaleString('vi-VN')}₫/đêm</span></div>
                       )}
-                      {isRoomType && rmd.room_class && (
+                      {rmd.sub_type && (
+                        <div className="flex items-center gap-1"><span>⭐</span><span className="capitalize">{tpl?.subTypes?.find(s => s.value === rmd.sub_type)?.label || rmd.sub_type}</span></div>
+                      )}
+                      {!rmd.sub_type && isRoomType && rmd.room_class && (
                         <div className="flex items-center gap-1"><span>⭐</span><span className="capitalize">{rmd.room_class}</span></div>
                       )}
                     </div>
@@ -365,10 +375,13 @@ export function ResourcesClient({ shopId, industryType }: Props) {
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2"><label className="block text-xs font-medium text-slate-600 mb-1">Tên *</label>
                   <input value={formName} onChange={e => setFormName(e.target.value)} placeholder={`Ví dụ: ${typeLabel} 1`} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary" /></div>
-                <div><label className="block text-xs font-medium text-slate-600 mb-1">Loại</label>
-                  <select value={formType} onChange={e => setFormType(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary">
-                    <option value="table">Bàn</option><option value="court">Sân</option><option value="room">Phòng</option>
-                  </select></div>
+                {tpl && tpl.subTypes.length > 0 && (
+                  <div><label className="block text-xs font-medium text-slate-600 mb-1">Hạng {tpl.label.toLowerCase()}</label>
+                    <select value={formSubType} onChange={e => setFormSubType(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary">
+                      <option value="">Chọn</option>
+                      {tpl.subTypes.map(st => <option key={st.value} value={st.value}>{st.label}</option>)}
+                    </select></div>
+                )}
                 <div><label className="block text-xs font-medium text-slate-600 mb-1">Khu vực</label>
                   <input value={formZone} onChange={e => setFormZone(e.target.value)} placeholder="Tầng 1" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary" /></div>
                 <div><label className="block text-xs font-medium text-slate-600 mb-1">Sức chứa</label>
@@ -377,35 +390,37 @@ export function ResourcesClient({ shopId, industryType }: Props) {
                   <div><label className="block text-xs font-medium text-slate-600 mb-1">Giá theo giờ (₫)</label>
                     <input value={formHourlyRate} onChange={e => setFormHourlyRate(maskVND(e.target.value))} placeholder="0" type="text" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary" /></div>
                 )}
+                {sec?.bedType && (
+                  <div><label className="block text-xs font-medium text-slate-600 mb-1">Loại giường</label><select value={formBedType} onChange={e => setFormBedType(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"><option value="">Chọn</option><option value="single">Đơn</option><option value="double">Đôi</option><option value="twin">Twin</option><option value="king">King</option></select></div>
+                )}
+                {sec?.overnightRate && (
+                  <>
+                    <div><label className="block text-xs font-medium text-slate-600 mb-1">Giá qua đêm (₫)</label><input value={formOvernightRate} onChange={e => setFormOvernightRate(maskVND(e.target.value))} placeholder="0" type="text" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary" /></div>
+                    <div><label className="block text-xs font-medium text-slate-600 mb-1">Giá cuối tuần (₫)</label><input value={formWeekendRate} onChange={e => setFormWeekendRate(maskVND(e.target.value))} placeholder="0" type="text" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary" /></div>
+                    <div><label className="block text-xs font-medium text-slate-600 mb-1">Phụ thu (%)</label><input value={formSurchargePct} onChange={e => setFormSurchargePct(e.target.value)} placeholder="0" type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary" /></div>
+                  </>
+                )}
+                {sec?.depositAmount && (
+                  <>
+                    <div><label className="block text-xs font-medium text-slate-600 mb-1">Tiền đặt cọc (₫)</label><input value={formDepositAmount} onChange={e => setFormDepositAmount(maskVND(e.target.value))} placeholder="0" type="text" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary" /></div>
+                    <div><label className="block text-xs font-medium text-slate-600 mb-1">Phí giường phụ (₫)</label><input value={formExtraBedFee} onChange={e => setFormExtraBedFee(maskVND(e.target.value))} placeholder="0" type="text" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary" /></div>
+                  </>
+                )}
+                {sec?.expectedReturn && (
+                  <>
+                    <div><label className="block text-xs font-medium text-slate-600 mb-1">Giờ nhận</label><input value={formCheckinTime} onChange={e => setFormCheckinTime(e.target.value)} type="time" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary" /></div>
+                    <div><label className="block text-xs font-medium text-slate-600 mb-1">Giờ trả</label><input value={formCheckoutTime} onChange={e => setFormCheckoutTime(e.target.value)} type="time" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary" /></div>
+                  </>
+                )}
               </div>
-              {(formType === 'room' || vertical.resourceType === 'room') && (
-                <>
-                  <div className="border-t border-slate-100 pt-4"><p className="text-xs font-bold text-slate-800 uppercase tracking-wide mb-3">Thông tin phòng</p>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div><label className="block text-xs font-medium text-slate-600 mb-1">Hạng phòng</label><select value={formRoomClass} onChange={e => setFormRoomClass(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"><option value="">Chọn</option><option value="standard">Standard</option><option value="deluxe">Deluxe</option><option value="vip">VIP</option><option value="suite">Suite</option></select></div>
-                      <div><label className="block text-xs font-medium text-slate-600 mb-1">Loại giường</label><select value={formBedType} onChange={e => setFormBedType(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"><option value="">Chọn</option><option value="single">Đơn</option><option value="double">Đôi</option><option value="twin">Twin</option><option value="king">King</option></select></div>
-                    </div></div>
-                  <div className="border-t border-slate-100 pt-4"><p className="text-xs font-bold text-slate-800 uppercase tracking-wide mb-3">Bảng giá</p>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div><label className="block text-xs font-medium text-slate-600 mb-1">Giá qua đêm (₫)</label><input value={formOvernightRate} onChange={e => setFormOvernightRate(maskVND(e.target.value))} placeholder="0" type="text" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary" /></div>
-                      <div><label className="block text-xs font-medium text-slate-600 mb-1">Giá cuối tuần (₫)</label><input value={formWeekendRate} onChange={e => setFormWeekendRate(maskVND(e.target.value))} placeholder="0" type="text" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary" /></div>
-                      <div><label className="block text-xs font-medium text-slate-600 mb-1">Tiền đặt cọc (₫)</label><input value={formDepositAmount} onChange={e => setFormDepositAmount(maskVND(e.target.value))} placeholder="0" type="text" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary" /></div>
-                      <div><label className="block text-xs font-medium text-slate-600 mb-1">Phí giường phụ (₫)</label><input value={formExtraBedFee} onChange={e => setFormExtraBedFee(maskVND(e.target.value))} placeholder="0" type="text" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary" /></div>
-                      <div><label className="block text-xs font-medium text-slate-600 mb-1">Phụ thu (%)</label><input value={formSurchargePct} onChange={e => setFormSurchargePct(e.target.value)} placeholder="0" type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary" /></div>
-                    </div></div>
-                  <div className="border-t border-slate-100 pt-4"><p className="text-xs font-bold text-slate-800 uppercase tracking-wide mb-3">Thời gian</p>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div><label className="block text-xs font-medium text-slate-600 mb-1">Giờ nhận phòng</label><input value={formCheckinTime} onChange={e => setFormCheckinTime(e.target.value)} type="time" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary" /></div>
-                      <div><label className="block text-xs font-medium text-slate-600 mb-1">Giờ trả phòng</label><input value={formCheckoutTime} onChange={e => setFormCheckoutTime(e.target.value)} type="time" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary" /></div>
-                    </div></div>
-                  <div className="border-t border-slate-100 pt-4"><p className="text-xs font-bold text-slate-800 uppercase tracking-wide mb-3">Tiện nghi</p>
-                    <div className="flex flex-wrap gap-2">
-                      {['Điều hòa','Nước nóng','WiFi','TV','Tủ lạnh','Két sắt','Bồn tắm','Ban công','Cửa sổ'].map(a => (
-                        <label key={a} className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs cursor-pointer transition-colors ${formAmenities.includes(a)?'border-primary bg-primary/5 text-primary font-semibold':'border-slate-200 text-slate-500 hover:border-slate-300'}`}>
-                          <input type="checkbox" className="sr-only" checked={formAmenities.includes(a)} onChange={() => setFormAmenities(p => p.includes(a)?p.filter(x=>x!==a):[...p,a])} />{a}
-                        </label>))}
-                    </div></div>
-                </>
+              {sec?.amenities && (
+                <div className="border-t border-slate-100 pt-4"><p className="text-xs font-bold text-slate-800 uppercase tracking-wide mb-3">Tiện nghi</p>
+                  <div className="flex flex-wrap gap-2">
+                    {['Điều hòa','Nước nóng','WiFi','TV','Tủ lạnh','Két sắt','Bồn tắm','Ban công','Cửa sổ'].map(a => (
+                      <label key={a} className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs cursor-pointer transition-colors ${formAmenities.includes(a)?'border-primary bg-primary/5 text-primary font-semibold':'border-slate-200 text-slate-500 hover:border-slate-300'}`}>
+                        <input type="checkbox" className="sr-only" checked={formAmenities.includes(a)} onChange={() => setFormAmenities(p => p.includes(a)?p.filter(x=>x!==a):[...p,a])} />{a}
+                      </label>))}
+                  </div></div>
               )}
             </div>
             <div className="border-t border-slate-100 px-6 py-4 flex items-center gap-2">

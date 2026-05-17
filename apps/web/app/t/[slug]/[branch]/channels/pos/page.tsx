@@ -1,7 +1,7 @@
 import { redirect, notFound } from 'next/navigation'
 import { getSupabaseServerClient } from '@/lib/server/supabaseServer'
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
-import { getVerticalConfig } from '@oni/core'
+import { getVerticalConfig, type ResourceTemplate } from '@oni/core'
 import { POSClientDynamic as POSClient } from './POSClientDynamic'
 import { TableMapPOS } from './components/TableMapPOS'
 
@@ -78,6 +78,7 @@ export default async function POSPage({ params }: Props) {
         hasHourlyBilling={vertical.features.hourly_billing}
         autoPrintReceipt={autoPrintReceipt}
         mutePosSound={mutePosSound}
+        resourceTemplate={vertical.resourceTemplate}
       />
     )
   }

@@ -6,6 +6,7 @@ import { usePOSHydration } from '@/hooks/usePOSHydration'
 import { useNetworkStatus } from '@/hooks/useNetworkStatus'
 import { SyncWorker } from '@/lib/pos/syncWorker'
 import { ResourceSlideOver } from './ResourceSlideOver'
+import type { ResourceTemplate } from '@oni/core'
 
 interface Resource {
   id: string
@@ -31,6 +32,7 @@ interface Props {
   hasHourlyBilling: boolean
   autoPrintReceipt?: boolean
   mutePosSound?: boolean
+  resourceTemplate?: ResourceTemplate
 }
 
 const STATUS_CARDS: Record<string, { border: string; bg: string; dot: string; label: string }> = {
@@ -46,6 +48,7 @@ export function TableMapPOS({
   shopId, branchId, shopName, userEmail, backPath,
   resourceLabel, resourceType, hasHourlyBilling,
   autoPrintReceipt = false, mutePosSound = false,
+  resourceTemplate,
 }: Props) {
   const [resources, setResources] = useState<Resource[]>([])
   const [loading, setLoading] = useState(true)
@@ -290,6 +293,7 @@ export function TableMapPOS({
         employeeId={userEmail}
         onCheckInSuccess={handleCheckInSuccess}
         onSessionClosed={handleSessionClosed}
+        resourceTemplate={resourceTemplate}
       />
     </div>
   )

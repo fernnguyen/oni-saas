@@ -55,6 +55,7 @@ interface Props {
   employeeId: string
   onCheckInSuccess: (orderId: string) => void
   onSessionClosed: () => void
+  resourceTemplate?: import('@oni/core').ResourceTemplate
 }
 
 import { fmtDateTimeVN } from './CheckoutModal'
@@ -69,10 +70,21 @@ function fmtDuration(seconds: number) {
   return `${h}h ${m}p`
 }
 
+/* Default fallback template (room) for backwards compatibility */
+const DEFAULT_TEMPLATE: import('@oni/core').ResourceTemplate = {
+  type: 'room', label: 'Phòng', icon: '🛏',
+  subTypes: [{ value: 'standard', label: 'Standard' }],
+  actions: { checkIn: 'Nhận phòng', checkOut: 'Trả phòng', payAndClose: 'Thanh toán & Trả phòng' },
+  sections: { guestRegistration: true, bookingSource: true, bedType: true, amenities: true, overnightRate: true, depositAmount: true, surfaceType: false, expectedReturn: true },
+  metaLabels: { expectedReturn: 'Dự kiến trả phòng', sessionInfo: 'Thông tin thuê', tabServices: 'Phòng & Dịch vụ' },
+}
+
 export function ResourceSlideOver({
   open, onClose, resource, shopId, branchId, shopName, employeeId,
-  onCheckInSuccess, onSessionClosed
+  onCheckInSuccess, onSessionClosed, resourceTemplate,
 }: Props) {
+  const tpl = resourceTemplate ?? DEFAULT_TEMPLATE
+  const sec = tpl.sections
   // --- Check-in State ---
   const [activeTab, setActiveTab] = useState<'general' | 'guests' | 'info'>('general')
   const [customer, setCustomer] = useState<LocalCustomer | null>(null)
@@ -113,6 +125,7 @@ export function ResourceSlideOver({
   const meta = safeParse(resource.metadata)
   const isRoom = resource.type === 'room'
   const isOccupied = resource.status === 'occupied'
+  const showGuests = sec.guestRegistration
 
   const fetchingRef = useRef('')
 
@@ -256,7 +269,7 @@ export function ResourceSlideOver({
             num_guests: numGuests,
             expected_checkout: expectedCheckout,
             customer_phone: customer?.phone || '',
-            guests: isRoom ? activeGuests : undefined,
+            guests: showGuests ? activeGuests : undefined,
             note: note,
           })
         }),
@@ -272,7 +285,7 @@ export function ResourceSlideOver({
         body: JSON.stringify({ status: 'occupied', current_order_id: orderId }),
       })
 
-      toast.success(`Đã mở phiên cho ${resource.name}`)
+      toast.success(`${tpl.actions.checkIn}: ${resource.name}`)
       onCheckInSuccess(orderId)
     } catch (e: any) {
       toast.error(e.message || 'Lỗi')
@@ -290,7 +303,7 @@ export function ResourceSlideOver({
       
       const newMeta = {
         ...meta,
-        guests: isRoom ? validGuests : undefined,
+        guests: showGuests ? validGuests : undefined,
         booking_source: bookingSource,
         expected_checkout: expectedCheckout,
         note: note,
@@ -489,7 +502,7 @@ export function ResourceSlideOver({
         <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between shrink-0 bg-white">
           <div className="flex items-center gap-3">
             <div className={`h-10 w-10 rounded-xl flex items-center justify-center text-lg ${isOccupied ? 'bg-red-50 text-red-500' : 'bg-primary/10 text-primary'}`}>
-              {isRoom ? '🛏' : resource.type === 'court' ? '🏸' : '🍽'}
+              {tpl.icon}
             </div>
             <div>
               <h2 className="text-base font-bold text-slate-900">{resource.name}</h2>
@@ -506,7 +519,7 @@ export function ResourceSlideOver({
         </div>
 
         {/* Content Area */}
-        {!isOccupied && isRoom && (
+        {!isOccupied && showGuests && (
           <div className="px-5 border-b border-slate-100 flex gap-6 shrink-0 bg-white">
             <button
               onClick={() => setActiveTab('general')}
@@ -531,7 +544,7 @@ export function ResourceSlideOver({
           {!isOccupied ? (
             /* --- AVAILABLE STATE (CHECK-IN) --- */
             <div className="p-5 space-y-6">
-              {(!isRoom || activeTab === 'general') && (
+              {(!showGuests || activeTab === 'general') && (
                 <>
               {/* Customer */}
               <div>
@@ -571,7 +584,7 @@ export function ResourceSlideOver({
                 </>
               )}
 
-              {isRoom && activeTab === 'guests' && (
+              {showGuests && activeTab === 'guests' && (
                 <div className="space-y-4">
                   {guests.map((g, idx) => (
                     <div key={g.id} className="rounded-xl border border-slate-200 bg-white p-4 relative shadow-sm">
@@ -655,9 +668,9 @@ export function ResourceSlideOver({
                   onClick={() => setActiveTab('general')}
                   className={`border-b-2 py-3 text-sm font-medium transition-colors ${activeTab === 'general' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                 >
-                  Phòng & Dịch vụ
+                  {tpl.metaLabels.tabServices}
                 </button>
-                {isRoom && (
+                {showGuests && (
                   <button
                     onClick={() => setActiveTab('guests')}
                     className={`border-b-2 py-3 text-sm font-medium transition-colors ${activeTab === 'guests' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
@@ -852,18 +865,18 @@ export function ResourceSlideOver({
                       {/* Thông tin thuê — inline at bottom */}
                       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                         <div className="flex items-center justify-between mb-3">
-                          <p className="text-xs font-bold text-slate-800 uppercase tracking-wide">Thông tin thuê</p>
+                          <p className="text-xs font-bold text-slate-800 uppercase tracking-wide">{tpl.metaLabels.sessionInfo}</p>
                           <button onClick={handleUpdateMetadata} disabled={isUpdatingMeta} className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary-dark disabled:opacity-50">
                             {isUpdatingMeta ? 'Đang lưu...' : 'Lưu thay đổi'}
                           </button>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                          <div>
-                            <label className="block text-xs font-medium text-slate-600 mb-1">Dự kiến trả phòng</label>
+                          {sec.expectedReturn && <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">{tpl.metaLabels.expectedReturn}</label>
                             <input type="datetime-local" value={expectedCheckout} onChange={(e) => setExpectedCheckout(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none" />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-slate-600 mb-1">Kênh đặt phòng</label>
+                          </div>}
+                          {sec.bookingSource && <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Kênh đặt {tpl.label.toLowerCase()}</label>
                             <select value={bookingSource} onChange={(e) => setBookingSource(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white">
                               <option value="Khách lẻ (Walk-in)">Khách lẻ (Walk-in)</option>
                               <option value="Facebook/Zalo">Facebook/Zalo</option>
@@ -872,7 +885,7 @@ export function ResourceSlideOver({
                               <option value="Traveloka">Traveloka</option>
                               <option value="Khác">Khác</option>
                             </select>
-                          </div>
+                          </div>}
                           <div>
                             <label className="block text-xs font-medium text-slate-600 mb-1">Ghi chú thêm</label>
                             <input type="text" value={note} onChange={(e) => setNote(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none" placeholder="Yêu cầu đặc biệt..." />
@@ -985,7 +998,7 @@ export function ResourceSlideOver({
               disabled={saving}
               className="w-full rounded-xl bg-primary py-3.5 text-sm font-bold text-white shadow-sm hover:bg-primary-dark disabled:opacity-50 transition-all"
             >
-              {saving ? 'Đang mở phiên...' : 'Mở phiên'}
+              {saving ? `Đang ${tpl.actions.checkIn.toLowerCase()}...` : tpl.actions.checkIn}
             </button>
           ) : (
             <div className="flex gap-3">
@@ -1002,7 +1015,7 @@ export function ResourceSlideOver({
                   onClick={() => setCheckoutOpen(true)}
                   className="w-full rounded-xl bg-slate-900 py-3.5 text-sm font-bold text-white shadow-sm hover:bg-slate-800 transition-all"
                 >
-                  Thanh toán & Trả {isRoom ? 'phòng' : 'bàn'}
+                  {tpl.actions.payAndClose}
                 </button>
               )}
             </div>

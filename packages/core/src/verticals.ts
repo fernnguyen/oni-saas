@@ -33,6 +33,40 @@ export interface VerticalFeatures {
   product_variants: boolean;
 }
 
+export interface ResourceTemplate {
+  /** DB value: 'table' | 'court' | 'room' */
+  type: string;
+  /** Display label: Bàn, Sân, Phòng */
+  label: string;
+  /** Icon emoji */
+  icon: string;
+  /** Sub-types for admin to choose (e.g. VIP, Standard) */
+  subTypes: { value: string; label: string }[];
+  /** Session action labels — localized per vertical */
+  actions: {
+    checkIn: string;
+    checkOut: string;
+    payAndClose: string;
+  };
+  /** Which extended sections to show in SlideOver and forms */
+  sections: {
+    guestRegistration: boolean;
+    bookingSource: boolean;
+    bedType: boolean;
+    amenities: boolean;
+    overnightRate: boolean;
+    depositAmount: boolean;
+    surfaceType: boolean;
+    expectedReturn: boolean;
+  };
+  /** Localized labels for UI */
+  metaLabels: {
+    expectedReturn: string;
+    sessionInfo: string;
+    tabServices: string;
+  };
+}
+
 export interface VerticalConfig {
   label: string;
   icon: string;
@@ -46,7 +80,87 @@ export interface VerticalConfig {
   resourceLabel?: string;
   /** Resource type value for Location Resources */
   resourceType?: string;
+  /** Template config for resource management (if applicable) */
+  resourceTemplate?: ResourceTemplate;
 }
+
+/* ─── Template presets ─── */
+
+const TABLE_TEMPLATE: ResourceTemplate = {
+  type: 'table', label: 'Bàn', icon: '🍽',
+  subTypes: [
+    { value: 'standard', label: 'Bàn thường' },
+    { value: 'vip', label: 'Bàn VIP' },
+    { value: 'outdoor', label: 'Bàn ngoài trời' },
+  ],
+  actions: { checkIn: 'Mở bàn', checkOut: 'Trả bàn', payAndClose: 'Thanh toán & Trả bàn' },
+  sections: {
+    guestRegistration: false, bookingSource: false, bedType: false, amenities: false,
+    overnightRate: false, depositAmount: false, surfaceType: false, expectedReturn: false,
+  },
+  metaLabels: { expectedReturn: 'Dự kiến trả bàn', sessionInfo: 'Thông tin phiên', tabServices: 'Bàn & Dịch vụ' },
+};
+
+const BILLIARDS_TABLE_TEMPLATE: ResourceTemplate = {
+  type: 'table', label: 'Bàn', icon: '🎱',
+  subTypes: [
+    { value: 'standard', label: 'Bàn thường' },
+    { value: 'vip', label: 'Bàn VIP' },
+    { value: '3_cushion', label: 'Bàn 3 băng' },
+  ],
+  actions: { checkIn: 'Mở bàn', checkOut: 'Kết thúc', payAndClose: 'Thanh toán & Kết thúc' },
+  sections: {
+    guestRegistration: false, bookingSource: false, bedType: false, amenities: false,
+    overnightRate: false, depositAmount: false, surfaceType: false, expectedReturn: false,
+  },
+  metaLabels: { expectedReturn: 'Dự kiến kết thúc', sessionInfo: 'Thông tin phiên', tabServices: 'Bàn & Dịch vụ' },
+};
+
+const COURT_TEMPLATE: ResourceTemplate = {
+  type: 'court', label: 'Sân', icon: '🏸',
+  subTypes: [
+    { value: 'standard', label: 'Sân thường' },
+    { value: 'vip', label: 'Sân VIP' },
+    { value: 'indoor', label: 'Sân trong nhà' },
+  ],
+  actions: { checkIn: 'Mở sân', checkOut: 'Kết thúc', payAndClose: 'Thanh toán & Kết thúc' },
+  sections: {
+    guestRegistration: false, bookingSource: false, bedType: false, amenities: false,
+    overnightRate: false, depositAmount: false, surfaceType: true, expectedReturn: true,
+  },
+  metaLabels: { expectedReturn: 'Dự kiến kết thúc', sessionInfo: 'Thông tin phiên', tabServices: 'Sân & Dịch vụ' },
+};
+
+const ROOM_TEMPLATE: ResourceTemplate = {
+  type: 'room', label: 'Phòng', icon: '🛏',
+  subTypes: [
+    { value: 'standard', label: 'Standard' },
+    { value: 'deluxe', label: 'Deluxe' },
+    { value: 'vip', label: 'VIP' },
+    { value: 'suite', label: 'Suite' },
+  ],
+  actions: { checkIn: 'Nhận phòng', checkOut: 'Trả phòng', payAndClose: 'Thanh toán & Trả phòng' },
+  sections: {
+    guestRegistration: true, bookingSource: true, bedType: true, amenities: true,
+    overnightRate: true, depositAmount: true, surfaceType: false, expectedReturn: true,
+  },
+  metaLabels: { expectedReturn: 'Dự kiến trả phòng', sessionInfo: 'Thông tin thuê', tabServices: 'Phòng & Dịch vụ' },
+};
+
+const SERVICE_ROOM_TEMPLATE: ResourceTemplate = {
+  type: 'room', label: 'Phòng/Máy', icon: '🖥',
+  subTypes: [
+    { value: 'standard', label: 'Phòng thường' },
+    { value: 'vip', label: 'Phòng VIP' },
+    { value: 'machine', label: 'Máy' },
+  ],
+  actions: { checkIn: 'Bắt đầu', checkOut: 'Kết thúc', payAndClose: 'Thanh toán & Kết thúc' },
+  sections: {
+    guestRegistration: false, bookingSource: false, bedType: false, amenities: false,
+    overnightRate: false, depositAmount: false, surfaceType: false, expectedReturn: true,
+  },
+  metaLabels: { expectedReturn: 'Dự kiến kết thúc', sessionInfo: 'Thông tin phiên', tabServices: 'Dịch vụ' },
+};
 
 export const VERTICAL_REGISTRY: Record<IndustryType, VerticalConfig> = {
   retail: {
@@ -81,6 +195,7 @@ export const VERTICAL_REGISTRY: Record<IndustryType, VerticalConfig> = {
     extraEntities: ['location_resources'],
     resourceLabel: 'Bàn',
     resourceType: 'table',
+    resourceTemplate: TABLE_TEMPLATE,
   },
 
   billiards: {
@@ -99,6 +214,7 @@ export const VERTICAL_REGISTRY: Record<IndustryType, VerticalConfig> = {
     extraEntities: ['location_resources'],
     resourceLabel: 'Bàn',
     resourceType: 'table',
+    resourceTemplate: BILLIARDS_TABLE_TEMPLATE,
   },
 
   sports_court: {
@@ -117,6 +233,7 @@ export const VERTICAL_REGISTRY: Record<IndustryType, VerticalConfig> = {
     extraEntities: ['location_resources'],
     resourceLabel: 'Sân',
     resourceType: 'court',
+    resourceTemplate: COURT_TEMPLATE,
   },
 
   lodging: {
@@ -135,6 +252,7 @@ export const VERTICAL_REGISTRY: Record<IndustryType, VerticalConfig> = {
     extraEntities: ['location_resources'],
     resourceLabel: 'Phòng',
     resourceType: 'room',
+    resourceTemplate: ROOM_TEMPLATE,
   },
 
   fashion: {
@@ -169,6 +287,7 @@ export const VERTICAL_REGISTRY: Record<IndustryType, VerticalConfig> = {
     extraEntities: ['location_resources'],
     resourceLabel: 'Phòng/Máy',
     resourceType: 'room',
+    resourceTemplate: SERVICE_ROOM_TEMPLATE,
   },
 };
 
