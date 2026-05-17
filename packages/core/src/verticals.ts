@@ -82,6 +82,8 @@ export interface VerticalConfig {
   resourceType?: string;
   /** Template config for resource management (if applicable) */
   resourceTemplate?: ResourceTemplate;
+  /** Display label for the POS screen and navigation */
+  posLabel: string;
 }
 
 /* ─── Template presets ─── */
@@ -177,6 +179,7 @@ export const VERTICAL_REGISTRY: Record<IndustryType, VerticalConfig> = {
     },
     posLayout: 'product_grid',
     extraEntities: [],
+    posLabel: 'Bán tại quầy',
   },
 
   fnb: {
@@ -196,6 +199,7 @@ export const VERTICAL_REGISTRY: Record<IndustryType, VerticalConfig> = {
     resourceLabel: 'Bàn',
     resourceType: 'table',
     resourceTemplate: TABLE_TEMPLATE,
+    posLabel: 'Thu ngân',
   },
 
   billiards: {
@@ -215,6 +219,7 @@ export const VERTICAL_REGISTRY: Record<IndustryType, VerticalConfig> = {
     resourceLabel: 'Bàn',
     resourceType: 'table',
     resourceTemplate: BILLIARDS_TABLE_TEMPLATE,
+    posLabel: 'Thu ngân',
   },
 
   sports_court: {
@@ -234,6 +239,7 @@ export const VERTICAL_REGISTRY: Record<IndustryType, VerticalConfig> = {
     resourceLabel: 'Sân',
     resourceType: 'court',
     resourceTemplate: COURT_TEMPLATE,
+    posLabel: 'Thu ngân',
   },
 
   lodging: {
@@ -253,6 +259,7 @@ export const VERTICAL_REGISTRY: Record<IndustryType, VerticalConfig> = {
     resourceLabel: 'Phòng',
     resourceType: 'room',
     resourceTemplate: ROOM_TEMPLATE,
+    posLabel: 'Lễ tân',
   },
 
   fashion: {
@@ -269,6 +276,7 @@ export const VERTICAL_REGISTRY: Record<IndustryType, VerticalConfig> = {
     },
     posLayout: 'product_grid',
     extraEntities: [],
+    posLabel: 'Bán tại quầy',
   },
 
   service_hourly: {
@@ -288,6 +296,7 @@ export const VERTICAL_REGISTRY: Record<IndustryType, VerticalConfig> = {
     resourceLabel: 'Phòng/Máy',
     resourceType: 'room',
     resourceTemplate: SERVICE_ROOM_TEMPLATE,
+    posLabel: 'Thu ngân',
   },
 };
 
