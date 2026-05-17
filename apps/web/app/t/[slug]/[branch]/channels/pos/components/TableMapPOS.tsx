@@ -29,6 +29,7 @@ interface Props {
   backPath: string
   resourceLabel: string
   resourceType: string
+  posLabel?: string
   hasHourlyBilling: boolean
   autoPrintReceipt?: boolean
   mutePosSound?: boolean
@@ -42,11 +43,11 @@ const STATUS_CARDS: Record<string, { border: string; bg: string; dot: string; la
   reserved:  { border: 'border-blue-200', bg: 'bg-blue-50/60', dot: 'bg-blue-500', label: 'Đã đặt' },
 }
 
-type ViewMode = 'grid' | 'session'
+type ViewMode = 'grid' | 'list'
 
 export function TableMapPOS({
   shopId, branchId, shopName, userEmail, backPath,
-  resourceLabel, resourceType, hasHourlyBilling,
+  resourceLabel, resourceType, posLabel, hasHourlyBilling,
   autoPrintReceipt = false, mutePosSound = false,
   resourceTemplate,
 }: Props) {
@@ -57,6 +58,17 @@ export function TableMapPOS({
 
   // UI state
   const [activeSlideResource, setActiveSlideResource] = useState<Resource | null>(null)
+  const [viewMode, setViewMode] = useState<ViewMode>('grid')
+
+  useEffect(() => {
+    const saved = localStorage.getItem('pos_view_mode')
+    if (saved === 'grid' || saved === 'list') setViewMode(saved)
+  }, [])
+
+  function toggleViewMode(mode: ViewMode) {
+    setViewMode(mode)
+    localStorage.setItem('pos_view_mode', mode)
+  }
 
   // Sync state
   const isOnline = useNetworkStatus()
@@ -156,7 +168,7 @@ export function TableMapPOS({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900">{resourceLabel} POS</h1>
+          <h1 className="text-xl font-semibold text-slate-900">{posLabel || `${resourceLabel} POS`}</h1>
           <div className="flex items-center gap-3 mt-1 text-xs text-slate-400">
             <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-green-500" />{stats.available} trống</span>
             <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500" />{stats.occupied} sử dụng</span>
@@ -164,6 +176,24 @@ export function TableMapPOS({
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* View Mode Toggle */}
+          <div className="flex items-center rounded-lg border border-slate-200 bg-white p-1">
+            <button
+              onClick={() => toggleViewMode('grid')}
+              className={`rounded-md px-2 py-1 text-xs font-medium transition-colors ${viewMode === 'grid' ? 'bg-slate-100 text-slate-800' : 'text-slate-400 hover:text-slate-600'}`}
+              title="Dạng lưới"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
+            </button>
+            <button
+              onClick={() => toggleViewMode('list')}
+              className={`rounded-md px-2 py-1 text-xs font-medium transition-colors ${viewMode === 'list' ? 'bg-slate-100 text-slate-800' : 'text-slate-400 hover:text-slate-600'}`}
+              title="Dạng danh sách"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" /></svg>
+            </button>
+          </div>
+
           <button
             onClick={() => {
               toast.promise(refreshHydration(), {
@@ -202,83 +232,127 @@ export function TableMapPOS({
               <h3 className="text-sm font-semibold text-slate-700">{zone}</h3>
               <span className="text-xs text-slate-400">{items.length} vị trí</span>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-              {items.sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0)).map(r => {
-                const st = STATUS_CARDS[r.status] ?? STATUS_CARDS.available
-                const rmd = safeParseJSON(r.metadata)
-                const isRoomType = r.type === 'room'
-                return (
-                  <button
-                    key={r.id}
-                    onClick={() => handleResourceClick(r)}
-                    className={`group relative rounded-2xl border p-4 text-left transition-all hover:shadow-lg cursor-pointer overflow-hidden ${
-                      r.status === 'occupied' ? 'border-red-300 bg-gradient-to-br from-red-50 to-rose-50 shadow-sm'
-                      : r.status === 'reserved' ? 'border-blue-300 bg-gradient-to-br from-blue-50 to-indigo-50 shadow-sm'
-                      : r.status === 'cleaning' ? 'border-amber-300 bg-gradient-to-br from-amber-50 to-yellow-50 shadow-sm'
-                      : 'border-slate-200 bg-gradient-to-br from-white to-slate-50 hover:border-primary/40'
-                    }`}
-                  >
-                    {/* Status indicator bar */}
-                    <div className={`absolute top-0 left-0 right-0 h-1 ${
-                      r.status === 'occupied' ? 'bg-gradient-to-r from-red-400 to-rose-500'
-                      : r.status === 'reserved' ? 'bg-gradient-to-r from-blue-400 to-indigo-500'
-                      : r.status === 'cleaning' ? 'bg-gradient-to-r from-amber-400 to-yellow-500'
-                      : 'bg-gradient-to-r from-green-400 to-emerald-500'
-                    }`} />
+            
+            {viewMode === 'grid' ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+                {items.sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0)).map(r => {
+                  const st = STATUS_CARDS[r.status] ?? STATUS_CARDS.available
+                  const rmd = safeParseJSON(r.metadata)
+                  const isRoomType = r.type === 'room'
+                  return (
+                    <button
+                      key={r.id}
+                      onClick={() => handleResourceClick(r)}
+                      className={`group relative rounded-2xl border p-4 flex flex-col text-left transition-all hover:shadow-lg cursor-pointer overflow-hidden ${
+                        r.status === 'occupied' ? 'border-red-300 bg-gradient-to-br from-red-50 to-rose-50 shadow-sm'
+                        : r.status === 'reserved' ? 'border-blue-300 bg-gradient-to-br from-blue-50 to-indigo-50 shadow-sm'
+                        : r.status === 'cleaning' ? 'border-amber-300 bg-gradient-to-br from-amber-50 to-yellow-50 shadow-sm'
+                        : 'border-slate-200 bg-gradient-to-br from-white to-slate-50 hover:border-primary/40'
+                      }`}
+                    >
+                      {/* Status indicator bar */}
+                      <div className={`absolute top-0 left-0 right-0 h-1 ${
+                        r.status === 'occupied' ? 'bg-gradient-to-r from-red-400 to-rose-500'
+                        : r.status === 'reserved' ? 'bg-gradient-to-r from-blue-400 to-indigo-500'
+                        : r.status === 'cleaning' ? 'bg-gradient-to-r from-amber-400 to-yellow-500'
+                        : 'bg-gradient-to-r from-green-400 to-emerald-500'
+                      }`} />
 
-                    {/* Header */}
-                    <div className="flex items-start justify-between mb-2 mt-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-lg">{isRoomType ? '🛏️' : r.type === 'court' ? '🏸' : '🪑'}</span>
-                        <p className="text-sm font-bold text-slate-800 truncate">{r.name}</p>
+                      {/* Header */}
+                      <div className="flex items-start justify-between mb-2 mt-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-lg shrink-0">{isRoomType ? '🛏️' : r.type === 'court' ? '🏸' : '🪑'}</span>
+                          <p className="text-base font-bold text-slate-800 line-clamp-2 leading-tight">{r.name}</p>
+                        </div>
                       </div>
-                      <span className={`inline-flex items-center gap-1 rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-semibold ${st.text || 'text-slate-700'}`}>
-                        <span className={`h-1.5 w-1.5 rounded-full ${st.dot} ${r.status === 'occupied' ? 'animate-pulse' : ''}`} />
-                        {st.label}
-                      </span>
-                    </div>
 
-                    {/* Meta info */}
-                    <div className="space-y-1 text-[11px] text-slate-500">
-                      {r.capacity && <div className="flex items-center gap-1"><span>👤</span> <span>{r.capacity} người</span></div>}
-                      {hasHourlyBilling && r.hourly_rate && Number(r.hourly_rate) > 0 && (
-                        <div className="flex items-center gap-1"><span>⏱️</span> <span className="font-semibold text-slate-700">{Number(r.hourly_rate).toLocaleString('vi-VN')}₫/h</span></div>
-                      )}
-                      {isRoomType && rmd.overnight_rate && (
-                        <div className="flex items-center gap-1"><span>🌙</span> <span className="font-semibold text-slate-700">{Number(rmd.overnight_rate).toLocaleString('vi-VN')}₫/đêm</span></div>
-                      )}
-                      {isRoomType && rmd.room_class && (
-                        <div className="flex items-center gap-1"><span>⭐</span> <span className="capitalize">{rmd.room_class}</span></div>
-                      )}
-                    </div>
-
-                    {/* Amenities chips */}
-                    {isRoomType && rmd.amenities?.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-2">
-                        {rmd.amenities.slice(0, 3).map((a: string) => (
-                          <span key={a} className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] text-slate-500">{a}</span>
-                        ))}
-                        {rmd.amenities.length > 3 && <span className="text-[9px] text-slate-400">+{rmd.amenities.length - 3}</span>}
+                      {/* Meta info */}
+                      <div className="space-y-1 text-[11px] text-slate-500 flex-1 mb-3">
+                        {r.capacity && <div className="flex items-center gap-1.5"><span>👤</span> <span>{r.capacity} người</span></div>}
+                        {hasHourlyBilling && r.hourly_rate && Number(r.hourly_rate) > 0 && (
+                          <div className="flex items-center gap-1.5"><span>⏱️</span> <span className="font-semibold text-slate-700">{Number(r.hourly_rate).toLocaleString('vi-VN')}₫/h</span></div>
+                        )}
+                        {isRoomType && rmd.overnight_rate && (
+                          <div className="flex items-center gap-1.5"><span>🌙</span> <span className="font-semibold text-slate-700">{Number(rmd.overnight_rate).toLocaleString('vi-VN')}₫/đêm</span></div>
+                        )}
+                        {isRoomType && rmd.room_class && (
+                          <div className="flex items-center gap-1.5"><span>⭐</span> <span className="capitalize">{rmd.room_class}</span></div>
+                        )}
+                        {isRoomType && rmd.amenities?.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {rmd.amenities.slice(0, 3).map((a: string) => (
+                              <span key={a} className="rounded-full bg-white border border-slate-200 px-1.5 py-0.5 text-[9px] text-slate-500">{a}</span>
+                            ))}
+                            {rmd.amenities.length > 3 && <span className="text-[9px] text-slate-400">+{rmd.amenities.length - 3}</span>}
+                          </div>
+                        )}
                       </div>
-                    )}
 
-                    {/* Occupied: show timer */}
-                    {r.status === 'occupied' && r.current_order_id && (
-                      <div className="mt-3 rounded-lg bg-red-100/80 px-2 py-1.5 text-center transition-colors group-hover:bg-red-200/80">
-                        <p className="text-[11px] font-medium text-red-700">Bấm để xem / order</p>
+                      {/* Status label at the bottom */}
+                      <div className={`mt-auto w-full rounded-lg px-2 py-1.5 text-center transition-colors ${st.bg} ${st.border} border`}>
+                        <p className={`text-[12px] font-bold flex items-center justify-center gap-1.5 ${st.text}`}>
+                          <span className={`h-1.5 w-1.5 rounded-full ${st.dot} ${r.status === 'occupied' ? 'animate-pulse' : ''}`} />
+                          {st.label}
+                        </p>
                       </div>
-                    )}
-
-                    {/* Cleaning: click hint */}
-                    {r.status === 'cleaning' && (
-                      <div className="mt-3 rounded-lg bg-amber-100/80 px-2 py-1.5 text-center transition-colors group-hover:bg-amber-200/80">
-                        <p className="text-[11px] font-medium text-amber-700">Bấm để đánh dấu sẵn sàng</p>
-                      </div>
-                    )}
-                  </button>
-                )
-              })}
-            </div>
+                    </button>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-slate-50 text-slate-500 border-b border-slate-200">
+                    <tr>
+                      <th className="px-4 py-3 font-medium">Tên</th>
+                      <th className="px-4 py-3 font-medium">Trạng thái</th>
+                      <th className="px-4 py-3 font-medium">Sức chứa</th>
+                      {hasHourlyBilling && <th className="px-4 py-3 font-medium">Giá giờ</th>}
+                      <th className="px-4 py-3 font-medium hidden sm:table-cell">Phân loại</th>
+                      <th className="px-4 py-3 font-medium text-right">Thao tác</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {items.sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0)).map(r => {
+                      const st = STATUS_CARDS[r.status] ?? STATUS_CARDS.available
+                      const rmd = safeParseJSON(r.metadata)
+                      const isRoomType = r.type === 'room'
+                      return (
+                        <tr key={r.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <span className="text-lg">{isRoomType ? '🛏️' : r.type === 'court' ? '🏸' : '🪑'}</span>
+                              <span className="font-bold text-slate-800">{r.name}</span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ${st.bg} ${st.text} border ${st.border}`}>
+                              <span className={`h-1.5 w-1.5 rounded-full ${st.dot} ${r.status === 'occupied' ? 'animate-pulse' : ''}`} />
+                              {st.label}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-slate-600">{r.capacity ? `${r.capacity} người` : '-'}</td>
+                          {hasHourlyBilling && (
+                            <td className="px-4 py-3 font-semibold text-slate-700">
+                              {r.hourly_rate && Number(r.hourly_rate) > 0 ? `${Number(r.hourly_rate).toLocaleString('vi-VN')}₫` : '-'}
+                            </td>
+                          )}
+                          <td className="px-4 py-3 text-slate-500 capitalize hidden sm:table-cell">{rmd.room_class || rmd.sub_type || '-'}</td>
+                          <td className="px-4 py-3 text-right">
+                            <button
+                              onClick={() => handleResourceClick(r)}
+                              className="rounded-lg bg-white border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors shadow-sm"
+                            >
+                              Thao tác
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         ))
       )}

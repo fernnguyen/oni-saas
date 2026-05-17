@@ -42,9 +42,9 @@ interface BuildNavOptions {
 export function buildNavGroups(options: BuildNavOptions, permissions: string[]): NavGroup[] {
   const base = normalizeBasePath(options.basePath);
   const can = (p: string) => permissions.includes(p);
+  const vertical = getVerticalConfig(options.industryType || 'retail');
 
   const filter = (groups: NavGroup[]) => {
-    const vertical = getVerticalConfig(options.industryType || 'retail');
     return groups
       .map((group) => ({
         ...group,
@@ -115,7 +115,7 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
     {
       label: 'Bán hàng',
       items: [
-        { href: joinPath(base, '/channels/pos'), label: 'Bán tại quầy', icon: IconPos,      permission: 'pos.use' },
+        { href: joinPath(base, '/channels/pos'), label: vertical.posLabel || 'Bán tại quầy', icon: IconPos,      permission: 'pos.use' },
         { href: joinPath(base, '/resources'),     label: 'Bàn / Sân',    icon: IconTable,    permission: 'pos.use', featureGate: 'location_resource' },
         { href: joinPath(base, '/orders'),   label: 'Đơn hàng',      icon: IconClipboard, permission: 'orders.view' },
         { href: joinPath(base, '/returns'),  label: 'Đơn trả hàng',  icon: IconReturn,    permission: 'returns.view' },

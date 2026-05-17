@@ -75,6 +75,7 @@ export default async function POSPage({ params }: Props) {
         backPath={backPath}
         resourceLabel={vertical.resourceLabel ?? 'Vị trí'}
         resourceType={vertical.resourceType ?? 'table'}
+        posLabel={vertical.posLabel}
         hasHourlyBilling={vertical.features.hourly_billing}
         autoPrintReceipt={autoPrintReceipt}
         mutePosSound={mutePosSound}
