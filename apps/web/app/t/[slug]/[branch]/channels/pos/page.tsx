@@ -1,7 +1,9 @@
 import { redirect, notFound } from 'next/navigation'
 import { getSupabaseServerClient } from '@/lib/server/supabaseServer'
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
+import { getVerticalConfig } from '@oni/core'
 import { POSClientDynamic as POSClient } from './POSClientDynamic'
+import { TableMapPOS } from './components/TableMapPOS'
 
 interface Props {
   params: Promise<{ slug: string; branch: string }>
@@ -20,7 +22,7 @@ export default async function POSPage({ params }: Props) {
 
   const { data: tenant } = await admin
     .from('tenants')
-    .select('id, name, slug')
+    .select('id, name, slug, industry_type')
     .eq('slug', slug)
     .maybeSingle()
   if (!tenant) notFound()
@@ -58,8 +60,27 @@ export default async function POSPage({ params }: Props) {
 
   const autoPrintReceipt = settings?.auto_print_receipt ?? true
   const mutePosSound = settings?.mute_pos_sound ?? false
-
   const backPath = `/${branch}`
+
+  // Determine POS layout from industry type
+  const vertical = getVerticalConfig(tenant.industry_type ?? 'retail')
+
+  if (vertical.posLayout === 'table_map' || vertical.posLayout === 'room_map') {
+    return (
+      <TableMapPOS
+        shopId={shop.id}
+        branchId={shop.id}
+        shopName={shop.name}
+        userEmail={authData.user.email ?? ''}
+        backPath={backPath}
+        resourceLabel={vertical.resourceLabel ?? 'Vị trí'}
+        resourceType={vertical.resourceType ?? 'table'}
+        hasHourlyBilling={vertical.features.hourly_billing}
+        autoPrintReceipt={autoPrintReceipt}
+        mutePosSound={mutePosSound}
+      />
+    )
+  }
 
   return (
     <POSClient

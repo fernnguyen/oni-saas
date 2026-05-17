@@ -7,6 +7,12 @@ import { handleApiError } from '../../_helpers'
 import { dispatchNotification } from '@/lib/server/notifications'
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
 
+function getGMT7Time() {
+  const d = new Date()
+  d.setUTCHours(d.getUTCHours() + 7)
+  return d.toISOString().replace('Z', '')
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ shopId: string }> }
@@ -50,7 +56,10 @@ export async function POST(
     const body = await req.json()
     const data = orderCreateSchema.parse(body)
 
-    const created = await connector.create('orders', data)
+    const created = await connector.create('orders', {
+      ...data,
+      created_at: getGMT7Time()
+    })
     invalidate(shopId, 'orders')
     
     // Format items

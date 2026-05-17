@@ -12,7 +12,8 @@
   },
   "scripts": {
     "db:generate": "drizzle-kit generate",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "db:push:pg": "drizzle-kit push --config=drizzle.pg.config.ts"
   },
   "devDependencies": {
     "dotenv": "^17.4.2",

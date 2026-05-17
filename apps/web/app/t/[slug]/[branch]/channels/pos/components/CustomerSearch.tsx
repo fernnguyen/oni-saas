@@ -98,7 +98,7 @@ export function CustomerSearch({ selected, onSelect }: Props) {
               setShowQuickForm(true)
               setOpen(false)
             }}
-            placeholder="Tìm tên hoặc số điện thoại..."
+            placeholder="Tìm tên hoặc SĐT để tìm kiếm HOẶC tạo mới khách hàng..."
             className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm placeholder:text-slate-400 focus:border-primary focus:outline-none"
           />
 

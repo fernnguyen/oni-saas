@@ -4,6 +4,7 @@ import { getSupabaseAdminClient } from '../../../../lib/server/supabaseAdmin';
 import { TenantActions } from './TenantActions';
 import { AddDomainForm } from './AddDomainForm';
 import { EditPlanDialog } from './EditPlanDialog';
+import { ConnectorSwitchAdmin } from './ConnectorSwitchAdmin';
 import { getVerticalConfig } from '@oni/core';
 
 const FEATURE_LABELS: Record<string, string> = {
@@ -84,6 +85,15 @@ export default async function SuperTenantDetail({
 
   const connectors = (connectorsRes.data ?? []) as any[];
   const domains = (domainsRes.data ?? []) as any[];
+
+  // Also fetch tenant-level connector (new pattern)
+  const { data: tenantConnectorRaw } = await admin
+    .from('connectors')
+    .select('id, type, status')
+    .eq('tenant_id', id)
+    .eq('status', 'active')
+    .maybeSingle();
+  const tenantConnector = tenantConnectorRaw as { id: string; type: string; status: string } | null;
 
   const planMeta = sub?.plans?.metadata ?? {};
   const subStatus: StatusKey = (sub?.status as StatusKey) ?? 'canceled';
@@ -411,6 +421,12 @@ export default async function SuperTenantDetail({
               )}
             </div>
           </div>
+
+          {/* Connector Switch */}
+          <ConnectorSwitchAdmin
+            tenantId={tenant.id}
+            currentConnector={tenantConnector}
+          />
         </div>
       </div>
 

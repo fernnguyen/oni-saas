@@ -75,12 +75,20 @@ export function CheckoutModal({
   employeeId,
   isOnline,
   autoPrintReceipt,
-}: Props) {
+  orderId,
+  metadata,
+}: Props & { orderId?: string, metadata?: Record<string, any> }) {
+  const [localCustomer, setLocalCustomer] = useState(customer)
   const [payments, setPayments] = useState<PaymentRow[]>([
-    { id: nextId(), method: 'cash', amount: String(total) },
+    { id: nextId(), method: 'cash', amount: String(total - discount_amount) },
   ])
   const [saving, setSaving] = useState(false)
   const [localNote, setLocalNote] = useState(note)
+  const [localDiscount, setLocalDiscount] = useState(discount_amount)
+  const [isEditingDiscount, setIsEditingDiscount] = useState(false)
+  const [discountInput, setDiscountInput] = useState(String(discount_amount))
+
+  const finalTotal = Math.max(0, subtotal - localDiscount)
 
   const { data: settings } = useQuery({
     queryKey: ['settings', shopId],
@@ -94,15 +102,19 @@ export function CheckoutModal({
 
   useEffect(() => {
     if (open) {
-      setPayments([{ id: nextId(), method: 'cash', amount: String(total) }])
+      setLocalCustomer(customer)
+      setLocalDiscount(discount_amount)
+      setDiscountInput(String(discount_amount))
+      const newTotal = Math.max(0, subtotal - discount_amount)
+      setPayments([{ id: nextId(), method: 'cash', amount: String(newTotal) }])
       setLocalNote(note)
     }
-  }, [open, total, note])
+  }, [open, subtotal, discount_amount, note, customer])
 
   const totalPaid = payments.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
-  const remaining = total - totalPaid
+  const remaining = finalTotal - totalPaid
   const cashRows = payments.filter((p) => p.method === 'cash')
-  const cashChange = cashRows.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0) - (total - payments.filter((p) => p.method !== 'cash').reduce((s, p) => s + (parseFloat(p.amount) || 0), 0))
+  const cashChange = cashRows.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0) - (finalTotal - payments.filter((p) => p.method !== 'cash').reduce((s, p) => s + (parseFloat(p.amount) || 0), 0))
 
   function updatePayment(id: string, field: 'method' | 'amount', value: string) {
     setPayments((prev) => prev.map((p) => (p.id === id ? { ...p, [field]: value } : p)))
@@ -125,20 +137,31 @@ export function CheckoutModal({
       if (prev.length === 0) return prev
       const othersPaid = prev.slice(0, -1).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
       return prev.map((p, i) =>
-        i === prev.length - 1 ? { ...p, amount: String(Math.max(0, total - othersPaid)) } : p
+        i === prev.length - 1 ? { ...p, amount: String(Math.max(0, finalTotal - othersPaid)) } : p
       )
     })
   }
 
+  function applyDiscount() {
+    let d = parseFloat(discountInput.replace(/,/g, ''))
+    if (isNaN(d)) d = 0
+    if (d > subtotal) d = subtotal
+    setLocalDiscount(d)
+    setDiscountInput(String(d))
+    setIsEditingDiscount(false)
+    const newTotal = Math.max(0, subtotal - d)
+    setPayments([{ id: nextId(), method: 'cash', amount: String(newTotal) }])
+  }
+
   async function handleSubmit() {
     if (items.length === 0) return
-    if (totalPaid < total) {
-      toast.error(`Còn thiếu ${fmtVND(total - totalPaid)}`)
+    if (totalPaid < finalTotal) {
+      toast.error(`Còn thiếu ${fmtVND(finalTotal - totalPaid)}`)
       return
     }
 
     const hasDebt = payments.some((p) => p.method === 'debt' && parseFloat(p.amount) > 0)
-    if (hasDebt && !customer) {
+    if (hasDebt && !localCustomer) {
       toast.error('Phương thức Ghi nợ yêu cầu phải chọn Khách hàng')
       return
     }
@@ -148,7 +171,7 @@ export function CheckoutModal({
       const debtAmount = payments
         .filter((p) => p.method === 'debt')
         .reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
-      const actualPaid = Math.max(0, total - debtAmount)
+      const actualPaid = Math.max(0, finalTotal - debtAmount)
 
       const local_id = crypto.randomUUID()
       const now = new Date().toISOString()
@@ -180,14 +203,14 @@ export function CheckoutModal({
       const order: LocalOrder = {
         local_id,
         sync_status: 'pending',
-        customer_id: customer?.customer_id?.startsWith('virtual:') ? undefined : customer?.customer_id,
-        customer_name: customer?.name,
+        customer_id: localCustomer?.customer_id?.startsWith('virtual:') ? undefined : localCustomer?.customer_id,
+        customer_name: localCustomer?.name,
         branch_id: branchId,
         employee_id: employeeId,
         subtotal,
-        discount_amount,
+        discount_amount: localDiscount,
         tax_amount: 0,
-        total_amount: total,
+        total_amount: finalTotal,
         paid_amount: actualPaid,
         debt_amount: debtAmount,
         note: localNote,
@@ -210,8 +233,8 @@ export function CheckoutModal({
           qty: -item.qty,
           branch_id: branchId,
           reference_no: local_id,
-        })),
-        customer: customer ? { name: customer.name, phone: customer.phone } : undefined,
+        })).filter(m => m.product_id !== 'TIME_CHARGE'),
+        customer: localCustomer ? { name: localCustomer.name, phone: localCustomer.phone } : undefined,
       }
 
       let isSuccessDirect = false
@@ -225,6 +248,7 @@ export function CheckoutModal({
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               local_order_id: local_id,
+              server_order_id: orderId,
               ...syncPayload,
               stock_movements: syncPayload.stockMovements // API expects stock_movements, local payload expects stockMovements
             }),
@@ -336,32 +360,74 @@ export function CheckoutModal({
           <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
             <div className="mb-1.5 flex items-center justify-between">
               <p className="text-xs font-medium text-slate-500">KHÁCH HÀNG</p>
-              <p className="text-xs text-slate-400">
-                {customer ? customer.name : 'Khách lẻ'}
+              <p className="text-xs text-slate-600 font-medium">
+                {localCustomer ? (
+                  <>
+                    {localCustomer.name}
+                    {localCustomer.phone && <span className="text-slate-400 font-normal ml-1">({localCustomer.phone})</span>}
+                  </>
+                ) : (
+                  'Khách lẻ'
+                )}
               </p>
             </div>
-            <CustomerSearch selected={customer} onSelect={onCustomerChange} />
+            <CustomerSearch selected={localCustomer} onSelect={setLocalCustomer} />
           </div>
+
+          {/* Resource Info */}
+          {metadata?.check_in && (
+            <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-3 text-sm space-y-1.5 mb-4">
+              <div className="flex justify-between">
+                <span className="text-slate-600">Giờ vào:</span>
+                <span className="font-medium text-slate-900">{new Date(metadata.check_in).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-600">Giờ ra (HT):</span>
+                <span className="font-medium text-slate-900">{new Date().toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}</span>
+              </div>
+            </div>
+          )}
 
           {/* Order summary */}
           <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
             <div className="max-h-32 overflow-y-auto space-y-0.5">
-              {items.map((item) => (
-                <div key={item.product_id} className="flex justify-between text-sm">
+              {items.map((item, idx) => (
+                <div key={`${item.product_id}-${idx}`} className="flex justify-between text-sm">
                   <span className="text-slate-600">{item.product_name} × {item.qty}</span>
                   <span className="text-slate-900">{fmtVND(item.line_total)}</span>
                 </div>
               ))}
             </div>
-            <div className="mt-2 space-y-0.5 border-t border-slate-200 pt-2 text-sm">
-              {discount_amount > 0 && (
-                <div className="flex justify-between text-orange-600">
-                  <span>Giảm giá:</span><span>−{fmtVND(discount_amount)}</span>
-                </div>
-              )}
-              <div className="flex justify-between font-bold text-slate-900 text-base">
+            <div className="mt-2 space-y-2 border-t border-slate-200 pt-3 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500">Giảm giá:</span>
+                {isEditingDiscount ? (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      autoFocus
+                      value={discountInput}
+                      onChange={(e) => setDiscountInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') applyDiscount()
+                        if (e.key === 'Escape') setIsEditingDiscount(false)
+                      }}
+                      className="w-24 text-right border-b border-slate-300 outline-none text-slate-800 bg-transparent font-medium"
+                    />
+                    <button onClick={applyDiscount} className="text-primary text-xs font-semibold">OK</button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setIsEditingDiscount(true)}
+                    className="font-medium text-slate-800 border-b border-dotted border-slate-400 hover:text-primary transition-colors cursor-pointer"
+                  >
+                    {localDiscount > 0 ? `-${fmtVND(localDiscount)}` : '0đ'}
+                  </button>
+                )}
+              </div>
+              <div className="flex justify-between font-bold text-slate-900 text-base border-t border-dashed border-slate-200 pt-2">
                 <span>Tổng cộng:</span>
-                <span className="text-primary">{fmtVND(total)}</span>
+                <span className="text-primary">{fmtVND(finalTotal)}</span>
               </div>
             </div>
           </div>

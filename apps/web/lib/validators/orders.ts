@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-const ORDER_STATUSES = ['draft', 'confirmed', 'processing', 'completed', 'cancelled', 'returning', 'partially_refunded', 'refunded'] as const
+const ORDER_STATUSES = ['draft', 'in_progress', 'confirmed', 'processing', 'completed', 'cancelled', 'returning', 'partially_refunded', 'refunded'] as const
 const ORDER_CHANNELS = ['pos', 'online', 'phone', 'zalo'] as const
 const PAYMENT_METHODS = ['cash', 'card', 'bank_transfer', 'momo', 'vnpay', 'zalopay', 'debt'] as const
 
@@ -16,7 +16,7 @@ export const orderCreateSchema = z.object({
   discount_amount:   z.string().optional().default('0'),
   shipping_fee:      z.string().optional().default('0'),
   tax_amount:        z.string().optional().default('0'),
-  total_amount:      z.string().min(1),
+  total_amount:      z.string().optional().default('0'),
   paid_amount:       z.string().optional().default('0'),
   debt_amount:       z.string().optional().default('0'),
   is_return:         z.string().optional().default('FALSE'),
@@ -26,6 +26,9 @@ export const orderCreateSchema = z.object({
   note:              z.string().optional().default(''),
   payment_method:    z.string().optional().default(''),
   print_count:       z.string().optional().default('0'),
+  // Session-based POS fields
+  resource_id:       z.string().optional().default(''),
+  metadata:          z.string().optional().default('{}'),
 })
 
 export const orderUpdateSchema = orderCreateSchema.partial()

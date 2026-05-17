@@ -1,5 +1,3 @@
-import { sql } from 'drizzle-orm'
-import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 import crypto from 'crypto'
 import type { IDataConnector, ListOptions, ListResult } from './DataSource'
@@ -37,15 +35,40 @@ function getPool(connectionUri: string): Pool {
 }
 
 export class PostgresConnector implements IDataConnector {
-  private db: ReturnType<typeof drizzle>
+  private pool: Pool
 
   constructor(
     connectionUri: string,
     private readonly tenantId?: string,
     private readonly branchId?: string,
   ) {
-    const pool = getPool(connectionUri)
-    this.db = drizzle(pool as any)
+    this.pool = getPool(connectionUri)
+  }
+
+  /** Execute a parameterized query and return rows */
+  private async query(text: string, params: unknown[] = []): Promise<any[]> {
+    const result = await this.pool.query(text, params)
+    return result.rows
+  }
+
+  /** Columns that are JSONB type — empty strings must be null or valid JSON */
+  private readonly JSONB_COLUMNS = new Set(['metadata'])
+
+  /** Sanitize a value before inserting/updating: handle JSONB columns */
+  private sanitizeValue(column: string, value: unknown): unknown {
+    if (this.JSONB_COLUMNS.has(column)) {
+      if (value === null || value === undefined || value === '') return null
+      // If it's already a string, try to parse to verify validity
+      if (typeof value === 'string') {
+        const trimmed = value.trim()
+        if (trimmed === '') return null
+        try { JSON.parse(trimmed) } catch { return null }
+        return trimmed
+      }
+      // If it's an object, stringify it
+      if (typeof value === 'object') return JSON.stringify(value)
+    }
+    return value
   }
 
   private getTableName(entity: string) {
@@ -86,23 +109,19 @@ export class PostgresConnector implements IDataConnector {
 
     const tableName = this.getTableName(entity)
 
-    // Build parameterized query
     const params: unknown[] = [`${prefix}-%`]
     let paramIdx = 2
-    let query = `SELECT id FROM "${tableName}" WHERE id LIKE $1`
+    let queryText = `SELECT id FROM "${tableName}" WHERE id LIKE $1`
 
     if (this.tenantId) {
-      query += ` AND tenant_id = $${paramIdx}`
+      queryText += ` AND tenant_id = $${paramIdx}`
       params.push(this.tenantId)
       paramIdx++
     }
 
-    const result = await this.db.execute(sql.raw(query))
-    // drizzle returns { rows: [...] }
-    const rows = (result as any).rows ?? result
-    const ids = (Array.isArray(rows) ? rows : [])
+    const rows = await this.query(queryText, params)
 
-    const existing = ids
+    const existing = rows
       .map((r: any) => r.id)
       .filter((id: string) => typeof id === 'string' && id.startsWith(`${prefix}-`))
       .map((id: string) => parseInt(id.slice(prefix.length + 1), 10))
@@ -155,7 +174,14 @@ export class PostgresConnector implements IDataConnector {
     if (filters) {
       const legacyIdField = this.LEGACY_ID_MAP[entity]
       for (const [k, v] of Object.entries(filters)) {
-        if (k === 'active' && v === 'ALL') continue
+        if (k === 'active') {
+          if (v === 'ALL') continue
+          const activeVal = typeof v === 'string' ? v.toUpperCase() : String(v).toUpperCase()
+          whereClauses.push(`"active" = $${paramIdx}`)
+          params.push(activeVal)
+          paramIdx++
+          continue
+        }
         const queryKey = (k === legacyIdField) ? 'id' : k
         whereClauses.push(`"${queryKey}" = $${paramIdx}`)
         params.push(v)
@@ -167,19 +193,16 @@ export class PostgresConnector implements IDataConnector {
     const orderBySql = sortDesc ? 'ORDER BY created_at DESC' : 'ORDER BY created_at ASC'
     const offset = (page - 1) * limit
 
-    const query = `SELECT * FROM "${tableName}" ${whereSql} ${orderBySql} LIMIT ${limit} OFFSET ${offset}`
+    const dataQuery = `SELECT * FROM "${tableName}" ${whereSql} ${orderBySql} LIMIT ${limit} OFFSET ${offset}`
     const countQuery = `SELECT COUNT(*) as total FROM "${tableName}" ${whereSql}`
 
-    const [dataResult, countResult] = await Promise.all([
-      this.db.execute(sql.raw(query)),
-      this.db.execute(sql.raw(countQuery)),
+    const [dataRows, countRows] = await Promise.all([
+      this.query(dataQuery, params),
+      this.query(countQuery, params),
     ])
 
-    const dataRows = (dataResult as any).rows ?? dataResult
-    const countRows = (countResult as any).rows ?? countResult
-    const total = parseInt((Array.isArray(countRows) ? countRows[0]?.total : 0) ?? '0', 10)
-
-    const data = (Array.isArray(dataRows) ? dataRows : []).map((row: any) => this.formatRow(entity, row))
+    const total = parseInt(countRows[0]?.total ?? '0', 10)
+    const data = dataRows.map((row: any) => this.formatRow(entity, row))
 
     return { data, total, page, limit }
   }
@@ -188,26 +211,23 @@ export class PostgresConnector implements IDataConnector {
     const tableName = this.getTableName(entity)
     const params: unknown[] = [id]
     let paramIdx = 2
-    let query = `SELECT * FROM "${tableName}" WHERE id = $1`
+    let queryText = `SELECT * FROM "${tableName}" WHERE id = $1`
 
     if (this.tenantId) {
-      query += ` AND tenant_id = $${paramIdx}`
+      queryText += ` AND tenant_id = $${paramIdx}`
       params.push(this.tenantId)
       paramIdx++
     }
 
     if (this.branchId && !this.tenantScopedEntities.includes(entity)) {
-      query += ` AND branch_id = $${paramIdx}`
+      queryText += ` AND branch_id = $${paramIdx}`
       params.push(this.branchId)
       paramIdx++
     }
 
-    const result = await this.db.execute(sql.raw(query))
-    const rows = (result as any).rows ?? result
-    const resultRows = Array.isArray(rows) ? rows : []
-
-    if (resultRows.length === 0) return null
-    return this.formatRow(entity, resultRows[0])
+    const rows = await this.query(queryText, params)
+    if (rows.length === 0) return null
+    return this.formatRow(entity, rows[0])
   }
 
   async create(entity: string, data: Record<string, string>): Promise<Record<string, string>> {
@@ -240,10 +260,10 @@ export class PostgresConnector implements IDataConnector {
     const columns = Object.keys(insertData)
     const columnsSql = columns.map(k => `"${k}"`).join(', ')
     const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ')
-    const values = Object.values(insertData)
+    const values = columns.map(k => this.sanitizeValue(k, insertData[k]))
 
-    const query = `INSERT INTO "${tableName}" (${columnsSql}) VALUES (${placeholders})`
-    await this.db.execute(sql.raw(query))
+    const queryText = `INSERT INTO "${tableName}" (${columnsSql}) VALUES (${placeholders})`
+    await this.query(queryText, values)
 
     return this.formatRow(entity, insertData)
   }
@@ -264,7 +284,7 @@ export class PostgresConnector implements IDataConnector {
     for (const [k, v] of Object.entries(updateData)) {
       if (v !== undefined && k !== 'id') {
         setClauses.push(`"${k}" = $${paramIdx}`)
-        values.push(v)
+        values.push(this.sanitizeValue(k, v))
         paramIdx++
       }
     }
@@ -274,23 +294,23 @@ export class PostgresConnector implements IDataConnector {
       return existing as any
     }
 
-    let query = `UPDATE "${tableName}" SET ${setClauses.join(', ')} WHERE id = $${paramIdx}`
+    let queryText = `UPDATE "${tableName}" SET ${setClauses.join(', ')} WHERE id = $${paramIdx}`
     values.push(id)
     paramIdx++
 
     if (this.tenantId) {
-      query += ` AND tenant_id = $${paramIdx}`
+      queryText += ` AND tenant_id = $${paramIdx}`
       values.push(this.tenantId)
       paramIdx++
     }
 
     if (this.branchId && !this.tenantScopedEntities.includes(entity)) {
-      query += ` AND branch_id = $${paramIdx}`
+      queryText += ` AND branch_id = $${paramIdx}`
       values.push(this.branchId)
       paramIdx++
     }
 
-    await this.db.execute(sql.raw(query))
+    await this.query(queryText, values)
 
     const updated = await this.findById(entity, id)
     if (!updated) throw new Error(`${entity}/${id} not found after update`)
@@ -301,21 +321,21 @@ export class PostgresConnector implements IDataConnector {
     const tableName = this.getTableName(entity)
     const params: unknown[] = [id]
     let paramIdx = 2
-    let query = `UPDATE "${tableName}" SET active = 'FALSE' WHERE id = $1`
+    let queryText = `UPDATE "${tableName}" SET active = 'FALSE' WHERE id = $1`
 
     if (this.tenantId) {
-      query += ` AND tenant_id = $${paramIdx}`
+      queryText += ` AND tenant_id = $${paramIdx}`
       params.push(this.tenantId)
       paramIdx++
     }
 
     if (this.branchId && !this.tenantScopedEntities.includes(entity)) {
-      query += ` AND branch_id = $${paramIdx}`
+      queryText += ` AND branch_id = $${paramIdx}`
       params.push(this.branchId)
       paramIdx++
     }
 
-    await this.db.execute(sql.raw(query))
+    await this.query(queryText, params)
   }
 
   async batchCreate(entity: string, rows: Record<string, string>[]): Promise<Record<string, string>[]> {
@@ -369,14 +389,14 @@ export class PostgresConnector implements IDataConnector {
 
     for (const row of insertRows) {
       const ph = columns.map(k => {
-        allValues.push(row[k] ?? null)
+        allValues.push(this.sanitizeValue(k, row[k] ?? null))
         return `$${paramIdx++}`
       })
       rowPlaceholders.push(`(${ph.join(', ')})`)
     }
 
-    const query = `INSERT INTO "${tableName}" (${columnsSql}) VALUES ${rowPlaceholders.join(', ')}`
-    await this.db.execute(sql.raw(query))
+    const queryText = `INSERT INTO "${tableName}" (${columnsSql}) VALUES ${rowPlaceholders.join(', ')}`
+    await this.query(queryText, allValues)
 
     return insertRows.map(row => this.formatRow(entity, row))
   }

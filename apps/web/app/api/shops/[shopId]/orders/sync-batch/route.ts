@@ -9,6 +9,12 @@ import { RollbackContext } from '@oni/adapters'
 const INBOUND_TYPES = ['purchase_in', 'return_in', 'transfer_in']
 const OUTBOUND_TYPES = ['sale_out', 'transfer_out']
 
+function getGMT7Time() {
+  const d = new Date()
+  d.setUTCHours(d.getUTCHours() + 7)
+  return d.toISOString().replace('Z', '')
+}
+
 function calcDelta(type: string, qty: number): number {
   if (INBOUND_TYPES.includes(type)) return Math.abs(qty)
   if (OUTBOUND_TYPES.includes(type)) return -Math.abs(qty)
@@ -114,11 +120,26 @@ export async function POST(
         debt_amount:     String(order.debt_amount ?? 0),
         note:            order.note ?? '',
         reference_no:    local_order_id ?? '',
+        created_at:      getGMT7Time(),
       } as Record<string, string>)
       serverId = (created as Record<string, string>).order_id
       orderNo = (created as Record<string, string>).order_no ?? ''
       
       tx.add(async () => { await connector.delete('orders', serverId) })
+    } else {
+      // Update existing order totals when checking out from a session (TableMapPOS)
+      await connector.update('orders', serverId, {
+        status:          order.status,
+        customer_id:     order.customer_id   ?? '',
+        customer_name:   order.customer_name ?? '',
+        subtotal:        String(order.subtotal),
+        discount_amount: String(order.discount_amount),
+        tax_amount:      String(order.tax_amount),
+        total_amount:    String(order.total_amount),
+        paid_amount:     String(order.paid_amount),
+        debt_amount:     String(order.debt_amount ?? 0),
+        note:            order.note ?? '',
+      })
     }
 
     // If we reused an existing order and don't have order_no yet, fetch it
@@ -192,7 +213,7 @@ export async function POST(
           amount:       String(pay.amount),
           reference_no: pay.reference_no ?? '',
           note:         pay.note ?? '',
-          paid_at:      new Date().toISOString(),
+          paid_at:      getGMT7Time(),
         })
 
         if (pay.method !== 'debt') {
@@ -263,6 +284,7 @@ export async function POST(
         qty:          String(Math.abs(mv.qty)),
         branch_id:    mv.branch_id ?? '',
         reference_no: movRef,
+        created_at:   getGMT7Time(),
       })
     }
     if (movsToCreate.length > 0) {

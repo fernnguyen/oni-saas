@@ -262,7 +262,16 @@ export class GoogleSheetsConnector implements IDataConnector {
     const { page = 1, limit = 50, search, filters, sortDesc } = options
     const { tab, idKey } = this.getConfig(entity)
     const token = await this.tokenProvider()
-    const { headers, rows } = await readTab(token, this.sheetId, tab)
+    let headers: string[]
+    let rows: Record<string, string>[]
+    try {
+      const tabData = await readTab(token, this.sheetId, tab)
+      headers = tabData.headers
+      rows = tabData.rows
+    } catch {
+      // Tab doesn't exist yet — return empty results (will be auto-created on first write)
+      return { data: [], total: 0, page, limit }
+    }
 
     const hasActiveField = headers.includes('active')
     const hasBranchField = headers.includes('branch_id')
@@ -308,7 +317,15 @@ export class GoogleSheetsConnector implements IDataConnector {
   async findById(entity: string, id: string): Promise<Record<string, string> | null> {
     const { tab, idKey } = this.getConfig(entity)
     const token = await this.tokenProvider()
-    const { rows, headers } = await readTab(token, this.sheetId, tab)
+    let rows: Record<string, string>[]
+    let headers: string[]
+    try {
+      const tabData = await readTab(token, this.sheetId, tab)
+      rows = tabData.rows
+      headers = tabData.headers
+    } catch {
+      return null
+    }
     const row = rows.find(r => r[idKey] === id) ?? null
 
     const hasBranchField = headers.includes('branch_id')

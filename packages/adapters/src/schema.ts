@@ -32,6 +32,8 @@ export const orders = mysqlTable('orders', {
   payment_method: varchar('payment_method', { length: 50 }),
   reference_no: varchar('reference_no', { length: 255 }),
   print_count: varchar('print_count', { length: 10 }),
+  resource_id: varchar('resource_id', { length: 255 }),
+  metadata: json('metadata'),
 });
 
 export const orderItems = mysqlTable('order_items', {
@@ -167,6 +169,8 @@ export const stock_movements = mysqlTable('stock_movements', {
   payment_status: varchar('payment_status', { length: 50 }),
   paid_amount: varchar('paid_amount', { length: 50 }),
   payment_method: varchar('payment_method', { length: 50 }),
+  discount: varchar('discount', { length: 50 }),
+  payments: json('payments'),
 });
 
 export const price_lists = mysqlTable('price_lists', {
