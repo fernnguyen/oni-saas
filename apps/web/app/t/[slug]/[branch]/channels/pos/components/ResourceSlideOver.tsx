@@ -130,6 +130,7 @@ export function ResourceSlideOver({
   const [transferSearch, setTransferSearch] = useState('')
   const [splitModalOpen, setSplitModalOpen] = useState(false)
   const [mergeModalOpen, setMergeModalOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
   const [splitSelectedItems, setSplitSelectedItems] = useState<Set<string>>(new Set())
   const [transferring, setTransferring] = useState(false)
   
@@ -750,7 +751,45 @@ export function ResourceSlideOver({
               </div>
             </div>
           </div>
-          <button onClick={onClose} className="rounded-xl p-2 hover:bg-slate-100 text-slate-400">✕</button>
+          <div className="flex items-center gap-2">
+            {isOccupied && (
+              <div className="relative">
+                <button 
+                  onClick={() => setMenuOpen(!menuOpen)}
+                  className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors flex items-center gap-1.5 shadow-sm"
+                >
+                  Thao tác
+                  <svg className={`w-3 h-3 transition-transform ${menuOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                </button>
+                {menuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+                    <div className="absolute right-0 top-full mt-1.5 w-44 rounded-xl border border-slate-100 bg-white shadow-xl z-50 overflow-hidden py-1">
+                      <button 
+                        onClick={() => { setTransferModalOpen(true); setMenuOpen(false) }}
+                        className="w-full px-4 py-2.5 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                      >
+                        <span className="text-base leading-none">🔄</span> Chuyển {tpl.label.toLowerCase()}
+                      </button>
+                      <button 
+                        onClick={() => { setSplitModalOpen(true); setMenuOpen(false) }}
+                        className="w-full px-4 py-2.5 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                      >
+                        <span className="text-base leading-none">✂️</span> Tách {tpl.label.toLowerCase()}
+                      </button>
+                      <button 
+                        onClick={() => { setMergeModalOpen(true); setMenuOpen(false) }}
+                        className="w-full px-4 py-2.5 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                      >
+                        <span className="text-base leading-none">🔗</span> Gộp {tpl.label.toLowerCase()}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+            <button onClick={onClose} className="rounded-xl p-2 hover:bg-slate-100 text-slate-400">✕</button>
+          </div>
         </div>
 
         {/* Content Area */}
@@ -1252,17 +1291,6 @@ export function ResourceSlideOver({
             </button>
           ) : (
             <div className="flex flex-col gap-3">
-              <div className="grid grid-cols-3 gap-2">
-                <button onClick={() => setTransferModalOpen(true)} className="rounded-xl border border-slate-200 bg-white py-2 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition-colors">
-                  🔄 Chuyển {tpl.label.toLowerCase()}
-                </button>
-                <button onClick={() => setSplitModalOpen(true)} className="rounded-xl border border-slate-200 bg-white py-2 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition-colors">
-                  ✂️ Tách
-                </button>
-                <button onClick={() => setMergeModalOpen(true)} className="rounded-xl border border-slate-200 bg-white py-2 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition-colors">
-                  🔗 Gộp
-                </button>
-              </div>
               <div className="flex gap-3">
                 {cartItems.length > 0 ? (
                 <button
