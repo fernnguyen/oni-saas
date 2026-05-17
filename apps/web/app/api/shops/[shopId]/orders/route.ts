@@ -56,8 +56,21 @@ export async function POST(
     const body = await req.json()
     const data = orderCreateSchema.parse(body)
 
+    let finalCustomerId = data.customer_id ?? ''
+    
+    // Auto-create customer if name is provided but no ID
+    if (!finalCustomerId && data.customer_name) {
+      const meta = typeof data.metadata === 'string' ? JSON.parse(data.metadata || '{}') : (data.metadata || {})
+      const newCustomer = await connector.create('customers', {
+        name: data.customer_name,
+        phone: meta.customer_phone || ''
+      })
+      finalCustomerId = (newCustomer as Record<string, string>).customer_id || ''
+    }
+
     const created = await connector.create('orders', {
       ...data,
+      customer_id: finalCustomerId,
       created_at: getGMT7Time()
     })
     invalidate(shopId, 'orders')

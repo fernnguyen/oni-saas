@@ -194,46 +194,80 @@ export function TableMapPOS({
       ) : (
         Array.from(zones.entries()).map(([zone, items]) => (
           <div key={zone}>
-            <h3 className="text-sm font-semibold text-slate-700 mb-2">{zone}</h3>
+            <div className="flex items-center gap-2 mb-3">
+              <h3 className="text-sm font-semibold text-slate-700">{zone}</h3>
+              <span className="text-xs text-slate-400">{items.length} vị trí</span>
+            </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
               {items.sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0)).map(r => {
                 const st = STATUS_CARDS[r.status] ?? STATUS_CARDS.available
+                const rmd = safeParseJSON(r.metadata)
+                const isRoomType = r.type === 'room'
                 return (
                   <button
                     key={r.id}
                     onClick={() => handleResourceClick(r)}
-                    className={`rounded-2xl border-2 p-4 text-left transition-all ${st.border} ${st.bg} cursor-pointer hover:shadow-md`}
+                    className={`group relative rounded-2xl border p-4 text-left transition-all hover:shadow-lg cursor-pointer overflow-hidden ${
+                      r.status === 'occupied' ? 'border-red-300 bg-gradient-to-br from-red-50 to-rose-50 shadow-sm'
+                      : r.status === 'reserved' ? 'border-blue-300 bg-gradient-to-br from-blue-50 to-indigo-50 shadow-sm'
+                      : r.status === 'cleaning' ? 'border-amber-300 bg-gradient-to-br from-amber-50 to-yellow-50 shadow-sm'
+                      : 'border-slate-200 bg-gradient-to-br from-white to-slate-50 hover:border-primary/40'
+                    }`}
                   >
-                    {/* Status dot + label */}
-                    <div className="flex items-center justify-between mb-2">
-                      <span className={`inline-flex items-center gap-1 rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-semibold`}>
+                    {/* Status indicator bar */}
+                    <div className={`absolute top-0 left-0 right-0 h-1 ${
+                      r.status === 'occupied' ? 'bg-gradient-to-r from-red-400 to-rose-500'
+                      : r.status === 'reserved' ? 'bg-gradient-to-r from-blue-400 to-indigo-500'
+                      : r.status === 'cleaning' ? 'bg-gradient-to-r from-amber-400 to-yellow-500'
+                      : 'bg-gradient-to-r from-green-400 to-emerald-500'
+                    }`} />
+
+                    {/* Header */}
+                    <div className="flex items-start justify-between mb-2 mt-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-lg">{isRoomType ? '🛏️' : r.type === 'court' ? '🏸' : '🪑'}</span>
+                        <p className="text-sm font-bold text-slate-800 truncate">{r.name}</p>
+                      </div>
+                      <span className={`inline-flex items-center gap-1 rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-semibold ${st.text || 'text-slate-700'}`}>
                         <span className={`h-1.5 w-1.5 rounded-full ${st.dot} ${r.status === 'occupied' ? 'animate-pulse' : ''}`} />
                         {st.label}
                       </span>
-                      <span className="text-[10px] text-slate-400">{r.type === 'room' ? '🛏' : r.type === 'court' ? '🏸' : '🍽'}</span>
                     </div>
 
-                    {/* Name */}
-                    <p className="text-sm font-bold text-slate-800 truncate">{r.name}</p>
-
-                    {/* Meta */}
-                    <div className="mt-1.5 flex items-center gap-2 text-[11px] text-slate-400">
-                      {r.capacity && <span>👤 {r.capacity}</span>}
-                      {hasHourlyBilling && Number(r.hourly_rate) > 0 && (
-                        <span>{Number(r.hourly_rate).toLocaleString('vi-VN')}₫/h</span>
+                    {/* Meta info */}
+                    <div className="space-y-1 text-[11px] text-slate-500">
+                      {r.capacity && <div className="flex items-center gap-1"><span>👤</span> <span>{r.capacity} người</span></div>}
+                      {hasHourlyBilling && r.hourly_rate && Number(r.hourly_rate) > 0 && (
+                        <div className="flex items-center gap-1"><span>⏱️</span> <span className="font-semibold text-slate-700">{Number(r.hourly_rate).toLocaleString('vi-VN')}₫/h</span></div>
+                      )}
+                      {isRoomType && rmd.overnight_rate && (
+                        <div className="flex items-center gap-1"><span>🌙</span> <span className="font-semibold text-slate-700">{Number(rmd.overnight_rate).toLocaleString('vi-VN')}₫/đêm</span></div>
+                      )}
+                      {isRoomType && rmd.room_class && (
+                        <div className="flex items-center gap-1"><span>⭐</span> <span className="capitalize">{rmd.room_class}</span></div>
                       )}
                     </div>
 
+                    {/* Amenities chips */}
+                    {isRoomType && rmd.amenities?.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {rmd.amenities.slice(0, 3).map((a: string) => (
+                          <span key={a} className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] text-slate-500">{a}</span>
+                        ))}
+                        {rmd.amenities.length > 3 && <span className="text-[9px] text-slate-400">+{rmd.amenities.length - 3}</span>}
+                      </div>
+                    )}
+
                     {/* Occupied: show timer */}
                     {r.status === 'occupied' && r.current_order_id && (
-                      <div className="mt-2 rounded-lg bg-red-100/80 px-2 py-1 text-center">
+                      <div className="mt-3 rounded-lg bg-red-100/80 px-2 py-1.5 text-center transition-colors group-hover:bg-red-200/80">
                         <p className="text-[11px] font-medium text-red-700">Bấm để xem / order</p>
                       </div>
                     )}
 
                     {/* Cleaning: click hint */}
                     {r.status === 'cleaning' && (
-                      <div className="mt-2 rounded-lg bg-amber-100/80 px-2 py-1 text-center">
+                      <div className="mt-3 rounded-lg bg-amber-100/80 px-2 py-1.5 text-center transition-colors group-hover:bg-amber-200/80">
                         <p className="text-[11px] font-medium text-amber-700">Bấm để đánh dấu sẵn sàng</p>
                       </div>
                     )}
@@ -259,4 +293,9 @@ export function TableMapPOS({
       />
     </div>
   )
+}
+
+function safeParseJSON(str?: string): Record<string, any> {
+  if (!str) return {}
+  try { return JSON.parse(str) } catch { return {} }
 }

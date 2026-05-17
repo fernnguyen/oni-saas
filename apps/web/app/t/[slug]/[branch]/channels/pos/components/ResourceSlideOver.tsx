@@ -163,6 +163,17 @@ export function ResourceSlideOver({
       setOrder(null)
       setExistingItems([])
       setCartItems([])
+      setGuests([{
+        id: Date.now(), name: '', gender: '', dob: '', id_type: 'CCCD',
+        id_number: '', expiry_date: '', nationality: 'Việt Nam', address: '', note: '', is_child: false
+      }])
+      setBookingSource('Khách lẻ (Walk-in)')
+      setExpectedCheckout('')
+      setNote('')
+      setNumGuests('1')
+      const now = new Date()
+      setCheckInTime(`${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`)
+      
       fetchOrder()
       setCustomCheckoutTime('')
       setIsEditingCheckout(false)

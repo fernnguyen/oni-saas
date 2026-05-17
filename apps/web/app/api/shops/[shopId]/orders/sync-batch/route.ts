@@ -104,12 +104,24 @@ export async function POST(
     }
 
     let isNewOrder = false
+    let finalCustomerId = order.customer_id ?? ''
+
+    // Auto-create customer if name is provided but no ID
+    if (!finalCustomerId && order.customer_name) {
+      const meta = typeof order.metadata === 'string' ? JSON.parse(order.metadata || '{}') : (order.metadata || {})
+      const newCustomer = await connector.create('customers', {
+        name: order.customer_name,
+        phone: meta.customer_phone || ''
+      })
+      finalCustomerId = (newCustomer as Record<string, string>).customer_id || ''
+    }
+
     if (!serverId) {
       isNewOrder = true
       const createData: Record<string, string> = {
         status:          order.status,
         channel:         'pos',
-        customer_id:     order.customer_id   ?? '',
+        customer_id:     finalCustomerId,
         customer_name:   order.customer_name ?? '',
         branch_id:       order.branch_id     ?? '',
         employee_id:     order.employee_id   ?? '',
@@ -135,7 +147,7 @@ export async function POST(
       // Update existing order totals when checking out from a session (TableMapPOS)
       const updateData: Record<string, string> = {
         status:          order.status,
-        customer_id:     order.customer_id   ?? '',
+        customer_id:     finalCustomerId,
         customer_name:   order.customer_name ?? '',
         subtotal:        String(order.subtotal),
         discount_amount: String(order.discount_amount),
