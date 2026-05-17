@@ -34,7 +34,10 @@ export async function POST(
     const currentPaid = Number(order.paid_amount || '0')
     const newPaidAmount = currentPaid + payAmount
 
+    const paymentId = `PAY-${Date.now()}-${Math.floor(Math.random()*1000)}`
+
     const payData = {
+      id: paymentId,
       order_id: orderId,
       order_no: order.order_no || '',
       method: method,

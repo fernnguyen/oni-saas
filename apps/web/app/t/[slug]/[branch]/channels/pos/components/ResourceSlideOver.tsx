@@ -308,7 +308,7 @@ export function ResourceSlideOver({
     
     const ok = await confirm({
       title: 'Xác nhận thu tiền',
-      body: `Khoản thu đợt ${fmtVND(amt)} sẽ lập tức được ghi nhận vào Sổ Quỹ. Bạn có chắc chắn?`,
+      body: `Khoản thu đợt ${fmtVND(amt)} sẽ lập tức được ghi nhận vào Sổ Quỹ. Hệ thống sẽ tạo phiếu thu ${fmtVND(amt)} cho lần thanh toán này. Bạn có chắc chắn?`,
       confirmLabel: 'Xác nhận thu',
       cancelLabel: 'Hủy'
     })

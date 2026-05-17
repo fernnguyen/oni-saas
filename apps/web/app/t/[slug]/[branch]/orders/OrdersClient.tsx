@@ -41,6 +41,7 @@ const STATUS_OPTIONS = [
   { value: 'draft', label: 'Nháp' },
   { value: 'confirmed', label: 'Đã xác nhận' },
   { value: 'processing', label: 'Đang xử lý' },
+  { value: 'in_progress', label: 'Đang sử dụng' },
   { value: 'completed', label: 'Hoàn thành' },
   { value: 'returning', label: 'Đang trả hàng' },
   { value: 'cancelled', label: 'Đã hủy' },
@@ -70,6 +71,7 @@ function statusColor(s: string): TagColor {
   if (s === 'draft') return 'yellow'
   if (s === 'confirmed') return 'blue'
   if (s === 'processing') return 'orange'
+  if (s === 'in_progress') return 'blue'
   if (s === 'returning') return 'yellow'
   if (s === 'partially_refunded') return 'purple'
   if (s === 'refunded') return 'gray'
@@ -187,6 +189,37 @@ export function OrdersClient({ shopId, shopName }: Props) {
     },
     enabled: !!selectedOrder,
   })
+
+  // Cashbook (lazy — only when detail open)
+  const { data: cashbookData } = useQuery({
+    queryKey: ['cashbook', shopId, selectedOrder?.order_id],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/cashbook?reference_id=${selectedOrder!.order_id}&limit=100`)
+      if (!res.ok) throw new Error('Không tải được phiếu quỹ')
+      return res.json() as Promise<{ data: Row[] }>
+    },
+    enabled: !!selectedOrder,
+  })
+
+  const paymentCbMap = useMemo(() => {
+    const map = new Map<string, string>()
+    const usedCb = new Set<string>()
+    for (const p of (paymentsData?.data ?? [])) {
+      const cbMatch = (cashbookData?.data ?? []).find(cb => {
+        const cbId = cb.id || cb.transaction_id
+        if (usedCb.has(cbId)) return false
+        return Math.abs(Number(cb.amount)) === Math.abs(Number(p.amount)) && 
+               cb.method === p.method && 
+               (Number(p.amount) < 0 ? cb.type === 'expense' : cb.type === 'receipt')
+      })
+      if (cbMatch) {
+        const cbId = cbMatch.id || cbMatch.transaction_id
+        usedCb.add(cbId)
+        map.set(p.payment_id || p.id, cbId)
+      }
+    }
+    return map
+  }, [paymentsData, cashbookData])
 
   // Returns history for order (lazy)
   const { data: orderReturnsData } = useQuery({
@@ -496,7 +529,7 @@ export function OrdersClient({ shopId, shopName }: Props) {
           >
             <Printer className="h-3.5 w-3.5" /> In
           </button>
-          {row.status !== 'cancelled' && (
+          {row.status !== 'cancelled' && row.status !== 'in_progress' && (
             <button
               onClick={() => setCancelTarget(row)}
               className="flex items-center gap-1.5 rounded-lg border border-red-100 px-3 py-1 text-xs text-red-500 hover:bg-red-50"
@@ -597,7 +630,14 @@ export function OrdersClient({ shopId, shopName }: Props) {
               {selectedOrder?.status === 'completed' || selectedOrder?.status === 'partially_refunded' ? (
                 <button
                   onClick={() => {
-                    setShowReturnForm((v) => !v)
+                    setShowReturnForm((v) => {
+                      if (!v) {
+                        setTimeout(() => {
+                          document.getElementById('return-section')?.scrollIntoView({ behavior: 'smooth' })
+                        }, 100)
+                      }
+                      return !v
+                    })
                     setReturnReason('other')
                     setReturnRefundMethod('cash')
                     setReturnNote('')
@@ -786,16 +826,31 @@ export function OrdersClient({ shopId, shopName }: Props) {
                 <p className="text-sm text-slate-400">Chưa có thanh toán</p>
               ) : (
                 <div className="space-y-2">
-                  {(paymentsData?.data ?? []).map((p) => (
-                    <div key={p.payment_id} className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2 text-sm">
-                      <div>
-                        <span className="font-medium text-slate-900">{METHOD_LABEL[p.method] ?? p.method}</span>
-                        {p.reference_no && <span className="ml-2 text-slate-500">#{p.reference_no}</span>}
-                        {p.note && <span className="ml-2 text-slate-400">— {p.note}</span>}
+                  {(paymentsData?.data ?? []).map((p) => {
+                    const cbId = paymentCbMap.get(p.payment_id || p.id)
+                    return (
+                      <div key={p.payment_id || p.id} className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2 text-sm">
+                        <div>
+                          <span className="font-medium text-slate-900">{METHOD_LABEL[p.method] ?? p.method}</span>
+                          {cbId && (
+                            <span 
+                              className="ml-2 cursor-pointer text-xs font-mono text-slate-500 hover:text-slate-700" 
+                              title="Nhấn để sao chép mã" 
+                              onClick={() => { 
+                                navigator.clipboard.writeText(cbId)
+                                toast.success('Đã copy mã: ' + cbId) 
+                              }}
+                            >
+                              (#{cbId.split('-')[0] + '-' + (cbId.split('-')[1] || '')})
+                            </span>
+                          )}
+                          {p.reference_no && <span className="ml-2 text-slate-500">#{p.reference_no}</span>}
+                          {p.note && <span className="ml-2 text-slate-400">— {p.note}</span>}
+                        </div>
+                        <span className={`font-semibold ${Number(p.amount) < 0 ? 'text-red-600' : 'text-green-700'}`}>{fmtVND(p.amount)}</span>
                       </div>
-                      <span className="font-semibold text-green-700">{fmtVND(p.amount)}</span>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
 
@@ -869,10 +924,10 @@ export function OrdersClient({ shopId, shopName }: Props) {
               )}
             </div>
 
-            {/* Quick return form */}
+            {/* Return form */}
             {showReturnForm && (
-              <div className="rounded-xl border border-orange-200 bg-orange-50 p-4 space-y-4">
-                <p className="text-sm font-semibold text-orange-800">Tạo phiếu trả hàng</p>
+              <div id="return-section" className="mt-4 space-y-4 rounded-xl border border-orange-200 bg-orange-50 p-4">
+                <h3 className="font-semibold text-orange-800">Tạo phiếu trả hàng</h3>
                 <p className="text-xs text-orange-600">
                   Chọn các sản phẩm và số lượng muốn trả lại.
                 </p>
