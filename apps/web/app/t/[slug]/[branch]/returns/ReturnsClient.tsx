@@ -256,14 +256,14 @@ export function ReturnsClient({ shopId }: Props) {
       render: (row) => (
         <div className="flex items-center gap-2">
           <button
-            className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50"
+            className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:bg-slate-50 transition-colors"
             onClick={() => setSelected(row)}
           >
             <Eye className="h-3.5 w-3.5" /> Xem
           </button>
           {row.status !== 'processed' && (
             <button
-              className="flex items-center gap-1.5 rounded-lg border border-red-100 px-3 py-1 text-xs text-red-500 hover:bg-red-50"
+              className="flex items-center gap-1.5 rounded-lg border border-red-100 bg-white px-3 py-1.5 text-xs font-medium text-red-500 shadow-sm hover:bg-red-50 transition-colors"
               onClick={() => setDeleteTarget(row)}
             >
               <Trash2 className="h-3.5 w-3.5" /> Xóa

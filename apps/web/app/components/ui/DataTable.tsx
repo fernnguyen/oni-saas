@@ -150,9 +150,9 @@ export function DataTable<T extends object>({
   const isEmpty = !loading && sortedData.length === 0
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-      <table className="min-w-full divide-y divide-slate-200 text-sm">
-        <thead className="sticky top-0 z-10 bg-slate-50 text-slate-600">
+    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+      <table className="min-w-full text-sm">
+        <thead className="sticky top-0 z-10 bg-slate-50 text-slate-500 border-b border-slate-200">
           <tr>
             {selectable && (
               <th className="px-4 py-3" style={{ width: 40 }}>
@@ -191,7 +191,7 @@ export function DataTable<T extends object>({
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-100 bg-white">
+        <tbody className="bg-white">
           {loading ? (
             <SkeletonRows
               columns={effectiveColumns as Column<unknown>[]}
@@ -215,7 +215,7 @@ export function DataTable<T extends object>({
                 <tr
                   key={key}
                   className={[
-                    'hover:bg-slate-50',
+                    'border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors',
                     selected.has(key) ? 'bg-blue-50' : '',
                   ].join(' ')}
                 >
@@ -279,7 +279,7 @@ function PaginationInline({
         <button
           disabled={page <= 1}
           onClick={() => onChange(page - 1)}
-          className="rounded-lg px-2 py-1 text-sm text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm text-slate-600 shadow-sm hover:bg-slate-50 transition-colors disabled:cursor-not-allowed disabled:opacity-40"
         >
           ←
         </button>
@@ -293,10 +293,10 @@ function PaginationInline({
               key={p}
               onClick={() => onChange(p as number)}
               className={[
-                'min-w-[32px] rounded-lg px-2 py-1 text-sm',
+                'min-w-[32px] rounded-lg border border-slate-200 px-2 py-1 text-sm shadow-sm transition-colors',
                 p === page
-                  ? 'bg-primary text-white'
-                  : 'text-slate-700 hover:bg-slate-100',
+                  ? 'bg-primary text-white border-primary'
+                  : 'bg-white text-slate-700 hover:bg-slate-50',
               ].join(' ')}
             >
               {p}
@@ -306,7 +306,7 @@ function PaginationInline({
         <button
           disabled={page >= totalPages}
           onClick={() => onChange(page + 1)}
-          className="rounded-lg px-2 py-1 text-sm text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm text-slate-600 shadow-sm hover:bg-slate-50 transition-colors disabled:cursor-not-allowed disabled:opacity-40"
         >
           →
         </button>

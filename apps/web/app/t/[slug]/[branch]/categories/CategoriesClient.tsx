@@ -106,7 +106,7 @@ export function CategoriesClient({ shopId }: Props) {
         <div className="flex items-center gap-2">
           <button
             onClick={() => openEdit(row)}
-            className="rounded-lg border border-slate-200 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50"
+            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:bg-slate-50 transition-colors"
           >
             Sửa
           </button>

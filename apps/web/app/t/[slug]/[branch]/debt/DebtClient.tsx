@@ -106,7 +106,7 @@ export function DebtClient({ shopId }: Props) {
         <div className="flex items-center gap-2 justify-end">
           <button
             onClick={() => openCollect(row)}
-            className="rounded-lg bg-primary px-4 py-1.5 text-xs font-medium text-white hover:bg-primary-dark"
+            className="rounded-xl bg-primary px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-primary-dark transition-all"
           >
             {tab === 'supplier' ? 'Trả nợ' : 'Thu nợ'}
           </button>

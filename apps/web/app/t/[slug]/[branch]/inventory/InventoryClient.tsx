@@ -611,7 +611,7 @@ export function InventoryClient({ shopId }: Props) {
       render: (row) => (
         <button
           onClick={() => setViewMovement(row)}
-          className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50"
+          className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:bg-slate-50 transition-colors"
         >
           <Eye className="h-3.5 w-3.5" /> Xem
         </button>

@@ -515,7 +515,7 @@ export function OrdersClient({ shopId, shopName }: Props) {
         <div className="flex items-center gap-2">
           <button
             onClick={() => openDetail(row)}
-            className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50"
+            className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:bg-slate-50 transition-colors"
           >
             <Eye className="h-3.5 w-3.5" /> Xem
           </button>
@@ -527,14 +527,14 @@ export function OrdersClient({ shopId, shopName }: Props) {
                 handleReprint(row)
               }
             }}
-            className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50"
+            className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:bg-slate-50 transition-colors"
           >
             <Printer className="h-3.5 w-3.5" /> In
           </button>
           {row.status !== 'cancelled' && row.status !== 'in_progress' && (
             <button
               onClick={() => setCancelTarget(row)}
-              className="flex items-center gap-1.5 rounded-lg border border-red-100 px-3 py-1 text-xs text-red-500 hover:bg-red-50"
+              className="flex items-center gap-1.5 rounded-lg border border-red-100 bg-white px-3 py-1.5 text-xs font-medium text-red-500 shadow-sm hover:bg-red-50 transition-colors"
             >
               <Ban className="h-3.5 w-3.5" /> Hủy
             </button>
@@ -646,7 +646,7 @@ export function OrdersClient({ shopId, shopName }: Props) {
                     setReturnRefundAmount('')
                     setReturnItems({})
                   }}
-                  className="flex items-center gap-1.5 rounded-xl border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-medium text-orange-700 hover:bg-orange-100"
+                  className="flex items-center gap-1.5 rounded-xl border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-medium text-orange-700 shadow-sm hover:bg-orange-100 transition-colors"
                 >
                   <RotateCcw className="h-4 w-4" /> Tạo phiếu trả
                 </button>

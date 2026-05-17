@@ -96,7 +96,7 @@ export default async function BillingPage({ params }: Props) {
             <p className="mt-1 text-sm text-slate-500">Quản lý các gói dịch vụ và xem lịch sử giao dịch.</p>
           </div>
           <div>
-            <button className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors">
+            <button className="rounded-xl bg-primary px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-primary-dark transition-all focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors">
               Nâng cấp gói dịch vụ
             </button>
           </div>
