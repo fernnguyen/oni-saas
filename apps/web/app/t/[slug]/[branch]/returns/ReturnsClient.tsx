@@ -679,7 +679,7 @@ export function ReturnsClient({ shopId }: Props) {
       <ConfirmDialog
         open={confirmAction === 'process'}
         title="Xử lý & nhập kho"
-        description={`Xử lý phiếu trả hàng ${selected?.return_no || ''}? Hành động này sẽ tự động nhập lại sản phẩm vào kho, ghi nhận hoàn tiền (Sổ quỹ), và cập nhật trạng thái đơn hàng gốc.`}
+        description={`Xử lý phiếu trả hàng ${selected?.return_id || ''}? Hành động này sẽ tự động nhập lại sản phẩm vào kho, ghi nhận hoàn tiền (Sổ quỹ), và cập nhật trạng thái đơn hàng gốc.`}
         confirmLabel="Xử lý"
         loading={processMutation.isPending}
         onConfirm={() => {
