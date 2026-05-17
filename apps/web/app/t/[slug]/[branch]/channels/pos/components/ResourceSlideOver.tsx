@@ -132,6 +132,10 @@ export function ResourceSlideOver({
   const [mergeModalOpen, setMergeModalOpen] = useState(false)
   const [splitSelectedItems, setSplitSelectedItems] = useState<Set<string>>(new Set())
   const [transferring, setTransferring] = useState(false)
+  
+  const [editCustomerModalOpen, setEditCustomerModalOpen] = useState(false)
+  const [editCustomerValue, setEditCustomerValue] = useState<LocalCustomer | null>(null)
+  const [updatingCustomer, setUpdatingCustomer] = useState(false)
 
   const meta = safeParse(resource.metadata)
   const isRoom = resource.type === 'room'
@@ -494,14 +498,16 @@ export function ResourceSlideOver({
       })
       // 3. Update order metadata
       const newOrderMeta = { ...(safeParse(order.metadata)), resource_id: targetId, resource_name: targetResource?.name }
-      await fetch(`/api/shops/${shopId}/orders/${order.id}`, {
-        method: 'PATCH',
+      const res = await fetch(`/api/shops/${shopId}/orders/${order.id}`, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ metadata: JSON.stringify(newOrderMeta) }),
       })
+      if (!res.ok) throw new Error()
 
       toast.success(`Đã chuyển sang ${targetResource?.name}`)
       setTransferModalOpen(false)
+      fetchingRef.current = ''
       onRefresh?.()
       onClose()
     } catch {
@@ -586,6 +592,7 @@ export function ResourceSlideOver({
       toast.success(`Đã tách sang ${targetResource?.name}`)
       setSplitModalOpen(false)
       setSplitSelectedItems(new Set())
+      fetchingRef.current = ''
       fetchOrder()
       onRefresh?.()
     } catch {
@@ -629,11 +636,12 @@ export function ResourceSlideOver({
 
       // 3. Update current order totals
       const newSubtotal = combinedItems.reduce((acc, it) => acc + Number(it.line_total), 0)
-      await fetch(`/api/shops/${shopId}/orders/${order.id}`, {
-        method: 'PATCH',
+      const mergeRes = await fetch(`/api/shops/${shopId}/orders/${order.id}`, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ subtotal: String(newSubtotal), total_amount: String(newSubtotal) })
       })
+      if (!mergeRes.ok) throw new Error()
 
       // 4. Cancel source order
       await fetch(`/api/shops/${shopId}/orders/${sourceResource.current_order_id}/cancel`, { method: 'POST' })
@@ -647,12 +655,40 @@ export function ResourceSlideOver({
 
       toast.success(`Đã gộp từ ${sourceResource.name}`)
       setMergeModalOpen(false)
+      fetchingRef.current = ''
       fetchOrder()
       onRefresh?.()
     } catch {
       toast.error('Lỗi khi gộp')
     } finally {
       setTransferring(false)
+    }
+  }
+
+  async function handleUpdateCustomer() {
+    if (!order) return
+    setUpdatingCustomer(true)
+    try {
+      const newMeta = { ...orderMeta, customer_phone: editCustomerValue?.phone || '' }
+      const res = await fetch(`/api/shops/${shopId}/orders/${order.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customer_id: editCustomerValue?.customer_id?.startsWith('virtual:') ? '' : (editCustomerValue?.customer_id || ''),
+          customer_name: editCustomerValue?.name || 'Khách lẻ',
+          metadata: JSON.stringify(newMeta)
+        })
+      })
+      if (!res.ok) throw new Error()
+      
+      toast.success('Đã cập nhật khách hàng')
+      setEditCustomerModalOpen(false)
+      fetchingRef.current = ''
+      fetchOrder()
+    } catch {
+      toast.error('Lỗi khi cập nhật')
+    } finally {
+      setUpdatingCustomer(false)
     }
   }
 
@@ -893,7 +929,22 @@ export function ResourceSlideOver({
                           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shrink-0">
                             <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-3">
                               <div>
-                                <p className="text-xs text-slate-500 mb-0.5">Khách hàng</p>
+                                <div className="flex items-center gap-2 mb-0.5">
+                                  <p className="text-xs text-slate-500">Khách hàng</p>
+                                  <button 
+                                    onClick={() => { 
+                                      setEditCustomerValue((order?.customer_name && order.customer_name !== 'Khách lẻ') ? { 
+                                        customer_id: order.customer_id || '', 
+                                        name: order.customer_name, 
+                                        phone: orderMeta?.customer_phone || '' 
+                                      } : null)
+                                      setEditCustomerModalOpen(true) 
+                                    }} 
+                                    className="text-[10px] font-semibold text-primary hover:underline"
+                                  >
+                                    Thay đổi
+                                  </button>
+                                </div>
                                 <p className="text-sm font-bold text-slate-900">
                                   {order?.customer_name || 'Khách lẻ'}
                                   {orderMeta?.customer_phone && <span className="font-normal text-slate-500 ml-1">({orderMeta.customer_phone})</span>}
@@ -1422,6 +1473,38 @@ export function ResourceSlideOver({
                   ))}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Customer Modal */}
+      {editCustomerModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl flex flex-col max-h-[80vh]">
+            <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4 shrink-0">
+              <h3 className="text-lg font-bold text-slate-900">Cập nhật Khách hàng</h3>
+              <button onClick={() => setEditCustomerModalOpen(false)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors">
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5 space-y-5">
+              <CustomerSearch selected={editCustomerValue} onSelect={setEditCustomerValue} />
+              
+              <div className="pt-2">
+                <button
+                  onClick={() => setEditCustomerValue(null)}
+                  className="w-full rounded-xl border border-dashed border-slate-300 py-3 text-sm font-medium text-slate-600 hover:border-slate-400 hover:bg-slate-50 transition-colors"
+                >
+                  Gán Khách lẻ (Mặc định)
+                </button>
+              </div>
+            </div>
+            <div className="p-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex gap-3">
+              <button onClick={() => setEditCustomerModalOpen(false)} className="flex-1 rounded-xl bg-white border border-slate-200 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors">Hủy</button>
+              <button onClick={handleUpdateCustomer} disabled={updatingCustomer} className="flex-1 rounded-xl bg-primary py-3 text-sm font-bold text-white hover:bg-primary-dark disabled:opacity-50 transition-colors">
+                {updatingCustomer ? 'Đang lưu...' : 'Lưu thay đổi'}
+              </button>
             </div>
           </div>
         </div>

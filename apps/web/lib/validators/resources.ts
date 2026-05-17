@@ -68,7 +68,7 @@ export const resourceCreateSchema = z.object({
 export const resourceUpdateSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   type: z.enum(['table', 'court', 'room']).optional(),
-  status: z.enum(['available', 'occupied', 'cleaning', 'reserved']).optional(),
+  status: z.enum(['available', 'occupied', 'cleaning', 'reserved', 'deleted']).optional(),
   current_order_id: z.string().optional(),
   zone: z.string().max(100).optional(),
   capacity: z.string().optional(),
