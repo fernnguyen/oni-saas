@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { toast } from 'sonner'
 import {
   localDb,
@@ -36,6 +36,7 @@ interface Props {
   metadata?: Record<string, any>
   orderPaidAmount?: number
   customCheckoutTime?: string
+  hourlyRate?: number
 }
 
 const METHODS = [
@@ -91,6 +92,7 @@ export function CheckoutModal({
   metadata,
   orderPaidAmount = 0,
   customCheckoutTime,
+  hourlyRate = 0,
 }: Props) {
   const [localCustomer, setLocalCustomer] = useState(customer)
   const [payments, setPayments] = useState<PaymentRow[]>([
@@ -105,7 +107,27 @@ export function CheckoutModal({
   const [isEditingCheckout, setIsEditingCheckout] = useState(false)
   const [checkoutInput, setCheckoutInput] = useState('')
 
-  const finalTotal = Math.max(0, subtotal - localDiscount)
+  // Recalculate time charge when checkout time changes
+  const computedItems = useMemo(() => {
+    if (!metadata?.check_in || hourlyRate <= 0) return items
+    const checkInDate = new Date(metadata.check_in)
+    const effectiveCheckout = localCheckoutTime ? new Date(localCheckoutTime) : (customCheckoutTime ? new Date(customCheckoutTime) : new Date())
+    const diffSec = Math.max(0, Math.floor((effectiveCheckout.getTime() - checkInDate.getTime()) / 1000))
+    const newBillableHours = Math.ceil(diffSec / 3600)
+    const newTimeCharge = newBillableHours * hourlyRate
+    const h = Math.floor(diffSec / 3600)
+    const m = Math.floor((diffSec % 3600) / 60)
+    const durationLabel = `${h}h ${m}p`
+    return items.map(item => {
+      if (item.product_id === 'TIME_CHARGE') {
+        return { ...item, qty: newBillableHours, line_total: newTimeCharge, product_name: `Tiền giờ sử dụng (${durationLabel})` }
+      }
+      return item
+    })
+  }, [items, localCheckoutTime, customCheckoutTime, metadata, hourlyRate])
+
+  const computedSubtotal = computedItems.reduce((s, it) => s + (it.line_total || 0), 0)
+  const finalTotal = Math.max(0, computedSubtotal - localDiscount)
 
   const { data: settings } = useQuery({
     queryKey: ['settings', shopId],
@@ -128,6 +150,14 @@ export function CheckoutModal({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
+
+  // When checkout time changes → recalculate payment
+  useEffect(() => {
+    if (!localCheckoutTime) return
+    const newRemaining = Math.max(0, finalTotal - orderPaidAmount)
+    setPayments([{ id: nextId(), method: 'cash', amount: String(newRemaining) }])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localCheckoutTime])
 
   const overPaid = Math.max(0, orderPaidAmount - finalTotal)
   const remainingTotal = Math.max(0, finalTotal - orderPaidAmount)
@@ -196,7 +226,7 @@ export function CheckoutModal({
       const local_id = crypto.randomUUID()
       const now = new Date().toISOString()
 
-      const orderItems: LocalOrderItem[] = items.map((item) => ({
+      const orderItems: LocalOrderItem[] = computedItems.map((item) => ({
         local_id: crypto.randomUUID(),
         order_local_id: local_id,
         product_id: item.product_id,
@@ -238,7 +268,7 @@ export function CheckoutModal({
         customer_name: localCustomer?.name,
         branch_id: branchId,
         employee_id: employeeId,
-        subtotal,
+        subtotal: computedSubtotal,
         discount_amount: localDiscount,
         tax_amount: 0,
         total_amount: finalTotal,
@@ -266,7 +296,7 @@ export function CheckoutModal({
         order: orderData,
         items: orderItems,
         payments: localPayments,
-        stockMovements: items.map((item) => ({
+        stockMovements: computedItems.map((item) => ({
           type: 'sale_out',
           product_id: item.product_id,
           qty: -item.qty,
@@ -456,7 +486,7 @@ export function CheckoutModal({
           {/* Order summary */}
           <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
             <div className="max-h-32 overflow-y-auto space-y-0.5">
-              {items.map((item, idx) => (
+              {computedItems.map((item, idx) => (
                 <div key={`${item.product_id}-${idx}`} className="flex justify-between text-sm">
                   <span className="text-slate-600">{item.product_name} × {item.qty}</span>
                   <span className="text-slate-900">{fmtVND(item.line_total)}</span>

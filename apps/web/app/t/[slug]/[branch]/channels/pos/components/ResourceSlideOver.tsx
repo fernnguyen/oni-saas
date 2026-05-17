@@ -654,12 +654,6 @@ export function ResourceSlideOver({
                     Khách lưu trú {guests.length > 0 ? `(${guests.length})` : ''}
                   </button>
                 )}
-                <button
-                  onClick={() => setActiveTab('info')}
-                  className={`border-b-2 py-3 text-sm font-medium transition-colors ${activeTab === 'info' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                >
-                  Thông tin thuê
-                </button>
               </div>
 
               <div className="flex-1 overflow-y-auto px-5 pb-5">
@@ -668,6 +662,7 @@ export function ResourceSlideOver({
                 ) : (
                   <div className="space-y-6">
                     {activeTab === 'general' && (
+                      <>
                       <div className="grid grid-cols-1 md:grid-cols-12 gap-6 h-full">
                         {/* LEFT COLUMN: Summary + Payments */}
                         <div className="md:col-span-6 space-y-6 flex flex-col">
@@ -842,6 +837,38 @@ export function ResourceSlideOver({
                           </div>
                         </div>
                       </div>
+
+                      {/* Thông tin thuê — inline at bottom */}
+                      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                        <div className="flex items-center justify-between mb-3">
+                          <p className="text-xs font-bold text-slate-800 uppercase tracking-wide">Thông tin thuê</p>
+                          <button onClick={handleUpdateMetadata} disabled={isUpdatingMeta} className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary-dark disabled:opacity-50">
+                            {isUpdatingMeta ? 'Đang lưu...' : 'Lưu thay đổi'}
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Dự kiến trả phòng</label>
+                            <input type="datetime-local" value={expectedCheckout} onChange={(e) => setExpectedCheckout(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Kênh đặt phòng</label>
+                            <select value={bookingSource} onChange={(e) => setBookingSource(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white">
+                              <option value="Khách lẻ (Walk-in)">Khách lẻ (Walk-in)</option>
+                              <option value="Facebook/Zalo">Facebook/Zalo</option>
+                              <option value="Booking.com">Booking.com</option>
+                              <option value="Agoda">Agoda</option>
+                              <option value="Traveloka">Traveloka</option>
+                              <option value="Khác">Khác</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Ghi chú thêm</label>
+                            <input type="text" value={note} onChange={(e) => setNote(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none" placeholder="Yêu cầu đặc biệt..." />
+                          </div>
+                        </div>
+                      </div>
+                      </>
                     )}
 
                     {activeTab === 'guests' && (
@@ -931,37 +958,7 @@ export function ResourceSlideOver({
                       </div>
                     )}
 
-                    {activeTab === 'info' && (
-                      <div className="space-y-4">
-                        <div className="flex items-center justify-between">
-                          <p className="text-sm font-medium text-slate-900">Thông tin chi tiết</p>
-                          <button onClick={handleUpdateMetadata} disabled={isUpdatingMeta} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50">
-                            {isUpdatingMeta ? 'Đang lưu...' : 'Lưu thay đổi'}
-                          </button>
-                        </div>
-                        <div className="space-y-4 rounded-xl border border-slate-200 p-4 bg-white shadow-sm">
-                          <div>
-                            <label className="block text-xs font-medium text-slate-600 mb-1">Dự kiến trả phòng</label>
-                            <input type="datetime-local" value={expectedCheckout} onChange={(e) => setExpectedCheckout(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none" />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-slate-600 mb-1">Kênh đặt phòng</label>
-                            <select value={bookingSource} onChange={(e) => setBookingSource(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white">
-                              <option value="Khách lẻ (Walk-in)">Khách lẻ (Walk-in)</option>
-                              <option value="Facebook/Zalo">Facebook/Zalo</option>
-                              <option value="Booking.com">Booking.com</option>
-                              <option value="Agoda">Agoda</option>
-                              <option value="Traveloka">Traveloka</option>
-                              <option value="Khác">Khác</option>
-                            </select>
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-slate-600 mb-1">Ghi chú thêm</label>
-                            <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none" placeholder="Yêu cầu đặc biệt..." />
-                          </div>
-                        </div>
-                      </div>
-                    )}
+
                   </div>
                 )}
               </div>
@@ -1027,6 +1024,7 @@ export function ResourceSlideOver({
           isOnline={true}
           autoPrintReceipt={false}
           customCheckoutTime={customCheckoutTime}
+          hourlyRate={hourlyRate}
         />
       )}
     </>
