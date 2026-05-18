@@ -17,7 +17,7 @@ export async function GET(
     const page = Math.max(1, parseInt(sp.get('page') ?? '1'))
     const limit = Math.min(200, Math.max(1, parseInt(sp.get('limit') ?? '100')))
     const order_id = sp.get('order_id') ?? ''
-    const filters: Record<string, string> = {}
+    const filters: Record<string, string> = { active: 'TRUE' }
     if (order_id) filters.order_id = order_id
 
     const result = await shopCache(

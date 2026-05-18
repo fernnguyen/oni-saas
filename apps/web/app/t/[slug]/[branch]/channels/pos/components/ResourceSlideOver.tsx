@@ -6,6 +6,7 @@ import { CustomerSearch } from './CustomerSearch'
 import { SlideProductSearch } from './SlideProductSearch'
 import { CheckoutModal } from './CheckoutModal'
 import { useConfirm } from '@/app/components/ui/ConfirmProvider'
+import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog'
 import type { LocalCustomer, LocalProduct } from '@/lib/localDb/schema'
 
 interface Resource {
@@ -137,6 +138,10 @@ export function ResourceSlideOver({
   const [editCustomerModalOpen, setEditCustomerModalOpen] = useState(false)
   const [editCustomerValue, setEditCustomerValue] = useState<LocalCustomer | null>(null)
   const [updatingCustomer, setUpdatingCustomer] = useState(false)
+  const [dirtyItems, setDirtyItems] = useState<Record<string, boolean>>({})
+  const [savingDirty, setSavingDirty] = useState(false)
+  const [deletingItemId, setDeletingItemId] = useState<string | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
   const meta = safeParse(resource.metadata)
   const isRoom = resource.type === 'room'
@@ -156,7 +161,7 @@ export function ResourceSlideOver({
       const orderId = resource.current_order_id
       const [orderRes, itemsRes, paymentsRes] = await Promise.all([
         fetch(`/api/shops/${shopId}/orders/${orderId}`),
-        fetch(`/api/shops/${shopId}/order-items?order_id=${orderId}&limit=200`),
+        fetch(`/api/shops/${shopId}/order-items?order_id=${orderId}&limit=200&t=${Date.now()}`),
         fetch(`/api/shops/${shopId}/payments?order_id=${orderId}&limit=100`),
       ])
       if (orderRes.ok) {
@@ -215,6 +220,7 @@ export function ResourceSlideOver({
   useEffect(() => {
     if (!order) return
     let checkInDate = new Date(order.created_at)
+    const orderMeta = safeParse(order.metadata)
     if (orderMeta.check_in) {
       checkInDate = new Date(orderMeta.check_in)
     } else if (orderMeta.check_in_time) {
@@ -384,8 +390,33 @@ export function ResourceSlideOver({
     }
   }
 
-  function handleProductSelect(p: LocalProduct) {
+  async function handleProductSelect(p: LocalProduct) {
     const unitPrice = Number(p.sell_price || 0)
+    
+    const existingInDb = existingItems.find(i => i.product_id === p.product_id)
+    if (existingInDb) {
+      const newQty = Number(existingInDb.qty) + 1
+      const newLineTotal = newQty * unitPrice
+      
+      setExistingItems(prev => prev.map(i => i.product_id === p.product_id ? {
+        ...i,
+        qty: String(newQty),
+        line_total: String(newLineTotal)
+      } : i))
+      
+      try {
+        await fetch(`/api/shops/${shopId}/order-items/${existingInDb.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ qty: String(newQty), line_total: String(newLineTotal) })
+        })
+        toast.success(`Đã cập nhật: ${p.name} (x${newQty})`)
+      } catch (err) {
+        toast.error('Lỗi khi cập nhật số lượng')
+      }
+      return
+    }
+
     setCartItems(prev => {
       const existing = prev.find(i => i.product_id === p.product_id)
       if (existing) {
@@ -424,6 +455,23 @@ export function ResourceSlideOver({
     })
   }
 
+  function updateExistingQty(idx: number, delta: number) {
+    setExistingItems(prev => {
+      const clone = [...prev]
+      const currQty = Number(clone[idx].qty)
+      const newQty = currQty + delta
+      if (newQty <= 0) {
+        setConfirmDeleteId(clone[idx].id!)
+        return prev
+      }
+      const p = clone[idx]
+      const up = Number(p.unit_price)
+      clone[idx] = { ...p, qty: String(newQty), line_total: String(newQty * up) }
+      setDirtyItems(d => ({ ...d, [p.id!]: true }))
+      return clone
+    })
+  }
+
   async function handleSaveCartItems() {
     if (cartItems.length === 0) return
     if (!order) return
@@ -450,11 +498,105 @@ export function ResourceSlideOver({
       }
       toast.success(`Đã thêm ${cartItems.length} món`)
       setCartItems([])
-      fetchOrder()
+      const itemsRes = await fetch(`/api/shops/${shopId}/order-items?order_id=${orderId}&limit=200&t=${Date.now()}`)
+      if (itemsRes.ok) {
+        const iData = await itemsRes.json()
+        setExistingItems(iData.data || [])
+      }
     } catch {
       toast.error('Lỗi khi thêm món')
     } finally {
       setSavingItems(false)
+    }
+  }
+
+  async function handleSaveDirtyItems() {
+    if (!order) return
+    const dirtyIds = Object.keys(dirtyItems)
+    if (dirtyIds.length === 0) return
+    setSavingDirty(true)
+    try {
+      for (const id of dirtyIds) {
+        const item = existingItems.find(i => i.id === id)
+        if (item) {
+          if (Number(item.qty) <= 0) {
+            await fetch(`/api/shops/${shopId}/order-items/${id}`, { method: 'DELETE' })
+          } else {
+            await fetch(`/api/shops/${shopId}/order-items/${id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ qty: String(item.qty), line_total: String(item.line_total) })
+            })
+          }
+        }
+      }
+      toast.success('Đã cập nhật số lượng')
+      setDirtyItems({})
+      const itemsRes = await fetch(`/api/shops/${shopId}/order-items?order_id=${order.id}&limit=200&t=${Date.now()}`)
+      if (itemsRes.ok) {
+        const iData = await itemsRes.json()
+        setExistingItems(iData.data || [])
+      }
+    } catch {
+      toast.error('Lỗi khi lưu cập nhật')
+    } finally {
+      setSavingDirty(false)
+    }
+  }
+
+  async function handleSaveDirtyItems() {
+    if (!order) return
+    const dirtyIds = Object.keys(dirtyItems)
+    if (dirtyIds.length === 0) return
+    setSavingDirty(true)
+    try {
+      for (const id of dirtyIds) {
+        const item = existingItems.find(i => i.id === id)
+        if (item) {
+          if (Number(item.qty) <= 0) {
+            await fetch(`/api/shops/${shopId}/order-items/${id}`, { method: 'DELETE' })
+          } else {
+            await fetch(`/api/shops/${shopId}/order-items/${id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ qty: String(item.qty), line_total: String(item.line_total) })
+            })
+          }
+        }
+      }
+      toast.success('Đã cập nhật số lượng')
+      setDirtyItems({})
+      const itemsRes = await fetch(`/api/shops/${shopId}/order-items?order_id=${order.id}&limit=200&t=${Date.now()}`)
+      if (itemsRes.ok) {
+        const iData = await itemsRes.json()
+        setExistingItems(iData.data || [])
+      }
+    } catch {
+      toast.error('Lỗi khi lưu cập nhật')
+    } finally {
+      setSavingDirty(false)
+    }
+  }
+
+  async function handleDeleteExistingItem(itemId: string) {
+    if (!order) return
+    setDeletingItemId(itemId)
+    try {
+      const res = await fetch(`/api/shops/${shopId}/order-items/${itemId}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error()
+      
+      setExistingItems(prev => prev.filter(i => i.id !== itemId))
+      setDirtyItems(prev => {
+        const newD = { ...prev }
+        delete newD[itemId]
+        return newD
+      })
+      toast.success('Đã xóa món')
+    } catch {
+      toast.error('Lỗi khi xóa món')
+    } finally {
+      setDeletingItemId(null)
+      setConfirmDeleteId(null)
     }
   }
 
@@ -611,7 +753,7 @@ export function ResourceSlideOver({
 
     try {
       // 1. Fetch source order items
-      const itemsRes = await fetch(`/api/shops/${shopId}/order-items?order_id=${sourceResource.current_order_id}`)
+      const itemsRes = await fetch(`/api/shops/${shopId}/order-items?order_id=${sourceResource.current_order_id}&limit=200&t=${Date.now()}`)
       if (!itemsRes.ok) throw new Error()
       const itemsJson = await itemsRes.json()
       const sourceItems = itemsJson.data || []
@@ -1117,16 +1259,54 @@ export function ResourceSlideOver({
 
                             {/* Existing items */}
                             {existingItems.map((item, idx) => (
-                              <div key={item.id || `ex-${idx}`} className="rounded-xl border border-slate-100 bg-slate-50/50 p-3 flex justify-between items-center opacity-80">
+                              <div key={item.id || `ex-${idx}`} className={`rounded-xl border p-3 flex justify-between items-center transition-colors ${dirtyItems[item.id!] ? 'bg-orange-50 border-orange-200' : 'bg-slate-50 border-slate-100'}`}>
                                 <div className="min-w-0 flex-1">
-                                  <p className="text-sm font-medium text-slate-700 truncate">{item.product_name}</p>
-                                  <p className="text-xs text-slate-500 mt-0.5">{item.qty} x {fmtVND(item.unit_price)}</p>
+                                  <p className="text-sm font-medium text-slate-900 truncate">{item.product_name}</p>
+                                  <div className="flex items-center gap-1 mt-2">
+                                    <button onClick={() => updateExistingQty(idx, -1)} className="w-6 h-6 flex items-center justify-center rounded-md bg-slate-200 text-slate-600 hover:bg-slate-300">
+                                      -
+                                    </button>
+                                    <input 
+                                      type="text" 
+                                      value={item.qty}
+                                      onChange={e => {
+                                        const val = e.target.value.replace(/\D/g, '')
+                                        const newQty = val ? Number(val) : 0
+                                        setExistingItems(prev => {
+                                          const clone = [...prev]
+                                          const p = clone[idx]
+                                          clone[idx] = { ...p, qty: String(newQty), line_total: String(newQty * Number(p.unit_price)) }
+                                          return clone
+                                        })
+                                        setDirtyItems(d => ({ ...d, [item.id!]: true }))
+                                      }}
+                                      className="w-10 text-center text-xs font-medium border-none bg-transparent focus:ring-0 p-0"
+                                    />
+                                    <button onClick={() => updateExistingQty(idx, 1)} className="w-6 h-6 flex items-center justify-center rounded-md bg-slate-200 text-slate-600 hover:bg-slate-300">
+                                      +
+                                    </button>
+                                  </div>
                                 </div>
-                                <span className="text-sm font-bold text-slate-700 shrink-0 ml-3">
-                                  {fmtVND(item.line_total)}
-                                </span>
+                                <div className="flex items-center shrink-0 ml-3 gap-3">
+                                  <span className="text-sm font-bold text-slate-700">
+                                    {fmtVND(item.line_total)}
+                                  </span>
+                                  <button onClick={() => setConfirmDeleteId(item.id!)} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-100 hover:text-red-600 text-slate-400 transition-colors">
+                                    ✕
+                                  </button>
+                                </div>
                               </div>
                             ))}
+                            {Object.keys(dirtyItems).length > 0 && (
+                              <button
+                                onClick={handleSaveDirtyItems}
+                                disabled={savingDirty}
+                                className="w-full rounded-xl bg-orange-500 p-3 text-sm font-bold text-white hover:bg-orange-600 transition-colors disabled:opacity-50 shadow-sm"
+                              >
+                                {savingDirty ? 'Đang lưu...' : `Lưu cập nhật (${Object.keys(dirtyItems).length} món)`}
+                              </button>
+                            )}
+
 
                             {/* Cart items */}
                             {cartItems.map((item, idx) => (
@@ -1537,6 +1717,19 @@ export function ResourceSlideOver({
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!confirmDeleteId}
+        onClose={() => setConfirmDeleteId(null)}
+        onConfirm={async () => {
+          if (!confirmDeleteId) return
+          await handleDeleteExistingItem(confirmDeleteId)
+        }}
+        title="Xóa món"
+        description="Bạn có chắc chắn muốn xóa món này khỏi hóa đơn?"
+        variant="danger"
+        loading={!!deletingItemId}
+      />
     </>
   )
 }
