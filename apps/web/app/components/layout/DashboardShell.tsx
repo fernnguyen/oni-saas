@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
 import { ConfirmProvider } from '@/app/components/ui/ConfirmProvider';
@@ -67,52 +67,71 @@ export function DashboardShell({
   industryType,
 }: DashboardShellProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('sidebar-collapsed');
+    if (saved !== null) setCollapsed(saved === 'true');
+    setMounted(true);
+  }, []);
+
+  function toggleCollapsed() {
+    setCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem('sidebar-collapsed', String(next));
+      return next;
+    });
+  }
 
   return (
     <ConfirmProvider>
-      <div className="min-h-screen bg-slate-50 flex">
-        <Sidebar
-          basePath={sidebarBasePath}
-          supportHref={supportHref}
-          tenantHref={tenantHref}
-          connectorsHref={connectorsHref}
-          settingsHref={settingsHref}
-          tenantBillingHref={tenantBillingHref}
-          tenantSettingsHref={tenantSettingsHref}
-          tenantTeamHref={tenantTeamHref}
-          tenantRolesHref={tenantRolesHref}
-          permissions={permissions}
-          context={sidebarContext}
+      <div className="min-h-screen bg-slate-50 flex flex-col">
+        <Topbar
           tenantId={tenantId}
+          tenantName={tenantName}
+          shopName={shopName}
+          userEmail={userEmail}
+          displayName={displayName}
+          roleName={roleName}
+          settingsHref={settingsHref}
+          accountHref={accountHref}
+          permissions={permissions}
+          planCode={planCode}
+          planName={planName}
+          periodStart={periodStart}
+          periodEnd={periodEnd}
           currentBranchSlug={currentBranchSlug}
-          currentBranchName={shopName}
           currentBranchAddress={currentBranchAddress}
-          industryType={industryType}
-          mobileOpen={mobileNavOpen}
-          onMobileClose={() => setMobileNavOpen(false)}
+          context={sidebarContext}
+          onMobileMenuClick={() => setMobileNavOpen(true)}
+          hidePlanBadge={hidePlanBadge}
+          collapsed={collapsed}
+          onToggleCollapsed={toggleCollapsed}
         />
-        <div className="flex-1 min-w-0 flex flex-col">
-          <Topbar
-            tenantId={tenantId}
-            tenantName={tenantName}
-            shopName={shopName}
-            userEmail={userEmail}
-            displayName={displayName}
-            roleName={roleName}
+        <div className="flex-1 flex min-w-0">
+          <Sidebar
+            basePath={sidebarBasePath}
+            supportHref={supportHref}
+            tenantHref={tenantHref}
+            connectorsHref={connectorsHref}
             settingsHref={settingsHref}
-            accountHref={accountHref}
+            tenantBillingHref={tenantBillingHref}
+            tenantSettingsHref={tenantSettingsHref}
+            tenantTeamHref={tenantTeamHref}
+            tenantRolesHref={tenantRolesHref}
             permissions={permissions}
-            planCode={planCode}
-            planName={planName}
-            periodStart={periodStart}
-            periodEnd={periodEnd}
-            currentBranchSlug={currentBranchSlug}
-            currentBranchAddress={currentBranchAddress}
             context={sidebarContext}
-            onMobileMenuClick={() => setMobileNavOpen(true)}
-            hidePlanBadge={hidePlanBadge}
+            tenantId={tenantId}
+            currentBranchSlug={currentBranchSlug}
+            currentBranchName={shopName}
+            currentBranchAddress={currentBranchAddress}
+            industryType={industryType}
+            mobileOpen={mobileNavOpen}
+            onMobileClose={() => setMobileNavOpen(false)}
+            collapsed={collapsed}
           />
-          <main className="flex-1 p-4 md:p-6">
+          <main className="flex-1 min-w-0 p-4 md:p-6">
             {children}
           </main>
         </div>

@@ -232,7 +232,7 @@ export function BranchSelector({
 
   return (
     <>
-      <div ref={ref} className="relative px-2 py-2">
+      <div ref={ref} className="relative py-2">
         <button
           onClick={() => canSwitch && setOpen((o) => !o)}
           className={`w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${

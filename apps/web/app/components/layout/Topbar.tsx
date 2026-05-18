@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { getSupabaseBrowserClient } from '../../../lib/supabaseBrowser';
 import { ConnectorStatusPill } from '../connectors/ConnectorStatusPill';
 import { PlanBadge } from './PlanBadge';
@@ -26,6 +27,8 @@ interface TopbarProps {
   context?: 'control' | 'shop' | 'super';
   onMobileMenuClick?: () => void;
   hidePlanBadge?: boolean;
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
 }
 
 export function Topbar({
@@ -47,6 +50,8 @@ export function Topbar({
   context = 'shop',
   onMobileMenuClick,
   hidePlanBadge,
+  collapsed,
+  onToggleCollapsed,
 }: TopbarProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [logoutConfirm, setLogoutConfirm] = useState(false);
@@ -62,20 +67,63 @@ export function Topbar({
 
   return (
     <>
-      <header className="h-14 bg-white border-b border-slate-200 flex items-center justify-between px-4 sticky top-0 z-20 gap-3">
-        {/* Left: mobile menu + plan card + connector pill */}
-        <div className="flex items-center gap-2.5 min-w-0">
-          <button
-            onClick={onMobileMenuClick}
-            className="md:hidden rounded p-1.5 hover:bg-slate-100 cursor-pointer"
-          >
-            <svg className="h-5 w-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
-          </button>
+      <header className="h-14 bg-white border-b border-slate-200 flex items-center sticky top-0 z-20">
+        {/* Left: Logo + Toggle (width matches Sidebar) */}
+        <div className={`relative hidden md:flex items-center border-r border-slate-200 h-full shrink-0 transition-all duration-200 ${
+          collapsed ? 'w-[64px] justify-center' : 'w-[220px] px-3'
+        }`}>
+          {collapsed ? (
+             <Image src="/logo.png" alt="ONI Logo" width={32} height={32} className="shrink-0 rounded-lg shadow-sm" />
+          ) : (
+             <div className="flex items-center gap-2 overflow-hidden">
+                <Image src="/logo.png" alt="ONI Logo" width={32} height={32} className="shrink-0 rounded-lg shadow-sm" />
+                <span className="font-bold text-slate-900 text-base tracking-wide truncate">
+                  ONI.vn
+                </span>
+                {context === 'super' ? (
+                  <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-medium shrink-0">
+                    SUPER
+                  </span>
+                ) : (
+                  <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-medium shrink-0">
+                    BETA
+                  </span>
+                )}
+             </div>
+          )}
+          {/* Absolute toggle button on the border */}
+          {onToggleCollapsed && (
+            <button
+              onClick={onToggleCollapsed}
+              className="absolute -right-3 top-1/2 -translate-y-1/2 h-6 w-6 bg-white border border-slate-200 rounded-md flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-50 cursor-pointer z-10 shadow-sm"
+            >
+              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                {collapsed ? (
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                ) : (
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                )}
+              </svg>
+            </button>
+          )}
+        </div>
 
-          {/* Branch selector */}
-          {context === 'shop' && tenantId && currentBranchSlug && shopName && (
+        {/* Right: Main Topbar Content */}
+        <div className="flex-1 flex items-center justify-between h-full min-w-0 gap-3 px-4 md:pl-5">
+          {/* Left of right section: mobile menu + plan card + connector pill */}
+          <div className="flex items-center gap-2.5 min-w-0">
+            <button
+              onClick={onMobileMenuClick}
+              className="md:hidden rounded p-1.5 hover:bg-slate-100 cursor-pointer"
+            >
+              <svg className="h-5 w-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+
+
+            {/* Branch selector */}
+            {context === 'shop' && tenantId && currentBranchSlug && shopName && (
             <BranchSelector
               tenantId={tenantId}
               currentSlug={currentBranchSlug}
@@ -181,7 +229,8 @@ export function Topbar({
             )}
           </div>
         </div>
-      </header>
+      </div>
+    </header>
 
       {/* Logout confirm dialog */}
       {logoutConfirm && (

@@ -25,6 +25,7 @@ interface SidebarProps {
   /** Controlled open state for mobile overlay */
   mobileOpen?: boolean;
   onMobileClose?: () => void;
+  collapsed?: boolean;
   /** Industry type for vertical-aware nav */
   industryType?: string;
 }
@@ -115,44 +116,22 @@ function SidebarContent({
 
   return (
     <div className="flex flex-col h-full">
-      {/* Logo + toggle */}
-      <div
-        className={`flex items-center border-b border-slate-200 ${
-          collapsed ? 'flex-col py-3 px-2 gap-2' : 'px-3 py-[13px] gap-2'
-        }`}
-      >
-        <Image src="/logo.png" alt="ONI Logo" width={32} height={32} className="shrink-0 rounded-lg shadow-sm" />
-        {!collapsed && (
-          <>
-            <span className="font-bold text-slate-900 text-base tracking-wide flex-1 truncate">
-              ONI.vn
+      {/* Logo + close button (only for mobile drawer) */}
+      {onClose && (
+        <div className="flex items-center px-3 py-[13px] gap-2 border-b border-slate-200">
+          <Image src="/logo.png" alt="ONI Logo" width={32} height={32} className="shrink-0 rounded-lg shadow-sm" />
+          <span className="font-bold text-slate-900 text-base tracking-wide flex-1 truncate">
+            ONI.vn
+          </span>
+          {context === 'super' ? (
+            <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-medium">
+              SUPER
             </span>
-            {context === 'super' ? (
-              <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-medium">
-                SUPER
-              </span>
-            ) : (
-              <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-medium">
-                BETA
-              </span>
-            )}
-          </>
-        )}
-        {onToggleCollapsed && (
-          <button
-            onClick={onToggleCollapsed}
-            className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 cursor-pointer shrink-0"
-          >
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              {collapsed ? (
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-              ) : (
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-              )}
-            </svg>
-          </button>
-        )}
-        {onClose && (
+          ) : (
+            <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-medium">
+              BETA
+            </span>
+          )}
           <button
             onClick={onClose}
             className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 cursor-pointer shrink-0"
@@ -161,8 +140,8 @@ function SidebarContent({
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Branch selector removed, moved to Topbar */}
 
@@ -261,22 +240,8 @@ export function Sidebar({
   mobileOpen = false,
   onMobileClose,
   industryType,
+  collapsed = false,
 }: SidebarProps) {
-  const [collapsed, setCollapsed] = useState(false);
-
-  useEffect(() => {
-    const saved = localStorage.getItem('sidebar-collapsed');
-    if (saved !== null) setCollapsed(saved === 'true');
-  }, []);
-
-  function toggleCollapsed() {
-    setCollapsed((prev) => {
-      const next = !prev;
-      localStorage.setItem('sidebar-collapsed', String(next));
-      return next;
-    });
-  }
-
   const sharedProps = {
     basePath,
     supportHref,
@@ -300,14 +265,13 @@ export function Sidebar({
     <>
       {/* Desktop sidebar */}
       <aside
-        className={`hidden md:flex md:flex-col bg-white border-r border-slate-200 shrink-0 overflow-hidden transition-all duration-200 ${
+        className={`hidden md:flex md:flex-col bg-white border-r border-slate-200 shrink-0 overflow-hidden transition-all duration-200 sticky top-14 h-[calc(100vh-3.5rem)] ${
           collapsed ? 'md:w-[64px]' : 'md:w-[220px]'
         }`}
       >
         <SidebarContent
           {...sharedProps}
           collapsed={collapsed}
-          onToggleCollapsed={toggleCollapsed}
         />
       </aside>
 
