@@ -4,6 +4,12 @@ import mysql from 'mysql2/promise'
 import crypto from 'crypto'
 import type { IDataConnector, ListOptions, ListResult } from './DataSource'
 
+function getGMT7Time() {
+  const d = new Date()
+  d.setUTCHours(d.getUTCHours() + 7)
+  return d.toISOString().replace('Z', '')
+}
+
 const ENTITY_PREFIXES: Record<string, string> = {
   'categories':       'CAT',
   'suppliers':        'SUP',
@@ -176,7 +182,7 @@ export class MysqlConnector implements IDataConnector {
     }
     
     const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : ''
-    const orderBySql = sortDesc ? 'ORDER BY created_at DESC' : 'ORDER BY created_at ASC'
+    const orderBySql = sortDesc ? 'ORDER BY updated_at DESC, created_at DESC' : 'ORDER BY updated_at ASC, created_at ASC'
     const offset = (page - 1) * limit
 
     const query = `SELECT * FROM \`${tableName}\` ${whereSql} ${orderBySql} LIMIT ? OFFSET ?`
@@ -236,7 +242,10 @@ export class MysqlConnector implements IDataConnector {
     }
 
     if (!insertData.created_at) {
-      insertData.created_at = new Date().toISOString().slice(0, 19).replace('T', ' ')
+      insertData.created_at = getGMT7Time()
+    }
+    if (!insertData.updated_at) {
+      insertData.updated_at = insertData.created_at
     }
 
     if (!insertData.id) {
@@ -261,6 +270,8 @@ export class MysqlConnector implements IDataConnector {
     const tableName = this.getTableName(entity)
 
     const updateData = { ...data }
+    updateData.updated_at = getGMT7Time()
+    
     const legacyIdField = this.LEGACY_ID_MAP[entity]
     if (legacyIdField && updateData[legacyIdField] !== undefined) {
       delete updateData[legacyIdField]

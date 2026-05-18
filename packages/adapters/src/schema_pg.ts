@@ -4,6 +4,7 @@ import { pgTable, varchar, text, timestamp, jsonb } from 'drizzle-orm/pg-core';
 const getBaseColumns = () => ({
   tenant_id: varchar('tenant_id', { length: 255 }).notNull(),
   created_at: timestamp('created_at').defaultNow(),
+  updated_at: timestamp('updated_at').defaultNow(),
   active: varchar('active', { length: 10 }).default('TRUE'),
 });
 

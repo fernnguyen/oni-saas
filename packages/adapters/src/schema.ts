@@ -1,9 +1,10 @@
-import { mysqlTable, int, bigint, varchar, timestamp, boolean, text, primaryKey, serial } from 'drizzle-orm/mysql-core';
+import { mysqlTable, int, bigint, varchar, timestamp, boolean, text, primaryKey, serial, json } from 'drizzle-orm/mysql-core';
 
 // Base columns for all tables
 const getBaseColumns = () => ({
   tenant_id: varchar('tenant_id', { length: 255 }).notNull(),
   created_at: timestamp('created_at').defaultNow(),
+  updated_at: timestamp('updated_at').defaultNow().onUpdateNow(),
   active: varchar('active', { length: 10 }).default('TRUE'),
 });
 

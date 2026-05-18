@@ -2,6 +2,12 @@ import { Pool } from 'pg'
 import crypto from 'crypto'
 import type { IDataConnector, ListOptions, ListResult } from './DataSource'
 
+function getGMT7Time() {
+  const d = new Date()
+  d.setUTCHours(d.getUTCHours() + 7)
+  return d.toISOString().replace('Z', '')
+}
+
 const ENTITY_PREFIXES: Record<string, string> = {
   'categories':         'CAT',
   'suppliers':          'SUP',
@@ -207,7 +213,7 @@ export class PostgresConnector implements IDataConnector {
     }
 
     const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : ''
-    const orderBySql = sortDesc ? 'ORDER BY created_at DESC' : 'ORDER BY created_at ASC'
+    const orderBySql = sortDesc ? 'ORDER BY updated_at DESC NULLS LAST, created_at DESC' : 'ORDER BY updated_at ASC NULLS FIRST, created_at ASC'
     const offset = (page - 1) * limit
 
     const dataQuery = `SELECT * FROM "${tableName}" AS t ${whereSql} ${orderBySql} LIMIT ${limit} OFFSET ${offset}`
@@ -263,7 +269,10 @@ export class PostgresConnector implements IDataConnector {
     }
 
     if (!insertData.created_at) {
-      insertData.created_at = new Date().toISOString()
+      insertData.created_at = getGMT7Time()
+    }
+    if (!insertData.updated_at) {
+      insertData.updated_at = insertData.created_at
     }
 
     if (!insertData.id) {
@@ -288,6 +297,7 @@ export class PostgresConnector implements IDataConnector {
   async update(entity: string, id: string, data: Partial<Record<string, string>>): Promise<Record<string, string>> {
     const tableName = this.getTableName(entity)
     const updateData = { ...data }
+    updateData.updated_at = getGMT7Time()
 
     const legacyIdField = this.LEGACY_ID_MAP[entity]
     if (legacyIdField && updateData[legacyIdField] !== undefined) {
@@ -367,7 +377,8 @@ export class PostgresConnector implements IDataConnector {
       const insertData = { ...row }
       if (this.tenantId) insertData.tenant_id = this.tenantId
       if (this.branchId && !this.tenantScopedEntities.includes(entity)) insertData.branch_id = this.branchId
-      if (!insertData.created_at) insertData.created_at = new Date().toISOString()
+      if (!insertData.created_at) insertData.created_at = getGMT7Time()
+      if (!insertData.updated_at) insertData.updated_at = insertData.created_at
 
       const legacyIdField = this.LEGACY_ID_MAP[entity]
       if (legacyIdField && insertData[legacyIdField]) {
