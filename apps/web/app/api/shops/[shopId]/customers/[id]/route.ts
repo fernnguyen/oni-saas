@@ -26,6 +26,11 @@ export async function PUT(
 ) {
   try {
     const { shopId, id } = await params
+    
+    if (id === 'C-DEFAULT-RETAIL') {
+      return NextResponse.json({ error: 'Không thể sửa Khách lẻ mặc định' }, { status: 403 })
+    }
+
     const { connector } = await requireShopAccess(shopId, 'customers.edit')
 
     const body = await req.json()
@@ -45,6 +50,11 @@ export async function DELETE(
 ) {
   try {
     const { shopId, id } = await params
+    
+    if (id === 'C-DEFAULT-RETAIL') {
+      return NextResponse.json({ error: 'Không thể xóa Khách lẻ mặc định' }, { status: 403 })
+    }
+
     const { connector } = await requireShopAccess(shopId)
 
     await connector.delete('customers', id)

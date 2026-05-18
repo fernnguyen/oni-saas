@@ -146,8 +146,10 @@ export function TableMapPOS({
     }
   }
 
-  function handleCheckInSuccess() {
-    setActiveSlideResource(null)
+  function handleCheckInSuccess(orderId: string) {
+    if (activeSlideResource) {
+      setActiveSlideResource({ ...activeSlideResource, status: 'occupied', current_order_id: orderId })
+    }
     fetchResources()
   }
 
@@ -412,7 +414,7 @@ export function TableMapPOS({
       <ResourceSlideOver
         open={!!activeSlideResource}
         onClose={() => setActiveSlideResource(null)}
-        resource={activeSlideResource || { id: '', name: '', type: 'room', zone: '', capacity: '', hourly_rate: '', status: 'available' } as any}
+        resource={resources.find(r => r.id === activeSlideResource?.id) || activeSlideResource || { id: '', name: '', type: 'room', zone: '', capacity: '', hourly_rate: '', status: 'available' } as any}
         shopId={shopId}
         branchId={branchId}
         shopName={shopName}
@@ -422,6 +424,7 @@ export function TableMapPOS({
         resourceTemplate={vertical.resourceTemplates?.find(t => t.id === activeSlideResource?.type) || vertical.resourceTemplate}
         allResources={activeResources}
         onRefresh={fetchResources}
+        autoPrintReceipt={autoPrintReceipt}
       />
     </div>
   )

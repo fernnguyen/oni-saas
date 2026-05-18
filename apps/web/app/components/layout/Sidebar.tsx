@@ -212,7 +212,7 @@ function SidebarContent({
         ))}
       </nav>
 
-      <div className="p-3 border-t border-slate-200">
+      <div className="p-1 border-t border-slate-200">
         {!hidePlanBadge && planCode && planName && tenantId && (
           <PlanBadge
             tenantId={tenantId}

@@ -1,8 +1,9 @@
 'use client'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useDebounce } from 'use-debounce'
+import { useSearchParams } from 'next/navigation'
 import { DataTable, Column } from '@/app/components/ui/DataTable'
 import { SlideOver } from '@/app/components/ui/SlideOver'
 import { TagBadge } from '@/app/components/ui/TagBadge'
@@ -10,6 +11,7 @@ import { EmptyState } from '@/app/components/ui/EmptyState'
 import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog'
 import { SearchBar } from '@/app/components/ui/SearchBar'
 import { NumberInput } from '@/app/components/ui/NumberInput'
+import { CopyableId } from '@/app/components/ui/CopyableId'
 
 interface Props {
   shopId: string
@@ -28,13 +30,17 @@ const EMPTY_FORM = {
 
 export function CustomersClient({ shopId }: Props) {
   const queryClient = useQueryClient()
+  const searchParams = useSearchParams()
+  const initialSearch = searchParams?.get('search') || searchParams?.get('customerId') || ''
+  
   const [page, setPage] = useState(1)
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState(initialSearch)
   const [debouncedSearch] = useDebounce(search, 300)
   const [formData, setFormData] = useState<Record<string, string>>(EMPTY_FORM)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [slideOpen, setSlideOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<Record<string, string> | null>(null)
+  const hasAutoOpened = useRef(false)
 
   const { data, isLoading, isFetching } = useQuery({
     queryKey: ['customers', shopId, page, debouncedSearch],
@@ -73,14 +79,18 @@ export function CustomersClient({ shopId }: Props) {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      await fetch(`/api/shops/${shopId}/customers/${id}`, { method: 'DELETE' })
+      const res = await fetch(`/api/shops/${shopId}/customers/${id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}))
+        throw new Error(json.error ?? 'Xóa thất bại')
+      }
     },
     onSuccess: () => {
       toast.success('Đã xóa')
       setDeleteTarget(null)
       queryClient.invalidateQueries({ queryKey: ['customers', shopId] })
     },
-    onError: () => toast.error('Xóa thất bại'),
+    onError: (err: Error) => toast.error(err.message),
   })
 
   function openEdit(row: Record<string, string>) {
@@ -89,6 +99,21 @@ export function CustomersClient({ shopId }: Props) {
     setSlideOpen(true)
   }
 
+  useEffect(() => {
+    if (data?.data && data.data.length === 1 && !hasAutoOpened.current) {
+      const row = data.data[0]
+      if (
+        initialSearch && 
+        (row.customer_id === initialSearch || 
+         row.customer_code === initialSearch || 
+         row.phone === initialSearch)
+      ) {
+        hasAutoOpened.current = true
+        openEdit(row)
+      }
+    }
+  }, [data, initialSearch])
+
   function openCreate() {
     setFormData(EMPTY_FORM)
     setEditingId(null)
@@ -96,7 +121,11 @@ export function CustomersClient({ shopId }: Props) {
   }
 
   const columns = useMemo<Column<Record<string, string>>[]>(() => [
-    { key: 'customer_id', label: 'Mã KH' },
+    { 
+      key: 'customer_id', 
+      label: 'Mã KH',
+      render: (row) => row.customer_id ? <CopyableId id={row.customer_id} className="text-sm font-semibold text-primary" /> : '—'
+    },
     { key: 'name', label: 'Tên' },
     { key: 'phone', label: 'SĐT' },
     {

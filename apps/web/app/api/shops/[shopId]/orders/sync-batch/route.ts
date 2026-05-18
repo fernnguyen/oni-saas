@@ -107,7 +107,11 @@ export async function POST(
     let finalCustomerId = order.customer_id ?? ''
 
     // Auto-create customer if name is provided but no ID
-    if (!finalCustomerId && order.customer_name) {
+    const isRetailGuest = !order.customer_name || order.customer_name.trim().toLowerCase() === 'khách lẻ' || order.customer_name.trim().toLowerCase() === 'khach le';
+    if (isRetailGuest) {
+      finalCustomerId = 'C-DEFAULT-RETAIL'
+      order.customer_name = 'Khách lẻ'
+    } else if (!finalCustomerId) {
       const meta = typeof order.metadata === 'string' ? JSON.parse(order.metadata || '{}') : (order.metadata || {})
       const newCustomer = await connector.create('customers', {
         name: order.customer_name,

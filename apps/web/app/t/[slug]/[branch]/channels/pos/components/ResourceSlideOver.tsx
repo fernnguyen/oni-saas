@@ -60,6 +60,7 @@ interface Props {
   resourceTemplate?: import('@oni/core').ResourceTemplate
   allResources?: any[]
   onRefresh?: () => void
+  autoPrintReceipt?: boolean
 }
 
 import { fmtDateTimeVN } from './CheckoutModal'
@@ -86,7 +87,7 @@ const DEFAULT_TEMPLATE: import('@oni/core').ResourceTemplate = {
 export function ResourceSlideOver({
   open, onClose, resource, shopId, branchId, shopName, employeeId,
   onCheckInSuccess, onSessionClosed, resourceTemplate,
-  allResources = [], onRefresh,
+  allResources = [], onRefresh, autoPrintReceipt = false,
 }: Props) {
   const tpl = resourceTemplate ?? DEFAULT_TEMPLATE
   const sec = tpl.sections
@@ -1042,7 +1043,12 @@ export function ResourceSlideOver({
                 <>
               {/* Customer */}
               <div>
-                <p className="text-xs font-bold text-slate-800 mb-2 uppercase tracking-wide">Người đại diện</p>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-bold text-slate-800 uppercase tracking-wide">Khách hàng</p>
+                  {(!customer || customer.customer_id === 'C-DEFAULT-RETAIL') && (
+                    <span className="text-xs text-slate-500 font-medium bg-slate-100 px-2 py-0.5 rounded">Mặc định: Khách lẻ</span>
+                  )}
+                </div>
                 <CustomerSearch selected={customer} onSelect={handleCustomerSelect} />
               </div>
 
@@ -1601,7 +1607,7 @@ export function ResourceSlideOver({
           shopName={shopName}
           employeeId={employeeId}
           isOnline={true}
-          autoPrintReceipt={false}
+          autoPrintReceipt={autoPrintReceipt}
           customCheckoutTime={customCheckoutTime}
           hourlyRate={hourlyRate}
         />

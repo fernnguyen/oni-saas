@@ -95,7 +95,7 @@ const TABLE_TEMPLATE: ResourceTemplate = {
     { value: 'vip', label: 'Bàn VIP' },
     { value: 'outdoor', label: 'Bàn ngoài trời' },
   ],
-  actions: { checkIn: 'Mở bàn', checkOut: 'Trả bàn', payAndClose: 'Thanh toán & Trả bàn' },
+  actions: { checkIn: 'Bắt đầu sử dụng', checkOut: 'Trả bàn', payAndClose: 'Thanh toán & Trả bàn' },
   sections: {
     guestRegistration: false, bookingSource: false, bedType: false, amenities: false,
     overnightRate: false, depositAmount: false, surfaceType: false, expectedReturn: false,
@@ -110,7 +110,7 @@ const BILLIARDS_TABLE_TEMPLATE: ResourceTemplate = {
     { value: 'vip', label: 'Bàn VIP' },
     { value: '3_cushion', label: 'Bàn 3 băng' },
   ],
-  actions: { checkIn: 'Mở bàn', checkOut: 'Kết thúc', payAndClose: 'Thanh toán & Kết thúc' },
+  actions: { checkIn: 'Bắt đầu sử dụng', checkOut: 'Kết thúc', payAndClose: 'Thanh toán & Kết thúc' },
   sections: {
     guestRegistration: false, bookingSource: false, bedType: false, amenities: false,
     overnightRate: false, depositAmount: false, surfaceType: false, expectedReturn: false,
@@ -125,7 +125,7 @@ const COURT_TEMPLATE: ResourceTemplate = {
     { value: 'vip', label: 'Sân VIP' },
     { value: 'indoor', label: 'Sân trong nhà' },
   ],
-  actions: { checkIn: 'Mở sân', checkOut: 'Kết thúc', payAndClose: 'Thanh toán & Kết thúc' },
+  actions: { checkIn: 'Bắt đầu sử dụng', checkOut: 'Kết thúc', payAndClose: 'Thanh toán & Kết thúc' },
   sections: {
     guestRegistration: false, bookingSource: false, bedType: false, amenities: false,
     overnightRate: false, depositAmount: false, surfaceType: true, expectedReturn: true,

@@ -22,7 +22,32 @@ export async function GET(
     if (customer_type) filters.customer_type = customer_type
 
     const result = await shopCache(
-      () => connector.list('customers', { page, limit, search: search || undefined, filters }),
+      async () => {
+        const res = await connector.list('customers', { page, limit, search: search || undefined, filters })
+        
+        // Inject virtual Khach le if no search or matches search
+        const s = search.toLowerCase()
+        if (!s || 'khách lẻ'.includes(s) || 'khach le'.includes(s) || s === 'c-default-retail') {
+          // If not already returned by DB (which shouldn't happen anymore but just in case)
+          const exists = res.data.some((c: any) => c.customer_id === 'C-DEFAULT-RETAIL')
+          if (!exists) {
+            res.data.unshift({
+              id: 'C-DEFAULT-RETAIL',
+              customer_id: 'C-DEFAULT-RETAIL',
+              name: 'Khách lẻ',
+              phone: '',
+              email: '',
+              address: '',
+              customer_type: 'retail',
+              credit_limit: '0',
+              debt_amount: '0',
+              note: 'Khách hàng mặc định của hệ thống'
+            })
+            res.total += 1
+          }
+        }
+        return res
+      },
       ['customers', shopId, String(page), String(limit), search, customer_type],
       { tags: [shopTag(shopId, 'customers')], revalidate: cacheTTL.customers }
     )

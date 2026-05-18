@@ -195,12 +195,23 @@ export class PostgresConnector implements IDataConnector {
       }
     }
 
+    if (search) {
+      whereClauses.push(`t::text ILIKE $${paramIdx}`)
+      params.push(`%${search}%`)
+      paramIdx++
+    }
+
+    // Default to excluding soft-deleted records if active filter is not explicitly provided
+    if (!filters || !('active' in filters)) {
+      whereClauses.push(`("active" IS NULL OR "active" != 'FALSE')`)
+    }
+
     const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : ''
     const orderBySql = sortDesc ? 'ORDER BY created_at DESC' : 'ORDER BY created_at ASC'
     const offset = (page - 1) * limit
 
-    const dataQuery = `SELECT * FROM "${tableName}" ${whereSql} ${orderBySql} LIMIT ${limit} OFFSET ${offset}`
-    const countQuery = `SELECT COUNT(*) as total FROM "${tableName}" ${whereSql}`
+    const dataQuery = `SELECT * FROM "${tableName}" AS t ${whereSql} ${orderBySql} LIMIT ${limit} OFFSET ${offset}`
+    const countQuery = `SELECT COUNT(*) as total FROM "${tableName}" AS t ${whereSql}`
 
     const [dataRows, countRows] = await Promise.all([
       this.query(dataQuery, params),

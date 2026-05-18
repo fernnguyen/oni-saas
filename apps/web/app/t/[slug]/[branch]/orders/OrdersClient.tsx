@@ -3,6 +3,7 @@ import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useDebounce } from 'use-debounce'
+import { useSearchParams } from 'next/navigation'
 import { DataTable, Column } from '@/app/components/ui/DataTable'
 import { SlideOver } from '@/app/components/ui/SlideOver'
 import { TagBadge, TagColor } from '@/app/components/ui/TagBadge'
@@ -107,9 +108,12 @@ const STAT_CARDS: { key: keyof OrderStats; label: string }[] = [
 
 export function OrdersClient({ shopId, shopName }: Props) {
   const queryClient = useQueryClient()
+  const searchParams = useSearchParams()
+  const initialSearch = searchParams?.get('search') || searchParams?.get('orderId') || ''
+  
   const confirm = useConfirm()
   const [page, setPage] = useState(1)
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState(initialSearch)
   const [debouncedSearch] = useDebounce(search, 300)
   const [statusFilter, setStatusFilter] = useState('')
   const [selectedOrder, setSelectedOrder] = useState<Row | null>(null)

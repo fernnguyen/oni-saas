@@ -5,6 +5,7 @@ import { useParams, usePathname } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useDebounce } from 'use-debounce'
+import { useSearchParams } from 'next/navigation'
 import { DataTable, Column } from '@/app/components/ui/DataTable'
 import { EmptyState } from '@/app/components/ui/EmptyState'
 import { SearchBar } from '@/app/components/ui/SearchBar'
@@ -211,8 +212,11 @@ export function InventoryClient({ shopId }: Props) {
   } | null>(null)
 
   // History tab state
+  const searchParams = useSearchParams()
+  const initialSearch = searchParams?.get('search') || searchParams?.get('movementId') || ''
+  
   const [historyPage, setHistoryPage] = useState(1)
-  const [historySearch, setHistorySearch] = useState('')
+  const [historySearch, setHistorySearch] = useState(initialSearch)
   const [debouncedHistorySearch] = useDebounce(historySearch, 300)
   const [typeFilter, setTypeFilter] = useState('')
 

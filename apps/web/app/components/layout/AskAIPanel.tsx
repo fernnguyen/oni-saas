@@ -22,7 +22,7 @@ export function AskAIPanel() {
 
       {open && (
         <div className="fixed inset-0 z-[100] overflow-hidden">
-          <div className="absolute inset-0 bg-slate-900/20 backdrop-blur-sm transition-opacity" onClick={() => setOpen(false)} />
+          <div className="absolute inset-0 bg-black/40 transition-opacity" onClick={() => setOpen(false)} />
           <section className="absolute inset-y-0 right-0 flex max-w-full pl-10">
             <div className="w-screen max-w-sm transform transition-transform">
               <div className="flex h-full flex-col bg-white shadow-2xl">

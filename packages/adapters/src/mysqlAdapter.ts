@@ -148,6 +148,11 @@ export class MysqlConnector implements IDataConnector {
       }
     }
 
+    // Default to excluding soft-deleted records if active filter is not explicitly provided
+    if (!filters || !('active' in filters)) {
+      whereClauses.push(`(\`active\` IS NULL OR \`active\` != 'FALSE')`)
+    }
+
     // In a real scenario, search would look at specific columns. 
     // Here we just mock it or skip it, as dynamic search across all columns is complex in pure SQL without knowing schema.
     
