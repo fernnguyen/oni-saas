@@ -12,6 +12,10 @@ export interface NavItem {
   /** Vertical feature gate. If set, item only shows when this feature is enabled. */
   featureGate?: keyof VerticalFeatures;
   exact?: boolean;
+  /** Highlight this item with special styling */
+  highlight?: boolean;
+  /** Temporarily hide this item */
+  hidden?: boolean;
 }
 
 export interface NavGroup {
@@ -49,6 +53,7 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
       .map((group) => ({
         ...group,
         items: group.items.filter((item) => {
+          if (item.hidden) return false;
           // Permission check
           if (item.permission && !can(item.permission)) return false;
           // Vertical feature gate check
@@ -115,7 +120,7 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
     {
       label: 'Bán hàng',
       items: [
-        { href: joinPath(base, '/channels/pos'), label: vertical.posLabel || 'Bán tại quầy', icon: IconPos,      permission: 'pos.use' },
+        { href: joinPath(base, '/channels/pos'), label: vertical.posLabel || 'Bán tại quầy', icon: IconPos,      permission: 'pos.use', highlight: true },
         { href: joinPath(base, '/orders'),   label: 'Đơn hàng',      icon: IconClipboard, permission: 'orders.view' },
         { href: joinPath(base, '/returns'),  label: 'Đơn trả hàng',  icon: IconReturn,    permission: 'returns.view' },
         { href: joinPath(base, '/customers'), label: 'Khách hàng',   icon: IconUsers,     permission: 'customers.view' },
@@ -137,14 +142,14 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
         { href: joinPath(base, '/suppliers'),  label: 'Nhà cung cấp',   icon: IconTruck,     permission: 'inventory.view' },
         { href: joinPath(base, '/partners'),  label: 'Quản lý đối tác', icon: IconUsers,     permission: 'partners.view' },
         { href: joinPath(base, '/debt'),       label: 'Công nợ',          icon: IconMoney,     permission: 'debt.view' },
-        { href: joinPath(base, '/cashbook'),           label: 'Sổ quỹ',       icon: IconReceipt,  permission: 'cashbook.view' },
+        { href: joinPath(base, '/cashbook'),           label: 'Sổ quỹ',       icon: IconCashbook,  permission: 'cashbook.view' },
       ],
     },
     {
       label: 'Kênh bán hàng',
       items: [
-        { href: joinPath(base, '/channels/facebook'), label: 'Facebook',     icon: IconFacebook, permission: 'channels.view' },
-        { href: joinPath(base, '/channels/ecom'),     label: 'Sàn TMĐT',     icon: IconShop,     permission: 'channels.view' },
+        { href: joinPath(base, '/channels/facebook'), label: 'Facebook',     icon: IconFacebook, permission: 'channels.view', hidden: true },
+        { href: joinPath(base, '/channels/ecom'),     label: 'Sàn TMĐT',     icon: IconShop,     permission: 'channels.view', hidden: true },
       ],
     },
     {
@@ -154,7 +159,7 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
         { href: joinPath(base, '/reports/inventory'),   label: 'Báo cáo kho',  icon: IconWarehouse,permission: 'inventory.view' },
         { href: joinPath(base, '/reports/accounting'),  label: 'Kế toán',      icon: IconChart,    permission: 'accounting.view' },
         { href: joinPath(base, '/reports/tax'),        label: 'Báo cáo thuế', icon: IconReceipt,  permission: 'accounting.view' },
-        { href: joinPath(base, '/reports/cod'),        label: 'Đối soát COD', icon: IconMoney,    permission: 'cod.view' },
+        { href: joinPath(base, '/reports/cod'),        label: 'Đối soát COD', icon: IconMoney,    permission: 'cod.view', hidden: true },
       ],
     },
     {
@@ -282,6 +287,15 @@ export function IconBarChart({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+    </svg>
+  );
+}
+export function IconCashbook({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M21 12V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2h14a2 2 0 002-2v-5z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M21 12H12a2 2 0 00-2 2v0a2 2 0 002 2h9" />
+      <circle cx="15.5" cy="14" r="1.5" fill="currentColor" />
     </svg>
   );
 }

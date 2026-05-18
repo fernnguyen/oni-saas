@@ -125,6 +125,12 @@ function SidebarContent({
     permissions,
   );
 
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<number, boolean>>({});
+
+  const toggleGroup = (index: number) => {
+    setCollapsedGroups(prev => ({ ...prev, [index]: !prev[index] }));
+  };
+
   function isActive(href: string, exact?: boolean) {
     if (exact) return pathname === href;
     return pathname.startsWith(href);
@@ -160,20 +166,44 @@ function SidebarContent({
       )}
 
       {/* Branch selector removed, moved to Topbar */}
+      <style>{`
+        .sidebar-scroll::-webkit-scrollbar { width: 4px; }
+        .sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
+        .sidebar-scroll::-webkit-scrollbar-thumb { background: transparent; border-radius: 4px; }
+        .sidebar-scroll:hover::-webkit-scrollbar-thumb { background: #cbd5e1; }
+      `}</style>
 
       {/* Nav */}
-      <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-4">
+      <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-4 sidebar-scroll">
         {navGroups.map((group, gi) => (
           <div key={gi}>
             {group.label && !collapsed && (
-              <div className="px-2 mb-1 text-[10px] uppercase tracking-widest text-slate-400 font-semibold">
-                {group.label}
-              </div>
+              <button
+                onClick={() => toggleGroup(gi)}
+                className="w-full flex items-center justify-between px-2 mb-1 cursor-pointer group"
+              >
+                <span className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold group-hover:text-slate-600 transition-colors">
+                  {group.label}
+                </span>
+                <svg 
+                  className={`h-3.5 w-3.5 text-slate-400 group-hover:text-slate-600 transition-transform ${collapsedGroups[gi] ? 'rotate-180' : ''}`} 
+                  fill="none" 
+                  viewBox="0 0 24 24" 
+                  stroke="currentColor"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
             )}
             {group.label && collapsed && <div className="mb-1 h-px bg-slate-100 mx-1" />}
-            <div className="space-y-0.5">
+            <div 
+              className={`space-y-0.5 overflow-hidden transition-all duration-200 ${
+                !collapsed && collapsedGroups[gi] ? 'max-h-0 opacity-0' : 'max-h-[1000px] opacity-100'
+              }`}
+            >
               {group.items.map((item) => {
                 const active = isActive(item.href, item.exact);
+                const isHighlight = item.highlight;
                 const linkEl = (
                   <Link
                     href={item.href}
@@ -186,16 +216,24 @@ function SidebarContent({
                       }
                       if (onClose) onClose();
                     }}
-                    className={`flex items-center rounded-md py-2 text-sm transition-colors ${
+                    className={`relative overflow-hidden flex items-center rounded-md py-2 text-sm transition-all duration-200 ${
                       collapsed ? 'justify-center px-2' : 'gap-2.5 px-2.5'
                     } ${
                       active
-                        ? 'bg-primary text-white'
-                        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                        ? 'bg-primary text-white font-medium shadow-sm'
+                        : isHighlight
+                          ? 'bg-gradient-to-r from-orange-50 to-orange-50/20 text-orange-600 hover:from-orange-100 hover:to-orange-50/50 font-medium border border-orange-100'
+                          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                     }`}
                   >
-                    <item.icon className="h-4 w-4 shrink-0" />
-                    {!collapsed && item.label}
+                    {isHighlight && (
+                      <>
+                        <div className={`absolute left-[85%] top-1/2 -translate-x-1/2 -translate-y-1/2 h-16 w-16 rounded-full transition-colors ${active ? 'bg-white/10' : 'bg-orange-500/5'}`} />
+                        <div className={`absolute left-[85%] top-0 h-10 w-10 rounded-full blur-[1px] transition-colors ${active ? 'bg-white/20' : 'bg-orange-500/5'}`} />
+                      </>
+                    )}
+                    <item.icon className={`h-4 w-4 shrink-0 relative z-10 ${isHighlight && !active ? 'text-orange-500' : ''}`} />
+                    {!collapsed && <span className="relative z-10">{item.label}</span>}
                   </Link>
                 );
 
