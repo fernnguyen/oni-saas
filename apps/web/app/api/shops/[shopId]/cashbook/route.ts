@@ -18,12 +18,14 @@ export async function GET(
     const limit = parseInt(searchParams.get('limit') || '50', 10)
     const type = searchParams.get('type')
     const branch_id = searchParams.get('branch_id')
+    const reference_id = searchParams.get('reference_id')
 
     const filters: Record<string, string> = {}
     if (type) filters.type = type
     if (branch_id) filters.branch_id = branch_id
+    if (reference_id) filters.reference_id = reference_id
 
-    const cacheKey = ['cashbook', shopId, page, limit, type, branch_id].join(':')
+    const cacheKey = ['cashbook', shopId, page, limit, type, branch_id, reference_id].join(':')
     const result = await shopCache(
       () => connector.list('cashbook', { page, limit, filters, sortDesc: true }),
       [cacheKey],

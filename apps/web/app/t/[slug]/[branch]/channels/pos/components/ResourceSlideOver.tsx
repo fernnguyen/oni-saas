@@ -142,6 +142,10 @@ export function ResourceSlideOver({
   const [savingDirty, setSavingDirty] = useState(false)
   const [deletingItemId, setDeletingItemId] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [showPaymentForm, setShowPaymentForm] = useState(false)
+  const [confirmCancelResource, setConfirmCancelResource] = useState(false)
+  const [cancellingOrder, setCancellingOrder] = useState(false)
+  const [refundAmountInput, setRefundAmountInput] = useState('')
 
   const meta = safeParse(resource.metadata)
   const isRoom = resource.type === 'room'
@@ -455,21 +459,44 @@ export function ResourceSlideOver({
     })
   }
 
-  function updateExistingQty(idx: number, delta: number) {
-    setExistingItems(prev => {
-      const clone = [...prev]
-      const currQty = Number(clone[idx].qty)
-      const newQty = currQty + delta
-      if (newQty <= 0) {
-        setConfirmDeleteId(clone[idx].id!)
-        return prev
+  async function handleAdjustExistingQty(idx: number, delta: number) {
+    const clone = [...existingItems]
+    const currQty = Number(clone[idx].qty)
+    const newQty = currQty + delta
+    
+    if (newQty <= 0) {
+      setConfirmDeleteId(clone[idx].id!)
+      return
+    }
+
+    const p = clone[idx]
+    const up = Number(p.unit_price)
+    const newLineTotal = newQty * up
+    clone[idx] = { ...p, qty: String(newQty), line_total: String(newLineTotal) }
+    setExistingItems(clone)
+
+    try {
+      await fetch(`/api/shops/${shopId}/order-items/${p.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ qty: String(newQty), line_total: String(newLineTotal) })
+      })
+      toast.success(`Đã cập nhật: ${p.product_name} (x${newQty})`)
+      // Fetch new items immediately
+      const itemsRes = await fetch(`/api/shops/${shopId}/order-items?order_id=${order?.id}&limit=200&t=${Date.now()}`)
+      if (itemsRes.ok) {
+        const iData = await itemsRes.json()
+        setExistingItems(iData.data || [])
       }
-      const p = clone[idx]
-      const up = Number(p.unit_price)
-      clone[idx] = { ...p, qty: String(newQty), line_total: String(newQty * up) }
-      setDirtyItems(d => ({ ...d, [p.id!]: true }))
-      return clone
-    })
+    } catch {
+      toast.error('Lỗi khi cập nhật số lượng')
+      // Rollback on fail
+      const itemsRes = await fetch(`/api/shops/${shopId}/order-items?order_id=${order?.id}&limit=200&t=${Date.now()}`)
+      if (itemsRes.ok) {
+        const iData = await itemsRes.json()
+        setExistingItems(iData.data || [])
+      }
+    }
   }
 
   async function handleSaveCartItems() {
@@ -541,6 +568,46 @@ export function ResourceSlideOver({
       toast.error('Lỗi khi lưu cập nhật')
     } finally {
       setSavingDirty(false)
+    }
+  }
+  async function handleCancelOrder() {
+    if (!order) return
+    setCancellingOrder(true)
+    try {
+      const payload: any = { reason: `Hủy ${tpl.label.toLowerCase()} chưa thanh toán` }
+      if (refundAmountInput) {
+        payload.refund_amount = refundAmountInput.replace(/\D/g, '')
+      }
+
+      const res = await fetch(`/api/shops/${shopId}/orders/${order.id}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+      if (!res.ok) {
+        const errorData = await res.json()
+        throw new Error(errorData.error || `Lỗi khi hủy ${tpl.label.toLowerCase()}`)
+      }
+
+      try {
+        await fetch(`/api/shops/${shopId}/location-resources/${resource.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'available', current_order_id: '' }),
+        })
+      } catch (err) {
+        console.error('Lỗi khi giải phóng bàn:', err)
+      }
+
+      toast.success(`Đã hủy ${tpl.label.toLowerCase()}`)
+      setConfirmCancelResource(false)
+      onSessionClosed()
+      if (onRefresh) onRefresh()
+      onClose(true)
+    } catch (err: any) {
+      toast.error(err.message)
+    } finally {
+      setCancellingOrder(false)
     }
   }
 
@@ -1103,12 +1170,13 @@ export function ResourceSlideOver({
                   <div className="space-y-6">
                     {activeTab === 'general' && (
                       <>
-                      <div className="grid grid-cols-1 md:grid-cols-12 gap-6 h-full">
-                        {/* LEFT COLUMN: Summary + Payments */}
-                        <div className="md:col-span-6 space-y-6 flex flex-col">
-                          {/* Summary Card */}
-                          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shrink-0">
-                            <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-3">
+                      <div className="flex flex-col gap-6">
+
+                        {/* TOP SECTION: Grid 2 columns */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {/* Khách hàng */}
+                          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col justify-center">
+                            <div className="flex items-center justify-between">
                               <div>
                                 <div className="flex items-center gap-2 mb-0.5">
                                   <p className="text-xs text-slate-500">Khách hàng</p>
@@ -1136,7 +1204,9 @@ export function ResourceSlideOver({
                                 <p className="text-sm font-bold text-slate-900">{fmtDuration(elapsed)}</p>
                               </div>
                             </div>
-
+                          </div>
+                          {/* Giờ vào ra */}
+                          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col justify-center">
                             <div className="space-y-1">
                               <div className="flex items-center justify-between text-xs text-slate-600">
                                 <span>Giờ vào:</span>
@@ -1164,7 +1234,6 @@ export function ResourceSlideOver({
                                 )}
                               </div>
                             </div>
-                            
                             {timeCharge > 0 && (
                               <div className="mt-3 pt-3 border-t border-dashed border-slate-200 flex items-center justify-between">
                                 <span className="text-xs font-medium text-slate-600">Tiền giờ ({billableHours}h)</span>
@@ -1172,15 +1241,115 @@ export function ResourceSlideOver({
                               </div>
                             )}
                           </div>
+                        </div>
 
-                          {/* Lịch sử thu tiền */}
-                          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm flex-1 flex flex-col">
+{/* RIGHT COLUMN: Order Items */}
+                        <div className="flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                          <p className="text-xs font-bold text-slate-800 uppercase tracking-wide mb-3">Sản phẩm/Dịch vụ</p>
+                          
+                          <div className="mb-4 shrink-0">
+                            <SlideProductSearch onSelect={handleProductSelect} />
+                          </div>
+
+                          <div className="space-y-3 flex-1 overflow-y-auto">
+                            {existingItems.length === 0 && cartItems.length === 0 && (
+                              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 py-10 text-center text-sm text-slate-400">
+                                Chưa gọi món nào
+                              </div>
+                            )}
+
+                            {/* Existing items */}
+                            {existingItems.map((item, idx) => (
+                              <div key={item.id || `ex-${idx}`} className={`rounded-xl border p-3 flex justify-between items-center transition-colors ${dirtyItems[item.id!] ? 'bg-orange-50 border-orange-200' : 'bg-slate-50 border-slate-100'}`}>
+                                <div className="min-w-0 flex-1 flex items-center gap-3">
+                                  <p className="text-sm font-medium text-slate-900 truncate flex-1">{item.product_name}</p>
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    <button onClick={() => handleAdjustExistingQty(idx, -1)} className="w-6 h-6 flex items-center justify-center rounded-md bg-slate-200 text-slate-600 hover:bg-slate-300 transition-colors">
+                                      -
+                                    </button>
+                                    <input 
+                                      type="text" 
+                                      value={item.qty}
+                                      onChange={e => {
+                                        const val = e.target.value.replace(/\D/g, '')
+                                        const newQty = val ? Number(val) : 0
+                                        setExistingItems(prev => {
+                                          const clone = [...prev]
+                                          const p = clone[idx]
+                                          clone[idx] = { ...p, qty: String(newQty), line_total: String(newQty * Number(p.unit_price)) }
+                                          return clone
+                                        })
+                                        setDirtyItems(d => ({ ...d, [item.id!]: true }))
+                                      }}
+                                      className="w-10 text-center text-sm font-bold bg-white border border-slate-200 rounded px-1 focus:border-primary focus:ring-1 focus:ring-primary shadow-sm"
+                                    />
+                                    <button onClick={() => handleAdjustExistingQty(idx, 1)} className="w-6 h-6 flex items-center justify-center rounded-md bg-slate-200 text-slate-600 hover:bg-slate-300 transition-colors">
+                                      +
+                                    </button>
+                                  </div>
+                                </div>
+                                <div className="flex items-center shrink-0 ml-4 gap-3">
+                                  <span className="text-sm font-bold text-slate-700 w-24 text-right">
+                                    {fmtVND(item.line_total)}
+                                  </span>
+                                  <button onClick={() => setConfirmDeleteId(item.id!)} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-100 hover:text-red-600 text-slate-400 transition-colors">
+                                    ✕
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                            {Object.keys(dirtyItems).length > 0 && (
+                              <button
+                                onClick={handleSaveDirtyItems}
+                                disabled={savingDirty}
+                                className="w-full rounded-xl bg-orange-500 p-3 text-sm font-bold text-white hover:bg-orange-600 transition-colors disabled:opacity-50 shadow-sm"
+                              >
+                                {savingDirty ? 'Đang lưu...' : `Lưu cập nhật (${Object.keys(dirtyItems).length} món)`}
+                              </button>
+                            )}
+
+
+                            {/* Cart items */}
+                            {cartItems.map((item, idx) => (
+                              <div key={`cart-${idx}`} className="rounded-xl border border-primary/20 bg-primary/5 p-3 flex justify-between items-center shadow-sm">
+                                <div className="min-w-0 flex-1 flex items-center gap-3">
+                                  <p className="text-sm font-bold text-slate-900 truncate flex-1">{item.product_name}</p>
+                                  <div className="flex items-center gap-2 bg-white rounded-lg border border-slate-200 px-1 py-0.5 shrink-0">
+                                    <button onClick={() => updateCartQty(idx, -1)} className="w-6 h-6 flex items-center justify-center rounded text-slate-500 hover:bg-slate-100 hover:text-slate-900 font-medium">−</button>
+                                    <span className="text-sm font-bold w-6 text-center">{item.qty}</span>
+                                    <button onClick={() => updateCartQty(idx, 1)} className="w-6 h-6 flex items-center justify-center rounded text-slate-500 hover:bg-slate-100 hover:text-slate-900 font-medium">+</button>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-3 shrink-0 ml-4">
+                                  <span className="text-sm font-bold text-slate-900 w-24 text-right">
+                                    {fmtVND(item.line_total)}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          
+                            <div className="mt-6 pt-4 border-t border-slate-200 flex items-center justify-between sticky bottom-0 bg-white">
+                              <span className="font-bold text-slate-800 text-xs uppercase tracking-wide">Tổng tiền tạm tính</span>
+                              <span className="text-base font-bold text-primary">
+                                {fmtVND(existingItems.reduce((acc, item) => acc + Number(item.line_total), 0) + cartItems.reduce((acc, item) => acc + Number(item.line_total), 0) + timeCharge)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+{/* Lịch sử thu tiền */}
+                          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col">
                             <div className="flex items-center justify-between mb-3">
                               <label className="block text-xs font-bold text-slate-800 uppercase tracking-wide">Lịch sử thanh toán</label>
-                              <span className="text-xs font-medium text-slate-500">Tổng: <span className="font-bold text-slate-900">{fmtVND(installments.reduce((sum, p) => sum + Number(p.amount), 0))}</span></span>
+                              <div className="flex items-center gap-4">
+                                <span className="text-xs font-medium text-slate-500">Tổng: <span className="font-bold text-slate-900">{fmtVND(installments.reduce((sum, p) => sum + Number(p.amount), 0))}</span></span>
+                                <button onClick={() => setShowPaymentForm(!showPaymentForm)} className="text-xs font-bold text-primary hover:underline">
+                                  {showPaymentForm ? 'Đóng' : '+ Thêm thanh toán'}
+                                </button>
+                              </div>
                             </div>
                             
-                            <div className="flex-1 overflow-y-auto mb-3 min-h-[100px]">
+                            <div className="flex-1 overflow-y-auto min-h-[50px] max-h-[200px]">
                               {installments.length > 0 ? (
                                 <div className="space-y-2">
                                   {installments.map((p, i) => {
@@ -1204,162 +1373,55 @@ export function ResourceSlideOver({
                               )}
                             </div>
 
-                            <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 shrink-0">
-                              <label className="block text-[10px] font-bold text-primary mb-1 uppercase tracking-wide">Thêm thanh toán</label>
-                              <div className="flex bg-white rounded-md border border-primary/20 overflow-hidden mb-2">
-                                <select value={installmentMethod} onChange={e => setInstallmentMethod(e.target.value)} className="bg-transparent text-sm border-r border-primary/20 px-2 py-1.5 focus:outline-none text-slate-700 w-1/3">
-                                  <option value="cash">Tiền mặt</option>
-                                  <option value="bank_transfer">Chuyển khoản</option>
-                                  <option value="card">Thẻ/Quẹt máy</option>
-                                  <option value="momo">MoMo</option>
-                                  <option value="vnpay">VNPay</option>
-                                  <option value="zalopay">ZaloPay</option>
-                                </select>
-                                <input 
-                                  type="text" 
-                                  placeholder="0"
-                                  value={installmentAmount}
-                                  onChange={e => {
-                                    const val = e.target.value.replace(/\D/g, '')
-                                    setInstallmentAmount(val ? Number(val).toLocaleString('vi-VN') : '')
-                                  }}
-                                  className="flex-1 w-full bg-transparent text-sm px-3 py-1.5 focus:outline-none text-right font-bold text-primary" 
-                                />
-                              </div>
-                              <div className="flex gap-2">
-                                <input 
-                                  type="text" 
-                                  placeholder="Ghi chú (tùy chọn)..."
-                                  value={installmentNote}
-                                  onChange={e => setInstallmentNote(e.target.value)}
-                                  className="flex-1 rounded-md border border-slate-200 px-2 py-1.5 text-xs focus:outline-none focus:border-primary bg-white" 
-                                />
-                                <button onClick={handlePayInstallment} disabled={isPayingInstallment || !installmentAmount} className="rounded-md bg-primary px-3 py-1.5 text-xs font-bold text-white hover:bg-primary-dark transition-colors disabled:opacity-50 shrink-0">
-                                  {isPayingInstallment ? 'Đang lưu...' : 'Thu'}
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* RIGHT COLUMN: Order Items */}
-                        <div className="md:col-span-6 flex flex-col h-full rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                          <p className="text-xs font-bold text-slate-800 uppercase tracking-wide mb-3">Sản phẩm/Dịch vụ</p>
-                          
-                          <div className="mb-4 shrink-0">
-                            <SlideProductSearch onSelect={handleProductSelect} />
-                          </div>
-
-                          <div className="space-y-3 flex-1 overflow-y-auto">
-                            {existingItems.length === 0 && cartItems.length === 0 && (
-                              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 py-10 text-center text-sm text-slate-400">
-                                Chưa gọi món nào
-                              </div>
-                            )}
-
-                            {/* Existing items */}
-                            {existingItems.map((item, idx) => (
-                              <div key={item.id || `ex-${idx}`} className={`rounded-xl border p-3 flex justify-between items-center transition-colors ${dirtyItems[item.id!] ? 'bg-orange-50 border-orange-200' : 'bg-slate-50 border-slate-100'}`}>
-                                <div className="min-w-0 flex-1">
-                                  <p className="text-sm font-medium text-slate-900 truncate">{item.product_name}</p>
-                                  <div className="flex items-center gap-1 mt-2">
-                                    <button onClick={() => updateExistingQty(idx, -1)} className="w-6 h-6 flex items-center justify-center rounded-md bg-slate-200 text-slate-600 hover:bg-slate-300">
-                                      -
-                                    </button>
-                                    <input 
-                                      type="text" 
-                                      value={item.qty}
-                                      onChange={e => {
-                                        const val = e.target.value.replace(/\D/g, '')
-                                        const newQty = val ? Number(val) : 0
-                                        setExistingItems(prev => {
-                                          const clone = [...prev]
-                                          const p = clone[idx]
-                                          clone[idx] = { ...p, qty: String(newQty), line_total: String(newQty * Number(p.unit_price)) }
-                                          return clone
-                                        })
-                                        setDirtyItems(d => ({ ...d, [item.id!]: true }))
-                                      }}
-                                      className="w-10 text-center text-xs font-medium border-none bg-transparent focus:ring-0 p-0"
-                                    />
-                                    <button onClick={() => updateExistingQty(idx, 1)} className="w-6 h-6 flex items-center justify-center rounded-md bg-slate-200 text-slate-600 hover:bg-slate-300">
-                                      +
-                                    </button>
-                                  </div>
+                            {showPaymentForm && (
+                              <div className="mt-3 rounded-lg border border-primary/20 bg-primary/5 p-3 shrink-0">
+                                <label className="block text-[10px] font-bold text-primary mb-1 uppercase tracking-wide">Thêm thanh toán mới</label>
+                                <div className="flex bg-white rounded-md border border-primary/20 overflow-hidden mb-2">
+                                  <select value={installmentMethod} onChange={e => setInstallmentMethod(e.target.value)} className="bg-transparent text-sm border-r border-primary/20 px-2 py-1.5 focus:outline-none text-slate-700 w-1/3">
+                                    <option value="cash">Tiền mặt</option>
+                                    <option value="bank_transfer">Chuyển khoản</option>
+                                    <option value="card">Thẻ/Quẹt máy</option>
+                                    <option value="momo">MoMo</option>
+                                    <option value="vnpay">VNPay</option>
+                                    <option value="zalopay">ZaloPay</option>
+                                  </select>
+                                  <input 
+                                    type="text" 
+                                    placeholder="0"
+                                    value={installmentAmount}
+                                    onChange={e => {
+                                      const val = e.target.value.replace(/\D/g, '')
+                                      setInstallmentAmount(val ? Number(val).toLocaleString('vi-VN') : '')
+                                    }}
+                                    className="flex-1 w-full bg-transparent text-sm px-3 py-1.5 focus:outline-none text-right font-bold text-primary" 
+                                  />
                                 </div>
-                                <div className="flex items-center shrink-0 ml-3 gap-3">
-                                  <span className="text-sm font-bold text-slate-700">
-                                    {fmtVND(item.line_total)}
-                                  </span>
-                                  <button onClick={() => setConfirmDeleteId(item.id!)} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-100 hover:text-red-600 text-slate-400 transition-colors">
-                                    ✕
+                                <div className="flex gap-2">
+                                  <input 
+                                    type="text" 
+                                    placeholder="Ghi chú (tùy chọn)..."
+                                    value={installmentNote}
+                                    onChange={e => setInstallmentNote(e.target.value)}
+                                    className="flex-1 rounded-md border border-slate-200 px-2 py-1.5 text-xs focus:outline-none focus:border-primary bg-white" 
+                                  />
+                                  <button onClick={handlePayInstallment} disabled={isPayingInstallment || !installmentAmount} className="rounded-md bg-primary px-3 py-1.5 text-xs font-bold text-white hover:bg-primary-dark transition-colors disabled:opacity-50 shrink-0">
+                                    {isPayingInstallment ? 'Đang lưu...' : 'Thu'}
                                   </button>
                                 </div>
                               </div>
-                            ))}
-                            {Object.keys(dirtyItems).length > 0 && (
-                              <button
-                                onClick={handleSaveDirtyItems}
-                                disabled={savingDirty}
-                                className="w-full rounded-xl bg-orange-500 p-3 text-sm font-bold text-white hover:bg-orange-600 transition-colors disabled:opacity-50 shadow-sm"
-                              >
-                                {savingDirty ? 'Đang lưu...' : `Lưu cập nhật (${Object.keys(dirtyItems).length} món)`}
-                              </button>
                             )}
-
-
-                            {/* Cart items */}
-                            {cartItems.map((item, idx) => (
-                              <div key={`cart-${idx}`} className="rounded-xl border border-primary/20 bg-primary/5 p-3 flex justify-between items-center shadow-sm">
-                                <div className="min-w-0 flex-1">
-                                  <p className="text-sm font-bold text-slate-900 truncate">{item.product_name}</p>
-                                  <p className="text-xs text-primary mt-0.5 font-medium">{item.qty} x {fmtVND(item.unit_price)}</p>
-                                </div>
-                                <div className="flex items-center gap-3 shrink-0 ml-3">
-                                  <div className="flex items-center gap-2 bg-white rounded-lg border border-slate-200 px-1 py-0.5">
-                                    <button onClick={() => updateCartQty(idx, -1)} className="w-6 h-6 flex items-center justify-center rounded text-slate-500 hover:bg-slate-100 hover:text-slate-900 font-medium">−</button>
-                                    <span className="text-xs font-bold w-4 text-center">{item.qty}</span>
-                                    <button onClick={() => updateCartQty(idx, 1)} className="w-6 h-6 flex items-center justify-center rounded text-slate-500 hover:bg-slate-100 hover:text-slate-900 font-medium">+</button>
-                                  </div>
-                                  <span className="text-sm font-bold text-slate-900 w-16 text-right">
-                                    {fmtVND(item.line_total)}
-                                  </span>
-                                </div>
-                              </div>
-                            ))}
                           </div>
-                        </div>
-                      </div>
 
-                      {/* Thông tin thuê — inline at bottom */}
+                      {/* Ghi chú đơn hàng */}
                       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                         <div className="flex items-center justify-between mb-3">
-                          <p className="text-xs font-bold text-slate-800 uppercase tracking-wide">{tpl.metaLabels.sessionInfo}</p>
+                          <label className="block text-xs font-bold text-slate-800 uppercase tracking-wide">Ghi chú đơn hàng</label>
                           <button onClick={handleUpdateMetadata} disabled={isUpdatingMeta} className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary-dark disabled:opacity-50">
-                            {isUpdatingMeta ? 'Đang lưu...' : 'Lưu thay đổi'}
+                            {isUpdatingMeta ? 'Đang lưu...' : 'Lưu ghi chú'}
                           </button>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                          {sec.expectedReturn && <div>
-                            <label className="block text-xs font-medium text-slate-600 mb-1">{tpl.metaLabels.expectedReturn}</label>
-                            <input type="datetime-local" value={expectedCheckout} onChange={(e) => setExpectedCheckout(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none" />
-                          </div>}
-                          {sec.bookingSource && <div>
-                            <label className="block text-xs font-medium text-slate-600 mb-1">Kênh đặt {tpl.label.toLowerCase()}</label>
-                            <select value={bookingSource} onChange={(e) => setBookingSource(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white">
-                              <option value="Khách lẻ (Walk-in)">Khách lẻ (Walk-in)</option>
-                              <option value="Facebook/Zalo">Facebook/Zalo</option>
-                              <option value="Booking.com">Booking.com</option>
-                              <option value="Agoda">Agoda</option>
-                              <option value="Traveloka">Traveloka</option>
-                              <option value="Khác">Khác</option>
-                            </select>
-                          </div>}
-                          <div>
-                            <label className="block text-xs font-medium text-slate-600 mb-1">Ghi chú thêm</label>
-                            <input type="text" value={note} onChange={(e) => setNote(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none" placeholder="Yêu cầu đặc biệt..." />
-                          </div>
-                        </div>
+                        <input type="text" value={note} onChange={(e) => setNote(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none" placeholder="Yêu cầu đặc biệt, chú thích..." />
+                      </div>
                       </div>
                       </>
                     )}
@@ -1481,12 +1543,23 @@ export function ResourceSlideOver({
                   {savingItems ? 'Đang lưu...' : `Lưu ${cartItems.length} món mới`}
                 </button>
               ) : (
-                <button
-                  onClick={() => setCheckoutOpen(true)}
-                  className="w-full rounded-xl bg-slate-900 py-3.5 text-sm font-bold text-white shadow-sm hover:bg-slate-800 transition-all"
-                >
-                  {tpl.actions.payAndClose}
-                </button>
+                <div className="flex gap-3 w-full">
+                  <button
+                    onClick={() => setCheckoutOpen(true)}
+                    className="flex-1 rounded-xl bg-slate-900 py-3.5 text-sm font-bold text-white shadow-sm hover:bg-slate-800 transition-all"
+                  >
+                    {tpl.actions.payAndClose}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setRefundAmountInput(order?.paid_amount ? Number(order.paid_amount).toLocaleString('vi-VN') : '')
+                      setConfirmCancelResource(true)
+                    }}
+                    className="shrink-0 px-5 rounded-xl bg-red-50 text-red-600 border border-red-200 py-3.5 text-sm font-bold hover:bg-red-100 transition-colors"
+                  >
+                    Hủy {tpl.label.toLowerCase()}
+                  </button>
+                </div>
               )}
             </div>
           </div>
@@ -1730,6 +1803,40 @@ export function ResourceSlideOver({
         variant="danger"
         loading={!!deletingItemId}
       />
+
+      <ConfirmDialog
+        open={confirmCancelResource}
+        onClose={() => setConfirmCancelResource(false)}
+        onConfirm={handleCancelOrder}
+        title={`Hủy ${tpl.label.toLowerCase()}`}
+        description={`Bạn có chắc chắn muốn hủy ${tpl.label.toLowerCase()} này không? Các món đã gọi sẽ được hoàn lại kho và ${tpl.label.toLowerCase()} sẽ trở về trạng thái trống.`}
+        variant="danger"
+        loading={cancellingOrder}
+      >
+        {Number(order?.paid_amount || 0) > 0 && (
+          <div className="mt-4 pt-4 border-t border-slate-100">
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              Hoàn trả tiền cọc / thanh toán trước (Tối đa: {Number(order?.paid_amount || 0).toLocaleString('vi-VN')}đ)
+            </label>
+            <input 
+              type="text" 
+              value={refundAmountInput}
+              onChange={e => {
+                const val = e.target.value.replace(/\D/g, '')
+                const numVal = val ? Number(val) : 0
+                const max = Number(order?.paid_amount || 0)
+                if (numVal > max) {
+                  setRefundAmountInput(max.toLocaleString('vi-VN'))
+                } else {
+                  setRefundAmountInput(numVal.toLocaleString('vi-VN'))
+                }
+              }}
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary bg-white font-medium"
+            />
+            <p className="mt-1 text-xs text-slate-500">Mặc định hệ thống sẽ tự động hoàn 100% qua phiếu chi Sổ quỹ. Nếu phạt cọc, vui lòng sửa lại số tiền hoàn này.</p>
+          </div>
+        )}
+      </ConfirmDialog>
     </>
   )
 }

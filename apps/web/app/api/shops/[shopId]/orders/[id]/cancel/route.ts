@@ -26,6 +26,7 @@ export async function POST(
 
     const body = await req.json().catch(() => ({}))
     const reason = body.reason || 'Không rõ'
+    const refundAmountBody = body.refund_amount !== undefined ? parseFloat(body.refund_amount) : undefined
 
     const order = await connector.findById('orders', id)
     if (!order) {
@@ -33,13 +34,19 @@ export async function POST(
     }
 
     if (order.status === 'cancelled') {
-      return NextResponse.json({ error: 'Đơn hàng đã được hủy trước đó' }, { status: 400 })
+      return NextResponse.json({ success: true, message: 'Đơn hàng đã được hủy trước đó' }, { status: 200 })
     }
 
     const orderNo = (order as Record<string, string>).order_no ?? id
     // 1. Process Cashbook refund (Idempotent)
     const paidAmount = parseFloat((order as Record<string, string>).paid_amount || '0')
-    if (paidAmount > 0) {
+    const finalRefundAmount = refundAmountBody !== undefined ? refundAmountBody : paidAmount
+
+    if (finalRefundAmount > 0) {
+      if (finalRefundAmount > paidAmount) {
+        return NextResponse.json({ error: 'Số tiền hoàn lại không được vượt quá số tiền đã thu' }, { status: 400 })
+      }
+
       const existingCb = await connector.list('cashbook', {
         page: 1, limit: 10, filters: { reference_id: id, type: 'payment', category: 'refund' }
       })
@@ -48,7 +55,7 @@ export async function POST(
       if (!alreadyRefunded) {
         const createdCb = await connector.create('cashbook', {
           type: 'payment',
-          amount: String(paidAmount),
+          amount: String(finalRefundAmount),
           method: 'cash',
           category: 'refund',
           reference_id: id,
@@ -176,10 +183,27 @@ export async function POST(
     // 3. Update order status to cancelled (Done last to act as commit!)
     const oldNote = (order as Record<string, string>).note || ''
     const oldStatus = (order as Record<string, string>).status || 'completed'
-    const updatedNote = oldNote ? `${oldNote}\n[Hủy] ${reason}` : `[Hủy] ${reason}`
-    await connector.update('orders', id, { status: 'cancelled', note: updatedNote })
+    const oldPaidAmountStr = (order as Record<string, string>).paid_amount || '0'
+    const oldTotalAmountStr = (order as Record<string, string>).total_amount || '0'
+    
+    const newPaidAmount = Math.max(0, paidAmount - finalRefundAmount)
+    const penalty = paidAmount - finalRefundAmount
+    const penaltyNote = penalty > 0 ? ` (Phí hủy đơn: ${penalty.toLocaleString('vi-VN')}đ)` : ''
+    const updatedNote = oldNote ? `${oldNote}\n[Hủy] ${reason}${penaltyNote}` : `[Hủy] ${reason}${penaltyNote}`
+    
+    await connector.update('orders', id, { 
+      status: 'cancelled', 
+      note: updatedNote,
+      paid_amount: String(newPaidAmount),
+      total_amount: String(newPaidAmount)
+    })
     tx.add(async () => {
-      await connector.update('orders', id, { status: oldStatus, note: oldNote }).catch(() => {})
+      await connector.update('orders', id, { 
+        status: oldStatus, 
+        note: oldNote,
+        paid_amount: oldPaidAmountStr,
+        total_amount: oldTotalAmountStr
+      }).catch(() => {})
     })
 
     const domainName = process.env.NEXT_PUBLIC_ROOT_DOMAIN || 'oni.vn'

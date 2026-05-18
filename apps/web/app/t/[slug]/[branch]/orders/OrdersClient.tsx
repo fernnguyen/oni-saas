@@ -853,6 +853,35 @@ export function OrdersClient({ shopId, shopName }: Props) {
                       </div>
                     )
                   })}
+                  {(cashbookData?.data ?? [])
+                    .filter(cb => !Array.from(paymentCbMap.values()).includes(cb.id || cb.transaction_id))
+                    .map((cb) => {
+                      const cbId = String(cb.id || cb.transaction_id);
+                      return (
+                        <div key={cbId} className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm">
+                          <div>
+                            <span className="font-medium text-slate-900">{METHOD_LABEL[cb.method] ?? cb.method}</span>
+                            <span 
+                              className="ml-2 cursor-pointer text-xs font-mono text-slate-500 hover:text-slate-700" 
+                              title="Nhấn để sao chép mã" 
+                              onClick={() => { 
+                                navigator.clipboard.writeText(cbId)
+                                toast.success('Đã copy mã: ' + cbId) 
+                              }}
+                            >
+                              (#{cbId.split('-')[0] + '-' + (cbId.split('-')[1] || '')})
+                            </span>
+                            {cb.category === 'refund' && <span className="ml-2 text-red-500 text-[10px] font-bold border border-red-200 bg-red-100 px-1.5 py-0.5 rounded uppercase tracking-wider">Hoàn tiền</span>}
+                            {cb.category === 'revenue' && <span className="ml-2 text-green-600 text-[10px] font-bold border border-green-200 bg-green-100 px-1.5 py-0.5 rounded uppercase tracking-wider">Thu khác</span>}
+                            {cb.note && <span className="ml-2 text-slate-500">— {cb.note}</span>}
+                          </div>
+                          <span className={`font-semibold ${cb.type === 'payment' ? 'text-red-600' : 'text-green-700'}`}>
+                            {cb.type === 'payment' ? '-' : '+'}{fmtVND(cb.amount)}
+                          </span>
+                        </div>
+                      )
+                    })
+                  }
                 </div>
               )}
 
