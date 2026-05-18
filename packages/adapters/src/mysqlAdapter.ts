@@ -55,9 +55,15 @@ export class MysqlConnector implements IDataConnector {
     const prefix = ENTITY_PREFIXES[entity]
     if (!prefix) return crypto.randomUUID()
 
+    let tenantHash = ''
+    if (this.tenantId) {
+      tenantHash = crypto.createHash('sha256').update(this.tenantId).digest('hex').substring(0, 8).toUpperCase() + '-'
+    }
+    const searchPrefix = `${prefix}-${tenantHash}`
+
     const tableName = this.getTableName(entity)
     let query = `SELECT id FROM \`${tableName}\` WHERE id LIKE ?`
-    const params: any[] = [`${prefix}-%`]
+    const params: any[] = [`${searchPrefix}%`]
 
     if (this.tenantId) {
       query += ' AND tenant_id = ?'
@@ -69,12 +75,12 @@ export class MysqlConnector implements IDataConnector {
 
     const existing = resultRows
       .map(r => r.id)
-      .filter(id => typeof id === 'string' && id.startsWith(`${prefix}-`))
-      .map(id => parseInt(id.slice(prefix.length + 1), 10))
+      .filter(id => typeof id === 'string' && id.startsWith(searchPrefix))
+      .map(id => parseInt(id.slice(searchPrefix.length), 10))
       .filter(n => !isNaN(n))
 
     const max = existing.length > 0 ? Math.max(...existing) : 9999
-    return `${prefix}-${max + 1}`
+    return `${searchPrefix}${max + 1}`
   }
 
   private readonly LEGACY_ID_MAP: Record<string, string> = {
@@ -312,7 +318,7 @@ export class MysqlConnector implements IDataConnector {
       if (!insertData.id) {
         if (nextIdNumber === -1) {
           const firstId = await this.generateSequentialId(entity)
-          const match = firstId.match(/^([A-Z]+)-(\d+)$/)
+          const match = firstId.match(/^(.+)-(\d+)$/)
           if (match) {
             idPrefix = match[1]
             nextIdNumber = parseInt(match[2], 10)

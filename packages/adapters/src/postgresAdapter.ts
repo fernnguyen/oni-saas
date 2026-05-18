@@ -107,9 +107,15 @@ export class PostgresConnector implements IDataConnector {
     const prefix = ENTITY_PREFIXES[entity]
     if (!prefix) return crypto.randomUUID()
 
+    let tenantHash = ''
+    if (this.tenantId) {
+      tenantHash = crypto.createHash('sha256').update(this.tenantId).digest('hex').substring(0, 8).toUpperCase() + '-'
+    }
+    const searchPrefix = `${prefix}-${tenantHash}`
+
     const tableName = this.getTableName(entity)
 
-    const params: unknown[] = [`${prefix}-%`]
+    const params: unknown[] = [`${searchPrefix}%`]
     let paramIdx = 2
     let queryText = `SELECT id FROM "${tableName}" WHERE id LIKE $1`
 
@@ -123,12 +129,12 @@ export class PostgresConnector implements IDataConnector {
 
     const existing = rows
       .map((r: any) => r.id)
-      .filter((id: string) => typeof id === 'string' && id.startsWith(`${prefix}-`))
-      .map((id: string) => parseInt(id.slice(prefix.length + 1), 10))
+      .filter((id: string) => typeof id === 'string' && id.startsWith(searchPrefix))
+      .map((id: string) => parseInt(id.slice(searchPrefix.length), 10))
       .filter((n: number) => !isNaN(n))
 
     const max = existing.length > 0 ? Math.max(...existing) : 9999
-    return `${prefix}-${max + 1}`
+    return `${searchPrefix}${max + 1}`
   }
 
   private formatRow(entity: string, row: any): Record<string, string> {
@@ -361,7 +367,7 @@ export class PostgresConnector implements IDataConnector {
       if (!insertData.id) {
         if (nextIdNumber === -1) {
           const firstId = await this.generateSequentialId(entity)
-          const match = firstId.match(/^([A-Z]+)-(\d+)$/)
+          const match = firstId.match(/^(.+)-(\d+)$/)
           if (match) {
             idPrefix = match[1]
             nextIdNumber = parseInt(match[2], 10)
