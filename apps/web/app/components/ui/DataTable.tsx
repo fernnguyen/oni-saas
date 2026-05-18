@@ -24,6 +24,7 @@ export interface DataTableProps<T extends object> {
   columns: Column<T>[]
   data?: T[]
   rows?: T[]
+  groupedData?: { key: string; label: React.ReactNode; items: T[] }[]
   loading?: boolean
   selectable?: boolean
   onSelectionChange?: (selected: T[]) => void
@@ -60,6 +61,7 @@ export function DataTable<T extends object>({
   columns,
   data,
   rows,
+  groupedData,
   loading = false,
   selectable = false,
   onSelectionChange,
@@ -98,6 +100,22 @@ export function DataTable<T extends object>({
       return sortDir === 'asc' ? cmp : -cmp
     })
   }, [tableData, sortKey, sortDir])
+
+  const renderedGroups = useMemo(() => {
+    if (!groupedData) return null
+    if (!sortKey || !sortDir) return groupedData
+    return groupedData.map(g => ({
+      ...g,
+      items: [...g.items].sort((a, b) => {
+        const aVal = (a as Record<string, unknown>)[sortKey]
+        const bVal = (b as Record<string, unknown>)[sortKey]
+        const aStr = String(aVal ?? '')
+        const bStr = String(bVal ?? '')
+        const cmp = aStr.localeCompare(bStr, undefined, { numeric: true })
+        return sortDir === 'asc' ? cmp : -cmp
+      })
+    }))
+  }, [groupedData, sortKey, sortDir])
 
   const allKeys = sortedData.map((row, idx) => getKey(row, idx))
   const allSelected = allKeys.length > 0 && allKeys.every((k) => selected.has(k))
@@ -147,7 +165,7 @@ export function DataTable<T extends object>({
       ]
     : columns
 
-  const isEmpty = !loading && sortedData.length === 0
+  const isEmpty = !loading && (groupedData ? groupedData.length === 0 : sortedData.length === 0)
 
   return (
     <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -208,6 +226,57 @@ export function DataTable<T extends object>({
                 )}
               </td>
             </tr>
+          ) : renderedGroups ? (
+            renderedGroups.map((group) => (
+              <React.Fragment key={group.key}>
+                <tr className="bg-slate-50 border-y border-slate-200">
+                  <td colSpan={effectiveColumns.length} className="px-4 py-2.5 text-sm font-bold text-slate-800">
+                    {group.label}
+                  </td>
+                </tr>
+                {group.items.length === 0 ? (
+                  <tr>
+                    <td colSpan={effectiveColumns.length} className="px-4 py-4 text-center text-slate-400 italic">Trống</td>
+                  </tr>
+                ) : group.items.map((row, idx) => {
+                  const key = getKey(row, idx)
+                  return (
+                    <tr
+                      key={key}
+                      className={[
+                        'border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors',
+                        selected.has(key) ? 'bg-blue-50' : '',
+                      ].join(' ')}
+                    >
+                      {selectable && (
+                        <td className="px-4 py-3">
+                          <input
+                            type="checkbox"
+                            checked={selected.has(key)}
+                            onChange={() => toggleRow(key, row)}
+                            className="h-4 w-4 rounded border-slate-300 accent-primary"
+                          />
+                        </td>
+                      )}
+                      {columns.map((col) => (
+                        <td
+                          key={col.key}
+                          className={[
+                            'px-4 py-3 align-middle',
+                            alignClass[col.align ?? 'left'],
+                            col.className ?? '',
+                          ].join(' ')}
+                        >
+                          {col.render
+                            ? col.render(row)
+                            : String((row as Record<string, unknown>)[col.key] ?? '')}
+                        </td>
+                      ))}
+                    </tr>
+                  )
+                })}
+              </React.Fragment>
+            ))
           ) : (
             sortedData.map((row, idx) => {
               const key = getKey(row, idx)

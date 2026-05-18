@@ -1,6 +1,8 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
+import Link from 'next/link'
+import { useParams } from 'next/navigation'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 import { getVerticalConfig } from '@oni/core'
@@ -85,12 +87,13 @@ function RowActions({ r, onEdit, onDuplicate, onSuspend, onRestore, onStatusChan
   }, [open])
   
   return (
-    <div className="flex items-center justify-end gap-2">
-      <button onClick={onEdit} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:bg-slate-50 transition-colors">Sửa</button>
-      
-      <button ref={buttonRef} onClick={handleToggle} className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:bg-slate-50 transition-colors">
+    <div className="flex items-center justify-end gap-1.5">
+      <button onClick={onEdit} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:bg-slate-50 transition-colors whitespace-nowrap">
+        Sửa
+      </button>
+      <button ref={buttonRef} onClick={handleToggle} className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:bg-slate-50 transition-colors whitespace-nowrap">
         Thao tác
-        <svg className="w-3 h-3 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+        <svg className="w-3 h-3 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
       </button>
 
       {open && typeof document !== 'undefined' && createPortal(
@@ -134,6 +137,9 @@ export function ResourcesClient({ shopId, industryType }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const confirm = useConfirm()
+  const params = useParams()
+  const branchSlug = params?.branch as string
+  const slug = params?.slug as string
 
   const [filterStatus, setFilterStatus] = useState<'active' | 'maintenance' | 'deleted'>('active')
 
@@ -273,7 +279,10 @@ export function ResourcesClient({ shopId, industryType }: Props) {
         const oldRate = editingResource.hourly_rate || '0'
         const newRate = unmaskVND(formHourlyRate) || '0'
         if (oldRate !== newRate) {
-          const ok = confirm(`Phòng đang sử dụng! Thay đổi giá sẽ chỉ áp dụng cho phiên tiếp theo.\nGiá cũ: ${Number(oldRate).toLocaleString('vi-VN')}₫ → Mới: ${Number(newRate).toLocaleString('vi-VN')}₫\n\nTiếp tục?`)
+          const ok = await confirm({
+            title: 'Phòng đang sử dụng',
+            description: `Thay đổi giá sẽ chỉ áp dụng cho phiên tiếp theo.\nGiá cũ: ${Number(oldRate).toLocaleString('vi-VN')}₫ → Mới: ${Number(newRate).toLocaleString('vi-VN')}₫\n\nTiếp tục?`
+          })
           if (!ok) return
         }
       }
@@ -390,14 +399,109 @@ export function ResourcesClient({ shopId, industryType }: Props) {
     }
   }
 
-  const filteredResources = resources.filter(r => {
-    if (filterStatus === 'active') return !['deleted', 'maintenance'].includes(r.status)
-    if (filterStatus === 'maintenance') return r.status === 'maintenance'
-    if (filterStatus === 'deleted') return r.status === 'deleted'
-    return true
-  }).sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0))
+  const filteredResources = useMemo(() => {
+    return resources.filter(r => {
+      if (filterStatus === 'active') return !['deleted', 'maintenance'].includes(r.status)
+      if (filterStatus === 'maintenance') return r.status === 'maintenance'
+      if (filterStatus === 'deleted') return r.status === 'deleted'
+      return true
+    }).sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0))
+  }, [resources, filterStatus])
+
+  const groupedResources = useMemo(() => {
+    const map = new Map<string, Resource[]>()
+    for (const r of filteredResources) {
+      const z = r.zone?.trim() || 'Chưa phân vùng'
+      if (!map.has(z)) map.set(z, [])
+      map.get(z)!.push(r)
+    }
+    const zones = Array.from(map.keys()).sort((a, b) => {
+      if (a === 'Chưa phân vùng') return 1
+      if (b === 'Chưa phân vùng') return -1
+      return a.localeCompare(b)
+    })
+    return zones.map(z => ({ zone: z, items: map.get(z)! }))
+  }, [filteredResources])
 
   const typeLabel = TYPE_LABELS[formType] || formType
+
+  const columns = useMemo<Column<Resource>[]>(() => [
+    {
+      key: 'name',
+      label: `Tên ${tpl?.label || 'vị trí'}`,
+      className: 'w-[25%]',
+      render: (r) => {
+        const isRoomType = r.type === 'room'
+        return (
+          <button onClick={() => startEdit(r)} className="flex items-center gap-2 font-bold text-slate-800 hover:text-primary transition-colors cursor-pointer text-left">
+            <span className="text-lg">{tpl?.icon || (isRoomType ? '🛏️' : r.type === 'court' ? '🏸' : '🪑')}</span>
+            <span>{r.name}</span>
+          </button>
+        )
+      }
+    },
+    {
+      key: 'capacity',
+      label: 'Sức chứa',
+      className: 'w-[25%]',
+      render: (r) => r.capacity ? (
+        <div className="flex items-center gap-1.5 text-slate-600">
+          <UserIcon className="w-3.5 h-3.5 opacity-70" /> {r.capacity} người
+        </div>
+      ) : <span className="text-slate-400">-</span>
+    },
+    {
+      key: 'price',
+      label: 'Bảng giá',
+      className: 'w-[20%]',
+      render: (r) => {
+        const rmd = safeParseJSON(r.metadata)
+        const isRoomType = r.type === 'room'
+        if (!r.hourly_rate && !rmd.overnight_rate) return <span className="text-slate-400">-</span>
+        return (
+          <div className="space-y-1 text-[11px] text-slate-600">
+            {r.hourly_rate && Number(r.hourly_rate) > 0 && (
+              <div className="flex items-center gap-1.5"><span>⏱️</span> <span className="font-semibold">{Number(r.hourly_rate).toLocaleString('vi-VN')}₫/h</span></div>
+            )}
+            {isRoomType && rmd.overnight_rate && (
+              <div className="flex items-center gap-1.5"><span>🌙</span> <span className="font-semibold">{Number(rmd.overnight_rate).toLocaleString('vi-VN')}₫/đêm</span></div>
+            )}
+          </div>
+        )
+      }
+    },
+    {
+      key: 'status',
+      label: 'Trạng thái',
+      className: 'w-[15%]',
+      render: (r) => {
+        const st = STATUS_STYLES[r.status] ?? STATUS_STYLES.available
+        return (
+          <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ${st.bg} ${st.text}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${st.dot}`} />
+            {st.label}
+          </span>
+        )
+      }
+    },
+    {
+      key: 'actions',
+      label: 'Thao tác',
+      align: 'right',
+      className: 'w-[20%]',
+      render: (r) => (
+        <RowActions
+          r={r}
+          onEdit={() => startEdit(r)}
+          onDuplicate={() => handleDuplicate(r)}
+          onSuspend={() => handleSuspend(r)}
+          onRestore={() => handleRestore(r)}
+          onStatusChange={(s) => handleStatusChange(r, s)}
+          onDelete={() => handleDelete(r)}
+        />
+      )
+    }
+  ], [tpl])
 
   return (
     <div className="space-y-6">
@@ -411,123 +515,71 @@ export function ResourcesClient({ shopId, industryType }: Props) {
             Quản lý {(tpl?.label || 'vị trí').toLowerCase()} cho {vertical.label}. Tổng: {resources.length} vị trí
           </p>
         </div>
-        {!creating && (
-          <button
-            onClick={() => setCreating(true)}
-            className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-primary-dark transition-all"
+        <div className="flex items-center gap-3">
+          <Link
+            href={`/${branchSlug}/channels/pos`}
+            className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition-all"
           >
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3.5 h-3.5 text-slate-500">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" />
             </svg>
-            Thêm {typeLabel}
-          </button>
-        )}
+            Quay lại POS
+          </Link>
+          {!creating && (
+            <button
+              onClick={() => setCreating(true)}
+              className="flex items-center gap-1.5 rounded-xl bg-primary px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-primary-dark transition-all"
+            >
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              Thêm {typeLabel}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="flex items-center gap-2 mb-4">
         <button
           onClick={() => setFilterStatus('active')}
-          className={`rounded-xl px-4 py-2 text-sm font-semibold transition-colors ${filterStatus === 'active' ? 'bg-primary text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+          className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${filterStatus === 'active' ? 'bg-primary text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
         >
           Đang hoạt động
         </button>
         <button
           onClick={() => setFilterStatus('maintenance')}
-          className={`rounded-xl px-4 py-2 text-sm font-semibold transition-colors ${filterStatus === 'maintenance' ? 'bg-slate-800 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+          className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${filterStatus === 'maintenance' ? 'bg-slate-800 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
         >
           Tạm ngừng
         </button>
         <button
           onClick={() => setFilterStatus('deleted')}
-          className={`rounded-xl px-4 py-2 text-sm font-semibold transition-colors ${filterStatus === 'deleted' ? 'bg-red-500 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+          className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${filterStatus === 'deleted' ? 'bg-red-500 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
         >
           Đã xóa
         </button>
       </div>
 
-      <DataTable
-        columns={[
-          {
-            key: 'name',
-            label: `Tên ${tpl?.label || 'vị trí'}`,
-            render: (r) => {
-              const isRoomType = r.type === 'room'
-              return (
-                <button onClick={() => startEdit(r)} className="flex items-center gap-2 font-bold text-slate-800 hover:text-primary transition-colors cursor-pointer text-left">
-                  <span className="text-lg">{tpl?.icon || (isRoomType ? '🛏️' : r.type === 'court' ? '🏸' : '🪑')}</span>
-                  <span>{r.name}</span>
-                </button>
-              )
-            }
-          },
-          {
-            key: 'zone',
-            label: 'Khu vực',
-            render: (r) => <span className="font-medium text-slate-700">{r.zone || 'Chưa phân vùng'}</span>
-          },
-          {
-            key: 'capacity',
-            label: 'Sức chứa',
-            render: (r) => r.capacity ? (
-              <div className="flex items-center gap-1.5 text-slate-600">
-                <UserIcon className="w-3.5 h-3.5 opacity-70" /> {r.capacity} người
-              </div>
-            ) : <span className="text-slate-400">-</span>
-          },
-          {
-            key: 'price',
-            label: 'Bảng giá',
-            render: (r) => {
-              const rmd = safeParseJSON(r.metadata)
-              const isRoomType = r.type === 'room'
-              if (!r.hourly_rate && !rmd.overnight_rate) return <span className="text-slate-400">-</span>
-              return (
-                <div className="space-y-1 text-[11px] text-slate-600">
-                  {r.hourly_rate && Number(r.hourly_rate) > 0 && (
-                    <div className="flex items-center gap-1.5"><span>⏱️</span> <span className="font-semibold">{Number(r.hourly_rate).toLocaleString('vi-VN')}₫/h</span></div>
-                  )}
-                  {isRoomType && rmd.overnight_rate && (
-                    <div className="flex items-center gap-1.5"><span>🌙</span> <span className="font-semibold">{Number(rmd.overnight_rate).toLocaleString('vi-VN')}₫/đêm</span></div>
-                  )}
-                </div>
-              )
-            }
-          },
-          {
-            key: 'status',
-            label: 'Trạng thái',
-            render: (r) => {
-              const st = STATUS_STYLES[r.status] ?? STATUS_STYLES.available
-              return (
-                <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ${st.bg} ${st.text}`}>
-                  <span className={`h-1.5 w-1.5 rounded-full ${st.dot}`} />
-                  {st.label}
-                </span>
-              )
-            }
-          },
-          {
-            key: 'actions',
-            label: 'Thao tác',
-            align: 'right',
-            render: (r) => (
-              <RowActions
-                r={r}
-                onEdit={() => startEdit(r)}
-                onDuplicate={() => handleDuplicate(r)}
-                onSuspend={() => handleSuspend(r)}
-                onRestore={() => handleRestore(r)}
-                onStatusChange={(s) => handleStatusChange(r, s)}
-                onDelete={() => handleDelete(r)}
-              />
-            )
-          }
-        ]}
-        data={filteredResources}
-        loading={loading}
-        emptyState={<EmptyState title={`Chưa có ${typeLabel} nào`} description={`Bấm "Thêm ${typeLabel}" để bắt đầu.`} />}
-        rowKey={(row) => row.id}
-      />
+      {loading ? (
+        <div className="flex items-center justify-center py-20"><span className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>
+      ) : groupedResources.length === 0 ? (
+        <EmptyState title={`Chưa có ${typeLabel} nào`} description={`Bấm "Thêm ${typeLabel}" để bắt đầu.`} />
+      ) : (
+        <DataTable
+          columns={columns}
+          groupedData={groupedResources.map(g => ({
+            key: g.zone,
+            label: (
+              <span className="uppercase tracking-wider">
+                {g.zone}
+                <span className="text-slate-400 text-xs font-normal normal-case ml-2">({g.items.length} {tpl?.label?.toLowerCase() || 'vị trí'})</span>
+              </span>
+            ),
+            items: g.items
+          }))}
+          rowKey={(row) => row.id}
+        />
+      )}
 
 
 
