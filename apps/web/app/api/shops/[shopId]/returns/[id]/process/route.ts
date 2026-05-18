@@ -146,7 +146,7 @@ export async function POST(
             type:           'payment', // Phiếu chi
             amount:         String(refundAmount),
             method:         r.refund_method,
-            category:       'other',
+            category:       'refund',
             reference_id:   returnRef,
             reference_name: r.customer_name ?? '',
             note:           `Hoàn tiền phiếu trả hàng ${returnRef}${r.order_no ? ` (Đơn ${r.order_no})` : ''}`,

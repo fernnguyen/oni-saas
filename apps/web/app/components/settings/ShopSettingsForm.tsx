@@ -15,6 +15,8 @@ interface ShopSettings {
   allow_negative_stock: boolean;
   auto_print_receipt: boolean;
   mute_pos_sound: boolean;
+  skip_cleaning_process: boolean;
+  skip_return_confirmation: boolean;
   tax_id?: string | null;
   wifi_info?: string | null;
   bank_code?: string | null;
@@ -68,6 +70,8 @@ export function ShopSettingsForm({ shop, settings: initial, canManage }: Props) 
     allow_negative_stock: initial.allow_negative_stock,
     auto_print_receipt: initial.auto_print_receipt ?? true,
     mute_pos_sound: initial.mute_pos_sound ?? false,
+    skip_cleaning_process: initial.skip_cleaning_process ?? false,
+    skip_return_confirmation: initial.skip_return_confirmation ?? false,
     tax_id: initial.tax_id ?? '',
     wifi_info: initial.wifi_info ?? '',
     bank_code: initial.bank_code ?? '',
@@ -102,6 +106,8 @@ export function ShopSettingsForm({ shop, settings: initial, canManage }: Props) 
           allow_negative_stock: form.allow_negative_stock,
           auto_print_receipt: form.auto_print_receipt,
           mute_pos_sound: form.mute_pos_sound,
+          skip_cleaning_process: form.skip_cleaning_process,
+          skip_return_confirmation: form.skip_return_confirmation,
           tax_id: form.tax_id || undefined,
           wifi_info: form.wifi_info || undefined,
           bank_code: form.bank_code || undefined,
@@ -367,6 +373,40 @@ export function ShopSettingsForm({ shop, settings: initial, canManage }: Props) 
                 </div>
                 <span className="text-sm text-slate-600 select-none">
                   {!form.mute_pos_sound ? 'Phát âm thanh khi quét mã/chọn món' : 'Đã tắt âm thanh (Mute)'}
+                </span>
+              </div>
+            </Field>
+            <Field label="Bỏ qua dọn dẹp">
+              <div
+                onClick={() => canManage && set('skip_cleaning_process', !form.skip_cleaning_process)}
+                className="flex cursor-pointer items-center gap-3 mt-1"
+              >
+                <div
+                  className={`relative h-6 w-11 rounded-full transition-colors ${form.skip_cleaning_process ? 'bg-primary' : 'bg-slate-200'} ${canManage ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${form.skip_cleaning_process ? 'translate-x-5' : ''}`}
+                  />
+                </div>
+                <span className="text-sm text-slate-600 select-none">
+                  {form.skip_cleaning_process ? 'Chuyển về trạng thái Trống/Sẵn sàng ngay sau khi thanh toán' : 'Chuyển về trạng thái Dọn dẹp sau khi thanh toán'}
+                </span>
+              </div>
+            </Field>
+            <Field label="Bỏ qua duyệt trả hàng">
+              <div
+                onClick={() => canManage && set('skip_return_confirmation', !form.skip_return_confirmation)}
+                className="flex cursor-pointer items-center gap-3 mt-1"
+              >
+                <div
+                  className={`relative h-6 w-11 rounded-full transition-colors ${form.skip_return_confirmation ? 'bg-primary' : 'bg-slate-200'} ${canManage ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${form.skip_return_confirmation ? 'translate-x-5' : ''}`}
+                  />
+                </div>
+                <span className="text-sm text-slate-600 select-none">
+                  {form.skip_return_confirmation ? 'Tự động duyệt và hoàn kho/tạo phiếu chi khi tạo phiếu trả hàng' : 'Cần người có thẩm quyền duyệt phiếu trả hàng'}
                 </span>
               </div>
             </Field>

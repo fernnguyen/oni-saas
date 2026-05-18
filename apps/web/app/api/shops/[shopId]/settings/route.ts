@@ -17,6 +17,8 @@ const DEFAULT_SETTINGS = {
   allow_negative_stock: false,
   auto_print_receipt: true,
   mute_pos_sound: false,
+  skip_cleaning_process: false,
+  skip_return_confirmation: false,
   default_price_type: 'retail',
   synced_from_sheet_at: null as string | null,
   updated_at: new Date().toISOString(),
@@ -41,6 +43,8 @@ const putSchema = z.object({
   allow_negative_stock: z.boolean().optional(),
   auto_print_receipt: z.boolean().optional(),
   mute_pos_sound: z.boolean().optional(),
+  skip_cleaning_process: z.boolean().optional(),
+  skip_return_confirmation: z.boolean().optional(),
   default_price_type: z.enum(['retail', 'wholesale', 'vip', 'staff']).optional(),
   resource_sub_types: z.string().optional(),
 });

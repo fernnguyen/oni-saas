@@ -4,6 +4,7 @@ import { returnCreateSchema } from '@/lib/validators/returns'
 import { shopTag, invalidate, shopCache } from '@/lib/server/cache'
 import { cacheTTL } from '@/lib/env'
 import { handleApiError } from '../../_helpers'
+import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
 
 export async function GET(
   req: NextRequest,
@@ -67,6 +68,7 @@ export async function POST(
 
     const created = await connector.create('returns', data)
     invalidate(shopId, 'returns')
+
     return NextResponse.json(created, { status: 201 })
   } catch (e) {
     return handleApiError(e, 'POST returns')

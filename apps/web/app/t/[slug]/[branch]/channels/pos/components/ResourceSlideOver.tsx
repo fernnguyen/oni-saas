@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { CustomerSearch } from './CustomerSearch'
 import { SlideProductSearch } from './SlideProductSearch'
@@ -146,6 +147,16 @@ export function ResourceSlideOver({
   const [confirmCancelResource, setConfirmCancelResource] = useState(false)
   const [cancellingOrder, setCancellingOrder] = useState(false)
   const [refundAmountInput, setRefundAmountInput] = useState('')
+
+  const { data: settings } = useQuery({
+    queryKey: ['settings', shopId],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/settings`)
+      if (!res.ok) return {}
+      return res.json()
+    },
+    enabled: !!shopId && open,
+  })
 
   const meta = safeParse(resource.metadata)
   const isRoom = resource.type === 'room'
@@ -672,7 +683,7 @@ export function ResourceSlideOver({
       await fetch(`/api/shops/${shopId}/location-resources/${resource.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'cleaning', current_order_id: '' }),
+        body: JSON.stringify({ status: settings?.skip_cleaning_process ? 'available' : 'cleaning', current_order_id: '' }),
       })
     } catch {
       // ignore
@@ -698,7 +709,7 @@ export function ResourceSlideOver({
       await fetch(`/api/shops/${shopId}/location-resources/${resource.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'cleaning', current_order_id: '' }),
+        body: JSON.stringify({ status: settings?.skip_cleaning_process ? 'available' : 'cleaning', current_order_id: '' }),
       })
       // 2. Occupy target resource
       await fetch(`/api/shops/${shopId}/location-resources/${targetId}`, {
@@ -860,7 +871,7 @@ export function ResourceSlideOver({
       await fetch(`/api/shops/${shopId}/location-resources/${sourceId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'cleaning', current_order_id: '' }),
+        body: JSON.stringify({ status: settings?.skip_cleaning_process ? 'available' : 'cleaning', current_order_id: '' }),
       })
 
       toast.success(`Đã gộp từ ${sourceResource.name}`)

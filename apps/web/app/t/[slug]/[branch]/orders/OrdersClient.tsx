@@ -80,6 +80,10 @@ function statusColor(s: string): TagColor {
 }
 
 function statusLabel(s: string) {
+  if (s === 'processed') return 'Đã xử lý'
+  if (s === 'pending') return 'Chờ duyệt'
+  if (s === 'rejected') return 'Đã hủy'
+  if (s === 'deleted') return 'Đã xóa'
   return STATUS_OPTIONS.find((o) => o.value === s)?.label ?? s
 }
 
@@ -192,13 +196,47 @@ export function OrdersClient({ shopId, shopName }: Props) {
     enabled: !!selectedOrder,
   })
 
+  // Returns history for order (lazy)
+  const { data: orderReturnsData } = useQuery({
+    queryKey: ['order-returns', shopId, selectedOrder?.order_id],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/returns?order_id=${selectedOrder!.order_id}&limit=50`)
+      if (!res.ok) throw new Error('Không tải được lịch sử trả hàng')
+      const returns = (await res.json()) as { data: any[]; total: number }
+      
+      const itemsPromises = returns.data.map(async (r) => {
+        const iRes = await fetch(`/api/shops/${shopId}/return-items?return_id=${r.return_id}&limit=100`)
+        const iData = await iRes.json()
+        return { ...r, items: iData.data as any[] }
+      })
+      return Promise.all(itemsPromises) as Promise<any[]>
+    },
+    enabled: !!selectedOrder,
+  })
+
   // Cashbook (lazy — only when detail open)
   const { data: cashbookData } = useQuery({
-    queryKey: ['cashbook', shopId, selectedOrder?.order_id],
+    queryKey: ['cashbook', shopId, selectedOrder?.order_id, orderReturnsData],
     queryFn: async () => {
-      const res = await fetch(`/api/shops/${shopId}/cashbook?reference_id=${selectedOrder!.order_id}&limit=100`)
-      if (!res.ok) throw new Error('Không tải được phiếu quỹ')
-      return res.json() as Promise<{ data: Row[] }>
+      if (!selectedOrder) return { data: [] }
+      const res = await fetch(`/api/shops/${shopId}/cashbook?reference_id=${selectedOrder.order_id}&limit=100`)
+      const baseData = res.ok ? await res.json() : { data: [] }
+      
+      const allData = [...(baseData.data ?? [])]
+      
+      if (orderReturnsData) {
+        for (const ret of orderReturnsData) {
+          const retRef = ret.return_no || ret.return_id
+          if (!retRef) continue
+          const retRes = await fetch(`/api/shops/${shopId}/cashbook?reference_id=${retRef}&limit=10`)
+          if (retRes.ok) {
+            const retCb = await retRes.json()
+            allData.push(...(retCb.data ?? []))
+          }
+        }
+      }
+      
+      return { data: allData } as { data: Row[] }
     },
     enabled: !!selectedOrder,
   })
@@ -223,23 +261,7 @@ export function OrdersClient({ shopId, shopName }: Props) {
     return map
   }, [paymentsData, cashbookData])
 
-  // Returns history for order (lazy)
-  const { data: orderReturnsData } = useQuery({
-    queryKey: ['order-returns', shopId, selectedOrder?.order_id],
-    queryFn: async () => {
-      const res = await fetch(`/api/shops/${shopId}/returns?order_id=${selectedOrder!.order_id}&limit=50`)
-      if (!res.ok) throw new Error('Không tải được lịch sử trả hàng')
-      const returns = (await res.json()) as { data: any[]; total: number }
-      
-      const itemsPromises = returns.data.map(async (r) => {
-        const iRes = await fetch(`/api/shops/${shopId}/return-items?return_id=${r.return_id}&limit=100`)
-        const iData = await iRes.json()
-        return { ...r, items: iData.data as any[] }
-      })
-      return Promise.all(itemsPromises) as Promise<any[]>
-    },
-    enabled: !!selectedOrder,
-  })
+
 
   const alreadyReturnedQty = useMemo(() => {
     const qtyMap: Record<string, number> = {}
@@ -356,16 +378,59 @@ export function OrdersClient({ shopId, shopName }: Props) {
           })
         })
       )
-      return ret
+      
+      let processed = false
+      let processErrorStr = ''
+      if (settings?.skip_return_confirmation) {
+        const processRes = await fetch(`/api/shops/${shopId}/returns/${ret.return_id}/process`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ processed_by: 'Hệ thống (Tự động)' })
+        })
+        if (processRes.ok) {
+          processed = true
+        } else {
+          const errData = await processRes.json().catch(() => ({}))
+          processErrorStr = errData.message || errData.error || 'Thiếu quyền duyệt phiếu trả'
+        }
+      }
+      return { ret, processed, processErrorStr }
     },
-    onSuccess: () => {
-      toast.success('Đã tạo phiếu trả hàng — xem trong mục Đơn trả hàng')
+    onSuccess: (res) => {
+      if (res.processed) {
+        toast.success('Đã tạo và tự động duyệt phiếu trả hàng')
+        // Invalidating orders will fetch the correct status (refunded / partially_refunded)
+        queryClient.invalidateQueries({ queryKey: ['orders', shopId] }).then(() => {
+          // Force a refetch for the selected order to update UI
+          if (selectedOrder) {
+            fetch(`/api/shops/${shopId}/orders/${selectedOrder.order_id}`)
+              .then(r => r.json())
+              .then(data => {
+                if (data) {
+                  setSelectedOrder(data)
+                  setEditStatus(data.status)
+                }
+              })
+          }
+        })
+      } else {
+        if (settings?.skip_return_confirmation) {
+          toast.success('Đã tạo phiếu trả hàng thành công', { 
+            description: `Cần xét duyệt thủ công vì lỗi tự động: ${res.processErrorStr}`
+          })
+        } else {
+          toast.success('Đã tạo phiếu trả hàng — xem trong mục Đơn trả hàng')
+        }
+        setSelectedOrder((prev) => prev ? { ...prev, status: 'returning' } : prev)
+        setEditStatus('returning')
+      }
       setShowReturnForm(false)
       setShowConfirmReturn(false)
-      setSelectedOrder((prev) => prev ? { ...prev, status: 'returning' } : prev)
-      setEditStatus('returning')
       queryClient.invalidateQueries({ queryKey: ['returns', shopId] })
+      queryClient.invalidateQueries({ queryKey: ['order-returns', shopId] })
       queryClient.invalidateQueries({ queryKey: ['orders', shopId] })
+      queryClient.invalidateQueries({ queryKey: ['cashbook', shopId] })
+      queryClient.invalidateQueries({ queryKey: ['payments', shopId] })
     },
     onError: (err: Error) => toast.error(err.message),
   })
@@ -975,6 +1040,13 @@ export function OrdersClient({ shopId, shopName }: Props) {
                 <p className="text-xs text-orange-600">
                   Chọn các sản phẩm và số lượng muốn trả lại.
                 </p>
+
+                {settings?.skip_return_confirmation && (
+                  <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                    <strong className="block mb-1">⚠️ Cảnh báo:</strong>
+                    Hệ thống đã cài đặt bỏ qua bước xét duyệt khi trả hàng. Hành động này sẽ tự động tạo phiếu chi (hoàn tiền), trả sản phẩm về kho và hoàn tất các phiếu liên quan ngay lập tức mà không cần xác nhận. Vẫn tiếp tục?
+                  </div>
+                )}
 
                 {/* Return Items Selection */}
                 <div className="space-y-2 rounded-lg border border-orange-200 bg-white p-2">
