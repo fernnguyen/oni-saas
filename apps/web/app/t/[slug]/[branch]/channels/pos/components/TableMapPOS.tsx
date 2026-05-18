@@ -7,6 +7,13 @@ import { useNetworkStatus } from '@/hooks/useNetworkStatus'
 import { SyncWorker } from '@/lib/pos/syncWorker'
 import { ResourceSlideOver } from './ResourceSlideOver'
 import type { ResourceTemplate } from '@oni/core'
+import { EmptyState } from '@/app/components/ui/EmptyState'
+
+const UserIcon = ({ className }: { className?: string }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+  </svg>
+)
 
 interface Resource {
   id: string
@@ -36,11 +43,12 @@ interface Props {
   resourceTemplate?: ResourceTemplate
 }
 
-const STATUS_CARDS: Record<string, { border: string; bg: string; dot: string; label: string }> = {
-  available: { border: 'border-green-200 hover:border-green-400', bg: 'bg-white', dot: 'bg-green-500', label: 'Trống' },
-  occupied:  { border: 'border-red-300', bg: 'bg-red-50/60', dot: 'bg-red-500', label: 'Đang sử dụng' },
-  cleaning:  { border: 'border-amber-200', bg: 'bg-amber-50/60', dot: 'bg-amber-500', label: 'Dọn dẹp' },
-  reserved:  { border: 'border-blue-200', bg: 'bg-blue-50/60', dot: 'bg-blue-500', label: 'Đã đặt' },
+const STATUS_CARDS: Record<string, { border: string; bg: string; dot: string; label: string; text?: string }> = {
+  available: { border: 'border-green-200 hover:border-green-400', bg: 'bg-white', dot: 'bg-green-500', label: 'Trống', text: 'text-green-600' },
+  occupied:  { border: 'border-red-300', bg: 'bg-red-50/60', dot: 'bg-red-500', label: 'Đang sử dụng', text: 'text-red-700' },
+  cleaning:  { border: 'border-amber-200', bg: 'bg-amber-50/60', dot: 'bg-amber-500', label: 'Dọn dẹp', text: 'text-amber-700' },
+  reserved:  { border: 'border-blue-200', bg: 'bg-blue-50/60', dot: 'bg-blue-500', label: 'Đã đặt', text: 'text-blue-700' },
+  maintenance: { border: 'border-slate-300', bg: 'bg-slate-100', dot: 'bg-slate-400', label: 'Tạm ngừng', text: 'text-slate-600' },
 }
 
 type ViewMode = 'grid' | 'list'
@@ -208,7 +216,11 @@ export function TableMapPOS({
             <span className={hydrationStatus === 'loading' ? 'animate-spin' : ''}>↻</span>
             <span className="hidden sm:inline">Đồng bộ</span>
           </button>
-          <a href={backPath} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50">
+          <a href={`${backPath}/resources`} className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 shadow-sm transition-colors">
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+            <span className="hidden sm:inline">Quản lý</span>
+          </a>
+          <a href={backPath} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 shadow-sm transition-colors">
             ← Thoát
           </a>
         </div>
@@ -220,11 +232,7 @@ export function TableMapPOS({
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
         </div>
       ) : resources.length === 0 ? (
-        <div className="rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 py-16 text-center">
-          <div className="text-4xl mb-3">🏪</div>
-          <p className="text-sm font-medium text-slate-600">Chưa có {resourceLabel} nào</p>
-          <p className="mt-1 text-xs text-slate-400">Vào Quản lý vị trí để tạo {resourceLabel}</p>
-        </div>
+        <EmptyState title={`Chưa có ${resourceLabel} nào`} description={`Vào Quản lý vị trí để tạo ${resourceLabel}`} />
       ) : (
         Array.from(zones.entries()).map(([zone, items]) => (
           <div key={zone}>
@@ -247,6 +255,7 @@ export function TableMapPOS({
                         r.status === 'occupied' ? 'border-red-300 bg-gradient-to-br from-red-50 to-rose-50 shadow-sm'
                         : r.status === 'reserved' ? 'border-blue-300 bg-gradient-to-br from-blue-50 to-indigo-50 shadow-sm'
                         : r.status === 'cleaning' ? 'border-amber-300 bg-gradient-to-br from-amber-50 to-yellow-50 shadow-sm'
+                        : r.status === 'maintenance' ? 'border-slate-300 bg-slate-100 opacity-60'
                         : 'border-slate-200 bg-gradient-to-br from-white to-slate-50 hover:border-primary/40'
                       }`}
                     >
@@ -255,20 +264,20 @@ export function TableMapPOS({
                         r.status === 'occupied' ? 'bg-gradient-to-r from-red-400 to-rose-500'
                         : r.status === 'reserved' ? 'bg-gradient-to-r from-blue-400 to-indigo-500'
                         : r.status === 'cleaning' ? 'bg-gradient-to-r from-amber-400 to-yellow-500'
+                        : r.status === 'maintenance' ? 'bg-slate-400'
                         : 'bg-gradient-to-r from-green-400 to-emerald-500'
                       }`} />
 
                       {/* Header */}
                       <div className="flex items-start justify-between mb-2 mt-1">
                         <div className="flex items-center gap-1.5">
-                          <span className="text-lg shrink-0">{isRoomType ? '🛏️' : r.type === 'court' ? '🏸' : '🪑'}</span>
                           <p className="text-base font-bold text-slate-800 line-clamp-2 leading-tight">{r.name}</p>
                         </div>
                       </div>
 
                       {/* Meta info */}
-                      <div className="space-y-1 text-[11px] text-slate-500 flex-1 mb-3">
-                        {r.capacity && <div className="flex items-center gap-1.5"><span>👤</span> <span>{r.capacity} người</span></div>}
+                      <div className="space-y-1 text-[11px] text-slate-500">
+                        {r.capacity && <div className="flex items-center gap-1.5"><UserIcon className="w-3 h-3 opacity-70" />{r.capacity} người</div>}
                         {hasHourlyBilling && r.hourly_rate && Number(r.hourly_rate) > 0 && (
                           <div className="flex items-center gap-1.5"><span>⏱️</span> <span className="font-semibold text-slate-700">{Number(r.hourly_rate).toLocaleString('vi-VN')}₫/h</span></div>
                         )}
@@ -331,7 +340,13 @@ export function TableMapPOS({
                               {st.label}
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-slate-600">{r.capacity ? `${r.capacity} người` : '-'}</td>
+                          <td className="px-4 py-3 text-slate-600">
+                            {r.capacity ? (
+                              <div className="flex items-center gap-1.5">
+                                <UserIcon className="w-3.5 h-3.5 opacity-70" /> {r.capacity} người
+                              </div>
+                            ) : '-'}
+                          </td>
                           {hasHourlyBilling && (
                             <td className="px-4 py-3 font-semibold text-slate-700">
                               {r.hourly_rate && Number(r.hourly_rate) > 0 ? `${Number(r.hourly_rate).toLocaleString('vi-VN')}₫` : '-'}

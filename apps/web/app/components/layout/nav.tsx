@@ -116,7 +116,6 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
       label: 'Bán hàng',
       items: [
         { href: joinPath(base, '/channels/pos'), label: vertical.posLabel || 'Bán tại quầy', icon: IconPos,      permission: 'pos.use' },
-        { href: joinPath(base, '/resources'),     label: 'Bàn / Sân',    icon: IconTable,    permission: 'pos.use', featureGate: 'location_resource' },
         { href: joinPath(base, '/orders'),   label: 'Đơn hàng',      icon: IconClipboard, permission: 'orders.view' },
         { href: joinPath(base, '/returns'),  label: 'Đơn trả hàng',  icon: IconReturn,    permission: 'returns.view' },
         { href: joinPath(base, '/customers'), label: 'Khách hàng',   icon: IconUsers,     permission: 'customers.view' },
