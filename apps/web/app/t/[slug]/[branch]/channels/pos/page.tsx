@@ -79,7 +79,7 @@ export default async function POSPage({ params }: Props) {
         hasHourlyBilling={vertical.features.hourly_billing}
         autoPrintReceipt={autoPrintReceipt}
         mutePosSound={mutePosSound}
-        resourceTemplate={vertical.resourceTemplate}
+        industryType={tenant.industry_type ?? 'retail'}
       />
     )
   }

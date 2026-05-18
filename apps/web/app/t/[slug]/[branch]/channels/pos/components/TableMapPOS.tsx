@@ -6,7 +6,7 @@ import { usePOSHydration } from '@/hooks/usePOSHydration'
 import { useNetworkStatus } from '@/hooks/useNetworkStatus'
 import { SyncWorker } from '@/lib/pos/syncWorker'
 import { ResourceSlideOver } from './ResourceSlideOver'
-import type { ResourceTemplate } from '@oni/core'
+import { getVerticalConfig } from '@oni/core'
 import { EmptyState } from '@/app/components/ui/EmptyState'
 import { DataTable, type Column } from '@/app/components/ui/DataTable'
 
@@ -41,7 +41,7 @@ interface Props {
   hasHourlyBilling: boolean
   autoPrintReceipt?: boolean
   mutePosSound?: boolean
-  resourceTemplate?: ResourceTemplate
+  industryType: string
 }
 
 const STATUS_CARDS: Record<string, { border: string; bg: string; dot: string; label: string; text?: string }> = {
@@ -58,7 +58,7 @@ export function TableMapPOS({
   shopId, branchId, shopName, userEmail, backPath,
   resourceLabel, resourceType, posLabel, hasHourlyBilling,
   autoPrintReceipt = false, mutePosSound = false,
-  resourceTemplate,
+  industryType,
 }: Props) {
   const [resources, setResources] = useState<Resource[]>([])
   const [loading, setLoading] = useState(true)
@@ -67,6 +67,8 @@ export function TableMapPOS({
 
   // UI state
   const [activeSlideResource, setActiveSlideResource] = useState<Resource | null>(null)
+
+  const vertical = getVerticalConfig(industryType)
   const [viewMode, setViewMode] = useState<ViewMode>('grid')
 
   useEffect(() => {
@@ -244,6 +246,7 @@ export function TableMapPOS({
                 {items.sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0)).map(r => {
                   const st = STATUS_CARDS[r.status] ?? STATUS_CARDS.available
                   const rmd = safeParseJSON(r.metadata)
+                  const tpl = vertical.resourceTemplates?.find(t => t.id === r.type)
                   const isRoomType = r.type === 'room'
                   return (
                     <button
@@ -269,6 +272,7 @@ export function TableMapPOS({
                       {/* Header */}
                       <div className="flex items-start justify-between mb-2 mt-1">
                         <div className="flex items-center gap-1.5">
+                          <span className="text-xl">{tpl?.icon || (isRoomType ? '🛏️' : r.type === 'court' ? '🏸' : '🪑')}</span>
                           <p className="text-base font-bold text-slate-800 line-clamp-2 leading-tight">{r.name}</p>
                         </div>
                       </div>
@@ -296,10 +300,10 @@ export function TableMapPOS({
                       </div>
 
                       {/* Status label at the bottom */}
-                      <div className={`mt-auto w-full rounded-lg px-2 py-1.5 text-center transition-colors ${st.bg} ${st.border} border`}>
+                      <div className={`mt-auto w-full rounded-lg px-2 py-1.5 text-center transition-colors ${r.status === 'cleaning' ? 'bg-amber-100 border-amber-300 hover:bg-amber-200' : st.bg} ${st.border} border`}>
                         <p className={`text-[12px] font-bold flex items-center justify-center gap-1.5 ${st.text}`}>
                           <span className={`h-1.5 w-1.5 rounded-full ${st.dot} ${r.status === 'occupied' ? 'animate-pulse' : ''}`} />
-                          {st.label}
+                          {r.status === 'cleaning' ? '✓ Dọn xong' : st.label}
                         </p>
                       </div>
                     </button>
@@ -317,12 +321,13 @@ export function TableMapPOS({
               label: 'Tên',
               className: 'w-[25%]',
               render: (r) => {
+                const tpl = vertical.resourceTemplates?.find(t => t.id === r.type)
                 const isRoomType = r.type === 'room'
                 return (
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg">{isRoomType ? '🛏️' : r.type === 'court' ? '🏸' : '🪑'}</span>
-                    <span className="font-bold text-slate-800">{r.name}</span>
-                  </div>
+                  <button onClick={() => handleResourceClick(r)} className="flex items-center gap-2 text-left group">
+                    <span className="text-lg group-hover:scale-110 transition-transform">{tpl?.icon || (isRoomType ? '🛏️' : r.type === 'court' ? '🏸' : '🪑')}</span>
+                    <span className="font-bold text-slate-800 group-hover:text-primary transition-colors">{r.name}</span>
+                  </button>
                 )
               }
             },
@@ -377,9 +382,12 @@ export function TableMapPOS({
               render: (r) => (
                 <button
                   onClick={() => handleResourceClick(r)}
-                  className="rounded-lg bg-white border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors shadow-sm"
+                  className={r.status === 'cleaning'
+                    ? "rounded-lg bg-white border border-amber-300 px-3 py-1.5 text-xs font-bold text-amber-600 hover:bg-amber-50 hover:text-amber-700 transition-colors shadow-sm whitespace-nowrap"
+                    : "rounded-lg bg-white border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors shadow-sm whitespace-nowrap"
+                  }
                 >
-                  Thao tác
+                  {r.status === 'cleaning' ? '✓ Dọn xong' : 'Thao tác'}
                 </button>
               )
             }
@@ -411,7 +419,7 @@ export function TableMapPOS({
         employeeId={userEmail}
         onCheckInSuccess={handleCheckInSuccess}
         onSessionClosed={handleSessionClosed}
-        resourceTemplate={resourceTemplate}
+        resourceTemplate={vertical.resourceTemplates?.find(t => t.id === activeSlideResource?.type) || vertical.resourceTemplate}
         allResources={activeResources}
         onRefresh={fetchResources}
       />
