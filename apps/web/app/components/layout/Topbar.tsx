@@ -7,6 +7,9 @@ import { getSupabaseBrowserClient } from '../../../lib/supabaseBrowser';
 import { ConnectorStatusPill } from '../connectors/ConnectorStatusPill';
 import { PlanBadge } from './PlanBadge';
 import { BranchSelector } from './BranchSelector';
+import { CreateMenu } from './CreateMenu';
+import { GlobalSearch } from './GlobalSearch';
+import { AskAIPanel } from './AskAIPanel';
 
 interface TopbarProps {
   tenantId?: string;
@@ -109,9 +112,9 @@ export function Topbar({
         </div>
 
         {/* Right: Main Topbar Content */}
-        <div className="flex-1 flex items-center justify-between h-full min-w-0 gap-3 px-4 md:pl-5">
-          {/* Left of right section: mobile menu + plan card + connector pill */}
-          <div className="flex items-center gap-2.5 min-w-0">
+        <div className="flex-1 flex items-center h-full min-w-0 gap-3 px-4 md:pl-5">
+          {/* Left of right section: mobile menu + Branch selector + Create Menu */}
+          <div className="flex items-center gap-2.5 shrink-0">
             <button
               onClick={onMobileMenuClick}
               className="md:hidden rounded p-1.5 hover:bg-slate-100 cursor-pointer"
@@ -134,16 +137,30 @@ export function Topbar({
             />
           )}
 
+            </div>
+
+          {/* Middle: Global Search */}
+          <div className="flex-1 flex justify-center px-2 sm:px-4 max-w-2xl mx-auto">
+            {context === 'shop' && (
+              <GlobalSearch />
+            )}
+          </div>
+
+        {/* Right: actions + user menu */}
+        <div className="flex items-center gap-2 ml-auto shrink-0">
+          {/* Create Menu */}
+          {context === 'shop' && (
+            <CreateMenu />
+          )}
+          
+          <AskAIPanel />
+
           {/* Connector status — only shows when not connected or error */}
           {canSeeConnector && (
             <div className="hidden sm:block">
               <ConnectorStatusPill permissions={permissions} settingsHref={settingsHref} />
             </div>
           )}
-        </div>
-
-        {/* Right: actions + user menu */}
-        <div className="flex items-center gap-2 ml-auto">
           {/* Plan info card */}
           {!hidePlanBadge && planCode && planName && tenantId && (
             <PlanBadge

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { getSupabaseBrowserClient } from '@/lib/supabaseBrowser';
 
@@ -9,8 +10,8 @@ interface PlanBadgeProps {
   planCode:    string; // 'plan_mini', 'plan_pro', 'plan_enterprise'
   planName:    string;
   periodStart?: string;
-  periodEnd?:   string;
   canUpgrade?:  boolean;
+  collapsed?:   boolean;
 }
 
 interface PlanRow {
@@ -38,7 +39,7 @@ interface SepayOrder {
 type CheckoutStep = 'select' | 'qr' | 'success';
 type BillingInterval = 'monthly' | 'yearly';
 
-export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd, canUpgrade = false }: PlanBadgeProps) {
+export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd, canUpgrade = false, collapsed = false }: PlanBadgeProps) {
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -227,47 +228,53 @@ export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd
     <>
       <button 
         onClick={() => { setIsOpen(true); setIsExpanded(false); }}
-        className="hidden sm:flex items-center gap-2 rounded-xl text-white relative overflow-hidden shrink-0 cursor-pointer hover:opacity-90 transition-opacity"
-        style={{ padding: 0, border: 'none', background: 'none' }}
+        className={`flex items-center gap-2 text-white relative overflow-hidden shrink-0 cursor-pointer hover:opacity-90 transition-all ${collapsed ? 'w-10 h-10 rounded-full mx-auto justify-center p-0' : 'w-full rounded-xl'}`}
+        style={{ border: 'none', background: 'none' }}
       >
         {isMini && (
-          <div className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-500 pl-2.5 pr-4 py-1.5 text-white relative overflow-hidden w-full h-full text-left">
-            <div className="absolute right-0 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-white/10" />
-            <IconLightning className="h-4 w-4 text-yellow-300 shrink-0 relative" />
-            <div className="relative">
-              <div className="font-semibold text-xs leading-tight">{planName}</div>
-              <div className="text-[10px] text-white/80 leading-tight">{durationText}</div>
-            </div>
+          <div className={`flex items-center bg-gradient-to-r from-blue-600 to-indigo-500 text-white relative overflow-hidden ${collapsed ? 'w-10 h-10 rounded-full justify-center p-0' : 'rounded-xl gap-2 pl-2.5 pr-4 py-1.5 w-full h-full text-left'}`}>
+            {!collapsed && <div className="absolute right-0 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-white/10" />}
+            <IconLightning className={`shrink-0 relative ${collapsed ? 'h-5 w-5' : 'h-4 w-4'} text-white`} />
+            {!collapsed && (
+              <div className="relative">
+                <div className="font-semibold text-xs leading-tight">{planName}</div>
+                <div className="text-[10px] text-white/80 leading-tight">{durationText}</div>
+              </div>
+            )}
           </div>
         )}
 
         {isEnterprise && (
-          <div className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-slate-900 to-slate-800 border-slate-700 pl-2.5 pr-4 py-1.5 shrink-0 relative overflow-hidden w-full h-full text-left border">
-            <div className="absolute right-0 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-yellow-500/10 blur-xl" />
-            <IconDiamond className="h-4 w-4 text-yellow-400 shrink-0 relative z-10" />
-            <div className="relative z-10">
-              <div className="font-bold text-xs text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 to-yellow-500 leading-tight">
-                {planName}
+          <div className={`flex items-center bg-gradient-to-r from-slate-900 to-slate-800 border-slate-700 shrink-0 relative overflow-hidden border ${collapsed ? 'w-10 h-10 rounded-full justify-center p-0' : 'rounded-xl gap-2 pl-2.5 pr-4 py-1.5 w-full h-full text-left'}`}>
+            {!collapsed && <div className="absolute right-0 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-yellow-500/10 blur-xl" />}
+            <IconDiamond className={`shrink-0 relative z-10 text-yellow-400 ${collapsed ? 'h-5 w-5' : 'h-4 w-4'}`} />
+            {!collapsed && (
+              <div className="relative z-10">
+                <div className="font-bold text-xs text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 to-yellow-500 leading-tight">
+                  {planName}
+                </div>
+                <div className="text-[10px] text-yellow-100/70 leading-tight">{durationText}</div>
               </div>
-              <div className="text-[10px] text-yellow-100/70 leading-tight">{durationText}</div>
-            </div>
+            )}
           </div>
         )}
 
         {(!isMini && !isEnterprise) && (
-          <div className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#EC4899] to-[#F97316] pl-2.5 pr-4 py-1.5 text-white relative overflow-hidden w-full h-full text-left shrink-0">
-            <div className="absolute right-0 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-white/10" />
-            <IconCrown className="h-4 w-4 text-yellow-200 shrink-0 relative" />
-            <div className="relative">
-              <div className="font-semibold text-xs leading-tight">{planName}</div>
-              <div className="text-[10px] text-white/80 leading-tight">{durationText}</div>
-            </div>
+          <div className={`flex items-center bg-gradient-to-r from-[#EC4899] to-[#F97316] text-white relative overflow-hidden shrink-0 ${collapsed ? 'w-10 h-10 rounded-full justify-center p-0' : 'rounded-xl gap-2 pl-2.5 pr-4 py-1.5 w-full h-full text-left'}`}>
+            {!collapsed && <div className="absolute right-0 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-white/10" />}
+            <IconCrown className={`shrink-0 relative text-yellow-200 ${collapsed ? 'h-5 w-5' : 'h-4 w-4'}`} />
+            {!collapsed && (
+              <div className="relative">
+                <div className="font-semibold text-xs leading-tight">{planName}</div>
+                <div className="text-[10px] text-white/80 leading-tight">{durationText}</div>
+              </div>
+            )}
           </div>
         )}
       </button>
 
-      {isOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+      {isOpen && typeof document !== 'undefined' && createPortal(
+        <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
           <div className={`relative bg-white dark:bg-zinc-900 rounded-[28px] shadow-2xl w-full ${step === 'select' ? maxWClass : 'max-w-md'} overflow-hidden flex flex-col max-h-[90vh] transition-all duration-300`}>
             
             {/* Header Area */}
@@ -275,7 +282,7 @@ export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd
               <div className="absolute right-0 top-0 h-40 w-40 rounded-full bg-white/10 -translate-y-12 translate-x-12" />
               <div className="relative z-10">
                 <div className="flex items-center gap-2 mb-1">
-                  {isMini && <IconLightning className="h-6 w-6 text-yellow-300" />}
+                  {isMini && <IconLightning className="h-6 w-6 text-white" />}
                   {isPro && <IconCrown className="h-6 w-6 text-yellow-200" />}
                   {isEnterprise && <IconDiamond className="h-6 w-6 text-yellow-400" />}
                   <span className="font-black text-xl tracking-tight">{planName}</span>
@@ -560,7 +567,8 @@ export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd
             )}
 
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );

@@ -5,6 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { buildNavGroups, IconHelp } from './nav';
+import { PlanBadge } from './PlanBadge';
 
 interface SidebarProps {
   basePath?: string;
@@ -28,6 +29,11 @@ interface SidebarProps {
   collapsed?: boolean;
   /** Industry type for vertical-aware nav */
   industryType?: string;
+  planCode?: string;
+  planName?: string;
+  periodStart?: string;
+  periodEnd?: string;
+  hidePlanBadge?: boolean;
 }
 
 /** Fixed-position tooltip that escapes any overflow container */
@@ -80,6 +86,11 @@ function SidebarContent({
   currentBranchName,
   currentBranchAddress,
   industryType,
+  planCode,
+  planName,
+  periodStart,
+  periodEnd,
+  hidePlanBadge,
   onToggleCollapsed,
   onClose,
 }: {
@@ -100,6 +111,11 @@ function SidebarContent({
   currentBranchName?: string;
   currentBranchAddress?: string | null;
   industryType?: string;
+  planCode?: string;
+  planName?: string;
+  periodStart?: string;
+  periodEnd?: string;
+  hidePlanBadge?: boolean;
   onToggleCollapsed?: () => void;
   onClose?: () => void;
 }) {
@@ -196,25 +212,17 @@ function SidebarContent({
         ))}
       </nav>
 
-      <div className="p-2 border-t border-slate-200">
-        {collapsed ? (
-          <NavTooltip label="Công cụ hỗ trợ">
-            <Link
-              href={supportHref}
-              className="flex items-center justify-center px-2 rounded-md py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors"
-            >
-              <IconHelp className="h-4 w-4 shrink-0" />
-            </Link>
-          </NavTooltip>
-        ) : (
-          <Link
-            href={supportHref}
-            onClick={onClose}
-            className="flex items-center gap-2.5 px-2.5 rounded-md py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors"
-          >
-            <IconHelp className="h-4 w-4 shrink-0" />
-            Công cụ hỗ trợ
-          </Link>
+      <div className="p-3 border-t border-slate-200">
+        {!hidePlanBadge && planCode && planName && tenantId && (
+          <PlanBadge
+            tenantId={tenantId}
+            planCode={planCode}
+            planName={planName}
+            periodStart={periodStart}
+            periodEnd={periodEnd}
+            canUpgrade={permissions.includes('settings.manage') || permissions.includes('org.manage') || permissions.includes('billing.manage')}
+            collapsed={collapsed}
+          />
         )}
       </div>
     </div>
@@ -240,6 +248,11 @@ export function Sidebar({
   mobileOpen = false,
   onMobileClose,
   industryType,
+  planCode,
+  planName,
+  periodStart,
+  periodEnd,
+  hidePlanBadge,
   collapsed = false,
 }: SidebarProps) {
   const sharedProps = {
@@ -259,6 +272,11 @@ export function Sidebar({
     currentBranchName,
     currentBranchAddress,
     industryType,
+    planCode,
+    planName,
+    periodStart,
+    periodEnd,
+    hidePlanBadge,
   };
 
   return (

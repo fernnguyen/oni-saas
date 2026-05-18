@@ -97,15 +97,10 @@ export function DashboardShell({
           settingsHref={settingsHref}
           accountHref={accountHref}
           permissions={permissions}
-          planCode={planCode}
-          planName={planName}
-          periodStart={periodStart}
-          periodEnd={periodEnd}
           currentBranchSlug={currentBranchSlug}
           currentBranchAddress={currentBranchAddress}
           context={sidebarContext}
           onMobileMenuClick={() => setMobileNavOpen(true)}
-          hidePlanBadge={hidePlanBadge}
           collapsed={collapsed}
           onToggleCollapsed={toggleCollapsed}
         />
@@ -127,6 +122,11 @@ export function DashboardShell({
             currentBranchName={shopName}
             currentBranchAddress={currentBranchAddress}
             industryType={industryType}
+            planCode={planCode}
+            planName={planName}
+            periodStart={periodStart}
+            periodEnd={periodEnd}
+            hidePlanBadge={hidePlanBadge}
             mobileOpen={mobileNavOpen}
             onMobileClose={() => setMobileNavOpen(false)}
             collapsed={collapsed}
