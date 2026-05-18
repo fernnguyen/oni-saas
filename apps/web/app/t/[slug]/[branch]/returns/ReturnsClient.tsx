@@ -222,7 +222,7 @@ export function ReturnsClient({ shopId }: Props) {
       label: 'Mã phiếu',
       render: (row) => (
         <CopyableId 
-          id={row.return_no || row.return_id?.slice(0, 8)} 
+          id={row.return_no || row.return_id} 
           onClick={() => setSelected(row)} 
         />
       ),
@@ -639,7 +639,7 @@ export function ReturnsClient({ shopId }: Props) {
       <ConfirmDialog
         open={!!deleteTarget}
         title="Xóa phiếu trả hàng"
-        description={`Xóa phiếu ${deleteTarget?.return_no || deleteTarget?.return_id?.slice(0, 8) || ''}? Hành động này không thể hoàn tác.`}
+        description={`Xóa phiếu ${deleteTarget?.return_no || deleteTarget?.return_id || ''}? Hành động này không thể hoàn tác.`}
         confirmLabel="Xóa"
         variant="danger"
         loading={deleteMutation.isPending}

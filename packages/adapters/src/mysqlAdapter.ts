@@ -153,8 +153,27 @@ export class MysqlConnector implements IDataConnector {
       whereClauses.push(`(\`active\` IS NULL OR \`active\` != 'FALSE')`)
     }
 
-    // In a real scenario, search would look at specific columns. 
-    // Here we just mock it or skip it, as dynamic search across all columns is complex in pure SQL without knowing schema.
+    // Implement basic dynamic search for common entities
+    if (search) {
+      const searchTerm = `%${search}%`
+      if (entity === 'orders') {
+        whereClauses.push(`(order_no LIKE ? OR customer_name LIKE ? OR reference_no LIKE ?)`)
+        params.push(searchTerm, searchTerm, searchTerm)
+      } else if (entity === 'customers') {
+        whereClauses.push(`(name LIKE ? OR phone LIKE ?)`)
+        params.push(searchTerm, searchTerm)
+      } else if (entity === 'products') {
+        whereClauses.push(`(name LIKE ? OR sku LIKE ?)`)
+        params.push(searchTerm, searchTerm)
+      } else if (entity === 'returns') {
+        whereClauses.push(`(return_no LIKE ? OR order_no LIKE ? OR customer_name LIKE ?)`)
+        params.push(searchTerm, searchTerm, searchTerm)
+      } else {
+        // Fallback for other entities: just search by legacy ID or name if possible, 
+        // but since we don't know schema, we might skip or do a generic fallback.
+        // For now, only support search on known entities.
+      }
+    }
     
     const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : ''
     const orderBySql = sortDesc ? 'ORDER BY created_at DESC' : 'ORDER BY created_at ASC'

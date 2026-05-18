@@ -161,6 +161,9 @@ export async function POST(
         debt_amount:     String(order.debt_amount ?? 0),
         note:            order.note ?? '',
       }
+      if (local_order_id) {
+        updateData.reference_no = local_order_id
+      }
       if (order.metadata !== undefined) {
         updateData.metadata = order.metadata
       }
@@ -421,7 +424,7 @@ Còn nợ: ${Number(order.debt_amount || 0).toLocaleString('vi-VN')}đ
       }).catch(console.error);
     }
 
-    return NextResponse.json({ order_id: serverId, order_no: orderNo }, { status: 201 })
+    return NextResponse.json({ order_id: serverId, order_no: orderNo || serverId }, { status: 201 })
   } catch (e) {
     if (tx) {
       await tx.rollback()

@@ -230,7 +230,7 @@ export function OrderHistoryPanel({ open, onClose, heldCarts, onLoadHeld, onDisc
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
                             <p className="text-sm font-medium text-slate-900">
-                              {order.server_id ?? order.local_id.slice(0, 8) + '…'}
+                              {order.order_no ?? order.server_id ?? `LORD-${order.local_id.slice(-8).toUpperCase()}`}
                             </p>
                             <span className={['rounded px-1.5 py-0.5 text-[10px] font-medium', sync.cls].join(' ')}>
                               {sync.label}

@@ -94,6 +94,7 @@ export interface LocalPayment {
 export interface LocalOrder {
   local_id: string
   server_id?: string
+  order_no?: string
   sync_status: 'pending' | 'syncing' | 'done' | 'failed'
   customer_id?: string
   customer_name?: string

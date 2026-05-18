@@ -336,7 +336,7 @@ export function CheckoutModal({
       if (isSuccessDirect) {
         order.sync_status = 'done'
         order.server_id = serverId
-        // Update local items with server_order_id maybe? not strictly necessary.
+        order.order_no = serverOrderNo
       } else {
         order.sync_status = 'pending'
       }

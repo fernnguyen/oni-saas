@@ -52,8 +52,10 @@ export async function printBill({
   }
 
   // Support both LocalOrder and Server Order structures
-  const orderId = (order as any).local_id || (order as any).order_id || ''
-  const shortId = orderId.slice(-8).toUpperCase()
+  const orderNo = (order as any).order_no || (order as any).server_id || (order as any).order_id
+  const baseId = (order as any).local_id || ''
+  const shortId = baseId.slice(-8).toUpperCase()
+  const displayOrderCode = orderNo ? orderNo : `LORD-${shortId}`
   
   const createdDate = order.created_at || new Date().toISOString()
   const subtotal = Number(order.subtotal || 0)
@@ -70,11 +72,11 @@ export async function printBill({
   
   let qrHtml = ''
   if (currentSettings?.bank_code && currentSettings?.bank_account_number && currentSettings?.qr_template) {
-    const qrUrl = `https://img.vietqr.io/image/${currentSettings.bank_code}-${currentSettings.bank_account_number}-${currentSettings.qr_template}.png?amount=${total}&addInfo=${shortId}&accountName=${currentSettings.bank_account_name || ''}`
+    const qrUrl = `https://img.vietqr.io/image/${currentSettings.bank_code}-${currentSettings.bank_account_number}-${currentSettings.qr_template}.png?amount=${total}&addInfo=${orderNo || shortId}&accountName=${currentSettings.bank_account_name || ''}`
     qrHtml = `<div class="sep"></div>
     <div style="text-align:center; margin-top: 10px;">
       <p style="font-weight:bold; margin-bottom: 4px;">Quét QR để thanh toán</p>
-      <img src="${qrUrl}" style="width: 100%; max-width: 250px; margin: 0 auto;" />
+      <img src="${qrUrl}" style="width: 100%; max-width: 155px; margin: 0 auto;" />
     </div>`
   }
   
@@ -114,7 +116,7 @@ ${taxIdHtml}
 <h2>${billTitle}</h2>
 ${reprintHtml}
 <p class="sub">${fmtDate(createdDate)}</p>
-<p class="sub">Mã đơn: #${shortId}</p>
+<p class="sub">Mã đơn: ${displayOrderCode}</p>
 <div class="sep"></div>
 <p>${customerName ? 'Khách: ' + customerName : 'Khách lẻ'}</p>
 <div class="sep"></div>
@@ -139,7 +141,13 @@ ${discount > 0 ? `<tr><td>Giảm giá:</td><td class="r">-${fmtVND(discount)}</t
 </table>
 <div class="sep"></div>
 <table>
-${payments.map((p) => `<tr><td>${METHOD_LABEL[p.method] ?? p.method}:</td><td class="r">${fmtVND(Number(p.amount))}</td></tr>`).join('')}
+${payments.map((p) => {
+  const amt = Number(p.amount)
+  if (amt < 0) {
+    return `<tr><td>Trả lại khách:</td><td class="r">${fmtVND(Math.abs(amt))}</td></tr>`
+  }
+  return `<tr><td>${METHOD_LABEL[p.method] ?? p.method}:</td><td class="r">${fmtVND(amt)}</td></tr>`
+}).join('')}
 </table>
 ${order.note ? `<div class="sep"></div><p>Ghi chú: ${order.note}</p>` : ''}
 ${qrHtml}
