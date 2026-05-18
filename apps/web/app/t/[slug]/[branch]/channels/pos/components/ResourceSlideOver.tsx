@@ -947,14 +947,14 @@ export function ResourceSlideOver({
       {/* Overlay */}
       <div
         className={[
-          'fixed inset-0 z-40 bg-black/40 transition-opacity duration-300',
+          'fixed inset-0 z-40 bg-black/40 transition-opacity duration-300 !m-0',
           open ? 'opacity-100' : 'pointer-events-none opacity-0',
         ].join(' ')}
         onClick={onClose}
       />
       
       {/* Panel */}
-      <div className={`fixed inset-y-0 right-0 z-50 w-full max-w-[800px] bg-white shadow-2xl flex flex-col transition-transform duration-300 ease-in-out ${open ? 'translate-x-0' : 'translate-x-full'}`}>
+      <div className={`fixed inset-y-0 right-0 z-50 w-full max-w-[800px] bg-white shadow-2xl flex flex-col transition-transform duration-300 ease-in-out !m-0 ${open ? 'translate-x-0' : 'translate-x-full'}`}>
         {/* Header */}
         <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between shrink-0 bg-white">
           <div className="flex items-center gap-3">
@@ -984,7 +984,7 @@ export function ResourceSlideOver({
                 </button>
                 {menuOpen && (
                   <>
-                    <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+                    <div className="fixed inset-0 z-40 !m-0" onClick={() => setMenuOpen(false)} />
                     <div className="absolute right-0 top-full mt-1.5 w-44 rounded-xl border border-slate-100 bg-white shadow-xl z-50 overflow-hidden py-1">
                       <button 
                         onClick={() => { setTransferModalOpen(true); setMenuOpen(false) }}
