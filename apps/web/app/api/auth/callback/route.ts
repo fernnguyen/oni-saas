@@ -7,6 +7,10 @@ export async function GET(req: NextRequest) {
   const code = searchParams.get('code');
   const nextParam = searchParams.get('next');
   const next = nextParam?.startsWith('/') ? nextParam : '/super/dashboard';
+  const xForwardedHost = req.headers.get('x-forwarded-host');
+  const xForwardedProto = req.headers.get('x-forwarded-proto') || 'http';
+  const realHost = xForwardedHost || req.headers.get('host') || '';
+  const resolvedOrigin = realHost ? `${xForwardedProto}://${realHost}` : origin;
 
   if (code) {
     const supabase = await getSupabaseServerClient();
@@ -37,16 +41,16 @@ export async function GET(req: NextRequest) {
           }
 
           await supabase.auth.signOut();
-          const rejectUrl = new URL('/auth/signin', origin);
+          const rejectUrl = new URL('/auth/signin', resolvedOrigin);
           rejectUrl.searchParams.set('error', 'not_superadmin');
           if (workspaceSlug) rejectUrl.searchParams.set('workspace', workspaceSlug);
           return NextResponse.redirect(rejectUrl);
         }
       }
 
-      return NextResponse.redirect(`${origin}${next}`);
+      return NextResponse.redirect(`${resolvedOrigin}${next}`);
     }
   }
 
-  return NextResponse.redirect(`${origin}/auth/signin?error=oauth_failed`);
+  return NextResponse.redirect(`${resolvedOrigin}/auth/signin?error=oauth_failed`);
 }
