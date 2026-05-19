@@ -232,14 +232,14 @@ export function BranchSelector({
 
   return (
     <>
-      <div ref={ref} className="relative py-2">
+      <div ref={ref} className="relative py-2 min-w-0">
         <button
           onClick={() => canSwitch && setOpen((o) => !o)}
-          className={`w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${
+          className={`w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors min-w-0 ${
             canSwitch ? 'hover:bg-slate-50 cursor-pointer' : 'cursor-default'
           }`}
         >
-          <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm shrink-0">
+          <div className="h-8 w-8 rounded-full bg-primary/10 hidden sm:flex items-center justify-center text-primary font-bold text-sm shrink-0">
             {initial}
           </div>
           <div className="flex-1 min-w-0">

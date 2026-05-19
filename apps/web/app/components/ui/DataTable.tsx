@@ -170,8 +170,8 @@ export function DataTable<T extends object>({
   const isEmpty = !loading && (groupedData ? groupedData.length === 0 : sortedData.length === 0)
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-      <table className="min-w-full text-sm">
+    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm w-full">
+      <table className="min-w-full text-sm whitespace-nowrap md:whitespace-normal">
         <thead className="sticky top-0 z-10 bg-slate-50 text-slate-500 border-b border-slate-200">
           <tr>
             {selectable && (
