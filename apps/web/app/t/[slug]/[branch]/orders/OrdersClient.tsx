@@ -176,6 +176,7 @@ export function OrdersClient({ shopId, shopName }: Props) {
       if (!res.ok) throw new Error('Không tải được dữ liệu')
       return res.json() as Promise<{ data: Row[]; total: number }>
     },
+    staleTime: 0,
   })
 
   // Order items (lazy — only when detail open)
