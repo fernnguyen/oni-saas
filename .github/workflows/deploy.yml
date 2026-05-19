@@ -20,6 +20,12 @@ jobs:
           script: |
             cd /var/www/oni/app
             
+            # Load biến môi trường của user (quan trọng để tìm thấy pnpm/node trong non-interactive ssh)
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+            export PATH="$HOME/.local/share/pnpm:$PATH"
+            source ~/.bashrc || true
+            
             # Lấy code mới nhất theo tag vừa được push (Rất quan trọng để build code mới)
             git fetch --tags
             git checkout ${{ github.ref_name }}
