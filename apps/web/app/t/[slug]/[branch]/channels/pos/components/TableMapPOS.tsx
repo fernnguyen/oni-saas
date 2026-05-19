@@ -179,7 +179,7 @@ export function TableMapPOS({
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold text-slate-900">{posLabel || `${resourceLabel} POS`}</h1>
           <div className="flex items-center gap-3 mt-1 text-xs text-slate-400">
@@ -188,7 +188,7 @@ export function TableMapPOS({
             <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" />{stats.cleaning} dọn dẹp</span>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {/* View Mode Toggle */}
           <div className="flex items-center rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
             <button

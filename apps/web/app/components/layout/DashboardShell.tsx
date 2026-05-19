@@ -103,8 +103,10 @@ export function DashboardShell({
           onMobileMenuClick={() => setMobileNavOpen(true)}
           collapsed={collapsed}
           onToggleCollapsed={toggleCollapsed}
+          basePath={sidebarBasePath}
+          industryType={industryType}
         />
-        <div className="flex-1 flex min-w-0">
+        <div className="flex-1 flex min-w-0 w-full">
           <Sidebar
             basePath={sidebarBasePath}
             supportHref={supportHref}

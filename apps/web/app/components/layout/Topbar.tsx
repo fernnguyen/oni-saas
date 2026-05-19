@@ -10,6 +10,7 @@ import { BranchSelector } from './BranchSelector';
 import { CreateMenu } from './CreateMenu';
 import { GlobalSearch } from './GlobalSearch';
 import { AskAIPanel } from './AskAIPanel';
+import { getVerticalConfig } from '@oni/core';
 
 interface TopbarProps {
   tenantId?: string;
@@ -32,6 +33,8 @@ interface TopbarProps {
   hidePlanBadge?: boolean;
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
+  basePath?: string;
+  industryType?: string;
 }
 
 export function Topbar({
@@ -55,9 +58,15 @@ export function Topbar({
   hidePlanBadge,
   collapsed,
   onToggleCollapsed,
+  basePath,
+  industryType,
 }: TopbarProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [logoutConfirm, setLogoutConfirm] = useState(false);
+
+  const vertical = getVerticalConfig(industryType || 'retail');
+  const posLabel = vertical.posLabel || 'Bán tại quầy';
+  const posHref = basePath ? `${basePath}/channels/pos` : undefined;
 
   async function handleSignOut() {
     const supabase = getSupabaseBrowserClient();
@@ -70,7 +79,7 @@ export function Topbar({
 
   return (
     <>
-      <header className="h-14 bg-white border-b border-slate-200 flex items-center sticky top-0 z-20">
+      <header className="h-14 bg-white border-b border-slate-200 flex items-center sticky top-0 z-20 w-full min-w-0">
         {/* Left: Logo + Toggle (width matches Sidebar) */}
         <div className={`relative hidden md:flex items-center border-r border-slate-200 h-full shrink-0 transition-all duration-200 ${
           collapsed ? 'w-[64px] justify-center' : 'w-[220px] px-3'
@@ -114,7 +123,7 @@ export function Topbar({
         {/* Right: Main Topbar Content */}
         <div className="flex-1 flex items-center h-full min-w-0 gap-3 px-4 md:pl-5">
           {/* Left of right section: mobile menu + Branch selector + Create Menu */}
-          <div className="flex items-center gap-2.5 shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
             <button
               onClick={onMobileMenuClick}
               className="md:hidden rounded p-1.5 hover:bg-slate-100 cursor-pointer"
@@ -140,7 +149,7 @@ export function Topbar({
             </div>
 
           {/* Middle: Global Search */}
-          <div className="flex-1 flex justify-center px-2 sm:px-4 max-w-2xl mx-auto">
+          <div className="flex-1 hidden sm:flex justify-center px-2 sm:px-4 max-w-2xl mx-auto">
             {context === 'shop' && (
               <GlobalSearch />
             )}
@@ -150,10 +159,23 @@ export function Topbar({
         <div className="flex items-center gap-2 ml-auto shrink-0">
           {/* Create Menu */}
           {context === 'shop' && (
-            <CreateMenu />
+            <div className="hidden sm:block">
+              <CreateMenu />
+            </div>
           )}
           
-          <AskAIPanel />
+          {/* <AskAIPanel /> */}
+          {context === 'shop' && tenantId && currentBranchSlug && posHref && (
+            <Link
+              href={posHref}
+              className="flex items-center justify-center gap-1.5 sm:gap-2 p-1.5 sm:px-3 sm:py-1.5 text-sm font-semibold text-orange-600 bg-gradient-to-r from-orange-50 to-orange-50/20 hover:from-orange-100 hover:to-orange-50/50 border border-orange-100 rounded-lg shadow-sm transition-all"
+            >
+              <svg className="h-5 w-5 sm:h-4 sm:w-4 shrink-0 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+              </svg>
+              <span className="hidden sm:inline-block">{posLabel}</span>
+            </Link>
+          )}
 
           {/* Connector status — only shows when not connected or error */}
           {canSeeConnector && (
@@ -163,24 +185,21 @@ export function Topbar({
           )}
           {/* Plan info card */}
           {!hidePlanBadge && planCode && planName && tenantId && (
-            <PlanBadge
-              tenantId={tenantId}
-              planCode={planCode}
-              planName={planName}
-              periodStart={periodStart}
-              periodEnd={periodEnd}
-              canUpgrade={permissions.includes('settings.manage') || permissions.includes('org.manage') || permissions.includes('billing.manage')}
-            />
-          )}
-          {/* Connector pill on mobile */}
-          {canSeeConnector && (
-            <div className="sm:hidden">
-              <ConnectorStatusPill permissions={permissions} settingsHref={settingsHref} />
+            <div className="hidden md:block">
+              <PlanBadge
+                tenantId={tenantId}
+                planCode={planCode}
+                planName={planName}
+                periodStart={periodStart}
+                periodEnd={periodEnd}
+                canUpgrade={permissions.includes('settings.manage') || permissions.includes('org.manage') || permissions.includes('billing.manage')}
+              />
             </div>
           )}
+          {/* Connector pill on mobile - Hiding to save space on mobile */}
 
           {settingsHref && (
-            <Link href={settingsHref} className="p-2 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-700 cursor-pointer">
+            <Link href={settingsHref} className="hidden sm:flex p-2 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-700 cursor-pointer">
               <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -188,7 +207,7 @@ export function Topbar({
             </Link>
           )}
 
-          <button className="relative p-2 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-700 cursor-pointer">
+          <button className="hidden sm:flex relative p-2 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-700 cursor-pointer">
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
             </svg>
@@ -200,13 +219,13 @@ export function Topbar({
           <div className="relative">
             <button
               onClick={() => setDropdownOpen(!dropdownOpen)}
-              className="flex items-center gap-2 rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm hover:bg-slate-50 max-w-[180px] cursor-pointer"
+              className="flex items-center gap-2 rounded-lg sm:border sm:border-slate-200 p-1 sm:px-2.5 sm:py-1.5 text-sm hover:bg-slate-50 sm:max-w-[180px] cursor-pointer"
             >
-              <div className="h-6 w-6 rounded-full bg-primary flex items-center justify-center text-white text-xs font-bold shrink-0">
+              <div className="h-7 w-7 sm:h-6 sm:w-6 rounded-full bg-primary flex items-center justify-center text-white text-xs font-bold shrink-0">
                 {(displayName || userEmail || tenantName).charAt(0).toUpperCase()}
               </div>
-              <span className="truncate text-slate-700 font-medium">{displayName || userEmail || tenantName}</span>
-              <svg className="h-4 w-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <span className="truncate text-slate-700 font-medium hidden sm:inline-block">{displayName || userEmail || tenantName}</span>
+              <svg className="h-4 w-4 text-slate-400 shrink-0 hidden sm:block" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
               </svg>
             </button>

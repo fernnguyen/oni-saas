@@ -3,10 +3,19 @@ import { getSupabaseServerClient } from '@/lib/server/supabaseServer';
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
 import { getUserPermissions } from '@/lib/server/permissions';
 import { DashboardShell } from '@/app/components/layout/DashboardShell';
+import type { Metadata } from 'next';
 
 interface Props {
   params: Promise<{ slug: string; branch: string }>;
   children: React.ReactNode;
+}
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { branch } = await params;
+  const admin = getSupabaseAdminClient();
+  const { data: shop } = await admin.from('shops_view').select('name').eq('slug', branch).maybeSingle();
+  if (!shop) return { title: 'ONI.vn' };
+  return { title: `${shop.name} | Nền tảng quản lý bán hàng ONI.vn` };
 }
 
 export default async function BranchLayout({ params, children }: Props) {

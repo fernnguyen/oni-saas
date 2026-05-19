@@ -5,6 +5,8 @@ import { getSupabaseServerClient } from '../../../../lib/server/supabaseServer';
 import { getShopBySlug, assertUserShopAccess } from '../../../../lib/server/shops';
 import { getUserPermissions } from '../../../../lib/server/permissions';
 import { DashboardShell } from '../../../components/layout/DashboardShell';
+import type { Metadata } from 'next';
+import { getSupabaseAdminClient } from '../../../../lib/server/supabaseAdmin';
 
 interface Props {
   params: Promise<{ slug: string; segments: string[] }>;
@@ -40,6 +42,18 @@ const moduleMeta: Record<string, { title: string; description: string }> = {
     description: 'Cấu hình thông tin chi nhánh, nguồn dữ liệu và các tùy chọn vận hành.',
   },
 };
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { slug, segments } = await params;
+  const admin = getSupabaseAdminClient();
+  const { data: shop } = await admin.from('shops_view').select('name').eq('slug', slug).maybeSingle();
+  if (!shop) return { title: 'ONI.vn' };
+
+  const key = segments[0] ?? 'overview';
+  const meta = moduleMeta[key] ?? { title: segments.map(s => s.replace(/-/g, ' ')).join(' / ') || 'Chi nhánh' };
+
+  return { title: `${meta.title} - ${shop.name} | ONI.vn` };
+}
 
 export default async function ShopSectionPage({ params }: Props) {
   const { slug, segments } = await params;
