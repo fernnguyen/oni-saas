@@ -237,6 +237,9 @@ export function CheckoutModal({
         cost_price: item.cost_price,
         discount_amount: item.discount_amount,
         line_total: item.line_total,
+        variant_label: item.variant_label,
+        modifiers: typeof item.modifiers === 'object' ? JSON.stringify(item.modifiers) : item.modifiers,
+        modifier_total: item.modifier_total,
       }))
 
       const localPayments: LocalPayment[] = payments
@@ -378,9 +381,9 @@ export function CheckoutModal({
 
       broadcastOrderCreated(order)
       toast.success(isSuccessDirect ? 'Tạo mới đơn hàng thành công!' : 'Tạo mới đơn hàng thành công (chờ đồng bộ)')
-      onSuccess() // close modal + clear cart first
+      
       if (autoPrintReceipt) {
-        setTimeout(async () => {
+        try {
           await printBill({ 
             order, 
             items: orderItems, 
@@ -390,8 +393,11 @@ export function CheckoutModal({
             printCount: 1,
             shopId
           })
-        }, 150)
+        } catch (err) {
+          console.error('Print failed:', err)
+        }
       }
+      onSuccess() // close modal + clear cart first
     } catch (err) {
       console.error(err)
       toast.error('Tạo đơn thất bại')
@@ -487,9 +493,24 @@ export function CheckoutModal({
           <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
             <div className="max-h-32 overflow-y-auto space-y-0.5">
               {computedItems.map((item, idx) => (
-                <div key={`${item.product_id}-${idx}`} className="flex justify-between text-sm">
-                  <span className="text-slate-600">{item.product_name} × {item.qty}</span>
-                  <span className="text-slate-900">{fmtVND(item.line_total)}</span>
+                <div key={`${item.product_id}-${idx}`} className="flex justify-between text-sm py-1">
+                  <div className="flex-1 min-w-0 pr-4">
+                    <span className="text-slate-600 block leading-tight">{item.product_name} × {item.qty}</span>
+                    {/* Variant label */}
+                    {item.variant_label && !item.modifiers?.length && (
+                      <span className="text-[11px] text-violet-600 font-medium block truncate mt-0.5">{item.variant_label}</span>
+                    )}
+                    {/* Modifier summary */}
+                    {item.modifiers && item.modifiers.length > 0 && (
+                      <span className="text-[11px] text-amber-600 block truncate mt-0.5">
+                        {item.modifiers.map(m => m.option).join(' · ')}
+                        {(item.modifier_total ?? 0) > 0 && (
+                          <span className="ml-1 text-emerald-600 font-medium">+{item.modifier_total?.toLocaleString('vi-VN')}đ</span>
+                        )}
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-slate-900 shrink-0">{fmtVND(item.line_total)}</span>
                 </div>
               ))}
             </div>

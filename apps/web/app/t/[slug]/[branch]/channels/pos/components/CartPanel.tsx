@@ -112,7 +112,22 @@ export function CartPanel({
                       <p className="truncate text-sm font-medium text-slate-900 leading-tight">
                         {item.product_name}
                       </p>
-                      <p className="text-xs text-slate-400">{fmtVND(item.unit_price)}/đv</p>
+                      {/* Variant label */}
+                      {item.variant_label && !item.modifiers?.length && (
+                        <p className="text-xs text-violet-600 font-medium truncate">{item.variant_label}</p>
+                      )}
+                      {/* Modifier summary */}
+                      {item.modifiers && item.modifiers.length > 0 && (
+                        <p className="text-xs text-amber-600 truncate">
+                          {item.modifiers.map((m) => m.option).join(' · ')}
+                          {(item.modifier_total ?? 0) > 0 && (
+                            <span className="ml-1 text-emerald-600 font-medium">
+                              +{(item.modifier_total ?? 0).toLocaleString('vi-VN')}đ
+                            </span>
+                          )}
+                        </p>
+                      )}
+                      <p className="text-xs text-slate-400">{fmtVND(item.unit_price + (item.modifier_total ?? 0))}/đv</p>
                     </div>
                     <button
                       onClick={() => onRemove(item.product_id)}

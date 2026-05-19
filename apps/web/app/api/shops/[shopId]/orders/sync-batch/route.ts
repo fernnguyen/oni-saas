@@ -211,7 +211,7 @@ export async function POST(
         line_total:     String(it.line_total),
         // ── Variant / Modifier context (Sprint 1) ───────────────────────
         variant_label:  it.variant_label ?? '',
-        modifiers:      it.modifiers ?? '',
+        modifiers:      typeof it.modifiers === 'object' ? JSON.stringify(it.modifiers) : (it.modifiers ?? ''),
         modifier_total: String(it.modifier_total ?? 0),
       })
     }
@@ -371,6 +371,22 @@ export async function POST(
         const itemTotal = Number(it.line_total).toLocaleString('vi-VN');
         const unitPrice = Number(it.unit_price).toLocaleString('vi-VN');
         let txt = `${i + 1}. ${it.product_name}\n   ${it.qty} x ${unitPrice}đ = ${itemTotal}đ`;
+        
+        if ((it as any).variant_label && !((it as any).modifiers?.length)) {
+          txt = `${i + 1}. ${it.product_name}\n   • ${(it as any).variant_label}\n   ${it.qty} x ${unitPrice}đ = ${itemTotal}đ`;
+        }
+        
+        if ((it as any).modifiers) {
+          try {
+             const parsed = typeof (it as any).modifiers === 'string' ? JSON.parse((it as any).modifiers) : (it as any).modifiers;
+             if (Array.isArray(parsed) && parsed.length > 0) {
+               const mods = parsed.map((m: any) => m.option).join(', ');
+               const modTotal = Number((it as any).modifier_total || 0);
+               txt = `${i + 1}. ${it.product_name}\n   • ${mods}${modTotal > 0 ? ` (+${modTotal.toLocaleString('vi-VN')}đ)` : ''}\n   ${it.qty} x ${unitPrice}đ = ${itemTotal}đ`;
+             }
+          } catch {}
+        }
+        
         if (Number(it.discount_amount) > 0) {
           txt += ` (Giảm: ${Number(it.discount_amount).toLocaleString('vi-VN')}đ)`;
         }

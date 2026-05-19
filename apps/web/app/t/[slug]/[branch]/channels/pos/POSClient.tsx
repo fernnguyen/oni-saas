@@ -272,6 +272,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
             inventory={inventory}
             mutePosSound={mutePosSound}
             onAddToCart={cart.addItem}
+            onAddToCartWithOptions={cart.addItemWithOptions}
           />
         </div>
 

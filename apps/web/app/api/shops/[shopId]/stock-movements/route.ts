@@ -159,6 +159,9 @@ export async function POST(
         const inv = invResult.data[0] as any
         const oldQty = parseFloat(inv.stock_qty || '0')
         const newQty = Math.max(0, oldQty + delta)
+        
+        // Note: In a high-concurrency environment, this read-modify-write could cause a race condition.
+        // A future enhancement would be to add an `increment` method to the IDataConnector.
         await connector.update('inventory', inv.inventory_id as string, {
           stock_qty: String(newQty),
         })

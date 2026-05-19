@@ -270,6 +270,9 @@ export const return_items = mysqlTable('return_items', {
   qty_returned: varchar('qty_returned', { length: 50 }),
   unit_price: varchar('unit_price', { length: 50 }),
   line_total: varchar('line_total', { length: 50 }),
+  variant_label: varchar('variant_label', { length: 500 }),
+  modifiers: text('modifiers'),
+  modifier_total: varchar('modifier_total', { length: 50 }),
   branch_id: varchar('branch_id', { length: 255 }),
 });
 

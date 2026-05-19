@@ -1,15 +1,18 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { localDb, type LocalCategory } from '@/lib/localDb/schema'
+import { localDb, type LocalCategory, type LocalProduct } from '@/lib/localDb/schema'
 import { usePOSProductSearch } from '@/hooks/usePOSProductSearch'
-import type { LocalProduct } from '@/lib/localDb/schema'
 import { IconBox } from '@/app/components/layout/nav'
+import type { CartItem } from '@/hooks/useCart'
+import { VariantPickerModal } from './VariantPickerModal'
+import { ModifierPickerModal } from './ModifierPickerModal'
 
 interface Props {
   branchId: string
   inventory: Map<string, number>
   mutePosSound: boolean
   onAddToCart: (product: LocalProduct) => void
+  onAddToCartWithOptions: (item: CartItem) => void
 }
 
 function fmtVND(v: number | string | null | undefined) {
@@ -25,16 +28,58 @@ function playBeep() {
   } catch {}
 }
 
-export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart }: Props) {
+export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, onAddToCartWithOptions }: Props) {
   const [search, setSearch] = useState('')
   const [categoryId, setCategoryId] = useState<string | undefined>(undefined)
   const [categories, setCategories] = useState<LocalCategory[]>([])
+
+  // Picker state
+  const [variantParent, setVariantParent] = useState<LocalProduct | null>(null)
+  const [modifierProduct, setModifierProduct] = useState<LocalProduct | null>(null)
 
   const { results, isLoading } = usePOSProductSearch(search, categoryId)
 
   useEffect(() => {
     localDb.categories.filter((c) => c.active).sortBy('sort_order').then(setCategories)
   }, [])
+
+  function handleProductClick(product: LocalProduct) {
+    const type = (product as any).product_type ?? 'simple'
+
+    if (type === 'variant_parent') {
+      // Open variant picker — don't add directly
+      setVariantParent(product)
+      return
+    }
+
+    if (type === 'modifier') {
+      // Open modifier picker
+      setModifierProduct(product)
+      return
+    }
+
+    // simple or variant_child: add directly
+    if (!mutePosSound) playBeep()
+    onAddToCart(product)
+  }
+
+  function handleVariantSelected(item: CartItem) {
+    if (!mutePosSound) playBeep()
+    onAddToCartWithOptions(item)
+  }
+
+  function handleModifierConfirmed(item: CartItem) {
+    if (!mutePosSound) playBeep()
+    onAddToCartWithOptions(item)
+  }
+
+  // Badge label for product type
+  function getTypeBadge(product: LocalProduct) {
+    const type = (product as any).product_type ?? 'simple'
+    if (type === 'variant_parent') return { label: 'Có size', color: 'bg-violet-100 text-violet-600' }
+    if (type === 'modifier') return { label: 'Tuỳ chọn', color: 'bg-amber-100 text-amber-600' }
+    return null
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -92,15 +137,15 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart }: 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {results.map((product) => {
               const stock = inventory.get(product.product_id) ?? 0
-              const outOfStock = stock <= 0
+              const type = (product as any).product_type ?? 'simple'
+              // variant_parent: don't track stock by itself, always show
+              const outOfStock = type !== 'variant_parent' && type !== 'modifier' && stock <= 0
+              const badge = getTypeBadge(product)
               return (
                 <button
                   key={product.product_id}
                   onClick={() => {
-                    if (!outOfStock) {
-                      if (!mutePosSound) playBeep()
-                      onAddToCart(product)
-                    }
+                    if (!outOfStock) handleProductClick(product)
                   }}
                   disabled={outOfStock}
                   className={[
@@ -110,7 +155,7 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart }: 
                       : 'border-slate-200 bg-white hover:border-primary hover:shadow-md active:scale-[0.98]',
                   ].join(' ')}
                 >
-                  {/* Image with SKU badge overlay */}
+                  {/* Image with type badge overlay */}
                   <div className="relative w-full aspect-[4/3] shrink-0 bg-white border-b border-slate-100 overflow-hidden">
                     {product.image_url ? (
                       // eslint-disable-next-line @next/next/no-img-element
@@ -139,22 +184,28 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart }: 
                         {product.sku}
                       </span>
                     )}
+                    {/* Product type badge */}
+                    {badge && (
+                      <span className={`absolute bottom-1.5 right-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-bold leading-none ${badge.color}`}>
+                        {badge.label}
+                      </span>
+                    )}
                   </div>
 
-                  {/* Info — flex-1 pushes price row to bottom */}
+                  {/* Info */}
                   <div className="flex flex-1 flex-col px-2.5 pt-2 pb-1 gap-0.5">
                     <p className="text-sm font-bold text-slate-900 line-clamp-2 leading-tight">
                       {product.name}
                     </p>
                     <p className={['text-xs font-medium mt-auto pt-1', outOfStock ? 'text-red-400' : 'text-emerald-600'].join(' ')}>
-                      {stock} trong kho
+                      {type === 'variant_parent' ? 'Nhiều phân loại' : type === 'modifier' ? 'Tuỳ chỉnh' : `${stock} trong kho`}
                     </p>
                   </div>
 
                   {/* Price + add button */}
                   <div className="px-2.5 pb-2.5 pt-1 flex items-center justify-between shrink-0">
                     <span className="text-sm font-bold text-primary">
-                      {fmtVND(product.sell_price)}
+                      {type === 'variant_parent' ? 'Chọn...' : fmtVND(product.sell_price)}
                     </span>
                     <div className={[
                       'h-7 w-7 shrink-0 flex items-center justify-center rounded-full',
@@ -171,6 +222,24 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart }: 
           </div>
         )}
       </div>
+
+      {/* Pickers */}
+      {variantParent && (
+        <VariantPickerModal
+          parentProduct={variantParent}
+          open={!!variantParent}
+          onClose={() => setVariantParent(null)}
+          onSelect={handleVariantSelected}
+        />
+      )}
+      {modifierProduct && (
+        <ModifierPickerModal
+          product={modifierProduct}
+          open={!!modifierProduct}
+          onClose={() => setModifierProduct(null)}
+          onConfirm={handleModifierConfirmed}
+        />
+      )}
     </div>
   )
 }

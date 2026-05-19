@@ -12,6 +12,17 @@ export interface CartItem {
   qty: number
   discount_amount: number
   line_total: number
+  // ── Variant / Modifier context (Sprint 4) ───────────────────────────────────────────
+  variant_label?: string       // "Size L" — denormalized for display
+  modifiers?: SelectedModifier[] // [{group,option,price_adj}]
+  modifier_total?: number      // sum of price_adj
+}
+
+// A single modifier option selected by cashier
+export interface SelectedModifier {
+  group: string    // e.g. "Topping"
+  option: string   // e.g. "Full topping"
+  price_adj: number // e.g. 8000 (positive = add price)
 }
 
 type CartState = {
@@ -22,6 +33,7 @@ type CartState = {
 
 type CartAction =
   | { type: 'ADD_ITEM'; product: LocalProduct }
+  | { type: 'ADD_ITEM_WITH_OPTS'; item: CartItem }  // for variant/modifier products
   | { type: 'REMOVE_ITEM'; product_id: string }
   | { type: 'SET_QTY'; product_id: string; qty: number }
   | { type: 'SET_ITEM_DISCOUNT'; product_id: string; discount: number }
@@ -30,8 +42,10 @@ type CartAction =
   | { type: 'RESTORE'; state: CartState }
   | { type: 'CLEAR' }
 
+// line_total = (unit_price - discount_amount + modifier_total) * qty
 function lineTotal(item: CartItem): number {
-  return Math.max(0, Number(item.unit_price) - Number(item.discount_amount)) * Number(item.qty)
+  const modTotal = item.modifier_total ?? 0
+  return Math.max(0, Number(item.unit_price) + modTotal - Number(item.discount_amount)) * Number(item.qty)
 }
 
 function cartReducer(state: CartState, action: CartAction): CartState {
@@ -59,6 +73,24 @@ function cartReducer(state: CartState, action: CartAction): CartState {
         line_total: Number(action.product.sell_price),
       }
       return { ...state, items: [...state.items, newItem] }
+    }
+    case 'ADD_ITEM_WITH_OPTS': {
+      // For variant/modifier: use composite key (product_id + variant_label + modifiers signature)
+      // so same base product with different variants can coexist in cart
+      const sig = action.item.variant_label || JSON.stringify(action.item.modifiers || [])
+      const existingIdx = state.items.findIndex(
+        (i) => i.product_id === action.item.product_id &&
+          (i.variant_label || JSON.stringify(i.modifiers || [])) === sig
+      )
+      if (existingIdx >= 0) {
+        const updated = state.items.map((it, idx) =>
+          idx === existingIdx
+            ? { ...it, qty: it.qty + 1, line_total: lineTotal({ ...it, qty: it.qty + 1 }) }
+            : it
+        )
+        return { ...state, items: updated }
+      }
+      return { ...state, items: [...state.items, action.item] }
     }
     case 'REMOVE_ITEM': {
       const newItems = state.items.filter((i) => i.product_id !== action.product_id)
@@ -126,6 +158,11 @@ export function useCart(inventory?: Map<string, number>) {
     dispatch({ type: 'ADD_ITEM', product })
   }, [])
 
+  // For variant children and modifier products — adds with full context
+  const addItemWithOptions = useCallback((item: CartItem) => {
+    dispatch({ type: 'ADD_ITEM_WITH_OPTS', item })
+  }, [])
+
   const removeItem = useCallback((product_id: string) => dispatch({ type: 'REMOVE_ITEM', product_id }), [])
 
   const setQty = useCallback((product_id: string, qty: number) => {
@@ -161,6 +198,7 @@ export function useCart(inventory?: Map<string, number>) {
     subtotal,
     total,
     addItem,
+    addItemWithOptions,
     removeItem,
     setQty,
     setItemDiscount,

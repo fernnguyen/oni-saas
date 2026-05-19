@@ -119,10 +119,24 @@ function ProductSelect({
     queryKey: ['products-search', shopId, debouncedQ],
     queryFn: async () => {
       const sp = new URLSearchParams({ limit: '20' })
+      sp.set('exclude_product_type', 'variant_parent')
       if (debouncedQ) sp.set('search', debouncedQ)
       const res = await fetch(`/api/shops/${shopId}/products?${sp}`)
       if (!res.ok) return { data: [] as Row[] }
-      return res.json() as Promise<{ data: Row[] }>
+      const json = await res.json() as { data: Row[] }
+      return {
+        data: json.data.map(p => {
+          let displayName = p.name
+          if (p.product_type === 'variant_child' && p.variant_options) {
+            try {
+              const opts = JSON.parse(p.variant_options)
+              const vals = Object.values(opts).join(' / ')
+              if (vals) displayName = `${p.name} (${vals})`
+            } catch {}
+          }
+          return { ...p, displayName }
+        })
+      }
     },
     enabled: open,
   })
@@ -167,14 +181,14 @@ function ProductSelect({
               <button
                 key={p.product_id}
                 onClick={() => {
-                  onChange({ product_id: p.product_id, name: p.name, sku: p.sku, cost_price: p.cost_price })
+                  onChange({ product_id: p.product_id, name: p.displayName || p.name, sku: p.sku, cost_price: p.cost_price })
                   setQ('')
                   setOpen(false)
                 }}
                 className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-slate-50"
               >
                 <div>
-                  <span className="font-medium text-slate-900">{p.name}</span>
+                  <span className="font-medium text-slate-900">{p.displayName || p.name}</span>
                   {p.sku && <span className="ml-2 text-xs text-slate-400">{p.sku}</span>}
                 </div>
                 <span className="text-xs text-slate-500">{fmtVND(p.cost_price)}/đv</span>
@@ -245,7 +259,17 @@ export function InventoryClient({ shopId }: Props) {
 
   const productMap = useMemo(() => {
     const m = new Map<string, Row>()
-    productsData?.data?.forEach((p) => m.set(p.product_id, p))
+    productsData?.data?.forEach((p) => {
+      let displayName = p.name
+      if (p.product_type === 'variant_child' && p.variant_options) {
+        try {
+          const opts = JSON.parse(p.variant_options)
+          const vals = Object.values(opts).join(' / ')
+          if (vals) displayName = `${p.name} (${vals})`
+        } catch {}
+      }
+      m.set(p.product_id, { ...p, displayName })
+    })
     return m
   }, [productsData])
 
@@ -417,7 +441,7 @@ export function InventoryClient({ shopId }: Props) {
         const p = productMap.get(row.product_id)
         return (
           <div>
-            <p className="text-sm font-medium text-slate-900">{p?.name ?? row.product_id}</p>
+            <p className="text-sm font-medium text-slate-900">{p?.displayName ?? p?.name ?? row.product_id}</p>
             {(p?.sku || row.sku) && (
               <p className="text-xs text-slate-400">{p?.sku || row.sku}</p>
             )}
@@ -514,7 +538,7 @@ export function InventoryClient({ shopId }: Props) {
         const p = productMap.get(row.product_id)
         return (
           <div>
-            <p className="text-sm font-medium text-slate-900">{p?.name ?? row.product_id}</p>
+            <p className="text-sm font-medium text-slate-900">{p?.displayName ?? p?.name ?? row.product_id}</p>
             {(p?.sku || row.sku) && <p className="text-xs text-slate-400">{p?.sku || row.sku}</p>}
           </div>
         )
@@ -1181,7 +1205,7 @@ export function InventoryClient({ shopId }: Props) {
               </div>
               <div className="col-span-2">
                 <p className="text-slate-500 mb-1">Sản phẩm</p>
-                <p className="font-medium text-slate-900">{productMap.get(viewMovement.product_id)?.name || viewMovement.product_id}</p>
+                <p className="font-medium text-slate-900">{productMap.get(viewMovement.product_id)?.displayName || productMap.get(viewMovement.product_id)?.name || viewMovement.product_id}</p>
               </div>
               <div>
                 <p className="text-slate-500 mb-1">Số lượng</p>

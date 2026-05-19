@@ -123,14 +123,24 @@ ${reprintHtml}
 <table>
 <tr><td class="bold">Sản phẩm</td><td class="c bold pl" style="width: 12%">SL</td><td class="r bold pl" style="width: 25%">Đ.giá</td><td class="r bold pl" style="width: 28%">T.tiền</td></tr>
 ${items
-  .map(
-    (it) => `<tr>
-  <td>${it.product_name}${it.sku ? '<br/><span style="font-size:10px;color:#666">' + it.sku + '</span>' : ''}</td>
+  .map((it) => {
+    // Build sub-line for variant/modifier info
+    let subLine = ''
+    if ((it as any).variant_label && !((it as any).modifiers?.length)) {
+      subLine = `<br/><span style="font-size:10px;color:#555;font-style:italic">${(it as any).variant_label}</span>`
+    } else if ((it as any).modifiers?.length) {
+      const modParts = (it as any).modifiers.map((m: any) => m.option).join(', ')
+      const modAdj = (it as any).modifier_total > 0 ? ` (+${Number((it as any).modifier_total).toLocaleString('vi-VN')}đ)` : ''
+      subLine = `<br/><span style="font-size:10px;color:#666">${modParts}${modAdj}</span>`
+    }
+    const effectivePrice = Number(it.unit_price) + (Number((it as any).modifier_total) || 0)
+    return `<tr>
+  <td>${it.product_name}${it.sku ? `<br/><span style="font-size:10px;color:#666">${it.sku}</span>` : ''}${subLine}</td>
   <td class="c pl">${it.qty}</td>
-  <td class="r pl">${fmtVND(Number(it.unit_price))}</td>
+  <td class="r pl">${fmtVND(effectivePrice)}</td>
   <td class="r pl">${fmtVND(Number(it.line_total))}</td>
 </tr>`
-  )
+  })
   .join('')}
 </table>
 <div class="sep"></div>

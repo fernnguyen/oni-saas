@@ -194,6 +194,12 @@ export class PostgresConnector implements IDataConnector {
           paramIdx++
           continue
         }
+        if (k === 'exclude_product_type') {
+          whereClauses.push(`("product_type" != $${paramIdx} OR "product_type" IS NULL)`)
+          params.push(v)
+          paramIdx++
+          continue
+        }
         const queryKey = (k === legacyIdField) ? 'id' : k
         whereClauses.push(`"${queryKey}" = $${paramIdx}`)
         params.push(v)

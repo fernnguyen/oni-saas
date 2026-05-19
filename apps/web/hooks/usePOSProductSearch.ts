@@ -13,7 +13,7 @@ export function usePOSProductSearch(query: string, categoryId?: string) {
     async function search() {
       setIsLoading(true)
       try {
-        let items = await localDb.products.filter((p) => p.active).toArray()
+        let items = await localDb.products.filter((p) => p.active && (p as any).product_type !== 'variant_child').toArray()
 
         if (categoryId) {
           items = items.filter((p) => p.category_id === categoryId)

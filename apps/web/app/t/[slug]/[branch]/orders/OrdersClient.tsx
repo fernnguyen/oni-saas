@@ -378,6 +378,9 @@ export function OrdersClient({ shopId, shopName }: Props) {
               qty_returned: String(item.retQty),
               unit_price:   item.unit_price,
               line_total:   String(retLineTotal),
+              variant_label: item.variant_label ?? '',
+              modifiers: typeof item.modifiers === 'object' ? JSON.stringify(item.modifiers) : (item.modifiers ?? ''),
+              modifier_total: item.modifier_total ?? '0',
             }),
           })
         })
@@ -833,9 +836,27 @@ export function OrdersClient({ shopId, shopName }: Props) {
                       </tr>
                     </thead>
                     <tbody>
-                      {(itemsData?.data ?? []).map((item) => (
+                      {(itemsData?.data ?? []).map((item) => {
+                        const parsedModifiers = typeof item.modifiers === 'string' && item.modifiers.startsWith('[') 
+                          ? (() => { try { return JSON.parse(item.modifiers) } catch { return [] } })() 
+                          : (item.modifiers || [])
+                        const effPrice = Number(item.unit_price) + Number(item.modifier_total || 0)
+                        return (
                         <tr key={item.item_id} className="border-b border-slate-50 last:border-0">
-                          <td className="px-3 py-2 text-slate-900">{item.product_name}</td>
+                          <td className="px-3 py-2 text-slate-900">
+                            {item.product_name}
+                            {item.variant_label && parsedModifiers.length === 0 && (
+                              <span className="text-[11px] text-violet-600 font-medium block truncate mt-0.5">{item.variant_label}</span>
+                            )}
+                            {parsedModifiers.length > 0 && (
+                              <span className="text-[11px] text-amber-600 block truncate mt-0.5">
+                                {parsedModifiers.map((m: any) => m.option).join(' · ')}
+                                {Number(item.modifier_total || 0) > 0 && (
+                                  <span className="ml-1 text-emerald-600 font-medium">+{Number(item.modifier_total).toLocaleString('vi-VN')}đ</span>
+                                )}
+                              </span>
+                            )}
+                          </td>
                           <td className="px-3 py-2 text-right text-slate-700">
                             {item.qty}
                             {alreadyReturnedQty[item.item_id!] > 0 && (
@@ -844,10 +865,10 @@ export function OrdersClient({ shopId, shopName }: Props) {
                               </span>
                             )}
                           </td>
-                          <td className="px-3 py-2 text-right text-slate-700">{fmtVND(item.unit_price)}</td>
+                          <td className="px-3 py-2 text-right text-slate-700">{fmtVND(effPrice)}</td>
                           <td className="px-3 py-2 text-right font-medium text-slate-900">{fmtVND(item.line_total)}</td>
                         </tr>
-                      ))}
+                      )})}
                     </tbody>
                   </table>
                 </div>
@@ -1085,6 +1106,21 @@ export function OrdersClient({ shopId, shopName }: Props) {
                           />
                           <div>
                             <p className="font-medium text-slate-900">{item.product_name}</p>
+                            {item.variant_label && (!item.modifiers || item.modifiers === '[]') && (
+                              <p className="text-[11px] text-violet-600 font-medium mt-0.5">{item.variant_label}</p>
+                            )}
+                            {item.modifiers && item.modifiers !== '[]' && (
+                              <p className="text-[11px] text-amber-600 mt-0.5">
+                                {(() => {
+                                   let parsed: any[] = [];
+                                   try { parsed = typeof item.modifiers === 'string' ? JSON.parse(item.modifiers) : item.modifiers; } catch {}
+                                   return Array.isArray(parsed) ? parsed.map((m: any) => m.option).join(' · ') : ''
+                                })()}
+                                {Number(item.modifier_total || 0) > 0 && (
+                                  <span className="ml-1 text-emerald-600 font-medium">+{Number(item.modifier_total).toLocaleString('vi-VN')}đ</span>
+                                )}
+                              </p>
+                            )}
                             <p className="text-xs text-slate-500">Mua: {maxQty} | {fmtVND(item.unit_price)}</p>
                           </div>
                         </div>

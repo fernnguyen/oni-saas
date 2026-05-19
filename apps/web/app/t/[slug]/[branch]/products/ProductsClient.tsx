@@ -84,7 +84,15 @@ function RowActions({ r, onEdit, onDuplicate, onToggleActive }: { r: Record<stri
 interface Props {
   shopId: string
   shopName: string
+  industryType?: string
 }
+
+// Industry helpers
+const FNB_INDUSTRIES = ['fnb', 'cafe', 'bubble_tea', 'restaurant', 'food']
+const FASHION_INDUSTRIES = ['fashion', 'clothing', 'retail']
+
+function isFnBIndustry(t: string) { return FNB_INDUSTRIES.includes(t) }
+function isFashionIndustry(t: string) { return FASHION_INDUSTRIES.includes(t) }
 
 const EMPTY_FORM = {
   sku: '',
@@ -97,6 +105,34 @@ const EMPTY_FORM = {
   description: '',
   image_url: '',
   active: 'TRUE',
+  product_type: 'simple',
+  parent_id: '',
+  variant_options: '',
+}
+
+// A single variant row in the UI editor
+interface VariantRow {
+  id: string             // temp client-side id
+  value: string          // e.g. "Size L" or just "L"
+  sku: string
+  sell_price: string
+  cost_price: string
+  barcode: string
+}
+
+// Modifier system types
+interface ModifierOption {
+  id: string
+  name: string
+  price_adj: string   // "+8000" or "0"
+}
+
+interface ModifierGroup {
+  id: string
+  name: string
+  is_required: boolean
+  max_selection: number   // 1 = single choice, >1 = multi
+  options: ModifierOption[]
 }
 
 async function compressImageToWebP(file: File, maxWidth = 1024, maxHeight = 1024): Promise<Blob> {
@@ -134,7 +170,7 @@ async function compressImageToWebP(file: File, maxWidth = 1024, maxHeight = 1024
   })
 }
 
-export function ProductsClient({ shopId }: Props) {
+export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
   const queryClient = useQueryClient()
   const searchParams = useSearchParams()
   const initialSearch = searchParams?.get('search') || searchParams?.get('productId') || ''
@@ -156,6 +192,13 @@ export function ProductsClient({ shopId }: Props) {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'uploading'>('idle')
   const [fileInputKey, setFileInputKey] = useState(Date.now())
 
+  // ── Variant system state ──────────────────────────────────────────
+  const [variantRows, setVariantRows] = useState<VariantRow[]>([])
+  const [optionName, setOptionName] = useState('') // e.g. "Size", "Màu sắc"
+
+  // ── Modifier system state ──────────────────────────────────────────
+  const [modifierGroups, setModifierGroups] = useState<ModifierGroup[]>([])
+
   const { data, isLoading, isFetching } = useQuery({
     queryKey: ['products', shopId, page, debouncedSearch, filterActive],
     queryFn: async () => {
@@ -171,6 +214,75 @@ export function ProductsClient({ shopId }: Props) {
   const saveMutation = useMutation({
     mutationFn: async (payload: Record<string, string>) => {
       setSaveStatus('saving')
+      const isVariantParent = formData.product_type === 'variant_parent'
+
+      // ── Variant parent: send with variants[] children ─────────────
+      if (isVariantParent) {
+        if (!optionName.trim()) throw new Error('Vui lòng nhập tên thuộc tính (VD: Size, Màu sắc)')
+        if (variantRows.length === 0) throw new Error('Vui lòng thêm ít nhất 1 variant')
+        if (variantRows.some((r) => !r.value.trim())) throw new Error('Vui lòng nhập giá trị cho tất cả các variant')
+
+        const enrichedPayload = {
+          ...payload,
+          product_type: 'variant_parent',
+          variant_options: JSON.stringify({ option_name: optionName.trim() }),
+          sell_price: '0',
+          variants: variantRows.map((r) => ({
+            value: r.value.trim(),
+            sku: r.sku.trim(),
+            sell_price: r.sell_price || '0',
+            cost_price: r.cost_price || '0',
+            barcode: r.barcode.trim(),
+          })),
+        }
+
+        const url = editingId
+          ? `/api/shops/${shopId}/products/${editingId}`
+          : `/api/shops/${shopId}/products`
+        const res = await fetch(url, {
+          method: editingId ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enrichedPayload),
+        })
+        if (!res.ok) {
+          const json = await res.json().catch(() => ({}))
+          throw new Error(json.error ?? 'Lưu thất bại')
+        }
+        return res.json()
+      }
+
+      // ── Modifier product: encode groups into variant_options JSON ──
+      if (formData.product_type === 'modifier') {
+        if (modifierGroups.length === 0) throw new Error('Vui lòng thêm ít nhất 1 nhóm modifier')
+        for (const g of modifierGroups) {
+          if (!g.name.trim()) throw new Error('Vui lòng nhập tên cho tất cả các nhóm modifier')
+          if (g.options.length === 0) throw new Error(`Nhóm "${g.name}" cần ít nhất 1 lựa chọn`)
+          if (g.options.some((o) => !o.name.trim())) throw new Error(`Vui lòng nhập tên cho tất cả lựa chọn trong nhóm "${g.name}"`)
+        }
+
+        const enrichedPayload = {
+          ...payload,
+          product_type: 'modifier',
+          // Encode modifier config into variant_options for storage
+          // GSheets: uses metadata field; MySQL: text column
+          variant_options: JSON.stringify({ groups: modifierGroups }),
+        }
+
+        const url = editingId
+          ? `/api/shops/${shopId}/products/${editingId}`
+          : `/api/shops/${shopId}/products`
+        const res = await fetch(url, {
+          method: editingId ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enrichedPayload),
+        })
+        if (!res.ok) {
+          const json = await res.json().catch(() => ({}))
+          throw new Error(json.error ?? 'Lưu thất bại')
+        }
+        return res.json()
+      }
+
       const url = editingId
         ? `/api/shops/${shopId}/products/${editingId}`
         : `/api/shops/${shopId}/products`
@@ -183,7 +295,7 @@ export function ProductsClient({ shopId }: Props) {
         const json = await res.json().catch(() => ({}))
         throw new Error(json.error ?? 'Lưu thất bại')
       }
-      
+
       const savedProduct = await res.json()
       const productId = editingId || savedProduct.product_id || savedProduct.id
 
@@ -193,16 +305,9 @@ export function ProductsClient({ shopId }: Props) {
           const webpBlob = await compressImageToWebP(selectedFile)
           const uploadUrlRes = await fetch(`/api/shops/${shopId}/products/${productId}/upload-url`)
           if (!uploadUrlRes.ok) throw new Error('Không lấy được link upload')
-          
           const { uploadUrl, publicUrl } = await uploadUrlRes.json()
-          
-          const uploadRes = await fetch(uploadUrl, {
-            method: 'PUT',
-            body: webpBlob,
-            headers: { 'Content-Type': 'image/webp' },
-          })
+          const uploadRes = await fetch(uploadUrl, { method: 'PUT', body: webpBlob, headers: { 'Content-Type': 'image/webp' } })
           if (!uploadRes.ok) throw new Error('Upload ảnh thất bại')
-
           await fetch(`/api/shops/${shopId}/products/${productId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
@@ -226,6 +331,7 @@ export function ProductsClient({ shopId }: Props) {
       toast.error(err.message)
     },
   })
+
 
   const toggleActiveMutation = useMutation({
     mutationFn: async (row: Record<string, string>) => {
@@ -290,6 +396,39 @@ export function ProductsClient({ shopId }: Props) {
     setPreviewUrl(row.image_url || null)
     setImageInputMode(row.image_url ? 'url' : 'file')
     setFileInputKey(Date.now())
+    // If editing a variant_parent, load its variant children
+    if (row.product_type === 'variant_parent') {
+      const opts = safeParseJson(row.variant_options)
+      setOptionName(opts?.option_name ?? '')
+      const children = (data?.data ?? []).filter(
+        (p) => p.parent_id === row.product_id
+      )
+      setVariantRows(
+        children.map((c) => ({
+          id: c.product_id,
+          value: safeParseJson(c.variant_options)?.[opts?.option_name ?? ''] ?? '',
+          sku: c.sku ?? '',
+          sell_price: c.sell_price ?? '0',
+          cost_price: c.cost_price ?? '0',
+          barcode: c.barcode ?? '',
+        }))
+      )
+      setModifierGroups([])
+    } else if (row.product_type === 'modifier') {
+      // Load modifier config from variant_options JSON
+      const config = safeParseJson(row.variant_options)
+      setModifierGroups(
+        Array.isArray(config?.groups)
+          ? config.groups.map((g: ModifierGroup) => ({ ...g, id: g.id || `g-${Date.now()}` }))
+          : []
+      )
+      setVariantRows([])
+      setOptionName('')
+    } else {
+      setVariantRows([])
+      setOptionName('')
+      setModifierGroups([])
+    }
     setSlideOpen(true)
   }
 
@@ -300,18 +439,81 @@ export function ProductsClient({ shopId }: Props) {
     setPreviewUrl(null)
     setImageInputMode('file')
     setFileInputKey(Date.now())
+    setVariantRows([])
+    setOptionName('')
+    setModifierGroups([])
     setSlideOpen(true)
   }
 
   function handleDuplicate(row: Record<string, string>) {
     const { id, product_id, created_at, updated_at, ...rest } = row
-    setFormData({ ...rest, name: `${row.name} (Bản sao)` })
+    setFormData({ ...rest, name: `${row.name} (Bản sao)`, product_type: 'simple' })
     setEditingId(null)
     setSelectedFile(null)
     setPreviewUrl(row.image_url || null)
     setImageInputMode(row.image_url ? 'url' : 'file')
     setFileInputKey(Date.now())
+    setVariantRows([])
+    setOptionName('')
+    setModifierGroups([])
     setSlideOpen(true)
+  }
+
+  function addVariantRow() {
+    setVariantRows((prev) => [
+      ...prev,
+      { id: `new-${Date.now()}`, value: '', sku: '', sell_price: '0', cost_price: '0', barcode: '' },
+    ])
+  }
+
+  function removeVariantRow(id: string) {
+    setVariantRows((prev) => prev.filter((r) => r.id !== id))
+  }
+
+  function updateVariantRow(id: string, field: keyof VariantRow, value: string) {
+    setVariantRows((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)))
+  }
+
+  function safeParseJson(s?: string | null) {
+    try { return s ? JSON.parse(s) : null } catch { return null }
+  }
+
+  // ── Modifier handlers ───────────────────────────────────────────
+  function addModifierGroup() {
+    setModifierGroups((prev) => [
+      ...prev,
+      { id: `g-${Date.now()}`, name: '', is_required: true, max_selection: 1, options: [] },
+    ])
+  }
+
+  function removeModifierGroup(gid: string) {
+    setModifierGroups((prev) => prev.filter((g) => g.id !== gid))
+  }
+
+  function updateModifierGroup(gid: string, field: keyof ModifierGroup, value: unknown) {
+    setModifierGroups((prev) => prev.map((g) => g.id === gid ? { ...g, [field]: value } : g))
+  }
+
+  function addModifierOption(gid: string) {
+    setModifierGroups((prev) => prev.map((g) =>
+      g.id === gid
+        ? { ...g, options: [...g.options, { id: `o-${Date.now()}`, name: '', price_adj: '0' }] }
+        : g
+    ))
+  }
+
+  function removeModifierOption(gid: string, oid: string) {
+    setModifierGroups((prev) => prev.map((g) =>
+      g.id === gid ? { ...g, options: g.options.filter((o) => o.id !== oid) } : g
+    ))
+  }
+
+  function updateModifierOption(gid: string, oid: string, field: keyof ModifierOption, value: string) {
+    setModifierGroups((prev) => prev.map((g) =>
+      g.id === gid
+        ? { ...g, options: g.options.map((o) => o.id === oid ? { ...o, [field]: value } : o) }
+        : g
+    ))
   }
 
   const columns = useMemo<Column<Record<string, string>>[]>(() => [
@@ -339,7 +541,30 @@ export function ProductsClient({ shopId }: Props) {
       label: 'SKU',
       render: (row) => row.sku ? <CopyableId id={row.sku} className="text-sm font-semibold text-slate-800" /> : '—'
     },
-    { key: 'name', label: 'Tên sản phẩm' },
+    {
+      key: 'name',
+      label: 'Tên sản phẩm',
+      render: (row) => (
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-slate-800">{row.name}</span>
+          {row.product_type === 'variant_child' && (
+            <span className="inline-flex items-center rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-600 ring-1 ring-violet-200">
+              {(() => { try { const o = JSON.parse(row.variant_options || '{}'); return Object.values(o).join(' / ') || 'Variant' } catch { return 'Variant' } })()}
+            </span>
+          )}
+          {row.product_type === 'variant_parent' && (
+            <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-400">
+              (nhóm)
+            </span>
+          )}
+          {row.product_type === 'modifier' && (
+            <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-600 ring-1 ring-amber-200">
+              Modifier
+            </span>
+          )}
+        </div>
+      )
+    },
     { 
       key: 'category_id', 
       label: 'Danh mục',
@@ -352,7 +577,9 @@ export function ProductsClient({ shopId }: Props) {
     {
       key: 'sell_price',
       label: 'Giá bán',
-      render: (row) => <span>{Number(row.sell_price || 0).toLocaleString('vi-VN')}đ</span>,
+      render: (row) => row.product_type === 'variant_parent'
+        ? <span className="text-slate-400 text-xs">Nhiều giá</span>
+        : <span>{Number(row.sell_price || 0).toLocaleString('vi-VN')}đ</span>,
     },
     {
       key: 'active',
@@ -374,6 +601,11 @@ export function ProductsClient({ shopId }: Props) {
       ),
     },
   ], [categories])
+
+  // Filter: exclude variant_parent from table (show children + simple)
+  const tableData = (data?.data ?? []).filter(
+    (p) => p.product_type !== 'variant_parent'
+  )
 
   return (
     <div className="space-y-4">
@@ -415,7 +647,7 @@ export function ProductsClient({ shopId }: Props) {
 
       <DataTable
         columns={columns}
-        data={data?.data ?? []}
+        data={tableData}
         loading={isLoading}
         pagination={{ page, total: data?.total ?? 0, pageSize: 50, onChange: setPage }}
         emptyState={<EmptyState title="Chưa có sản phẩm nào" description="Nhấn '+ Thêm sản phẩm' để bắt đầu." />}
@@ -446,16 +678,66 @@ export function ProductsClient({ shopId }: Props) {
         }
       >
         <div className="space-y-4">
+
+          {/* ── Loại sản phẩm toggle ─────────────────────────────────── */}
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Loại sản phẩm</p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setFormData(prev => ({ ...prev, product_type: 'simple' }))}
+                className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-all ${
+                  formData.product_type === 'simple' || (!formData.product_type)
+                    ? 'border-primary bg-primary/5 text-primary'
+                    : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                Đơn giản
+              </button>
+              {/* Variant tab: show for non-FnB industries */}
+              {!isFnBIndustry(industryType) && (
+              <button
+                type="button"
+                onClick={() => setFormData(prev => ({ ...prev, product_type: 'variant_parent' }))}
+                className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-all ${
+                  formData.product_type === 'variant_parent'
+                    ? 'border-violet-500 bg-violet-50 text-violet-700'
+                    : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                Có thuộc tính (Variant)
+              </button>
+              )}
+              {/* Modifier tab: show for FnB industries */}
+              {isFnBIndustry(industryType) && (
+              <button
+                type="button"
+                onClick={() => setFormData(prev => ({ ...prev, product_type: 'modifier' }))}
+                className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-all ${
+                  formData.product_type === 'modifier'
+                    ? 'border-amber-500 bg-amber-50 text-amber-700'
+                    : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                Có lựa chọn (Modifier)
+              </button>
+              )}
+            </div>
+          </div>
+
+          {/* ── SKU (only for non-variant-parent products) ─────────────── */}
+          {formData.product_type !== 'variant_parent' && (
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">SKU *</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">SKU</label>
             <input
               type="text"
               value={formData.sku}
               onChange={(e) => setFormData(prev => ({ ...prev, sku: e.target.value }))}
               className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
-              placeholder="Nhập SKU"
+              placeholder="Để trống sẽ tự động tạo"
             />
           </div>
+          )}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Tên sản phẩm *</label>
             <input
@@ -463,7 +745,11 @@ export function ProductsClient({ shopId }: Props) {
               value={formData.name}
               onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
               className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
-              placeholder="Nhập tên sản phẩm"
+              placeholder={
+                formData.product_type === 'variant_parent' ? 'Ví dụ: Áo đỏ, Quần kaki...' :
+                formData.product_type === 'modifier' ? 'Ví dụ: Trà sữa, Cà phê...' :
+                'Nhập tên sản phẩm'
+              }
             />
           </div>
           <div>
@@ -500,26 +786,242 @@ export function ProductsClient({ shopId }: Props) {
               placeholder="Cái, Hộp, Kg..."
             />
           </div>
-          <NumberInput
-            label="Giá bán"
-            value={formData.sell_price}
-            onChange={(v) => setFormData(prev => ({ ...prev, sell_price: v }))}
-            suffix="đ"
-          />
-          <NumberInput
-            label="Giá vốn"
-            value={formData.cost_price}
-            onChange={(v) => setFormData(prev => ({ ...prev, cost_price: v }))}
-            suffix="đ"
-          />
-          <NumberInput
-            label="Giá sàn"
-            value={formData.min_price}
-            onChange={(v) => setFormData(prev => ({ ...prev, min_price: v }))}
-            suffix="đ"
-          />
+          {/* ── Giá bán / Giá vốn / Giá sàn (only for simple) ────────── */}
+          {formData.product_type !== 'variant_parent' && (
+            <>
+              <NumberInput
+                label="Giá bán"
+                value={formData.sell_price}
+                onChange={(v) => setFormData(prev => ({ ...prev, sell_price: v }))}
+                suffix="đ"
+              />
+              <NumberInput
+                label="Giá vốn"
+                value={formData.cost_price}
+                onChange={(v) => setFormData(prev => ({ ...prev, cost_price: v }))}
+                suffix="đ"
+              />
+              <NumberInput
+                label="Giá sàn"
+                value={formData.min_price}
+                onChange={(v) => setFormData(prev => ({ ...prev, min_price: v }))}
+                suffix="đ"
+              />
+            </>
+          )}
+
+          {/* ── Variant builder (only when variant_parent) ────────────── */}
+          {formData.product_type === 'variant_parent' && (
+            <div className="rounded-xl border border-violet-200 bg-violet-50/50 p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-violet-500">
+                  <path d="M2 4.5A2.5 2.5 0 014.5 2h11a2.5 2.5 0 010 5h-11A2.5 2.5 0 012 4.5zM2.75 9.083a.75.75 0 000 1.5h14.5a.75.75 0 000-1.5H2.75zM2.75 12.663a.75.75 0 000 1.5h14.5a.75.75 0 000-1.5H2.75zM2.75 16.25a.75.75 0 000 1.5h14.5a.75.75 0 000-1.5H2.75z" />
+                </svg>
+                <span className="text-sm font-semibold text-violet-700">Quản lý thuộc tính</span>
+              </div>
+
+              {/* Option name */}
+              <div>
+                <label className="block text-xs font-medium text-violet-600 mb-1">Tên thuộc tính *</label>
+                <input
+                  type="text"
+                  value={optionName}
+                  onChange={(e) => setOptionName(e.target.value)}
+                  className="w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm focus:border-violet-400 focus:outline-none"
+                  placeholder="Ví dụ: Size, Màu sắc, Kiểu dáng..."
+                />
+              </div>
+
+              {/* Variant rows */}
+              <div className="space-y-2">
+                <div className="grid grid-cols-12 gap-1.5 text-[11px] font-semibold text-violet-500 uppercase tracking-wide px-1">
+                  <div className="col-span-2">Giá trị</div>
+                  <div className="col-span-3">SKU</div>
+                  <div className="col-span-3">Giá bán</div>
+                  <div className="col-span-3">Giá vốn</div>
+                  <div className="col-span-1"></div>
+                </div>
+                {variantRows.length === 0 && (
+                  <p className="text-xs text-violet-400 text-center py-2">Chưa có variant nào. Nhấn &quot;+ Thêm&quot; bên dưới.</p>
+                )}
+                {variantRows.map((row) => (
+                  <div key={row.id} className="grid grid-cols-12 gap-1.5 items-center">
+                    <input
+                      className="col-span-2 rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-sm focus:border-violet-400 focus:outline-none"
+                      placeholder={optionName || 'VD: S'}
+                      value={row.value}
+                      onChange={(e) => updateVariantRow(row.id, 'value', e.target.value)}
+                    />
+                    <input
+                      className="col-span-3 rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-sm focus:border-violet-400 focus:outline-none font-mono"
+                      placeholder="SKU-001"
+                      value={row.sku}
+                      onChange={(e) => updateVariantRow(row.id, 'sku', e.target.value)}
+                    />
+                    <input
+                      className="col-span-3 rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-sm focus:border-violet-400 focus:outline-none"
+                      placeholder="0"
+                      value={row.sell_price}
+                      onChange={(e) => updateVariantRow(row.id, 'sell_price', e.target.value)}
+                    />
+                    <input
+                      className="col-span-3 rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-sm focus:border-violet-400 focus:outline-none"
+                      placeholder="0"
+                      value={row.cost_price}
+                      onChange={(e) => updateVariantRow(row.id, 'cost_price', e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeVariantRow(row.id)}
+                      className="col-span-1 flex items-center justify-center text-slate-400 hover:text-red-500 transition-colors"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                        <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={addVariantRow}
+                  className="mt-1 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-violet-300 py-2 text-xs font-medium text-violet-600 hover:bg-violet-50 transition-colors"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5"><path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" /></svg>
+                  Thêm variant
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Modifier groups builder (FnB only) ─────────────────────── */}
+          {formData.product_type === 'modifier' && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-amber-500">
+                    <path d="M3.5 2A1.5 1.5 0 002 3.5V5c0 1.149.15 2.263.43 3.326a13.022 13.022 0 009.244 9.244c1.063.28 2.177.43 3.326.43h1.5a1.5 1.5 0 001.5-1.5v-1.148a1.5 1.5 0 00-1.175-1.465l-3.223-.716a1.5 1.5 0 00-1.439.389l-.043.043a15.587 15.587 0 01-3.268-3.268l.043-.043a1.5 1.5 0 00.389-1.44l-.716-3.222A1.5 1.5 0 006.648 2H3.5z" />
+                  </svg>
+                  <span className="text-sm font-semibold text-amber-700">Nhóm lựa chọn (Modifier Groups)</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={addModifierGroup}
+                  className="flex items-center gap-1 rounded-lg bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-200 transition-colors"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5"><path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" /></svg>
+                  Thêm nhóm
+                </button>
+              </div>
+
+              {modifierGroups.length === 0 && (
+                <p className="text-xs text-amber-400 text-center py-3 border border-dashed border-amber-200 rounded-lg">
+                  Chưa có nhóm nào. Nhấn &quot;+ Thêm nhóm&quot; để bắt đầu.
+                </p>
+              )}
+
+              {modifierGroups.map((group, gi) => (
+                <div key={group.id} className="rounded-xl border border-amber-200 bg-white p-3 space-y-3">
+                  {/* Group header */}
+                  <div className="flex items-start gap-2">
+                    <div className="flex-1 space-y-2">
+                      <input
+                        className="w-full rounded-lg border border-amber-200 px-3 py-1.5 text-sm font-medium focus:border-amber-400 focus:outline-none"
+                        placeholder={`Nhóm ${gi + 1}: Ví dụ "Chọn size", "Topping"...`}
+                        value={group.name}
+                        onChange={(e) => updateModifierGroup(group.id, 'name', e.target.value)}
+                      />
+                      <div className="flex items-center gap-3 text-xs">
+                        {/* Required toggle */}
+                        <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                          <button
+                            type="button"
+                            onClick={() => updateModifierGroup(group.id, 'is_required', !group.is_required)}
+                            className={`relative w-8 h-4 rounded-full transition-colors ${group.is_required ? 'bg-amber-500' : 'bg-slate-200'}`}
+                          >
+                            <span className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${group.is_required ? 'translate-x-4' : ''}`} />
+                          </button>
+                          <span className={group.is_required ? 'text-amber-700 font-semibold' : 'text-slate-500'}>
+                            {group.is_required ? 'Bắt buộc' : 'Tùy chọn'}
+                          </span>
+                        </label>
+                        {/* Single/Multi toggle */}
+                        <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                          <button
+                            type="button"
+                            onClick={() => updateModifierGroup(group.id, 'max_selection', group.max_selection === 1 ? 99 : 1)}
+                            className={`relative w-8 h-4 rounded-full transition-colors ${group.max_selection > 1 ? 'bg-amber-500' : 'bg-slate-200'}`}
+                          >
+                            <span className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${group.max_selection > 1 ? 'translate-x-4' : ''}`} />
+                          </button>
+                          <span className={group.max_selection > 1 ? 'text-amber-700 font-semibold' : 'text-slate-500'}>
+                            {group.max_selection > 1 ? 'Nhiều lựa chọn' : 'Chọn 1'}
+                          </span>
+                        </label>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeModifierGroup(group.id)}
+                      className="mt-1 text-slate-400 hover:text-red-500 transition-colors flex-shrink-0"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                        <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                  </div>
+
+                  {/* Options */}
+                  <div className="space-y-1.5 pl-1">
+                    <div className="grid grid-cols-12 gap-1.5 text-[10px] font-semibold text-amber-500 uppercase tracking-wide px-1">
+                      <div className="col-span-7">Lựa chọn</div>
+                      <div className="col-span-4">Giá thêm (đ)</div>
+                      <div className="col-span-1"></div>
+                    </div>
+                    {group.options.length === 0 && (
+                      <p className="text-xs text-amber-300 px-1">Chưa có lựa chọn</p>
+                    )}
+                    {group.options.map((opt) => (
+                      <div key={opt.id} className="grid grid-cols-12 gap-1.5 items-center">
+                        <input
+                          className="col-span-7 rounded-lg border border-amber-200 px-2 py-1.5 text-sm focus:border-amber-400 focus:outline-none"
+                          placeholder={group.max_selection > 1 ? 'VD: Trân châu' : 'VD: Size L'}
+                          value={opt.name}
+                          onChange={(e) => updateModifierOption(group.id, opt.id, 'name', e.target.value)}
+                        />
+                        <input
+                          className="col-span-4 rounded-lg border border-amber-200 px-2 py-1.5 text-sm text-right focus:border-amber-400 focus:outline-none"
+                          placeholder="0"
+                          value={opt.price_adj}
+                          onChange={(e) => updateModifierOption(group.id, opt.id, 'price_adj', e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeModifierOption(group.id, opt.id)}
+                          className="col-span-1 flex items-center justify-center text-slate-400 hover:text-red-500 transition-colors"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                            <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                          </svg>
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => addModifierOption(group.id)}
+                      className="mt-1 flex w-full items-center justify-center gap-1 rounded-lg border border-dashed border-amber-200 py-1.5 text-xs font-medium text-amber-600 hover:bg-amber-50 transition-colors"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3"><path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" /></svg>
+                      + Thêm lựa chọn
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Mô tả</label>
+
             <textarea
               value={formData.description}
               onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}

@@ -8,7 +8,7 @@ interface Props {
 }
 
 export default async function ProductsPage({ params }: Props) {
-  const { branch } = await params
+  const { slug, branch } = await params
   const supabase = await getSupabaseServerClient()
   const { data: authData } = await supabase.auth.getUser()
 
@@ -22,8 +22,23 @@ export default async function ProductsPage({ params }: Props) {
     .select('id, name')
     .eq('slug', branch)
     .maybeSingle()
-    
+
   if (!shop) notFound()
 
-  return <ProductsClient shopId={shop.id} shopName={shop.name} />
+  // Fetch industry_type to drive product type UI (modifier vs variant)
+  const { data: tenant } = await admin
+    .from('tenants')
+    .select('industry_type')
+    .eq('slug', slug)
+    .maybeSingle()
+
+  const industryType = tenant?.industry_type ?? 'retail'
+
+  return (
+    <ProductsClient
+      shopId={shop.id}
+      shopName={shop.name}
+      industryType={industryType}
+    />
+  )
 }

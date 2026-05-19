@@ -9,6 +9,9 @@ import { CheckoutModal } from './CheckoutModal'
 import { useConfirm } from '@/app/components/ui/ConfirmProvider'
 import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog'
 import type { LocalCustomer, LocalProduct } from '@/lib/localDb/schema'
+import type { CartItem } from '@/hooks/useCart'
+import { VariantPickerModal } from './VariantPickerModal'
+import { ModifierPickerModal } from './ModifierPickerModal'
 
 interface Resource {
   id: string
@@ -32,6 +35,9 @@ interface OrderItem {
   line_total: string
   discount_amount?: string
   cost_price?: string
+  variant_label?: string
+  modifiers?: string
+  modifier_total?: string
 }
 
 interface OrderData {
@@ -147,6 +153,8 @@ export function ResourceSlideOver({
   const [showPaymentForm, setShowPaymentForm] = useState(false)
   const [confirmCancelResource, setConfirmCancelResource] = useState(false)
   const [cancellingOrder, setCancellingOrder] = useState(false)
+  const [variantParent, setVariantParent] = useState<LocalProduct | null>(null)
+  const [modifierProduct, setModifierProduct] = useState<LocalProduct | null>(null)
   const [refundAmountInput, setRefundAmountInput] = useState('')
 
   const { data: settings } = useQuery({
@@ -406,15 +414,22 @@ export function ResourceSlideOver({
     }
   }
 
-  async function handleProductSelect(p: LocalProduct) {
-    const unitPrice = Number(p.sell_price || 0)
-    
-    const existingInDb = existingItems.find(i => i.product_id === p.product_id)
+  function getSig(i: any) {
+    const l = i.variant_label || ''
+    const m = typeof i.modifiers === 'string' ? i.modifiers : JSON.stringify(i.modifiers || [])
+    return `${i.product_id}|${l}|${m}`
+  }
+
+  async function handleAddCartItem(item: CartItem) {
+    const unitPrice = Number(item.unit_price) + (item.modifier_total || 0)
+    const sig = getSig(item)
+
+    const existingInDb = existingItems.find(i => getSig(i) === sig)
     if (existingInDb) {
-      const newQty = Number(existingInDb.qty) + 1
+      const newQty = Number(existingInDb.qty) + item.qty
       const newLineTotal = newQty * unitPrice
       
-      setExistingItems(prev => prev.map(i => i.product_id === p.product_id ? {
+      setExistingItems(prev => prev.map(i => getSig(i) === sig ? {
         ...i,
         qty: String(newQty),
         line_total: String(newLineTotal)
@@ -426,7 +441,7 @@ export function ResourceSlideOver({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ qty: String(newQty), line_total: String(newLineTotal) })
         })
-        toast.success(`Đã cập nhật: ${p.name} (x${newQty})`)
+        toast.success(`Đã cập nhật: ${item.product_name} (x${newQty})`)
       } catch (err) {
         toast.error('Lỗi khi cập nhật số lượng')
       }
@@ -434,24 +449,49 @@ export function ResourceSlideOver({
     }
 
     setCartItems(prev => {
-      const existing = prev.find(i => i.product_id === p.product_id)
+      const existing = prev.find(i => getSig(i) === sig)
       if (existing) {
-        return prev.map(i => i.product_id === p.product_id ? {
+        return prev.map(i => getSig(i) === sig ? {
           ...i,
-          qty: String(Number(i.qty) + 1),
-          line_total: String((Number(i.qty) + 1) * unitPrice)
+          qty: String(Number(i.qty) + item.qty),
+          line_total: String((Number(i.qty) + item.qty) * unitPrice)
         } : i)
       }
       return [...prev, {
-        product_id: p.product_id,
-        product_name: p.name,
-        sku: p.sku || '',
-        qty: '1',
-        unit_price: String(unitPrice),
-        line_total: String(unitPrice),
-        cost_price: String(Number(p.cost_price || 0)),
-        discount_amount: '0'
+        product_id: item.product_id,
+        product_name: item.product_name,
+        sku: item.sku || '',
+        qty: String(item.qty),
+        unit_price: String(item.unit_price),
+        line_total: String(unitPrice * item.qty),
+        cost_price: String(item.cost_price),
+        discount_amount: '0',
+        variant_label: item.variant_label,
+        modifiers: JSON.stringify(item.modifiers || []),
+        modifier_total: String(item.modifier_total || 0),
       }]
+    })
+  }
+
+  async function handleProductSelect(p: LocalProduct) {
+    const type = (p as any).product_type ?? 'simple'
+    if (type === 'variant_parent') {
+      setVariantParent(p)
+      return
+    }
+    if (type === 'modifier') {
+      setModifierProduct(p)
+      return
+    }
+    handleAddCartItem({
+      product_id: p.product_id,
+      product_name: p.name,
+      sku: p.sku || '',
+      qty: 1,
+      unit_price: Number(p.sell_price || 0),
+      cost_price: Number(p.cost_price || 0),
+      discount_amount: 0,
+      line_total: Number(p.sell_price || 0),
     })
   }
 
@@ -532,6 +572,9 @@ export function ResourceSlideOver({
             unit_price: String(item.unit_price),
             line_total: String(item.line_total),
             line_discount: String(item.discount_amount),
+            variant_label: (item as any).variant_label ?? '',
+            modifiers: (item as any).modifiers ?? '',
+            modifier_total: String((item as any).modifier_total ?? 0),
           }),
         })
       }
@@ -915,16 +958,29 @@ export function ResourceSlideOver({
   }
 
   const buildCheckoutItems = () => {
-    const items: any[] = [...existingItems, ...cartItems].map(it => ({
-      product_id: it.product_id,
-      product_name: it.product_name,
-      sku: it.sku || '',
-      qty: Number(it.qty),
-      unit_price: Number(it.unit_price),
-      cost_price: Number(it.cost_price ?? 0),
-      discount_amount: Number(it.discount_amount ?? 0),
-      line_total: Number(it.line_total),
-    }))
+    const items: any[] = [...existingItems, ...cartItems].map(it => {
+      let parsedModifiers = (it as any).modifiers
+      if (typeof parsedModifiers === 'string' && parsedModifiers.startsWith('[')) {
+        try {
+          parsedModifiers = JSON.parse(parsedModifiers)
+        } catch {
+          parsedModifiers = []
+        }
+      }
+      return {
+        product_id: it.product_id,
+        product_name: it.product_name,
+        sku: it.sku || '',
+        qty: Number(it.qty),
+        unit_price: Number(it.unit_price),
+        cost_price: Number(it.cost_price ?? 0),
+        discount_amount: Number(it.discount_amount ?? 0),
+        line_total: Number(it.line_total),
+        variant_label: (it as any).variant_label,
+        modifiers: parsedModifiers,
+        modifier_total: Number((it as any).modifier_total ?? 0),
+      }
+    })
     if (timeCharge > 0) {
       items.push({
         product_id: 'TIME_CHARGE',
@@ -1279,7 +1335,24 @@ export function ResourceSlideOver({
                             {existingItems.map((item, idx) => (
                               <div key={item.id || `ex-${idx}`} className={`rounded-xl border p-3 flex justify-between items-center transition-colors ${dirtyItems[item.id!] ? 'bg-orange-50 border-orange-200' : 'bg-slate-50 border-slate-100'}`}>
                                 <div className="min-w-0 flex-1 flex items-center gap-3">
-                                  <p className="text-sm font-medium text-slate-900 truncate flex-1">{item.product_name}</p>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium text-slate-900 truncate leading-tight">{item.product_name}</p>
+                                    {/* Variant label */}
+                                    {(item as any).variant_label && !((item as any).modifiers?.length > 2) && (
+                                      <p className="text-[11px] text-violet-600 font-medium truncate mt-0.5">{(item as any).variant_label}</p>
+                                    )}
+                                    {/* Modifier summary */}
+                                    {typeof (item as any).modifiers === 'string' && (item as any).modifiers.startsWith('[') && JSON.parse((item as any).modifiers).length > 0 && (
+                                      <p className="text-[11px] text-amber-600 truncate mt-0.5">
+                                        {JSON.parse((item as any).modifiers).map((m: any) => m.option).join(' · ')}
+                                        {Number((item as any).modifier_total) > 0 && (
+                                          <span className="ml-1 text-emerald-600 font-medium">
+                                            +{Number((item as any).modifier_total).toLocaleString('vi-VN')}đ
+                                          </span>
+                                        )}
+                                      </p>
+                                    )}
+                                  </div>
                                   <div className="flex items-center gap-1 shrink-0">
                                     <button onClick={() => handleAdjustExistingQty(idx, -1)} className="w-6 h-6 flex items-center justify-center rounded-md bg-slate-200 text-slate-600 hover:bg-slate-300 transition-colors">
                                       -
@@ -1330,7 +1403,24 @@ export function ResourceSlideOver({
                             {cartItems.map((item, idx) => (
                               <div key={`cart-${idx}`} className="rounded-xl border border-primary/20 bg-primary/5 p-3 flex justify-between items-center shadow-sm">
                                 <div className="min-w-0 flex-1 flex items-center gap-3">
-                                  <p className="text-sm font-bold text-slate-900 truncate flex-1">{item.product_name}</p>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-bold text-slate-900 truncate leading-tight">{item.product_name}</p>
+                                    {/* Variant label */}
+                                    {(item as any).variant_label && !((item as any).modifiers?.length > 2) && (
+                                      <p className="text-[11px] text-violet-600 font-medium truncate mt-0.5">{(item as any).variant_label}</p>
+                                    )}
+                                    {/* Modifier summary */}
+                                    {typeof (item as any).modifiers === 'string' && (item as any).modifiers.startsWith('[') && JSON.parse((item as any).modifiers).length > 0 && (
+                                      <p className="text-[11px] text-amber-600 truncate mt-0.5">
+                                        {JSON.parse((item as any).modifiers).map((m: any) => m.option).join(' · ')}
+                                        {Number((item as any).modifier_total) > 0 && (
+                                          <span className="ml-1 text-emerald-600 font-medium">
+                                            +{Number((item as any).modifier_total).toLocaleString('vi-VN')}đ
+                                          </span>
+                                        )}
+                                      </p>
+                                    )}
+                                  </div>
                                   <div className="flex items-center gap-2 bg-white rounded-lg border border-slate-200 px-1 py-0.5 shrink-0">
                                     <button onClick={() => updateCartQty(idx, -1)} className="w-6 h-6 flex items-center justify-center rounded text-slate-500 hover:bg-slate-100 hover:text-slate-900 font-medium">−</button>
                                     <span className="text-sm font-bold w-6 text-center">{item.qty}</span>
@@ -1854,6 +1944,23 @@ export function ResourceSlideOver({
           </div>
         )}
       </ConfirmDialog>
+      {/* Variant & Modifier Pickers */}
+      {variantParent && (
+        <VariantPickerModal
+          parentProduct={variantParent}
+          open={!!variantParent}
+          onClose={() => setVariantParent(null)}
+          onSelect={handleAddCartItem}
+        />
+      )}
+      {modifierProduct && (
+        <ModifierPickerModal
+          product={modifierProduct}
+          open={!!modifierProduct}
+          onClose={() => setModifierProduct(null)}
+          onConfirm={handleAddCartItem}
+        />
+      )}
     </>
   )
 }

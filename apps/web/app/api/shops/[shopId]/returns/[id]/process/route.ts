@@ -63,6 +63,13 @@ export async function POST(
 
     const generatedStockMovements: string[] = []
     for (const item of items) {
+      const productData = await connector.findById('products', item.product_id).catch(() => null)
+      const productType = (productData as any)?.product_type || 'simple'
+
+      if (productType === 'modifier') {
+        continue // Skip inventory deduction for modifier products
+      }
+
       const qty   = parseFloat(item.qty_returned || '0')
       const delta = Math.abs(qty)
 

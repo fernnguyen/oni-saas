@@ -30,13 +30,17 @@ Khi Connector thực thi lệnh `list` / `create`, nó sẽ tự động append 
 - **Trang Cài Đặt Tổ Chức (`/t/[slug]/settings`):** Được bọc bởi `DashboardShell` (context `control`) và sử dụng hàm `getUserPermissions` để lấy roles. Chỉ role `owner` và `admin` mới được vào trang này.
 - **API `mysql_local`:** Tạo ra API endpoint mới là `/api/connectors/mysql/connect` để cấp phát kết nối Local DB cho các Tenant muốn dùng hệ thống thay vì Google Sheets.
 
-## 3. Cấu hình Môi trường (Local MySQL)
+## 3. Cấu hình Môi trường (Local Database)
 
-Để sử dụng kết nối Local MySQL thay vì Google Sheets, cần cấu hình biến môi trường trong file `.env.local` ở `apps/web/.env.local`:
+Để sử dụng kết nối Local DB thay vì Google Sheets, cần cấu hình biến môi trường trong file `.env.local` ở `apps/web/.env.local`:
 
 ```bash
-# Local MySQL Connection
+# Local Postgres Connection (Mặc định cho môi trường hiện tại)
+LOCAL_PG_URI=postgresql://postgres:postgres@127.0.0.1:5432/oni_saas_local
+
+# Local MySQL Connection (Cũ/Optional)
 LOCAL_MYSQL_URI=mysql://root:root@127.0.0.1:3306/oni_saas
+
 # Hoặc hệ thống sẽ tự fallback về DATABASE_URL nếu có khai báo.
 ```
 
