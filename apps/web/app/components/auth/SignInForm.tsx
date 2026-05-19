@@ -6,7 +6,6 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { AuthSplitLayout } from '../layout/AuthSplitLayout';
 import { getSupabaseBrowserClient } from '../../../lib/supabaseBrowser';
-import { useAuth } from '../../hooks/useAuth';
 import { getVerticalConfig } from '@oni/core';
 
 const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
