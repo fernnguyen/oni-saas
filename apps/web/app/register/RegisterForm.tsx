@@ -94,8 +94,8 @@ export function RegisterForm({ plans, initialDomain }: { plans: any[], initialDo
           <Image src="/logo.png" alt="ONI.vn" width={32} height={32} className="rounded-lg shadow-sm" />
           <span className="font-bold text-slate-900 text-lg">ONI.vn</span>
         </div>
-        <h1 className="text-2xl font-bold text-slate-900">Thiết lập hệ thống</h1>
-        <p className="mt-1 text-sm text-slate-500">Tạo thông tin cửa hàng và tài khoản admin để bắt đầu</p>
+        <h1 className="text-2xl font-bold text-slate-900">Thiết lập {VERTICAL_REGISTRY[industryType].workspaceLabel.toLowerCase()}</h1>
+        <p className="mt-1 text-sm text-slate-500">Tạo thông tin {VERTICAL_REGISTRY[industryType].workspaceLabel.toLowerCase()} và tài khoản admin để bắt đầu</p>
       </div>
 
       <form onSubmit={onSubmit} className="space-y-5">
@@ -126,12 +126,17 @@ export function RegisterForm({ plans, initialDomain }: { plans: any[], initialDo
               );
             })}
           </div>
-          <p className="mt-1.5 text-xs text-slate-400">
-            {VERTICAL_REGISTRY[industryType].description}. Có thể đổi sau trong Cài đặt.
-          </p>
+          <div className="mt-3 flex items-start gap-2.5 rounded-xl border border-blue-100 bg-blue-50/50 p-3">
+            <svg className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              {VERTICAL_REGISTRY[industryType].description}. <span className="text-primary font-semibold">Có thể thay đổi trong Cài đặt.</span> 
+            </p>
+          </div>
         </div>
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-slate-700">Tên cửa hàng / Hộ kinh doanh</label>
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">Tên {VERTICAL_REGISTRY[industryType].workspaceLabel.toLowerCase()} / Đơn vị</label>
           <input
             value={name}
             onChange={(e) => handleNameChange(e.target.value)}
