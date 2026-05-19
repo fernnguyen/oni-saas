@@ -42,10 +42,12 @@ function CreateBranchModal({
   tenantId,
   onClose,
   onCreated,
+  branchLabel,
 }: {
   tenantId: string;
   onClose: () => void;
   onCreated: (slug: string, name: string) => void;
+  branchLabel: string;
 }) {
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
@@ -359,6 +361,7 @@ export function BranchSelector({
           tenantId={tenantId}
           onClose={() => setShowCreate(false)}
           onCreated={handleCreated}
+          branchLabel={branchLabel}
         />
       )}
     </>

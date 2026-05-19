@@ -33,9 +33,16 @@ curl "https://api.telegram.org/bot<BOT_TOKEN>/setWebhook?url=https://<DOMAIN>/ap
 ```
 
 *Ví dụ:*
-`https://api.telegram.org/bot123456789:AAH_xxx/setWebhook?url=https://saas.oni.vn/api/webhooks/telegram`
+`https://api.telegram.org/bot123456789:AAH_xxx/setWebhook?url=https://app.oni.vn/api/webhooks/telegram`
 
 Nếu nhận được kết quả `{"ok":true,"result":true,"description":"Webhook was set"}`, quá trình thiết lập đã thành công.
+
+> **💡 Lưu ý về Global Webhook URL:**
+> Mặc dù mỗi Tenant (gian hàng) có một subdomain riêng (ví dụ: `abcafe.oni.vn`), chúng ta **chỉ cần cấu hình duy nhất 1 Global Link** (VD: `https://app.oni.vn/api/webhooks/telegram`) cho Bot. 
+> 
+> **Lý do:**
+> 1. Request vào đường dẫn `/api/*` sẽ được Proxy (trong `middleware.ts`) bỏ qua logic nhận diện subdomain, xử lý chung như API hệ thống.
+> 2. Webhook không dựa vào URL để nhận biết Tenant. Thay vào đó, nó dựa vào **Mã ghép nối (Pairing Code)** mà người dùng gửi vào group (VD: `/connect 123456`). Mã này sẽ giúp hệ thống map chính xác `chat_id` của Telegram Group với `tenant_id` trong Database.
 
 ---
 
