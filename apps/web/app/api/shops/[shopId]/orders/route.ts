@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireShopAccess } from '@/lib/server/shopAccess'
 import { orderCreateSchema } from '@/lib/validators/orders'
@@ -33,11 +34,7 @@ export async function GET(
     if (channel) filters.channel = channel
     if (customer_id) filters.customer_id = customer_id
 
-    const result = await shopCache(
-      () => connector.list('orders', { page, limit, search: search || undefined, filters, sortDesc: true }),
-      ['orders', shopId, String(page), String(limit), search, status, channel, customer_id],
-      { tags: [shopTag(shopId, 'orders')], revalidate: cacheTTL.orders }
-    )
+    const result = await connector.list('orders', { page, limit, search: search || undefined, filters, sortDesc: true })
 
     return NextResponse.json(result)
   } catch (e) {
