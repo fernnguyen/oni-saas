@@ -255,11 +255,11 @@ export function TableMapPOS({
                       key={r.id}
                       onClick={() => handleResourceClick(r)}
                       className={`group relative rounded-2xl border p-4 flex flex-col text-left transition-all hover:shadow-lg cursor-pointer overflow-hidden ${
-                        r.status === 'occupied' ? 'border-red-300 bg-gradient-to-br from-red-50 to-rose-50 shadow-sm'
-                        : r.status === 'reserved' ? 'border-blue-300 bg-gradient-to-br from-blue-50 to-indigo-50 shadow-sm'
-                        : r.status === 'cleaning' ? 'border-amber-300 bg-gradient-to-br from-amber-50 to-yellow-50 shadow-sm'
-                        : r.status === 'maintenance' ? 'border-slate-300 bg-slate-100 opacity-60'
-                        : 'border-slate-200 bg-gradient-to-br from-white to-slate-50 hover:border-primary/40'
+                        r.status === 'occupied' ? 'border-red-300 bg-gradient-to-br from-red-50 to-rose-50 shadow-sm hover:border-red-400'
+                        : r.status === 'reserved' ? 'border-blue-300 bg-gradient-to-br from-blue-50 to-indigo-50 shadow-sm hover:border-blue-400'
+                        : r.status === 'cleaning' ? 'border-amber-300 bg-gradient-to-br from-amber-50 to-yellow-50 shadow-sm hover:border-amber-400'
+                        : r.status === 'maintenance' ? 'border-slate-300 bg-slate-100 opacity-60 hover:border-slate-400'
+                        : 'border-slate-200 bg-gradient-to-br from-white to-slate-50 hover:border-green-400'
                       }`}
                     >
                       {/* Status indicator bar */}

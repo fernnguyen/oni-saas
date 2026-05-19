@@ -126,10 +126,19 @@ ${items
   .map((it) => {
     // Build sub-line for variant/modifier info
     let subLine = ''
-    if ((it as any).variant_label && !((it as any).modifiers?.length)) {
+    let parsedModifiers = (it as any).modifiers
+    if (typeof parsedModifiers === 'string') {
+      try {
+        parsedModifiers = JSON.parse(parsedModifiers)
+      } catch {
+        parsedModifiers = []
+      }
+    }
+
+    if ((it as any).variant_label && !(parsedModifiers && parsedModifiers.length > 0)) {
       subLine = `<br/><span style="font-size:10px;color:#555;font-style:italic">${(it as any).variant_label}</span>`
-    } else if ((it as any).modifiers?.length) {
-      const modParts = (it as any).modifiers.map((m: any) => m.option).join(', ')
+    } else if (Array.isArray(parsedModifiers) && parsedModifiers.length > 0) {
+      const modParts = parsedModifiers.map((m: any) => m.option).join(', ')
       const modAdj = (it as any).modifier_total > 0 ? ` (+${Number((it as any).modifier_total).toLocaleString('vi-VN')}đ)` : ''
       subLine = `<br/><span style="font-size:10px;color:#666">${modParts}${modAdj}</span>`
     }
@@ -167,14 +176,30 @@ ${footerHtml}
 </body>
 </html>`
 
-  const win = window.open('', '_blank', 'width=400,height=600,scrollbars=yes')
-  if (!win) return
-  win.document.write(html)
-  win.document.close()
-  win.onload = () => {
-    win.focus()
-    win.print()
-    win.close()
+  const iframe = document.createElement('iframe')
+  iframe.style.position = 'fixed'
+  iframe.style.right = '0'
+  iframe.style.bottom = '0'
+  iframe.style.width = '0'
+  iframe.style.height = '0'
+  iframe.style.border = '0'
+  document.body.appendChild(iframe)
+  
+  const iframeDoc = iframe.contentWindow?.document
+  if (!iframeDoc) return
+  
+  iframeDoc.open()
+  iframeDoc.write(html)
+  iframeDoc.close()
+
+  iframe.onload = () => {
+    iframe.contentWindow?.focus()
+    iframe.contentWindow?.print()
+    setTimeout(() => {
+      if (document.body.contains(iframe)) {
+        document.body.removeChild(iframe)
+      }
+    }, 1000)
   }
 }
 
