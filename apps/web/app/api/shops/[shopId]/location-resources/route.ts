@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireShopAccess } from '@/lib/server/shopAccess'
 import { resourceCreateSchema } from '@/lib/validators/resources'
@@ -17,11 +18,7 @@ export async function GET(
     const page = Math.max(1, parseInt(sp.get('page') ?? '1'))
     const limit = Math.min(500, Math.max(1, parseInt(sp.get('limit') ?? '200')))
 
-    const result = await shopCache(
-      () => connector.list('location-resources', { page, limit, sortDesc: false }),
-      ['location-resources', shopId, String(page), String(limit)],
-      { tags: [shopTag(shopId, 'location-resources')], revalidate: cacheTTL.categories }
-    )
+    const result = await connector.list('location-resources', { page, limit, sortDesc: false })
 
     return NextResponse.json(result)
   } catch (e) {
