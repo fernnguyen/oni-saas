@@ -24,6 +24,7 @@ interface BranchSelectorProps {
   currentAddress?: string | null;
   collapsed?: boolean;
   canCreate?: boolean;
+  branchLabel?: string;
 }
 
 function autoSlug(val: string) {
@@ -84,7 +85,7 @@ function CreateBranchModal({
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
       <div className="w-full max-w-md rounded-2xl bg-white shadow-xl">
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
-          <h2 className="text-base font-semibold text-slate-900">Tạo chi nhánh mới</h2>
+          <h2 className="text-base font-semibold text-slate-900">Tạo {branchLabel.toLowerCase()} mới</h2>
           <button
             onClick={onClose}
             className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors cursor-pointer"
@@ -97,12 +98,12 @@ function CreateBranchModal({
 
         <form onSubmit={onSubmit} className="p-6 space-y-4">
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-slate-700">Tên chi nhánh</label>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">Tên {branchLabel.toLowerCase()}</label>
             <input
               autoFocus
               value={name}
               onChange={(e) => handleNameChange(e.target.value)}
-              placeholder="VD: Cơ sở 1 – Quận 1"
+              placeholder={`VD: Cơ sở 1 – Quận 1`}
               className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
               required
             />
@@ -155,7 +156,7 @@ function CreateBranchModal({
               disabled={loading || !name || !slug}
               className="flex-1 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary-dark disabled:opacity-50 transition-colors cursor-pointer"
             >
-              {loading ? 'Đang tạo...' : 'Tạo chi nhánh'}
+              {loading ? 'Đang tạo...' : `Tạo ${branchLabel.toLowerCase()}`}
             </button>
           </div>
         </form>
@@ -170,7 +171,8 @@ export function BranchSelector({
   currentName,
   currentAddress,
   collapsed,
-  canCreate,
+  canCreate = false,
+  branchLabel = 'Chi nhánh',
 }: BranchSelectorProps) {
   const [open, setOpen] = useState(false);
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -208,7 +210,7 @@ export function BranchSelector({
     if (slug === currentSlug) return;
     const newPath = pathname.replace(/^\/[^/]+/, '/' + slug);
     router.push(newPath);
-    toast.success(`Đã chuyển sang chi nhánh ${name ?? slug}`);
+    toast.success(`Đã chuyển sang ${branchLabel.toLowerCase()} ${name ?? slug}`);
   }
 
   function handleCreated(slug: string, name: string) {
@@ -243,7 +245,7 @@ export function BranchSelector({
             {initial}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5 leading-none">Chi nhánh</p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5 leading-none">{branchLabel}</p>
             <p className="text-sm font-semibold text-slate-900 truncate leading-tight">{currentName}</p>
           </div>
           {canSwitch && (
@@ -261,6 +263,14 @@ export function BranchSelector({
 
         {open && (
           <div className="absolute left-2 w-[260px] top-full mt-1 rounded-lg border border-slate-200 bg-white shadow-lg z-50 py-1 overflow-hidden">
+            <div className="px-3 pb-2 pt-1 border-b border-slate-100 flex items-center justify-between">
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Chuyển {branchLabel.toLowerCase()}</p>
+              {limitStatus && (
+                <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-medium">
+                  {limitStatus.current}/{limitStatus.limit === -1 ? '∞' : limitStatus.limit}
+                </span>
+              )}
+            </div>
             {branches.map((b) => {
               const isCurrent = b.slug === currentSlug;
               return (

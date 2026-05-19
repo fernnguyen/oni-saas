@@ -84,6 +84,10 @@ export interface VerticalConfig {
   resourceTemplate?: ResourceTemplate;
   /** Display label for the POS screen and navigation */
   posLabel: string;
+  /** Label for the top-level organization/tenant (e.g., Cửa hàng, Khách sạn, Quán) */
+  workspaceLabel: string;
+  /** Label for the location/shop (e.g., Chi nhánh, Cơ sở) */
+  branchLabel: string;
 }
 
 /* ─── Template presets ─── */
@@ -168,7 +172,7 @@ export const VERTICAL_REGISTRY: Record<IndustryType, VerticalConfig> = {
   retail: {
     label: 'Bán lẻ',
     icon: '🛒',
-    description: 'Cửa hàng tạp hóa, siêu thị mini, shop bán lẻ tổng hợp',
+    description: 'Cửa hàng tạp hóa, điện thoại, máy tính, máy ảnh, quầy thuốc, siêu thị mini... Các shop/cửa hàng bán lẻ tổng hợp',
     features: {
       barcode_scan: true,
       location_resource: false,
@@ -180,6 +184,8 @@ export const VERTICAL_REGISTRY: Record<IndustryType, VerticalConfig> = {
     posLayout: 'product_grid',
     extraEntities: [],
     posLabel: 'Bán tại quầy',
+    workspaceLabel: 'Cửa hàng',
+    branchLabel: 'Chi nhánh',
   },
 
   fnb: {
@@ -200,12 +206,14 @@ export const VERTICAL_REGISTRY: Record<IndustryType, VerticalConfig> = {
     resourceType: 'table',
     resourceTemplate: TABLE_TEMPLATE,
     posLabel: 'Thu ngân',
+    workspaceLabel: 'Quán',
+    branchLabel: 'Cơ sở',
   },
 
   billiards: {
     label: 'Bi-a',
     icon: '🎱',
-    description: 'Quán bi-a, bi-a phỏm, pool',
+    description: 'Quán bi-a, bi-a phỏm, pool, bi-a lỗ',
     features: {
       barcode_scan: false,
       location_resource: true,
@@ -220,6 +228,8 @@ export const VERTICAL_REGISTRY: Record<IndustryType, VerticalConfig> = {
     resourceType: 'table',
     resourceTemplate: BILLIARDS_TABLE_TEMPLATE,
     posLabel: 'Thu ngân',
+    workspaceLabel: 'Cửa hàng',
+    branchLabel: 'Cơ sở',
   },
 
   sports_court: {
@@ -240,6 +250,8 @@ export const VERTICAL_REGISTRY: Record<IndustryType, VerticalConfig> = {
     resourceType: 'court',
     resourceTemplate: COURT_TEMPLATE,
     posLabel: 'Thu ngân',
+    workspaceLabel: 'Khu thể thao',
+    branchLabel: 'Cơ sở',
   },
 
   lodging: {
@@ -260,6 +272,8 @@ export const VERTICAL_REGISTRY: Record<IndustryType, VerticalConfig> = {
     resourceType: 'room',
     resourceTemplate: ROOM_TEMPLATE,
     posLabel: 'Lễ tân',
+    workspaceLabel: 'Khách sạn',
+    branchLabel: 'Cơ sở',
   },
 
   fashion: {
@@ -277,6 +291,8 @@ export const VERTICAL_REGISTRY: Record<IndustryType, VerticalConfig> = {
     posLayout: 'product_grid',
     extraEntities: [],
     posLabel: 'Bán tại quầy',
+    workspaceLabel: 'Cửa hàng',
+    branchLabel: 'Chi nhánh',
   },
 
   service_hourly: {
@@ -297,6 +313,8 @@ export const VERTICAL_REGISTRY: Record<IndustryType, VerticalConfig> = {
     resourceType: 'room',
     resourceTemplate: SERVICE_ROOM_TEMPLATE,
     posLabel: 'Thu ngân',
+    workspaceLabel: 'Trung tâm',
+    branchLabel: 'Cơ sở',
   },
 };
 

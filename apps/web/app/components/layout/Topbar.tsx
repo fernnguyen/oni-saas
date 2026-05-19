@@ -143,6 +143,7 @@ export function Topbar({
               currentAddress={currentBranchAddress}
               collapsed={false}
               canCreate={permissions.includes('shops.create')}
+              branchLabel={vertical.branchLabel}
             />
           )}
 

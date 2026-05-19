@@ -12,11 +12,17 @@ export default async function WorkspaceSignIn({
 
   const { data: tenant } = await admin
     .from('tenants')
-    .select('name, slug')
+    .select('name, slug, industry_type')
     .eq('slug', slug)
     .single();
 
   if (!tenant) redirect('/');
 
-  return <SignInForm tenantName={tenant.name} tenantSlug={tenant.slug} />;
+  return (
+    <SignInForm 
+      tenantName={tenant.name} 
+      tenantSlug={tenant.slug} 
+      industryType={tenant.industry_type} 
+    />
+  );
 }

@@ -6,15 +6,20 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { AuthSplitLayout } from '../layout/AuthSplitLayout';
 import { getSupabaseBrowserClient } from '../../../lib/supabaseBrowser';
+import { useAuth } from '../../hooks/useAuth';
+import { getVerticalConfig } from '@oni/core';
 
 const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
 
-interface Props {
-  tenantName?: string;
-  tenantSlug?: string;
-}
-
-export function SignInForm({ tenantName, tenantSlug }: Props) {
+export function SignInForm({ 
+  tenantSlug, 
+  tenantName,
+  industryType,
+}: { 
+  tenantSlug?: string; 
+  tenantName?: string; 
+  industryType?: string;
+}) {
   const searchParams = useSearchParams();
   const [subdomain, setSubdomain] = useState(tenantSlug || '');
   const [identifier, setIdentifier] = useState('');
@@ -96,10 +101,13 @@ export function SignInForm({ tenantName, tenantSlug }: Props) {
 
   const isPreFilled = !!tenantSlug;
 
+  const vertical = getVerticalConfig(industryType ?? 'retail');
+  const workspaceLabel = vertical.workspaceLabel.toLowerCase();
+
   return (
     <AuthSplitLayout 
       title={tenantName ? `Chào mừng đến với\n${tenantName}` : "Chào mừng quay lại"} 
-      subtitle="Đăng nhập vào workspace của bạn để quản lý đơn hàng, công nợ và khách hàng."
+      subtitle={`Đăng nhập vào ${workspaceLabel} của bạn để quản lý đơn hàng, doanh thu và vận hành.`}
       features={tenantName ? [
         { label: "BẢO MẬT", value: "Bảo mật cao cấp" },
         { label: "QUẢN LÝ", value: "Đa chi nhánh" },
@@ -113,8 +121,8 @@ export function SignInForm({ tenantName, tenantSlug }: Props) {
               <Image src="/logo.png" alt="ONI.vn" width={32} height={32} className="rounded-lg shadow-sm" />
               <span className="font-bold text-slate-900 text-lg truncate max-w-[200px]" title={tenantName}>{tenantName}</span>
             </div>
-            <h1 className="text-2xl font-bold text-slate-900">Đăng nhập tổ chức</h1>
-            <p className="mt-1 text-sm text-slate-500 font-mono">{tenantSlug}.oni.vn</p>
+            <h1 className="text-2xl font-bold text-slate-900">Đăng nhập vào quản lý</h1>
+            <p className="mt-1 text-sm text-slate-500">{tenantSlug}.oni.vn</p>
           </>
         ) : (
           <>
@@ -126,7 +134,7 @@ export function SignInForm({ tenantName, tenantSlug }: Props) {
               <span className="font-bold text-slate-900 text-lg">ONI.vn</span>
             </div>
             <h1 className="text-2xl font-bold text-slate-900">Đăng nhập</h1>
-            <p className="mt-1 text-sm text-slate-500">Nhập thông tin để truy cập tổ chức của bạn.</p>
+            <p className="mt-1 text-sm text-slate-500">Nhập thông tin để truy cập hệ thống của bạn.</p>
           </>
         )}
       </div>
@@ -257,7 +265,7 @@ export function SignInForm({ tenantName, tenantSlug }: Props) {
             </div>
 
             <p className="mt-6 text-center text-sm text-slate-500">
-              Chưa có workspace?{' '}
+              Chưa có {workspaceLabel}?{' '}
               <Link href="/register" className="font-semibold text-primary hover:underline">
                 Đăng ký miễn phí
               </Link>
