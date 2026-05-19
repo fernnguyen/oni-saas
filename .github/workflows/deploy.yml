@@ -1,0 +1,34 @@
+name: Deploy to VPS on Tag
+
+on:
+  push:
+    tags:
+      - 'v*' # Chạy action khi tạo tag bắt đầu bằng 'v' (ví dụ: v1.0.0, v2.1.3)
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }} # Thường là 22
+          script_stop: true # Dừng lại và báo lỗi (màu đỏ) ngay lập tức nếu có bất kỳ lệnh nào bị lỗi
+          script: |
+            cd /var/www/oni/app
+            
+            # Lấy code mới nhất theo tag vừa được push (Rất quan trọng để build code mới)
+            git fetch --tags
+            git checkout ${{ github.ref_name }}
+            
+            # Cài đặt dependency (phòng khi có thư viện mới)
+            pnpm install
+            
+            # Build ứng dụng
+            pnpm run build
+            
+            # Khởi động lại pm2
+            pm2 restart oni-web
