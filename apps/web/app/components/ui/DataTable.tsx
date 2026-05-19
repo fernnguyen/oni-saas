@@ -31,6 +31,7 @@ export interface DataTableProps<T extends object> {
   pagination?: PaginationConfig
   emptyState?: React.ReactNode
   rowKey?: (row: T, idx: number) => string
+  onRowClick?: (row: T) => void
 }
 
 type SortDir = 'asc' | 'desc' | null
@@ -68,6 +69,7 @@ export function DataTable<T extends object>({
   pagination,
   emptyState,
   rowKey,
+  onRowClick,
 }: DataTableProps<T>) {
   const tableData = rows ?? data ?? []
   const [sortKey, setSortKey] = useState<string | null>(null)
@@ -243,8 +245,10 @@ export function DataTable<T extends object>({
                   return (
                     <tr
                       key={key}
+                      onClick={() => onRowClick?.(row)}
                       className={[
                         'border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors',
+                        onRowClick ? 'cursor-pointer' : '',
                         selected.has(key) ? 'bg-blue-50' : '',
                       ].join(' ')}
                     >
@@ -283,8 +287,10 @@ export function DataTable<T extends object>({
               return (
                 <tr
                   key={key}
+                  onClick={() => onRowClick?.(row)}
                   className={[
                     'border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors',
+                    onRowClick ? 'cursor-pointer' : '',
                     selected.has(key) ? 'bg-blue-50' : '',
                   ].join(' ')}
                 >

@@ -10,6 +10,7 @@ interface PlanBadgeProps {
   planCode:    string; // 'plan_mini', 'plan_pro', 'plan_enterprise'
   planName:    string;
   periodStart?: string;
+  periodEnd?:   string;
   canUpgrade?:  boolean;
   collapsed?:   boolean;
 }

@@ -15,11 +15,9 @@ Checklist này dành cho VPS mới của ONI trên Ubuntu 24.04 LTS, với wildc
 
 - Đăng nhập VPS bằng SSH với tài khoản được nhà cung cấp cấp ban đầu.[cite:337]
 - Xác nhận IP public của máy là `103.200.23.91`.[cite:337]
-- Kiểm tra DNS đã trỏ đúng:
+- Kiểm tra DNS đã trỏ đúng (Type A record -> `103.200.23.91`):
   - `oni.vn`
-  - `www.oni.vn`
-  - một subdomain test như `app.oni.vn`
-  - wildcard `*.oni.vn` nếu nhà cung cấp DNS hỗ trợ cấu hình đúng theo nhu cầu.[cite:337]
+  - `*.oni.vn` (Wildcard subdomain bắt buộc để hỗ trợ multi-tenant, ví dụ: `shop1.oni.vn`, `shop2.oni.vn`).[cite:337]
 - Trên máy local, kiểm tra bằng:
 
 ```bash
@@ -264,14 +262,14 @@ curl http://127.0.0.1:3000
 
 PM2 giúp app tự restart khi lỗi và tự chạy lại sau reboot.[cite:352]
 
-## 14. Cấu hình Nginx reverse proxy cho ONI
+## 14. Cấu hình Nginx reverse proxy cho ONI (Hỗ trợ Wildcard)
 
-Tạo file cấu hình, ví dụ `/etc/nginx/sites-available/oni`:
+Tạo file cấu hình, ví dụ `/etc/nginx/sites-available/oni.conf`:
 
 ```nginx
 server {
     listen 80;
-    server_name oni.vn www.oni.vn app.oni.vn;
+    server_name oni.vn *.oni.vn; # Hỗ trợ domain chính và tất cả subdomain
 
     client_max_body_size 20M;
 
@@ -280,7 +278,7 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
+        proxy_set_header Host $host; # Rất quan trọng để Next.js middleware nhận diện đúng tenant (host)
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
@@ -291,28 +289,53 @@ server {
 Enable site:
 
 ```bash
-sudo ln -s /etc/nginx/sites-available/oni /etc/nginx/sites-enabled/oni
+sudo ln -s /etc/nginx/sites-available/oni.conf /etc/nginx/sites-enabled/oni.conf
 sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-Đây là mẫu reverse proxy cơ bản cho Next.js self-host.[cite:352][cite:342]
+Đây là mẫu reverse proxy cơ bản cho Next.js self-host, pass đúng header `Host` để xử lý multi-tenant.[cite:352][cite:342]
 
-## 15. Cài SSL với Let’s Encrypt
+## 15. Cài SSL Wildcard với Let’s Encrypt
 
+Vì sử dụng wildcard subdomain `*.oni.vn`, Let's Encrypt yêu cầu xác thực qua **DNS-01 challenge** (thay vì HTTP-01 mặc định).
+
+Cài đặt Certbot:
 ```bash
 sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d oni.vn -d www.oni.vn -d app.oni.vn
 ```
 
-Kiểm tra auto-renew:
+**Cách 1: Xác thực DNS thủ công (Manual DNS Challenge)**
+Chạy lệnh sau và làm theo hướng dẫn (thêm TXT record `_acme-challenge.oni.vn` trên trang quản lý DNS của bạn):
+```bash
+sudo certbot certonly --manual --preferred-challenges dns -d "oni.vn" -d "*.oni.vn"
+```
+*Lưu ý: Cách này không tự động renew được, bạn phải chạy lại lệnh và cập nhật TXT record mỗi 3 tháng.*
+
+**Cách 2: Xác thực tự động (Khuyên dùng - Ví dụ với Cloudflare)**
+Nếu quản lý DNS qua Cloudflare, hãy cài plugin DNS để Certbot tự động renew:
+```bash
+sudo apt install -y python3-certbot-dns-cloudflare
+```
+Tạo file credentials (VD: `~/.secrets/certbot/cloudflare.ini` chứa `dns_cloudflare_api_token=...`) và chạy:
+```bash
+sudo certbot certonly --dns-cloudflare --dns-cloudflare-credentials ~/.secrets/certbot/cloudflare.ini -d "oni.vn" -d "*.oni.vn"
+```
+
+**Cài đặt chứng chỉ vào Nginx:**
+Sau khi có chứng chỉ (bằng Cách 1 hoặc 2), yêu cầu Certbot cấu hình vào Nginx:
+```bash
+sudo certbot install --cert-name oni.vn --nginx
+```
+
+Kiểm tra auto-renew (nếu dùng plugin DNS):
 
 ```bash
 sudo systemctl status certbot.timer
 sudo certbot renew --dry-run
 ```
 
-SSL qua Certbot + Nginx là cách chuẩn, nhanh và thực dụng cho Ubuntu VPS.[cite:352]
+SSL Wildcard giúp các tenant tự động có HTTPS mà không cần xin lại chứng chỉ mỗi khi có shop mới.[cite:352]
 
 ## 16. Cấu hình biến môi trường
 
@@ -425,10 +448,11 @@ Checklist test bắt buộc:
 
 ### Web server
 - [ ] Cài Nginx.
-- [ ] Tạo config cho `oni.vn`, `www.oni.vn`, `app.oni.vn`.
+- [ ] Tạo config cho `oni.vn` và `*.oni.vn`.
 - [ ] Reload Nginx.
-- [ ] Cài Certbot.
-- [ ] Bật HTTPS.
+- [ ] Cài Certbot và DNS plugin (nếu dùng).
+- [ ] Xin cấp SSL Wildcard qua DNS Challenge.
+- [ ] Cài SSL vào Nginx (`certbot install`).
 
 ### Vận hành
 - [ ] Tạo env production.

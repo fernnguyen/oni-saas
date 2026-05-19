@@ -237,7 +237,7 @@ export function CategoriesClient({ shopId }: Props) {
             : `Danh mục "${actionTarget?.name}" sẽ được khôi phục trạng thái hoạt động.`
         }
         confirmLabel={actionTarget?.active === 'TRUE' ? "Vô hiệu hóa" : "Khôi phục"}
-        variant={actionTarget?.active === 'TRUE' ? "danger" : "primary"}
+        variant={actionTarget?.active === 'TRUE' ? "danger" : "default"}
         loading={toggleActiveMutation.isPending}
       />
 
