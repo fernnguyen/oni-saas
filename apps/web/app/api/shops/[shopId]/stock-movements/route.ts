@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireShopAccess } from '@/lib/server/shopAccess'
 import { stockMovementCreateSchema } from '@/lib/validators/stockMovements'
@@ -58,11 +59,7 @@ export async function GET(
     if (product_id) filters.product_id = product_id
     if (branch_id) filters.branch_id = branch_id
 
-    const result = await shopCache(
-      () => connector.list('stock-movements', { page, limit, search: search || undefined, filters, sortDesc: true }),
-      ['stock-movements', shopId, String(page), String(limit), search, type, product_id, branch_id],
-      { tags: [shopTag(shopId, 'stock-movements')], revalidate: cacheTTL.stockMovements }
-    )
+    const result = await connector.list('stock-movements', { page, limit, search: search || undefined, filters, sortDesc: true })
 
     return NextResponse.json(result)
   } catch (e) {

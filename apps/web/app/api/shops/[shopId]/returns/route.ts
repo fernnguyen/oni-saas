@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireShopAccess } from '@/lib/server/shopAccess'
 import { returnCreateSchema } from '@/lib/validators/returns'
@@ -24,19 +25,14 @@ export async function GET(
     if (status)   filters.status   = status
     if (order_id) filters.order_id = order_id
 
-    const result = await shopCache(
-      async () => {
-        try {
-          const res = await connector.list('returns', { page, limit, search: search || undefined, filters, sortDesc: true })
-          const filteredData = res.data.filter((r: any) => r.status !== 'deleted')
-          return { data: filteredData, total: filteredData.length }
-        } catch {
-          return { data: [], total: 0 }
-        }
-      },
-      ['returns', shopId, String(page), String(limit), search, status, order_id],
-      { tags: [shopTag(shopId, 'returns')], revalidate: cacheTTL.returns }
-    )
+    let result
+    try {
+      const res = await connector.list('returns', { page, limit, search: search || undefined, filters, sortDesc: true })
+      const filteredData = res.data.filter((r: any) => r.status !== 'deleted')
+      result = { data: filteredData, total: filteredData.length }
+    } catch {
+      result = { data: [], total: 0 }
+    }
 
     return NextResponse.json(result)
   } catch (e) {

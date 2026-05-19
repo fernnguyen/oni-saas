@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireShopAccess } from '@/lib/server/shopAccess'
 import { shopCache, shopTag } from '@/lib/server/cache'
@@ -22,11 +23,7 @@ export async function GET(
     if (branch_id) filters.branch_id = branch_id
     if (product_id) filters.product_id = product_id
 
-    const result = await shopCache(
-      () => connector.list('inventory', { page, limit, search: search || undefined, filters, sortDesc: true }),
-      ['inventory', shopId, String(page), String(limit), search, branch_id, product_id],
-      { tags: [shopTag(shopId, 'inventory')], revalidate: cacheTTL.inventory }
-    )
+    const result = await connector.list('inventory', { page, limit, search: search || undefined, filters, sortDesc: true })
 
     return NextResponse.json(result)
   } catch (e) {

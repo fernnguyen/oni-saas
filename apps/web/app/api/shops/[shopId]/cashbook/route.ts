@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireShopAccess } from '@/lib/server/shopAccess'
 import { invalidate, shopTag, shopCache } from '@/lib/server/cache'
@@ -26,11 +27,7 @@ export async function GET(
     if (reference_id) filters.reference_id = reference_id
 
     const cacheKey = ['cashbook', shopId, page, limit, type, branch_id, reference_id].join(':')
-    const result = await shopCache(
-      () => connector.list('cashbook', { page, limit, filters, sortDesc: true }),
-      [cacheKey],
-      { tags: [shopTag(shopId, 'cashbook')], revalidate: 3600 }
-    )
+    const result = await connector.list('cashbook', { page, limit, filters, sortDesc: true })
 
     return NextResponse.json(result)
   } catch (e) {
