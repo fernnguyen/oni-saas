@@ -14,10 +14,21 @@ function isMainPublic(pathname: string) {
 
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
-  const host = req.headers.get('host') ?? '';
+  const xForwardedHost = req.headers.get('x-forwarded-host');
+  const xForwardedProto = req.headers.get('x-forwarded-proto');
+  const host = xForwardedHost || req.headers.get('host') || '';
 
   const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
   const subdomain = extractSubdomain(host, rootDomain);
+
+  console.log('[PROXY LOG]', {
+    host: req.headers.get('host'),
+    xForwardedHost,
+    xForwardedProto,
+    pathname,
+    rootDomain,
+    subdomain,
+  });
 
   // ── SUBDOMAIN (tenant workspace) ─────────────────────────────
   // Must be checked FIRST — subdomain /auth/signin must serve the
@@ -34,7 +45,11 @@ export async function proxy(req: NextRequest) {
       pathname.startsWith('/register') ||
       pathname.startsWith('/super')
     ) {
-      return NextResponse.redirect(new URL('/', `http://${rootDomain}`));
+      const cleanRoot = rootDomain.replace(/^https?:\/\//, '');
+      const protocol = req.headers.get('x-forwarded-proto') || 'http';
+      const redirectUrl = new URL('/', `${protocol}://${cleanRoot}`);
+      console.log('[PROXY LOG] Redirect main paths Target:', redirectUrl.toString());
+      return NextResponse.redirect(redirectUrl);
     }
 
     // AAL guard: if user has 2FA enabled but session is only AAL1, redirect to 2FA page
@@ -45,8 +60,9 @@ export async function proxy(req: NextRequest) {
     }
 
     // Rewrite all other subdomain paths to /t/[slug]/...
-    // Dùng req.url làm base để ép Next.js xử lý internal rewrite, tránh lỗi external proxy fetch gây loop 301
-    const rewriteUrl = new URL(`/t/${subdomain}${pathname === '/' ? '' : pathname}`, req.url);
+    const rewriteUrl = req.nextUrl.clone();
+    rewriteUrl.pathname = `/t/${subdomain}${pathname === '/' ? '' : pathname}`;
+    console.log('[PROXY LOG] Rewrite Target:', rewriteUrl.toString());
     const res = NextResponse.rewrite(rewriteUrl);
     res.headers.set('x-tenant-slug', subdomain);
     return withSupabaseSession(req, res);
@@ -55,7 +71,10 @@ export async function proxy(req: NextRequest) {
   // ── MAIN DOMAIN ───────────────────────────────────────────────
   // Block direct /t/ access (only reachable via subdomain rewrite)
   if (pathname.startsWith('/t/')) {
-    return NextResponse.redirect(new URL('/auth/signin', req.nextUrl));
+    const redirectUrl = req.nextUrl.clone();
+    redirectUrl.pathname = '/auth/signin';
+    console.log('[PROXY LOG] Redirect /t/ block Target:', redirectUrl.toString());
+    return NextResponse.redirect(redirectUrl);
   }
 
   // Public paths on main domain — pass through
@@ -66,10 +85,17 @@ export async function proxy(req: NextRequest) {
   // All other main-domain routes require superadmin
   const { user } = await getUser(req);
   if (!user) {
-    return NextResponse.redirect(new URL('/auth/signin', req.nextUrl));
+    const redirectUrl = req.nextUrl.clone();
+    redirectUrl.pathname = '/auth/signin';
+    console.log('[PROXY LOG] Redirect unauth superadmin Target:', redirectUrl.toString());
+    return NextResponse.redirect(redirectUrl);
   }
   if (user.app_metadata?.role !== 'super_admin') {
-    return NextResponse.redirect(new URL('/auth/signin?error=not_superadmin', req.nextUrl));
+    const redirectUrl = req.nextUrl.clone();
+    redirectUrl.pathname = '/auth/signin';
+    redirectUrl.searchParams.set('error', 'not_superadmin');
+    console.log('[PROXY LOG] Redirect not_superadmin Target:', redirectUrl.toString());
+    return NextResponse.redirect(redirectUrl);
   }
 
   return withSupabaseSession(req, NextResponse.next());
@@ -78,8 +104,9 @@ export async function proxy(req: NextRequest) {
 // ── Helpers ──────────────────────────────────────────────────────
 
 function extractSubdomain(host: string, rootDomain: string): string | null {
-  // Strip port before comparing base hostnames
-  const rootBase = rootDomain.split(':')[0];
+  // Strip http(s):// and port before comparing base hostnames
+  const cleanRoot = rootDomain.replace(/^https?:\/\//, '');
+  const rootBase = cleanRoot.split(':')[0];
   const hostBase = host.split(':')[0];
   if (hostBase === rootBase) return null;
   if (!hostBase.endsWith(`.${rootBase}`)) return null;
@@ -134,8 +161,10 @@ async function checkMFARedirect(req: NextRequest, pathname: string): Promise<Nex
   if (currentAAL === 'aal2') return null;
 
   // User has 2FA but session is only AAL1 — redirect to 2FA challenge
-  const rewriteUrl = new URL('/auth/2fa', req.url);
+  const rewriteUrl = req.nextUrl.clone();
+  rewriteUrl.pathname = '/auth/2fa';
   rewriteUrl.searchParams.set('next', pathname);
+  console.log('[PROXY LOG] Redirect MFA Target:', rewriteUrl.toString());
   return NextResponse.redirect(rewriteUrl);
 }
 
