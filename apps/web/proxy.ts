@@ -21,15 +21,6 @@ export async function proxy(req: NextRequest) {
   const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
   const subdomain = extractSubdomain(host, rootDomain);
 
-  console.log('[PROXY LOG]', {
-    host: req.headers.get('host'),
-    xForwardedHost,
-    xForwardedProto,
-    pathname,
-    rootDomain,
-    subdomain,
-  });
-
   // ── SUBDOMAIN (tenant workspace) ─────────────────────────────
   // Must be checked FIRST — subdomain /auth/signin must serve the
   // workspace login form, not the superadmin form.
@@ -48,7 +39,6 @@ export async function proxy(req: NextRequest) {
       const cleanRoot = rootDomain.replace(/^https?:\/\//, '');
       const protocol = req.headers.get('x-forwarded-proto') || 'http';
       const redirectUrl = new URL('/', `${protocol}://${cleanRoot}`);
-      console.log('[PROXY LOG] Redirect main paths Target:', redirectUrl.toString());
       return NextResponse.redirect(redirectUrl);
     }
 
@@ -63,7 +53,6 @@ export async function proxy(req: NextRequest) {
     const rewriteUrl = req.nextUrl.clone();
     if (xForwardedProto === 'https') rewriteUrl.protocol = 'https:';
     rewriteUrl.pathname = `/t/${subdomain}${pathname === '/' ? '' : pathname}`;
-    console.log('[PROXY LOG] Rewrite Target:', rewriteUrl.toString());
     const res = NextResponse.rewrite(rewriteUrl);
     res.headers.set('x-tenant-slug', subdomain);
     return withSupabaseSession(req, res);
@@ -74,7 +63,6 @@ export async function proxy(req: NextRequest) {
   if (pathname.startsWith('/t/')) {
     const redirectUrl = req.nextUrl.clone();
     redirectUrl.pathname = '/auth/signin';
-    console.log('[PROXY LOG] Redirect /t/ block Target:', redirectUrl.toString());
     return NextResponse.redirect(redirectUrl);
   }
 
@@ -88,14 +76,12 @@ export async function proxy(req: NextRequest) {
   if (!user) {
     const redirectUrl = req.nextUrl.clone();
     redirectUrl.pathname = '/auth/signin';
-    console.log('[PROXY LOG] Redirect unauth superadmin Target:', redirectUrl.toString());
     return NextResponse.redirect(redirectUrl);
   }
   if (user.app_metadata?.role !== 'super_admin') {
     const redirectUrl = req.nextUrl.clone();
     redirectUrl.pathname = '/auth/signin';
     redirectUrl.searchParams.set('error', 'not_superadmin');
-    console.log('[PROXY LOG] Redirect not_superadmin Target:', redirectUrl.toString());
     return NextResponse.redirect(redirectUrl);
   }
 
@@ -166,7 +152,6 @@ async function checkMFARedirect(req: NextRequest, pathname: string): Promise<Nex
   if (req.headers.get('x-forwarded-proto') === 'https') rewriteUrl.protocol = 'https:';
   rewriteUrl.pathname = '/auth/2fa';
   rewriteUrl.searchParams.set('next', pathname);
-  console.log('[PROXY LOG] Redirect MFA Target:', rewriteUrl.toString());
   return NextResponse.redirect(rewriteUrl);
 }
 

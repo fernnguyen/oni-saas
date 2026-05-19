@@ -242,7 +242,18 @@ npm run build
 
 Với monorepo, thay `npm install` và `npm run build` bằng đúng package manager/workspace command của dự án đang dùng.[cite:320][cite:342]
 
-## 13. Chạy app bằng PM2
+## 13. Khởi tạo Database Schema (Drizzle)
+
+Sau khi tạo database ở bước 9 và clone source, bạn cần push schema để tạo các table cho phần business logic.
+
+Trong thư mục `app`:
+```bash
+# Push schema nếu dùng PostgreSQL:
+npm run db:push:pg
+```
+*(Lưu ý: Bạn phải đảm bảo file `.env.local` ở server đã khai báo đúng biến `LOCAL_PG_URI=postgresql://oni_app:doi-mat-khau-app-rat-manh@localhost:5432/oni_prod`)*
+
+## 14. Chạy app bằng PM2
 
 Ví dụ cho Next.js production:
 
