@@ -658,7 +658,7 @@ export function ResourceSlideOver({
       setConfirmCancelResource(false)
       onSessionClosed()
       if (onRefresh) onRefresh()
-      onClose(true)
+      onClose()
     } catch (err: any) {
       toast.error(err.message)
     } finally {
@@ -666,39 +666,7 @@ export function ResourceSlideOver({
     }
   }
 
-  async function handleSaveDirtyItems() {
-    if (!order) return
-    const dirtyIds = Object.keys(dirtyItems)
-    if (dirtyIds.length === 0) return
-    setSavingDirty(true)
-    try {
-      for (const id of dirtyIds) {
-        const item = existingItems.find(i => i.id === id)
-        if (item) {
-          if (Number(item.qty) <= 0) {
-            await fetch(`/api/shops/${shopId}/order-items/${id}`, { method: 'DELETE' })
-          } else {
-            await fetch(`/api/shops/${shopId}/order-items/${id}`, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ qty: String(item.qty), line_total: String(item.line_total) })
-            })
-          }
-        }
-      }
-      toast.success('Đã cập nhật số lượng')
-      setDirtyItems({})
-      const itemsRes = await fetch(`/api/shops/${shopId}/order-items?order_id=${order.id}&limit=200&t=${Date.now()}`)
-      if (itemsRes.ok) {
-        const iData = await itemsRes.json()
-        setExistingItems(iData.data || [])
-      }
-    } catch {
-      toast.error('Lỗi khi lưu cập nhật')
-    } finally {
-      setSavingDirty(false)
-    }
-  }
+
 
   async function handleDeleteExistingItem(itemId: string) {
     if (!order) return
@@ -1685,7 +1653,8 @@ export function ResourceSlideOver({
             name: order.customer_name, 
             phone: orderMeta?.customer_phone || '' 
           } : null}
-          metadata={orderMeta}
+          onCustomerChange={handleCustomerSelect}
+          metadata={orderMeta || undefined}
           items={buildCheckoutItems() as any}
           subtotal={buildCheckoutItems().reduce((a, b) => a + b.line_total, 0)}
           discount_amount={0}

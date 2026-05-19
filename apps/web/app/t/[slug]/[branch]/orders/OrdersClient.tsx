@@ -88,7 +88,7 @@ function statusLabel(s: string) {
   return STATUS_OPTIONS.find((o) => o.value === s)?.label ?? s
 }
 
-function fmtVND(v: string | undefined) {
+function fmtVND(v: string | number | undefined) {
   return Number(v || 0).toLocaleString('vi-VN') + 'đ'
 }
 

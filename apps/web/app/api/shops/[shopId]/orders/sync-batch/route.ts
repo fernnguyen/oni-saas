@@ -36,6 +36,7 @@ interface SyncItem {
 }
 
 interface SyncPayment {
+  id?: string
   method: string
   amount: number
   reference_no?: string
@@ -118,7 +119,7 @@ export async function POST(
     } else if (!finalCustomerId) {
       const meta = typeof order.metadata === 'string' ? JSON.parse(order.metadata || '{}') : (order.metadata || {})
       const newCustomer = await connector.create('customers', {
-        name: order.customer_name,
+        name: order.customer_name ?? '',
         phone: meta.customer_phone || ''
       })
       finalCustomerId = (newCustomer as Record<string, string>).customer_id || ''

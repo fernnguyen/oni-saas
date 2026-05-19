@@ -176,8 +176,8 @@ function ProductSelect({
       />
       {open && (
         <div className="absolute z-50 mt-1 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
-          {(data?.data ?? []).length > 0 ? (
-            (data?.data ?? []).map((p) => (
+          {(data?.data as any[] ?? []).length > 0 ? (
+            (data?.data as any[] ?? []).map((p) => (
               <button
                 key={p.product_id}
                 onClick={() => {

@@ -1134,7 +1134,7 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
             : `Sản phẩm "${actionTarget?.name}" sẽ được bán trở lại trên toàn hệ thống.`
         }
         confirmLabel={actionTarget?.active === 'TRUE' ? "Ngừng bán" : "Mở bán lại"}
-        variant={actionTarget?.active === 'TRUE' ? "danger" : "primary"}
+        variant={actionTarget?.active === 'TRUE' ? "danger" : "default"}
         loading={toggleActiveMutation.isPending}
       />
 

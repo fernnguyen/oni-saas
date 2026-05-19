@@ -483,7 +483,7 @@ export function CheckoutModal({
                     setCheckoutInput(localCheckoutTime || customCheckoutTime || new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)); 
                     setIsEditingCheckout(true); 
                   }} className="font-medium text-slate-900 border-b border-dotted border-slate-400 hover:text-primary transition-colors cursor-pointer">
-                    {localCheckoutTime || customCheckoutTime ? fmtDateTimeVN(new Date(localCheckoutTime || customCheckoutTime)) : fmtDateTimeVN(new Date())}
+                    {localCheckoutTime || customCheckoutTime ? fmtDateTimeVN(new Date((localCheckoutTime || customCheckoutTime) as string)) : fmtDateTimeVN(new Date())}
                   </button>
                 )}
               </div>

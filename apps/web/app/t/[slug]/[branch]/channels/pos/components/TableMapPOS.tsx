@@ -248,7 +248,7 @@ export function TableMapPOS({
                 {items.sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0)).map(r => {
                   const st = STATUS_CARDS[r.status] ?? STATUS_CARDS.available
                   const rmd = safeParseJSON(r.metadata)
-                  const tpl = vertical.resourceTemplates?.find(t => t.id === r.type)
+                  const tpl = vertical.resourceTemplate
                   const isRoomType = r.type === 'room'
                   return (
                     <button
@@ -323,7 +323,7 @@ export function TableMapPOS({
               label: 'Tên',
               className: 'w-[25%]',
               render: (r) => {
-                const tpl = vertical.resourceTemplates?.find(t => t.id === r.type)
+                const tpl = vertical.resourceTemplate
                 const isRoomType = r.type === 'room'
                 return (
                   <button onClick={() => handleResourceClick(r)} className="flex items-center gap-2 text-left group">
@@ -421,7 +421,7 @@ export function TableMapPOS({
         employeeId={userEmail}
         onCheckInSuccess={handleCheckInSuccess}
         onSessionClosed={handleSessionClosed}
-        resourceTemplate={vertical.resourceTemplates?.find(t => t.id === activeSlideResource?.type) || vertical.resourceTemplate}
+        resourceTemplate={vertical.resourceTemplate}
         allResources={activeResources}
         onRefresh={fetchResources}
         autoPrintReceipt={autoPrintReceipt}
