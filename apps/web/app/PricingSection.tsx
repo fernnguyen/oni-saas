@@ -52,16 +52,18 @@ export function PricingSection({ plans }: { plans: any[] }) {
     if (plan.code === 'plan_mini') return 'Hỗ trợ Hộ kinh doanh chuyển đổi số';
     if (plan.code === 'plan_enterprise') return 'Tối ưu cho chuỗi lớn';
     
-    if (billingCycle === 'yearly' && plan.price_yearly !== undefined) {
+    if (billingCycle === 'yearly' && plan.price_yearly !== undefined && plan.price_monthly !== undefined) {
       const monthlyEquiv = Math.round(plan.price_yearly / 12);
-      return `Chỉ ${formatPrice(monthlyEquiv)}/tháng (tiết kiệm 20%)`;
+      const savingAmount = plan.price_monthly - monthlyEquiv;
+      const savingPercentage = Math.round((savingAmount / plan.price_monthly) * 100);
+      return `Chỉ ${formatPrice(monthlyEquiv)}/tháng (tiết kiệm ${savingPercentage}%)`;
     }
-    return billingCycle === 'yearly' ? 'Chỉ 825K/tháng (tiết kiệm 20%)' : 'Thanh toán hàng tháng';
+    return billingCycle === 'yearly' ? 'Chỉ 120K/tháng' : 'Thanh toán hàng tháng';
   };
 
   return (
     <section id="pricing" className="relative py-24 md:py-32 bg-slate-50">
-      <div className="pointer-events-none absolute top-0 left-1/3 h-[500px] w-[500px] rounded-full bg-blue-200/30 blur-[120px]" />
+      <div className="pointer-events-none absolute top-0 left-1/3 h-[500px] w-[500px] rounded-full bg-orange-200/30 blur-[120px]" />
       <div className="relative mx-auto max-w-7xl px-6">
         <div className="text-center mb-16 lg:mb-20">
           <p className="text-sm font-bold uppercase tracking-widest text-primary mb-3">Bảng giá</p>
@@ -85,7 +87,7 @@ export function PricingSection({ plans }: { plans: any[] }) {
                 billingCycle === 'yearly' ? 'bg-white text-primary shadow-sm' : 'text-slate-500 hover:text-slate-700'
               }`}
             >
-              Hàng năm <span className="ml-1 rounded-full bg-green-100 px-2 py-0.5 text-[10px] text-green-700">-20%</span>
+              Hàng năm <span className="ml-1 rounded-full bg-green-100 px-2 py-0.5 text-[10px] text-green-700">-17%</span>
             </button>
           </div>
         </div>
@@ -94,11 +96,11 @@ export function PricingSection({ plans }: { plans: any[] }) {
           {plans.map((p) => (
             <div key={p.code} className={`relative rounded-[2rem] p-10 transition-all duration-300 ${
               p.highlight
-                ? 'border-2 border-primary bg-white shadow-2xl shadow-blue-900/10 scale-100 lg:scale-105 z-10'
-                : 'border border-slate-200 bg-white hover:border-blue-200 hover:shadow-xl hover:shadow-blue-900/5'
+                ? 'border-2 border-primary bg-white shadow-2xl shadow-orange-900/10 scale-100 lg:scale-105 z-10'
+                : 'border border-slate-200 bg-white hover:border-orange-200 hover:shadow-xl hover:shadow-orange-900/5'
             }`}>
               {p.badge && (
-                <div className="absolute -top-4 left-1/2 -translate-x-1/2 rounded-full bg-gradient-to-r from-primary to-cyan-500 p-[2px]">
+                <div className="absolute -top-4 left-1/2 -translate-x-1/2 rounded-full bg-gradient-to-r from-primary to-orange-400 p-[2px]">
                   <span className="block rounded-full bg-primary px-4 py-1 text-xs font-bold text-white uppercase tracking-widest">
                     {p.badge}
                   </span>
@@ -126,7 +128,7 @@ export function PricingSection({ plans }: { plans: any[] }) {
               <Link href="/register" className={`mt-10 flex w-full items-center justify-center rounded-xl px-6 py-4 text-base font-bold transition-all ${
                 p.highlight
                   ? 'bg-primary text-white shadow-xl shadow-primary/30 hover:bg-primary-dark hover:shadow-2xl hover:shadow-primary/40'
-                  : 'bg-blue-50 text-primary hover:bg-blue-100'
+                  : 'bg-orange-50 text-primary hover:bg-orange-100'
               }`}>
                 {p.cta}
               </Link>
