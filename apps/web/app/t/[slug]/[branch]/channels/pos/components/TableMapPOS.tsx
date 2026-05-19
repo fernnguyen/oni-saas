@@ -326,7 +326,7 @@ export function TableMapPOS({
                 const tpl = vertical.resourceTemplate
                 const isRoomType = r.type === 'room'
                 return (
-                  <button onClick={() => handleResourceClick(r)} className="flex items-center gap-2 text-left group">
+                  <button onClick={(e) => { e.stopPropagation(); handleResourceClick(r); }} className="flex items-center gap-2 text-left group">
                     <span className="text-lg group-hover:scale-110 transition-transform">{tpl?.icon || (isRoomType ? '🛏️' : r.type === 'court' ? '🏸' : '🪑')}</span>
                     <span className="font-bold text-slate-800 group-hover:text-primary transition-colors">{r.name}</span>
                   </button>
@@ -383,7 +383,7 @@ export function TableMapPOS({
               className: 'w-[10%]',
               render: (r) => (
                 <button
-                  onClick={() => handleResourceClick(r)}
+                  onClick={(e) => { e.stopPropagation(); handleResourceClick(r); }}
                   className={r.status === 'cleaning'
                     ? "rounded-lg bg-white border border-amber-300 px-3 py-1.5 text-xs font-bold text-amber-600 hover:bg-amber-50 hover:text-amber-700 transition-colors shadow-sm whitespace-nowrap"
                     : "rounded-lg bg-white border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors shadow-sm whitespace-nowrap"
@@ -405,6 +405,7 @@ export function TableMapPOS({
             items: items.sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0))
           }))}
           rowKey={(row) => row.id}
+          onRowClick={handleResourceClick}
         />
       )}
       </>
