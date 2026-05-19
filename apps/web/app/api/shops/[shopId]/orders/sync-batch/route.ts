@@ -29,6 +29,10 @@ interface SyncItem {
   unit_price: number
   discount_amount: number
   line_total: number
+  // ── Variant / Modifier context (Sprint 1) ────────────────────────────────
+  variant_label?: string    // "Size L" — denormalized, for bill display
+  modifiers?: string        // JSON string: [{group, option, price_adj}]
+  modifier_total?: number   // Sum of price_adj (default 0)
 }
 
 interface SyncPayment {
@@ -195,16 +199,20 @@ export async function POST(
       const it = items[i]
       if (existingProductIds.has(it.product_id)) continue
       itemsToCreate.push({
-        order_id:      serverId,
-        order_no:      orderNo,
-        line_no:       String(i + 1),
-        product_id:    it.product_id,
-        sku:           it.sku ?? '',
-        product_name:  it.product_name,
-        qty:           String(it.qty),
-        unit_price:    String(it.unit_price),
-        line_discount: String(it.discount_amount),
-        line_total:    String(it.line_total),
+        order_id:       serverId,
+        order_no:       orderNo,
+        line_no:        String(i + 1),
+        product_id:     it.product_id,
+        sku:            it.sku ?? '',
+        product_name:   it.product_name,
+        qty:            String(it.qty),
+        unit_price:     String(it.unit_price),
+        line_discount:  String(it.discount_amount),
+        line_total:     String(it.line_total),
+        // ── Variant / Modifier context (Sprint 1) ───────────────────────
+        variant_label:  it.variant_label ?? '',
+        modifiers:      it.modifiers ?? '',
+        modifier_total: String(it.modifier_total ?? 0),
       })
     }
     if (itemsToCreate.length > 0) {

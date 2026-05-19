@@ -56,6 +56,13 @@ export const orderItems = mysqlTable('order_items', {
   tax_amount: varchar('tax_amount', { length: 50 }),
   line_total: varchar('line_total', { length: 50 }),
   employee_id: varchar('employee_id', { length: 255 }),
+  // ── Variant / Modifier context (Sprint 1) ────────────────────────────────
+  variant_label: varchar('variant_label', { length: 500 }),
+  // Denormalized display: "Size L" — for bill/history, no join needed
+  modifiers: text('modifiers'),
+  // JSON: [{"group":"Size","option":"Size L","price_adj":8000}, ...] or NULL
+  modifier_total: varchar('modifier_total', { length: 50 }).default('0'),
+  // Sum of price_adj. line_total = (unit_price + modifier_total) * qty
 });
 
 export const payments = mysqlTable('payments', {
@@ -92,6 +99,14 @@ export const products = mysqlTable('products', {
   description: text('description'),
   stock_qty: varchar('stock_qty', { length: 50 }),
   metadata: text('metadata'),
+  // ── Variant / Modifier System (Sprint 1) ──────────────────────────────────
+  product_type: varchar('product_type', { length: 20 }).default('simple'),
+  // 'simple' | 'variant_parent' | 'variant_child' | 'modifier'
+  parent_id: varchar('parent_id', { length: 255 }),
+  // NULL for simple/parent. Points to variant_parent id for variant_child.
+  variant_options: text('variant_options'),
+  // JSON string: variant_child → {"Size":"L"} | variant_parent → {"option_name":"Size"}
+  // modifier product → modifier_groups config encoded as JSON
 });
 
 export const customers = mysqlTable('customers', {

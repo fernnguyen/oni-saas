@@ -13,6 +13,11 @@ export interface LocalProduct {
   description?: string
   image_url?: string
   active: boolean
+  // ── Variant / Modifier System (Sprint 1) ───────────────────────
+  product_type?: 'simple' | 'variant_parent' | 'variant_child' | 'modifier'
+  parent_id?: string              // NULL → simple/parent; ID → variant_child
+  variant_options?: string        // JSON string: {"Size": "L"}
+  modifier_groups?: string        // JSON string: modifier config for offline POS
 }
 
 export interface LocalCategory {
@@ -80,6 +85,10 @@ export interface LocalOrderItem {
   cost_price: number
   discount_amount: number
   line_total: number
+  // ── Variant / Modifier context (Sprint 1) ───────────────────────
+  variant_label?: string          // "Size L" — denormalized display
+  modifiers?: string              // JSON string: [{group, option, price_adj}]
+  modifier_total?: number         // Sum of price_adj (default 0)
 }
 
 export interface LocalPayment {
@@ -177,6 +186,11 @@ export class OniLocalDB extends Dexie {
       payments:   'local_id, order_local_id',
       syncQueue:  '++id, status, entity, created_at',
       meta:       'key',
+    })
+    // v2: Add product_type + parent_id indexes for variant/modifier system
+    // All new fields are optional — existing data is automatically migrated
+    this.version(2).stores({
+      products: 'product_id, sku, barcode, category_id, active, product_type, parent_id',
     })
   }
 }

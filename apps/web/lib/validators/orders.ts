@@ -34,21 +34,28 @@ export const orderCreateSchema = z.object({
 export const orderUpdateSchema = orderCreateSchema.partial()
 
 export const orderItemCreateSchema = z.object({
-  order_id:      z.string().min(1),
-  order_no:      z.string().optional().default(''),
-  line_no:       z.string().min(1),
-  product_id:    z.string().min(1),
-  sku:           z.string().optional().default(''),
-  variant_id:    z.string().optional().default(''),
-  product_name:  z.string().min(1),
-  qty:           z.string().min(1),
-  unit_price:    z.string().min(1),
-  discount_pct:  z.string().optional().default('0'),
+  order_id:       z.string().min(1),
+  order_no:       z.string().optional().default(''),
+  line_no:        z.string().min(1),
+  product_id:     z.string().min(1),
+  sku:            z.string().optional().default(''),
+  variant_id:     z.string().optional().default(''),
+  product_name:   z.string().min(1),
+  qty:            z.string().min(1),
+  unit_price:     z.string().min(1),
+  discount_pct:   z.string().optional().default('0'),
   line_discount:  z.string().optional().default('0'),
-  tax_rate:      z.string().optional().default('0'),
-  tax_amount:    z.string().optional().default('0'),
-  line_total:    z.string().min(1),
-  employee_id:   z.string().optional().default(''),
+  tax_rate:       z.string().optional().default('0'),
+  tax_amount:     z.string().optional().default('0'),
+  line_total:     z.string().min(1),
+  employee_id:    z.string().optional().default(''),
+  // ── Variant / Modifier context (Sprint 1) ────────────────────────
+  variant_label:  z.string().optional().default(''),
+  // Denormalized display: "Size L" — used in bill/history
+  modifiers:      z.string().optional().default(''),
+  // JSON: [{group, option, price_adj}] or empty string
+  modifier_total: z.string().optional().default('0'),
+  // Sum of modifier price_adj. line_total = (unit_price + modifier_total) * qty
 })
 
 export const paymentCreateSchema = z.object({

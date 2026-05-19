@@ -56,6 +56,10 @@ export const order_items = pgTable('order_items', {
   tax_amount: varchar('tax_amount', { length: 50 }),
   line_total: varchar('line_total', { length: 50 }),
   employee_id: varchar('employee_id', { length: 255 }),
+  // ── Variant / Modifier context (Sprint 1) ────────────────────────────────
+  variant_label: varchar('variant_label', { length: 500 }),
+  modifiers: text('modifiers'),
+  modifier_total: varchar('modifier_total', { length: 50 }).default('0'),
 });
 
 export const payments = pgTable('payments', {
@@ -92,6 +96,10 @@ export const products = pgTable('products', {
   description: text('description'),
   stock_qty: varchar('stock_qty', { length: 50 }),
   metadata: jsonb('metadata'),
+  // ── Variant / Modifier System (Sprint 1) ──────────────────────────────────
+  product_type: varchar('product_type', { length: 20 }).default('simple'),
+  parent_id: varchar('parent_id', { length: 255 }),
+  variant_options: text('variant_options'),
 });
 
 export const customers = pgTable('customers', {
