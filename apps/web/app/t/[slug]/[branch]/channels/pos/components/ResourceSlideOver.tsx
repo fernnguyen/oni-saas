@@ -579,12 +579,12 @@ export function ResourceSlideOver({
         })
       }
       toast.success(`Đã thêm ${cartItems.length} món`)
-      setCartItems([])
       const itemsRes = await fetch(`/api/shops/${shopId}/order-items?order_id=${orderId}&limit=200&t=${Date.now()}`)
       if (itemsRes.ok) {
         const iData = await itemsRes.json()
         setExistingItems(iData.data || [])
       }
+      setCartItems([])
     } catch {
       toast.error('Lỗi khi thêm món')
     } finally {
