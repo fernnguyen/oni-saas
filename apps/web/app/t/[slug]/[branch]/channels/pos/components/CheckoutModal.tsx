@@ -382,6 +382,8 @@ export function CheckoutModal({
       broadcastOrderCreated(order)
       toast.success(isSuccessDirect ? 'Tạo mới đơn hàng thành công!' : 'Tạo mới đơn hàng thành công (chờ đồng bộ)')
       
+      onSuccess() // close modal + clear cart first
+
       if (autoPrintReceipt) {
         try {
           await printBill({ 
@@ -397,7 +399,6 @@ export function CheckoutModal({
           console.error('Print failed:', err)
         }
       }
-      onSuccess() // close modal + clear cart first
     } catch (err) {
       console.error(err)
       toast.error('Tạo đơn thất bại')

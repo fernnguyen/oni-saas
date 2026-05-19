@@ -174,6 +174,7 @@ ${footerHtml}
   win.onload = () => {
     win.focus()
     win.print()
+    win.close()
   }
 }
 
