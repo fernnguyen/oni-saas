@@ -61,6 +61,7 @@ export async function proxy(req: NextRequest) {
 
     // Rewrite all other subdomain paths to /t/[slug]/...
     const rewriteUrl = req.nextUrl.clone();
+    if (xForwardedProto === 'https') rewriteUrl.protocol = 'https:';
     rewriteUrl.pathname = `/t/${subdomain}${pathname === '/' ? '' : pathname}`;
     console.log('[PROXY LOG] Rewrite Target:', rewriteUrl.toString());
     const res = NextResponse.rewrite(rewriteUrl);
@@ -162,6 +163,7 @@ async function checkMFARedirect(req: NextRequest, pathname: string): Promise<Nex
 
   // User has 2FA but session is only AAL1 — redirect to 2FA challenge
   const rewriteUrl = req.nextUrl.clone();
+  if (req.headers.get('x-forwarded-proto') === 'https') rewriteUrl.protocol = 'https:';
   rewriteUrl.pathname = '/auth/2fa';
   rewriteUrl.searchParams.set('next', pathname);
   console.log('[PROXY LOG] Redirect MFA Target:', rewriteUrl.toString());
