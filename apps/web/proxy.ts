@@ -45,9 +45,9 @@ export async function proxy(req: NextRequest) {
     }
 
     // Rewrite all other subdomain paths to /t/[slug]/...
-    const url = req.nextUrl.clone();
-    url.pathname = `/t/${subdomain}${pathname === '/' ? '' : pathname}`;
-    const res = NextResponse.rewrite(url);
+    // Dùng req.url làm base để ép Next.js xử lý internal rewrite, tránh lỗi external proxy fetch gây loop 301
+    const rewriteUrl = new URL(`/t/${subdomain}${pathname === '/' ? '' : pathname}`, req.url);
+    const res = NextResponse.rewrite(rewriteUrl);
     res.headers.set('x-tenant-slug', subdomain);
     return withSupabaseSession(req, res);
   }
@@ -134,10 +134,9 @@ async function checkMFARedirect(req: NextRequest, pathname: string): Promise<Nex
   if (currentAAL === 'aal2') return null;
 
   // User has 2FA but session is only AAL1 — redirect to 2FA challenge
-  const url = req.nextUrl.clone();
-  url.pathname = '/auth/2fa';
-  url.searchParams.set('next', pathname);
-  return NextResponse.redirect(url);
+  const rewriteUrl = new URL('/auth/2fa', req.url);
+  rewriteUrl.searchParams.set('next', pathname);
+  return NextResponse.redirect(rewriteUrl);
 }
 
 function decodeJWTClaim(token: string, claim: string): string | null {
