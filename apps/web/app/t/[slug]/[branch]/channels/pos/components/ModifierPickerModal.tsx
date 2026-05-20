@@ -1,5 +1,5 @@
 'use client'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import type { LocalProduct } from '@/lib/localDb/schema'
 import type { CartItem, SelectedModifier } from '@/hooks/useCart'
 
@@ -40,6 +40,72 @@ export function ModifierPickerModal({ product, open, onClose, onConfirm }: Props
   }, [product.variant_options])
 
   const [selections, setSelections] = useState<Record<string, Set<string>>>({})
+  const [highlightedIndex, setHighlightedIndex] = useState<number>(0)
+
+  // Pre-select first option of each group when opening
+  useEffect(() => {
+    if (!open || groups.length === 0) return
+    const initial: Record<string, Set<string>> = {}
+    for (const group of groups) {
+      if (group.options.length > 0) {
+        initial[group.id] = new Set([group.options[0].id])
+      }
+    }
+    setSelections(initial)
+  }, [open, groups])
+
+  const allOptions = useMemo(() => {
+    return groups.flatMap((group) =>
+      group.options.map((opt) => ({
+        group,
+        opt,
+      }))
+    )
+  }, [groups])
+
+  // Use refs to avoid re-registering window event listener on every highlight index or options change
+  const highlightedIndexRef = useRef(highlightedIndex)
+  highlightedIndexRef.current = highlightedIndex
+
+  const allOptionsRef = useRef(allOptions)
+  allOptionsRef.current = allOptions
+
+  // Register window-level keydown handler with a 50ms delay to avoid immediate bubbling from ProductGrid Enter
+  useEffect(() => {
+    if (!open) return
+
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      const currentOptions = allOptionsRef.current
+      const currentIndex = highlightedIndexRef.current
+      if (currentOptions.length === 0) return
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setHighlightedIndex((prev) => (prev + 1) % currentOptions.length)
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setHighlightedIndex((prev) => (prev - 1 + currentOptions.length) % currentOptions.length)
+      } else if (e.key === 'Enter') {
+        e.preventDefault()
+        const target = currentOptions[currentIndex]
+        if (target) {
+          handleOptionClick(target.group, target.opt.id)
+        }
+      } else if (e.key === 'Escape') {
+        e.preventDefault()
+        onClose()
+      }
+    }
+
+    const timer = setTimeout(() => {
+      window.addEventListener('keydown', handleGlobalKeyDown)
+    }, 50)
+
+    return () => {
+      clearTimeout(timer)
+      window.removeEventListener('keydown', handleGlobalKeyDown)
+    }
+  }, [open])
 
   if (!open) return null
 
@@ -190,22 +256,48 @@ export function ModifierPickerModal({ product, open, onClose, onConfirm }: Props
                   const selected = isSelected(group.id, opt.id)
                   const adj = Number(opt.price_adj) || 0
                   const finalPrice = Number(product.sell_price) + adj
+                  const flatIndex = allOptions.findIndex((item) => item.opt.id === opt.id)
+                  const isHighlighted = flatIndex === highlightedIndex
                   return (
                     <button
                       key={opt.id}
                       type="button"
                       onClick={() => handleOptionClick(group, opt.id)}
+                      onMouseEnter={() => setHighlightedIndex(flatIndex)}
                       className={[
-                        'flex items-center gap-3 w-full rounded-xl border px-4 py-3 text-sm transition-all text-left',
+                        'flex items-center gap-3 w-full rounded-xl border px-4 py-3 text-sm transition-all duration-200 text-left',
                         selected
-                          ? 'border-amber-400 bg-amber-50 text-amber-900 shadow-sm'
-                          : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50',
+                          ? isHighlighted
+                            ? 'border-amber-500 bg-amber-50 ring-2 ring-amber-400 text-amber-900 shadow-md scale-[1.01]'
+                            : 'border-amber-400 bg-amber-50 text-amber-900 shadow-sm'
+                          : isHighlighted
+                            ? 'border-amber-400 bg-amber-50/30 ring-2 ring-amber-300 text-slate-800 shadow-md scale-[1.01]'
+                            : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50',
                       ].join(' ')}
                     >
-                      <div className={`shrink-0 flex items-center justify-center w-4 h-4 rounded-full border ${selected ? 'border-amber-500 bg-amber-500' : 'border-slate-300'}`}>
-                        {selected && <div className="w-1.5 h-1.5 bg-white rounded-full" />}
+                      <div className={[
+                        'shrink-0 flex items-center justify-center w-4 h-4 rounded-full border transition-all duration-150',
+                        selected
+                          ? 'border-amber-500 bg-amber-500'
+                          : isHighlighted
+                            ? 'border-amber-500 bg-amber-100/50'
+                            : 'border-slate-300'
+                      ].join(' ')}>
+                        {(selected || isHighlighted) && (
+                          <div className={[
+                            'w-1.5 h-1.5 rounded-full transition-all duration-150',
+                            selected ? 'bg-white scale-100' : 'bg-amber-500 scale-90'
+                          ].join(' ')} />
+                        )}
                       </div>
-                      <span className={`flex-1 ${selected ? 'font-semibold' : ''}`}>{opt.name}</span>
+                      <span className={`flex-1 ${selected ? 'font-semibold' : ''} flex items-center gap-2`}>
+                        {opt.name}
+                        {isHighlighted && (
+                          <kbd className="px-1 py-0.5 text-[8px] bg-amber-500 text-white border border-amber-600 rounded font-semibold tracking-wider uppercase leading-none shadow-sm animate-pulse shrink-0">
+                            Enter
+                          </kbd>
+                        )}
+                      </span>
                       <span className={['w-16 text-right shrink-0', adj > 0 ? 'text-emerald-600 font-medium' : 'text-slate-400'].join(' ')}>
                         {fmtVND(adj)}
                       </span>

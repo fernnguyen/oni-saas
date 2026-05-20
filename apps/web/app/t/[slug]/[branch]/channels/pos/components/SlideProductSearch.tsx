@@ -1,5 +1,5 @@
 'use client'
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { usePOSProductSearch } from '@/hooks/usePOSProductSearch'
 import type { LocalProduct } from '@/lib/localDb/schema'
 
@@ -18,7 +18,9 @@ export function SlideProductSearch({ onSelect }: Props) {
   const { results, isLoading } = usePOSProductSearch(query)
   const wrapperRef = useRef<HTMLDivElement>(null)
 
-  const displayResults = results.slice(0, 10)
+  const displayResults = useMemo(() => {
+    return results.slice(0, 10)
+  }, [results])
 
   useEffect(() => {
     if (displayResults.length > 0) {
