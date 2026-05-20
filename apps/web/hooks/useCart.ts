@@ -1,7 +1,7 @@
 'use client'
 import { useCallback, useReducer, useRef } from 'react'
 import { toast } from 'sonner'
-import type { LocalProduct } from '@/lib/localDb/schema'
+import { localDb, type LocalProduct } from '@/lib/localDb/schema'
 
 export interface CartItem {
   product_id: string
@@ -133,7 +133,7 @@ function cartReducer(state: CartState, action: CartAction): CartState {
   }
 }
 
-export function useCart(inventory?: Map<string, number>) {
+export function useCart(inventory?: Map<string, number>, branchId?: string) {
   const [state, dispatch] = useReducer(cartReducer, { items: [], discount_amount: 0, note: '' })
 
   const inventoryRef = useRef(inventory)
@@ -143,6 +143,54 @@ export function useCart(inventory?: Map<string, number>) {
 
   const subtotal = state.items.reduce((s, i) => s + Number(i.line_total), 0)
   const total = Math.max(0, subtotal - Number(state.discount_amount))
+
+  const checkNearExpiryBatches = useCallback(async (productId: string, productName: string) => {
+    if (!branchId || typeof window === 'undefined') return
+
+    try {
+      // 1. Fetch threshold configuration from localStorage (default to 90 days)
+      const thresholdDays = Number(localStorage.getItem('oni-near-expiry-days') || '90')
+
+      // 2. Query active batches for this product in current branch with stock > 0
+      const batches = await localDb.inventoryBatches
+        .where('[product_id+branch_id]')
+        .equals([productId, branchId])
+        .toArray()
+
+      const activeBatches = batches.filter((b) => Number(b.stock_qty) > 0)
+      if (activeBatches.length === 0) return
+
+      // 3. Sort by expiry date ascending (earliest expiry first)
+      activeBatches.sort((a, b) => a.expiry_date.localeCompare(b.expiry_date))
+
+      // 4. Find the batch with earliest expiry date
+      const earliestBatch = activeBatches[0]
+
+      // 5. Calculate if it is near expiry
+      const expiryDateObj = new Date(earliestBatch.expiry_date)
+      const today = new Date()
+      // Reset hours to compare pure dates
+      expiryDateObj.setHours(0, 0, 0, 0)
+      today.setHours(0, 0, 0, 0)
+
+      const diffTime = expiryDateObj.getTime() - today.getTime()
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+
+      if (diffDays <= thresholdDays) {
+        // Trigger non-blocking toast warning
+        const formattedExpiry = new Date(earliestBatch.expiry_date).toLocaleDateString('vi-VN')
+        toast.warning(
+          `⚠️ Sản phẩm cận date đang còn tồn kho!`,
+          {
+            description: `Sản phẩm "${productName}" đang có Lô "${earliestBatch.batch_no}" sắp hết hạn (HSD: ${formattedExpiry}, còn tồn: ${earliestBatch.stock_qty}). Vui lòng ưu tiên bán lô này trước!`,
+            duration: 10000,
+          }
+        )
+      }
+    } catch (err) {
+      console.error('Error checking near expiry batches:', err)
+    }
+  }, [branchId])
 
   const addItem = useCallback((product: LocalProduct) => {
     const stock = inventoryRef.current?.get(product.product_id)
@@ -156,12 +204,14 @@ export function useCart(inventory?: Map<string, number>) {
       }
     }
     dispatch({ type: 'ADD_ITEM', product })
-  }, [])
+    void checkNearExpiryBatches(product.product_id, product.name)
+  }, [checkNearExpiryBatches])
 
   // For variant children and modifier products — adds with full context
   const addItemWithOptions = useCallback((item: CartItem) => {
     dispatch({ type: 'ADD_ITEM_WITH_OPTS', item })
-  }, [])
+    void checkNearExpiryBatches(item.product_id, item.product_name)
+  }, [checkNearExpiryBatches])
 
   const removeItem = useCallback((product_id: string) => dispatch({ type: 'REMOVE_ITEM', product_id }), [])
 
