@@ -6,6 +6,7 @@ import { usePOSHydration } from '@/hooks/usePOSHydration'
 import { useNetworkStatus } from '@/hooks/useNetworkStatus'
 import { useCart, type CartItem } from '@/hooks/useCart'
 import { useConfirm } from '@/app/components/ui/ConfirmProvider'
+import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog'
 import { localDb, type LocalInventory, type LocalCustomer } from '@/lib/localDb/schema'
 import { SyncWorker } from '@/lib/pos/syncWorker'
 import { IconClipboard } from '@/app/components/layout/nav'
@@ -45,28 +46,36 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
   const [inventory, setInventory] = useState<Map<string, number>>(new Map())
   const cart = useCart(inventory, branchId)
   const [nearExpiryDays, setNearExpiryDays] = useState<number>(90)
+  const [isNearExpiryModalOpen, setIsNearExpiryModalOpen] = useState(false)
+  const [tempNearExpiryDays, setTempNearExpiryDays] = useState<string>('90')
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const stored = localStorage.getItem('oni-near-expiry-days')
       if (stored) {
         setNearExpiryDays(Number(stored))
+        setTempNearExpiryDays(stored)
       } else {
         localStorage.setItem('oni-near-expiry-days', '90')
+        setTempNearExpiryDays('90')
       }
     }
   }, [])
 
   const handleConfigNearExpiry = () => {
-    const val = prompt('Nhập số ngày cấu hình "cận date" (ví dụ: 30, 60, 90, 180):', String(nearExpiryDays))
-    if (val === null) return
-    const days = parseInt(val, 10)
+    setTempNearExpiryDays(String(nearExpiryDays))
+    setIsNearExpiryModalOpen(true)
+  }
+
+  const saveNearExpiryDays = () => {
+    const days = parseInt(tempNearExpiryDays, 10)
     if (isNaN(days) || days <= 0) {
       toast.error('Số ngày không hợp lệ! Vui lòng nhập số nguyên dương.')
       return
     }
     localStorage.setItem('oni-near-expiry-days', String(days))
     setNearExpiryDays(days)
+    setIsNearExpiryModalOpen(false)
     toast.success(`Đã cập nhật cấu hình cận date: ${days} ngày`)
   }
   const [customer, setCustomer] = useState<LocalCustomer | null>(null)
@@ -368,6 +377,58 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
         isOnline={isOnline}
         autoPrintReceipt={autoPrintReceipt}
       />
+
+      <ConfirmDialog
+        open={isNearExpiryModalOpen}
+        onClose={() => setIsNearExpiryModalOpen(false)}
+        onConfirm={saveNearExpiryDays}
+        title="Cấu hình Cận Date"
+        confirmLabel="Lưu cấu hình"
+        cancelLabel="Hủy"
+      >
+        {/* Input & Preset Chips */}
+        <div className="flex flex-col gap-4 py-1">
+          <p className="text-sm text-slate-500 leading-normal">
+            Số ngày còn lại tối thiểu của Lô hàng để kích hoạt cảnh báo khi quét bán hàng.
+          </p>
+
+          <div>
+            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Số ngày cảnh báo</label>
+            <div className="relative flex items-center">
+              <input
+                type="number"
+                value={tempNearExpiryDays}
+                onChange={(e) => setTempNearExpiryDays(e.target.value)}
+                className="w-full text-center text-lg font-bold border border-slate-200 rounded-xl py-2 px-8 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none bg-white text-slate-800"
+                placeholder="Nhập số ngày"
+                min="1"
+                autoFocus
+              />
+              <span className="absolute right-3.5 text-sm font-semibold text-slate-400 pointer-events-none">ngày</span>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Chọn nhanh</label>
+            <div className="grid grid-cols-5 gap-1.5">
+              {['30', '60', '90', '180', '365'].map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => setTempNearExpiryDays(d)}
+                  className={`text-xs font-semibold py-2 px-1 rounded-lg border transition-all active:scale-95 ${
+                    tempNearExpiryDays === d
+                      ? 'bg-primary/10 border-primary text-primary shadow-xs'
+                      : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  {d} ngày
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </ConfirmDialog>
     </div>
   )
 }
