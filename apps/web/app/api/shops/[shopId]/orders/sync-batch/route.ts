@@ -307,23 +307,92 @@ export async function POST(
       (existingMovs.data as Record<string, string>[]).map(r => r.product_id)
     )
 
+    // Fetch product details to identify which ones have BOM activated
+    const productIdsInMovements = Array.from(new Set(stock_movements.map(mv => mv.product_id)))
+    const productsInMovements: Record<string, any>[] = []
+    for (const pid of productIdsInMovements) {
+      try {
+        const p = await connector.findById('products', pid)
+        if (p) {
+          productsInMovements.push(p)
+        }
+      } catch (err) {
+        console.error('Failed to fetch product in sync-batch stock-movements step:', err)
+      }
+    }
+    const productMap = new Map<string, Record<string, any>>(
+      productsInMovements.map(p => [p.product_id || p.id, p])
+    )
+
     const movsToCreate = []
     for (const mv of stock_movements) {
-      if (existingMovProductIds.has(mv.product_id)) continue
+      const product = productMap.get(mv.product_id)
 
-      pxCounter += 1
-      const movementNo = `PX-${String(pxCounter).padStart(3, '0')}`
+      if (product?.has_bom === 'TRUE') {
+        // Query active BOM components for this parent
+        try {
+          const bomRes = await connector.list('product-bom', {
+            page: 1,
+            limit: 1000,
+            filters: { parent_product_id: mv.product_id }
+          })
+          const components = bomRes.data as Record<string, any>[]
+          const parentName = product.name || 'Thành phẩm'
 
-      movsToCreate.push({
-        type:         mv.type,
-        movement_no:  movementNo,
-        product_id:   mv.product_id,
-        qty:          String(Math.abs(mv.qty)),
-        branch_id:    mv.branch_id ?? '',
-        reference_no: movRef,
-        created_at:   getGMT7Time(),
-      })
+          for (const comp of components) {
+            const compId = comp.component_product_id
+            if (existingMovProductIds.has(compId)) continue
+
+            pxCounter += 1
+            const movementNo = `PX-${String(pxCounter).padStart(3, '0')}`
+            const compQty = Math.abs(mv.qty) * parseFloat(comp.qty || '0')
+
+            // Fetch component SKU
+            let compSku = ''
+            try {
+              const compProd = await connector.findById('products', compId)
+              if (compProd) {
+                compSku = (compProd.sku as string) || ''
+              }
+            } catch (skuErr) {
+              console.error('Failed to fetch component product for SKU:', skuErr)
+            }
+
+            movsToCreate.push({
+              type:         mv.type,
+              movement_no:  movementNo,
+              product_id:   compId,
+              sku:          compSku,
+              qty:          String(compQty),
+              branch_id:    mv.branch_id ?? '',
+              reference_no: movRef,
+              reason:       `Trừ kho nguyên liệu phục vụ món: ${parentName} x ${Math.abs(mv.qty)}`,
+              created_at:   getGMT7Time(),
+            })
+          }
+        } catch (bomErr) {
+          console.error('Failed to expand BOM stock movements inside sync-batch:', bomErr)
+        }
+      } else {
+        // Standard non-BOM product
+        if (existingMovProductIds.has(mv.product_id)) continue
+
+        pxCounter += 1
+        const movementNo = `PX-${String(pxCounter).padStart(3, '0')}`
+
+        movsToCreate.push({
+          type:         mv.type,
+          movement_no:  movementNo,
+          product_id:   mv.product_id,
+          sku:          product?.sku || '',
+          qty:          String(Math.abs(mv.qty)),
+          branch_id:    mv.branch_id ?? '',
+          reference_no: movRef,
+          created_at:   getGMT7Time(),
+        })
+      }
     }
+
     if (movsToCreate.length > 0) {
       const createdMovs = await connector.batchCreate('stock-movements', movsToCreate)
       tx.add(async () => {

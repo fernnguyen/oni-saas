@@ -249,7 +249,7 @@ Sau khi tạo database ở bước 9 và clone source, bạn cần push schema �
 Trong thư mục `app`:
 ```bash
 # Push schema nếu dùng PostgreSQL:
-npm run db:push:pg
+cd packages/adapters && pnpm run db:push:pg
 ```
 *(Lưu ý: Bạn phải đảm bảo file `.env.local` ở server đã khai báo đúng biến `LOCAL_PG_URI=postgresql://oni_app:doi-mat-khau-app-rat-manh@localhost:5432/oni_prod`)*
 

@@ -28,6 +28,7 @@ const ENTITY_PREFIXES: Record<string, string> = {
   'return-items':     'RI',
   'cashbook':            'CB',
   'location-resources':  'LR',
+  'product-bom':         'BOM',
 }
 
 export class MysqlConnector implements IDataConnector {
@@ -55,6 +56,7 @@ export class MysqlConnector implements IDataConnector {
     'price-lists',
     'discounts',
     'suppliers',
+    'product-bom',
   ]
 
   private async generateSequentialId(entity: string): Promise<string> {
@@ -112,6 +114,7 @@ export class MysqlConnector implements IDataConnector {
     'payments': 'payment_id',
     'branches': 'branch_id',
     'location-resources': 'resource_id',
+    'product-bom': 'bom_id',
   }
 
   private formatRow(entity: string, row: any): Record<string, string> {

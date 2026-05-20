@@ -24,6 +24,7 @@ const ENTITY_CONFIG: Record<string, EntityConfig> = {
   'return-items':     { tab: 'ReturnItems',     idKey: 'item_id',      prefix: 'RI'   },
   'cashbook':           { tab: 'Cashbook',          idKey: 'transaction_id', prefix: 'CB'  },
   'location-resources': { tab: 'LocationResources', idKey: 'resource_id',    prefix: 'LR'  },
+  'product-bom':        { tab: 'ProductBOM',        idKey: 'bom_id',         prefix: 'BOM'  },
 }
 
 const BASE = 'https://sheets.googleapis.com/v4/spreadsheets'
