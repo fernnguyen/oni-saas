@@ -76,74 +76,66 @@ export async function POST(
     })
     invalidate(shopId, 'orders')
     
-    // Format items
-    const itemsList = Array.isArray(body.items) ? body.items.map((it: any, i: number) => {
-      const itemTotal = Number(it.line_total).toLocaleString('vi-VN');
-      const unitPrice = Number(it.unit_price).toLocaleString('vi-VN');
-      let txt = `${i + 1}. ${it.product_name}\n   ${it.qty} x ${unitPrice}đ = ${itemTotal}đ`;
-      if (Number(it.line_discount) > 0) {
-        txt += ` (Giảm: ${Number(it.line_discount).toLocaleString('vi-VN')}đ)`;
-      }
-      return txt;
-    }).join('\n') : '';
-
-    const admin = getSupabaseAdminClient();
-    const { data: tenant } = await admin.from('tenants').select('slug').eq('id', shop.tenant_id).maybeSingle();
-    const domainName = tenant?.slug ? `${tenant.slug}.oni.vn` : 'oni.vn';
-    const creatorEmail = user?.email || 'Unknown';
-
-    let customerPhone = ''
-    if (data.customer_id) {
+    // Run notification formatting and dispatch asynchronously to prevent blocking response
+    ;(async () => {
       try {
-        const customer = await connector.findById('customers', data.customer_id)
-        if (customer) {
-          customerPhone = (customer.phone as string) || ''
+        const itemsList = Array.isArray(body.items) ? body.items.map((it: any, i: number) => {
+          const itemTotal = Number(it.line_total).toLocaleString('vi-VN');
+          const unitPrice = Number(it.unit_price).toLocaleString('vi-VN');
+          let txt = `${i + 1}. ${it.product_name}\n   ${it.qty} x ${unitPrice}đ = ${itemTotal}đ`;
+          if (Number(it.line_discount) > 0) {
+            txt += ` (Giảm: ${Number(it.line_discount).toLocaleString('vi-VN')}đ)`;
+          }
+          return txt;
+        }).join('\n') : '';
+
+        const admin = getSupabaseAdminClient();
+        const { data: tenant } = await admin.from('tenants').select('slug').eq('id', shop.tenant_id).maybeSingle();
+        const domainName = tenant?.slug ? `${tenant.slug}.oni.vn` : 'oni.vn';
+        const creatorEmail = user?.email || 'Unknown';
+
+        let customerPhone = ''
+        if (data.customer_id) {
+          try {
+            const customer = await connector.findById('customers', data.customer_id)
+            if (customer) {
+              customerPhone = (customer.phone as string) || ''
+            }
+          } catch (err) {
+            console.error('Failed to fetch customer:', err)
+          }
         }
+
+        const paymentMethodMap: Record<string, string> = {
+          cash: 'Tiền mặt',
+          card: 'Quẹt thẻ',
+          bank_transfer: 'Chuyển khoản',
+          momo: 'MoMo',
+          vnpay: 'VNPay',
+          zalopay: 'ZaloPay',
+          debt: 'Ghi nợ'
+        };
+
+        let paidText = `${Number(data.paid_amount).toLocaleString('vi-VN')}đ`;
+        if (data.payment_method) {
+          const methodName = paymentMethodMap[data.payment_method] || data.payment_method;
+          paidText += ` (${methodName})`;
+        }
+
+        const customerDisplay = data.customer_name 
+          ? `${data.customer_name}${customerPhone ? ` (${customerPhone})` : ''}` 
+          : 'Khách lẻ';
+
+        const message = `Mã đơn: #${data.order_no}\nKhách hàng: ${customerDisplay}\n${data.note ? `Ghi chú: ${data.note}\n` : ''}\n🛍 MẶT HÀNG:\n${itemsList}\n\n💰 THANH TOÁN:\nTiền hàng: ${Number(data.subtotal).toLocaleString('vi-VN')}đ\nGiảm giá: ${Number(data.discount_amount).toLocaleString('vi-VN')}đ\nTổng cộng: ${Number(data.total_amount).toLocaleString('vi-VN')}đ\nĐã thu: ${paidText}\nCòn nợ: ${Number(data.debt_amount || 0).toLocaleString('vi-VN')}đ\n\n📝 Người tạo phiếu: ${creatorEmail} (${domainName})`;
+
+        await dispatchNotification(shop.tenant_id, 'ORDER_CREATED', {
+          title: `📦 Đơn hàng mới (Online) - ${shop.name}`,
+          message,
+        });
       } catch (err) {
-        console.error('Failed to fetch customer:', err)
+        console.error('Background notification error:', err)
       }
-    }
-
-    const paymentMethodMap: Record<string, string> = {
-      cash: 'Tiền mặt',
-      card: 'Quẹt thẻ',
-      bank_transfer: 'Chuyển khoản',
-      momo: 'MoMo',
-      vnpay: 'VNPay',
-      zalopay: 'ZaloPay',
-      debt: 'Ghi nợ'
-    };
-
-    let paidText = `${Number(data.paid_amount).toLocaleString('vi-VN')}đ`;
-    if (data.payment_method) {
-      const methodName = paymentMethodMap[data.payment_method] || data.payment_method;
-      paidText += ` (${methodName})`;
-    }
-
-    const customerDisplay = data.customer_name 
-      ? `${data.customer_name}${customerPhone ? ` (${customerPhone})` : ''}` 
-      : 'Khách lẻ';
-
-    const message = `Mã đơn: #${data.order_no}
-Khách hàng: ${customerDisplay}
-${data.note ? `Ghi chú: ${data.note}\n` : ''}
-🛍 MẶT HÀNG:
-${itemsList}
-
-💰 THANH TOÁN:
-Tiền hàng: ${Number(data.subtotal).toLocaleString('vi-VN')}đ
-Giảm giá: ${Number(data.discount_amount).toLocaleString('vi-VN')}đ
-Tổng cộng: ${Number(data.total_amount).toLocaleString('vi-VN')}đ
-Đã thu: ${paidText}
-Còn nợ: ${Number(data.debt_amount || 0).toLocaleString('vi-VN')}đ
-
-📝 Người tạo phiếu: ${creatorEmail} (${domainName})`;
-
-    // Dispatch notification asynchronously without blocking response
-    dispatchNotification(shop.tenant_id, 'ORDER_CREATED', {
-      title: `📦 Đơn hàng mới (Online) - ${shop.name}`,
-      message,
-    }).catch(console.error);
+    })()
 
     return NextResponse.json(created, { status: 201 })
   } catch (e) {

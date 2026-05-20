@@ -62,6 +62,7 @@ export function TableMapPOS({
 }: Props) {
   const [resources, setResources] = useState<Resource[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadingTakeaway, setLoadingTakeaway] = useState(false)
   const [, setTick] = useState(0)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -99,10 +100,43 @@ export function TableMapPOS({
 
   const fetchResources = useCallback(async () => {
     try {
-      const res = await fetch(`/api/shops/${shopId}/location-resources?limit=500`)
-      if (!res.ok) throw new Error()
-      const json = await res.json()
-      setResources(json.data ?? [])
+      // Fetch physical resources and takeaway orders in parallel
+      const [resResources, resOrders] = await Promise.all([
+        fetch(`/api/shops/${shopId}/location-resources?limit=500`),
+        fetch(`/api/shops/${shopId}/orders?status=in_progress&limit=100`)
+      ])
+      
+      if (!resResources.ok) throw new Error()
+      
+      const jsonResources = await resResources.json()
+      const physicalResources = jsonResources.data ?? []
+      
+      let virtualResources: Resource[] = []
+      if (resOrders.ok) {
+        const jsonOrders = await resOrders.json()
+        const takeawayOrders = (jsonOrders.data ?? []).filter((o: any) => {
+          try {
+            const meta = typeof o.metadata === 'string' ? JSON.parse(o.metadata) : (o.metadata || {})
+            return meta.resource_id === 'takeaway'
+          } catch {
+            return false
+          }
+        })
+        
+        virtualResources = takeawayOrders.map((o: any, idx: number) => ({
+          id: `takeaway-${o.id}`, // pseudo id
+          name: o.order_no ? `Takeaway #${o.order_no}` : `Đơn Takeaway ${idx + 1}`,
+          type: 'takeaway',
+          status: 'occupied',
+          current_order_id: o.id,
+          zone: 'Takeaway',
+          capacity: '0',
+          hourly_rate: '0',
+          sort_order: '0'
+        }))
+      }
+      
+      setResources([...physicalResources, ...virtualResources])
     } catch {
       toast.error('Không thể tải danh sách')
     } finally {
@@ -133,6 +167,7 @@ export function TableMapPOS({
   }
 
   async function handleSetAvailable(r: Resource) {
+    setResources(prev => prev.map(res => res.id === r.id ? { ...res, status: 'available', current_order_id: '' } : res))
     try {
       await fetch(`/api/shops/${shopId}/location-resources/${r.id}`, {
         method: 'PATCH',
@@ -143,12 +178,14 @@ export function TableMapPOS({
       fetchResources()
     } catch {
       toast.error('Lỗi')
+      fetchResources() // rollback on error
     }
   }
 
   function handleCheckInSuccess(orderId: string) {
     if (activeSlideResource) {
       setActiveSlideResource({ ...activeSlideResource, status: 'occupied', current_order_id: orderId })
+      setResources(prev => prev.map(res => res.id === activeSlideResource.id ? { ...res, status: 'occupied', current_order_id: orderId } : res))
     }
     fetchResources()
   }
@@ -156,6 +193,50 @@ export function TableMapPOS({
   function handleSessionClosed() {
     setActiveSlideResource(null)
     fetchResources()
+  }
+
+  async function handleTakeawayClick() {
+    setLoadingTakeaway(true)
+    try {
+      const res = await fetch(`/api/shops/${shopId}/orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status: 'in_progress',
+          customer_name: 'Khách lẻ',
+          branch_id: branchId,
+          subtotal: '0',
+          total_amount: '0',
+          paid_amount: '0',
+          metadata: JSON.stringify({
+            resource_id: 'takeaway',
+            resource_name: 'Takeaway',
+            note: 'Takeaway'
+          })
+        })
+      })
+      if (!res.ok) throw new Error()
+      const createdOrder = await res.json()
+      
+      const newTakeawayResource: Resource = {
+         id: `takeaway-${createdOrder.id}`,
+         name: `Đơn Takeaway mới`,
+         type: 'takeaway',
+         status: 'occupied',
+         current_order_id: createdOrder.id,
+         zone: 'Takeaway',
+         capacity: '0',
+         hourly_rate: '0',
+         sort_order: '0'
+      }
+      
+      setResources(prev => [...prev, newTakeawayResource])
+      setActiveSlideResource(newTakeawayResource)
+    } catch {
+       toast.error('Lỗi tạo đơn Takeaway')
+    } finally {
+       setLoadingTakeaway(false)
+    }
   }
 
   // --- Grid View ---
@@ -206,6 +287,21 @@ export function TableMapPOS({
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" /></svg>
             </button>
           </div>
+
+          <button
+            onClick={handleTakeawayClick}
+            disabled={loadingTakeaway}
+            className="flex items-center gap-2 rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold text-white shadow-sm hover:bg-slate-800 disabled:opacity-50 transition-colors"
+          >
+            {loadingTakeaway ? (
+              <span className="h-3.5 w-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            ) : (
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+              </svg>
+            )}
+            <span className="hidden sm:inline">Takeaway</span>
+          </button>
 
           <button
             onClick={() => {

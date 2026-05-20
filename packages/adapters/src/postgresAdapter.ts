@@ -131,15 +131,20 @@ export class PostgresConnector implements IDataConnector {
       paramIdx++
     }
 
+    queryText += ' ORDER BY id DESC LIMIT 1'
+
     const rows = await this.query(queryText, params)
 
-    const existing = rows
-      .map((r: any) => r.id)
-      .filter((id: string) => typeof id === 'string' && id.startsWith(searchPrefix))
-      .map((id: string) => parseInt(id.slice(searchPrefix.length), 10))
-      .filter((n: number) => !isNaN(n))
+    let max = 9999
+    if (rows.length > 0) {
+      const lastId = rows[0].id as string
+      if (lastId && typeof lastId === 'string' && lastId.startsWith(searchPrefix)) {
+        const numStr = lastId.slice(searchPrefix.length)
+        const num = parseInt(numStr, 10)
+        if (!isNaN(num)) max = num
+      }
+    }
 
-    const max = existing.length > 0 ? Math.max(...existing) : 9999
     return `${searchPrefix}${max + 1}`
   }
 

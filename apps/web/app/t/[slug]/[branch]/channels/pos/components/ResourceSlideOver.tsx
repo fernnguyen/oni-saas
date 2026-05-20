@@ -124,14 +124,13 @@ export function ResourceSlideOver({
   const confirm = useConfirm()
   const [order, setOrder] = useState<OrderData | null>(null)
   const [existingItems, setExistingItems] = useState<OrderItem[]>([])
-  const [cartItems, setCartItems] = useState<OrderItem[]>([])
   const [loadingOrder, setLoadingOrder] = useState(false)
   const [elapsed, setElapsed] = useState(0)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [customCheckoutTime, setCustomCheckoutTime] = useState<string>('')
   const [isEditingCheckout, setIsEditingCheckout] = useState(false)
   const [checkoutInput, setCheckoutInput] = useState('')
-  const [savingItems, setSavingItems] = useState(false)
+
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // --- Operations State ---
@@ -208,19 +207,22 @@ export function ResourceSlideOver({
     } catch {
       // ignore
     } finally {
-      fetchingRef.current = ''
       setLoadingOrder(false)
     }
   }, [isOccupied, resource.current_order_id, shopId])
 
+  const lastOpenedRef = useRef<{ id: string; open: boolean }>({ id: '', open: false })
+
   // Reset state when opening a new resource
   useEffect(() => {
-    if (open) {
+    const justOpened = open && (!lastOpenedRef.current.open || lastOpenedRef.current.id !== resource.id)
+    lastOpenedRef.current = { id: resource.id, open }
+
+    if (justOpened) {
       setActiveTab('general')
       setCustomer(null)
       setOrder(null)
       setExistingItems([])
-      setCartItems([])
       setGuests([{
         id: Date.now(), name: '', gender: '', dob: '', id_type: 'CCCD',
         id_number: '', expiry_date: '', nationality: 'Việt Nam', address: '', note: '', is_child: false
@@ -235,7 +237,7 @@ export function ResourceSlideOver({
       fetchOrder()
       setCustomCheckoutTime('')
       setIsEditingCheckout(false)
-    } else {
+    } else if (!open) {
       if (timerRef.current) clearInterval(timerRef.current)
     }
   }, [open, resource.id, fetchOrder])
@@ -331,6 +333,24 @@ export function ResourceSlideOver({
         body: JSON.stringify({ status: 'occupied', current_order_id: orderId }),
       })
 
+      // Bypass double loading by seeding state
+      fetchingRef.current = orderId
+      setOrder({
+        ...createdOrder,
+        metadata: JSON.stringify({
+          resource_id: resource.id,
+          resource_name: resource.name,
+          check_in: checkInDate.toISOString(),
+          num_guests: numGuests,
+          expected_checkout: expectedCheckout,
+          customer_phone: customer?.phone || '',
+          guests: showGuests ? activeGuests : undefined,
+          note: note,
+        })
+      })
+      setExistingItems([])
+      setInstallments([])
+
       toast.success(`${tpl.actions.checkIn}: ${resource.name}`)
       onCheckInSuccess(orderId)
     } catch (e: any) {
@@ -421,6 +441,11 @@ export function ResourceSlideOver({
   }
 
   async function handleAddCartItem(item: CartItem) {
+    if (!order) {
+      toast.error('Vui lòng Bắt đầu sử dụng (mở bàn) trước khi gọi món')
+      return
+    }
+
     const unitPrice = Number(item.unit_price) + (item.modifier_total || 0)
     const sig = getSig(item)
 
@@ -444,33 +469,47 @@ export function ResourceSlideOver({
         toast.success(`Đã cập nhật: ${item.product_name} (x${newQty})`)
       } catch (err) {
         toast.error('Lỗi khi cập nhật số lượng')
+        // Tự động rollback khi fetch lại
+        fetchOrder()
       }
       return
     }
 
-    setCartItems(prev => {
-      const existing = prev.find(i => getSig(i) === sig)
-      if (existing) {
-        return prev.map(i => getSig(i) === sig ? {
-          ...i,
-          qty: String(Number(i.qty) + item.qty),
-          line_total: String((Number(i.qty) + item.qty) * unitPrice)
-        } : i)
-      }
-      return [...prev, {
-        product_id: item.product_id,
-        product_name: item.product_name,
-        sku: item.sku || '',
-        qty: String(item.qty),
-        unit_price: String(item.unit_price),
-        line_total: String(unitPrice * item.qty),
-        cost_price: String(item.cost_price),
-        discount_amount: '0',
-        variant_label: item.variant_label,
-        modifiers: JSON.stringify(item.modifiers || []),
-        modifier_total: String(item.modifier_total || 0),
-      }]
-    })
+    // Auto-save new item immediately
+    const tempId = `temp-${Date.now()}`
+    const newItem = {
+      order_id: order.id,
+      order_no: order.order_no || '',
+      line_no: String(existingItems.length + 1),
+      product_id: item.product_id,
+      sku: item.sku || '',
+      product_name: item.product_name,
+      qty: String(item.qty),
+      unit_price: String(item.unit_price),
+      line_total: String(unitPrice * item.qty),
+      line_discount: '0',
+      variant_label: item.variant_label || '',
+      modifiers: typeof item.modifiers === 'string' ? item.modifiers : JSON.stringify(item.modifiers || []),
+      modifier_total: String(item.modifier_total || 0)
+    }
+
+    setExistingItems(prev => [...prev, { ...newItem, id: tempId }])
+
+    try {
+      const res = await fetch(`/api/shops/${shopId}/order-items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newItem)
+      })
+      if (!res.ok) throw new Error()
+      
+      const savedItem = await res.json()
+      setExistingItems(prev => prev.map(i => i.id === tempId ? savedItem : i))
+      toast.success(`Đã thêm ${item.product_name}`)
+    } catch {
+      toast.error(`Lỗi khi thêm ${item.product_name}`)
+      setExistingItems(prev => prev.filter(i => i.id !== tempId))
+    }
   }
 
   async function handleProductSelect(p: LocalProduct) {
@@ -492,22 +531,6 @@ export function ResourceSlideOver({
       cost_price: Number(p.cost_price || 0),
       discount_amount: 0,
       line_total: Number(p.sell_price || 0),
-    })
-  }
-
-  function updateCartQty(idx: number, delta: number) {
-    setCartItems(prev => {
-      const clone = [...prev]
-      const currQty = Number(clone[idx].qty)
-      const newQty = currQty + delta
-      if (newQty <= 0) {
-        clone.splice(idx, 1)
-      } else {
-        const p = clone[idx]
-        const up = Number(p.unit_price)
-        clone[idx] = { ...p, qty: String(newQty), line_total: String(newQty * up) }
-      }
-      return clone
     })
   }
 
@@ -551,46 +574,7 @@ export function ResourceSlideOver({
     }
   }
 
-  async function handleSaveCartItems() {
-    if (cartItems.length === 0) return
-    if (!order) return
-    setSavingItems(true)
-    try {
-      const orderId = order.id
-      for (const item of cartItems) {
-        await fetch(`/api/shops/${shopId}/order-items`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            order_id: orderId,
-            order_no: order.order_no || '',
-            line_no: String(existingItems.length + cartItems.indexOf(item) + 1),
-            product_id: item.product_id,
-            sku: item.sku,
-            product_name: item.product_name,
-            qty: String(item.qty),
-            unit_price: String(item.unit_price),
-            line_total: String(item.line_total),
-            line_discount: String(item.discount_amount),
-            variant_label: (item as any).variant_label ?? '',
-            modifiers: (item as any).modifiers ?? '',
-            modifier_total: String((item as any).modifier_total ?? 0),
-          }),
-        })
-      }
-      toast.success(`Đã thêm ${cartItems.length} món`)
-      const itemsRes = await fetch(`/api/shops/${shopId}/order-items?order_id=${orderId}&limit=200&t=${Date.now()}`)
-      if (itemsRes.ok) {
-        const iData = await itemsRes.json()
-        setExistingItems(iData.data || [])
-      }
-      setCartItems([])
-    } catch {
-      toast.error('Lỗi khi thêm món')
-    } finally {
-      setSavingItems(false)
-    }
-  }
+
 
   async function handleSaveDirtyItems() {
     if (!order) return
@@ -644,14 +628,16 @@ export function ResourceSlideOver({
         throw new Error(errorData.error || `Lỗi khi hủy ${tpl.label.toLowerCase()}`)
       }
 
-      try {
-        await fetch(`/api/shops/${shopId}/location-resources/${resource.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: 'available', current_order_id: '' }),
-        })
-      } catch (err) {
-        console.error('Lỗi khi giải phóng bàn:', err)
+      if (!resource.id.startsWith('takeaway')) {
+        try {
+          await fetch(`/api/shops/${shopId}/location-resources/${resource.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'available', current_order_id: '' }),
+          })
+        } catch (err) {
+          console.error('Lỗi khi giải phóng bàn:', err)
+        }
       }
 
       toast.success(`Đã hủy ${tpl.label.toLowerCase()}`)
@@ -691,14 +677,16 @@ export function ResourceSlideOver({
   }
 
   async function handleCheckoutSuccess() {
-    try {
-      await fetch(`/api/shops/${shopId}/location-resources/${resource.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: settings?.skip_cleaning_process ? 'available' : 'cleaning', current_order_id: '' }),
-      })
-    } catch {
-      // ignore
+    if (!resource.id.startsWith('takeaway')) {
+      try {
+        await fetch(`/api/shops/${shopId}/location-resources/${resource.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: settings?.skip_cleaning_process ? 'available' : 'cleaning', current_order_id: '' }),
+        })
+      } catch {
+        // ignore
+      }
     }
     setCheckoutOpen(false)
     onSessionClosed()
@@ -926,7 +914,7 @@ export function ResourceSlideOver({
   }
 
   const buildCheckoutItems = () => {
-    const items: any[] = [...existingItems, ...cartItems].map(it => {
+    const items: any[] = [...existingItems].map(it => {
       let parsedModifiers = (it as any).modifiers
       if (typeof parsedModifiers === 'string' && parsedModifiers.startsWith('[')) {
         try {
@@ -997,7 +985,7 @@ export function ResourceSlideOver({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {isOccupied && (
+            {isOccupied && !resource.id.startsWith('takeaway') && (
               <div className="relative">
                 <button 
                   onClick={() => setMenuOpen(!menuOpen)}
@@ -1205,9 +1193,6 @@ export function ResourceSlideOver({
               </div>
 
               <div className="flex-1 overflow-y-auto px-5 pb-5">
-                {loadingOrder ? (
-                  <div className="flex justify-center p-10"><span className="text-slate-400 text-sm">Đang tải...</span></div>
-                ) : (
                   <div className="space-y-6">
                     {activeTab === 'general' && (
                       <>
@@ -1235,14 +1220,22 @@ export function ResourceSlideOver({
                                     Thay đổi
                                   </button>
                                 </div>
-                                <p className="text-sm font-bold text-slate-900">
-                                  {order?.customer_name || 'Khách lẻ'}
-                                  {orderMeta?.customer_phone && <span className="font-normal text-slate-500 ml-1">({orderMeta.customer_phone})</span>}
-                                </p>
+                                {loadingOrder ? (
+                                  <div className="h-5 w-32 bg-slate-200 rounded animate-pulse mt-1" />
+                                ) : (
+                                  <p className="text-sm font-bold text-slate-900">
+                                    {order?.customer_name || 'Khách lẻ'}
+                                    {orderMeta?.customer_phone && <span className="font-normal text-slate-500 ml-1">({orderMeta.customer_phone})</span>}
+                                  </p>
+                                )}
                               </div>
                               <div className="text-right">
                                 <p className="text-xs text-slate-500 mb-0.5">Đã sử dụng</p>
-                                <p className="text-sm font-bold text-slate-900">{fmtDuration(elapsed)}</p>
+                                {loadingOrder ? (
+                                  <div className="h-5 w-16 bg-slate-200 rounded animate-pulse ml-auto" />
+                                ) : (
+                                  <p className="text-sm font-bold text-slate-900">{fmtDuration(elapsed)}</p>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -1293,7 +1286,13 @@ export function ResourceSlideOver({
                           </div>
 
                           <div className="space-y-3 flex-1 overflow-y-auto">
-                            {existingItems.length === 0 && cartItems.length === 0 && (
+                            {loadingOrder && (
+                              <div className="space-y-2">
+                                <div className="h-16 w-full bg-slate-100 rounded-xl animate-pulse" />
+                                <div className="h-16 w-full bg-slate-100 rounded-xl animate-pulse" />
+                              </div>
+                            )}
+                            {!loadingOrder && existingItems.length === 0 && (
                               <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 py-10 text-center text-sm text-slate-400">
                                 Chưa gọi món nào
                               </div>
@@ -1367,46 +1366,12 @@ export function ResourceSlideOver({
                             )}
 
 
-                            {/* Cart items */}
-                            {cartItems.map((item, idx) => (
-                              <div key={`cart-${idx}`} className="rounded-xl border border-primary/20 bg-primary/5 p-3 flex justify-between items-center shadow-sm">
-                                <div className="min-w-0 flex-1 flex items-center gap-3">
-                                  <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-bold text-slate-900 truncate leading-tight">{item.product_name}</p>
-                                    {/* Variant label */}
-                                    {(item as any).variant_label && !((item as any).modifiers?.length > 2) && (
-                                      <p className="text-[11px] text-violet-600 font-medium truncate mt-0.5">{(item as any).variant_label}</p>
-                                    )}
-                                    {/* Modifier summary */}
-                                    {typeof (item as any).modifiers === 'string' && (item as any).modifiers.startsWith('[') && JSON.parse((item as any).modifiers).length > 0 && (
-                                      <p className="text-[11px] text-amber-600 truncate mt-0.5">
-                                        {JSON.parse((item as any).modifiers).map((m: any) => m.option).join(' · ')}
-                                        {Number((item as any).modifier_total) > 0 && (
-                                          <span className="ml-1 text-emerald-600 font-medium">
-                                            +{Number((item as any).modifier_total).toLocaleString('vi-VN')}đ
-                                          </span>
-                                        )}
-                                      </p>
-                                    )}
-                                  </div>
-                                  <div className="flex items-center gap-2 bg-white rounded-lg border border-slate-200 px-1 py-0.5 shrink-0">
-                                    <button onClick={() => updateCartQty(idx, -1)} className="w-6 h-6 flex items-center justify-center rounded text-slate-500 hover:bg-slate-100 hover:text-slate-900 font-medium">−</button>
-                                    <span className="text-sm font-bold w-6 text-center">{item.qty}</span>
-                                    <button onClick={() => updateCartQty(idx, 1)} className="w-6 h-6 flex items-center justify-center rounded text-slate-500 hover:bg-slate-100 hover:text-slate-900 font-medium">+</button>
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-3 shrink-0 ml-4">
-                                  <span className="text-sm font-bold text-slate-900 w-24 text-right">
-                                    {fmtVND(item.line_total)}
-                                  </span>
-                                </div>
-                              </div>
-                            ))}
+                            {/* Auto-saved items end */}
                           
                             <div className="mt-6 pt-4 border-t border-slate-200 flex items-center justify-between sticky bottom-0 bg-white">
                               <span className="font-bold text-slate-800 text-xs uppercase tracking-wide">Tổng tiền tạm tính</span>
                               <span className="text-base font-bold text-primary">
-                                {fmtVND(existingItems.reduce((acc, item) => acc + Number(item.line_total), 0) + cartItems.reduce((acc, item) => acc + Number(item.line_total), 0) + timeCharge)}
+                                {fmtVND(existingItems.reduce((acc, item) => acc + Number(item.line_total), 0) + timeCharge)}
                               </span>
                             </div>
                           </div>
@@ -1425,7 +1390,11 @@ export function ResourceSlideOver({
                             </div>
                             
                             <div className="flex-1 overflow-y-auto min-h-[50px] max-h-[200px]">
-                              {installments.length > 0 ? (
+                              {loadingOrder ? (
+                                <div className="space-y-2">
+                                  <div className="h-12 w-full bg-slate-100 rounded-lg animate-pulse" />
+                                </div>
+                              ) : installments.length > 0 ? (
                                 <div className="space-y-2">
                                   {installments.map((p, i) => {
                                     const mName = { cash: 'Tiền mặt', card: 'Thẻ', bank_transfer: 'CK', momo: 'MoMo', vnpay: 'VNPay', zalopay: 'ZaloPay' }[p.method as string] || p.method
@@ -1590,7 +1559,6 @@ export function ResourceSlideOver({
 
 
                   </div>
-                )}
               </div>
             </div>
           )}
@@ -1609,15 +1577,6 @@ export function ResourceSlideOver({
           ) : (
             <div className="flex flex-col gap-3">
               <div className="flex gap-3">
-                {cartItems.length > 0 ? (
-                <button
-                  onClick={handleSaveCartItems}
-                  disabled={savingItems}
-                  className="flex-1 rounded-xl bg-primary py-3.5 text-sm font-bold text-white shadow-sm hover:bg-primary-dark transition-colors disabled:opacity-50"
-                >
-                  {savingItems ? 'Đang lưu...' : `Lưu ${cartItems.length} món mới`}
-                </button>
-              ) : (
                 <div className="flex gap-3 w-full">
                   <button
                     onClick={() => setCheckoutOpen(true)}
@@ -1632,11 +1591,10 @@ export function ResourceSlideOver({
                     }}
                     className="shrink-0 px-5 rounded-xl bg-red-50 text-red-600 border border-red-200 py-3.5 text-sm font-bold hover:bg-red-100 transition-colors"
                   >
-                    Hủy {tpl.label.toLowerCase()}
+                    {resource.id.startsWith('takeaway') ? 'Hủy đơn' : `Hủy ${tpl.label.toLowerCase()}`}
                   </button>
                 </div>
-              )}
-            </div>
+              </div>
           </div>
           )}
         </div>
@@ -1884,8 +1842,8 @@ export function ResourceSlideOver({
         open={confirmCancelResource}
         onClose={() => setConfirmCancelResource(false)}
         onConfirm={handleCancelOrder}
-        title={`Hủy ${tpl.label.toLowerCase()}`}
-        description={`Bạn có chắc chắn muốn hủy ${tpl.label.toLowerCase()} này không? Các món đã gọi sẽ được hoàn lại kho và ${tpl.label.toLowerCase()} sẽ trở về trạng thái trống.`}
+        title={resource.id.startsWith('takeaway') ? 'Hủy đơn' : `Hủy ${tpl.label.toLowerCase()}`}
+        description={resource.id.startsWith('takeaway') ? 'Bạn có chắc chắn muốn hủy đơn hàng này không?' : `Bạn có chắc chắn muốn hủy ${tpl.label.toLowerCase()} này không? Các món đã gọi sẽ được hoàn lại kho và ${tpl.label.toLowerCase()} sẽ trở về trạng thái trống.`}
         variant="danger"
         loading={cancellingOrder}
       >

@@ -30,14 +30,22 @@ export async function requireShopAccess(shopId: string, requiredPermission?: str
     throw new ShopAccessError(401, 'Unauthorized')
   }
 
-  const hasAccess = await assertUserShopAccess(data.user.id, shopId)
+  const admin = getSupabaseAdminClient()
+  const { data: shop } = await admin.from('shops').select('*').eq('id', shopId).single()
+  
+  if (!shop) {
+    throw new ShopAccessError(404, 'Shop not found')
+  }
+
+  const [hasAccess, permissions, connector] = await Promise.all([
+    assertUserShopAccess(data.user.id, shopId, shop),
+    getUserPermissions(data.user.id, shop.tenant_id, shopId),
+    getConnectorForShop(shopId, shop.tenant_id)
+  ])
+
   if (!hasAccess) {
     throw new ShopAccessError(403, 'Forbidden: no access to this shop')
   }
-
-  const admin = getSupabaseAdminClient()
-  const { data: shop } = await admin.from('shops').select('*').eq('id', shopId).single()
-  const permissions = await getUserPermissions(data.user.id, shop.tenant_id, shopId)
 
   if (requiredPermission) {
     const perms = Array.isArray(requiredPermission) ? requiredPermission : [requiredPermission]
@@ -47,6 +55,5 @@ export async function requireShopAccess(shopId: string, requiredPermission?: str
     }
   }
 
-  const connector = await getConnectorForShop(shopId)
   return { userId: data.user.id, connector, permissions, shop, user: data.user }
 }

@@ -2,18 +2,21 @@ import { createConnector, IDataConnector } from '@oni/adapters'
 import { getSupabaseAdminClient } from './supabaseAdmin'
 import { getServiceAccountToken } from './googleServiceAccount'
 
-export async function getConnectorForShop(shopId: string): Promise<IDataConnector> {
+export async function getConnectorForShop(shopId: string, preFetchedTenantId?: string): Promise<IDataConnector> {
   const admin = getSupabaseAdminClient()
   
-  // 1. First get the tenant_id for this shop
-  const { data: shop, error: shopError } = await admin
-    .from('shops')
-    .select('tenant_id')
-    .eq('id', shopId)
-    .single()
-    
-  if (shopError) throw shopError
-  const tenantId = shop.tenant_id
+  // 1. First get the tenant_id for this shop if not provided
+  let tenantId = preFetchedTenantId;
+  if (!tenantId) {
+    const { data: shop, error: shopError } = await admin
+      .from('shops')
+      .select('tenant_id')
+      .eq('id', shopId)
+      .single()
+      
+    if (shopError) throw shopError
+    tenantId = shop.tenant_id
+  }
 
   // 2. Fetch the active connector for this tenant
   const { data: connector, error } = await admin
