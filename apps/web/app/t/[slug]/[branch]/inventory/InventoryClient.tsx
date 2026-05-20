@@ -856,11 +856,21 @@ export function InventoryClient({ shopId }: Props) {
 
         const methods = Array.from(new Set(parsedPayments.map(p => methodMap[p.method] || p.method)))
 
+        const totalCost = Number(row.unit_cost || 0) * Math.abs(Number(row.qty || 0))
+        const discount = Number(row.discount || 0)
+        const afterDiscount = Math.max(0, totalCost - discount)
+        let paid = Number(row.paid_amount || 0)
+        if (!row.paid_amount && row.payment_status === 'paid') {
+          paid = afterDiscount
+        }
+        const debt = Math.max(0, afterDiscount - paid)
+        const displayAmount = row.payment_status === 'unpaid' ? (debt > 0 ? debt : afterDiscount) : paid
+
         return (
           <div className="flex flex-col gap-1">
             <PaymentStatusLabel
               status={(row.payment_status as PaymentStatus) || 'paid'}
-              amount={Number(row.paid_amount || (Number(row.unit_cost || 0) * Math.abs(Number(row.qty || 0))))}
+              amount={displayAmount}
             />
             {methods.length > 0 && (
               <span className="text-[10px] text-slate-500 font-medium">
@@ -1571,10 +1581,13 @@ export function InventoryClient({ shopId }: Props) {
 
               {viewMovement.type === 'purchase_in' && (() => {
                 const totalCost = Number(viewMovement.unit_cost || 0) * Math.abs(Number(viewMovement.qty || 0));
+                const discount = Number(viewMovement.discount || 0);
+                const afterDiscount = Math.max(0, totalCost - discount);
                 let paid = Number(viewMovement.paid_amount || 0);
-                if (!viewMovement.paid_amount && viewMovement.payment_status === 'paid') paid = totalCost;
+                if (!viewMovement.paid_amount && viewMovement.payment_status === 'paid') paid = afterDiscount;
 
-                const debt = Math.max(0, totalCost - paid);
+                const debt = Math.max(0, afterDiscount - paid);
+                const displayAmount = viewMovement.payment_status === 'unpaid' ? (debt > 0 ? debt : afterDiscount) : paid;
 
                 const methodMap: Record<string, string> = {
                   'cash': 'Tiền mặt',
@@ -1588,7 +1601,7 @@ export function InventoryClient({ shopId }: Props) {
                     <div className="flex items-center justify-between mb-3">
                       <PaymentStatusLabel
                         status={(viewMovement.payment_status as PaymentStatus) || 'paid'}
-                        amount={paid}
+                        amount={displayAmount}
                       />
                     </div>
 
@@ -1629,9 +1642,15 @@ export function InventoryClient({ shopId }: Props) {
 
                     <div className="space-y-1.5 text-sm bg-slate-50 p-3 rounded-xl border border-slate-100">
                       <div className="flex justify-between">
-                        <span className="text-slate-500">Tổng tiền:</span>
+                        <span className="text-slate-500">Tổng tiền hàng:</span>
                         <span className="font-medium text-slate-900">{fmtVND(totalCost)}</span>
                       </div>
+                      {discount > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Giảm giá:</span>
+                          <span className="font-medium text-orange-600">-{fmtVND(discount)}</span>
+                        </div>
+                      )}
                       <div className="flex justify-between">
                         <span className="text-slate-500">Đã thanh toán:</span>
                         <span className="font-medium text-green-600">{fmtVND(paid)}</span>
