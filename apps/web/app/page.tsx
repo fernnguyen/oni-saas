@@ -109,8 +109,8 @@ export default async function LandingPage() {
           </div>
           <div className="flex items-center gap-3">
             <LoginButton />
-            <Link href="/register" className="rounded-lg bg-primary px-5 py-2.5 text-sm font-bold text-white shadow-md hover:bg-primary-dark hover:shadow-lg transition-all">
-              Bắt đầu bán hàng
+            <Link href="/register" className="whitespace-nowrap rounded-lg bg-primary px-5 py-2.5 text-sm font-bold text-white shadow-md hover:bg-primary-dark hover:shadow-lg transition-all">
+              Bắt đầu<span className="hidden sm:inline"> bán hàng</span>
             </Link>
           </div>
         </div>

@@ -4,6 +4,7 @@ import { useState, FormEvent, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import { getSupabaseBrowserClient } from '../../../lib/supabaseBrowser';
+import { Turnstile } from './Turnstile';
 
 export function SuperSignInForm() {
   const searchParams = useSearchParams();
@@ -12,6 +13,15 @@ export function SuperSignInForm() {
   const [error, setError] = useState<string | null>(null);
   const [workspaceSlug, setWorkspaceSlug] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [turnstileKey, setTurnstileKey] = useState(0);
+
+  const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
+
+  const resetTurnstile = () => {
+    setTurnstileToken(null);
+    setTurnstileKey((prev) => prev + 1);
+  };
 
   // Handle error params from OAuth callback or redirect
   useEffect(() => {
@@ -27,6 +37,10 @@ export function SuperSignInForm() {
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    if (TURNSTILE_SITE_KEY && !turnstileToken) {
+      setError('Vui lòng hoàn thành xác thực bảo mật.');
+      return;
+    }
     setLoading(true);
     setError(null);
     setWorkspaceSlug(null);
@@ -34,7 +48,7 @@ export function SuperSignInForm() {
       const res = await fetch('/api/auth/signin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifier: email, password }),
+        body: JSON.stringify({ identifier: email, password, turnstile_token: turnstileToken }),
       });
       const data = await res.json().catch(() => ({}));
 
@@ -47,6 +61,7 @@ export function SuperSignInForm() {
 
       window.location.href = '/super/dashboard';
     } catch (err: unknown) {
+      resetTurnstile();
       setError(err instanceof Error ? err.message : 'Đăng nhập thất bại');
     } finally {
       setLoading(false);
@@ -126,6 +141,18 @@ export function SuperSignInForm() {
               />
             </div>
 
+            {/* Cloudflare Turnstile */}
+            {TURNSTILE_SITE_KEY && (
+              <Turnstile
+                key={turnstileKey}
+                siteKey={TURNSTILE_SITE_KEY}
+                onSuccess={(token) => setTurnstileToken(token)}
+                onError={() => setTurnstileToken(null)}
+                onExpire={() => setTurnstileToken(null)}
+                theme="dark"
+              />
+            )}
+
             {error && (
               <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
                 <p>{error}</p>
@@ -144,7 +171,7 @@ export function SuperSignInForm() {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || (TURNSTILE_SITE_KEY ? !turnstileToken : false)}
               className="w-full rounded-xl bg-gradient-to-r from-primary to-accent px-4 py-3 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-60 transition-all shadow-lg shadow-primary/20"
             >
               {loading ? 'Đang đăng nhập...' : 'Đăng nhập'}

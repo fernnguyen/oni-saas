@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getSupabaseAdminClient } from '../../../lib/server/supabaseAdmin';
+import { verifyTurnstileToken } from '../../../lib/server/turnstile';
 import { INDUSTRY_TYPES } from '@oni/core';
 
 // Reject fake tenant emails — these are reserved for tenant user accounts
@@ -16,6 +17,7 @@ const schema = z.object({
   password:  z.string().min(8),
   plan_code: z.string().optional(),
   industry_type: z.enum(INDUSTRY_TYPES).default('retail'),
+  turnstile_token: z.string().optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -30,7 +32,18 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { slug, name, email, password, industry_type } = parsed.data;
+  const { slug, name, email, password, industry_type, turnstile_token } = parsed.data;
+
+  // Cloudflare Turnstile Verification
+  const ip = req.headers.get('x-forwarded-for') || undefined;
+  const isTurnstileValid = await verifyTurnstileToken(turnstile_token, ip);
+  if (!isTurnstileValid) {
+    return NextResponse.json(
+      { message: 'Xác thực bảo mật không hợp lệ hoặc đã hết hạn. Vui lòng thử lại.' },
+      { status: 400 },
+    );
+  }
+
   const admin = getSupabaseAdminClient();
 
   // 1 — Check slug uniqueness (tenant + shop + reserved subdomains share global slug namespace)
