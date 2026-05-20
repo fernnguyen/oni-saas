@@ -5,6 +5,7 @@ import { getSupabaseAdminClient } from '../../../../../lib/server/supabaseAdmin'
 import { extractGoogleSheetId } from '../../../../../lib/googleSheets';
 import { getServiceAccountToken } from '../../../../../lib/server/googleServiceAccount';
 import { enforceLimit, isPlanLimitError, planLimitResponse } from '../../../../../lib/server/planLimits';
+import { getTenantActivePlanDetails } from '../../../../../lib/server/subscriptions';
 
 const schema = z.object({
   tenant_id: z.string().uuid(),
@@ -24,6 +25,32 @@ export async function POST(req: NextRequest) {
 
   const sheet_id = extractGoogleSheetId(sheet_input);
   if (!sheet_id) return NextResponse.json({ message: 'Link Google Sheet không hợp lệ' }, { status: 400 });
+
+  const admin = getSupabaseAdminClient();
+
+  // Verify user has access and is owner/admin
+  const { data: tenantAccess } = await admin
+    .from('user_tenants')
+    .select('roles(code)')
+    .eq('user_id', auth.user.id)
+    .eq('tenant_id', tenant_id)
+    .maybeSingle();
+
+  // @ts-ignore
+  const roleCode = Array.isArray(tenantAccess?.roles) ? tenantAccess?.roles[0]?.code : tenantAccess?.roles?.code;
+  if (roleCode !== 'owner' && roleCode !== 'admin') {
+    return NextResponse.json({ message: 'Chỉ owner/admin mới được thay đổi kết nối dữ liệu' }, { status: 403 });
+  }
+
+  // Verify plan is Pro or Enterprise
+  const planDetails = await getTenantActivePlanDetails(tenant_id);
+  const planCode = planDetails?.planCode;
+  if (planCode !== 'plan_pro' && planCode !== 'plan_enterprise') {
+    return NextResponse.json(
+      { message: 'Tính năng kết nối dữ liệu riêng chỉ dành cho gói Chuyên nghiệp (Pro) trở lên. Vui lòng nâng cấp gói để sử dụng.' },
+      { status: 403 },
+    );
+  }
 
   let token: string;
   try {
@@ -53,8 +80,6 @@ export async function POST(req: NextRequest) {
 
   const sheetData = (await sheetRes.json()) as { spreadsheetId?: string; properties?: { title?: string } };
   const sheet_title = sheetData.properties?.title ?? 'Google Sheet';
-
-  const admin = getSupabaseAdminClient();
 
   const { data: existing, error: lookupError } = await admin
     .from('connectors')

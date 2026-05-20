@@ -21,6 +21,7 @@ interface Props {
   tenantId: string;
   connector: ConnectorData | null;
   canManage: boolean;
+  planCode?: string;
 }
 
 type ConnectorModal = 'closed' | 'manage' | 'setup';
@@ -60,7 +61,8 @@ const CONNECTOR_TYPES: Record<string, { label: string; description: string; icon
   },
 };
 
-export function TenantSettingsForm({ tenantId, connector: initialConnector, canManage }: Props) {
+export function TenantSettingsForm({ tenantId, connector: initialConnector, canManage, planCode }: Props) {
+  const isProOrEnterprise = planCode === 'plan_pro' || planCode === 'plan_enterprise';
   const confirm = useConfirm();
   const [connector, setConnector] = useState(initialConnector);
   const [connectorModal, setConnectorModal] = useState<ConnectorModal>('closed');
@@ -144,12 +146,44 @@ export function TenantSettingsForm({ tenantId, connector: initialConnector, canM
           <p className="text-xs text-slate-400 mt-0.5">Cấu hình cơ sở dữ liệu cho workspace. Hỗ trợ Shared DB hoặc BYOD (Bring Your Own Database).</p>
         </div>
         <div className="px-6 py-5 space-y-5">
+          {!isProOrEnterprise && (
+            <div className="rounded-xl bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 p-4 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-fade-in">
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-100/80 text-xl shadow-inner border border-amber-200">
+                  🔒
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-amber-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <span>Tính năng premium</span>
+                    <span className="bg-amber-600 text-white text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase">Pro / Enterprise</span>
+                  </h4>
+                  <p className="mt-1 text-xs text-amber-700 leading-relaxed max-w-xl font-medium">
+                    Tính năng <strong>Kết nối dữ liệu riêng</strong> (Google Sheets, PostgreSQL, MySQL) yêu cầu gói cước <strong>Chuyên nghiệp (Pro)</strong> hoặc <strong>Doanh nghiệp (Enterprise)</strong>. Quý khách vui lòng nâng cấp gói để mở khóa toàn bộ quyền năng quản trị dữ liệu riêng.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => window.dispatchEvent(new CustomEvent('open-plan-modal'))}
+                className="cursor-pointer whitespace-nowrap rounded-lg bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 px-4 py-2.5 text-xs font-bold text-white shadow-md transition-all active:scale-95 flex items-center gap-1.5 shrink-0"
+              >
+                <span>💎 Nâng cấp ngay</span>
+              </button>
+            </div>
+          )}
+
           {/* Current Connector */}
           {connector ? (
             <ConnectorCard
               connector={connector}
               canManage={canManage}
-              onManage={() => setConnectorModal('manage')}
+              onManage={() => {
+                if (!isProOrEnterprise) {
+                  window.dispatchEvent(new CustomEvent('open-plan-modal'));
+                  toast.info('Vui lòng nâng cấp gói Pro để quản lý kết nối dữ liệu riêng.');
+                  return;
+                }
+                setConnectorModal('manage');
+              }}
             />
           ) : (
             <div className="rounded-xl border border-dashed border-slate-300 p-6 text-center">
@@ -175,12 +209,18 @@ export function TenantSettingsForm({ tenantId, connector: initialConnector, canM
                 {Object.entries(CONNECTOR_TYPES).map(([type, meta]) => {
                   const isActive = currentType === type;
                   const isByod = type === 'postgres_remote' || type === 'mysql_remote';
+                  const isPremium = type !== 'postgres_local';
 
                   return (
                     <button
                       key={type}
-                      disabled={switching || isActive}
+                      disabled={switching || (isActive && isProOrEnterprise)}
                       onClick={() => {
+                        if (!isProOrEnterprise) {
+                          window.dispatchEvent(new CustomEvent('open-plan-modal'));
+                          toast.info('Vui lòng nâng cấp gói Pro để thay đổi kết nối dữ liệu riêng.');
+                          return;
+                        }
                         if (isActive) return;
                         if (isByod) {
                           setByodType(type as any);
@@ -197,7 +237,7 @@ export function TenantSettingsForm({ tenantId, connector: initialConnector, canM
                         isActive
                           ? 'border-primary bg-primary/5 ring-1 ring-primary/20'
                           : 'border-slate-200 bg-white hover:border-slate-300'
-                      } disabled:opacity-50`}
+                      } disabled:opacity-50 ${!isProOrEnterprise && isPremium ? 'cursor-pointer hover:border-amber-300 bg-amber-50/10' : ''}`}
                     >
                       <div className="flex items-center gap-2 mb-1">
                         <span className="text-lg">{meta.icon}</span>
@@ -211,6 +251,11 @@ export function TenantSettingsForm({ tenantId, connector: initialConnector, canM
                         {isActive && (
                           <span className="text-[9px] font-bold uppercase tracking-wider text-green-600 bg-green-50 px-1.5 py-0.5 rounded-full">
                             Đang dùng
+                          </span>
+                        )}
+                        {isPremium && !isProOrEnterprise && (
+                          <span className="text-[9px] font-bold uppercase tracking-wider text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 border border-amber-100 shadow-sm animate-pulse">
+                            🔒 Premium
                           </span>
                         )}
                       </div>

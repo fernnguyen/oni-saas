@@ -153,6 +153,7 @@ export default async function TenantSettingsPage({ params }: Props) {
           tenantId={tenant.id}
           connector={connector}
           canManage={canManage}
+          planCode={planDetails?.planCode}
         />
 
         <NotificationSettingsForm
