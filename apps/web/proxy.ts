@@ -8,6 +8,10 @@ const MAIN_DOMAIN_PUBLIC = ['/auth', '/api', '/_next', '/favicon', '/register', 
 const SUBDOMAIN_AUTH_BYPASS = ['/auth/', '/api/', '/_next/'];
 
 function isMainPublic(pathname: string) {
+  // Allow dynamic Open Graph and Twitter cover images to bypass auth on main domain
+  if (pathname.includes('/opengraph-image') || pathname.includes('/twitter-image')) {
+    return true;
+  }
   return pathname === '/' ||
     MAIN_DOMAIN_PUBLIC.some((p) => pathname === p || pathname.startsWith(p + '/'));
 }
@@ -60,7 +64,8 @@ export async function proxy(req: NextRequest) {
 
   // ── MAIN DOMAIN ───────────────────────────────────────────────
   // Block direct /t/ access (only reachable via subdomain rewrite)
-  if (pathname.startsWith('/t/')) {
+  // Bypass this block for dynamic Open Graph and Twitter images so scrapers can load them directly
+  if (pathname.startsWith('/t/') && !pathname.includes('/opengraph-image') && !pathname.includes('/twitter-image')) {
     const redirectUrl = req.nextUrl.clone();
     redirectUrl.pathname = '/auth/signin';
     return NextResponse.redirect(redirectUrl);
