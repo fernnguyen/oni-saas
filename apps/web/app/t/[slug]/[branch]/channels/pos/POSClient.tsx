@@ -43,7 +43,32 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
   const isOnline = useNetworkStatus()
   const confirm = useConfirm()
   const [inventory, setInventory] = useState<Map<string, number>>(new Map())
-  const cart = useCart(inventory)
+  const cart = useCart(inventory, branchId)
+  const [nearExpiryDays, setNearExpiryDays] = useState<number>(90)
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('oni-near-expiry-days')
+      if (stored) {
+        setNearExpiryDays(Number(stored))
+      } else {
+        localStorage.setItem('oni-near-expiry-days', '90')
+      }
+    }
+  }, [])
+
+  const handleConfigNearExpiry = () => {
+    const val = prompt('Nhập số ngày cấu hình "cận date" (ví dụ: 30, 60, 90, 180):', String(nearExpiryDays))
+    if (val === null) return
+    const days = parseInt(val, 10)
+    if (isNaN(days) || days <= 0) {
+      toast.error('Số ngày không hợp lệ! Vui lòng nhập số nguyên dương.')
+      return
+    }
+    localStorage.setItem('oni-near-expiry-days', String(days))
+    setNearExpiryDays(days)
+    toast.success(`Đã cập nhật cấu hình cận date: ${days} ngày`)
+  }
   const [customer, setCustomer] = useState<LocalCustomer | null>(null)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [heldCarts, setHeldCarts] = useState<HeldCart[]>(() => {
@@ -216,6 +241,17 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            onClick={handleConfigNearExpiry}
+            className="flex items-center gap-1.5 rounded border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50 transition-colors"
+            title="Cấu hình số ngày cảnh báo cận date"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor" className="h-3.5 w-3.5 shrink-0 text-orange-500">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span>Cận date: <strong className="text-orange-600">{nearExpiryDays} ngày</strong></span>
+          </button>
+
           <button
             onClick={() => setOrderPanelOpen(true)}
             className="relative flex items-center gap-1 rounded border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50 transition-colors"

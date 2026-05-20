@@ -45,6 +45,13 @@ function parseInventory(r: Raw) {
   }
 }
 
+function parseInventoryBatch(r: Raw) {
+  return {
+    ...r,
+    stock_qty: f(r.stock_qty),
+  }
+}
+
 function parseCustomer(r: Raw) {
   return {
     ...r,
@@ -63,7 +70,7 @@ async function safeFetch(url: string): Promise<Raw[]> {
 }
 
 export async function hydrateAll(shopId: string, branchId: string): Promise<void> {
-  const [products, categories, priceLists, discounts, employees, inventory, customers] =
+  const [products, categories, priceLists, discounts, employees, inventory, inventoryBatches, customers] =
     await Promise.all([
       safeFetch(`/api/shops/${shopId}/products?active=true&limit=2000`),
       safeFetch(`/api/shops/${shopId}/categories?active=true&limit=200`),
@@ -71,12 +78,13 @@ export async function hydrateAll(shopId: string, branchId: string): Promise<void
       safeFetch(`/api/shops/${shopId}/discounts?active=true&limit=200`),
       safeFetch(`/api/shops/${shopId}/employees?active=true&limit=200`),
       safeFetch(`/api/shops/${shopId}/inventory?limit=2000`),
+      safeFetch(`/api/shops/${shopId}/inventory-batches?limit=5000`).catch(() => []),
       safeFetch(`/api/shops/${shopId}/customers?limit=500&sort=last_seen_at`),
     ])
 
   await localDb.transaction('rw',
     [localDb.products, localDb.categories, localDb.priceLists, localDb.discounts,
-     localDb.employees, localDb.inventory, localDb.customers, localDb.meta],
+     localDb.employees, localDb.inventory, localDb.inventoryBatches, localDb.customers, localDb.meta],
     async () => {
       await Promise.all([
         products.length   ? localDb.products.bulkPut(products.map(parseProduct) as never[])       : null,
@@ -85,6 +93,7 @@ export async function hydrateAll(shopId: string, branchId: string): Promise<void
         discounts.length  ? localDb.discounts.bulkPut(discounts.map(parseDiscount) as never[])    : null,
         employees.length  ? localDb.employees.bulkPut(employees.map(parseEmployee) as never[])    : null,
         inventory.length  ? localDb.inventory.bulkPut(inventory.map(parseInventory) as never[])   : null,
+        inventoryBatches.length ? localDb.inventoryBatches.bulkPut(inventoryBatches.map(parseInventoryBatch) as never[]) : null,
         customers.length  ? localDb.customers.bulkPut(customers.map(parseCustomer) as never[])    : null,
         localDb.meta.put({ key: 'last_hydrated_at', value: new Date().toISOString() }),
         localDb.meta.put({ key: 'hydrated_branch_id', value: branchId }),
@@ -108,7 +117,7 @@ export async function isHydrationStale(ttlMs: number): Promise<boolean> {
 export async function clearLocalDb(): Promise<void> {
   await localDb.transaction('rw',
     [localDb.products, localDb.categories, localDb.priceLists, localDb.discounts,
-     localDb.employees, localDb.inventory, localDb.customers,
+     localDb.employees, localDb.inventory, localDb.inventoryBatches, localDb.customers,
      localDb.orders, localDb.orderItems, localDb.payments, localDb.syncQueue, localDb.meta],
     async () => {
       await Promise.all([
@@ -118,6 +127,7 @@ export async function clearLocalDb(): Promise<void> {
         localDb.discounts.clear(),
         localDb.employees.clear(),
         localDb.inventory.clear(),
+        localDb.inventoryBatches.clear(),
         localDb.customers.clear(),
         localDb.orders.clear(),
         localDb.orderItems.clear(),

@@ -293,3 +293,14 @@ export const location_resources = pgTable('location_resources', {
   branch_id: varchar('branch_id', { length: 255 }),
   metadata: jsonb('metadata'),
 });
+
+// ── Pharmacy Batches & Expiry (Simple) ───────────────────────────────────
+export const inventory_batches = pgTable('inventory_batches', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  product_id: varchar('product_id', { length: 255 }).notNull(),
+  branch_id: varchar('branch_id', { length: 255 }).notNull(),
+  batch_no: varchar('batch_no', { length: 255 }).notNull(),
+  expiry_date: varchar('expiry_date', { length: 50 }).notNull(), // Định dạng YYYY-MM-DD
+  stock_qty: varchar('stock_qty', { length: 50 }).notNull(),
+});

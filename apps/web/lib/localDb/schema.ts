@@ -64,6 +64,15 @@ export interface LocalInventory {
   sku?: string
 }
 
+export interface LocalInventoryBatch {
+  id: string
+  product_id: string
+  branch_id: string
+  batch_no: string
+  expiry_date: string // YYYY-MM-DD
+  stock_qty: number
+}
+
 export interface LocalCustomer {
   customer_id: string
   name: string
@@ -165,6 +174,7 @@ export class OniLocalDB extends Dexie {
   discounts!:   Table<LocalDiscount>
   employees!:   Table<LocalEmployee>
   inventory!:   Table<LocalInventory>
+  inventoryBatches!: Table<LocalInventoryBatch>
   customers!:   Table<LocalCustomer>
   orders!:      Table<LocalOrder>
   orderItems!:  Table<LocalOrderItem>
@@ -192,6 +202,10 @@ export class OniLocalDB extends Dexie {
     // All new fields are optional — existing data is automatically migrated
     this.version(2).stores({
       products: 'product_id, sku, barcode, category_id, active, product_type, parent_id',
+    })
+    // v3: Add inventoryBatches store for offline batch-expiry warnings
+    this.version(3).stores({
+      inventoryBatches: 'id, product_id, [product_id+branch_id], expiry_date',
     })
   }
 }
