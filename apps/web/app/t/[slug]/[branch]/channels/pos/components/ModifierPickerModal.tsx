@@ -25,7 +25,7 @@ interface Props {
 }
 
 function fmtVND(v: number) {
-  if (v === 0) return 'Miễn phí'
+  if (v === 0) return '0đ'
   return (v > 0 ? '+' : '') + v.toLocaleString('vi-VN') + 'đ'
 }
 
@@ -39,24 +39,59 @@ export function ModifierPickerModal({ product, open, onClose, onConfirm }: Props
     return Array.isArray(config?.groups) ? config.groups : []
   }, [product.variant_options])
 
-  // selections: { [groupId]: Set<optionId> }  — single = Set with 1 item, multi = Set with many
   const [selections, setSelections] = useState<Record<string, Set<string>>>({})
 
   if (!open) return null
 
-  function toggleOption(group: ModifierGroup, optId: string) {
-    setSelections((prev) => {
-      const curr = new Set(prev[group.id] ?? [])
-      if (group.max_selection === 1) {
-        // Radio: replace
-        return { ...prev, [group.id]: new Set([optId]) }
-      } else {
-        // Checkbox: toggle
-        if (curr.has(optId)) curr.delete(optId)
-        else curr.add(optId)
-        return { ...prev, [group.id]: curr }
+  function handleOptionClick(group: ModifierGroup, optId: string) {
+    const newSelections = { ...selections }
+    const curr = new Set(newSelections[group.id] ?? [])
+    if (group.max_selection === 1) {
+      newSelections[group.id] = new Set([optId])
+    } else {
+      if (curr.has(optId)) curr.delete(optId)
+      else curr.add(optId)
+      newSelections[group.id] = curr
+    }
+    
+    // We update state for visual feedback if it doesn't close immediately
+    setSelections(newSelections)
+    
+    // Auto-submit logic: if all required groups are satisfied, add to cart!
+    const newErrors = groups.filter((g) => g.is_required && !(newSelections[g.id]?.size > 0))
+    if (newErrors.length === 0) {
+      const selectedModifiers: SelectedModifier[] = []
+      let modifierTotal = 0
+      for (const g of groups) {
+        const selIds = newSelections[g.id] ?? new Set()
+        for (const o of g.options) {
+          if (selIds.has(o.id)) {
+            const adj = Number(o.price_adj) || 0
+            selectedModifiers.push({ group: g.name, option: o.name, price_adj: adj })
+            modifierTotal += adj
+          }
+        }
       }
-    })
+      
+      const labelParts = selectedModifiers.map((m) => m.option)
+      const label = labelParts.length > 0 ? labelParts.join(', ') : undefined
+      const basePrice = Number(product.sell_price)
+      
+      onConfirm({
+        product_id: product.product_id,
+        product_name: product.name,
+        sku: product.sku,
+        unit_price: basePrice,
+        cost_price: Number(product.cost_price),
+        qty: 1,
+        discount_amount: 0,
+        modifier_total: modifierTotal,
+        modifiers: selectedModifiers,
+        variant_label: label,
+        line_total: basePrice + modifierTotal,
+      })
+      onClose()
+    }
   }
 
   function isSelected(groupId: string, optId: string) {
@@ -150,25 +185,32 @@ export function ModifierPickerModal({ product, open, onClose, onConfirm }: Props
                   <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] text-blue-500">Nhiều lựa chọn</span>
                 )}
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="flex flex-col gap-2">
                 {group.options.map((opt) => {
                   const selected = isSelected(group.id, opt.id)
                   const adj = Number(opt.price_adj) || 0
+                  const finalPrice = Number(product.sell_price) + adj
                   return (
                     <button
                       key={opt.id}
                       type="button"
-                      onClick={() => toggleOption(group, opt.id)}
+                      onClick={() => handleOptionClick(group, opt.id)}
                       className={[
-                        'flex items-center justify-between rounded-xl border px-3 py-2 text-sm transition-all',
+                        'flex items-center gap-3 w-full rounded-xl border px-4 py-3 text-sm transition-all text-left',
                         selected
-                          ? 'border-amber-400 bg-amber-50 text-amber-800 font-semibold shadow-sm'
+                          ? 'border-amber-400 bg-amber-50 text-amber-900 shadow-sm'
                           : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50',
                       ].join(' ')}
                     >
-                      <span className="text-left leading-tight">{opt.name}</span>
-                      <span className={['text-xs shrink-0 ml-1', adj > 0 ? 'text-emerald-600 font-medium' : 'text-slate-400'].join(' ')}>
+                      <div className={`shrink-0 flex items-center justify-center w-4 h-4 rounded-full border ${selected ? 'border-amber-500 bg-amber-500' : 'border-slate-300'}`}>
+                        {selected && <div className="w-1.5 h-1.5 bg-white rounded-full" />}
+                      </div>
+                      <span className={`flex-1 ${selected ? 'font-semibold' : ''}`}>{opt.name}</span>
+                      <span className={['w-16 text-right shrink-0', adj > 0 ? 'text-emerald-600 font-medium' : 'text-slate-400'].join(' ')}>
                         {fmtVND(adj)}
+                      </span>
+                      <span className={`w-20 text-right shrink-0 ${selected ? 'font-bold text-amber-700' : 'font-semibold text-slate-700'}`}>
+                        {finalPrice.toLocaleString('vi-VN')}đ
                       </span>
                     </button>
                   )
@@ -176,29 +218,6 @@ export function ModifierPickerModal({ product, open, onClose, onConfirm }: Props
               </div>
             </div>
           ))}
-        </div>
-
-        {/* Footer */}
-        <div className="border-t border-slate-100 p-4 space-y-3 shrink-0">
-          {/* Modifier summary */}
-          {selectedModifiers.length > 0 && (
-            <div className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-700">
-              <span className="font-semibold">Đã chọn: </span>
-              {selectedModifiers.map((m) => m.option).join(' · ')}
-              {modifierTotal > 0 && <span className="ml-1 font-semibold">+{modifierTotal.toLocaleString('vi-VN')}đ</span>}
-            </div>
-          )}
-          {/* Required errors */}
-          {errors.length > 0 && (
-            <p className="text-xs text-red-500">Vui lòng chọn: {errors.join(', ')}</p>
-          )}
-          <button
-            onClick={handleConfirm}
-            disabled={errors.length > 0}
-            className="w-full rounded-xl bg-primary py-2.5 text-sm font-bold text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-primary-dark transition-colors"
-          >
-            Thêm vào giỏ — {totalDisplay.toLocaleString('vi-VN')}đ
-          </button>
         </div>
       </div>
     </div>

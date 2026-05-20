@@ -116,6 +116,7 @@ export interface LocalOrder {
   paid_amount: number
   debt_amount?: number
   note?: string
+  metadata?: string
   created_at: string
   status: string
   print_count: number
