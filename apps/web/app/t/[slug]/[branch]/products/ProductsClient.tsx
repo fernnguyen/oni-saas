@@ -207,6 +207,7 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
   const [bomItems, setBomItems] = useState<Array<{ component_product_id: string; qty: string }>>([])
   const [componentSearch, setComponentSearch] = useState('')
   const [showComponentSearchDropdown, setShowComponentSearchDropdown] = useState(false)
+  const [bomHighlightedIndex, setBomHighlightedIndex] = useState<number>(-1)
   const componentSearchRef = useRef<HTMLDivElement>(null)
 
   // Query to fetch all products for the BOM component selection combobox
@@ -259,9 +260,18 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
   }, [allProducts, componentSearch, editingId])
 
   useEffect(() => {
+    if (filteredComponentProducts.length > 0) {
+      setBomHighlightedIndex(0)
+    } else {
+      setBomHighlightedIndex(-1)
+    }
+  }, [filteredComponentProducts])
+
+  useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (componentSearchRef.current && !componentSearchRef.current.contains(e.target as Node)) {
         setShowComponentSearchDropdown(false)
+        setBomHighlightedIndex(-1)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -1292,21 +1302,45 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
                             onChange={(e) => {
                               setComponentSearch(e.target.value)
                               setShowComponentSearchDropdown(true)
+                              setBomHighlightedIndex(-1)
                             }}
-                            onFocus={() => setShowComponentSearchDropdown(true)}
+                            onFocus={() => {
+                              setShowComponentSearchDropdown(true)
+                              setBomHighlightedIndex(-1)
+                            }}
                             onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                if (filteredComponentProducts.length === 1) {
-                                  e.preventDefault()
-                                  const p = filteredComponentProducts[0]
-                                  const pId = p.product_id || p.id
+                              if (e.key === 'ArrowDown') {
+                                e.preventDefault()
+                                if (filteredComponentProducts.length > 0) {
+                                  setBomHighlightedIndex(prev => (prev === -1 ? 0 : (prev + 1) % filteredComponentProducts.length))
+                                }
+                              } else if (e.key === 'ArrowUp') {
+                                e.preventDefault()
+                                if (filteredComponentProducts.length > 0) {
+                                  setBomHighlightedIndex(prev => (prev === -1 ? filteredComponentProducts.length - 1 : (prev - 1 + filteredComponentProducts.length) % filteredComponentProducts.length))
+                                }
+                              } else if (e.key === 'Escape') {
+                                setShowComponentSearchDropdown(false)
+                                setBomHighlightedIndex(-1)
+                              } else if (e.key === 'Enter') {
+                                e.preventDefault()
+                                let selectedProduct = null
+                                if (bomHighlightedIndex >= 0 && bomHighlightedIndex < filteredComponentProducts.length) {
+                                  selectedProduct = filteredComponentProducts[bomHighlightedIndex]
+                                } else if (filteredComponentProducts.length === 1) {
+                                  selectedProduct = filteredComponentProducts[0]
+                                }
+
+                                if (selectedProduct) {
+                                  const pId = selectedProduct.product_id || selectedProduct.id
                                   if (bomItems.some(item => item.component_product_id === pId)) {
                                     toast.error('Linh kiện này đã có trong danh sách')
                                   } else {
                                     setBomItems(prev => [...prev, { component_product_id: pId, qty: '1' }])
                                     setComponentSearch('')
                                     setShowComponentSearchDropdown(false)
-                                    toast.success(`Đã thêm ${p.name}`)
+                                    setBomHighlightedIndex(-1)
+                                    toast.success(`Đã thêm ${selectedProduct.name}`)
                                   }
                                 }
                               }
@@ -1317,10 +1351,11 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
 
                           {showComponentSearchDropdown && filteredComponentProducts.length > 0 && (
                             <div className="absolute z-50 mt-1 w-full max-h-60 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
-                              {filteredComponentProducts.map((p) => (
+                              {filteredComponentProducts.map((p, index) => (
                                 <button
                                   key={p.product_id || p.id}
                                   type="button"
+                                  onMouseEnter={() => setBomHighlightedIndex(index)}
                                   onClick={() => {
                                     const pId = p.product_id || p.id
                                     // Check if already exists
@@ -1330,15 +1365,20 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
                                       setBomItems(prev => [...prev, { component_product_id: pId, qty: '1' }])
                                       setComponentSearch('')
                                       setShowComponentSearchDropdown(false)
+                                      setBomHighlightedIndex(-1)
                                       toast.success(`Đã thêm ${p.name}`)
                                     }
                                   }}
-                                  className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-slate-50 transition-colors"
+                                  className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors ${
+                                    index === bomHighlightedIndex
+                                      ? 'bg-primary/10 border-l-2 border-primary'
+                                      : 'hover:bg-slate-50'
+                                  }`}
                                 >
                                   <div className="flex-1 min-w-0 pr-2">
                                     <div className="flex items-center gap-2">
                                       <p className="font-semibold text-slate-900 truncate">{p.name}</p>
-                                      {filteredComponentProducts.length === 1 && (
+                                      {(index === bomHighlightedIndex || filteredComponentProducts.length === 1) && (
                                         <kbd className="inline-flex items-center gap-0.5 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[9px] font-sans font-bold text-slate-500 shadow-sm shrink-0">
                                           Enter
                                         </kbd>
