@@ -96,10 +96,19 @@ export const products = pgTable('products', {
   description: text('description'),
   stock_qty: varchar('stock_qty', { length: 50 }),
   metadata: jsonb('metadata'),
+  has_bom: varchar('has_bom', { length: 10 }).default('FALSE'),
   // ── Variant / Modifier System (Sprint 1) ──────────────────────────────────
   product_type: varchar('product_type', { length: 20 }).default('simple'),
   parent_id: varchar('parent_id', { length: 255 }),
   variant_options: text('variant_options'),
+});
+
+export const product_bom = pgTable('product_bom', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  parent_product_id: varchar('parent_product_id', { length: 255 }).notNull(), // Thành phẩm (e.g., Bộ máy tính)
+  component_product_id: varchar('component_product_id', { length: 255 }).notNull(), // Linh kiện cấu thành (e.g., RAM)
+  qty: varchar('qty', { length: 50 }).notNull(), // Số lượng định mức tiêu hao (e.g., "1", "0.02" kg)
 });
 
 export const customers = pgTable('customers', {

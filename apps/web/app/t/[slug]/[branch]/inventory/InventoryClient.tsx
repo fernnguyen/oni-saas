@@ -584,7 +584,7 @@ export function InventoryClient({ shopId }: Props) {
     newItems[quickCreateIdx] = {
       product_id: '',
       product_name: quickProductForm.name,
-      sku: `SP-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      sku: `P-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       qty: newItems[quickCreateIdx]?.qty || '',
       unit_cost: newItems[quickCreateIdx]?.unit_cost || '',
       is_new: true,

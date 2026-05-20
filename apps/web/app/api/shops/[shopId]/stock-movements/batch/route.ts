@@ -169,10 +169,12 @@ export async function POST(
         }
 
         // Create the product
-        finalSku = item.sku || `SP-${Date.now()}-${Math.floor(Math.random() * 1000)}`
+        const isTempSku = !item.sku || item.sku.startsWith('TEMP-') || item.sku.match(/^P-\d{13}-\d+$/)
+        const productSku = isTempSku ? '' : item.sku
+
         const createdProduct = await connector.create('products', {
           name: item.product_name.trim(),
-          sku: finalSku,
+          sku: productSku,
           category_id: categoryId,
           sell_price: item.sell_price || '0',
           cost_price: item.unit_cost || '0',
@@ -183,6 +185,7 @@ export async function POST(
         }) as Record<string, string>
 
         productId = createdProduct.product_id || createdProduct.id
+        finalSku = createdProduct.sku || createdProduct.id
         tx.add(async () => {
           await connector.delete('products', productId!).catch(() => {})
         })

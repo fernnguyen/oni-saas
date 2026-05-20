@@ -26,6 +26,7 @@ const ENTITY_PREFIXES: Record<string, string> = {
   'return-items':       'RI',
   'cashbook':           'CB',
   'location-resources': 'LR',
+  'product-bom':        'BOM',
 }
 
 // Shared pool cache to avoid creating a new pool per request
@@ -87,6 +88,7 @@ export class PostgresConnector implements IDataConnector {
     'price-lists',
     'discounts',
     'suppliers',
+    'product-bom',
   ]
 
   private readonly LEGACY_ID_MAP: Record<string, string> = {
@@ -107,6 +109,7 @@ export class PostgresConnector implements IDataConnector {
     'payments': 'payment_id',
     'branches': 'branch_id',
     'location-resources': 'resource_id',
+    'product-bom': 'bom_id',
   }
 
   private async generateSequentialId(entity: string): Promise<string> {

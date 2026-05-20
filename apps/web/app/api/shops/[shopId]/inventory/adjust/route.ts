@@ -23,37 +23,64 @@ export async function POST(
       return NextResponse.json({ ok: true })
     }
 
-    // Fetch all inventory for this product_id to minimize connector API calls (avoids sequential fallback queries)
-    const invListResult = await connector.list('inventory', {
-      page: 1, limit: 10, // get up to 10 branches
-      filters: { product_id },
-    })
+    // Recursive helper to adjust inventory, expanding BOM products
+    async function adjustInventoryRecursively(pid: string, amount: number) {
+      try {
+        const prod = await connector.findById('products', pid)
+        if (prod && prod.has_bom === 'TRUE') {
+          const bomRes = await connector.list('product-bom', {
+            page: 1,
+            limit: 1000,
+            filters: { parent_product_id: pid }
+          })
+          const components = bomRes.data as Record<string, any>[]
 
-    const allInv = invListResult.data as Record<string, string>[]
-    let invRow = allInv.find(i => i.branch_id === branch_id)
-    if (!invRow && branch_id !== '') {
-      invRow = allInv.find(i => i.branch_id === '')
-    }
-    if (!invRow) {
-      // fallback to any row if nothing matched
-      invRow = allInv[0]
+          for (const comp of components) {
+            const compId = comp.component_product_id
+            const compQtyFactor = parseFloat(comp.qty || '0')
+            const compDelta = amount * compQtyFactor
+
+            if (!isNaN(compDelta) && compDelta !== 0) {
+              await adjustInventoryRecursively(compId, compDelta)
+            }
+          }
+        } else {
+          // Standard product inventory adjustment
+          const invListResult = await connector.list('inventory', {
+            page: 1, limit: 10,
+            filters: { product_id: pid },
+          })
+
+          const allInv = invListResult.data as Record<string, string>[]
+          let invRow = allInv.find(i => i.branch_id === branch_id)
+          if (!invRow && branch_id !== '') {
+            invRow = allInv.find(i => i.branch_id === '')
+          }
+          if (!invRow) {
+            invRow = allInv[0]
+          }
+
+          if (invRow) {
+            const newQty = parseFloat(invRow.stock_qty || '0') + amount
+            await connector.update('inventory', invRow.inventory_id as string, {
+              stock_qty: String(newQty),
+            })
+          } else {
+            await connector.create('inventory', {
+              product_id: pid,
+              branch_id: branch_id || '',
+              stock_qty: String(amount),
+              min_stock: '0',
+              sku: '',
+            } as Record<string, string>)
+          }
+        }
+      } catch (err) {
+        console.error(`Failed to adjust inventory for product ${pid}:`, err)
+      }
     }
 
-    if (invRow) {
-      const newQty = Math.max(0, parseFloat(invRow.stock_qty || '0') + delta)
-      await connector.update('inventory', invRow.inventory_id as string, {
-        stock_qty: String(newQty),
-      })
-    } else if (delta > 0) {
-      await connector.create('inventory', {
-        product_id,
-        branch_id: '',
-        stock_qty: String(delta),
-        min_stock: '0',
-        sku: '',
-      } as Record<string, string>)
-    }
-    // delta < 0 with no inventory row: nothing to deduct, skip silently
+    await adjustInventoryRecursively(product_id, delta)
 
     invalidate(shopId, 'inventory')
     return NextResponse.json({ ok: true })
