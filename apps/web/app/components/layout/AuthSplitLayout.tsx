@@ -53,7 +53,7 @@ export function AuthSplitLayout({
 
       {/* Right panel — form */}
       <div className="flex flex-1 flex-col justify-center bg-white lg:bg-slate-50 px-6 py-12 lg:px-16 xl:px-24">
-        <div className="mx-auto w-full max-w-sm lg:max-w-md lg:bg-white lg:p-10 lg:rounded-3xl lg:shadow-xl lg:shadow-blue-900/5 lg:border lg:border-slate-100">
+        <div className="mx-auto w-full max-w-md lg:max-w-xl xl:max-w-2xl lg:bg-white lg:p-10 lg:rounded-3xl lg:shadow-xl lg:shadow-blue-900/5 lg:border lg:border-slate-100">
           {children}
         </div>
       </div>

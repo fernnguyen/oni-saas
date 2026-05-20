@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseServerClient } from '@/lib/server/supabaseServer'
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
+import { getTenantActivePlanDetails } from '@/lib/server/subscriptions'
 
 /**
  * Switch the active connector for a tenant.
@@ -49,6 +50,16 @@ export async function POST(req: NextRequest) {
       : (access as any).roles?.code
     if (roleCode !== 'owner' && roleCode !== 'admin') {
       return NextResponse.json({ message: 'Chỉ owner/admin mới được thay đổi' }, { status: 403 })
+    }
+
+    // Verify plan is Pro or Enterprise
+    const planDetails = await getTenantActivePlanDetails(tenant_id)
+    const planCode = planDetails?.planCode
+    if (planCode !== 'plan_pro' && planCode !== 'plan_enterprise') {
+      return NextResponse.json(
+        { message: 'Tính năng kết nối dữ liệu riêng chỉ dành cho gói Chuyên nghiệp (Pro) trở lên. Vui lòng nâng cấp gói để sử dụng.' },
+        { status: 403 }
+      )
     }
 
     // Deactivate existing connectors

@@ -22,19 +22,69 @@ function slugify(val: string) {
     .slice(0, 50);
 }
 
+const INDUSTRY_VISUALS: Record<IndustryType, {
+  gradient: string
+  bgActive: string
+  bgSphere: string
+  borderColor: string
+}> = {
+  retail: {
+    gradient: 'from-blue-500 to-indigo-600',
+    bgActive: 'bg-blue-50/30 ring-blue-500/20',
+    bgSphere: 'from-blue-500/10 to-indigo-500/10 text-indigo-600 border-indigo-200/50',
+    borderColor: 'border-indigo-500',
+  },
+  fnb: {
+    gradient: 'from-orange-500 to-rose-500',
+    bgActive: 'bg-orange-50/30 ring-orange-500/20',
+    bgSphere: 'from-orange-500/10 to-rose-500/10 text-orange-600 border-orange-200/50',
+    borderColor: 'border-rose-500',
+  },
+  billiards: {
+    gradient: 'from-emerald-500 to-teal-600',
+    bgActive: 'bg-emerald-50/30 ring-emerald-500/20',
+    bgSphere: 'from-emerald-500/10 to-teal-500/10 text-emerald-600 border-emerald-200/50',
+    borderColor: 'border-emerald-500',
+  },
+  sports_court: {
+    gradient: 'from-violet-500 to-fuchsia-600',
+    bgActive: 'bg-violet-50/30 ring-violet-500/20',
+    bgSphere: 'from-violet-500/10 to-fuchsia-500/10 text-violet-600 border-violet-200/50',
+    borderColor: 'border-violet-500',
+  },
+  lodging: {
+    gradient: 'from-cyan-500 to-blue-600',
+    bgActive: 'bg-cyan-50/30 ring-cyan-500/20',
+    bgSphere: 'from-cyan-500/10 to-blue-500/10 text-blue-600 border-blue-200/50',
+    borderColor: 'border-blue-500',
+  },
+  fashion: {
+    gradient: 'from-pink-500 to-rose-500',
+    bgActive: 'bg-pink-50/30 ring-pink-500/20',
+    bgSphere: 'from-pink-500/10 to-rose-500/10 text-pink-600 border-pink-200/50',
+    borderColor: 'border-pink-500',
+  },
+  service_hourly: {
+    gradient: 'from-amber-500 to-orange-600',
+    bgActive: 'bg-amber-50/30 ring-amber-500/20',
+    bgSphere: 'from-amber-500/10 to-orange-500/10 text-amber-600 border-amber-200/50',
+    borderColor: 'border-amber-500',
+  },
+};
+
 export function RegisterForm({ plans, initialDomain }: { plans: any[], initialDomain?: string }) {
   const router = useRouter();
-  const [slug, setSlug]           = useState(initialDomain || '');
+  const [slug, setSlug] = useState(initialDomain || '');
   const [slugStatus, setSlugStatus] = useState<'idle' | 'checking' | 'available' | 'taken' | 'invalid'>('idle');
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(!!initialDomain);
-  const [name, setName]           = useState('');
-  const [email, setEmail]         = useState('');
-  const [password, setPassword]   = useState('');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const defaultPlan = plans.find(p => p.is_default || p.code === 'plan_mini') || plans[0];
   const [selectedPlanCode, setSelectedPlanCode] = useState(defaultPlan?.code || '');
-  const [error, setError]         = useState<string | null>(null);
-  const [loading, setLoading]     = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   const [industryType, setIndustryType] = useState<IndustryType>('retail');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -102,36 +152,51 @@ export function RegisterForm({ plans, initialDomain }: { plans: any[], initialDo
 
         {/* Industry Type Selection */}
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-slate-700">Ngành nghề kinh doanh</label>
-          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+          <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-slate-500">
+            Chọn ngành nghề kinh doanh
+          </label>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {INDUSTRY_TYPES.map((type) => {
               const v = VERTICAL_REGISTRY[type];
               const selected = industryType === type;
+              const visuals = INDUSTRY_VISUALS[type] ?? INDUSTRY_VISUALS.retail;
               return (
                 <button
                   key={type}
                   type="button"
                   onClick={() => setIndustryType(type)}
-                  className={`flex flex-col items-center gap-1.5 rounded-xl border-2 px-2 py-3 text-center transition-all hover:border-primary/50 hover:bg-primary/5 ${
-                    selected
-                      ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
-                      : 'border-slate-200 bg-white'
-                  }`}
+                  className={`group relative flex items-start gap-3 rounded-xl border-2 p-3 text-left transition-all duration-200 hover:-translate-y-0.5 ${selected
+                      ? `${visuals.bgActive} ${visuals.borderColor} ring-2 ring-slate-100/50 shadow-sm`
+                      : 'border-slate-100 bg-white hover:border-slate-200 hover:shadow-sm'
+                    }`}
                 >
-                  <span className="text-xl leading-none">{v.icon}</span>
-                  <span className={`text-[11px] font-medium leading-tight ${
-                    selected ? 'text-primary' : 'text-slate-600'
-                  }`}>{v.label}</span>
+                  <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br ${visuals.bgSphere} text-xl shadow-inner border border-slate-100 transition-transform duration-200 group-hover:scale-105`}>
+                    {v.icon}
+                  </div>
+
+                  <div className="flex-1 min-w-0 pr-4">
+                    <p className={`text-sm font-bold transition-colors ${selected ? 'text-slate-900' : 'text-slate-800 group-hover:text-slate-900'}`}>
+                      {v.label}
+                    </p>
+                    <p className="mt-0.5 text-[10px] text-slate-400 leading-normal line-clamp-2">
+                      {v.description}
+                    </p>
+                  </div>
+
+                  {selected && (
+                    <span className={`absolute top-2.5 right-2.5 flex h-4 w-4 items-center justify-center rounded-full bg-gradient-to-r ${visuals.gradient} text-white shadow-sm shrink-0`}>
+                      <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    </span>
+                  )}
                 </button>
               );
             })}
           </div>
-          <div className="mt-3 flex items-start gap-2.5 rounded-xl border border-blue-100 bg-blue-50/50 p-3">
-            <svg className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <p className="text-xs text-slate-600 leading-relaxed">
-              {VERTICAL_REGISTRY[industryType].description}. <span className="text-primary font-semibold">Có thể thay đổi trong Cài đặt.</span> 
+          <div className="mt-3 flex items-start gap-2.5 rounded-xl border border-indigo-100 bg-indigo-50/30 p-3 shadow-inner">
+            <p className="text-[11px] text-indigo-700 leading-relaxed font-medium">
+              Hệ thống sẽ được cấu hình tối ưu cho ngành: <strong className="underline decoration-indigo-300 underline-offset-2">{VERTICAL_REGISTRY[industryType].label}</strong>. Bạn hoàn toàn có thể thay đổi lựa chọn này bất cứ lúc nào trong Cài đặt hệ thống.
             </p>
           </div>
         </div>
@@ -149,11 +214,10 @@ export function RegisterForm({ plans, initialDomain }: { plans: any[], initialDo
         {/* Subdomain */}
         <div>
           <label className="mb-1.5 block text-sm font-medium text-slate-700">Đường dẫn truy cập (Tên miền)</label>
-          <div className={`flex overflow-hidden rounded-xl border transition-colors focus-within:ring-2 focus-within:ring-primary/20 ${
-            slugStatus === 'available' ? 'border-green-400' :
-            slugStatus === 'taken' || slugStatus === 'invalid' ? 'border-red-400' :
-            'border-slate-200 focus-within:border-primary'
-          }`}>
+          <div className={`flex overflow-hidden rounded-xl border transition-colors focus-within:ring-2 focus-within:ring-primary/20 ${slugStatus === 'available' ? 'border-green-400' :
+              slugStatus === 'taken' || slugStatus === 'invalid' ? 'border-red-400' :
+                'border-slate-200 focus-within:border-primary'
+            }`}>
             <input
               value={slug}
               onChange={(e) => handleSlugChange(e.target.value)}

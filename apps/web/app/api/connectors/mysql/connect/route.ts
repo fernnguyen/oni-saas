@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getSupabaseServerClient } from '../../../../../lib/server/supabaseServer';
 import { getSupabaseAdminClient } from '../../../../../lib/server/supabaseAdmin';
+import { getTenantActivePlanDetails } from '../../../../../lib/server/subscriptions';
 
 const schema = z.object({
   tenant_id: z.string().uuid(),
@@ -32,6 +33,16 @@ export async function POST(req: NextRequest) {
   const roleCode = Array.isArray(tenantAccess?.roles) ? tenantAccess?.roles[0]?.code : tenantAccess?.roles?.code;
   if (roleCode !== 'owner' && roleCode !== 'admin') {
     return NextResponse.json({ message: 'Forbidden' }, { status: 403 });
+  }
+
+  // Verify plan is Pro or Enterprise
+  const planDetails = await getTenantActivePlanDetails(tenant_id);
+  const planCode = planDetails?.planCode;
+  if (planCode !== 'plan_pro' && planCode !== 'plan_enterprise') {
+    return NextResponse.json(
+      { message: 'Tính năng kết nối dữ liệu riêng chỉ dành cho gói Chuyên nghiệp (Pro) trở lên. Vui lòng nâng cấp gói để sử dụng.' },
+      { status: 403 }
+    );
   }
 
   // Check if a connector already exists
