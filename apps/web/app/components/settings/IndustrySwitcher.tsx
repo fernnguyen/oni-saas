@@ -125,7 +125,7 @@ export function IndustrySwitcher({ tenantId, currentIndustry }: Props) {
           </div>
           <div>
             <h2 className="text-sm font-semibold text-slate-900">Ngành nghề kinh doanh chính</h2>
-            <p className="text-xs text-slate-500 mt-1 leading-relaxed max-w-3xl">
+            <p className="text-xs text-slate-500 mt-1 leading-relaxed">
               Quý khách vui lòng chọn ngành kinh doanh chính của doanh nghiệp. Giao diện bán hàng (POS), menu điều hướng và báo cáo phân tích sẽ tự động tối ưu hóa theo đặc thù riêng biệt của từng ngành nghề. Hiện tại hệ thống đang được tối ưu hóa cho ngành: <strong className="text-primary font-bold">{currentConfig.label}</strong>.
             </p>
           </div>
@@ -144,11 +144,10 @@ export function IndustrySwitcher({ tenantId, currentIndustry }: Props) {
               <button
                 key={type}
                 onClick={() => setSelected(type)}
-                className={`group relative rounded-2xl border-2 p-4 text-left transition-all duration-300 hover:-translate-y-0.5 flex flex-col justify-between ${
-                  isActive
+                className={`group relative rounded-2xl border-2 p-4 text-left transition-all duration-300 hover:-translate-y-0.5 flex flex-col justify-between ${isActive
                     ? `${visuals.bgActive} ${visuals.borderColor} ring-2 ring-slate-100 shadow-md ${visuals.shadowColor}`
                     : 'border-slate-100 bg-white hover:border-slate-300 hover:shadow-md hover:shadow-slate-100/50'
-                }`}
+                  }`}
               >
                 <div>
                   <div className="flex items-center gap-3 mb-3 shrink-0">

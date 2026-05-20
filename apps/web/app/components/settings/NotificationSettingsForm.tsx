@@ -127,11 +127,33 @@ export function NotificationSettingsForm({
 
   if (!canUsePushNotify && !canUseCustomNotify) {
     return (
-      <div className="rounded-xl border border-slate-200 bg-white p-6 opacity-75">
-        <h2 className="text-lg font-semibold text-slate-900 mb-2">Thông báo Push (Telegram/Zalo)</h2>
-        <p className="text-sm text-slate-500">
-          Tính năng này không khả dụng cho gói dịch vụ hiện tại của bạn. Vui lòng nâng cấp để sử dụng hệ thống thông báo.
-        </p>
+      <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+        <div className="border-b border-slate-100 px-6 py-4">
+          <h2 className="text-sm font-semibold text-slate-900">Thông báo Push (Telegram/Zalo)</h2>
+          <p className="text-xs text-slate-400 mt-0.5">Nhận thông báo đơn hàng và báo cáo doanh thu tự động qua Telegram/Zalo.</p>
+        </div>
+        <div className="px-6 py-10 flex flex-col items-center text-center max-w-lg mx-auto">
+          {/* Top circle holding the blue bell icon */}
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-blue-50 text-blue-600 mb-5 border border-blue-100">
+            <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
+            </svg>
+          </div>
+          
+          <h3 className="text-base font-bold text-slate-900 mb-2">Thông báo Push (Telegram / Zalo)</h3>
+          
+          <p className="text-xs text-slate-500 leading-relaxed mb-6">
+            Tính năng gửi thông báo tức thời qua <strong>Telegram & Zalo</strong> giúp bạn kiểm soát dòng tiền, báo cáo doanh thu và đơn hàng tự động mọi lúc mọi nơi. Tính năng này yêu cầu gói cước <strong>Chuyên nghiệp (Pro)</strong> trở lên.
+          </p>
+          
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent('open-plan-modal'))}
+            className="cursor-pointer rounded-lg bg-blue-600 hover:bg-blue-700 px-6 py-2.5 text-xs font-bold text-white shadow-md hover:shadow-lg transition-all active:scale-95 flex items-center gap-1.5"
+          >
+            <span>Nâng cấp lên Pro</span>
+          </button>
+        </div>
       </div>
     );
   }

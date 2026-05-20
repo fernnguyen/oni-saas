@@ -4,6 +4,7 @@ import { useState, FormEvent, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
+import { toast } from 'sonner';
 import { AuthSplitLayout } from '../layout/AuthSplitLayout';
 import { getSupabaseBrowserClient } from '../../../lib/supabaseBrowser';
 import { getVerticalConfig } from '@oni/core';
@@ -26,6 +27,13 @@ export function SignInForm({
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  function handleForgotPassword() {
+    const displayName = tenantName || tenantSlug || 'hệ thống';
+    toast.info(`Vui lòng liên hệ người quản trị của ${displayName} để lấy lại mật khẩu.`, {
+      duration: 6000,
+    });
+  }
 
   useEffect(() => {
     const err = searchParams.get('error');
@@ -202,10 +210,9 @@ export function SignInForm({
           </div>
 
           {/* Password */}
-          <div>
+          <div className="relative">
             <div className="flex items-center justify-between mb-1.5">
               <label className="block text-sm font-medium text-slate-700">Mật khẩu</label>
-              <Link href="#" className="text-xs font-semibold text-primary hover:underline">Quên mật khẩu?</Link>
             </div>
             <div className="flex overflow-hidden rounded-xl border border-slate-200 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-all">
               <input
@@ -235,6 +242,13 @@ export function SignInForm({
                 )}
               </button>
             </div>
+            <button
+              type="button"
+              onClick={handleForgotPassword}
+              className="absolute top-0 right-0 text-xs font-semibold text-primary hover:underline focus:outline-none cursor-pointer"
+            >
+              Quên mật khẩu?
+            </button>
           </div>
 
           {error && (
