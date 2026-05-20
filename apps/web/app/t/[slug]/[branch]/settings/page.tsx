@@ -39,8 +39,9 @@ export default async function BranchSettingsPage({ params }: Props) {
   }
   const shopId: string = shop.id;
 
-  const [settingsResult] = await Promise.all([
+  const [settingsResult, shopResult] = await Promise.all([
     admin.from('shop_settings').select('*').eq('shop_id', shopId).maybeSingle(),
+    admin.from('shops').select('phone').eq('id', shopId).maybeSingle(),
   ]);
 
   const canManage =
@@ -72,7 +73,7 @@ export default async function BranchSettingsPage({ params }: Props) {
         <p className="text-sm text-slate-500 mt-0.5">Cấu hình thông tin chi nhánh và bán hàng</p>
       </div>
       <ShopSettingsForm
-        shop={{ id: shopId, name: shop.name, slug: shop.slug, address: shop.address ?? null }}
+        shop={{ id: shopId, name: shop.name, slug: shop.slug, address: shop.address ?? null, phone: shopResult.data?.phone ?? null }}
         settings={settings}
         canManage={canManage}
       />
