@@ -81,13 +81,29 @@ function fmtDuration(seconds: number) {
   return `${h}h ${m}p`
 }
 
-/* Default fallback template (room) for backwards compatibility */
 const DEFAULT_TEMPLATE: import('@oni/core').ResourceTemplate = {
   type: 'room', label: 'Phòng', icon: '🛏',
   subTypes: [{ value: 'standard', label: 'Standard' }],
   actions: { checkIn: 'Nhận phòng', checkOut: 'Trả phòng', payAndClose: 'Thanh toán & Trả phòng' },
   sections: { guestRegistration: true, bookingSource: true, bedType: true, amenities: true, overnightRate: true, depositAmount: true, surfaceType: false, expectedReturn: true },
   metaLabels: { expectedReturn: 'Dự kiến trả phòng', sessionInfo: 'Thông tin thuê', tabServices: 'Phòng & Dịch vụ' },
+}
+
+function pushOfflineAction(orderId: string, action: any) {
+  if (typeof window === 'undefined') return
+  const queueKey = `offline_table_actions:${orderId}`
+  const queueStr = localStorage.getItem(queueKey)
+  const queue = queueStr ? JSON.parse(queueStr) : []
+  
+  // Optimization: If it's a DELETE on a tempId, filter out any ADD/UPDATE for that tempId
+  if (action.type === 'DELETE' && action.itemId.startsWith('temp-')) {
+    const filtered = queue.filter((act: any) => act.tempId !== action.itemId && act.itemId !== action.itemId)
+    localStorage.setItem(queueKey, JSON.stringify(filtered))
+    return
+  }
+  
+  queue.push(action)
+  localStorage.setItem(queueKey, JSON.stringify(queue))
 }
 
 export function ResourceSlideOver({
@@ -173,6 +189,71 @@ export function ResourceSlideOver({
 
   const fetchingRef = useRef('')
 
+  // --- Offline Sync Actions ---
+  const syncOfflineActions = useCallback(async (orderId: string) => {
+    const queueKey = `offline_table_actions:${orderId}`
+    const queueStr = localStorage.getItem(queueKey)
+    if (!queueStr) return
+    
+    let actions = JSON.parse(queueStr)
+    if (actions.length === 0) return
+
+    console.log(`Replaying ${actions.length} offline actions for order ${orderId}`)
+    const remainingActions = []
+
+    for (let i = 0; i < actions.length; i++) {
+      const action = actions[i]
+      try {
+        if (action.type === 'ADD') {
+          const res = await fetch(`/api/shops/${shopId}/order-items`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(action.item)
+          })
+          if (!res.ok) throw new Error()
+          const savedItem = await res.json()
+          
+          const tempId = action.tempId
+          const serverId = savedItem.id
+          for (let j = i + 1; j < actions.length; j++) {
+            if (actions[j].itemId === tempId) {
+              actions[j].itemId = serverId
+            }
+            if (actions[j].tempId === tempId) {
+              actions[j].tempId = serverId
+            }
+          }
+          
+          setExistingItems(prev => prev.map(item => item.id === tempId ? savedItem : item))
+        } else if (action.type === 'UPDATE') {
+          const res = await fetch(`/api/shops/${shopId}/order-items/${action.itemId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ qty: action.qty, line_total: action.line_total })
+          })
+          if (!res.ok) throw new Error()
+        } else if (action.type === 'DELETE') {
+          if (!action.itemId.startsWith('temp-')) {
+            const res = await fetch(`/api/shops/${shopId}/order-items/${action.itemId}`, {
+              method: 'DELETE'
+            })
+            if (!res.ok) throw new Error()
+          }
+        }
+      } catch (err) {
+        console.error('Failed to sync action', action, err)
+        remainingActions.push(action)
+      }
+    }
+
+    if (remainingActions.length > 0) {
+      localStorage.setItem(queueKey, JSON.stringify(remainingActions))
+    } else {
+      localStorage.removeItem(queueKey)
+      toast.success("Đã đồng bộ thành công các món đặt tạm khi offline lên máy chủ!")
+    }
+  }, [shopId])
+
   // --- Data Loading (Occupied) ---
   const fetchOrder = useCallback(async () => {
     if (!isOccupied || !resource.current_order_id) return
@@ -180,36 +261,70 @@ export function ResourceSlideOver({
     
     fetchingRef.current = resource.current_order_id
     setLoadingOrder(true)
+    const orderId = resource.current_order_id
+
+    let oData = null
+    let items: OrderItem[] = []
+    let payments: any[] = []
+    let isOffline = false
+
     try {
-      const orderId = resource.current_order_id
+      // Replay offline actions before fetching
+      const queueKey = `offline_table_actions:${orderId}`
+      const queueStr = localStorage.getItem(queueKey)
+      if (queueStr && JSON.parse(queueStr).length > 0) {
+        await syncOfflineActions(orderId)
+      }
+
       const [orderRes, itemsRes, paymentsRes] = await Promise.all([
         fetch(`/api/shops/${shopId}/orders/${orderId}`),
         fetch(`/api/shops/${shopId}/order-items?order_id=${orderId}&limit=200&t=${Date.now()}`),
         fetch(`/api/shops/${shopId}/payments?order_id=${orderId}&limit=100`),
       ])
+      
       if (orderRes.ok) {
-        const oData = await orderRes.json()
-        setOrder(oData)
-        const meta = safeParse(oData.metadata)
-        if (meta.guests) setGuests(meta.guests)
-        if (meta.booking_source) setBookingSource(meta.booking_source)
-        if (meta.note || oData.note) setNote(meta.note || oData.note || '')
-        if (meta.expected_checkout) setExpectedCheckout(meta.expected_checkout)
+        oData = await orderRes.json()
+        localStorage.setItem(`table_order:${orderId}`, JSON.stringify(oData))
       }
       if (itemsRes.ok) {
         const iData = await itemsRes.json()
-        setExistingItems(iData.data || [])
+        items = iData.data || []
+        localStorage.setItem(`table_order_items:${orderId}`, JSON.stringify(items))
       }
       if (paymentsRes.ok) {
         const pData = await paymentsRes.json()
-        setInstallments(pData.data || [])
+        payments = pData.data || []
+        localStorage.setItem(`table_order_payments:${orderId}`, JSON.stringify(payments))
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      isOffline = true
+      console.warn('Offline mode or network error, falling back to local cache', err)
+      const cachedOrder = localStorage.getItem(`table_order:${orderId}`)
+      const cachedItems = localStorage.getItem(`table_order_items:${orderId}`)
+      const cachedPayments = localStorage.getItem(`table_order_payments:${orderId}`)
+      
+      if (cachedOrder) oData = JSON.parse(cachedOrder)
+      if (cachedItems) items = JSON.parse(cachedItems)
+      if (cachedPayments) payments = JSON.parse(cachedPayments)
     } finally {
       setLoadingOrder(false)
     }
-  }, [isOccupied, resource.current_order_id, shopId])
+
+    if (oData) {
+      setOrder(oData)
+      const meta = safeParse(oData.metadata)
+      if (meta.guests) setGuests(meta.guests)
+      if (meta.booking_source) setBookingSource(meta.booking_source)
+      if (meta.note || oData.note) setNote(meta.note || oData.note || '')
+      if (meta.expected_checkout) setExpectedCheckout(meta.expected_checkout)
+    }
+    setExistingItems(items)
+    setInstallments(payments)
+
+    if (isOffline) {
+      toast.warning("Mất kết nối mạng. Dữ liệu bàn được lấy từ bộ nhớ tạm cục bộ.")
+    }
+  }, [isOccupied, resource.current_order_id, shopId, syncOfflineActions])
 
   const lastOpenedRef = useRef<{ id: string; open: boolean }>({ id: '', open: false })
 
@@ -234,6 +349,7 @@ export function ResourceSlideOver({
       const now = new Date()
       setCheckInTime(`${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`)
       
+      fetchingRef.current = ''
       fetchOrder()
       setCustomCheckoutTime('')
       setIsEditingCheckout(false)
@@ -265,6 +381,19 @@ export function ResourceSlideOver({
     timerRef.current = setInterval(updateTimer, 60000) // Update every minute
     return () => clearInterval(timerRef.current!)
   }, [order, customCheckoutTime])
+
+  // Online / network restore background sync
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const handleOnline = () => {
+      if (open && isOccupied && resource.current_order_id) {
+        fetchingRef.current = ''
+        fetchOrder()
+      }
+    }
+    window.addEventListener('online', handleOnline)
+    return () => window.removeEventListener('online', handleOnline)
+  }, [open, isOccupied, resource.current_order_id, fetchOrder])
 
   // Calculate Time Charge
   const hourlyRate = Number(resource.hourly_rate) || 0
@@ -454,23 +583,28 @@ export function ResourceSlideOver({
       const newQty = Number(existingInDb.qty) + item.qty
       const newLineTotal = newQty * unitPrice
       
-      setExistingItems(prev => prev.map(i => getSig(i) === sig ? {
+      const updatedItems = existingItems.map(i => getSig(i) === sig ? {
         ...i,
         qty: String(newQty),
         line_total: String(newLineTotal)
-      } : i))
+      } : i)
+      
+      setExistingItems(updatedItems)
       
       try {
-        await fetch(`/api/shops/${shopId}/order-items/${existingInDb.id}`, {
+        const res = await fetch(`/api/shops/${shopId}/order-items/${existingInDb.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ qty: String(newQty), line_total: String(newLineTotal) })
         })
+        if (!res.ok) throw new Error()
+        
         toast.success(`Đã cập nhật: ${item.product_name} (x${newQty})`)
+        localStorage.setItem(`table_order_items:${order.id}`, JSON.stringify(updatedItems))
       } catch (err) {
-        toast.error('Lỗi khi cập nhật số lượng')
-        // Tự động rollback khi fetch lại
-        fetchOrder()
+        pushOfflineAction(order.id, { type: 'UPDATE', itemId: existingInDb.id, qty: String(newQty), line_total: String(newLineTotal) })
+        toast.warning(`Mất kết nối. Đã lưu tạm số lượng mới (x${newQty}) cho ${item.product_name} trên thiết bị này.`)
+        localStorage.setItem(`table_order_items:${order.id}`, JSON.stringify(updatedItems))
       }
       return
     }
@@ -493,7 +627,8 @@ export function ResourceSlideOver({
       modifier_total: String(item.modifier_total || 0)
     }
 
-    setExistingItems(prev => [...prev, { ...newItem, id: tempId }])
+    const updatedItems = [...existingItems, { ...newItem, id: tempId }]
+    setExistingItems(updatedItems)
 
     try {
       const res = await fetch(`/api/shops/${shopId}/order-items`, {
@@ -504,11 +639,14 @@ export function ResourceSlideOver({
       if (!res.ok) throw new Error()
       
       const savedItem = await res.json()
-      setExistingItems(prev => prev.map(i => i.id === tempId ? savedItem : i))
+      const finalizedItems = updatedItems.map(i => i.id === tempId ? savedItem : i)
+      setExistingItems(finalizedItems)
       toast.success(`Đã thêm ${item.product_name}`)
+      localStorage.setItem(`table_order_items:${order.id}`, JSON.stringify(finalizedItems))
     } catch {
-      toast.error(`Lỗi khi thêm ${item.product_name}`)
-      setExistingItems(prev => prev.filter(i => i.id !== tempId))
+      pushOfflineAction(order.id, { type: 'ADD', tempId, item: newItem })
+      toast.warning(`Mất kết nối. Đã lưu tạm ${item.product_name} trên thiết bị này.`)
+      localStorage.setItem(`table_order_items:${order.id}`, JSON.stringify(updatedItems))
     }
   }
 
@@ -535,6 +673,7 @@ export function ResourceSlideOver({
   }
 
   async function handleAdjustExistingQty(idx: number, delta: number) {
+    if (!order) return
     const clone = [...existingItems]
     const currQty = Number(clone[idx].qty)
     const newQty = currQty + delta
@@ -549,28 +688,26 @@ export function ResourceSlideOver({
     const newLineTotal = newQty * up
     clone[idx] = { ...p, qty: String(newQty), line_total: String(newLineTotal) }
     setExistingItems(clone)
+    localStorage.setItem(`table_order_items:${order.id}`, JSON.stringify(clone))
 
     try {
-      await fetch(`/api/shops/${shopId}/order-items/${p.id}`, {
+      const res = await fetch(`/api/shops/${shopId}/order-items/${p.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ qty: String(newQty), line_total: String(newLineTotal) })
       })
+      if (!res.ok) throw new Error()
       toast.success(`Đã cập nhật: ${p.product_name} (x${newQty})`)
-      // Fetch new items immediately
-      const itemsRes = await fetch(`/api/shops/${shopId}/order-items?order_id=${order?.id}&limit=200&t=${Date.now()}`)
+      
+      const itemsRes = await fetch(`/api/shops/${shopId}/order-items?order_id=${order.id}&limit=200&t=${Date.now()}`)
       if (itemsRes.ok) {
         const iData = await itemsRes.json()
         setExistingItems(iData.data || [])
+        localStorage.setItem(`table_order_items:${order.id}`, JSON.stringify(iData.data || []))
       }
     } catch {
-      toast.error('Lỗi khi cập nhật số lượng')
-      // Rollback on fail
-      const itemsRes = await fetch(`/api/shops/${shopId}/order-items?order_id=${order?.id}&limit=200&t=${Date.now()}`)
-      if (itemsRes.ok) {
-        const iData = await itemsRes.json()
-        setExistingItems(iData.data || [])
-      }
+      pushOfflineAction(order.id, { type: 'UPDATE', itemId: p.id, qty: String(newQty), line_total: String(newLineTotal) })
+      toast.warning(`Mất kết nối. Đã lưu tạm số lượng mới (x${newQty}) cho ${p.product_name} trên thiết bị này.`)
     }
   }
 
@@ -657,23 +794,57 @@ export function ResourceSlideOver({
   async function handleDeleteExistingItem(itemId: string) {
     if (!order) return
     setDeletingItemId(itemId)
+    
+    const updatedItems = existingItems.filter(i => i.id !== itemId)
+    setExistingItems(updatedItems)
+    localStorage.setItem(`table_order_items:${order.id}`, JSON.stringify(updatedItems))
+    
+    setDirtyItems(prev => {
+      const newD = { ...prev }
+      delete newD[itemId]
+      return newD
+    })
+
     try {
-      const res = await fetch(`/api/shops/${shopId}/order-items/${itemId}`, { method: 'DELETE' })
-      if (!res.ok) throw new Error()
-      
-      setExistingItems(prev => prev.filter(i => i.id !== itemId))
-      setDirtyItems(prev => {
-        const newD = { ...prev }
-        delete newD[itemId]
-        return newD
-      })
-      toast.success('Đã xóa món')
+      if (itemId.startsWith('temp-')) {
+        pushOfflineAction(order.id, { type: 'DELETE', itemId })
+        toast.success('Đã xóa món đặt tạm')
+      } else {
+        const res = await fetch(`/api/shops/${shopId}/order-items/${itemId}`, { method: 'DELETE' })
+        if (!res.ok) throw new Error()
+        toast.success('Đã xóa món')
+      }
     } catch {
-      toast.error('Lỗi khi xóa món')
+      pushOfflineAction(order.id, { type: 'DELETE', itemId })
+      toast.warning('Mất kết nối. Đã xóa món tạm thời trên thiết bị này.')
     } finally {
       setDeletingItemId(null)
       setConfirmDeleteId(null)
     }
+  }
+
+  async function handlePayAndCloseClick() {
+    if (!order) return
+    const queueKey = `offline_table_actions:${order.id}`
+    const queueStr = localStorage.getItem(queueKey)
+    if (queueStr) {
+      const actions = JSON.parse(queueStr)
+      if (actions.length > 0) {
+        toast.info("Đang đồng bộ các món đã gọi trước khi thanh toán...")
+        try {
+          await syncOfflineActions(order.id)
+          const remainingStr = localStorage.getItem(queueKey)
+          if (remainingStr && JSON.parse(remainingStr).length > 0) {
+            toast.error("Không thể đồng bộ toàn bộ món ăn lên hệ thống. Vui lòng kiểm tra kết nối mạng trước khi thanh toán.")
+            return
+          }
+        } catch {
+          toast.error("Không thể đồng bộ lên hệ thống. Vui lòng kiểm tra kết nối mạng trước khi thanh toán.")
+          return
+        }
+      }
+    }
+    setCheckoutOpen(true)
   }
 
   async function handleCheckoutSuccess() {
@@ -1579,7 +1750,7 @@ export function ResourceSlideOver({
               <div className="flex gap-3">
                 <div className="flex gap-3 w-full">
                   <button
-                    onClick={() => setCheckoutOpen(true)}
+                    onClick={handlePayAndCloseClick}
                     className="flex-1 rounded-xl bg-slate-900 py-3.5 text-sm font-bold text-white shadow-sm hover:bg-slate-800 transition-all"
                   >
                     {tpl.actions.payAndClose}
