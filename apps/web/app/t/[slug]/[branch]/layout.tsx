@@ -11,11 +11,59 @@ interface Props {
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const { branch } = await params;
+  const { slug, branch } = await params;
   const admin = getSupabaseAdminClient();
-  const { data: shop } = await admin.from('shops_view').select('name').eq('slug', branch).maybeSingle();
-  if (!shop) return { title: 'ONI.vn' };
-  return { title: `${shop.name} | Nền tảng quản lý bán hàng ONI.vn` };
+  
+  // Fetch tenant info
+  const { data: tenant } = await admin
+    .from('tenants')
+    .select('id, name, industry_type')
+    .eq('slug', slug)
+    .maybeSingle();
+
+  // Fetch shop/branch info
+  const { data: shop } = await admin
+    .from('shops_view')
+    .select('name')
+    .eq('slug', branch)
+    .eq('tenant_id', tenant?.id)
+    .maybeSingle();
+
+  if (!tenant || !shop) return { title: 'ONI.vn' };
+
+  const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'oni.vn';
+  const siteUrl = `https://${slug}.${rootDomain}/${branch}`;
+
+  const INDUSTRY_MAP: Record<string, string> = {
+    retail: 'Cửa hàng bán lẻ',
+    fnb: 'Cà phê & Nhà hàng',
+    billiards: 'CLB Billiards',
+    sports_court: 'Sân bóng & Cầu lông',
+    lodging: 'Khách sạn & Homestay',
+    fashion: 'Thời trang & Phụ kiện',
+    service_hourly: 'Dịch vụ thuê theo giờ',
+  };
+
+  const industryName = INDUSTRY_MAP[tenant.industry_type] || 'Cửa hàng';
+  const title = `${shop.name} | ${tenant.name} – Hệ thống quản lý bán hàng ONI.vn`;
+  const description = `Hệ thống POS, quản lý kho hàng và báo cáo doanh thu cho chi nhánh ${shop.name} thuộc chuỗi ${tenant.name} (${industryName}) trên nền tảng ONI.vn.`;
+
+  return {
+    title,
+    description,
+    openGraph: {
+      type: 'website',
+      url: siteUrl,
+      title,
+      description,
+      siteName: 'ONI.vn',
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title,
+      description,
+    },
+  };
 }
 
 export default async function BranchLayout({ params, children }: Props) {

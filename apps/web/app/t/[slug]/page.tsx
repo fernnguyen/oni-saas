@@ -3,9 +3,56 @@ import { getSupabaseServerClient } from '@/lib/server/supabaseServer';
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
 import { getShopsForTenant } from '@/lib/server/shops';
 import { SignInForm } from '@/app/components/auth/SignInForm';
+import type { Metadata } from 'next';
 
 interface Props {
   params: Promise<{ slug: string }>;
+}
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { slug } = await params;
+  const admin = getSupabaseAdminClient();
+  const { data: tenant } = await admin
+    .from('tenants')
+    .select('name, industry_type')
+    .eq('slug', slug)
+    .maybeSingle();
+
+  if (!tenant) return { title: 'Đăng nhập hệ thống ONI.vn' };
+
+  const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'oni.vn';
+  const siteUrl = `https://${slug}.${rootDomain}`;
+
+  const INDUSTRY_MAP: Record<string, string> = {
+    retail: 'Cửa hàng bán lẻ',
+    fnb: 'Cà phê & Nhà hàng',
+    billiards: 'CLB Billiards',
+    sports_court: 'Sân bóng & Cầu lông',
+    lodging: 'Khách sạn & Homestay',
+    fashion: 'Thời trang & Phụ kiện',
+    service_hourly: 'Dịch vụ thuê theo giờ',
+  };
+
+  const industryName = INDUSTRY_MAP[tenant.industry_type] || 'Cửa hàng';
+  const title = `${tenant.name} – Hệ thống quản lý bán hàng ONI.vn`;
+  const description = `Cổng thông tin & POS quản lý bán hàng cho ${tenant.name} (${industryName}) trên nền tảng ONI.vn. Đăng nhập để bắt đầu bán hàng và theo dõi báo cáo doanh thu.`;
+
+  return {
+    title,
+    description,
+    openGraph: {
+      type: 'website',
+      url: siteUrl,
+      title,
+      description,
+      siteName: 'ONI.vn',
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title,
+      description,
+    },
+  };
 }
 
 // Only accessible via subdomain rewrite. slug = tenant slug from subdomain.
