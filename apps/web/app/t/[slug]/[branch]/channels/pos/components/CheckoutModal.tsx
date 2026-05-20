@@ -283,17 +283,18 @@ export function CheckoutModal({
         print_count: autoPrintReceipt ? 1 : 0,
         items: orderItems,
       }
+      
+      if (metadata) {
+        order.metadata = JSON.stringify({
+          ...metadata,
+          check_out: localCheckoutTime || customCheckoutTime || new Date().toISOString()
+        })
+      }
 
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { items: _embedded, ...orderWithoutItems } = order
 
       const orderData: any = { ...orderWithoutItems }
-      if (metadata) {
-        orderData.metadata = JSON.stringify({
-          ...metadata,
-          check_out: localCheckoutTime || customCheckoutTime || new Date().toISOString()
-        })
-      }
 
       const syncPayload = {
         order: orderData,
