@@ -115,8 +115,12 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
       },
     ]);
   }
-
   return filter([
+    {
+      items: [
+        { href: base || '/', label: 'Tổng quan', icon: IconHome, exact: true },
+      ],
+    },
     {
       label: 'Bán hàng',
       items: [
