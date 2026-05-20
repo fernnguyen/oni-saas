@@ -308,20 +308,17 @@ export async function POST(
       let supplierName = 'Khách lẻ / Không xác định'
       if (supplier_id) {
         try {
-          const supResult = await connector.list('suppliers', {
-            page: 1, limit: 1, filters: { id: supplier_id }
-          })
-          if (supResult.data.length > 0) {
-            const supplier = supResult.data[0] as Record<string, string>
+          const supplier = await connector.findById('suppliers', supplier_id) as Record<string, string> | null
+          if (supplier) {
             supplierName = supplier.name || 'Nhà cung cấp'
 
             if (debtAmt > 0 && workflow_status === 'completed') {
               const currentDebt = parseFloat(supplier.debt_amount || '0')
-              await connector.update('suppliers', supplier.id as string, {
+              await connector.update('suppliers', supplier_id, {
                 debt_amount: String(currentDebt + debtAmt)
               })
               tx.add(async () => {
-                await connector.update('suppliers', supplier.id as string, { debt_amount: String(currentDebt) }).catch(() => {})
+                await connector.update('suppliers', supplier_id, { debt_amount: String(currentDebt) }).catch(() => {})
               })
             }
           }
