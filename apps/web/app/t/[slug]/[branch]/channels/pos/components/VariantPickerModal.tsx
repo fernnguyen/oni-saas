@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { localDb, type LocalProduct } from '@/lib/localDb/schema'
 import type { CartItem } from '@/hooks/useCart'
 
@@ -21,6 +21,66 @@ function safeJson(s?: string | null) {
 export function VariantPickerModal({ parentProduct, open, onClose, onSelect }: Props) {
   const [children, setChildren] = useState<LocalProduct[]>([])
   const [inventory, setInventory] = useState<Map<string, number>>(new Map())
+  const [highlightedIndex, setHighlightedIndex] = useState<number>(0)
+
+  // Reset highlight index when children change
+  useEffect(() => {
+    if (children.length > 0) {
+      setHighlightedIndex(0)
+    }
+  }, [children])
+
+  // Use refs to avoid re-registering window event listener on every index, children or inventory change
+  const highlightedIndexRef = useRef(highlightedIndex)
+  highlightedIndexRef.current = highlightedIndex
+
+  const childrenRef = useRef(children)
+  childrenRef.current = children
+
+  const inventoryRef = useRef(inventory)
+  inventoryRef.current = inventory
+
+  // Register window-level keydown handler with 50ms delay to prevent immediate bubbling from ProductGrid Enter
+  useEffect(() => {
+    if (!open) return
+
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      const currentChildren = childrenRef.current
+      const currentIndex = highlightedIndexRef.current
+      const currentInventory = inventoryRef.current
+      if (currentChildren.length === 0) return
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setHighlightedIndex((prev) => (prev + 1) % currentChildren.length)
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setHighlightedIndex((prev) => (prev - 1 + currentChildren.length) % currentChildren.length)
+      } else if (e.key === 'Enter') {
+        e.preventDefault()
+        const target = currentChildren[currentIndex]
+        if (target) {
+          const stock = currentInventory.get(target.product_id) ?? 0
+          const outOfStock = stock <= 0
+          if (!outOfStock) {
+            handleSelect(target)
+          }
+        }
+      } else if (e.key === 'Escape') {
+        e.preventDefault()
+        onClose()
+      }
+    }
+
+    const timer = setTimeout(() => {
+      window.addEventListener('keydown', handleGlobalKeyDown)
+    }, 50)
+
+    return () => {
+      clearTimeout(timer)
+      window.removeEventListener('keydown', handleGlobalKeyDown)
+    }
+  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -88,24 +148,51 @@ export function VariantPickerModal({ parentProduct, open, onClose, onSelect }: P
             <p className="text-center text-sm text-slate-400 py-6">Không có phân loại nào</p>
           ) : (
             <div className="space-y-2">
-              {children.map((child) => {
+              {children.map((child, index) => {
                 const opts = safeJson(child.variant_options) ?? {}
                 const label = Object.entries(opts).map(([k, v]) => `${k}: ${v}`).join(' / ') || child.name
                 const stock = inventory.get(child.product_id) ?? 0
                 const outOfStock = stock <= 0
+                const isHighlighted = index === highlightedIndex
                 return (
                   <button
                     key={child.product_id}
                     onClick={() => {
                       if (!outOfStock) handleSelect(child)
                     }}
+                    onMouseEnter={() => {
+                      if (!outOfStock) setHighlightedIndex(index)
+                    }}
                     disabled={outOfStock}
-                    className={`group flex w-full items-center gap-3 rounded-xl border p-3 transition-all text-left ${outOfStock ? 'bg-slate-50 border-slate-200 opacity-60 cursor-not-allowed' : 'bg-white border-slate-200 hover:border-primary hover:bg-slate-50 active:scale-[0.98]'}`}
+                    className={`group flex w-full items-center gap-3 rounded-xl border p-3 transition-all duration-200 text-left ${
+                      outOfStock
+                        ? 'bg-slate-50 border-slate-200 opacity-60 cursor-not-allowed'
+                        : isHighlighted
+                          ? 'bg-violet-50/50 border-violet-400 ring-2 ring-violet-300 shadow-md scale-[1.01]'
+                          : 'bg-white border-slate-200 hover:border-violet-300 hover:bg-slate-50 active:scale-[0.98]'
+                    }`}
                   >
-                    <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${outOfStock ? 'border-slate-300' : 'border-slate-300 group-hover:border-primary'}`}>
+                    <div className={[
+                      'flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition-all duration-150',
+                      outOfStock
+                        ? 'border-slate-200 bg-slate-50'
+                        : isHighlighted
+                          ? 'border-violet-500 bg-violet-500'
+                          : 'border-slate-300 group-hover:border-violet-400 group-hover:bg-violet-50/50'
+                    ].join(' ')}>
+                      {isHighlighted && !outOfStock && (
+                        <div className="w-1.5 h-1.5 bg-white rounded-full transition-transform scale-100" />
+                      )}
                     </div>
                     <div className="flex flex-1 flex-wrap items-center gap-x-2 gap-y-1">
-                      <span className={`text-sm font-medium ${outOfStock ? 'text-slate-500' : 'text-slate-900'}`}>{label}</span>
+                      <span className={`text-sm font-medium ${outOfStock ? 'text-slate-500' : 'text-slate-900'} flex items-center gap-1.5`}>
+                        {label}
+                        {isHighlighted && !outOfStock && (
+                          <kbd className="px-1 py-0.5 text-[8px] bg-violet-500 text-white border border-violet-600 rounded font-semibold tracking-wider uppercase leading-none shadow-sm animate-pulse shrink-0">
+                            Enter
+                          </kbd>
+                        )}
+                      </span>
                       <span className={`text-sm font-semibold ${outOfStock ? 'text-slate-400' : 'text-primary'}`}>({fmtVND(child.sell_price)})</span>
                       <span className={`text-[11px] font-medium ${outOfStock ? 'text-red-500' : 'text-green-600'}`}>{outOfStock ? 'Hết hàng' : `Còn: ${stock}`}</span>
                       {child.sku && (

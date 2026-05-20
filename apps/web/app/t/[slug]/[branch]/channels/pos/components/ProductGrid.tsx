@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { localDb, type LocalCategory, type LocalProduct } from '@/lib/localDb/schema'
 import { usePOSProductSearch } from '@/hooks/usePOSProductSearch'
 import { IconBox } from '@/app/components/layout/nav'
@@ -32,12 +32,27 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
   const [search, setSearch] = useState('')
   const [categoryId, setCategoryId] = useState<string | undefined>(undefined)
   const [categories, setCategories] = useState<LocalCategory[]>([])
+  const [highlightedIndex, setHighlightedIndex] = useState<number>(0)
+
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  // Focus search input on mount
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.focus()
+    }
+  }, [])
 
   // Picker state
   const [variantParent, setVariantParent] = useState<LocalProduct | null>(null)
   const [modifierProduct, setModifierProduct] = useState<LocalProduct | null>(null)
 
   const { results, isLoading } = usePOSProductSearch(search, categoryId)
+
+  // Reset highlight index when results change
+  useEffect(() => {
+    setHighlightedIndex(0)
+  }, [results])
 
   useEffect(() => {
     localDb.categories.filter((c) => c.active).sortBy('sort_order').then(setCategories)
@@ -81,14 +96,40 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
     return null
   }
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (results.length === 0) return
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setHighlightedIndex((prev) => (prev + 1) % results.length)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setHighlightedIndex((prev) => (prev - 1 + results.length) % results.length)
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      const targetProduct = results[highlightedIndex]
+      if (targetProduct) {
+        const stock = inventory.get(targetProduct.product_id) ?? 0
+        const type = (targetProduct as any).product_type ?? 'simple'
+        const outOfStock = type !== 'variant_parent' && type !== 'modifier' && stock <= 0
+        if (!outOfStock) {
+          handleProductClick(targetProduct)
+        }
+      }
+    }
+  }
+
   return (
     <div className="flex h-full flex-col">
       {/* Search */}
       <div className="border-b border-slate-100 px-3 py-2">
         <input
+          ref={inputRef}
+          autoFocus
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={handleKeyDown}
           placeholder="Tìm sản phẩm (tên, SKU, barcode)..."
           className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm placeholder:text-slate-400 focus:border-primary focus:outline-none"
         />
@@ -135,24 +176,30 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-            {results.map((product) => {
+            {results.map((product, index) => {
               const stock = inventory.get(product.product_id) ?? 0
               const type = (product as any).product_type ?? 'simple'
               // variant_parent: don't track stock by itself, always show
               const outOfStock = type !== 'variant_parent' && type !== 'modifier' && stock <= 0
               const badge = getTypeBadge(product)
+              const isHighlighted = index === highlightedIndex
               return (
                 <button
                   key={product.product_id}
                   onClick={() => {
                     if (!outOfStock) handleProductClick(product)
                   }}
+                  onMouseEnter={() => {
+                    if (!outOfStock) setHighlightedIndex(index)
+                  }}
                   disabled={outOfStock}
                   className={[
-                    'flex h-full flex-col rounded-xl border overflow-hidden text-left transition-all',
+                    'flex h-full flex-col rounded-xl border overflow-hidden text-left transition-all duration-200',
                     outOfStock
                       ? 'border-slate-100 bg-slate-50 opacity-50 cursor-not-allowed'
-                      : 'border-slate-200 bg-white hover:border-primary hover:shadow-md active:scale-[0.98]',
+                      : isHighlighted
+                        ? 'border-primary ring-2 ring-primary bg-primary/[0.02] shadow-md scale-[1.01]'
+                        : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm active:scale-[0.98]',
                   ].join(' ')}
                 >
                   {/* Image with type badge overlay */}
@@ -204,12 +251,21 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
 
                   {/* Price + add button */}
                   <div className="px-2.5 pb-2.5 pt-1 flex items-center justify-between shrink-0">
-                    <span className="text-sm font-bold text-primary">
+                    <span className="text-sm font-bold text-primary flex items-center gap-1.5">
                       {type === 'variant_parent' ? 'Chọn...' : fmtVND(product.sell_price)}
+                      {isHighlighted && (
+                        <kbd className="px-1 py-0.5 text-[8px] bg-primary text-white border border-primary-dark rounded font-semibold tracking-wider uppercase leading-none shadow-sm animate-pulse shrink-0">
+                          Enter
+                        </kbd>
+                      )}
                     </span>
                     <div className={[
-                      'h-7 w-7 shrink-0 flex items-center justify-center rounded-full',
-                      outOfStock ? 'bg-slate-100 text-slate-300' : 'bg-[#EEF4FF] text-primary',
+                      'h-7 w-7 shrink-0 flex items-center justify-center rounded-full transition-all',
+                      outOfStock
+                        ? 'bg-slate-100 text-slate-300'
+                        : isHighlighted
+                          ? 'bg-primary text-white scale-110 shadow-sm'
+                          : 'bg-[#EEF4FF] text-primary',
                     ].join(' ')}>
                       <svg viewBox="0 0 14 14" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
                         <line x1="7" y1="1" x2="7" y2="13" /><line x1="1" y1="7" x2="13" y2="7" />
