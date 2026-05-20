@@ -25,6 +25,7 @@ const ENTITY_CONFIG: Record<string, EntityConfig> = {
   'cashbook':           { tab: 'Cashbook',          idKey: 'transaction_id', prefix: 'CB'  },
   'location-resources': { tab: 'LocationResources', idKey: 'resource_id',    prefix: 'LR'  },
   'product-bom':        { tab: 'ProductBOM',        idKey: 'bom_id',         prefix: 'BOM'  },
+  'inventory-batches':  { tab: 'InventoryBatches',  idKey: 'batch_id',       prefix: 'IB'  },
 }
 
 const BASE = 'https://sheets.googleapis.com/v4/spreadsheets'
