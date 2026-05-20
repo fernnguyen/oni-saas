@@ -170,7 +170,7 @@ export async function POST(
 
         // Create the product
         const isTempSku = !item.sku || item.sku.startsWith('TEMP-') || item.sku.match(/^P-\d{13}-\d+$/)
-        const productSku = isTempSku ? '' : item.sku
+        const productSku = isTempSku ? '' : (item.sku || '')
 
         const createdProduct = await connector.create('products', {
           name: item.product_name.trim(),
@@ -264,7 +264,7 @@ export async function POST(
 
         if (invRow) {
           const oldQty = parseFloat(invRow.stock_qty || '0')
-          const newQty = Math.max(0, oldQty + delta)
+          const newQty = oldQty + delta
           await connector.update('inventory', invRow.inventory_id as string, {
             stock_qty: String(newQty)
           })
@@ -276,7 +276,7 @@ export async function POST(
           const createdInv = await connector.create('inventory', {
             product_id: pItem.productId,
             branch_id: branch_id || '',
-            stock_qty: String(Math.max(0, delta)),
+            stock_qty: String(delta),
             min_stock: '0',
             sku: sku || ''
           } as Record<string, string>)
