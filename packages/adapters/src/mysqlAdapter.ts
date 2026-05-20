@@ -76,16 +76,21 @@ export class MysqlConnector implements IDataConnector {
       params.push(this.tenantId)
     }
 
+    query += ' ORDER BY id DESC LIMIT 1'
+
     const [rows] = await this.db.execute(sql.raw(mysql.format(query, params)))
     const resultRows = rows as unknown as any[]
 
-    const existing = resultRows
-      .map(r => r.id)
-      .filter(id => typeof id === 'string' && id.startsWith(searchPrefix))
-      .map(id => parseInt(id.slice(searchPrefix.length), 10))
-      .filter(n => !isNaN(n))
+    let max = 9999
+    if (resultRows.length > 0) {
+      const lastId = resultRows[0].id as string
+      if (lastId && typeof lastId === 'string' && lastId.startsWith(searchPrefix)) {
+        const numStr = lastId.slice(searchPrefix.length)
+        const num = parseInt(numStr, 10)
+        if (!isNaN(num)) max = num
+      }
+    }
 
-    const max = existing.length > 0 ? Math.max(...existing) : 9999
     return `${searchPrefix}${max + 1}`
   }
 
