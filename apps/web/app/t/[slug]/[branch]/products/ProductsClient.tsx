@@ -175,7 +175,7 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
   const queryClient = useQueryClient()
   const searchParams = useSearchParams()
   const initialSearch = searchParams?.get('search') || searchParams?.get('productId') || ''
-  
+
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState(initialSearch)
   const [debouncedSearch] = useDebounce(search, 300)
@@ -186,7 +186,7 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
   const [categoryModalOpen, setCategoryModalOpen] = useState(false)
   const [catFormData, setCatFormData] = useState({ name: '', parent_id: '', description: '' })
   const [filterActive, setFilterActive] = useState<string>('TRUE')
-  
+
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [imageInputMode, setImageInputMode] = useState<'url' | 'file'>('file')
@@ -199,9 +199,10 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
 
   // ── Modifier system state ──────────────────────────────────────────
   const [modifierGroups, setModifierGroups] = useState<ModifierGroup[]>([])
+  const [hasModifiersToggle, setHasModifiersToggle] = useState(false)
+  const [previousCostPrice, setPreviousCostPrice] = useState('0')
 
   // ── BOM system state ───────────────────────────────────────────
-  const [activeTab, setActiveTab] = useState<'info' | 'bom'>('info')
   const [bomItems, setBomItems] = useState<Array<{ component_product_id: string; qty: string }>>([])
   const [componentSearch, setComponentSearch] = useState('')
   const [showComponentSearchDropdown, setShowComponentSearchDropdown] = useState(false)
@@ -219,13 +220,40 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
   })
   const allProducts = allProductsData?.data ?? []
 
+  const bomTotalCost = useMemo(() => {
+    return bomItems.reduce((acc, item) => {
+      const comp = allProducts.find(p => (p.product_id || p.id) === item.component_product_id)
+      const unitCost = Number(comp?.cost_price || 0)
+      return acc + Number(item.qty || 0) * unitCost
+    }, 0)
+  }, [bomItems, allProducts])
+
+
+
+  const bomLabels = useMemo(() => {
+    const isFnB = isFnBIndustry(industryType)
+    return {
+      toggleTitle: isFnB ? 'Định lượng nguyên liệu' : 'Định mức linh kiện (BOM)',
+      toggleDesc: isFnB
+        ? 'Bán sản phẩm sẽ tự động trừ kho nguyên liệu thô / thành phần'
+        : 'Bán thành phẩm sẽ tự động trừ kho linh kiện / nguyên liệu cấu thành',
+      addInputLabel: isFnB ? 'Thêm nguyên liệu thô / thành phần' : 'Thêm linh kiện / nguyên liệu cấu thành',
+      tableHeaderName: isFnB ? 'Nguyên liệu / Thành phần' : 'Linh kiện / Nguyên liệu',
+      emptyState: isFnB
+        ? 'Chưa có nguyên liệu nào. Hãy tìm kiếm và thêm ở trên.'
+        : 'Chưa có linh kiện nào. Hãy tìm kiếm và thêm ở trên.',
+      buttonSync: isFnB ? 'Lấy từ định lượng' : 'Lấy từ BOM',
+      syncSuccess: isFnB ? 'Đã lấy giá vốn từ định lượng nguyên liệu!' : 'Đã lấy giá vốn từ định mức BOM!',
+    }
+  }, [industryType])
+
   const filteredComponentProducts = useMemo(() => {
     if (!componentSearch.trim()) return []
     const q = componentSearch.toLowerCase()
     return allProducts.filter(
       p => p.product_id !== editingId && // cannot add self as component
-           p.product_type !== 'variant_parent' && // cannot be parent
-           (p.name?.toLowerCase().includes(q) || p.sku?.toLowerCase().includes(q))
+        p.product_type !== 'variant_parent' && // cannot be parent
+        (p.name?.toLowerCase().includes(q) || p.sku?.toLowerCase().includes(q))
     )
   }, [allProducts, componentSearch, editingId])
 
@@ -291,36 +319,23 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
         return res.json()
       }
 
-      // ── Modifier product: encode groups into variant_options JSON ──
-      if (formData.product_type === 'modifier') {
-        if (modifierGroups.length === 0) throw new Error('Vui lòng thêm ít nhất 1 nhóm modifier')
+      // ── Standard product (simple or modifier inferred by modifierGroups) ──
+      const hasModifiers = hasModifiersToggle && modifierGroups.length > 0
+      if (hasModifiers) {
         for (const g of modifierGroups) {
           if (!g.name.trim()) throw new Error('Vui lòng nhập tên cho tất cả các nhóm modifier')
           if (g.options.length === 0) throw new Error(`Nhóm "${g.name}" cần ít nhất 1 lựa chọn`)
           if (g.options.some((o) => !o.name.trim())) throw new Error(`Vui lòng nhập tên cho tất cả lựa chọn trong nhóm "${g.name}"`)
         }
+      }
 
-        const enrichedPayload = {
-          ...payload,
-          product_type: 'modifier',
-          // Encode modifier config into variant_options for storage
-          // GSheets: uses metadata field; MySQL: text column
-          variant_options: JSON.stringify({ groups: modifierGroups }),
-        }
+      const finalProductType = hasModifiers ? 'modifier' : 'simple'
+      const finalVariantOptions = hasModifiers ? JSON.stringify({ groups: modifierGroups }) : ''
 
-        const url = editingId
-          ? `/api/shops/${shopId}/products/${editingId}`
-          : `/api/shops/${shopId}/products`
-        const res = await fetch(url, {
-          method: editingId ? 'PUT' : 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(enrichedPayload),
-        })
-        if (!res.ok) {
-          const json = await res.json().catch(() => ({}))
-          throw new Error(json.error ?? 'Lưu thất bại')
-        }
-        return res.json()
+      const enrichedPayload: Record<string, any> = {
+        ...payload,
+        product_type: finalProductType,
+        variant_options: finalVariantOptions,
       }
 
       const url = editingId
@@ -329,7 +344,7 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
       const res = await fetch(url, {
         method: editingId ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(enrichedPayload),
       })
       if (!res.ok) {
         const json = await res.json().catch(() => ({}))
@@ -358,19 +373,17 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
         }
       }
 
-      // Save BOM items if product is simple
-      if (payload.product_type === 'simple' || !payload.product_type) {
-        const hasBomVal = payload.has_bom === 'TRUE'
-        const finalBomItems = hasBomVal ? bomItems : []
-        const bomRes = await fetch(`/api/shops/${shopId}/products/${productId}/bom`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(finalBomItems),
-        })
-        if (!bomRes.ok) {
-          const json = await bomRes.json().catch(() => ({}))
-          throw new Error(json.error ?? 'Lưu định mức BOM thất bại')
-        }
+      // Save BOM items if product is standard (simple or modifier)
+      const hasBomVal = enrichedPayload.has_bom === 'TRUE'
+      const finalBomItems = hasBomVal ? bomItems : []
+      const bomRes = await fetch(`/api/shops/${shopId}/products/${productId}/bom`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(finalBomItems),
+      })
+      if (!bomRes.ok) {
+        const json = await bomRes.json().catch(() => ({}))
+        throw new Error(json.error ?? 'Lưu định mức BOM thất bại')
       }
 
       return savedProduct
@@ -391,7 +404,7 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
   const toggleActiveMutation = useMutation({
     mutationFn: async (row: Record<string, string>) => {
       const newActive = row.active === 'TRUE' ? 'FALSE' : 'TRUE'
-      const res = await fetch(`/api/shops/${shopId}/products/${row.product_id || row.id}`, { 
+      const res = await fetch(`/api/shops/${shopId}/products/${row.product_id || row.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ active: newActive })
@@ -451,11 +464,10 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
     setPreviewUrl(row.image_url || null)
     setImageInputMode(row.image_url ? 'url' : 'file')
     setFileInputKey(Date.now())
-    
-    // Reset and Fetch BOM items if product is simple
-    setActiveTab('info')
+
+    // Reset and Fetch BOM items if product is standard (simple or modifier)
     setBomItems([])
-    if (row.product_type === 'simple' || !row.product_type) {
+    if (row.product_type !== 'variant_parent') {
       fetch(`/api/shops/${shopId}/products/${row.product_id || row.id}/bom`)
         .then(res => res.json())
         .then(resData => {
@@ -486,21 +498,24 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
         }))
       )
       setModifierGroups([])
+      setHasModifiersToggle(false)
     } else if (row.product_type === 'modifier') {
       // Load modifier config from variant_options JSON
       const config = safeParseJson(row.variant_options)
-      setModifierGroups(
-        Array.isArray(config?.groups)
-          ? config.groups.map((g: ModifierGroup) => ({ ...g, id: g.id || `g-${Date.now()}` }))
-          : []
-      )
+      const groups = Array.isArray(config?.groups)
+        ? config.groups.map((g: ModifierGroup) => ({ ...g, id: g.id || `g-${Date.now()}` }))
+        : []
+      setModifierGroups(groups)
+      setHasModifiersToggle(groups.length > 0)
       setVariantRows([])
       setOptionName('')
     } else {
       setVariantRows([])
       setOptionName('')
       setModifierGroups([])
+      setHasModifiersToggle(false)
     }
+    setPreviousCostPrice(row.cost_price || '0')
     setSlideOpen(true)
   }
 
@@ -514,7 +529,8 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
     setVariantRows([])
     setOptionName('')
     setModifierGroups([])
-    setActiveTab('info')
+    setHasModifiersToggle(false)
+    setPreviousCostPrice('0')
     setBomItems([])
     setSlideOpen(true)
   }
@@ -530,7 +546,8 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
     setVariantRows([])
     setOptionName('')
     setModifierGroups([])
-    setActiveTab('info')
+    setHasModifiersToggle(false)
+    setPreviousCostPrice('0')
     setBomItems([])
     setSlideOpen(true)
   }
@@ -592,18 +609,36 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
     ))
   }
 
+  const handleToggleBom = () => {
+    const turningOn = formData.has_bom !== 'TRUE'
+    if (turningOn) {
+      setPreviousCostPrice(formData.cost_price || '0')
+      setFormData(prev => ({
+        ...prev,
+        has_bom: 'TRUE',
+        cost_price: String(bomTotalCost)
+      }))
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        has_bom: 'FALSE',
+        cost_price: previousCostPrice || '0'
+      }))
+    }
+  }
+
   const columns = useMemo<Column<Record<string, string>>[]>(() => [
-    { 
-      key: 'image', 
+    {
+      key: 'image',
       label: 'Ảnh',
       render: (row) => (
         <div className="h-10 w-10 rounded-lg overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center shrink-0">
           {row.image_url ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img 
-              src={row.image_url} 
-              alt={row.name} 
-              className="w-full h-full object-cover" 
+            <img
+              src={row.image_url}
+              alt={row.name}
+              className="w-full h-full object-cover"
               onError={(e) => (e.currentTarget.style.display = 'none')}
             />
           ) : (
@@ -612,8 +647,8 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
         </div>
       )
     },
-    { 
-      key: 'sku', 
+    {
+      key: 'sku',
       label: 'SKU',
       render: (row) => row.sku ? <CopyableId id={row.sku} className="text-sm font-semibold text-slate-800" /> : '—'
     },
@@ -641,8 +676,8 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
         </div>
       )
     },
-    { 
-      key: 'category_id', 
+    {
+      key: 'category_id',
       label: 'Danh mục',
       render: (row) => {
         const cat = categories.find((c: any) => c.category_id === row.category_id)
@@ -735,6 +770,7 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
         open={slideOpen}
         onClose={() => setSlideOpen(false)}
         title={editingId ? 'Chỉnh sửa sản phẩm' : 'Thêm sản phẩm'}
+        width={800}
         footer={
           <>
             <button
@@ -753,689 +789,726 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
           </>
         }
       >
-        <div className="space-y-4">
-          {/* Tab interface for simple products */}
-          {(formData.product_type === 'simple' || !formData.product_type) && (
-            <div className="flex border-b border-slate-200 mb-2">
-              <button
-                type="button"
-                onClick={() => setActiveTab('info')}
-                className={`flex-1 py-2.5 text-center text-sm font-semibold border-b-2 transition-all ${
-                  activeTab === 'info'
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
-                }`}
-              >
-                Thông tin chung
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('bom')}
-                className={`flex-1 py-2.5 text-center text-sm font-semibold border-b-2 transition-all ${
-                  activeTab === 'bom'
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
-                }`}
-              >
-                Định mức Linh kiện (BOM)
-              </button>
-            </div>
-          )}
+        {(() => {
+          const isStandardProduct = formData.product_type !== 'variant_parent'
+          const showSplitScreen = isStandardProduct && formData.has_bom === 'TRUE'
 
-          {(activeTab === 'info' || formData.product_type === 'variant_parent' || formData.product_type === 'modifier') && (
-            <>
-              {/* ── Loại sản phẩm toggle ─────────────────────────────────── */}
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Loại sản phẩm</p>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setFormData(prev => ({ ...prev, product_type: 'simple' }))}
-                    className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-all ${
-                      formData.product_type === 'simple' || (!formData.product_type)
-                        ? 'border-primary bg-primary/5 text-primary'
-                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    Đơn giản
-                  </button>
-                  {/* Variant tab: show for non-FnB industries */}
-                  {!isFnBIndustry(industryType) && (
-                  <button
-                    type="button"
-                    onClick={() => setFormData(prev => ({ ...prev, product_type: 'variant_parent' }))}
-                    className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-all ${
-                      formData.product_type === 'variant_parent'
-                        ? 'border-violet-500 bg-violet-50 text-violet-700'
-                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    Có thuộc tính (Variant)
-                  </button>
-                  )}
-                  {/* Modifier tab: show for FnB industries */}
-                  {isFnBIndustry(industryType) && (
-                  <button
-                    type="button"
-                    onClick={() => setFormData(prev => ({ ...prev, product_type: 'modifier' }))}
-                    className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-all ${
-                      formData.product_type === 'modifier'
-                        ? 'border-amber-500 bg-amber-50 text-amber-700'
-                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    Có lựa chọn (Modifier)
-                  </button>
-                  )}
+          return (
+            <div className="space-y-4">
+              {/* Left Column / Main Form Details */}
+              <div className="space-y-4">
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Tên sản phẩm *</label>
+                  <input
+                    type="text"
+                    value={formData.name}
+                    onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                    placeholder={
+                      formData.product_type === 'variant_parent' ? 'Ví dụ: Áo thun Polo, Quần Jeans...' :
+                        isFnBIndustry(industryType) ? 'Ví dụ: Trà sữa, Cà phê...' :
+                          'Nhập tên sản phẩm'
+                    }
+                  />
                 </div>
-              </div>
 
-              {/* ── SKU (only for non-variant-parent products) ─────────────── */}
-              {formData.product_type !== 'variant_parent' && (
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">SKU</label>
-                <input
-                  type="text"
-                  value={formData.sku}
-                  onChange={(e) => setFormData(prev => ({ ...prev, sku: e.target.value }))}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
-                  placeholder="Để trống sẽ tự động tạo"
-                />
-              </div>
-              )}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Tên sản phẩm *</label>
-                <input
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
-                  placeholder={
-                    formData.product_type === 'variant_parent' ? 'Ví dụ: Áo đỏ, Quần kaki...' :
-                    formData.product_type === 'modifier' ? 'Ví dụ: Trà sữa, Cà phê...' :
-                    'Nhập tên sản phẩm'
-                  }
-                />
-              </div>
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-sm font-medium text-slate-700">Danh mục</label>
-                  <button 
-                    type="button" 
-                    onClick={openCreateCategory} 
-                    className="text-xs text-primary hover:underline"
-                  >
-                    + Tạo mới
-                  </button>
-                </div>
-                <select
-                  value={formData.category_id}
-                  onChange={(e) => setFormData(prev => ({ ...prev, category_id: e.target.value }))}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white"
-                >
-                  <option value="">-- Chọn danh mục --</option>
-                  {categories.map((c: any) => (
-                    <option key={c.category_id} value={c.category_id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Đơn vị</label>
-                <input
-                  type="text"
-                  value={formData.unit}
-                  onChange={(e) => setFormData(prev => ({ ...prev, unit: e.target.value }))}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
-                  placeholder="Cái, Hộp, Kg..."
-                />
-              </div>
-              {/* ── Giá bán / Giá vốn / Giá sàn (only for simple) ────────── */}
-              {formData.product_type !== 'variant_parent' && (
-                <>
-                  <NumberInput
-                    label="Giá bán"
-                    value={formData.sell_price}
-                    onChange={(v) => setFormData(prev => ({ ...prev, sell_price: v }))}
-                    suffix="đ"
-                  />
-                  <NumberInput
-                    label="Giá vốn"
-                    value={formData.cost_price}
-                    onChange={(v) => setFormData(prev => ({ ...prev, cost_price: v }))}
-                    suffix="đ"
-                  />
-                  <NumberInput
-                    label="Giá sàn"
-                    value={formData.min_price}
-                    onChange={(v) => setFormData(prev => ({ ...prev, min_price: v }))}
-                    suffix="đ"
-                  />
-                </>
-              )}
-
-              {/* ── Variant builder (only when variant_parent) ────────────── */}
-              {formData.product_type === 'variant_parent' && (
-                <div className="rounded-xl border border-violet-200 bg-violet-50/50 p-4 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-violet-500">
-                      <path d="M2 4.5A2.5 2.5 0 014.5 2h11a2.5 2.5 0 010 5h-11A2.5 2.5 0 012 4.5zM2.75 9.083a.75.75 0 000 1.5h14.5a.75.75 0 000-1.5H2.75zM2.75 12.663a.75.75 0 000 1.5h14.5a.75.75 0 000-1.5H2.75zM2.75 16.25a.75.75 0 000 1.5h14.5a.75.75 0 000-1.5H2.75z" />
-                    </svg>
-                    <span className="text-sm font-semibold text-violet-700">Quản lý thuộc tính</span>
-                  </div>
-
-                  {/* Option name */}
-                  <div>
-                    <label className="block text-xs font-medium text-violet-600 mb-1">Tên thuộc tính *</label>
-                    <input
-                      type="text"
-                      value={optionName}
-                      onChange={(e) => setOptionName(e.target.value)}
-                      className="w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm focus:border-violet-400 focus:outline-none"
-                      placeholder="Ví dụ: Size, Màu sắc, Kiểu dáng..."
-                    />
-                  </div>
-
-                  {/* Variant rows */}
-                  <div className="space-y-2">
-                    <div className="grid grid-cols-12 gap-1.5 text-[11px] font-semibold text-violet-500 uppercase tracking-wide px-1">
-                      <div className="col-span-2">Giá trị</div>
-                      <div className="col-span-3">SKU</div>
-                      <div className="col-span-3">Giá bán</div>
-                      <div className="col-span-3">Giá vốn</div>
-                      <div className="col-span-1"></div>
+                {formData.product_type !== 'variant_parent' ? (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">SKU</label>
+                      <input
+                        type="text"
+                        value={formData.sku}
+                        onChange={(e) => setFormData(prev => ({ ...prev, sku: e.target.value }))}
+                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white"
+                        placeholder="Tự động tạo"
+                      />
                     </div>
-                    {variantRows.length === 0 && (
-                      <p className="text-xs text-violet-400 text-center py-2">Chưa có variant nào. Nhấn &quot;+ Thêm&quot; bên dưới.</p>
-                    )}
-                    {variantRows.map((row) => (
-                      <div key={row.id} className="grid grid-cols-12 gap-1.5 items-center">
-                        <input
-                          className="col-span-2 rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-sm focus:border-violet-400 focus:outline-none"
-                          placeholder={optionName || 'VD: S'}
-                          value={row.value}
-                          onChange={(e) => updateVariantRow(row.id, 'value', e.target.value)}
-                        />
-                        <input
-                          className="col-span-3 rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-sm focus:border-violet-400 focus:outline-none font-mono"
-                          placeholder="SKU-001"
-                          value={row.sku}
-                          onChange={(e) => updateVariantRow(row.id, 'sku', e.target.value)}
-                        />
-                        <input
-                          className="col-span-3 rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-sm focus:border-violet-400 focus:outline-none"
-                          placeholder="0"
-                          value={row.sell_price}
-                          onChange={(e) => updateVariantRow(row.id, 'sell_price', e.target.value)}
-                        />
-                        <input
-                          className="col-span-3 rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-sm focus:border-violet-400 focus:outline-none"
-                          placeholder="0"
-                          value={row.cost_price}
-                          onChange={(e) => updateVariantRow(row.id, 'cost_price', e.target.value)}
-                        />
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Đơn vị</label>
+                      <input
+                        type="text"
+                        value={formData.unit}
+                        onChange={(e) => setFormData(prev => ({ ...prev, unit: e.target.value }))}
+                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white"
+                        placeholder="Cái, Hộp, Ly..."
+                      />
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-sm font-medium text-slate-700">Danh mục</label>
                         <button
                           type="button"
-                          onClick={() => removeVariantRow(row.id)}
-                          className="col-span-1 flex items-center justify-center text-slate-400 hover:text-red-500 transition-colors"
+                          onClick={openCreateCategory}
+                          className="text-xs text-primary hover:underline font-medium"
                         >
-                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-                            <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
-                          </svg>
+                          + Tạo mới
                         </button>
                       </div>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={addVariantRow}
-                      className="mt-1 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-violet-300 py-2 text-xs font-medium text-violet-600 hover:bg-violet-50 transition-colors"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5"><path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" /></svg>
-                      Thêm variant
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* ── Modifier groups builder (FnB only) ─────────────────────── */}
-              {formData.product_type === 'modifier' && (
-                <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-amber-500">
-                        <path d="M3.5 2A1.5 1.5 0 002 3.5V5c0 1.149.15 2.263.43 3.326a13.022 13.022 0 009.244 9.244c1.063.28 2.177.43 3.326.43h1.5a1.5 1.5 0 001.5-1.5v-1.148a1.5 1.5 0 00-1.175-1.465l-3.223-.716a1.5 1.5 0 00-1.439.389l-.043.043a15.587 15.587 0 01-3.268-3.268l.043-.043a1.5 1.5 0 00.389-1.44l-.716-3.222A1.5 1.5 0 006.648 2H3.5z" />
-                      </svg>
-                      <span className="text-sm font-semibold text-amber-700">Nhóm lựa chọn (Modifier Groups)</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={addModifierGroup}
-                      className="flex items-center gap-1 rounded-lg bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-200 transition-colors"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5"><path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" /></svg>
-                      Thêm nhóm
-                    </button>
-                  </div>
-
-                  {modifierGroups.length === 0 && (
-                    <p className="text-xs text-amber-400 text-center py-3 border border-dashed border-amber-200 rounded-lg">
-                      Chưa có nhóm nào. Nhấn &quot;+ Thêm nhóm&quot; để bắt đầu.
-                    </p>
-                  )}
-
-                  {modifierGroups.map((group, gi) => (
-                    <div key={group.id} className="rounded-xl border border-amber-200 bg-white p-3 space-y-3">
-                      {/* Group header */}
-                      <div className="flex items-start gap-2">
-                        <div className="flex-1 space-y-2">
-                          <input
-                            className="w-full rounded-lg border border-amber-200 px-3 py-1.5 text-sm font-medium focus:border-amber-400 focus:outline-none"
-                            placeholder={`Nhóm ${gi + 1}: Ví dụ "Chọn size", "Topping"...`}
-                            value={group.name}
-                            onChange={(e) => updateModifierGroup(group.id, 'name', e.target.value)}
-                          />
-                          <div className="flex items-center gap-3 text-xs">
-                            {/* Required toggle */}
-                            <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                              <button
-                                type="button"
-                                onClick={() => updateModifierGroup(group.id, 'is_required', !group.is_required)}
-                                className={`relative w-8 h-4 rounded-full transition-colors ${group.is_required ? 'bg-amber-500' : 'bg-slate-200'}`}
-                              >
-                                <span className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${group.is_required ? 'translate-x-4' : ''}`} />
-                              </button>
-                              <span className={group.is_required ? 'text-amber-700 font-semibold' : 'text-slate-500'}>
-                                {group.is_required ? 'Bắt buộc' : 'Tùy chọn'}
-                              </span>
-                            </label>
-                            {/* Single/Multi toggle */}
-                            <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                              <button
-                                type="button"
-                                onClick={() => updateModifierGroup(group.id, 'max_selection', group.max_selection === 1 ? 99 : 1)}
-                                className={`relative w-8 h-4 rounded-full transition-colors ${group.max_selection > 1 ? 'bg-amber-500' : 'bg-slate-200'}`}
-                              >
-                                <span className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${group.max_selection > 1 ? 'translate-x-4' : ''}`} />
-                              </button>
-                              <span className={group.max_selection > 1 ? 'text-amber-700 font-semibold' : 'text-slate-500'}>
-                                {group.max_selection > 1 ? 'Nhiều lựa chọn' : 'Chọn 1'}
-                              </span>
-                            </label>
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => removeModifierGroup(group.id)}
-                          className="mt-1 text-slate-400 hover:text-red-500 transition-colors flex-shrink-0"
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-                            <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
-                          </svg>
-                        </button>
-                      </div>
-
-                      {/* Options */}
-                      <div className="space-y-1.5 pl-1">
-                        <div className="grid grid-cols-12 gap-1.5 text-[10px] font-semibold text-amber-500 uppercase tracking-wide px-1">
-                          <div className="col-span-7">Lựa chọn</div>
-                          <div className="col-span-4">Giá thêm (đ)</div>
-                          <div className="col-span-1"></div>
-                        </div>
-                        {group.options.length === 0 && (
-                          <p className="text-xs text-amber-300 px-1">Chưa có lựa chọn</p>
-                        )}
-                        {group.options.map((opt) => (
-                          <div key={opt.id} className="grid grid-cols-12 gap-1.5 items-center">
-                            <input
-                              className="col-span-7 rounded-lg border border-amber-200 px-2 py-1.5 text-sm focus:border-amber-400 focus:outline-none"
-                              placeholder={group.max_selection > 1 ? 'VD: Trân châu' : 'VD: Size L'}
-                              value={opt.name}
-                              onChange={(e) => updateModifierOption(group.id, opt.id, 'name', e.target.value)}
-                            />
-                            <input
-                              className="col-span-4 rounded-lg border border-amber-200 px-2 py-1.5 text-sm text-right focus:border-amber-400 focus:outline-none"
-                              placeholder="0"
-                              value={opt.price_adj}
-                              onChange={(e) => updateModifierOption(group.id, opt.id, 'price_adj', e.target.value)}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => removeModifierOption(group.id, opt.id)}
-                              className="col-span-1 flex items-center justify-center text-slate-400 hover:text-red-500 transition-colors"
-                            >
-                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
-                                <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
-                              </svg>
-                            </button>
-                          </div>
+                      <select
+                        value={formData.category_id}
+                        onChange={(e) => setFormData(prev => ({ ...prev, category_id: e.target.value }))}
+                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white"
+                      >
+                        <option value="">-- Chọn danh mục --</option>
+                        {categories.map((c: any) => (
+                          <option key={c.category_id} value={c.category_id}>
+                            {c.name}
+                          </option>
                         ))}
-                        <button
-                          type="button"
-                          onClick={() => addModifierOption(group.id)}
-                          className="mt-1 flex w-full items-center justify-center gap-1 rounded-lg border border-dashed border-amber-200 py-1.5 text-xs font-medium text-amber-600 hover:bg-amber-50 transition-colors"
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3"><path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" /></svg>
-                          + Thêm lựa chọn
-                        </button>
-                      </div>
+                      </select>
                     </div>
-                  ))}
-                </div>
-              )}
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Mô tả</label>
-                <textarea
-                  value={formData.description}
-                  onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                  rows={3}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none resize-none"
-                  placeholder="Nhập mô tả sản phẩm"
-                />
-              </div>
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="block text-sm font-medium text-slate-700">Ảnh sản phẩm</label>
-                  <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-lg">
-                    <button
-                      type="button"
-                      onClick={() => setImageInputMode('file')}
-                      className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${imageInputMode === 'file' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
-                    >
-                      Tải ảnh lên
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setImageInputMode('url')}
-                      className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${imageInputMode === 'url' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
-                    >
-                      Dùng đường dẫn (URL)
-                    </button>
-                  </div>
-                </div>
-
-                {imageInputMode === 'file' ? (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-center w-full">
-                      <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-slate-300 border-dashed rounded-xl cursor-pointer bg-slate-50 hover:bg-slate-100 transition-colors">
-                        <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                          <svg className="w-8 h-8 mb-3 text-slate-400" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 20 16">
-                            <path stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 13h3a3 3 0 0 0 0-6h-.025A5.56 5.56 0 0 0 16 6.5 5.5 5.5 0 0 0 5.207 5.021C5.137 5.017 5.071 5 5 5a4 4 0 0 0 0 8h2.167M10 15V6m0 0L8 8m2-2 2 2"/>
-                          </svg>
-                          <p className="mb-2 text-sm text-slate-500"><span className="font-semibold">Bấm để tải ảnh</span> hoặc chụp ảnh</p>
-                          <p className="text-xs text-slate-400">Hỗ trợ tự động nén WebP</p>
-                        </div>
-                        <input 
-                          key={fileInputKey}
-                          type="file" 
-                          className="hidden" 
-                          accept="image/*"
-                          capture="environment"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0]
-                            if (file) {
-                              setSelectedFile(file)
-                              setPreviewUrl(URL.createObjectURL(file))
-                              setFormData(prev => ({ ...prev, image_url: '' }))
-                            }
-                          }}
-                        />
-                      </label>
-                    </div>
-                    {previewUrl && !previewUrl.startsWith('http') && (
-                      <div className="relative w-24 h-24 rounded-xl overflow-hidden border border-slate-200 bg-slate-50">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={previewUrl} alt="Preview" className="w-full h-full object-cover" onError={(e) => (e.currentTarget.style.display = 'none')} />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedFile(null)
-                            setPreviewUrl(null)
-                            setFileInputKey(Date.now())
-                          }}
-                          className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 shadow-sm"
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                          </svg>
-                        </button>
-                      </div>
-                    )}
                   </div>
                 ) : (
-                  <div>
-                    <input
-                      type="text"
-                      value={formData.image_url}
-                      onChange={(e) => {
-                        setFormData(prev => ({ ...prev, image_url: e.target.value }))
-                        setPreviewUrl(e.target.value)
-                      }}
-                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
-                      placeholder="https://..."
-                    />
-                    {previewUrl && formData.image_url === previewUrl && (
-                      <div className="mt-3 relative w-24 h-24 rounded-xl overflow-hidden border border-slate-200">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={previewUrl} alt="Preview" className="w-full h-full object-cover" onError={(e) => (e.currentTarget.style.display = 'none')} />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Đơn vị</label>
+                      <input
+                        type="text"
+                        value={formData.unit}
+                        onChange={(e) => setFormData(prev => ({ ...prev, unit: e.target.value }))}
+                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white"
+                        placeholder="Cái, Hộp, Ly..."
+                      />
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-sm font-medium text-slate-700">Danh mục</label>
+                        <button
+                          type="button"
+                          onClick={openCreateCategory}
+                          className="text-xs text-primary hover:underline font-medium"
+                        >
+                          + Tạo mới
+                        </button>
+                      </div>
+                      <select
+                        value={formData.category_id}
+                        onChange={(e) => setFormData(prev => ({ ...prev, category_id: e.target.value }))}
+                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white"
+                      >
+                        <option value="">-- Chọn danh mục --</option>
+                        {categories.map((c: any) => (
+                          <option key={c.category_id} value={c.category_id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Giá bán / Giá vốn / Giá sàn (grouped horizontally in columns) ── */}
+                {formData.product_type !== 'variant_parent' && (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-sm font-medium text-slate-700">Giá bán</label>
+                        <div className="flex items-center gap-1">
+                          <span className="text-[10px] text-slate-400"></span>
+                          {[10, 20, 50, 100].map(pct => (
+                            <button
+                              key={pct}
+                              type="button"
+                              onClick={() => {
+                                const cost = Number(formData.cost_price || 0)
+                                if (cost > 0) {
+                                  const sell = Math.round(cost * (1 + pct / 100))
+                                  setFormData(prev => ({ ...prev, sell_price: String(sell) }))
+                                  toast.success(`Đã tính giá bán: Giá vốn + ${pct}%`)
+                                } else {
+                                  toast.error('Vui lòng nhập Giá vốn trước')
+                                }
+                              }}
+                              className="rounded bg-slate-100 px-1 py-0.5 text-[9px] font-medium text-slate-600 hover:bg-primary/10 hover:text-primary transition-colors"
+                            >
+                              +{pct}%
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <NumberInput
+                        value={formData.sell_price}
+                        onChange={(v) => setFormData(prev => ({ ...prev, sell_price: v }))}
+                        suffix="đ"
+                      />
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-sm font-medium text-slate-700">Giá vốn</label>
+                        {formData.has_bom === 'TRUE' && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFormData(prev => ({ ...prev, cost_price: String(bomTotalCost) }))
+                              toast.success(bomLabels.syncSuccess)
+                            }}
+                            className="text-xs text-primary hover:underline font-medium"
+                          >
+                            + {bomLabels.buttonSync}
+                          </button>
+                        )}
+                      </div>
+                      <NumberInput
+                        value={formData.cost_price}
+                        onChange={(v) => setFormData(prev => ({ ...prev, cost_price: v }))}
+                        suffix="đ"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">
+                        Giá sàn <small className="text-[10px] text-slate-400 font-normal normal-case">(Giá tối thiểu cho phép bán)</small>
+                      </label>
+                      <NumberInput
+                        value={formData.min_price}
+                        onChange={(v) => setFormData(prev => ({ ...prev, min_price: v }))}
+                        suffix="đ"
+                      />
+                    </div>
+                  </div>
+                )}
+
+
+
+                {/* ── Variant builder (only when variant_parent) ────────────── */}
+                {formData.product_type === 'variant_parent' && (
+                  <div className="rounded-xl border border-violet-200 bg-violet-50/50 p-4 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-violet-500">
+                        <path d="M2 4.5A2.5 2.5 0 014.5 2h11a2.5 2.5 0 010 5h-11A2.5 2.5 0 012 4.5zM2.75 9.083a.75.75 0 000 1.5h14.5a.75.75 0 000-1.5H2.75zM2.75 12.663a.75.75 0 000 1.5h14.5a.75.75 0 000-1.5H2.75zM2.75 16.25a.75.75 0 000 1.5h14.5a.75.75 0 000-1.5H2.75z" />
+                      </svg>
+                      <span className="text-sm font-semibold text-violet-700">Quản lý thuộc tính</span>
+                    </div>
+
+                    {/* Option name */}
+                    <div>
+                      <label className="block text-xs font-medium text-violet-600 mb-1">Tên thuộc tính *</label>
+                      <input
+                        type="text"
+                        value={optionName}
+                        onChange={(e) => setOptionName(e.target.value)}
+                        className="w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm focus:border-violet-400 focus:outline-none"
+                        placeholder="Ví dụ: Size, Màu sắc, Kiểu dáng..."
+                      />
+                    </div>
+
+                    {/* Variant rows */}
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-12 gap-1.5 text-[11px] font-semibold text-violet-500 uppercase tracking-wide px-1">
+                        <div className="col-span-2">Giá trị</div>
+                        <div className="col-span-3">SKU</div>
+                        <div className="col-span-3">Giá bán</div>
+                        <div className="col-span-3">Giá vốn</div>
+                        <div className="col-span-1"></div>
+                      </div>
+                      {variantRows.length === 0 && (
+                        <p className="text-xs text-violet-400 text-center py-2">Chưa có variant nào. Nhấn &quot;+ Thêm&quot; bên dưới.</p>
+                      )}
+                      {variantRows.map((row) => (
+                        <div key={row.id} className="grid grid-cols-12 gap-1.5 items-center">
+                          <input
+                            className="col-span-2 rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-sm focus:border-violet-400 focus:outline-none"
+                            placeholder={optionName || 'VD: S'}
+                            value={row.value}
+                            onChange={(e) => updateVariantRow(row.id, 'value', e.target.value)}
+                          />
+                          <input
+                            className="col-span-3 rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-sm focus:border-violet-400 focus:outline-none font-mono"
+                            placeholder="SKU-001"
+                            value={row.sku}
+                            onChange={(e) => updateVariantRow(row.id, 'sku', e.target.value)}
+                          />
+                          <input
+                            className="col-span-3 rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-sm focus:border-violet-400 focus:outline-none"
+                            placeholder="0"
+                            value={row.sell_price}
+                            onChange={(e) => updateVariantRow(row.id, 'sell_price', e.target.value)}
+                          />
+                          <input
+                            className="col-span-3 rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-sm focus:border-violet-400 focus:outline-none"
+                            placeholder="0"
+                            value={row.cost_price}
+                            onChange={(e) => updateVariantRow(row.id, 'cost_price', e.target.value)}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeVariantRow(row.id)}
+                            className="col-span-1 flex items-center justify-center text-slate-400 hover:text-red-500 transition-colors"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                              <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
+                            </svg>
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={addVariantRow}
+                        className="mt-1 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-violet-300 py-2 text-xs font-medium text-violet-600 hover:bg-violet-50 transition-colors"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5"><path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" /></svg>
+                        Thêm variant
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Modifier groups builder ─────────────────────── */}
+                {isStandardProduct && (
+                  <div className={`space-y-3 p-4 rounded-xl border transition-all ${hasModifiersToggle ? 'border-primary/20 bg-slate-50/50 shadow-sm' : 'border-slate-200 bg-white'
+                    }`}>
+                    {/* Header Row with Toggle Switch */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-primary">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
+                        </svg>
+                        <div>
+                          <span className="text-xs font-semibold text-slate-700">Thêm nhóm lựa chọn (Ví dụ size, màu...)</span>
+                          <p className="text-[10px] text-slate-400 leading-none mt-0.5">Sản phẩm có thể đi kèm các lựa chọn (Modifier groups)</p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setHasModifiersToggle(!hasModifiersToggle)}
+                        className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${hasModifiersToggle ? 'bg-primary' : 'bg-slate-200'
+                          }`}
+                      >
+                        <span
+                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${hasModifiersToggle ? 'translate-x-5' : 'translate-x-0'
+                            }`}
+                        />
+                      </button>
+                    </div>
+
+                    {hasModifiersToggle && (
+                      <div className="space-y-4 pt-3 border-t border-slate-200/60">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-medium text-slate-500">Các nhóm lựa chọn đã thiết lập</span>
+                          <button
+                            type="button"
+                            onClick={addModifierGroup}
+                            className="flex items-center gap-1 rounded-lg bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary/20 transition-colors"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5"><path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" /></svg>
+                            Thêm nhóm
+                          </button>
+                        </div>
+
+                        {modifierGroups.length === 0 && (
+                          <p className="text-xs text-slate-400 text-center py-4 border border-dashed border-slate-200 rounded-xl bg-white shadow-sm">
+                            Chưa có nhóm nào. Nhấn &quot;Thêm nhóm&quot; để bắt đầu.
+                          </p>
+                        )}
+
+                        {modifierGroups.map((group, gi) => (
+                          <div key={group.id} className="rounded-xl border border-slate-200 bg-white p-3 space-y-3 shadow-sm">
+                            {/* Group header */}
+                            <div className="flex items-start gap-2">
+                              <div className="flex-1 space-y-2">
+                                <input
+                                  className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium focus:border-primary focus:outline-none"
+                                  placeholder={`Nhóm ${gi + 1}: Ví dụ "Chọn size", "Topping"...`}
+                                  value={group.name}
+                                  onChange={(e) => updateModifierGroup(group.id, 'name', e.target.value)}
+                                />
+                                <div className="flex items-center gap-4 text-xs text-slate-500">
+                                  {/* Required toggle */}
+                                  <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                                    <button
+                                      type="button"
+                                      onClick={() => updateModifierGroup(group.id, 'is_required', !group.is_required)}
+                                      className={`relative w-8 h-4 rounded-full transition-colors ${group.is_required ? 'bg-primary' : 'bg-slate-200'}`}
+                                    >
+                                      <span className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${group.is_required ? 'translate-x-4' : ''}`} />
+                                    </button>
+                                    <span className={group.is_required ? 'text-primary font-semibold' : 'text-slate-500'}>
+                                      {group.is_required ? 'Bắt buộc' : 'Tùy chọn'}
+                                    </span>
+                                  </label>
+                                  {/* Single/Multi toggle */}
+                                  <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                                    <button
+                                      type="button"
+                                      onClick={() => updateModifierGroup(group.id, 'max_selection', group.max_selection === 1 ? 99 : 1)}
+                                      className={`relative w-8 h-4 rounded-full transition-colors ${group.max_selection > 1 ? 'bg-primary' : 'bg-slate-200'}`}
+                                    >
+                                      <span className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${group.max_selection > 1 ? 'translate-x-4' : ''}`} />
+                                    </button>
+                                    <span className={group.max_selection > 1 ? 'text-primary font-semibold' : 'text-slate-500'}>
+                                      {group.max_selection > 1 ? 'Nhiều lựa chọn' : 'Chọn 1'}
+                                    </span>
+                                  </label>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => removeModifierGroup(group.id)}
+                                className="mt-1 text-slate-400 hover:text-red-500 transition-colors flex-shrink-0"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                                  <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
+                                </svg>
+                              </button>
+                            </div>
+
+                            {/* Options */}
+                            <div className="space-y-1.5 pl-1">
+                              <div className="grid grid-cols-12 gap-1.5 text-[10px] font-semibold text-slate-400 uppercase tracking-wide px-1">
+                                <div className="col-span-7">Lựa chọn</div>
+                                <div className="col-span-4">Giá thêm (đ)</div>
+                                <div className="col-span-1"></div>
+                              </div>
+                              {group.options.length === 0 && (
+                                <p className="text-xs text-slate-400 px-1 py-1">Chưa có lựa chọn nào</p>
+                              )}
+                              {group.options.map((opt) => (
+                                <div key={opt.id} className="grid grid-cols-12 gap-1.5 items-center">
+                                  <input
+                                    className="col-span-7 rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:border-primary focus:outline-none"
+                                    placeholder={group.max_selection > 1 ? 'VD: Trân châu' : 'VD: Size L'}
+                                    value={opt.name}
+                                    onChange={(e) => updateModifierOption(group.id, opt.id, 'name', e.target.value)}
+                                  />
+                                  <input
+                                    className="col-span-4 rounded-lg border border-slate-200 px-2 py-1.5 text-sm text-right focus:border-primary focus:outline-none"
+                                    placeholder="0"
+                                    value={opt.price_adj}
+                                    onChange={(e) => updateModifierOption(group.id, opt.id, 'price_adj', e.target.value)}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => removeModifierOption(group.id, opt.id)}
+                                    className="col-span-1 flex items-center justify-center text-slate-400 hover:text-red-500 transition-colors"
+                                  >
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                                      <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
+                                    </svg>
+                                  </button>
+                                </div>
+                              ))}
+                              <button
+                                type="button"
+                                onClick={() => addModifierOption(group.id)}
+                                className="mt-1 flex w-full items-center justify-center gap-1 rounded-lg border border-dashed border-primary/20 py-1.5 text-xs font-medium text-primary hover:bg-primary/5 bg-slate-50 transition-colors"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5"><path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" /></svg>
+                                Thêm lựa chọn
+                              </button>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
                 )}
-              </div>
-            </>
-          )}
 
-          {/* ── BOM view block ─────────────────────────────────── */}
-          {activeTab === 'bom' && (formData.product_type === 'simple' || !formData.product_type) && (
-            <div className="space-y-4">
-              {/* BOM Toggle */}
-              <div className="flex items-center justify-between p-3 rounded-xl border border-slate-200 bg-slate-50">
+                {/* ── BOM / Định lượng nguyên liệu Section ── */}
+                {isStandardProduct && (
+                  <div className={`space-y-3 p-4 rounded-xl border transition-all ${formData.has_bom === 'TRUE' ? 'border-primary/20 bg-slate-50/50 shadow-sm' : 'border-slate-200 bg-white'
+                    }`}>
+                    {/* Header Row with Toggle Switch */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-primary">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
+                        </svg>
+                        <div>
+                          <span className="text-xs font-semibold text-slate-700">{bomLabels.toggleTitle}</span>
+                          <p className="text-[10px] text-slate-400 leading-none mt-0.5">{bomLabels.toggleDesc}</p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleToggleBom}
+                        className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${formData.has_bom === 'TRUE' ? 'bg-primary' : 'bg-slate-200'
+                          }`}
+                      >
+                        <span
+                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${formData.has_bom === 'TRUE' ? 'translate-x-5' : 'translate-x-0'
+                            }`}
+                        />
+                      </button>
+                    </div>
+
+                    {formData.has_bom === 'TRUE' && (
+                      <div className="space-y-3 pt-3 border-t border-slate-200/60">
+                        {/* Search / Add Component dropdown */}
+                        <div className="relative" ref={componentSearchRef}>
+                          <label className="block text-xs font-medium text-slate-700 mb-1">{bomLabels.addInputLabel}</label>
+                          <input
+                            type="text"
+                            value={componentSearch}
+                            onChange={(e) => {
+                              setComponentSearch(e.target.value)
+                              setShowComponentSearchDropdown(true)
+                            }}
+                            onFocus={() => setShowComponentSearchDropdown(true)}
+                            placeholder="Tìm theo tên sản phẩm hoặc SKU..."
+                            className="w-full rounded-xl border border-slate-200 px-3 py-1.5 text-xs focus:border-primary focus:outline-none bg-white"
+                          />
+
+                          {showComponentSearchDropdown && filteredComponentProducts.length > 0 && (
+                            <div className="absolute z-50 mt-1 w-full max-h-60 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
+                              {filteredComponentProducts.map((p) => (
+                                <button
+                                  key={p.product_id || p.id}
+                                  type="button"
+                                  onClick={() => {
+                                    const pId = p.product_id || p.id
+                                    // Check if already exists
+                                    if (bomItems.some(item => item.component_product_id === pId)) {
+                                      toast.error('Linh kiện này đã có trong danh sách')
+                                    } else {
+                                      setBomItems(prev => [...prev, { component_product_id: pId, qty: '1' }])
+                                      setComponentSearch('')
+                                      setShowComponentSearchDropdown(false)
+                                    }
+                                  }}
+                                  className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-slate-50 transition-colors"
+                                >
+                                  <div className="flex-1 min-w-0 pr-2">
+                                    <p className="font-semibold text-slate-900 truncate">{p.name}</p>
+                                    <p className="text-xs text-slate-500 font-mono">SKU: {p.sku || 'N/A'} • ĐVT: {p.unit || 'Cái'}</p>
+                                  </div>
+                                  <span className="text-xs font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded flex-shrink-0">
+                                    {Number(p.cost_price || 0).toLocaleString()}đ
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          {showComponentSearchDropdown && componentSearch && filteredComponentProducts.length === 0 && (
+                            <div className="absolute z-50 mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-lg text-center text-xs text-slate-400">
+                              Không tìm thấy linh kiện nào
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Components List Table */}
+                        <div className="rounded-xl border border-slate-200 overflow-x-auto bg-white shadow-sm">
+                          <table className="w-full text-left border-collapse min-w-[600px]">
+                            <thead>
+                              <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-semibold text-slate-600 uppercase tracking-wider">
+                                <th className="px-3 py-2.5">{bomLabels.tableHeaderName}</th>
+                                <th className="px-3 py-2.5 w-16 text-center">ĐVT</th>
+                                <th className="px-3 py-2.5 w-20 text-center">Số lượng</th>
+                                <th className="px-3 py-2.5 text-right w-24">Giá vốn (đ)</th>
+                                <th className="px-3 py-2.5 text-right w-28">Thành tiền</th>
+                                <th className="px-2 py-2.5 w-8"></th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {bomItems.length === 0 ? (
+                                <tr>
+                                  <td colSpan={6} className="px-3 py-6 text-center text-xs text-slate-400">
+                                    {bomLabels.emptyState}
+                                  </td>
+                                </tr>
+                              ) : (
+                                bomItems.map((item, idx) => {
+                                  const comp = allProducts.find(p => (p.product_id || p.id) === item.component_product_id)
+                                  if (!comp) return null
+                                  const unitCost = Number(comp.cost_price || 0)
+                                  const subtotal = Number(item.qty || 0) * unitCost
+                                  return (
+                                    <tr key={item.component_product_id} className="border-b border-slate-100 text-xs hover:bg-slate-50/50 transition-colors">
+                                      <td className="px-3 py-2 min-w-0">
+                                        <p className="font-semibold text-slate-900 truncate">{comp.name}</p>
+                                        <p className="text-[10px] text-slate-400 font-mono">{comp.sku || 'N/A'}</p>
+                                      </td>
+                                      <td className="px-3 py-2 text-center text-slate-600 font-medium">
+                                        {comp.unit || 'Cái'}
+                                      </td>
+                                      <td className="px-3 py-2 text-center">
+                                        <input
+                                          type="text"
+                                          value={item.qty}
+                                          onChange={(e) => {
+                                            const val = e.target.value
+                                            if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                              setBomItems(prev => prev.map((it, i) => i === idx ? { ...it, qty: val } : it))
+                                            }
+                                          }}
+                                          placeholder="0"
+                                          className="w-full text-center rounded-lg border border-slate-200 px-1 py-1 text-xs font-semibold focus:border-primary focus:outline-none"
+                                        />
+                                      </td>
+                                      <td className="px-3 py-2 text-right text-slate-600 font-mono">
+                                        {unitCost.toLocaleString()}
+                                      </td>
+                                      <td className="px-3 py-2 text-right font-bold text-slate-900 font-mono">
+                                        {subtotal.toLocaleString()}
+                                      </td>
+                                      <td className="px-2 py-2 text-center">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setBomItems(prev => prev.filter((_, i) => i !== idx))
+                                          }}
+                                          className="text-slate-400 hover:text-red-500 transition-colors"
+                                        >
+                                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                                            <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
+                                          </svg>
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  )
+                                })
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* Summary calculations */}
+                        {bomItems.length > 0 && (() => {
+                          const sellPrice = Number(formData.sell_price || 0)
+                          const profit = sellPrice - bomTotalCost
+                          const margin = sellPrice > 0 ? (profit / sellPrice) * 100 : 0
+
+                          return (
+                            <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-1.5 shadow-sm">
+                              <div className="flex justify-between items-center text-xs">
+                                <span className="text-slate-600 font-semibold">
+                                  Tổng chi phí công thức (A)
+                                </span>
+                                <span className="font-bold text-slate-900 text-sm font-mono">{bomTotalCost.toLocaleString()}đ</span>
+                              </div>
+                              <div className="flex justify-between items-center text-xs">
+                                <span className="text-slate-600 font-medium">Giá bán lẻ hiện tại (B)</span>
+                                <span className="font-semibold text-slate-700 font-mono">{sellPrice.toLocaleString()}đ</span>
+                              </div>
+                              <div className="border-t border-slate-100 my-1 pt-1.5 flex justify-between items-center text-xs">
+                                <span className="text-slate-600 font-medium">Lợi nhuận gộp dự kiến (B - A)</span>
+                                <span className={`font-bold font-mono ${profit >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                                  {profit.toLocaleString()}đ
+                                </span>
+                              </div>
+                              <div className="flex justify-between items-center text-xs">
+                                <span className="text-slate-600 font-medium">Tỷ suất lợi nhuận gộp</span>
+                                <span className={`font-bold font-mono ${profit >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                                  {margin.toFixed(1)}%
+                                </span>
+                              </div>
+                            </div>
+                          )
+                        })()}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div>
-                  <h4 className="text-sm font-semibold text-slate-900">Kích hoạt định mức linh kiện (BOM)</h4>
-                  <p className="text-xs text-slate-500">Bán thành phẩm sẽ tự động trừ kho của các linh kiện cấu thành</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setFormData(prev => ({ ...prev, has_bom: prev.has_bom === 'TRUE' ? 'FALSE' : 'TRUE' }))}
-                  className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                    formData.has_bom === 'TRUE' ? 'bg-primary' : 'bg-slate-200'
-                  }`}
-                >
-                  <span
-                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                      formData.has_bom === 'TRUE' ? 'translate-x-5' : 'translate-x-0'
-                    }`}
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Mô tả</label>
+                  <textarea
+                    value={formData.description}
+                    onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                    rows={3}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none resize-none bg-white"
+                    placeholder="Nhập mô tả sản phẩm"
                   />
-                </button>
-              </div>
+                </div>
 
-              {formData.has_bom === 'TRUE' && (
-                <div className="space-y-4">
-                  {/* Search / Add Component dropdown */}
-                  <div className="relative" ref={componentSearchRef}>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Thêm linh kiện / nguyên liệu</label>
-                    <input
-                      type="text"
-                      value={componentSearch}
-                      onChange={(e) => {
-                        setComponentSearch(e.target.value)
-                        setShowComponentSearchDropdown(true)
-                      }}
-                      onFocus={() => setShowComponentSearchDropdown(true)}
-                      placeholder="Tìm theo tên sản phẩm hoặc SKU..."
-                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
-                    />
-                    
-                    {showComponentSearchDropdown && filteredComponentProducts.length > 0 && (
-                      <div className="absolute z-50 mt-1 w-full max-h-60 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
-                        {filteredComponentProducts.map((p) => (
-                          <button
-                            key={p.product_id || p.id}
-                            type="button"
-                            onClick={() => {
-                              const pId = p.product_id || p.id
-                              // Check if already exists
-                              if (bomItems.some(item => item.component_product_id === pId)) {
-                                toast.error('Linh kiện này đã có trong danh sách')
-                              } else {
-                                setBomItems(prev => [...prev, { component_product_id: pId, qty: '1' }])
-                                setComponentSearch('')
-                                setShowComponentSearchDropdown(false)
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm font-medium text-slate-700">Ảnh sản phẩm</label>
+                    <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-lg">
+                      <button
+                        type="button"
+                        onClick={() => setImageInputMode('file')}
+                        className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${imageInputMode === 'file' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
+                      >
+                        Tải ảnh lên
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setImageInputMode('url')}
+                        className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${imageInputMode === 'url' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
+                      >
+                        Dùng đường dẫn (URL)
+                      </button>
+                    </div>
+                  </div>
+
+                  {imageInputMode === 'file' ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-center w-full">
+                        <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-slate-300 border-dashed rounded-xl cursor-pointer bg-slate-50 hover:bg-slate-100 transition-colors">
+                          <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                            <svg className="w-8 h-8 mb-3 text-slate-400" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 20 16">
+                              <path stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 13h3a3 3 0 0 0 0-6h-.025A5.56 5.56 0 0 0 16 6.5 5.5 5.5 0 0 0 5.207 5.021C5.137 5.017 5.071 5 5 5a4 4 0 0 0 0 8h2.167M10 15V6m0 0L8 8m2-2 2 2" />
+                            </svg>
+                            <p className="mb-2 text-sm text-slate-500"><span className="font-semibold">Bấm để tải ảnh</span> hoặc chụp ảnh</p>
+                            <p className="text-xs text-slate-400">Hỗ trợ tự động nén WebP</p>
+                          </div>
+                          <input
+                            key={fileInputKey}
+                            type="file"
+                            className="hidden"
+                            accept="image/*"
+                            capture="environment"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0]
+                              if (file) {
+                                setSelectedFile(file)
+                                setPreviewUrl(URL.createObjectURL(file))
+                                setFormData(prev => ({ ...prev, image_url: '' }))
                               }
                             }}
-                            className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-slate-50 transition-colors"
+                          />
+                        </label>
+                      </div>
+                      {previewUrl && !previewUrl.startsWith('http') && (
+                        <div className="relative w-24 h-24 rounded-xl overflow-hidden border border-slate-200 bg-slate-50">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={previewUrl} alt="Preview" className="w-full h-full object-cover" onError={(e) => (e.currentTarget.style.display = 'none')} />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedFile(null)
+                              setPreviewUrl(null)
+                              setFileInputKey(Date.now())
+                            }}
+                            className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 shadow-sm"
                           >
-                            <div className="flex-1 min-w-0 pr-2">
-                              <p className="font-semibold text-slate-900 truncate">{p.name}</p>
-                              <p className="text-xs text-slate-500 font-mono">SKU: {p.sku || 'N/A'} • ĐVT: {p.unit || 'Cái'}</p>
-                            </div>
-                            <span className="text-xs font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded flex-shrink-0">
-                              {Number(p.cost_price || 0).toLocaleString()}đ
-                            </span>
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                            </svg>
                           </button>
-                        ))}
-                      </div>
-                    )}
-                    {showComponentSearchDropdown && componentSearch && filteredComponentProducts.length === 0 && (
-                      <div className="absolute z-50 mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-lg text-center text-xs text-slate-400">
-                        Không tìm thấy linh kiện nào
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Components List Table */}
-                  <div className="rounded-xl border border-slate-200 overflow-hidden bg-white">
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-600 uppercase tracking-wider">
-                          <th className="px-3 py-2.5">Linh kiện / Nguyên liệu</th>
-                          <th className="px-3 py-2.5 w-16 text-center">ĐVT</th>
-                          <th className="px-3 py-2.5 w-20 text-center">Số lượng</th>
-                          <th className="px-3 py-2.5 text-right w-24">Giá vốn (đ)</th>
-                          <th className="px-3 py-2.5 text-right w-28">Thành tiền</th>
-                          <th className="px-2 py-2.5 w-8"></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {bomItems.length === 0 ? (
-                          <tr>
-                            <td colSpan={6} className="px-3 py-8 text-center text-sm text-slate-400">
-                              Chưa có linh kiện nào. Hãy tìm kiếm và thêm ở trên.
-                            </td>
-                          </tr>
-                        ) : (
-                          bomItems.map((item, idx) => {
-                            const comp = allProducts.find(p => (p.product_id || p.id) === item.component_product_id)
-                            if (!comp) return null
-                            const unitCost = Number(comp.cost_price || 0)
-                            const subtotal = Number(item.qty || 0) * unitCost
-                            return (
-                              <tr key={item.component_product_id} className="border-b border-slate-100 text-xs hover:bg-slate-50/50 transition-colors">
-                                <td className="px-3 py-2 min-w-0">
-                                  <p className="font-semibold text-slate-900 truncate">{comp.name}</p>
-                                  <p className="text-[10px] text-slate-400 font-mono">{comp.sku || 'N/A'}</p>
-                                </td>
-                                <td className="px-3 py-2 text-center text-slate-600 font-medium">
-                                  {comp.unit || 'Cái'}
-                                </td>
-                                <td className="px-3 py-2 text-center">
-                                  <input
-                                    type="text"
-                                    value={item.qty}
-                                    onChange={(e) => {
-                                      const val = e.target.value
-                                      // Validate to allow float number like 0.02, 1
-                                      if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                                        setBomItems(prev => prev.map((it, i) => i === idx ? { ...it, qty: val } : it))
-                                      }
-                                    }}
-                                    placeholder="0"
-                                    className="w-full text-center rounded-lg border border-slate-200 px-1 py-1 text-xs font-semibold focus:border-primary focus:outline-none"
-                                  />
-                                </td>
-                                <td className="px-3 py-2 text-right text-slate-600 font-mono">
-                                  {unitCost.toLocaleString()}
-                                </td>
-                                <td className="px-3 py-2 text-right font-bold text-slate-900 font-mono">
-                                  {subtotal.toLocaleString()}
-                                </td>
-                                <td className="px-2 py-2 text-center">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setBomItems(prev => prev.filter((_, i) => i !== idx))
-                                    }}
-                                    className="text-slate-400 hover:text-red-500 transition-colors"
-                                  >
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                                      <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                                    </svg>
-                                  </button>
-                                </td>
-                              </tr>
-                            )
-                          })
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Summary calculations */}
-                  {bomItems.length > 0 && (() => {
-                    const totalCost = bomItems.reduce((acc, item) => {
-                      const comp = allProducts.find(p => (p.product_id || p.id) === item.component_product_id)
-                      const unitCost = Number(comp?.cost_price || 0)
-                      return acc + Number(item.qty || 0) * unitCost
-                    }, 0)
-                    const sellPrice = Number(formData.sell_price || 0)
-                    const profit = sellPrice - totalCost
-                    const margin = sellPrice > 0 ? (profit / sellPrice) * 100 : 0
-                    
-                    return (
-                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2">
-                        <div className="flex justify-between items-center text-sm">
-                          <span className="text-slate-600 font-semibold flex items-center gap-1.5">
-                            Tổng giá vốn định mức (A)
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setFormData(prev => ({ ...prev, cost_price: String(totalCost) }))
-                                toast.success('Đã đồng bộ giá vốn định mức vào sản phẩm!')
-                              }}
-                              className="text-[10px] bg-primary/10 text-primary hover:bg-primary/20 transition-colors px-1.5 py-0.5 rounded font-bold uppercase tracking-wider"
-                              title="Cập nhật tổng giá vốn này làm giá vốn sản phẩm"
-                            >
-                              Sync sang giá vốn
-                            </button>
-                          </span>
-                          <span className="font-bold text-slate-900 text-base font-mono">{totalCost.toLocaleString()}đ</span>
                         </div>
-                        <div className="flex justify-between items-center text-sm">
-                          <span className="text-slate-600 font-medium">Giá bán lẻ thiết lập (B)</span>
-                          <span className="font-semibold text-slate-700 font-mono">{sellPrice.toLocaleString()}đ</span>
+                      )}
+                    </div>
+                  ) : (
+                    <div>
+                      <input
+                        type="text"
+                        value={formData.image_url}
+                        onChange={(e) => {
+                          setFormData(prev => ({ ...prev, image_url: e.target.value }))
+                          setPreviewUrl(e.target.value)
+                        }}
+                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white"
+                        placeholder="https://..."
+                      />
+                      {previewUrl && formData.image_url === previewUrl && (
+                        <div className="mt-3 relative w-24 h-24 rounded-xl overflow-hidden border border-slate-200 bg-slate-50">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={previewUrl} alt="Preview" className="w-full h-full object-cover" onError={(e) => (e.currentTarget.style.display = 'none')} />
                         </div>
-                        <div className="border-t border-slate-200 my-1 pt-2 flex justify-between items-center text-sm">
-                          <span className="text-slate-600 font-medium">Lợi nhuận gộp dự kiến (B - A)</span>
-                          <span className={`font-bold font-mono ${profit >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                            {profit.toLocaleString()}đ
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center text-sm">
-                          <span className="text-slate-600 font-medium">Tỷ suất lợi nhuận gộp</span>
-                          <span className={`font-bold font-mono ${profit >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                            {margin.toFixed(1)}%
-                          </span>
-                        </div>
-                      </div>
-                    )
-                  })()}
+                      )}
+                    </div>
+                  )}
                 </div>
-              )}
+
+
+              </div>
             </div>
-          )}
-        </div>
+          )
+        })()}
       </SlideOver>
 
       <ConfirmDialog
@@ -1444,7 +1517,7 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
         onConfirm={() => { if (actionTarget) toggleActiveMutation.mutate(actionTarget) }}
         title={actionTarget?.active === 'TRUE' ? "Ngừng kinh doanh" : "Mở bán lại"}
         description={
-          actionTarget?.active === 'TRUE' 
+          actionTarget?.active === 'TRUE'
             ? `Bạn có chắc muốn ngừng kinh doanh "${actionTarget?.name}"? Sản phẩm sẽ bị ẩn khỏi các màn hình bán hàng.`
             : `Sản phẩm "${actionTarget?.name}" sẽ được bán trở lại trên toàn hệ thống.`
         }
