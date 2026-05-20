@@ -192,6 +192,7 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
   const [imageInputMode, setImageInputMode] = useState<'url' | 'file'>('file')
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'uploading'>('idle')
   const [fileInputKey, setFileInputKey] = useState(Date.now())
+  const [saveConfirmOpen, setSaveConfirmOpen] = useState(false)
 
   // ── Variant system state ──────────────────────────────────────────
   const [variantRows, setVariantRows] = useState<VariantRow[]>([])
@@ -392,13 +393,59 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
       setSaveStatus('idle')
       toast.success(editingId ? 'Đã cập nhật' : 'Đã tạo mới')
       setSlideOpen(false)
+      setSaveConfirmOpen(false)
       queryClient.invalidateQueries({ queryKey: ['products', shopId] })
     },
     onError: (err: Error) => {
       setSaveStatus('idle')
+      setSaveConfirmOpen(false)
       toast.error(err.message)
     },
   })
+
+  const handlePreSave = () => {
+    if (!formData.name?.trim()) {
+      toast.error('Vui lòng nhập tên sản phẩm')
+      return
+    }
+
+    const isVariantParent = formData.product_type === 'variant_parent'
+
+    if (isVariantParent) {
+      if (!optionName.trim()) {
+        toast.error('Vui lòng nhập tên thuộc tính (VD: Size, Màu sắc)')
+        return
+      }
+      if (variantRows.length === 0) {
+        toast.error('Vui lòng thêm ít nhất 1 variant')
+        return
+      }
+      if (variantRows.some((r) => !r.value.trim())) {
+        toast.error('Vui lòng nhập giá trị cho tất cả các variant')
+        return
+      }
+    } else {
+      const hasModifiers = hasModifiersToggle && modifierGroups.length > 0
+      if (hasModifiers) {
+        for (const g of modifierGroups) {
+          if (!g.name.trim()) {
+            toast.error('Vui lòng nhập tên cho tất cả các nhóm modifier')
+            return
+          }
+          if (g.options.length === 0) {
+            toast.error(`Nhóm "${g.name}" cần ít nhất 1 lựa chọn`)
+            return
+          }
+          if (g.options.some((o) => !o.name.trim())) {
+            toast.error(`Vui lòng nhập tên cho tất cả lựa chọn trong nhóm "${g.name}"`)
+            return
+          }
+        }
+      }
+    }
+
+    setSaveConfirmOpen(true)
+  }
 
 
   const toggleActiveMutation = useMutation({
@@ -780,7 +827,7 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
               Hủy
             </button>
             <button
-              onClick={() => saveMutation.mutate(formData)}
+              onClick={handlePreSave}
               disabled={saveMutation.isPending}
               className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
             >
@@ -1247,8 +1294,25 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
                               setShowComponentSearchDropdown(true)
                             }}
                             onFocus={() => setShowComponentSearchDropdown(true)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                if (filteredComponentProducts.length === 1) {
+                                  e.preventDefault()
+                                  const p = filteredComponentProducts[0]
+                                  const pId = p.product_id || p.id
+                                  if (bomItems.some(item => item.component_product_id === pId)) {
+                                    toast.error('Linh kiện này đã có trong danh sách')
+                                  } else {
+                                    setBomItems(prev => [...prev, { component_product_id: pId, qty: '1' }])
+                                    setComponentSearch('')
+                                    setShowComponentSearchDropdown(false)
+                                    toast.success(`Đã thêm ${p.name}`)
+                                  }
+                                }
+                              }
+                            }}
                             placeholder="Tìm theo tên sản phẩm hoặc SKU..."
-                            className="w-full rounded-xl border border-slate-200 px-3 py-1.5 text-xs focus:border-primary focus:outline-none bg-white"
+                            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white"
                           />
 
                           {showComponentSearchDropdown && filteredComponentProducts.length > 0 && (
@@ -1266,12 +1330,20 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
                                       setBomItems(prev => [...prev, { component_product_id: pId, qty: '1' }])
                                       setComponentSearch('')
                                       setShowComponentSearchDropdown(false)
+                                      toast.success(`Đã thêm ${p.name}`)
                                     }
                                   }}
                                   className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-slate-50 transition-colors"
                                 >
                                   <div className="flex-1 min-w-0 pr-2">
-                                    <p className="font-semibold text-slate-900 truncate">{p.name}</p>
+                                    <div className="flex items-center gap-2">
+                                      <p className="font-semibold text-slate-900 truncate">{p.name}</p>
+                                      {filteredComponentProducts.length === 1 && (
+                                        <kbd className="inline-flex items-center gap-0.5 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[9px] font-sans font-bold text-slate-500 shadow-sm shrink-0">
+                                          Enter
+                                        </kbd>
+                                      )}
+                                    </div>
                                     <p className="text-xs text-slate-500 font-mono">SKU: {p.sku || 'N/A'} • ĐVT: {p.unit || 'Cái'}</p>
                                   </div>
                                   <span className="text-xs font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded flex-shrink-0">
@@ -1525,6 +1597,87 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
         variant={actionTarget?.active === 'TRUE' ? "danger" : "default"}
         loading={toggleActiveMutation.isPending}
       />
+
+      <ConfirmDialog
+        open={saveConfirmOpen}
+        onClose={() => setSaveConfirmOpen(false)}
+        onConfirm={() => saveMutation.mutate(formData)}
+        title={editingId ? "Xác nhận cập nhật sản phẩm" : "Xác nhận tạo sản phẩm"}
+        confirmLabel={editingId ? "Cập nhật" : "Tạo sản phẩm"}
+        variant="default"
+        loading={saveMutation.isPending}
+      >
+        {(() => {
+          const isVariantParent = formData.product_type === 'variant_parent'
+          const hasModifiers = hasModifiersToggle && modifierGroups.length > 0 && !isVariantParent
+          const hasBom = formData.has_bom === 'TRUE' && !isVariantParent
+
+          let productTypeLabel = 'Sản phẩm thường (Simple)'
+          if (isVariantParent) {
+            productTypeLabel = `Nhóm sản phẩm có nhiều phiên bản (${optionName || 'Thuộc tính'} - ${variantRows.length} phiên bản)`
+          } else if (hasModifiers) {
+            productTypeLabel = 'Sản phẩm kèm nhóm lựa chọn (Modifier)'
+          }
+
+          return (
+            <div className="space-y-3 text-slate-600 text-sm mt-3">
+              <p>Vui lòng kiểm tra lại cấu hình sản phẩm trước khi lưu:</p>
+              <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4 space-y-2.5 text-xs shadow-inner">
+                <div className="flex justify-between items-start gap-4">
+                  <span className="font-medium text-slate-500 shrink-0">Tên sản phẩm:</span>
+                  <span className="font-bold text-slate-800 text-right">{formData.name}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="font-medium text-slate-500 shrink-0">Cấu trúc sản phẩm:</span>
+                  <span className="font-semibold text-slate-800 text-right">{productTypeLabel}</span>
+                </div>
+
+                {!isVariantParent && (
+                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
+                    <div className="rounded-lg bg-white p-2 border border-slate-100/80">
+                      <span className="text-[10px] text-slate-400 block">Giá bán</span>
+                      <span className="font-bold text-slate-800 text-xs">{Number(formData.sell_price || 0).toLocaleString()}đ</span>
+                    </div>
+                    <div className="rounded-lg bg-white p-2 border border-slate-100/80">
+                      <span className="text-[10px] text-slate-400 block">Giá vốn</span>
+                      <span className="font-bold text-slate-800 text-xs">{Number(formData.cost_price || 0).toLocaleString()}đ</span>
+                    </div>
+                  </div>
+                )}
+
+                {hasBom && (
+                  <div className="border-t border-slate-200/60 pt-2.5 mt-2 bg-primary/5 rounded-lg p-2.5 border border-primary/10">
+                    <span className="font-bold text-primary flex items-center gap-1 text-[11px] mb-1">
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" /></svg>
+                      Định lượng nguyên liệu (BOM): ĐANG BẬT
+                    </span>
+                    <p className="text-[10px] text-slate-600 leading-tight">
+                      Sản phẩm được cấu thành từ <strong className="text-slate-800 font-semibold">{bomItems.length} thành phần/nguyên liệu</strong>. Khi xuất bán sẽ tự động trừ kho nguyên liệu cấu thành.
+                    </p>
+                  </div>
+                )}
+
+                {hasModifiers && (
+                  <div className="border-t border-slate-200/60 pt-2.5 mt-2 bg-amber-50/50 rounded-lg p-2.5 border border-amber-100">
+                    <span className="font-bold text-amber-700 flex items-center gap-1 text-[11px] mb-1">
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" /></svg>
+                      Nhóm lựa chọn đi kèm (Modifier): ĐANG BẬT
+                    </span>
+                    <div className="space-y-1 text-[10px] text-slate-600 max-h-24 overflow-y-auto">
+                      {modifierGroups.map((g, idx) => (
+                        <div key={g.id} className="bg-white p-1 rounded border border-slate-100">
+                          • {g.name} ({g.is_required ? 'Bắt buộc' : 'Tùy chọn'}, {g.max_selection === 1 ? 'Chọn 1' : 'Nhiều'}):{' '}
+                          <strong className="text-slate-700">{g.options.map(o => `${o.name} (+${Number(o.price_adj || 0).toLocaleString()}đ)`).join(', ')}</strong>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })()}
+      </ConfirmDialog>
 
       {/* TẠO DANH MỤC MODAL */}
       {categoryModalOpen && (
