@@ -24,6 +24,26 @@ function fmtDate(iso: string) {
   })
 }
 
+function fmtTimeSpan(checkInIso: string, checkOutIso?: string) {
+  const inDate = new Date(checkInIso)
+  const inTimeStr = inDate.toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+  const inDateStr = inDate.toLocaleString('vi-VN', { day: '2-digit', month: '2-digit' })
+  
+  if (!checkOutIso) {
+    return `Giờ vào: ${inTimeStr}`
+  }
+  
+  const outDate = new Date(checkOutIso)
+  const outTimeStr = outDate.toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+  const outDateStr = outDate.toLocaleString('vi-VN', { day: '2-digit', month: '2-digit' })
+  
+  if (inDateStr === outDateStr && inDate.getFullYear() === outDate.getFullYear()) {
+    return `Giờ vào: ${inTimeStr} - Giờ ra: ${outTimeStr}`
+  } else {
+    return `Giờ vào: ${inTimeStr} ${inDateStr} - Giờ ra: ${outTimeStr} ${outDateStr}`
+  }
+}
+
 export async function printBill({
   order,
   items,
@@ -62,13 +82,18 @@ export async function printBill({
   const discount = Number(order.discount_amount || 0)
   const total = Number(order.total_amount || 0)
   const customerName = order.customer_name
+  
+  let orderMeta: any = {}
+  try {
+    orderMeta = typeof (order as any).metadata === 'string' ? JSON.parse((order as any).metadata) : ((order as any).metadata || {})
+  } catch {}
 
   const billTitle = 'HOÁ ĐƠN BÁN HÀNG'
   const reprintHtml = printCount > 1 ? `<p class="sub" style="font-style: italic; margin-top: 2px;">(In lại lần ${printCount - 1})</p>` : ''
   
   const taxIdHtml = currentSettings?.tax_id ? `<p class="sub">MST: ${currentSettings.tax_id}</p>` : ''
   const addressHtml = currentSettings?.address ? `<p class="sub">${currentSettings.address}</p>` : ''
-  const phoneHtml = currentSettings?.phone ? `<p class="sub">ĐT: ${currentSettings.phone}</p>` : ''
+  const phoneHtml = currentSettings?.phone ? `<p class="sub">Hotline: ${currentSettings.phone}</p>` : ''
   
   let qrHtml = ''
   if (currentSettings?.bank_code && currentSettings?.bank_account_number && currentSettings?.qr_template) {
@@ -76,12 +101,13 @@ export async function printBill({
     qrHtml = `<div class="sep"></div>
     <div style="text-align:center; margin-top: 10px;">
       <p style="font-weight:bold; margin-bottom: 4px;">Quét QR để thanh toán</p>
-      <img src="${qrUrl}" style="width: 100%; max-width: 155px; margin: 0 auto;" />
+      <img src="${qrUrl}" style="width: 100%; max-width: 95px; margin: 0 auto;" />
     </div>`
   }
   
-  const wifiHtml = currentSettings?.wifi_info ? `<div class="sep"></div><p style="text-align:center;">Wi-Fi: ${currentSettings.wifi_info}</p>` : ''
-  const footerHtml = currentSettings?.receipt_footer ? `<p class="footer">${currentSettings.receipt_footer}</p>` : '<p class="footer">Cảm ơn quý khách!</p>'
+  const wifiHtml = currentSettings?.wifi_info ? `<p style="text-align:center;">Wi-Fi: ${currentSettings.wifi_info}</p>` : ''
+  const customFooter = currentSettings?.receipt_footer ? `<p class="footer">${currentSettings.receipt_footer}</p>` : '<p class="footer">Cảm ơn quý khách!</p>'
+  const footerHtml = `${customFooter}<br/><div class="sep"></div><p class="sub" style="font-size: 11px; margin-top: 6px;">Hệ thống quản lý bán hàng <b>ONI.vn</b></p>`
 
   const html = `<!DOCTYPE html>
 <html>
@@ -118,12 +144,13 @@ ${reprintHtml}
 <p class="sub">${fmtDate(createdDate)}</p>
 <p class="sub">Mã đơn: ${displayOrderCode}</p>
 <div class="sep"></div>
-<p>${customerName ? 'Khách: ' + customerName : 'Khách lẻ'}</p>
+<p>${customerName ? 'Khách: ' + customerName : 'Khách lẻ'}${orderMeta?.resource_name ? ` - Bàn/Phòng: ${orderMeta.resource_name}` : ''}</p>
+${orderMeta?.check_in ? `<p>${fmtTimeSpan(orderMeta.check_in, orderMeta.check_out)}</p>` : ''}
 <div class="sep"></div>
 <table>
-<tr><td class="bold">Sản phẩm</td><td class="c bold pl" style="width: 12%">SL</td><td class="r bold pl" style="width: 25%">Đ.giá</td><td class="r bold pl" style="width: 28%">T.tiền</td></tr>
+<tr><td class="bold" style="width: 6%">TT</td><td class="bold pl">Sản phẩm</td><td class="c bold pl" style="width: 8%">SL</td><td class="r bold pl" style="width: 22%">Đ.giá</td><td class="r bold pl" style="width: 26%">T.tiền</td></tr>
 ${items
-  .map((it) => {
+  .map((it, idx) => {
     // Build sub-line for variant/modifier info
     let subLine = ''
     let parsedModifiers = (it as any).modifiers
@@ -144,7 +171,8 @@ ${items
     }
     const effectivePrice = Number(it.unit_price) + (Number((it as any).modifier_total) || 0)
     return `<tr>
-  <td>${it.product_name}${it.sku ? `<br/><span style="font-size:10px;color:#666">${it.sku}</span>` : ''}${subLine}</td>
+  <td>${idx + 1}</td>
+  <td class="pl">${it.product_name}${subLine}</td>
   <td class="c pl">${it.qty}</td>
   <td class="r pl">${fmtVND(effectivePrice)}</td>
   <td class="r pl">${fmtVND(Number(it.line_total))}</td>

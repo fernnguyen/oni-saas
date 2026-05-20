@@ -73,14 +73,25 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ shop
   if (!ctx) return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
 
   const admin = getSupabaseAdminClient();
-  const { data } = await admin
+  const { data: settingsData } = await admin
     .from('shop_settings')
     .select('*')
     .eq('shop_id', shopId)
     .maybeSingle();
 
+  const { data: shopData } = await admin
+    .from('shops')
+    .select('address, phone')
+    .eq('id', shopId)
+    .maybeSingle();
+
   // Return defaults if no row yet — don't insert until user saves
-  const settings = data ?? { ...DEFAULT_SETTINGS, shop_id: shopId };
+  const settings = settingsData ?? { ...DEFAULT_SETTINGS, shop_id: shopId };
+  if (shopData) {
+    settings.address = shopData.address;
+    settings.phone = shopData.phone;
+  }
+  
   return NextResponse.json(settings);
 }
 
