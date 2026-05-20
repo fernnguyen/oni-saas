@@ -4,10 +4,31 @@ import type { Metadata } from 'next';
 import { Toaster } from 'sonner';
 import { QueryProvider } from '@/app/components/providers/QueryProvider';
 
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://oni.vn';
+
 export const metadata: Metadata = {
-  title: 'ONI.vn – Nền tảng quản lý bán hàng SaaS',
+  metadataBase: new URL(siteUrl),
+  title: {
+    default: 'ONI.vn – Nền tảng quản lý bán hàng SaaS',
+    template: '%s | ONI.vn',
+  },
   description:
     'Hệ thống POS & quản lý kho đa chi nhánh. Dữ liệu thuộc về bạn — BYOD (Bring Your Own Database). AI, Zalo, Telegram tích hợp sẵn.',
+  openGraph: {
+    type: 'website',
+    locale: 'vi_VN',
+    url: siteUrl,
+    siteName: 'ONI.vn',
+    title: 'ONI.vn – Nền tảng quản lý bán hàng SaaS',
+    description:
+      'Hệ thống POS & quản lý kho đa chi nhánh. Dữ liệu thuộc về bạn — BYOD (Bring Your Own Database). AI, Zalo, Telegram tích hợp sẵn.',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'ONI.vn – Nền tảng quản lý bán hàng SaaS',
+    description:
+      'Hệ thống POS & quản lý kho đa chi nhánh. Dữ liệu thuộc về bạn — BYOD (Bring Your Own Database). AI, Zalo, Telegram tích hợp sẵn.',
+  },
   icons: {
     icon: [
       { url: '/logos/favicon-32x32.png', sizes: '32x32', type: 'image/png' },
