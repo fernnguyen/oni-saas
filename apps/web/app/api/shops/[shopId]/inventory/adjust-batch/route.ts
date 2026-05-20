@@ -129,7 +129,7 @@ export async function POST(
 
         // Create the product
         const isTempSku = !item.sku || item.sku.startsWith('TEMP-') || item.sku.match(/^P-\d{13}-\d+$/)
-        const productSku = isTempSku ? '' : item.sku
+        const productSku = isTempSku ? '' : (item.sku || '')
 
         const createdProduct = await connector.create('products', {
           name: item.product_name.trim(),

@@ -400,6 +400,53 @@ export async function POST(
           await connector.delete('stock-movements', mov.movement_id).catch(() => {})
         }
       })
+
+      // Update current stock quantities in the inventory table
+      for (const mov of createdMovs) {
+        const qtyToDeduct = Math.abs(parseFloat(mov.qty || '0'))
+        if (qtyToDeduct === 0) continue
+
+        const pid = mov.product_id
+        const branchId = mov.branch_id ?? ''
+        const sku = mov.sku ?? ''
+
+        // Query existing inventory for this product
+        const invListResult = await connector.list('inventory', {
+          page: 1, limit: 10,
+          filters: { product_id: pid }
+        })
+        const allInv = invListResult.data as Record<string, string>[]
+        let invRow = allInv.find(i => i.branch_id === branchId)
+        if (!invRow && branchId !== '') {
+          invRow = allInv.find(i => i.branch_id === '')
+        }
+        if (!invRow) {
+          invRow = allInv[0]
+        }
+
+        if (invRow) {
+          const oldQty = parseFloat(invRow.stock_qty || '0')
+          const newQty = oldQty - qtyToDeduct
+          await connector.update('inventory', invRow.inventory_id as string, {
+            stock_qty: String(newQty)
+          })
+          tx.add(async () => {
+            await connector.update('inventory', invRow.inventory_id as string, { stock_qty: String(oldQty) }).catch(() => {})
+          })
+        } else {
+          // Create a new inventory record with negative stock (no Math.max(0) capping)
+          const createdInv = await connector.create('inventory', {
+            product_id: pid,
+            branch_id: branchId || '',
+            stock_qty: String(-qtyToDeduct),
+            min_stock: '0',
+            sku: sku || ''
+          } as Record<string, string>)
+          tx.add(async () => {
+            await connector.delete('inventory', (createdInv as any).inventory_id).catch(() => {})
+          })
+        }
+      }
     }
 
     // ── Step 5: Update Customer Debt & Fetch Info ──
