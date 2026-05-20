@@ -15,8 +15,8 @@ import { PaymentStatusLabel, PaymentStatus } from '@/app/components/ui/PaymentSt
 import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog'
 import { CopyableId } from '@/app/components/ui/CopyableId'
 
-const Eye = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
-const ArrowRight = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+const Eye = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg>
+const ArrowRight = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M5 12h14" /><path d="m12 5 7 7-7 7" /></svg>
 
 interface Props {
   shopId: string
@@ -29,25 +29,47 @@ type Tab = 'stock' | 'history'
 // ── Movement type metadata ────────────────────────────────────────────────────
 
 const MOVEMENT_TYPES = [
-  { value: 'purchase_in',  label: 'Nhập hàng',      color: 'blue'   as TagColor, sign: '+', hint: 'Hàng về từ NCC → tăng tồn kho, cập nhật giá vốn' },
-  { value: 'sale_out',     label: 'Bán hàng',        color: 'green'  as TagColor, sign: '-', hint: 'Xuất kho khi bán hàng' },
-  { value: 'return_in',    label: 'Hàng trả về',     color: 'red'    as TagColor, sign: '+', hint: 'Khách hoàn trả → tăng tồn kho' },
+  { value: 'purchase_in', label: 'Nhập hàng', color: 'blue' as TagColor, sign: '+', hint: 'Hàng về từ NCC → tăng tồn kho, cập nhật giá vốn' },
+  { value: 'sale_out', label: 'Bán hàng', color: 'green' as TagColor, sign: '-', hint: 'Xuất kho khi bán hàng' },
+  { value: 'return_in', label: 'Hàng trả về', color: 'red' as TagColor, sign: '+', hint: 'Khách hoàn trả → tăng tồn kho' },
   { value: 'transfer_out', label: 'Xuất chuyển kho', color: 'orange' as TagColor, sign: '-', hint: 'Chuyển hàng sang chi nhánh khác' },
-  { value: 'transfer_in',  label: 'Nhập chuyển kho', color: 'purple' as TagColor, sign: '+', hint: 'Nhận hàng từ chi nhánh khác' },
-  { value: 'adjustment',   label: 'Điều chỉnh',      color: 'yellow' as TagColor, sign: '±', hint: 'Kiểm kê / điều chỉnh tồn kho' },
+  { value: 'transfer_in', label: 'Nhập chuyển kho', color: 'purple' as TagColor, sign: '+', hint: 'Nhận hàng từ chi nhánh khác' },
+  { value: 'adjustment', label: 'Điều chỉnh', color: 'yellow' as TagColor, sign: '±', hint: 'Kiểm kê / điều chỉnh tồn kho' },
 ]
 
 const MOVEMENT_TYPE_MAP = Object.fromEntries(MOVEMENT_TYPES.map((t) => [t.value, t]))
 
 const INPUT_TYPES = MOVEMENT_TYPES.filter((t) => ['purchase_in', 'return_in', 'adjustment', 'transfer_in'].includes(t.value))
 
+interface FormItem {
+  product_id: string
+  product_name: string
+  sku: string
+  qty: string
+  unit_cost: string
+  is_new?: boolean
+  category_name?: string
+  sell_price?: string
+  min_price?: string
+  unit?: string
+}
+
 const EMPTY_FORM = {
   type: 'purchase_in',
-  product_id: '',
-  product_name: '',
-  sku: '',
-  qty: '',
-  unit_cost: '',
+  items: [
+    {
+      product_id: '',
+      product_name: '',
+      sku: '',
+      qty: '',
+      unit_cost: '',
+      is_new: false,
+      category_name: '',
+      sell_price: '',
+      min_price: '',
+      unit: '',
+    }
+  ] as FormItem[],
   supplier_id: '',
   reference_no: '',
   reason: '',
@@ -108,7 +130,7 @@ function ProductSelect({
 }: {
   shopId: string
   value: { product_id: string; name: string; sku: string } | null
-  onChange: (p: { product_id: string; name: string; sku: string; cost_price?: string }) => void
+  onChange: (p: { product_id: string; name: string; sku: string; cost_price?: string; is_new?: boolean }) => void
 }) {
   const [q, setQ] = useState('')
   const [open, setOpen] = useState(false)
@@ -132,7 +154,7 @@ function ProductSelect({
               const opts = JSON.parse(p.variant_options)
               const vals = Object.values(opts).join(' / ')
               if (vals) displayName = `${p.name} (${vals})`
-            } catch {}
+            } catch { }
           }
           return { ...p, displayName }
         })
@@ -151,14 +173,22 @@ function ProductSelect({
 
   if (value) {
     return (
-      <div className="flex items-center justify-between rounded-xl border border-blue-100 bg-blue-50 px-3 py-2">
-        <div>
-          <p className="text-sm font-medium text-slate-900">{value.name}</p>
-          {value.sku && <p className="text-xs text-slate-500">SKU: {value.sku}</p>}
+      <div className="flex items-center justify-between rounded-xl border border-blue-100 bg-blue-50/70 px-2 py-0.5 min-h-[38px]">
+        <div className="truncate flex-1 min-w-0 pr-1.5">
+          <div className="flex items-center gap-1 truncate">
+            <p className="text-xs font-semibold text-slate-900 truncate leading-normal">{value.name}</p>
+            {value.product_id === 'new' && (
+              <span className="shrink-0 inline-flex items-center rounded bg-emerald-50 px-1 py-0.2 text-[8px] font-bold text-emerald-700 border border-emerald-200">
+                Mới
+              </span>
+            )}
+          </div>
+          {value.sku && <p className="text-[9px] text-slate-500 truncate font-mono leading-none mt-0.5">SKU: {value.sku}</p>}
         </div>
         <button
+          type="button"
           onClick={() => onChange({ product_id: '', name: '', sku: '' })}
-          className="text-slate-400 hover:text-slate-600"
+          className="text-slate-400 hover:text-red-500 px-0.5 text-[10px] shrink-0"
         >✕</button>
       </div>
     )
@@ -171,11 +201,35 @@ function ProductSelect({
         value={q}
         onChange={(e) => { setQ(e.target.value); setOpen(true) }}
         onFocus={() => setOpen(true)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && q.trim()) {
+            e.preventDefault()
+            onChange({ product_id: 'new', name: q, sku: '', is_new: true })
+            setQ('')
+            setOpen(false)
+          }
+        }}
         placeholder="Gõ tên hoặc SKU sản phẩm..."
         className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
       />
       {open && (
-        <div className="absolute z-50 mt-1 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
+        <div className="absolute z-50 mt-1 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg max-h-60 overflow-y-auto">
+          {q && (
+            <button
+              type="button"
+              onClick={() => {
+                onChange({ product_id: 'new', name: q, sku: '', is_new: true })
+                setQ('')
+                setOpen(false)
+              }}
+              className="flex w-full items-center justify-between px-3 py-2.5 text-left text-sm font-semibold text-primary hover:bg-primary/5 hover:text-primary-dark border-b border-slate-100 transition-colors"
+            >
+              <span className="truncate flex-1 min-w-0 pr-2">+ Tạo mới sản phẩm: <span className="text-slate-900 font-bold">"{q}"</span></span>
+              <kbd className="inline-flex items-center gap-0.5 font-sans font-semibold text-slate-700 bg-white border border-slate-300 rounded px-1.5 py-0.5 shadow-[0_1.5px_0_0_rgba(0,0,0,0.15)] text-[10px] leading-none">
+                <span className="text-[12px] leading-none">↵</span> Enter
+              </kbd>
+            </button>
+          )}
           {(data?.data as any[] ?? []).length > 0 ? (
             (data?.data as any[] ?? []).map((p) => (
               <button
@@ -187,21 +241,111 @@ function ProductSelect({
                 }}
                 className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-slate-50"
               >
-                <div>
-                  <span className="font-medium text-slate-900">{p.displayName || p.name}</span>
+                <div className="truncate flex-1 pr-2">
+                  <span className="font-medium text-slate-900 truncate block sm:inline">{p.displayName || p.name}</span>
                   {p.sku && <span className="ml-2 text-xs text-slate-400">{p.sku}</span>}
                 </div>
-                <span className="text-xs text-slate-500">{fmtVND(p.cost_price)}/đv</span>
+                <span className="text-xs text-slate-500 shrink-0">{fmtVND(p.cost_price)}/đv</span>
               </button>
             ))
           ) : (
-            <p className="px-3 py-2 text-sm text-slate-400">{q ? 'Không tìm thấy sản phẩm' : 'Gõ để tìm kiếm'}</p>
+            !q && <p className="px-3 py-2 text-sm text-slate-400">Gõ để tìm kiếm</p>
           )}
         </div>
       )}
     </div>
   )
 }
+
+// ── Category autocomplete ─────────────────────────────────────────────────────
+
+function CategorySelect({
+  categories,
+  value,
+  onChange,
+}: {
+  categories: { name: string }[]
+  value: string
+  onChange: (val: string) => void
+}) {
+  const [q, setQ] = useState(value)
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    setQ(value)
+  }, [value])
+
+  useEffect(() => {
+    function out(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', out)
+    return () => document.removeEventListener('mousedown', out)
+  }, [])
+
+  const filtered = categories.filter(c =>
+    c.name.toLowerCase().includes(q.toLowerCase().trim())
+  )
+
+  const exactMatch = categories.some(c =>
+    c.name.toLowerCase().trim() === q.toLowerCase().trim()
+  )
+
+  return (
+    <div ref={ref} className="relative flex-1">
+      <input
+        type="text"
+        value={q}
+        onChange={(e) => {
+          setQ(e.target.value)
+          onChange(e.target.value)
+          setOpen(true)
+        }}
+        onFocus={() => setOpen(true)}
+        placeholder="Chọn hoặc nhập nhóm..."
+        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+      />
+      {open && (
+        <div className="absolute z-50 mt-1 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg max-h-48 overflow-y-auto">
+          {q.trim() && !exactMatch && (
+            <button
+              type="button"
+              onClick={() => {
+                onChange(q.trim())
+                setOpen(false)
+              }}
+              className="flex w-full items-center px-3 py-2 text-left text-sm font-semibold text-primary hover:bg-primary/5 hover:text-primary-dark border-b border-slate-100 transition-colors"
+            >
+              + Tạo mới nhóm: "{q.trim()}"
+            </button>
+          )}
+          {filtered.length > 0 ? (
+            filtered.map((c, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => {
+                  setQ(c.name)
+                  onChange(c.name)
+                  setOpen(false)
+                }}
+                className="flex w-full items-center px-3 py-2 text-left text-sm hover:bg-slate-50 text-slate-800"
+              >
+                {c.name}
+              </button>
+            ))
+          ) : (
+            !q.trim() && (
+              <p className="px-3 py-2 text-xs text-slate-400 text-center">Gõ để tìm hoặc thêm nhóm mới</p>
+            )
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 
 // ── Main component ────────────────────────────────────────────────────────────
 
@@ -221,14 +365,22 @@ export function InventoryClient({ shopId }: Props) {
   const [supplierForm, setSupplierForm] = useState({ name: '', phone: '', email: '', address: '', note: '' })
   const [form, setForm] = useState(EMPTY_FORM)
   const [viewMovement, setViewMovement] = useState<Row | null>(null)
-  const [selectedProduct, setSelectedProduct] = useState<{
-    product_id: string; name: string; sku: string
-  } | null>(null)
+
+  // Quick product create states
+  const [quickCreateModal, setQuickCreateModal] = useState(false)
+  const [quickCreateIdx, setQuickCreateIdx] = useState<number | null>(null)
+  const [quickProductForm, setQuickProductForm] = useState({
+    name: '',
+    category_name: '',
+    sell_price: '',
+    min_price: '',
+    unit: 'Cái',
+  })
 
   // History tab state
   const searchParams = useSearchParams()
   const initialSearch = searchParams?.get('search') || searchParams?.get('movementId') || ''
-  
+
   const [historyPage, setHistoryPage] = useState(1)
   const [historySearch, setHistorySearch] = useState(initialSearch)
   const [debouncedHistorySearch] = useDebounce(historySearch, 300)
@@ -257,6 +409,16 @@ export function InventoryClient({ shopId }: Props) {
     },
   })
 
+  // Categories — for quick product creation
+  const { data: categoriesData } = useQuery({
+    queryKey: ['categories', shopId],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/categories?limit=500`)
+      if (!res.ok) return { data: [] as Row[] }
+      return res.json() as Promise<{ data: Row[] }>
+    },
+  })
+
   const productMap = useMemo(() => {
     const m = new Map<string, Row>()
     productsData?.data?.forEach((p) => {
@@ -266,7 +428,7 @@ export function InventoryClient({ shopId }: Props) {
           const opts = JSON.parse(p.variant_options)
           const vals = Object.values(opts).join(' / ')
           if (vals) displayName = `${p.name} (${vals})`
-        } catch {}
+        } catch { }
       }
       m.set(p.product_id, { ...p, displayName })
     })
@@ -299,24 +461,27 @@ export function InventoryClient({ shopId }: Props) {
 
   // Create movement mutation
   const mutation = useMutation({
-    mutationFn: async (payload: Record<string, string>) => {
-      const res = await fetch(`/api/shops/${shopId}/stock-movements`, {
+    mutationFn: async (payload: any) => {
+      const endpoint = payload.type === 'adjustment'
+        ? `/api/shops/${shopId}/inventory/adjust-batch`
+        : `/api/shops/${shopId}/stock-movements/batch`
+
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
       if (!res.ok) {
         const json = await res.json().catch(() => ({}))
-        throw new Error((json as Record<string, string>).error ?? 'Nhập kho thất bại')
+        throw new Error(json.error ?? 'Nhập kho thất bại')
       }
       return res.json()
     },
     onSuccess: () => {
-      toast.success('Nhập kho thành công!')
+      toast.success('Lưu phiếu kho thành công!')
       setShowForm(false)
       setShowConfirm(false)
       setForm(EMPTY_FORM)
-      setSelectedProduct(null)
       queryClient.invalidateQueries({ queryKey: ['inventory', shopId] })
       queryClient.invalidateQueries({ queryKey: ['products-all', shopId] })
       queryClient.invalidateQueries({ queryKey: ['stock-movements', shopId] })
@@ -350,53 +515,153 @@ export function InventoryClient({ shopId }: Props) {
     createSupplierMutation.mutate(supplierForm)
   }
 
-  function handleSelectProduct(p: { product_id: string; name: string; sku: string; cost_price?: string }) {
-    if (!p.product_id) {
-      setSelectedProduct(null)
-      setForm((f) => ({ ...f, product_id: '', sku: '', unit_cost: '' }))
+  // Row handlers
+  const handleAddItemRow = () => {
+    setForm(f => ({
+      ...f,
+      items: [
+        ...f.items,
+        {
+          product_id: '',
+          product_name: '',
+          sku: '',
+          qty: '',
+          unit_cost: '',
+          is_new: false,
+          category_name: '',
+          sell_price: '',
+          min_price: '',
+        }
+      ]
+    }))
+  }
+
+  const handleRemoveItemRow = (idx: number) => {
+    if (form.items.length <= 1) return
+    setForm(f => ({
+      ...f,
+      items: f.items.filter((_, i) => i !== idx)
+    }))
+  }
+
+  const handleSelectItemProduct = (
+    idx: number,
+    p: { product_id: string; name: string; sku: string; cost_price?: string; is_new?: boolean }
+  ) => {
+    if (p.is_new) {
+      setQuickCreateIdx(idx)
+      setQuickProductForm({
+        name: p.name,
+        category_name: '',
+        sell_price: '',
+        min_price: '',
+        unit: 'Cái',
+      })
+      setQuickCreateModal(true)
       return
     }
-    setSelectedProduct({ product_id: p.product_id, name: p.name, sku: p.sku })
-    setForm((f) => ({ ...f, product_id: p.product_id, sku: p.sku, unit_cost: p.cost_price ?? f.unit_cost }))
+
+    const newItems = [...form.items]
+    newItems[idx] = {
+      product_id: p.product_id,
+      product_name: p.name,
+      sku: p.sku,
+      qty: newItems[idx]?.qty || '',
+      unit_cost: p.cost_price || newItems[idx]?.unit_cost || '',
+      is_new: false,
+      category_name: '',
+      sell_price: '',
+      min_price: '',
+    }
+    setForm(f => ({ ...f, items: newItems }))
+  }
+
+  const handleConfirmQuickCreate = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (quickCreateIdx === null) return
+
+    const newItems = [...form.items]
+    newItems[quickCreateIdx] = {
+      product_id: '',
+      product_name: quickProductForm.name,
+      sku: `SP-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      qty: newItems[quickCreateIdx]?.qty || '',
+      unit_cost: newItems[quickCreateIdx]?.unit_cost || '',
+      is_new: true,
+      category_name: quickProductForm.category_name,
+      sell_price: quickProductForm.sell_price || '0',
+      min_price: quickProductForm.min_price || '0',
+      unit: quickProductForm.unit || 'Cái',
+    }
+
+    setForm(f => ({ ...f, items: newItems }))
+    setQuickCreateModal(false)
+    setQuickCreateIdx(null)
   }
 
   function handleSubmit() {
-    if (!form.product_id) { toast.error('Vui lòng chọn sản phẩm'); return }
-    if (!form.qty || Number(form.qty) === 0) { toast.error('Số lượng phải khác 0'); return }
-    
+    const invalidItem = form.items.find(item => !item.product_id && !item.is_new)
+    if (invalidItem) { toast.error('Vui lòng chọn đầy đủ sản phẩm'); return }
+
+    const invalidQty = form.items.find(item => !item.qty || Number(item.qty) === 0)
+    if (invalidQty) { toast.error('Số lượng của tất cả sản phẩm phải khác 0'); return }
+
     let finalPayments = form.payments
     if (form.type === 'purchase_in') {
-      const totalCost = Number(form.unit_cost || 0) * Math.abs(Number(form.qty || 0))
+      const totalCost = form.items.reduce((sum, item) => sum + (Number(item.unit_cost || 0) * Math.abs(Number(item.qty || 0))), 0)
       const discount = Number(form.discount || 0)
       const afterDiscount = Math.max(0, totalCost - discount)
-      
+
       if (form.payment_status === 'paid') {
         finalPayments = [{ amount: String(afterDiscount), method: form.payments[0]?.method || 'cash' }]
       } else if (form.payment_status === 'unpaid') {
         finalPayments = []
       } else {
-        // filter out zero amount payments
         finalPayments = form.payments.filter(p => Number(p.amount) > 0)
       }
     }
 
-    mutation.mutate({
+    const payload = form.type === 'adjustment' ? {
+      branch_id: '',
+      reason: form.reason,
+      reference_no: form.reference_no,
+      items: form.items.map(item => ({
+        product_id: item.product_id || undefined,
+        qty: item.qty,
+        unit_cost: item.unit_cost || undefined,
+        is_new: item.is_new,
+        product_name: item.product_name,
+        category_name: item.category_name,
+        sell_price: item.sell_price,
+        min_price: item.min_price,
+        sku: item.sku,
+        unit: item.unit,
+      }))
+    } : {
       type: form.type,
-      product_id: form.product_id,
-      sku: form.sku,
-      qty: form.qty,
-      unit_cost: form.unit_cost,
       branch_id: '',
       supplier_id: form.supplier_id,
       reference_no: form.reference_no,
       reason: form.reason,
-      batch_no: form.batch_no,
-      shipment_no: form.shipment_no,
+      discount: form.discount || '0',
+      payments: finalPayments,
       workflow_status: form.workflow_status,
       payment_status: form.payment_status,
-      discount: form.discount,
-      payments: finalPayments,
-    } as unknown as Record<string, string>)
+      items: form.items.map(item => ({
+        product_id: item.product_id || undefined,
+        qty: item.qty,
+        unit_cost: item.unit_cost || '0',
+        sku: item.sku,
+        is_new: item.is_new,
+        product_name: item.product_name,
+        category_name: item.category_name,
+        sell_price: item.sell_price,
+        min_price: item.min_price,
+        unit: item.unit,
+      }))
+    }
+
+    mutation.mutate({ ...payload, type: form.type })
   }
 
   function handleOpenConfirm() {
@@ -404,7 +669,7 @@ export function InventoryClient({ shopId }: Props) {
     let finalStatus = form.payment_status
 
     if (finalStatus === 'partial' && form.type === 'purchase_in') {
-      const totalCost = Number(form.unit_cost || 0) * Math.abs(Number(form.qty || 0))
+      const totalCost = form.items.reduce((sum, item) => sum + (Number(item.unit_cost || 0) * Math.abs(Number(item.qty || 0))), 0)
       const discount = Number(form.discount || 0)
       const afterDiscount = Math.max(0, totalCost - discount)
       const paid = finalPayments.reduce((sum, p) => sum + Number(p.amount), 0)
@@ -426,7 +691,6 @@ export function InventoryClient({ shopId }: Props) {
   function closeForm() {
     setShowForm(false)
     setForm(EMPTY_FORM)
-    setSelectedProduct(null)
   }
 
   const movTypeInfo = INPUT_TYPES.find((o) => o.value === form.type)
@@ -516,7 +780,7 @@ export function InventoryClient({ shopId }: Props) {
             <span className="block text-sm font-semibold text-slate-800">—</span>
           )}
           <span className="flex items-center gap-1 text-[11px] text-slate-500 mt-0.5">
-            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
             {fmtDate(row.created_at)}
           </span>
         </div>
@@ -582,21 +846,21 @@ export function InventoryClient({ shopId }: Props) {
           } else if (Array.isArray(row.payments)) {
             parsedPayments = row.payments
           }
-        } catch(e) {}
-        
+        } catch (e) { }
+
         const methodMap: Record<string, string> = {
           'cash': 'Tiền mặt',
           'transfer': 'CK',
           'card': 'Thẻ'
         }
-        
+
         const methods = Array.from(new Set(parsedPayments.map(p => methodMap[p.method] || p.method)))
 
         return (
           <div className="flex flex-col gap-1">
-            <PaymentStatusLabel 
-              status={(row.payment_status as PaymentStatus) || 'paid'} 
-              amount={Number(row.paid_amount || (Number(row.unit_cost || 0) * Math.abs(Number(row.qty || 0))))} 
+            <PaymentStatusLabel
+              status={(row.payment_status as PaymentStatus) || 'paid'}
+              amount={Number(row.paid_amount || (Number(row.unit_cost || 0) * Math.abs(Number(row.qty || 0))))}
             />
             {methods.length > 0 && (
               <span className="text-[10px] text-slate-500 font-medium">
@@ -673,7 +937,7 @@ export function InventoryClient({ shopId }: Props) {
       <div className="flex gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1 w-fit">
         {([
           { key: 'history', label: 'Lịch sử phiếu kho' },
-          { key: 'stock',   label: 'Tồn kho hiện tại' },
+          { key: 'stock', label: 'Tồn kho hiện tại' },
         ] as { key: Tab; label: string }[]).map((tab) => (
           <button
             key={tab.key}
@@ -681,7 +945,7 @@ export function InventoryClient({ shopId }: Props) {
             className={[
               'rounded-lg px-4 py-1.5 text-sm font-medium transition-colors',
               activeTab === tab.key
-                ? 'bg-white text-slate-900 shadow-sm'
+                ? 'bg-primary text-white shadow-sm'
                 : 'text-slate-500 hover:text-slate-700',
             ].join(' ')}
           >
@@ -769,7 +1033,7 @@ export function InventoryClient({ shopId }: Props) {
         open={showForm}
         onClose={closeForm}
         title="Phiếu nhập / xuất kho"
-        width={520}
+        width={780}
         footer={
           <div className="flex gap-3">
             <button
@@ -780,7 +1044,7 @@ export function InventoryClient({ shopId }: Props) {
             </button>
             <button
               onClick={handleOpenConfirm}
-              disabled={mutation.isPending || !form.product_id || !form.qty}
+              disabled={mutation.isPending || form.items.some(item => !item.qty)}
               className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50 transition-colors"
             >
               {mutation.isPending ? 'Đang lưu...' : 'Lưu phiếu'}
@@ -788,19 +1052,24 @@ export function InventoryClient({ shopId }: Props) {
           </div>
         }
       >
-        <div className="space-y-5">
+        <div className="space-y-5 overflow-visible">
           {/* Movement type */}
           <div>
-            <label className="mb-1.5 block text-xs font-medium text-slate-600">Loại phiếu</label>
+            <label className="mb-1.5 block text-xs font-semibold text-slate-600">Loại phiếu</label>
             <div className="flex flex-wrap gap-2">
               {INPUT_TYPES.map((opt) => (
                 <button
                   key={opt.value}
-                  onClick={() => setForm((f) => ({ ...f, type: opt.value }))}
+                  type="button"
+                  onClick={() => setForm((f) => ({
+                    ...f,
+                    type: opt.value,
+                    workflow_status: opt.value === 'adjustment' ? 'completed' : f.workflow_status
+                  }))}
                   className={[
                     'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
                     form.type === opt.value
-                      ? 'bg-primary text-white'
+                      ? 'bg-primary text-white font-semibold'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
                   ].join(' ')}
                 >
@@ -809,57 +1078,117 @@ export function InventoryClient({ shopId }: Props) {
               ))}
             </div>
             {movTypeInfo && (
-              <p className="mt-1.5 text-xs text-slate-400">{movTypeInfo.hint}</p>
+              <p className="mt-1.5 text-[11px] text-slate-400">{movTypeInfo.hint}</p>
+            )}
+            {form.type === 'adjustment' && (
+              <div className="mt-3 flex gap-2 rounded-xl bg-amber-50/80 border border-amber-100 p-3 text-xs text-amber-800 leading-relaxed shadow-sm">
+                <svg className="h-4 w-4 shrink-0 text-amber-600 mt-0.5" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
+                <span>Phiếu điều chỉnh chỉ dùng để kiểm kê và cân đối số lượng tồn kho thực tế, <strong>không</strong> phát sinh phiếu chi, công nợ nhà cung cấp hay doanh thu.</span>
+              </div>
             )}
           </div>
 
-          {/* Product */}
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-slate-600">
-              Sản phẩm <span className="text-red-500">*</span>
-            </label>
-            <ProductSelect shopId={shopId} value={selectedProduct} onChange={handleSelectProduct} />
-          </div>
+          {/* Danh sách sản phẩm (Table / Data Grid) */}
+          <div className="space-y-2 overflow-visible">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+              <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">Danh sách sản phẩm</span>
+            </div>
 
-          {/* Qty + Unit cost */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="mb-1.5 block text-xs font-medium text-slate-600">
-                Số lượng {form.type === 'adjustment' && <span className="text-orange-500">(có thể âm)</span>}
-                <span className="ml-1 text-red-500">*</span>
-              </label>
-              <input
-                type="number"
-                value={form.qty}
-                onChange={(e) => setForm((f) => ({ ...f, qty: e.target.value }))}
-                placeholder={form.type === 'adjustment' ? '±10' : '0'}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
-              />
+            <div className="overflow-visible">
+              <table className="w-full text-left text-sm text-slate-500 overflow-visible table-fixed">
+                <thead className="bg-slate-50 text-[10px] uppercase text-slate-700 font-semibold">
+                  <tr>
+                    <th scope="col" className="px-2 py-2 rounded-l-lg">Sản phẩm *</th>
+                    <th scope="col" className="px-2 py-2 w-20 text-center">SL *</th>
+                    <th scope="col" className="px-2 py-2 w-32">
+                      {form.type === 'purchase_in' ? 'Giá nhập (đ)' : form.type === 'adjustment' ? 'Giá vốn (đ)' : 'Đơn giá (đ)'}
+                    </th>
+                    <th scope="col" className="px-2 py-2 w-8 text-center rounded-r-lg"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 overflow-visible">
+                  {form.items.map((item, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50/50 overflow-visible relative" style={{ zIndex: 100 - idx }}>
+                      <td className="px-2 py-1.5 align-top overflow-visible relative" style={{ zIndex: 100 - idx }}>
+                        <ProductSelect
+                          shopId={shopId}
+                          value={item.product_id || item.is_new ? { product_id: item.product_id || 'new', name: item.product_name, sku: item.sku } : null}
+                          onChange={(p) => handleSelectItemProduct(idx, p)}
+                        />
+                      </td>
+                      <td className="px-2 py-1.5 align-top">
+                        <input
+                          type="number"
+                          value={item.qty}
+                          onChange={(e) => {
+                            const newItems = [...form.items]
+                            newItems[idx].qty = e.target.value
+                            setForm(f => ({ ...f, items: newItems }))
+                          }}
+                          placeholder={form.type === 'adjustment' ? '±10' : '0'}
+                          className="w-full text-center rounded-xl border border-slate-200 px-2 py-2 text-sm focus:border-primary focus:outline-none"
+                        />
+                      </td>
+                      <td className="px-2 py-1.5 align-top">
+                        <FormattedNumberInput
+                          value={item.unit_cost}
+                          onChange={(val) => {
+                            const newItems = [...form.items]
+                            newItems[idx].unit_cost = val
+                            setForm(f => ({ ...f, items: newItems }))
+                          }}
+                          placeholder="0"
+                          className="w-full rounded-xl border border-slate-200 px-2 py-2 text-sm focus:border-primary focus:outline-none"
+                        />
+                      </td>
+                      <td className="px-2 py-1.5 align-top text-center">
+                        {form.items.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveItemRow(idx)}
+                            className="p-1 text-slate-400 hover:text-red-500 rounded-lg hover:bg-slate-100 transition-colors mt-1"
+                            title="Xóa dòng"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /></svg>
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {/* Button tạo mới sản phẩm ở dòng cuối cùng */}
+                  <tr>
+                    <td colSpan={4} className="px-2 py-2">
+                      <button
+                        type="button"
+                        onClick={handleAddItemRow}
+                        className="w-full py-2 border border-dashed border-slate-200 rounded-xl text-xs font-semibold text-primary hover:bg-primary/5 hover:border-primary/30 transition-all flex items-center justify-center gap-1"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                        Thêm sản phẩm
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
-            <div>
-              <label className="mb-1.5 block text-xs font-medium text-slate-600">
-                Giá nhập (đ/đv)
-                {form.type === 'purchase_in' && (
-                  <span className="ml-1 text-blue-500">→ cập nhật giá vốn SP</span>
-                )}
-              </label>
-              <FormattedNumberInput
-                value={form.unit_cost}
-                onChange={(val) => setForm((f) => ({ ...f, unit_cost: val }))}
-                placeholder="0"
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
-              />
-            </div>
+
+            {form.type === 'purchase_in' && (
+              <div className="mt-2 flex gap-2 rounded-xl bg-blue-50/80 border border-blue-100 p-3 text-xs text-blue-700 leading-relaxed shadow-sm">
+                <svg className="h-4 w-4 shrink-0 text-blue-500 mt-0.5" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><path d="M12 8h.01" /></svg>
+                <span>Thay đổi đơn giá ở đây đồng thời sẽ cập nhật lại giá vốn trên hệ thống.</span>
+              </div>
+            )}
           </div>
 
           {/* Supplier */}
           {['purchase_in', 'return_in'].includes(form.type) && (
             <div>
               <div className="mb-1.5 flex items-center justify-between">
-                <label className="text-xs font-medium text-slate-600">Nhà cung cấp</label>
+                <label className="text-xs font-semibold text-slate-600">Nhà cung cấp</label>
                 <button
+                  type="button"
                   onClick={() => setShowSupplierModal(true)}
-                  className="text-xs font-medium text-primary hover:underline"
+                  className="text-xs font-medium text-primary hover:underline hover:text-primary-dark"
                 >
                   + Tạo mới
                 </button>
@@ -877,10 +1206,10 @@ export function InventoryClient({ shopId }: Props) {
             </div>
           )}
 
-          {/* Reference No - only show for certain types or keep it optional, we can hide it for purchase_in if generated, but maybe keep it for others. Let's hide it completely and use reason at the bottom. But what if we still want it? The plan says hide it. We will not render Reference No. */}
+          {/* Reference No - Hide for purchase_in */}
           {form.type !== 'purchase_in' && (
             <div>
-              <label className="mb-1.5 block text-xs font-medium text-slate-600">Số phiếu (Tùy chọn)</label>
+              <label className="mb-1.5 block text-xs font-semibold text-slate-600">Số phiếu (Tùy chọn)</label>
               <input
                 type="text"
                 value={form.reference_no}
@@ -896,7 +1225,7 @@ export function InventoryClient({ shopId }: Props) {
               {/* Batch + Shipment */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="mb-1.5 block text-xs font-medium text-slate-600">Lô nhập</label>
+                  <label className="mb-1.5 block text-xs font-semibold text-slate-600">Lô nhập</label>
                   <input
                     type="text"
                     value={form.batch_no}
@@ -906,7 +1235,7 @@ export function InventoryClient({ shopId }: Props) {
                   />
                 </div>
                 <div>
-                  <label className="mb-1.5 block text-xs font-medium text-slate-600">Đợt nhập</label>
+                  <label className="mb-1.5 block text-xs font-semibold text-slate-600">Đợt nhập</label>
                   <input
                     type="text"
                     value={form.shipment_no}
@@ -920,7 +1249,7 @@ export function InventoryClient({ shopId }: Props) {
               {/* Discount & Payment Status */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="mb-1.5 block text-xs font-medium text-slate-600">Giảm giá (VNĐ)</label>
+                  <label className="mb-1.5 block text-xs font-semibold text-slate-600">Giảm giá (VNĐ)</label>
                   <FormattedNumberInput
                     value={form.discount}
                     onChange={(val) => setForm((f) => ({ ...f, discount: val }))}
@@ -929,7 +1258,7 @@ export function InventoryClient({ shopId }: Props) {
                   />
                 </div>
                 <div>
-                  <label className="mb-1.5 block text-xs font-medium text-slate-600">Trạng thái thanh toán</label>
+                  <label className="mb-1.5 block text-xs font-semibold text-slate-600">Trạng thái thanh toán</label>
                   <select
                     value={form.payment_status}
                     onChange={(e) => setForm((f) => ({ ...f, payment_status: e.target.value as PaymentStatus }))}
@@ -946,30 +1275,30 @@ export function InventoryClient({ shopId }: Props) {
               {form.payment_status !== 'unpaid' && (
                 <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-medium text-slate-700">Chi tiết thanh toán</label>
-                    <span className="text-[10px] text-slate-500">
-                      Tổng tiền: {fmtVND(Number(form.unit_cost || 0) * Math.abs(Number(form.qty || 0)))}
+                    <label className="text-xs font-semibold text-slate-700">Chi tiết thanh toán</label>
+                    <span className="text-[10px] text-slate-500 font-bold">
+                      Tổng tiền: {fmtVND(form.items.reduce((sum, item) => sum + (Number(item.unit_cost || 0) * Math.abs(Number(item.qty || 0))), 0))}
                     </span>
                   </div>
-                  
+
                   {form.payment_status === 'partial' && (
-                    <div className="flex flex-wrap gap-1.5 pb-1">
+                    <div className="flex flex-wrap gap-1 pb-1">
                       {[10, 30, 50, 80, 100].map(pct => (
                         <button
                           key={pct}
                           type="button"
                           onClick={(e) => {
                             e.preventDefault()
-                            const totalCost = Number(form.unit_cost || 0) * Math.abs(Number(form.qty || 0))
+                            const totalCost = form.items.reduce((sum, item) => sum + (Number(item.unit_cost || 0) * Math.abs(Number(item.qty || 0))), 0)
                             const discount = Number(form.discount || 0)
                             const afterDiscount = Math.max(0, totalCost - discount)
                             const amount = Math.floor(afterDiscount * (pct / 100))
-                            setForm(f => ({ 
-                              ...f, 
-                              payments: [{ amount: String(amount), method: f.payments[0]?.method || 'cash' }] 
+                            setForm(f => ({
+                              ...f,
+                              payments: [{ amount: String(amount), method: f.payments[0]?.method || 'cash' }]
                             }))
                           }}
-                          className="rounded text-[10px] font-medium bg-slate-200 px-2 py-1 text-slate-700 hover:bg-slate-300 transition-colors"
+                          className="rounded text-[10px] font-medium bg-slate-200 px-1.5 py-0.5 text-slate-700 hover:bg-slate-300 transition-colors"
                         >
                           {pct}%
                         </button>
@@ -981,7 +1310,7 @@ export function InventoryClient({ shopId }: Props) {
                     <div key={idx} className="flex gap-2">
                       <div className="flex-1">
                         <FormattedNumberInput
-                          value={form.payment_status === 'paid' ? String(Math.max(0, (Number(form.unit_cost || 0) * Math.abs(Number(form.qty || 0))) - Number(form.discount || 0))) : p.amount}
+                          value={form.payment_status === 'paid' ? String(Math.max(0, form.items.reduce((sum, item) => sum + (Number(item.unit_cost || 0) * Math.abs(Number(item.qty || 0))), 0) - Number(form.discount || 0))) : p.amount}
                           disabled={form.payment_status === 'paid'}
                           onChange={(val) => {
                             const newP = [...form.payments]
@@ -1004,11 +1333,11 @@ export function InventoryClient({ shopId }: Props) {
                         >
                           <option value="cash" disabled={form.payments.some((x, i) => i !== idx && x.method === 'cash')}>Tiền mặt</option>
                           <option value="transfer" disabled={form.payments.some((x, i) => i !== idx && x.method === 'transfer')}>Chuyển khoản</option>
-                          <option value="card" disabled={form.payments.some((x, i) => i !== idx && x.method === 'card')}>Quẹt thẻ</option>
                         </select>
                       </div>
                       {form.payments.length > 1 && form.payment_status === 'partial' && (
                         <button
+                          type="button"
                           onClick={(e) => {
                             e.preventDefault()
                             const newP = form.payments.filter((_, i) => i !== idx)
@@ -1021,13 +1350,13 @@ export function InventoryClient({ shopId }: Props) {
                       )}
                     </div>
                   ))}
-                  
+
                   {form.payment_status === 'partial' && form.payments.length < 3 && (
                     <button
                       type="button"
                       onClick={(e) => {
                         e.preventDefault()
-                        const totalCost = Number(form.unit_cost || 0) * Math.abs(Number(form.qty || 0))
+                        const totalCost = form.items.reduce((sum, item) => sum + (Number(item.unit_cost || 0) * Math.abs(Number(item.qty || 0))), 0)
                         const discount = Number(form.discount || 0)
                         const paid = form.payments.reduce((sum, p) => sum + Number(p.amount || 0), 0)
                         const remain = Math.max(0, totalCost - discount - paid)
@@ -1035,40 +1364,42 @@ export function InventoryClient({ shopId }: Props) {
                         const avail = ['cash', 'transfer', 'card'].find(m => !used.includes(m)) || 'transfer'
                         setForm(f => ({ ...f, payments: [...f.payments, { amount: String(remain), method: avail }] }))
                       }}
-                      className="text-xs font-medium text-primary hover:underline"
+                      className="text-xs font-medium text-primary hover:underline hover:text-primary-dark"
                     >
-                      + Thêm thanh toán (Còn lại: {fmtVND(Math.max(0, (Number(form.unit_cost || 0) * Math.abs(Number(form.qty || 0))) - Number(form.discount || 0) - form.payments.reduce((sum, p) => sum + Number(p.amount || 0), 0)))})
+                      + Thêm thanh toán (Còn lại: {fmtVND(Math.max(0, form.items.reduce((sum, item) => sum + (Number(item.unit_cost || 0) * Math.abs(Number(item.qty || 0))), 0) - Number(form.discount || 0) - form.payments.reduce((sum, p) => sum + Number(p.amount || 0), 0)))})
                     </button>
                   )}
                 </div>
               )}
-
-              {/* Workflow Status */}
-              <div className="rounded-xl border border-slate-200 p-3">
-                <label className="flex items-start gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={form.workflow_status === 'draft'}
-                    onChange={(e) => setForm((f) => ({ ...f, workflow_status: e.target.checked ? 'draft' : 'completed' }))}
-                    className="mt-1 shrink-0 h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
-                  />
-                  <div>
-                    <p className="text-sm font-medium text-slate-900">Lưu phiếu tạm (Chưa nhập kho)</p>
-                    <p className="text-xs text-slate-500">Chỉ tạo phiếu trên hệ thống để theo dõi. Tồn kho và giá vốn chưa cập nhật.</p>
-                  </div>
-                </label>
-              </div>
             </>
           )}
 
-          {/* Ghi chú full-width */}
-          <div className="col-span-full pt-2">
-            <label className="mb-1.5 block text-xs font-medium text-slate-600">Ghi chú</label>
+          {/* Workflow Status */}
+          {form.type !== 'adjustment' && (
+            <div className="rounded-xl border border-slate-200 p-3">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.workflow_status === 'draft'}
+                  onChange={(e) => setForm((f) => ({ ...f, workflow_status: e.target.checked ? 'draft' : 'completed' }))}
+                  className="mt-1 shrink-0 h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
+                />
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">Lưu phiếu tạm (Chưa nhập kho)</p>
+                  <p className="text-xs text-slate-500">Chỉ tạo phiếu trên hệ thống để theo dõi. Tồn kho và các hạch toán tài chính chưa cập nhật.</p>
+                </div>
+              </label>
+            </div>
+          )}
+
+          {/* Ghi chú */}
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold text-slate-600">Ghi chú</label>
             <textarea
               rows={2}
               value={form.reason}
               onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))}
-              placeholder="Ghi chú thêm về phiếu nhập/xuất này..."
+              placeholder="Ghi chú thêm về phiếu này..."
               className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none resize-none"
             />
           </div>
@@ -1087,7 +1418,7 @@ export function InventoryClient({ shopId }: Props) {
       >
         <div className="space-y-4 text-sm text-slate-600">
           <p>Vui lòng kiểm tra lại thông tin trước khi tạo phiếu kho.</p>
-          
+
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
             <div className="space-y-2">
               <div className="flex justify-between">
@@ -1095,24 +1426,29 @@ export function InventoryClient({ shopId }: Props) {
                 <span className="font-medium text-slate-900">{movTypeInfo?.label}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-500">Sản phẩm:</span>
-                <span className="font-medium text-slate-900">{selectedProduct?.name}</span>
+                <span className="text-slate-500">Danh sách sản phẩm:</span>
+                <span className="font-medium text-slate-900">{form.items.length} mặt hàng</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Số lượng:</span>
-                <span className="font-medium text-slate-900">{Number(form.qty) > 0 ? '+' : ''}{form.qty}</span>
-              </div>
-              
-              {form.type === 'purchase_in' && form.unit_cost && Number(form.unit_cost) > 0 && (
-                <>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Đơn giá:</span>
-                    <span className="font-medium text-slate-900">{fmtVND(form.unit_cost)}</span>
+
+              <div className="mt-2 max-h-40 overflow-y-auto space-y-1 rounded-lg border border-slate-100 bg-white p-2">
+                {form.items.map((item, idx) => (
+                  <div key={idx} className="flex justify-between text-xs gap-4">
+                    <span className="text-slate-600 truncate max-w-[240px]">
+                      {item.product_name || 'Chưa chọn sản phẩm'}
+                    </span>
+                    <span className="font-mono text-slate-900 shrink-0">
+                      x{item.qty} {item.unit_cost && Number(item.unit_cost) > 0 ? `(${fmtVND(item.unit_cost)})` : ''}
+                    </span>
                   </div>
+                ))}
+              </div>
+
+              {form.type === 'purchase_in' && (
+                <>
                   <div className="my-2 border-t border-dashed border-slate-300"></div>
-                  
+
                   {(() => {
-                    const totalCost = Number(form.unit_cost) * Math.abs(Number(form.qty))
+                    const totalCost = form.items.reduce((sum, item) => sum + (Number(item.unit_cost || 0) * Math.abs(Number(item.qty || 0))), 0)
                     const discount = Number(form.discount || 0)
                     const afterDiscount = Math.max(0, totalCost - discount)
                     let paid = 0
@@ -1121,7 +1457,7 @@ export function InventoryClient({ shopId }: Props) {
                       paid = form.payments.reduce((sum, p) => sum + Number(p.amount || 0), 0)
                     }
                     const debt = Math.max(0, afterDiscount - paid)
-                    
+
                     return (
                       <>
                         <div className="flex justify-between text-base">
@@ -1149,7 +1485,7 @@ export function InventoryClient({ shopId }: Props) {
                   })()}
                 </>
               )}
-              
+
               {form.workflow_status === 'draft' && (
                 <div className="mt-3 rounded border border-orange-200 bg-orange-50 px-3 py-2 text-xs text-orange-800">
                   <span className="font-medium">Lưu ý:</span> Phiếu sẽ được lưu nháp, chưa cập nhật tồn kho và giá vốn.
@@ -1197,9 +1533,9 @@ export function InventoryClient({ shopId }: Props) {
               <div className="col-span-2">
                 <p className="text-slate-500 mb-1">Loại phiếu</p>
                 <div className="inline-block">
-                  <TagBadge 
-                    label={MOVEMENT_TYPE_MAP[viewMovement.type]?.label || viewMovement.type} 
-                    color={MOVEMENT_TYPE_MAP[viewMovement.type]?.color || 'gray'} 
+                  <TagBadge
+                    label={MOVEMENT_TYPE_MAP[viewMovement.type]?.label || viewMovement.type}
+                    color={MOVEMENT_TYPE_MAP[viewMovement.type]?.color || 'gray'}
                   />
                 </div>
               </div>
@@ -1215,7 +1551,7 @@ export function InventoryClient({ shopId }: Props) {
                 <p className="text-slate-500 mb-1">Đơn giá</p>
                 <p className="font-medium text-slate-900">{fmtVND(viewMovement.unit_cost)}</p>
               </div>
-              
+
               {['purchase_in'].includes(viewMovement.type) && (viewMovement.batch_no || viewMovement.shipment_no) && (
                 <>
                   {viewMovement.batch_no && (
@@ -1232,12 +1568,12 @@ export function InventoryClient({ shopId }: Props) {
                   )}
                 </>
               )}
-              
+
               {viewMovement.type === 'purchase_in' && (() => {
                 const totalCost = Number(viewMovement.unit_cost || 0) * Math.abs(Number(viewMovement.qty || 0));
                 let paid = Number(viewMovement.paid_amount || 0);
                 if (!viewMovement.paid_amount && viewMovement.payment_status === 'paid') paid = totalCost;
-                
+
                 const debt = Math.max(0, totalCost - paid);
 
                 const methodMap: Record<string, string> = {
@@ -1250,12 +1586,12 @@ export function InventoryClient({ shopId }: Props) {
                   <div className="col-span-2 mt-2 pt-2 border-t border-slate-100">
                     <p className="text-slate-500 mb-2">Thông tin thanh toán</p>
                     <div className="flex items-center justify-between mb-3">
-                      <PaymentStatusLabel 
-                        status={(viewMovement.payment_status as PaymentStatus) || 'paid'} 
-                        amount={paid} 
+                      <PaymentStatusLabel
+                        status={(viewMovement.payment_status as PaymentStatus) || 'paid'}
+                        amount={paid}
                       />
                     </div>
-                    
+
                     {(() => {
                       let parsedPayments: any[] = []
                       try {
@@ -1264,7 +1600,7 @@ export function InventoryClient({ shopId }: Props) {
                         } else if (Array.isArray(viewMovement.payments)) {
                           parsedPayments = viewMovement.payments
                         }
-                      } catch(e) {}
+                      } catch (e) { }
 
                       if (parsedPayments.length > 0) {
                         return (
@@ -1278,7 +1614,7 @@ export function InventoryClient({ shopId }: Props) {
                           </div>
                         )
                       }
-                      
+
                       if (viewMovement.payment_method) {
                         return (
                           <div className="mb-3">
@@ -1290,7 +1626,7 @@ export function InventoryClient({ shopId }: Props) {
                       }
                       return null
                     })()}
-                    
+
                     <div className="space-y-1.5 text-sm bg-slate-50 p-3 rounded-xl border border-slate-100">
                       <div className="flex justify-between">
                         <span className="text-slate-500">Tổng tiền:</span>
@@ -1311,11 +1647,11 @@ export function InventoryClient({ shopId }: Props) {
                     {debt > 0 && viewMovement.supplier_id && (
                       <div className="mt-4 p-3 bg-blue-50/50 rounded-xl text-sm border border-blue-100">
                         <p className="text-slate-600 mb-2">Công nợ đã được ghi nhận vào hệ thống.</p>
-                        <Link 
+                        <Link
                           href={`${pathname.replace('/inventory', '/debt')}?supplier=${viewMovement.supplier_id}`}
                           className="text-primary font-medium hover:underline flex items-center gap-1"
                         >
-                          Thanh toán công nợ 
+                          Thanh toán công nợ
                           <ArrowRight className="w-4 h-4" />
                         </Link>
                       </div>
@@ -1323,7 +1659,7 @@ export function InventoryClient({ shopId }: Props) {
                   </div>
                 )
               })()}
-              
+
               {(viewMovement.reason || viewMovement.reference_no) && (
                 <div className="col-span-2 mt-2 pt-2 border-t border-slate-100">
                   {viewMovement.reference_no && (
@@ -1406,6 +1742,95 @@ export function InventoryClient({ shopId }: Props) {
                   className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
                 >
                   {createSupplierMutation.isPending ? 'Đang lưu...' : 'Lưu thông tin'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Add Product Modal */}
+      {quickCreateModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
+            <h3 className="mb-4 text-lg font-semibold text-slate-900">Thêm sản phẩm nhanh</h3>
+            <form onSubmit={handleConfirmQuickCreate} className="space-y-4">
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-slate-600">Tên sản phẩm <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  required
+                  value={quickProductForm.name}
+                  onChange={(e) => setQuickProductForm(f => ({ ...f, name: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-slate-600">Đơn vị tính <span className="text-red-500">*</span></label>
+                  <input
+                    type="text"
+                    required
+                    value={quickProductForm.unit}
+                    onChange={(e) => setQuickProductForm(f => ({ ...f, unit: e.target.value }))}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-slate-600">Phân loại</label>
+                  <CategorySelect
+                    categories={(categoriesData?.data as any[] ?? []).map(c => ({ name: String(c.name || '') }))}
+                    value={quickProductForm.category_name}
+                    onChange={(val) => setQuickProductForm(f => ({ ...f, category_name: val }))}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-slate-600">Giá bán lẻ (đ)</label>
+                  <FormattedNumberInput
+                    value={quickProductForm.sell_price}
+                    onChange={(val) => setQuickProductForm(f => {
+                      const syncMin = !f.min_price || f.min_price === f.sell_price;
+                      return {
+                        ...f,
+                        sell_price: val,
+                        min_price: syncMin ? val : f.min_price
+                      };
+                    })}
+                    placeholder="0"
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-slate-600">Giá tối thiểu (giá sàn) (đ)</label>
+                  <FormattedNumberInput
+                    value={quickProductForm.min_price}
+                    onChange={(val) => setQuickProductForm(f => ({ ...f, min_price: val }))}
+                    placeholder="0"
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-6 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuickCreateModal(false)
+                    setQuickCreateIdx(null)
+                  }}
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark transition-colors"
+                >
+                  Thêm vào phiếu
                 </button>
               </div>
             </form>

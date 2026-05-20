@@ -54,10 +54,12 @@ export async function GET(
     const type = sp.get('type') ?? ''
     const product_id = sp.get('product_id') ?? ''
     const branch_id = sp.get('branch_id') ?? ''
+    const movement_no = sp.get('movement_no') ?? ''
     const filters: Record<string, string> = {}
     if (type) filters.type = type
     if (product_id) filters.product_id = product_id
     if (branch_id) filters.branch_id = branch_id
+    if (movement_no) filters.movement_no = movement_no
 
     const result = await connector.list('stock-movements', { page, limit, search: search || undefined, filters, sortDesc: true })
 
