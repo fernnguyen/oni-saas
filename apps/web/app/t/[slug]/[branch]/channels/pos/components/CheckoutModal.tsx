@@ -291,7 +291,7 @@ export function CheckoutModal({
       if (metadata) {
         orderData.metadata = JSON.stringify({
           ...metadata,
-          checkout_time: localCheckoutTime || customCheckoutTime || new Date().toISOString()
+          check_out: localCheckoutTime || customCheckoutTime || new Date().toISOString()
         })
       }
 
