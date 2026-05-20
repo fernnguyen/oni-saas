@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getSupabaseServerClient } from '../../../../lib/server/supabaseServer';
 import { getSupabaseAdminClient } from '../../../../lib/server/supabaseAdmin';
 import { buildFakeEmail } from '../../../../lib/server/tenantUsers';
+import { verifyTurnstileToken } from '../../../../lib/server/turnstile';
 
 // Blocks fake-email registration from the public domain
 const ONI_EMAIL_PATTERN = /^[^@]+@[^.]+\..+$/;
@@ -14,6 +15,7 @@ const schema = z.object({
   password: z.string().min(1),
   // Required when identifier has no '@' — tells us which tenant to resolve against
   tenant_slug: z.string().optional(),
+  turnstile_token: z.string().optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -24,7 +26,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: 'Dữ liệu không hợp lệ' }, { status: 400 });
   }
 
-  const { identifier, password, tenant_slug } = parsed.data;
+  const { identifier, password, tenant_slug, turnstile_token } = parsed.data;
+
+  // Cloudflare Turnstile Verification
+  const ip = req.headers.get('x-forwarded-for') || undefined;
+  const isTurnstileValid = await verifyTurnstileToken(turnstile_token, ip);
+  if (!isTurnstileValid) {
+    return NextResponse.json(
+      { message: 'Xác thực bảo mật không hợp lệ hoặc đã hết hạn. Vui lòng thử lại.' },
+      { status: 400 },
+    );
+  }
   const isEmail = identifier.includes('@');
 
   let email: string;

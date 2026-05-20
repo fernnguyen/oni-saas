@@ -8,8 +8,10 @@ import { toast } from 'sonner';
 import { AuthSplitLayout } from '../layout/AuthSplitLayout';
 import { getSupabaseBrowserClient } from '../../../lib/supabaseBrowser';
 import { getVerticalConfig } from '@oni/core';
+import { Turnstile } from './Turnstile';
 
 const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
 
 export function SignInForm({ 
   tenantSlug, 
@@ -27,6 +29,13 @@ export function SignInForm({
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [turnstileKey, setTurnstileKey] = useState(0);
+
+  const resetTurnstile = () => {
+    setTurnstileToken(null);
+    setTurnstileKey((prev) => prev + 1);
+  };
 
   function handleForgotPassword() {
     const displayName = tenantName || tenantSlug || 'hệ thống';
@@ -48,6 +57,10 @@ export function SignInForm({
       setError('Vui lòng nhập subdomain workspace.');
       return;
     }
+    if (TURNSTILE_SITE_KEY && !turnstileToken) {
+      setError('Vui lòng hoàn thành xác thực bảo mật.');
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -58,6 +71,7 @@ export function SignInForm({
           identifier,
           password,
           tenant_slug: subdomain.trim().toLowerCase(),
+          turnstile_token: turnstileToken,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -84,6 +98,7 @@ export function SignInForm({
         window.location.href = `${protocol}//${subdomain}.${ROOT_DOMAIN}`;
       }
     } catch (err: unknown) {
+      resetTurnstile();
       setError(err instanceof Error ? err.message : 'Đăng nhập thất bại');
     } finally {
       setLoading(false);
@@ -251,13 +266,24 @@ export function SignInForm({
             </button>
           </div>
 
+          {/* Cloudflare Turnstile */}
+          {TURNSTILE_SITE_KEY && (
+            <Turnstile
+              key={turnstileKey}
+              siteKey={TURNSTILE_SITE_KEY}
+              onSuccess={(token) => setTurnstileToken(token)}
+              onError={() => setTurnstileToken(null)}
+              onExpire={() => setTurnstileToken(null)}
+            />
+          )}
+
           {error && (
             <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>
           )}
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || (TURNSTILE_SITE_KEY ? !turnstileToken : false)}
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-white hover:bg-primary-dark disabled:opacity-50 transition-colors"
           >
             {loading ? 'Đang đăng nhập...' : 'Đăng nhập'}

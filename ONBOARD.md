@@ -10,12 +10,21 @@ Cấu hình Auth: Trong Authentication settings, đảm bảo đã bật Email/P
 Lấy Credentials: Copy SUPABASE_URL và ANON_KEY (hoặc SERVICE_ROLE_KEY nếu cần làm các tác vụ admin đặc quyền).
 
 Bước 2: Thiết lập môi trường Next.js
-Cấu hình Env: Trong folder apps/web, tạo file .env.local với nội dung:
+Cấu hình Env: Trong folder apps/web, tạo file .env.local với các cấu hình cơ bản từ .env.example.
 
-text
-NEXT_PUBLIC_SUPABASE_URL=YOUR_URL
-NEXT_PUBLIC_SUPABASE_ANON_KEY=YOUR_ANON_KEY
-SUPABASE_SERVICE_ROLE_KEY=YOUR_SERVICE_ROLE_KEY
+Để cấu hình bảo mật Cloudflare Turnstile chống spam ở màn hình Login/Register/Admin-login:
+- Đăng ký website của bạn tại **Cloudflare Dashboard > Turnstile** để nhận cặp Site Key và Secret Key.
+- Thêm vào file `.env.local`:
+  ```text
+  NEXT_PUBLIC_TURNSTILE_SITE_KEY=your-site-key
+  TURNSTILE_SECRET_KEY=your-secret-key
+  ```
+- **Bypass / Bỏ qua trong local**: Nếu bạn không cấu hình (hoặc để trống/bỏ qua) hai biến môi trường trên, hệ thống sẽ **tự động skip/bỏ qua** captcha ở cả client và server, giúp việc code và test ở môi trường phát triển local diễn ra trơn tru mà không bị lỗi xác thực.
+- **Test Turnstile ở Local**: Bạn có thể dùng các sandbox/developer keys của Cloudflare để test giao diện Turnstile hiển thị như thật:
+  ```text
+  NEXT_PUBLIC_TURNSTILE_SITE_KEY=1x00000000000000000000AA
+  TURNSTILE_SECRET_KEY=1x00000000000000000000000000000000
+  ```
 Cài đặt thư viện: Ở root, chạy lệnh:
 
 bash

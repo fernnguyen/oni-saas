@@ -6,9 +6,11 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { AuthSplitLayout } from '../components/layout/AuthSplitLayout';
 import { VERTICAL_REGISTRY, INDUSTRY_TYPES, type IndustryType } from '@oni/core';
+import { Turnstile } from '../components/auth/Turnstile';
 
 const SLUG_REGEX = /^[a-z0-9-]+$/;
 const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
 
 function slugify(val: string) {
   return val
@@ -74,6 +76,7 @@ const INDUSTRY_VISUALS: Record<IndustryType, {
 
 export function RegisterForm({ plans, initialDomain }: { plans: any[], initialDomain?: string }) {
   const router = useRouter();
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [slug, setSlug] = useState(initialDomain || '');
   const [slugStatus, setSlugStatus] = useState<'idle' | 'checking' | 'available' | 'taken' | 'invalid'>('idle');
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(!!initialDomain);
@@ -120,16 +123,16 @@ export function RegisterForm({ plans, initialDomain }: { plans: any[], initialDo
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    if (slugStatus !== 'available') return;
+    if (slugStatus !== 'available' || (TURNSTILE_SITE_KEY && !turnstileToken)) return;
     setLoading(true);
     setError(null);
 
-    sessionStorage.setItem('oni_register', JSON.stringify({ slug, name, email, password, plan_code: selectedPlanCode, industry_type: industryType }));
+    sessionStorage.setItem('oni_register', JSON.stringify({ slug, name, email, password, plan_code: selectedPlanCode, industry_type: industryType, turnstile_token: turnstileToken }));
     router.push('/register/provisioning');
   }
 
   const slugOk = slugStatus === 'available';
-  const canSubmit = slug.length >= 2 && slugOk && name.trim().length >= 2 && email && password.length >= 8 && selectedPlanCode;
+  const canSubmit = slug.length >= 2 && slugOk && name.trim().length >= 2 && email && password.length >= 8 && selectedPlanCode && (TURNSTILE_SITE_KEY ? turnstileToken : true);
 
   return (
     <AuthSplitLayout
@@ -308,6 +311,16 @@ export function RegisterForm({ plans, initialDomain }: { plans: any[], initialDo
               <span className="text-xs font-medium text-primary/70">Có thể nâng cấp sau</span>
             </div>
           </div>
+        )}
+
+        {/* Cloudflare Turnstile */}
+        {TURNSTILE_SITE_KEY && (
+          <Turnstile
+            siteKey={TURNSTILE_SITE_KEY}
+            onSuccess={(token) => setTurnstileToken(token)}
+            onError={() => setTurnstileToken(null)}
+            onExpire={() => setTurnstileToken(null)}
+          />
         )}
 
         {error && (
