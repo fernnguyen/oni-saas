@@ -30,7 +30,7 @@ function fmtTimeSpan(checkInIso: string, checkOutIso?: string) {
   const inDateStr = inDate.toLocaleString('vi-VN', { day: '2-digit', month: '2-digit' })
   
   if (!checkOutIso) {
-    return `Giờ vào: ${inTimeStr}`
+    return { in: inTimeStr, out: '' }
   }
   
   const outDate = new Date(checkOutIso)
@@ -38,9 +38,9 @@ function fmtTimeSpan(checkInIso: string, checkOutIso?: string) {
   const outDateStr = outDate.toLocaleString('vi-VN', { day: '2-digit', month: '2-digit' })
   
   if (inDateStr === outDateStr && inDate.getFullYear() === outDate.getFullYear()) {
-    return `Giờ vào: ${inTimeStr} - Giờ ra: ${outTimeStr}`
+    return { in: inTimeStr, out: outTimeStr }
   } else {
-    return `Giờ vào: ${inTimeStr} ${inDateStr} - Giờ ra: ${outTimeStr} ${outDateStr}`
+    return { in: `${inTimeStr} ${inDateStr}`, out: `${outTimeStr} ${outDateStr}` }
   }
 }
 
@@ -107,7 +107,7 @@ export async function printBill({
   
   const wifiHtml = currentSettings?.wifi_info ? `<p style="text-align:center;">Wi-Fi: ${currentSettings.wifi_info}</p>` : ''
   const customFooter = currentSettings?.receipt_footer ? `<p class="footer">${currentSettings.receipt_footer}</p>` : '<p class="footer">Cảm ơn quý khách!</p>'
-  const footerHtml = `${customFooter}<br/><div class="sep"></div><p class="sub" style="font-size: 11px; margin-top: 6px;">Hệ thống quản lý bán hàng <b>ONI.vn</b></p>`
+  const footerHtml = `${customFooter}<br/><br/><div class="sep"></div><p class="sub" style="font-size: 11px; margin-top: 6px;">Hệ thống quản lý bán hàng <b>ONI.vn</b></p>`
 
   const html = `<!DOCTYPE html>
 <html>
@@ -144,8 +144,19 @@ ${reprintHtml}
 <p class="sub">${fmtDate(createdDate)}</p>
 <p class="sub">Mã đơn: ${displayOrderCode}</p>
 <div class="sep"></div>
-<p>${customerName ? 'Khách: ' + customerName : 'Khách lẻ'}${orderMeta?.resource_name ? ` - Bàn/Phòng: ${orderMeta.resource_name}` : ''}</p>
-${orderMeta?.check_in ? `<p>${fmtTimeSpan(orderMeta.check_in, orderMeta.check_out)}</p>` : ''}
+${(() => {
+  const timeSpan = orderMeta?.check_in ? fmtTimeSpan(orderMeta.check_in, orderMeta.check_out) : null;
+  return `<table style="margin-bottom: 4px;">
+  <tr>
+    <td style="width: 50%; padding-right: 4px;">${customerName ? 'Khách: ' + customerName : 'Khách lẻ'}</td>
+    <td style="width: 50%; padding-left: 4px;">${orderMeta?.resource_name ? 'Bàn/Phòng: ' + orderMeta.resource_name : ''}</td>
+  </tr>
+  ${timeSpan ? `<tr>
+    <td style="width: 50%; padding-right: 4px;">Giờ vào: ${timeSpan.in}</td>
+    <td style="width: 50%; padding-left: 4px;">${timeSpan.out ? 'Giờ ra: ' + timeSpan.out : ''}</td>
+  </tr>` : ''}
+</table>`
+})()}
 <div class="sep"></div>
 <table>
 <tr><td class="bold" style="width: 6%">TT</td><td class="bold pl">Sản phẩm</td><td class="c bold pl" style="width: 8%">SL</td><td class="r bold pl" style="width: 22%">Đ.giá</td><td class="r bold pl" style="width: 26%">T.tiền</td></tr>
@@ -199,7 +210,6 @@ ${payments.map((p) => {
 ${order.note ? `<div class="sep"></div><p>Ghi chú: ${order.note}</p>` : ''}
 ${qrHtml}
 ${wifiHtml}
-<div class="sep"></div>
 ${footerHtml}
 </body>
 </html>`
