@@ -27,7 +27,9 @@ export async function GET(
 
     const filters: Record<string, string> = {}
     if (category_id) filters.category_id = category_id
-    if (active && active !== 'ALL') filters.active = active
+    if (active && active !== 'ALL') {
+      filters.active = active.toUpperCase() === 'TRUE' || active === 'true' ? 'TRUE' : 'FALSE'
+    }
     if (product_type) filters.product_type = product_type
     if (exclude_product_type) filters.exclude_product_type = exclude_product_type
     if (parent_id) filters.parent_id = parent_id

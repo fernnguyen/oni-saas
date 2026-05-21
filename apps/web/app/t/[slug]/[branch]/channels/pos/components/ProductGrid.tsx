@@ -16,6 +16,7 @@ interface Props {
   mutePosSound: boolean
   onAddToCart: (product: LocalProduct) => void
   onAddToCartWithOptions: (item: CartItem) => void
+  allowNegativeStock?: boolean
 }
 
 function fmtVND(v: number | string | null | undefined) {
@@ -31,7 +32,7 @@ function playBeep() {
   } catch {}
 }
 
-export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, onAddToCartWithOptions }: Props) {
+export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, onAddToCartWithOptions, allowNegativeStock = false }: Props) {
   const [search, setSearch] = useState('')
   const [categoryId, setCategoryId] = useState<string | undefined>(undefined)
   const [categories, setCategories] = useState<LocalCategory[]>([])
@@ -56,6 +57,7 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
 
   // Helper to check if a product is out of stock
   const isOOS = (p: LocalProduct) => {
+    if (allowNegativeStock) return false
     const stock = inventory.get(p.product_id) ?? 0
     const type = (p as any).product_type ?? 'simple'
     return type !== 'variant_parent' && type !== 'modifier' && stock <= 0
@@ -321,7 +323,7 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
               const stock = inventory.get(product.product_id) ?? 0
               const type = (product as any).product_type ?? 'simple'
               // variant_parent: don't track stock by itself, always show
-              const outOfStock = type !== 'variant_parent' && type !== 'modifier' && stock <= 0
+              const outOfStock = !allowNegativeStock && type !== 'variant_parent' && type !== 'modifier' && stock <= 0
               const badge = getTypeBadge(product)
               const isHighlighted = index === highlightedIndex
               return (
@@ -385,7 +387,14 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
                     <p className="text-sm font-bold text-slate-900 line-clamp-2 leading-tight">
                       {product.name}
                     </p>
-                    <p className={['text-xs font-medium mt-auto pt-1', outOfStock ? 'text-red-400' : 'text-emerald-600'].join(' ')}>
+                    <p className={[
+                      'text-xs font-medium mt-auto pt-1',
+                      outOfStock
+                        ? 'text-red-400'
+                        : (type !== 'variant_parent' && type !== 'modifier' && stock < 0)
+                          ? 'text-amber-600 font-semibold'
+                          : 'text-emerald-600'
+                    ].join(' ')}>
                       {type === 'variant_parent' ? 'Nhiều phân loại' : type === 'modifier' ? 'Tuỳ chỉnh' : `${stock} trong kho`}
                     </p>
                   </div>
@@ -427,6 +436,7 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
           open={!!variantParent}
           onClose={() => setVariantParent(null)}
           onSelect={handleVariantSelected}
+          allowNegativeStock={allowNegativeStock}
         />
       )}
       {modifierProduct && (

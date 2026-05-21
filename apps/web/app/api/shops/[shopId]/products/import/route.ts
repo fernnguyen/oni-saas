@@ -123,9 +123,9 @@ export async function POST(
                 stock_qty = $10, 
                 metadata = $11, 
                 weight = $12, 
-                active = 'TRUE', 
+                active = $13, 
                 updated_at = NOW() 
-              WHERE id = $13 AND tenant_id = $14 AND branch_id = $15`,
+              WHERE id = $14 AND tenant_id = $15 AND branch_id = $16`,
               [
                 p.name,
                 p.barcode || '',
@@ -139,6 +139,7 @@ export async function POST(
                 p.stock_qty || '0',
                 metadataStr,
                 p.weight || '',
+                p.active === 'FALSE' ? 'FALSE' : 'TRUE',
                 productId,
                 tenantId,
                 branchId
@@ -161,7 +162,7 @@ export async function POST(
               ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, 
                 $9, $10, $11, $12, $13, $14, $15, 
-                $16, 'TRUE', NOW(), NOW(), 'simple', 'FALSE'
+                $16, $17, NOW(), NOW(), 'simple', 'FALSE'
               )`,
               [
                 productId,
@@ -179,7 +180,8 @@ export async function POST(
                 p.image_url || '',
                 p.stock_qty || '0',
                 metadataStr,
-                p.weight || ''
+                p.weight || '',
+                p.active === 'FALSE' ? 'FALSE' : 'TRUE'
               ]
             )
           }
@@ -332,7 +334,7 @@ export async function POST(
           image_url: p.image_url || '',
           stock_qty: p.stock_qty || '0',
           metadata: p.metadata ? JSON.stringify(p.metadata) : '',
-          active: 'TRUE',
+          active: p.active === 'FALSE' ? 'FALSE' : 'TRUE',
         }
 
         let productId: string
@@ -357,6 +359,7 @@ export async function POST(
             barcode: u.barcode || '',
             sell_price: String(u.sell_price || '0'),
             cost_price: String(u.cost_price || '0'),
+            active: 'TRUE',
           }))
           await connector.batchCreate('product-units', unitsData)
         }
@@ -369,6 +372,7 @@ export async function POST(
             batch_no: b.batch_no,
             expiry_date: b.expiry_date,
             stock_qty: String(b.stock_qty),
+            active: 'TRUE',
           }))
           await connector.batchCreate('inventory-batches', batchesData)
         }
@@ -381,6 +385,7 @@ export async function POST(
           stock_qty: p.stock_qty || '0',
           min_stock: p.min_stock || '0',
           unit_cost: p.cost_price || '0',
+          active: 'TRUE',
           last_updated: new Date().toISOString()
         })
 
@@ -408,6 +413,7 @@ export async function POST(
             movement_no: movementNo,
             qty: String(p.stock_qty),
             unit_cost: String(p.cost_price || '0'),
+            active: 'TRUE',
             reason: 'Nhập tồn kho ban đầu từ file Excel KiotViet'
           })
         }

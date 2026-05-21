@@ -214,8 +214,9 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
   })
   const [showPharmacyDetails, setShowPharmacyDetails] = useState(false)
 
-  // ── KiotViet Excel Import / Reset States ──
+  // ── Excel Import / Reset States ──
   const [importModalOpen, setImportModalOpen] = useState(false)
+  const [importProvider, setImportProvider] = useState<'kiotviet' | 'pos360' | 'oni' | null>(null)
   const [importFile, setImportFile] = useState<File | null>(null)
   const [parsedProducts, setParsedProducts] = useState<any[]>([])
   const [importingProgress, setImportingProgress] = useState(false)
@@ -225,6 +226,41 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
   const [resetModalOpen, setResetModalOpen] = useState(false)
   const [resetConfirmText, setResetConfirmText] = useState('')
   const [resettingProgress, setResettingProgress] = useState(false)
+  const [isProduction, setIsProduction] = useState(false)
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const host = window.location.hostname.toLowerCase()
+      const port = window.location.port
+      
+      const isLocal =
+        process.env.NODE_ENV === 'development' ||
+        host === 'localhost' ||
+        host === '127.0.0.1' ||
+        host === '::1' ||
+        host === '[::1]' ||
+        host.includes('localhost') ||
+        host.includes('127.0.0.1') ||
+        host.endsWith('.localhost') ||
+        host.endsWith('.local') ||
+        host.endsWith('.test') ||
+        host.endsWith('.example') ||
+        host.endsWith('.invalid') ||
+        host.startsWith('192.168.') ||
+        host.startsWith('10.') ||
+        host.startsWith('172.') ||
+        port !== '' // If there is a port (e.g. 3000, 5173, 8080), it is a local dev instance
+
+      setIsProduction(!isLocal)
+      console.log("[Oni ERP] Environment Detection:", {
+        hostname: host,
+        port: port || 'default',
+        nodeEnv: process.env.NODE_ENV,
+        isLocalDetected: isLocal,
+        isProductionEvaluated: !isLocal
+      })
+    }
+  }, [])
 
 interface UnitRow {
   id?: string
@@ -565,7 +601,68 @@ interface UnitRow {
     setCategoryModalOpen(true)
   }
 
+  const downloadOniTemplate = () => {
+    const headers = [
+      [
+        'Mã hàng hóa (SKU) *', 
+        'Tên hàng hóa *', 
+        'Mã vạch (Barcode)', 
+        'Nhóm hàng', 
+        'Đơn vị tính', 
+        'Giá bán *', 
+        'Giá vốn', 
+        'Tồn kho', 
+        'Định mức tồn nhỏ nhất', 
+        'Hình ảnh (URL)', 
+        'Trọng lượng (g)', 
+        'Mô tả'
+      ],
+      [
+        'SP-0001', 
+        'Cà phê muối đặc biệt', 
+        '8930000000012', 
+        'Đồ uống >> Cà phê', 
+        'Ly', 
+        29000, 
+        12000, 
+        50, 
+        5, 
+        'https://i.ibb.co/caphe.jpg', 
+        250, 
+        'Cà phê muối béo ngậy vị đậm đà'
+      ],
+      [
+        'SP-0002', 
+        'Bánh mì Pate xúc xích', 
+        '', 
+        'Đồ ăn sáng', 
+        'Cái', 
+        20000, 
+        8000, 
+        20, 
+        2, 
+        '', 
+        150, 
+        'Bánh mì pate giòn rụm thơm ngon'
+      ]
+    ]
+    const ws = XLSX.utils.aoa_to_sheet(headers)
+    ws['!cols'] = [
+      { wch: 18 }, { wch: 25 }, { wch: 18 }, { wch: 20 }, { wch: 12 },
+      { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 20 }, { wch: 25 },
+      { wch: 15 }, { wch: 30 }
+    ]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Template Oni')
+    XLSX.writeFile(wb, 'oni_products_template.xlsx')
+    toast.success('Đã tải file Excel mẫu Oni thành công!')
+  }
+
   const handleExcelImport = (file: File) => {
+    if (!importProvider) {
+      toast.error('Vui lòng chọn nhà cung cấp trước khi import')
+      return
+    }
     setImportFile(file)
     setIsParsingExcel(true)
     const reader = new FileReader()
@@ -584,169 +681,278 @@ interface UnitRow {
             return
           }
 
-        // Helper robust value fetcher
-        const getValue = (row: any, keys: string[]) => {
-          for (const k of keys) {
-            if (row[k] !== undefined && row[k] !== null) return row[k]
-            const foundKey = Object.keys(row).find(rk => rk.trim().toLowerCase() === k.trim().toLowerCase())
-            if (foundKey) return row[foundKey]
+          // Helper robust value fetcher
+          const getValue = (row: any, keys: string[]) => {
+            for (const k of keys) {
+              if (row[k] !== undefined && row[k] !== null) return row[k]
+              const foundKey = Object.keys(row).find(rk => rk.trim().toLowerCase() === k.trim().toLowerCase())
+              if (foundKey) return row[foundKey]
+            }
+            return undefined
           }
-          return undefined
-        }
 
-        // 1. Phân loại base products và sub-units
-        const baseProductsMap = new Map<string, any>()
-        const subUnitRows: any[] = []
+          if (importProvider === 'kiotviet') {
+            // 1. Phân loại base products và sub-units
+            const baseProductsMap = new Map<string, any>()
+            const subUnitRows: any[] = []
 
-        rows.forEach((row: any) => {
-          const sku = String(getValue(row, ['mã hàng', 'mã hàng hóa', 'ma hang', 'sku']) || '').trim()
-          if (!sku) return
+            rows.forEach((row: any) => {
+              const sku = String(getValue(row, ['mã hàng', 'mã hàng hóa', 'ma hang', 'sku']) || '').trim()
+              if (!sku) return
 
-          const quyDoiVal = getValue(row, ['quy đổi', 'quy doi', 'conversion'])
-          const conversionRate = quyDoiVal !== undefined ? Number(quyDoiVal) : 1
-          const parentSku = String(getValue(row, ['mã hàng liên quan', 'mã hàng cơ bản', 'mã đvt cơ bản', 'mã hh liên quan', 'mã hh liên quan', 'mã liên quan']) || '').trim()
+              const quyDoiVal = getValue(row, ['quy đổi', 'quy doi', 'conversion'])
+              const conversionRate = quyDoiVal !== undefined ? Number(quyDoiVal) : 1
+              const parentSku = String(getValue(row, ['mã hàng liên quan', 'mã hàng cơ bản', 'mã đvt cơ bản', 'mã hh liên quan', 'mã hh liên quan', 'mã liên quan']) || '').trim()
 
-          // Dòng gốc: Quy đổi = 1 hoặc rỗng, và không có parentSku (hoặc parentSku trùng sku)
-          const isBase = conversionRate === 1 && (!parentSku || parentSku === sku)
+              // Dòng gốc: Quy đổi = 1 hoặc rỗng, và không có parentSku (hoặc parentSku trùng sku)
+              const isBase = conversionRate === 1 && (!parentSku || parentSku === sku)
 
-          if (isBase) {
-            const name = String(getValue(row, ['tên hàng', 'tên hàng hóa', 'ten hang', 'name']) || '').trim()
-            const barcode = String(getValue(row, ['mã vạch', 'barcode', 'ma vach']) || '').trim()
-            const categoryStr = String(getValue(row, ['nhóm hàng(3 cấp)', 'nhóm hàng', 'nhom hang', 'category']) || '').trim()
-            const unit = String(getValue(row, ['đvt', 'đơn vị tính', 'don vi tinh', 'unit']) || '').trim()
-            const sellPrice = String(getValue(row, ['giá bán', 'gia ban', 'price', 'sell_price']) || '0')
-            const costPrice = String(getValue(row, ['giá vốn', 'gia von', 'cost', 'cost_price']) || '0')
-            const minStock = String(getValue(row, ['tồn nhỏ nhất', 'ton nho nhat', 'min_stock']) || '0')
-            const description = String(getValue(row, ['mô tả', 'mo ta', 'description']) || '').trim()
-            const imageUrlStr = String(getValue(row, [
-              'hình ảnh (url1,url2...)',
-              'hình ảnh (url1, url2...)',
-              'hình ảnh',
-              'hinh anh',
-              'image',
-              'image_url'
-            ]) || '').trim()
-            // Support comma separated multi-image KiotViet columns by extracting the first URL
-            const imageUrl = imageUrlStr ? imageUrlStr.split(',')[0].trim() : ''
-            const weight = String(getValue(row, ['trọng lượng', 'trong luong', 'weight']) || '').trim()
-            const stockQty = String(getValue(row, ['tồn kho', 'ton kho', 'stock', 'stock_qty']) || '0')
-            
-            // Expiry management
-            const hasExpiryTracking = getValue(row, ['quản lý lô-hạn sử dụng', 'quản lý lô - hạn sử dụng', 'quản lý lô', 'expiry_track'])
-            const isExpiry = hasExpiryTracking === 1 || hasExpiryTracking === '1' || hasExpiryTracking === true || hasExpiryTracking === 'true'
+              if (isBase) {
+                const name = String(getValue(row, ['tên hàng', 'tên hàng hóa', 'ten hang', 'name']) || '').trim()
+                const barcode = String(getValue(row, ['mã vạch', 'barcode', 'ma vach']) || '').trim()
+                const categoryStr = String(getValue(row, ['nhóm hàng(3 cấp)', 'nhóm hàng', 'nhom hang', 'category']) || '').trim()
+                const unit = String(getValue(row, ['đvt', 'đơn vị tính', 'don vi tinh', 'unit']) || '').trim()
+                const sellPrice = String(getValue(row, ['giá bán', 'gia ban', 'price', 'sell_price']) || '0')
+                const costPrice = String(getValue(row, ['giá vốn', 'gia von', 'cost', 'cost_price']) || '0')
+                const minStock = String(getValue(row, ['tồn nhỏ nhất', 'ton nho nhat', 'min_stock']) || '0')
+                const description = String(getValue(row, ['mô tả', 'mo ta', 'description']) || '').trim()
+                const imageUrlStr = String(getValue(row, [
+                  'hình ảnh (url1,url2...)',
+                  'hình ảnh (url1, url2...)',
+                  'hình ảnh',
+                  'hinh anh',
+                  'image',
+                  'image_url'
+                ]) || '').trim()
+                // Support comma separated multi-image KiotViet columns by extracting the first URL
+                const imageUrl = imageUrlStr ? imageUrlStr.split(',')[0].trim() : ''
+                const weight = String(getValue(row, ['trọng lượng', 'trong luong', 'weight']) || '').trim()
+                const stockQty = String(getValue(row, ['tồn kho', 'ton kho', 'stock', 'stock_qty']) || '0')
+                
+                // Expiry management
+                const hasExpiryTracking = getValue(row, ['quản lý lô-hạn sử dụng', 'quản lý lô - hạn sử dụng', 'quản lý lô', 'expiry_track'])
+                const isExpiry = hasExpiryTracking === 1 || hasExpiryTracking === '1' || hasExpiryTracking === true || hasExpiryTracking === 'true'
 
-            const inventoryBatches: any[] = []
-            if (isExpiry) {
-              for (let i = 1; i <= 32; i++) {
-                const batchNo = getValue(row, [`lô ${i}`, `lô${i}`])
-                const expiryVal = getValue(row, [`hạn sử dụng ${i}`, `hạn dùng ${i}`, `hạn sử dụng${i}`])
-                const stockVal = getValue(row, [`tồn ${i}`, `tồn${i}`])
+                const inventoryBatches: any[] = []
+                if (isExpiry) {
+                  for (let i = 1; i <= 32; i++) {
+                    const batchNo = getValue(row, [`lô ${i}`, `lô${i}`])
+                    const expiryVal = getValue(row, [`hạn sử dụng ${i}`, `hạn dùng ${i}`, `hạn sử dụng${i}`])
+                    const stockVal = getValue(row, [`tồn ${i}`, `tồn${i}`])
 
-                if (batchNo && stockVal && Number(stockVal) > 0) {
-                  let expiryDateStr = ''
-                  if (expiryVal instanceof Date) {
-                    expiryDateStr = expiryVal.toISOString().split('T')[0]
-                  } else if (expiryVal) {
-                    const str = String(expiryVal).trim()
-                    if (str.includes('/')) {
-                      const parts = str.split('/')
-                      if (parts.length === 3) {
-                        expiryDateStr = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`
+                    if (batchNo && stockVal && Number(stockVal) > 0) {
+                      let expiryDateStr = ''
+                      if (expiryVal instanceof Date) {
+                        expiryDateStr = expiryVal.toISOString().split('T')[0]
+                      } else if (expiryVal) {
+                        const str = String(expiryVal).trim()
+                        if (str.includes('/')) {
+                          const parts = str.split('/')
+                          if (parts.length === 3) {
+                            expiryDateStr = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`
+                          }
+                        } else {
+                          expiryDateStr = str.substring(0, 10)
+                        }
                       }
-                    } else {
-                      expiryDateStr = str.substring(0, 10)
+                      inventoryBatches.push({
+                        batch_no: String(batchNo).trim(),
+                        expiry_date: expiryDateStr || null,
+                        stock_qty: Number(stockVal)
+                      })
                     }
                   }
-                  inventoryBatches.push({
-                    batch_no: String(batchNo).trim(),
-                    expiry_date: expiryDateStr || null,
-                    stock_qty: Number(stockVal)
-                  })
                 }
+
+                // Pharmacy Metadata
+                const metadata: Record<string, any> = {}
+                const pharmacyFields: Record<string, string[]> = {
+                  registration_no: ['số đăng ký', 'số đăng ký', 'so dang ky'],
+                  medicine_code: ['mã thuốc', 'mã thuốc', 'ma thuoc'],
+                  active_ingredient: ['hoạt chất', 'hoạt chất', 'hoat chat'],
+                  concentration: ['hàm lượng', 'hàm lượng', 'ham luong'],
+                  manufacturer: ['hãng sản xuất', 'hãng sản xuất', 'hang san xuat'],
+                  country_of_origin: ['nước sản xuất', 'nước sản xuất', 'nuoc san xuat'],
+                  packaging_spec: ['quy cách đóng gói', 'quy cách đóng gói', 'quy cach dong goi'],
+                  route_of_admin: ['đường dùng', 'đường dùng', 'duong dung']
+                }
+                for (const [metaKey, colNames] of Object.entries(pharmacyFields)) {
+                  const val = getValue(row, colNames)
+                  if (val !== undefined && val !== null) {
+                    metadata[metaKey] = String(val).trim()
+                  }
+                }
+
+                baseProductsMap.set(sku, {
+                  name,
+                  sku,
+                  barcode,
+                  categoryStr,
+                  unit,
+                  sell_price: sellPrice,
+                  cost_price: costPrice,
+                  min_stock: minStock,
+                  weight,
+                  description,
+                  image_url: imageUrl,
+                  stock_qty: stockQty,
+                  active: 'TRUE',
+                  product_units: [],
+                  inventory_batches: inventoryBatches,
+                  metadata: Object.keys(metadata).length > 0 ? metadata : null
+                })
+              } else {
+                subUnitRows.push(row)
               }
-            }
+            })
 
-            // Pharmacy Metadata
-            const metadata: Record<string, any> = {}
-            const pharmacyFields: Record<string, string[]> = {
-              registration_no: ['số đăng ký', 'số đăng ký', 'so dang ky'],
-              medicine_code: ['mã thuốc', 'mã thuốc', 'ma thuoc'],
-              active_ingredient: ['hoạt chất', 'hoạt chất', 'hoat chat'],
-              concentration: ['hàm lượng', 'hàm lượng', 'ham luong'],
-              manufacturer: ['hãng sản xuất', 'hãng sản xuất', 'hang san xuat'],
-              country_of_origin: ['nước sản xuất', 'nước sản xuất', 'nuoc san xuat'],
-              packaging_spec: ['quy cách đóng gói', 'quy cách đóng gói', 'quy cach dong goi'],
-              route_of_admin: ['đường dùng', 'đường dùng', 'duong dung']
-            }
-            for (const [metaKey, colNames] of Object.entries(pharmacyFields)) {
-              const val = getValue(row, colNames)
-              if (val !== undefined && val !== null) {
-                metadata[metaKey] = String(val).trim()
+            // 2. Gom sub-units vào base products
+            subUnitRows.forEach((row: any) => {
+              const parentSku = String(getValue(row, ['mã hàng liên quan', 'mã hàng cơ bản', 'mã đvt cơ bản', 'mã hh liên quan', 'mã hh liên quan', 'mã liên quan']) || '').trim()
+              if (!parentSku) return
+
+              const baseProd = baseProductsMap.get(parentSku)
+              if (baseProd) {
+                const unitName = String(getValue(row, ['đvt', 'đơn vị tính', 'don vi tinh', 'unit']) || '').trim()
+                const quyDoiVal = getValue(row, ['quy đổi', 'quy doi', 'conversion'])
+                const conversionRate = quyDoiVal !== undefined ? Number(quyDoiVal) : 1
+                const barcode = String(getValue(row, ['mã vạch', 'barcode', 'ma vach']) || '').trim()
+                const sellPrice = String(getValue(row, ['giá bán', 'gia ban', 'price', 'sell_price']) || '0')
+                const costPrice = String(getValue(row, ['giá vốn', 'gia von', 'cost', 'cost_price']) || '0')
+
+                baseProd.product_units.push({
+                  unit_name: unitName,
+                  conversion_rate: conversionRate,
+                  barcode,
+                  sell_price: sellPrice,
+                  cost_price: costPrice
+                })
               }
-            }
-
-            baseProductsMap.set(sku, {
-              name,
-              sku,
-              barcode,
-              categoryStr,
-              unit,
-              sell_price: sellPrice,
-              cost_price: costPrice,
-              min_stock: minStock,
-              weight,
-              description,
-              image_url: imageUrl,
-              stock_qty: stockQty,
-              product_units: [],
-              inventory_batches: inventoryBatches,
-              metadata: Object.keys(metadata).length > 0 ? metadata : null
             })
-          } else {
-            subUnitRows.push(row)
-          }
-        })
 
-        // 2. Gom sub-units vào base products
-        subUnitRows.forEach((row: any) => {
-          const parentSku = String(getValue(row, ['mã hàng liên quan', 'mã hàng cơ bản', 'mã đvt cơ bản', 'mã hh liên quan', 'mã hh liên quan', 'mã liên quan']) || '').trim()
-          if (!parentSku) return
+            const finalProds = Array.from(baseProductsMap.values())
+            setParsedProducts(finalProds)
+            toast.success(`Đã đọc ${finalProds.length} sản phẩm từ file Excel KiotViet!`)
+          } 
+          else if (importProvider === 'pos360') {
+            const finalProds: any[] = []
+            rows.forEach((row: any) => {
+              const sku = String(getValue(row, ['mã hàng hóa', 'mã hàng', 'sku']) || '').trim()
+              if (!sku) return
 
-          const baseProd = baseProductsMap.get(parentSku)
-          if (baseProd) {
-            const unitName = String(getValue(row, ['đvt', 'đơn vị tính', 'don vi tinh', 'unit']) || '').trim()
-            const quyDoiVal = getValue(row, ['quy đổi', 'quy doi', 'conversion'])
-            const conversionRate = quyDoiVal !== undefined ? Number(quyDoiVal) : 1
-            const barcode = String(getValue(row, ['mã vạch', 'barcode', 'ma vach']) || '').trim()
-            const sellPrice = String(getValue(row, ['giá bán', 'gia ban', 'price', 'sell_price']) || '0')
-            const costPrice = String(getValue(row, ['giá vốn', 'gia von', 'cost', 'cost_price']) || '0')
+              const name = String(getValue(row, ['tên hàng hóa', 'tên hàng', 'name']) || '').trim()
+              if (!name) return
 
-            baseProd.product_units.push({
-              unit_name: unitName,
-              conversion_rate: conversionRate,
-              barcode,
-              sell_price: sellPrice,
-              cost_price: costPrice
+              const barcode = String(getValue(row, ['mã vạch', 'barcode']) || '').trim()
+              const unit = String(getValue(row, ['đvt', 'đơn vị tính', 'unit']) || '').trim()
+              const sellPrice = String(getValue(row, ['giá bán', 'price']) || '0')
+              const costPrice = String(getValue(row, ['giá vốn', 'cost']) || '0')
+              const minStock = String(getValue(row, ['định mức tồn nhỏ nhất', 'tồn nhỏ nhất', 'min_stock']) || '0')
+              const description = String(getValue(row, ['ghi chú nhanh khi bán hàng (ghi chú 1, ghi chú 2,...)', 'ghi chú nhanh khi bán hàng', 'mô tả', 'description']) || '').trim()
+              const imageUrlStr = String(getValue(row, ['hình ảnh', 'image']) || '').trim()
+              const imageUrl = imageUrlStr ? imageUrlStr.split(',')[0].trim() : ''
+              const stockQty = String(getValue(row, ['tồn kho', 'tồn', 'stock']) || '0')
+
+              // Parse 'không cho phép bán?' to active status
+              const forbiddenVal = getValue(row, ['không cho phép bán?'])
+              const isActive = (forbiddenVal === 1 || forbiddenVal === '1' || forbiddenVal === '1.0' || forbiddenVal === 1.0 || forbiddenVal === true || String(forbiddenVal).toLowerCase() === 'true') ? 'FALSE' : 'TRUE'
+
+              const productUnits: any[] = []
+              const largeUnitName = String(getValue(row, ['đvt lớn']) || '').trim()
+              const largeUnitCode = String(getValue(row, ['mã đvt lớn']) || '').trim()
+              const convVal = getValue(row, ['giá trị quy đổi'])
+              const convRate = convVal !== undefined ? Number(convVal) : 1
+              const largeSellPrice = String(getValue(row, ['giá bán đvt lớn']) || '0')
+
+              if (largeUnitName && convRate > 1) {
+                productUnits.push({
+                  unit_name: largeUnitName,
+                  conversion_rate: convRate,
+                  barcode: largeUnitCode || `${sku}-${largeUnitName}`,
+                  sell_price: largeSellPrice,
+                  cost_price: String(Number(costPrice) * convRate)
+                })
+              }
+
+              finalProds.push({
+                name,
+                sku,
+                barcode: barcode || sku,
+                categoryStr: '', // POS360 exports do not contain structured hierarchy
+                unit,
+                sell_price: sellPrice,
+                cost_price: costPrice,
+                min_stock: minStock,
+                weight: '',
+                description,
+                image_url: imageUrl,
+                stock_qty: stockQty,
+                active: isActive,
+                product_units: productUnits,
+                inventory_batches: [],
+                metadata: null
+              })
             })
-          }
-        })
 
-        const finalProds = Array.from(baseProductsMap.values())
-        setParsedProducts(finalProds)
-        toast.success(`Đã đọc ${finalProds.length} sản phẩm từ file Excel!`)
-      } catch (err: any) {
-        toast.error(`Lỗi phân tích file: ${err.message}`)
-      } finally {
-        setIsParsingExcel(false)
-      }
-    }, 50)
+            setParsedProducts(finalProds)
+            toast.success(`Đã đọc ${finalProds.length} sản phẩm từ file Excel POS360!`)
+          } 
+          else if (importProvider === 'oni') {
+            const finalProds: any[] = []
+            rows.forEach((row: any) => {
+              const sku = String(getValue(row, ['mã hàng hóa (sku) *', 'mã hàng hóa', 'sku', 'mã hàng']) || '').trim()
+              if (!sku) return
+
+              const name = String(getValue(row, ['tên hàng hóa *', 'tên hàng hóa', 'tên hàng', 'name']) || '').trim()
+              if (!name) return
+
+              const barcode = String(getValue(row, ['mã vạch (barcode)', 'mã vạch', 'barcode']) || '').trim()
+              const categoryStr = String(getValue(row, ['nhóm hàng', 'category']) || '').trim()
+              const unit = String(getValue(row, ['đơn vị tính', 'đvt', 'unit']) || '').trim()
+              const sellPrice = String(getValue(row, ['giá bán *', 'giá bán', 'price']) || '0')
+              const costPrice = String(getValue(row, ['giá vốn', 'cost']) || '0')
+              const minStock = String(getValue(row, ['định mức tồn nhỏ nhất', 'min_stock']) || '0')
+              const description = String(getValue(row, ['mô tả', 'description']) || '').trim()
+              const imageUrl = String(getValue(row, ['hình ảnh (url)', 'hình ảnh', 'image']) || '').trim()
+              const weight = String(getValue(row, ['trọng lượng (g)', 'trọng lượng', 'weight']) || '').trim()
+              const stockQty = String(getValue(row, ['tồn kho', 'stock']) || '0')
+
+              finalProds.push({
+                name,
+                sku,
+                barcode: barcode || sku,
+                categoryStr,
+                unit,
+                sell_price: sellPrice,
+                cost_price: costPrice,
+                min_stock: minStock,
+                weight,
+                description,
+                image_url: imageUrl,
+                stock_qty: stockQty,
+                active: 'TRUE',
+                product_units: [],
+                inventory_batches: [],
+                metadata: null
+              })
+            })
+
+            setParsedProducts(finalProds)
+            toast.success(`Đã đọc ${finalProds.length} sản phẩm từ file Excel Template Oni!`)
+          }
+
+        } catch (err: any) {
+          toast.error(`Lỗi phân tích file: ${err.message}`)
+        } finally {
+          setIsParsingExcel(false)
+        }
+      }, 50)
+    }
+    reader.readAsBinaryString(file)
   }
-  reader.readAsBinaryString(file)
-}
 
   const submitExcelImport = async () => {
     if (parsedProducts.length === 0) return
-    setImportConfirmOpen(false)
     setImportingProgress(true)
     try {
       const res = await fetch(`/api/shops/${shopId}/products/import`, {
@@ -761,6 +967,7 @@ interface UnitRow {
       }
 
       toast.success(`Nhập khẩu thành công ${parsedProducts.length} sản phẩm!`)
+      setImportConfirmOpen(false)
       setImportModalOpen(false)
       setImportFile(null)
       setParsedProducts([])
@@ -1138,11 +1345,16 @@ interface UnitRow {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setImportModalOpen(true)}
+            onClick={() => {
+              setImportModalOpen(true)
+              setImportProvider(null)
+              setImportFile(null)
+              setParsedProducts([])
+            }}
             className="flex items-center gap-1.5 rounded-xl border border-primary/20 bg-primary/5 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/10 transition-colors shadow-sm cursor-pointer"
           >
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>
-            Nhập từ KiotViet
+            Import
           </button>
           <button
             onClick={openCreate}
@@ -2348,7 +2560,14 @@ interface UnitRow {
         open={importConfirmOpen}
         onClose={() => setImportConfirmOpen(false)}
         onConfirm={submitExcelImport}
-        title="Xác nhận nhập dữ liệu Excel KiotViet"
+        disableOutsideClick={true}
+        title={
+          importProvider === 'kiotviet'
+            ? 'Xác nhận nhập dữ liệu Excel KiotViet'
+            : importProvider === 'pos360'
+            ? 'Xác nhận nhập dữ liệu Excel POS 360'
+            : 'Xác nhận nhập dữ liệu Excel Template Oni'
+        }
         confirmLabel="Tiến hành Import"
         cancelLabel="Hủy"
         variant="default"
@@ -2442,32 +2661,75 @@ interface UnitRow {
         </div>
       )}
 
-      {/* KIOTVIET EXCEL IMPORT MODAL */}
+      {/* MULTI-PROVIDER EXCEL IMPORT WIZARD MODAL */}
       {importModalOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
           <div className="w-full max-w-4xl rounded-2xl bg-white p-6 shadow-2xl border border-slate-100 max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
+                {importProvider !== null && parsedProducts.length === 0 && (
+                  <button
+                    type="button"
+                    disabled={importingProgress}
+                    onClick={() => {
+                      if (importingProgress) return
+                      setImportProvider(null)
+                      setImportFile(null)
+                      setParsedProducts([])
+                    }}
+                    className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 mr-1 flex items-center justify-center cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Quay lại chọn nhà cung cấp"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" /></svg>
+                  </button>
+                )}
                 <div className="p-2 rounded-xl bg-primary text-white shadow-md shadow-primary/20">
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-slate-800">Nhập dữ liệu sản phẩm từ KiotViet</h3>
-                  <p className="text-xs text-slate-500">Hỗ trợ đầy đủ danh mục đa cấp, đơn vị quy đổi, lô hạn dùng và thông tin dược phẩm</p>
+                  <h3 className="text-lg font-bold text-slate-800">
+                    {importProvider === null
+                      ? 'Nhập dữ liệu sản phẩm từ file Excel'
+                      : importProvider === 'kiotviet'
+                      ? 'Nhập dữ liệu sản phẩm từ KiotViet'
+                      : importProvider === 'pos360'
+                      ? 'Nhập dữ liệu sản phẩm từ POS 360'
+                      : 'Nhập dữ liệu sản phẩm từ Template Oni'}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    {importProvider === null
+                      ? 'Chọn nhà cung cấp dịch vụ hoặc sử dụng file mẫu chuẩn hệ thống'
+                      : importProvider === 'kiotviet'
+                      ? 'Hỗ trợ đầy đủ danh mục đa cấp, đơn vị quy đổi, lô hạn dùng và thông tin dược phẩm'
+                      : importProvider === 'pos360'
+                      ? 'Hỗ trợ tự động nhận diện quy đổi đơn vị tính lớn phẳng, tồn kho và trạng thái'
+                      : 'Mẫu file tối ưu hóa dữ liệu sản phẩm chuẩn hệ thống với cấu trúc đơn giản'}
+                  </p>
                 </div>
               </div>
               <div className="flex items-center gap-3">
                 <button
                   type="button"
-                  onClick={() => setResetModalOpen(true)}
-                  className="rounded-xl bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-3 py-1.5 text-xs font-semibold shadow-sm transition-colors cursor-pointer flex items-center gap-1"
+                  disabled={importingProgress}
+                  onClick={() => {
+                    if (importingProgress) return
+                    setResetModalOpen(true)
+                  }}
+                  className="rounded-xl bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-3 py-1.5 text-xs font-semibold shadow-sm transition-colors cursor-pointer flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
                   Bắt đầu lại / Reset
                 </button>
                 <button 
-                  onClick={() => { setImportModalOpen(false); setImportFile(null); setParsedProducts([]); }}
-                  className="text-slate-400 hover:text-slate-600 text-lg p-1"
+                  disabled={importingProgress}
+                  onClick={() => {
+                    if (importingProgress) return
+                    setImportModalOpen(false)
+                    setImportFile(null)
+                    setImportProvider(null)
+                    setParsedProducts([])
+                  }}
+                  className="text-slate-400 hover:text-slate-600 text-lg p-1 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   ✕
                 </button>
@@ -2475,15 +2737,88 @@ interface UnitRow {
             </div>
 
             <div className="my-4 flex-1 overflow-y-auto space-y-4 pr-1">
-              {isParsingExcel ? (
-                <div className="flex flex-col items-center justify-center py-16 px-4 bg-slate-50/50 rounded-2xl border-2 border-dashed border-slate-200">
+              {importProvider === null ? (
+                <div className="py-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {/* KIOTVIET CARD */}
+                    <div 
+                      onClick={() => setImportProvider('kiotviet')}
+                      className="group cursor-pointer rounded-2xl border-2 border-slate-100 hover:border-orange-200 bg-white p-6 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col justify-between min-h-[220px]"
+                    >
+                      <div>
+                        <div className="w-12 h-12 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300">
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 21v-7.5a.75.75 0 01.75-.75h3a.75.75 0 01.75.75V21m-4.5 0H2.36m11.14 0H18m0 0h3.64m-1.39 0V9.349m-16.5 11.65V9.35m0 0a3.001 3.001 0 003.75-.615A2.993 2.993 0 009.75 9.75c.896 0 1.7-.393 2.25-1.016a2.993 2.993 0 002.25 1.016c.896 0 1.7-.393 2.25-1.016a3.001 3.001 0 003.75.614m-16.5 0a3.004 3.004 0 01-.621-4.72L4.318 3.44A1.5 1.5 0 015.378 3h13.243a1.5 1.5 0 011.06.44l1.19 1.189a3 3 0 01-.621 4.72m-13.5 8.65h3.75a.75.75 0 00.75-.75V13.5a.75.75 0 00-.75-.75H6.75a.75.75 0 00-.75.75v3.75c0 .414.336.75.75.75z" /></svg>
+                        </div>
+                        <h4 className="text-base font-bold text-slate-800 group-hover:text-orange-600 transition-colors">KiotViet Excel</h4>
+                        <p className="text-xs text-slate-500 mt-2 leading-relaxed">Nhập khẩu toàn bộ danh mục sản phẩm từ file Excel xuất bản quản lý KiotViet. Hỗ trợ đơn vị quy đổi, lô hạn dùng.</p>
+                      </div>
+                      <div className="mt-4 flex items-center text-xs font-semibold text-orange-600 group-hover:translate-x-1 transition-transform">
+                        Chọn nguồn này
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 ml-1"><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" /></svg>
+                      </div>
+                    </div>
+
+                    {/* POS 360 CARD */}
+                    <div 
+                      onClick={() => setImportProvider('pos360')}
+                      className="group cursor-pointer rounded-2xl border-2 border-slate-100 hover:border-blue-200 bg-white p-6 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col justify-between min-h-[220px]"
+                    >
+                      <div>
+                        <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300">
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" /></svg>
+                        </div>
+                        <h4 className="text-base font-bold text-slate-800 group-hover:text-blue-600 transition-colors">POS 360 Excel</h4>
+                        <p className="text-xs text-slate-500 mt-2 leading-relaxed">Nhập khẩu dữ liệu phẳng từ file Excel xuất bản quản lý POS 360. Tự động nhận diện ĐVT Lớn quy đổi và định mức tồn kho.</p>
+                      </div>
+                      <div className="mt-4 flex items-center text-xs font-semibold text-blue-600 group-hover:translate-x-1 transition-transform">
+                        Chọn nguồn này
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 ml-1"><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" /></svg>
+                      </div>
+                    </div>
+
+                    {/* TEMPLATE ONI CARD */}
+                    <div 
+                      className="group rounded-2xl border-2 border-slate-100 hover:border-primary/30 bg-white p-6 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col justify-between min-h-[220px]"
+                    >
+                      <div onClick={() => setImportProvider('oni')} className="cursor-pointer">
+                        <div className="w-12 h-12 rounded-xl bg-primary/10 text-primary flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300">
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
+                        </div>
+                        <h4 className="text-base font-bold text-slate-800 group-hover:text-primary transition-colors">Template Oni</h4>
+                        <p className="text-xs text-slate-500 mt-2 leading-relaxed">Nhập khẩu dữ liệu tối ưu theo file Excel mẫu chuẩn Oni. Thích hợp cho việc khởi tạo mới hoặc chuyển đổi từ hệ thống khác.</p>
+                      </div>
+                      
+                      <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+                        <button
+                          type="button"
+                          onClick={downloadOniTemplate}
+                          className="text-[11px] font-bold text-primary hover:text-primary-dark underline flex items-center gap-1 cursor-pointer"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+                          Tải File Mẫu
+                        </button>
+                        
+                        <button
+                          type="button"
+                          onClick={() => setImportProvider('oni')}
+                          className="text-xs font-semibold text-primary group-hover:translate-x-1 transition-transform flex items-center cursor-pointer"
+                        >
+                          Tiếp tục
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 ml-1"><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" /></svg>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : isParsingExcel ? (
+                <div className="flex flex-col items-center justify-center py-16 px-4 bg-slate-50/50 rounded-2xl border-2 border-dashed border-slate-200 animate-pulse">
                   <div className="relative flex items-center justify-center mb-4">
                     <div className="w-12 h-12 rounded-full border-4 border-primary/20 border-t-primary animate-spin" />
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5 text-primary absolute animate-pulse"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5 text-primary absolute"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
                   </div>
                   <h4 className="text-sm font-bold text-slate-800 mb-1">Đang đọc và phân tích file Excel...</h4>
                   <p className="text-xs text-slate-500 text-center max-w-sm leading-relaxed">
-                    Hệ thống đang trích xuất dữ liệu, tự động tạo danh mục đa cấp, tách các đơn vị quy đổi phụ, và cấu trúc lô hạn dùng. Vui lòng đợi trong giây lát!
+                    Hệ thống đang trích xuất dữ liệu, kiểm tra các cột thuộc tính, tự động ánh xạ cấu trúc sản phẩm của {importProvider === 'kiotviet' ? 'KiotViet' : importProvider === 'pos360' ? 'POS 360' : 'Template Oni'}. Vui lòng đợi 3-5 giây!
                   </p>
                 </div>
               ) : parsedProducts.length === 0 ? (
@@ -2491,23 +2826,47 @@ interface UnitRow {
                   <div className="p-4 rounded-full bg-primary/5 text-primary mb-3 shadow-inner">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-8 h-8"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
                   </div>
-                  <h4 className="text-sm font-semibold text-slate-800 mb-1">Chọn file xuất từ KiotViet của bạn</h4>
-                  <p className="text-xs text-slate-400 mb-4 text-center max-w-sm">Hỗ trợ file Excel .xlsx được xuất trực tiếp từ trang quản lý hàng hóa của KiotViet.</p>
+                  <h4 className="text-sm font-semibold text-slate-800 mb-1">
+                    {importProvider === 'kiotviet' 
+                      ? 'Chọn file xuất từ KiotViet của bạn' 
+                      : importProvider === 'pos360' 
+                      ? 'Chọn file xuất từ POS 360 của bạn' 
+                      : 'Chọn file Excel Template Oni của bạn'}
+                  </h4>
+                  <p className="text-xs text-slate-400 mb-4 text-center max-w-sm leading-relaxed">
+                    {importProvider === 'kiotviet'
+                      ? 'Hỗ trợ file Excel .xlsx được xuất trực tiếp từ trang quản lý hàng hóa của KiotViet.'
+                      : importProvider === 'pos360'
+                      ? 'Hỗ trợ file Excel .xlsx được xuất trực tiếp từ trang quản lý hàng hóa của POS 360.'
+                      : 'Đảm bảo file Excel đúng định dạng cấu trúc cột mẫu để hệ thống nhập chính xác.'}
+                  </p>
                   
-                  <label className="rounded-xl bg-primary hover:bg-primary-dark px-4 py-2 text-xs font-semibold text-white shadow-md cursor-pointer transition-colors">
-                    Chọn file Excel (.xlsx)
-                    <input 
-                      type="file" 
-                      accept=".xlsx, .xls"
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0]
-                        if (file) {
-                          handleExcelImport(file)
-                        }
-                      }}
-                    />
-                  </label>
+                  <div className="flex gap-3">
+                    {importProvider === 'oni' && (
+                      <button
+                        type="button"
+                        onClick={downloadOniTemplate}
+                        className="rounded-xl border border-slate-200 hover:bg-slate-50 px-4 py-2 text-xs font-semibold text-slate-600 transition-colors flex items-center gap-1.5 cursor-pointer shadow-sm"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+                        Tải File Mẫu (.xlsx)
+                      </button>
+                    )}
+                    <label className="rounded-xl bg-primary hover:bg-primary-dark px-4 py-2 text-xs font-semibold text-white shadow-md cursor-pointer transition-colors">
+                      Chọn file Excel (.xlsx)
+                      <input 
+                        type="file" 
+                        accept=".xlsx, .xls"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          if (file) {
+                            handleExcelImport(file)
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -2520,13 +2879,13 @@ interface UnitRow {
                     <div className="rounded-xl border border-blue-100 bg-blue-50/30 p-3 shadow-sm text-center">
                       <span className="text-[10px] font-semibold text-blue-600 block uppercase tracking-wider">ĐVT quy đổi phụ</span>
                       <strong className="text-lg font-extrabold text-blue-800 mt-1 block">
-                        {parsedProducts.reduce((acc, p) => acc + p.product_units.length, 0)}
+                        {parsedProducts.reduce((acc, p) => acc + (p.product_units?.length || 0), 0)}
                       </strong>
                     </div>
                     <div className="rounded-xl border border-amber-100 bg-amber-50/30 p-3 shadow-sm text-center">
                       <span className="text-[10px] font-semibold text-amber-600 block uppercase tracking-wider">Lô & Hạn sử dụng</span>
                       <strong className="text-lg font-extrabold text-amber-800 mt-1 block">
-                        {parsedProducts.reduce((acc, p) => acc + p.inventory_batches.length, 0)}
+                        {parsedProducts.reduce((acc, p) => acc + (p.inventory_batches?.length || 0), 0)}
                       </strong>
                     </div>
                     <div className="rounded-xl border border-emerald-100 bg-emerald-50/30 p-3 shadow-sm text-center">
@@ -2574,12 +2933,12 @@ interface UnitRow {
                               <td className="px-3 py-2 text-right font-semibold text-slate-700">{Number(p.cost_price || 0).toLocaleString()}đ</td>
                               <td className="px-3 py-2 text-right font-bold text-primary font-mono">{Number(p.stock_qty || 0).toLocaleString()}</td>
                               <td className="px-3 py-2 text-center space-y-0.5">
-                                {p.product_units.length > 0 && (
-                                  <span className="inline-block text-[9px] bg-blue-100 text-blue-700 font-bold px-1.5 py-0.5 rounded-full shrink-0 mr-1">
+                                {p.product_units?.length > 0 && (
+                                  <span className="inline-block text-[9px] bg-blue-100 text-blue-700 font-bold px-1.5 py-0.5 rounded-full shrink-0 mr-1 animate-pulse">
                                     {p.product_units.length} ĐVT phụ
                                   </span>
                                 )}
-                                {p.inventory_batches.length > 0 && (
+                                {p.inventory_batches?.length > 0 && (
                                   <span className="inline-block text-[9px] bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded-full shrink-0 mr-1">
                                     {p.inventory_batches.length} Lô
                                   </span>
@@ -2608,19 +2967,42 @@ interface UnitRow {
                 {importFile ? `File: ${importFile.name}` : ''}
               </span>
               <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => { setImportModalOpen(false); setImportFile(null); setParsedProducts([]); }}
-                  className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 cursor-pointer"
-                >
-                  Hủy
-                </button>
+                {importProvider !== null && parsedProducts.length === 0 ? (
+                  <button
+                    type="button"
+                    disabled={importingProgress}
+                    onClick={() => {
+                      if (importingProgress) return
+                      setImportProvider(null)
+                      setImportFile(null)
+                      setParsedProducts([])
+                    }}
+                    className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Quay lại
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={importingProgress}
+                    onClick={() => {
+                      if (importingProgress) return
+                      setImportModalOpen(false)
+                      setImportFile(null)
+                      setImportProvider(null)
+                      setParsedProducts([])
+                    }}
+                    className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Hủy / Đóng
+                  </button>
+                )}
                 {parsedProducts.length > 0 && (
                   <button
                     type="button"
                     onClick={() => setImportConfirmOpen(true)}
                     disabled={importingProgress}
-                    className="rounded-xl bg-primary hover:bg-primary-dark px-5 py-2 text-sm font-semibold text-white shadow-md disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+                    className="rounded-xl bg-primary hover:bg-primary-dark px-5 py-2 text-sm font-semibold text-white shadow-md disabled:opacity-50 flex items-center gap-1.5 cursor-pointer transition-colors"
                   >
                     {importingProgress ? 'Đang thực hiện import...' : `Lưu & Import ${parsedProducts.length} sản phẩm`}
                   </button>
@@ -2633,16 +3015,53 @@ interface UnitRow {
 
       {/* DANGEROUS RESET DATA DIALOG */}
       {resetModalOpen && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-md">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border-2 border-red-100">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border-2 transition-all border-red-200">
             <div className="flex items-center gap-3 text-red-600">
-              <div className="p-3 rounded-full bg-red-100 shadow-inner">
+              <div className="p-3 rounded-full shadow-inner bg-red-100">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
               </div>
-              <h3 className="text-lg font-extrabold uppercase tracking-wide">Cảnh báo cực kỳ nguy hiểm</h3>
+              <h3 className="text-lg font-extrabold uppercase tracking-wide">
+                Cảnh báo cực kỳ nguy hiểm
+              </h3>
             </div>
             
             <div className="mt-4 space-y-3">
+              {/* ENVIRONMENT WARNING INDICATOR */}
+              {isProduction ? (
+                <div className="rounded-xl border border-red-200 bg-red-50/80 p-3.5 shadow-sm animate-pulse">
+                  <div className="flex items-start gap-2.5">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-600 text-white font-extrabold text-[10px] shadow">
+                      !
+                    </span>
+                    <div>
+                      <span className="font-extrabold text-[13px] text-red-700 tracking-wider flex items-center gap-1.5 uppercase">
+                        Hệ thống PRODUCTION (Cloud thực tế)
+                      </span>
+                      <p className="mt-1 text-[11px] font-semibold leading-relaxed text-red-600">
+                        Cực kỳ nguy hiểm! Bạn đang thao tác trên hệ thống dữ liệu thật của khách hàng. Mọi thay đổi sẽ không thể khôi phục lại được!
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-3.5 shadow-sm">
+                  <div className="flex items-start gap-2.5">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white font-bold text-[10px]">
+                      i
+                    </span>
+                    <div>
+                      <span className="font-bold text-[12px] text-blue-700 uppercase tracking-wide">
+                        Môi trường LOCAL (Thử nghiệm)
+                      </span>
+                      <p className="mt-0.5 text-[11px] font-semibold leading-relaxed text-blue-600">
+                        Đây là môi trường Local / Development. Thao tác reset này chỉ tác động đến cơ sở dữ liệu giả lập hoặc dữ liệu thử nghiệm nội bộ của bạn.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+              
               <p className="text-sm font-medium text-slate-700 leading-relaxed">Bạn đang thực hiện xóa sạch toàn bộ danh mục, sản phẩm và kho hàng của chi nhánh này. Hành động này sẽ:</p>
               <ul className="text-xs text-slate-600 space-y-1.5 pl-4 list-disc font-medium">
                 <li>Xóa toàn bộ các danh mục (Categories) hiện tại.</li>
@@ -2650,7 +3069,10 @@ interface UnitRow {
                 <li>Xóa toàn bộ số dư tồn kho, các lô hàng & hạn sử dụng.</li>
                 <li>Xóa toàn bộ lịch sử biến động kho & các phiếu điều chỉnh tồn kho (PDK) tự động.</li>
               </ul>
-              <p className="text-xs text-red-500 font-bold bg-red-50 p-2.5 rounded-lg leading-relaxed">DỮ LIỆU SẼ BỊ XÓA VĨNH VIỄN KHÔNG THỂ PHỤC HỒI. Hãy cân nhắc kỹ trước khi tiếp tục.</p>
+              
+              <p className="text-xs font-bold p-2.5 rounded-lg leading-relaxed text-red-500 bg-red-50 border border-red-100">
+                DỮ LIỆU SẼ BỊ XÓA VĨNH VIỄN KHÔNG THỂ PHỤC HỒI. Hãy cân nhắc kỹ trước khi tiếp tục.
+              </p>
               
               <div className="pt-2">
                 <label className="block text-xs font-semibold text-slate-700 mb-1.5">
@@ -2661,7 +3083,7 @@ interface UnitRow {
                   value={resetConfirmText}
                   onChange={(e) => setResetConfirmText(e.target.value)}
                   placeholder="RESET"
-                  className="w-full rounded-xl border border-red-200 px-3 py-2 text-sm text-center font-bold tracking-widest text-red-600 focus:border-red-500 focus:outline-none bg-red-50/10"
+                  className="w-full rounded-xl border px-3 py-2 text-sm text-center font-bold tracking-widest focus:outline-none transition-all border-red-200 text-red-600 focus:border-red-500 bg-red-50/10"
                 />
               </div>
             </div>
@@ -2670,7 +3092,7 @@ interface UnitRow {
               <button
                 type="button"
                 onClick={() => { setResetModalOpen(false); setResetConfirmText(''); }}
-                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 cursor-pointer"
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 cursor-pointer transition-colors"
               >
                 Hủy
               </button>
@@ -2678,7 +3100,7 @@ interface UnitRow {
                 type="button"
                 onClick={handleResetData}
                 disabled={resetConfirmText !== 'RESET' || resettingProgress}
-                className="rounded-xl bg-red-600 hover:bg-red-700 px-4 py-2 text-sm font-bold text-white shadow-md disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                className="rounded-xl px-4 py-2 text-sm font-bold text-white shadow-md disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors bg-red-600 hover:bg-red-700"
               >
                 {resettingProgress ? 'Đang thực hiện reset...' : 'Tôi chắc chắn, hãy xóa sạch'}
               </button>

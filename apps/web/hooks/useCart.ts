@@ -141,7 +141,7 @@ function cartReducer(state: CartState, action: CartAction): CartState {
   }
 }
 
-export function useCart(inventory?: Map<string, number>, branchId?: string) {
+export function useCart(inventory?: Map<string, number>, branchId?: string, allowNegativeStock = false) {
   const [state, dispatch] = useReducer(cartReducer, { items: [], discount_amount: 0, note: '' })
 
   const inventoryRef = useRef(inventory)
@@ -201,19 +201,21 @@ export function useCart(inventory?: Map<string, number>, branchId?: string) {
   }, [branchId])
 
   const addItem = useCallback((product: LocalProduct) => {
-    const stock = inventoryRef.current?.get(product.product_id)
-    if (stock !== undefined) {
-      const currentQty = stateRef.current.items.find((i) => i.product_id === product.product_id)?.qty ?? 0
-      if (currentQty >= stock) {
-        toast.warning(`Đã đủ số lượng trong kho`, {
-          description: `"${product.name}" chỉ còn ${stock} - không thể thêm`,
-        })
-        return
+    if (!allowNegativeStock) {
+      const stock = inventoryRef.current?.get(product.product_id)
+      if (stock !== undefined) {
+        const currentQty = stateRef.current.items.find((i) => i.product_id === product.product_id)?.qty ?? 0
+        if (currentQty >= stock) {
+          toast.warning(`Đã đủ số lượng trong kho`, {
+            description: `"${product.name}" chỉ còn ${stock} - không thể thêm`,
+          })
+          return
+        }
       }
     }
     dispatch({ type: 'ADD_ITEM', product })
     void checkNearExpiryBatches(product.product_id, product.name)
-  }, [checkNearExpiryBatches])
+  }, [checkNearExpiryBatches, allowNegativeStock])
 
   // For variant children and modifier products — adds with full context
   const addItemWithOptions = useCallback((item: CartItem) => {
@@ -228,14 +230,16 @@ export function useCart(inventory?: Map<string, number>, branchId?: string) {
       dispatch({ type: 'SET_QTY', product_id, qty: 0 })
       return
     }
-    const stock = inventoryRef.current?.get(product_id)
-    if (stock !== undefined && stock > 0 && qty > stock) {
-      toast.warning(`Chỉ còn ${stock} trong kho - đã điều chỉnh số lượng`)
-      dispatch({ type: 'SET_QTY', product_id, qty: stock })
-      return
+    if (!allowNegativeStock) {
+      const stock = inventoryRef.current?.get(product_id)
+      if (stock !== undefined && stock > 0 && qty > stock) {
+        toast.warning(`Chỉ còn ${stock} trong kho - đã điều chỉnh số lượng`)
+        dispatch({ type: 'SET_QTY', product_id, qty: stock })
+        return
+      }
     }
     dispatch({ type: 'SET_QTY', product_id, qty })
-  }, [])
+  }, [allowNegativeStock])
   const setItemDiscount = useCallback(
     (product_id: string, discount: number) => dispatch({ type: 'SET_ITEM_DISCOUNT', product_id, discount }),
     []

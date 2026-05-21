@@ -42,8 +42,8 @@ function playBeep() {
   try {
     if (!_beep) _beep = new Audio('/beep.wav')
     _beep.currentTime = 0
-    _beep.play().catch(() => {})
-  } catch {}
+    _beep.play().catch(() => { })
+  } catch { }
 }
 
 const DISCOUNT_PRESETS = [5, 10, 20, 50]
@@ -113,7 +113,7 @@ export function CartPanel({
     if (!isNaN(pct) && pct > 0) {
       onDiscountChange(Math.round(subtotal * pct / 100))
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subtotal])
 
   function handlePctChange(pct: string) {
@@ -156,7 +156,7 @@ export function CartPanel({
         {items.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-slate-400">
             <IconWarehouse className="h-12 w-12" />
-            <p className="text-sm">Chọn sản phẩm để bắt đầu</p>
+            <p className="text-sm">Chọn hoặc quét mã để thêm</p>
             {heldCount > 0 && (
               <p className="text-xs text-primary">{heldCount} đơn đang giữ</p>
             )}
@@ -389,7 +389,7 @@ export function CartPanel({
             disabled={items.length === 0 || disabled}
             className="flex-1 rounded-xl bg-primary py-2 md:py-2.5 text-xs md:text-sm font-semibold text-white hover:bg-primary-dark disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
-            {total > 0 ? `Thanh toán (F9/Enter) ${fmtVND(total)}` : 'Thanh toán (F9/Enter)'}
+            {total > 0 ? `Thanh toán (F9) ${fmtVND(total)}` : 'Thanh toán (F9)'}
           </button>
         </div>
       </div>
