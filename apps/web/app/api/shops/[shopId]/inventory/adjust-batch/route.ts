@@ -34,6 +34,7 @@ interface AdjustItem {
   qty: string          // delta (e.g. +10 or -5)
   unit_cost?: string
   batch_no?: string
+  expiry_date?: string
   
   is_new?: boolean
   product_name?: string
@@ -79,6 +80,7 @@ export async function POST(
       unitCost: string
       sku: string
       batch_no?: string
+      expiry_date?: string
     }[] = []
 
     for (const item of items) {
@@ -175,7 +177,8 @@ export async function POST(
         qty: qtyVal,
         unitCost: item.unit_cost || '0',
         sku: finalSku,
-        batch_no: item.batch_no
+        batch_no: item.batch_no,
+        expiry_date: item.expiry_date
       })
     }
 
@@ -199,12 +202,13 @@ export async function POST(
         branch_id: branch_id,
         reference_no: reference_no,
         reason: reason,
+        batch_no: pItem.batch_no || '', // Capture batch_no directly in movement ledger
         created_at: getGMT7Time()
       }
 
       const createdSM = await connector.create('stock-movements', smPayload)
       tx.add(async () => {
-        await connector.delete('stock-movements', (createdSM as any).movement_id).catch(() => {})
+        await connector.delete('stock-movements', (createdSM as any).movement_id || (createdSM as any).id).catch(() => {})
       })
 
       // Fetch existing inventory for the branch
@@ -267,6 +271,21 @@ export async function POST(
             await connector.update('inventory-batches', (batchRow.batch_id || batchRow.id) as string, {
               stock_qty: String(oldBatchQty)
             }).catch(() => {})
+          })
+        } else {
+          // Auto create batch if not found
+          const tenantHash = crypto.createHash('sha256').update(shop.tenant_id).digest('hex').substring(0, 8).toUpperCase()
+          const batchId = `IB-${tenantHash}-${crypto.randomUUID().substring(0, 8).toUpperCase()}`
+          await connector.create('inventory-batches', {
+            id: batchId,
+            product_id: pItem.productId,
+            branch_id: branch_id || '',
+            batch_no: pItem.batch_no,
+            expiry_date: pItem.expiry_date || new Date().toISOString().split('T')[0],
+            stock_qty: String(Math.max(0, pItem.qty))
+          })
+          tx.add(async () => {
+            await connector.delete('inventory-batches', batchId).catch(() => {})
           })
         }
       }
