@@ -7,6 +7,7 @@ import { cacheTTL } from '@/lib/env'
 import { handleApiError } from '../../_helpers'
 import type { IDataConnector } from '@oni/adapters'
 import { RollbackContext } from '@oni/adapters'
+import crypto from 'crypto'
 
 const INBOUND_TYPES = ['purchase_in', 'return_in', 'transfer_in']
 const OUTBOUND_TYPES = ['sale_out', 'transfer_out']
@@ -26,17 +27,19 @@ function calcDelta(type: string, qty: number): number {
   return qty // adjustment: signed
 }
 
-async function generateMovementNo(connector: IDataConnector, type: string): Promise<string> {
+async function generateMovementNo(connector: IDataConnector, type: string, tenantId: string): Promise<string> {
   const prefix = MOVEMENT_NO_PREFIX[type] ?? 'PKH'
+  const tenantHash = crypto.createHash('sha256').update(tenantId).digest('hex').substring(0, 8).toUpperCase()
+  const searchPrefix = `${prefix}-${tenantHash}-`
   const result = await connector.list('stock-movements', { page: 1, limit: 5000, filters: { type } })
   const existing = result.data as Record<string, string>[]
   const nums = existing
     .map(r => r.movement_no)
-    .filter((n): n is string => !!n && n.startsWith(`${prefix}-`))
-    .map(n => parseInt(n.slice(prefix.length + 1), 10))
+    .filter((n): n is string => !!n && n.startsWith(searchPrefix))
+    .map(n => parseInt(n.slice(searchPrefix.length), 10))
     .filter(n => !isNaN(n))
   const next = nums.length > 0 ? Math.max(...nums) + 1 : 1
-  return `${prefix}-${String(next).padStart(3, '0')}`
+  return `${searchPrefix}${String(next).padStart(3, '0')}`
 }
 
 export async function GET(
@@ -76,7 +79,7 @@ export async function POST(
   let tx: RollbackContext | undefined;
   try {
     const { shopId } = await params
-    const { connector } = await requireShopAccess(shopId)
+    const { connector, shop } = await requireShopAccess(shopId)
     tx = new RollbackContext()
 
     const body = await req.json()
@@ -99,7 +102,7 @@ export async function POST(
         }
       }
       const totalPaidAmt = data.payments.reduce((sum: number, p: { amount: string }) => sum + parseFloat(p.amount || '0'), 0)
-      const movNo = (data as any).movement_no || await generateMovementNo(connector, data.type)
+      const movNo = (data as any).movement_no || await generateMovementNo(connector, data.type, shop.tenant_id)
       const payload = {
         ...(data as unknown as Record<string, string>),
         discount: data.discount || '0',
@@ -117,7 +120,7 @@ export async function POST(
     }
 
     // 1. Generate mã phiếu kho and create movement record
-    const movementNo = await generateMovementNo(connector, data.type)
+    const movementNo = await generateMovementNo(connector, data.type, shop.tenant_id)
     const totalPaidAmt = data.payments.reduce((sum: number, p: { amount: string }) => sum + parseFloat(p.amount || '0'), 0)
     const payload = {
       ...(data as unknown as Record<string, string>),

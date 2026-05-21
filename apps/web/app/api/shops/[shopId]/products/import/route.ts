@@ -73,15 +73,18 @@ export async function POST(
           return parentId
         }
 
+        const tenantHash = crypto.createHash('sha256').update(tenantId).digest('hex').substring(0, 8).toUpperCase()
+        const pdkSearchPrefix = `PDK-${tenantHash}-`
+
         // Count existing PDK movements to generate sequential PDK numbers
         const pdkCountRes = await client.query(
-          `SELECT movement_no FROM stock_movements WHERE tenant_id = $1 AND branch_id = $2 AND type = 'adjustment' AND movement_no LIKE 'PDK-%'`,
-          [tenantId, branchId]
+          `SELECT movement_no FROM stock_movements WHERE tenant_id = $1 AND branch_id = $2 AND type = 'adjustment' AND movement_no LIKE $3`,
+          [tenantId, branchId, `${pdkSearchPrefix}%`]
         )
         const pdkNums = pdkCountRes.rows
           .map((r: any) => r.movement_no as string)
-          .filter((n: string | null | undefined): n is string => !!n)
-          .map((n: string) => parseInt(n.slice(4), 10))
+          .filter((n: string | null | undefined): n is string => !!n && n.startsWith(pdkSearchPrefix))
+          .map((n: string) => parseInt(n.slice(pdkSearchPrefix.length), 10))
           .filter((n: number) => !isNaN(n))
         let pdkCounter = pdkNums.length > 0 ? Math.max(...pdkNums) : 0
 
@@ -258,7 +261,7 @@ export async function POST(
           // Insert stock movements (inventory adjustment history/stock card audit trail)
           if (parseFloat(p.stock_qty || '0') > 0) {
             pdkCounter += 1
-            const movementNo = `PDK-${String(pdkCounter).padStart(3, '0')}`
+            const movementNo = `${pdkSearchPrefix}${String(pdkCounter).padStart(3, '0')}`
             const smId = `SM-${tenantHash}-${crypto.randomUUID().substring(0, 8).toUpperCase()}`
             await client.query(
               `INSERT INTO stock_movements (
@@ -385,15 +388,16 @@ export async function POST(
             page: 1, limit: 5000,
             filters: { type: 'adjustment' }
           })
-          const prefix = 'PDK'
+          const tenantHash = crypto.createHash('sha256').update(tenantId).digest('hex').substring(0, 8).toUpperCase()
+          const pdkSearchPrefix = `PDK-${tenantHash}-`
           const existingSM = pdkRes.data as Record<string, string>[]
           const nums = existingSM
             .map(r => r.movement_no)
-            .filter((n): n is string => !!n && n.startsWith(`${prefix}-`))
-            .map(n => parseInt(n.slice(prefix.length + 1), 10))
+            .filter((n): n is string => !!n && n.startsWith(pdkSearchPrefix))
+            .map(n => parseInt(n.slice(pdkSearchPrefix.length), 10))
             .filter(n => !isNaN(n))
           const nextVal = nums.length > 0 ? Math.max(...nums) + 1 : 1
-          const movementNo = `${prefix}-${String(nextVal).padStart(3, '0')}`
+          const movementNo = `${pdkSearchPrefix}${String(nextVal).padStart(3, '0')}`
 
           await connector.create('stock-movements', {
             product_id: productId,

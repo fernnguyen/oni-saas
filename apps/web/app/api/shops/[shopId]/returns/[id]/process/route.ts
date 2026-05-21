@@ -4,6 +4,7 @@ import { invalidate } from '@/lib/server/cache'
 import { handleApiError } from '../../../../_helpers'
 import { dispatchNotification } from '@/lib/server/notifications'
 import { RollbackContext } from '@oni/adapters'
+import crypto from 'crypto'
 
 // POST /api/shops/[shopId]/returns/[id]/process
 // Chuyển trạng thái phiếu trả hàng sang 'processed':
@@ -51,11 +52,14 @@ export async function POST(
 
     // 3. For each item: create stock-movement type=return_in
     //    Generate movement_no sequentially using existing PTH- prefix records.
+    const tenantHash = crypto.createHash('sha256').update(shop.tenant_id).digest('hex').substring(0, 8).toUpperCase()
+    const searchPrefix = `PTH-${tenantHash}-`
+
     const existingMov = await connector.list('stock-movements', { page: 1, limit: 5000, filters: { type: 'return_in' } })
     const pthNums = (existingMov.data as Record<string, string>[])
       .map(r => r.movement_no)
-      .filter((n): n is string => typeof n === 'string' && n.startsWith('PTH-'))
-      .map(n => parseInt(n.slice(4), 10))
+      .filter((n): n is string => typeof n === 'string' && n.startsWith(searchPrefix))
+      .map(n => parseInt(n.slice(searchPrefix.length), 10))
       .filter(n => !isNaN(n))
     let pthCounter = pthNums.length > 0 ? Math.max(...pthNums) : 0
 
@@ -74,7 +78,7 @@ export async function POST(
       const delta = Math.abs(qty)
 
       pthCounter += 1
-      const movementNo = `PTH-${String(pthCounter).padStart(3, '0')}`
+      const movementNo = `${searchPrefix}${String(pthCounter).padStart(3, '0')}`
       generatedStockMovements.push(movementNo)
 
       const createdMov = await connector.create('stock-movements', {

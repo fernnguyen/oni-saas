@@ -4,6 +4,7 @@ import { requireShopAccess } from '@/lib/server/shopAccess'
 import { shopTag, invalidate } from '@/lib/server/cache'
 import { handleApiError } from '../../../_helpers'
 import { RollbackContext, type IDataConnector } from '@oni/adapters'
+import crypto from 'crypto'
 
 const INBOUND_TYPES = ['purchase_in', 'return_in', 'transfer_in']
 const OUTBOUND_TYPES = ['sale_out', 'transfer_out']
@@ -29,17 +30,19 @@ function getGMT7Time() {
   return d.toISOString().replace('Z', '')
 }
 
-async function generateMovementNo(connector: IDataConnector, type: string): Promise<string> {
+async function generateMovementNo(connector: IDataConnector, type: string, tenantId: string): Promise<string> {
   const prefix = MOVEMENT_NO_PREFIX[type] ?? 'PKH'
+  const tenantHash = crypto.createHash('sha256').update(tenantId).digest('hex').substring(0, 8).toUpperCase()
+  const searchPrefix = `${prefix}-${tenantHash}-`
   const result = await connector.list('stock-movements', { page: 1, limit: 5000, filters: { type } })
   const existing = result.data as Record<string, string>[]
   const nums = existing
     .map(r => r.movement_no)
-    .filter((n): n is string => !!n && n.startsWith(`${prefix}-`))
-    .map(n => parseInt(n.slice(prefix.length + 1), 10))
+    .filter((n): n is string => !!n && n.startsWith(searchPrefix))
+    .map(n => parseInt(n.slice(searchPrefix.length), 10))
     .filter(n => !isNaN(n))
   const next = nums.length > 0 ? Math.max(...nums) + 1 : 1
-  return `${prefix}-${String(next).padStart(3, '0')}`
+  return `${searchPrefix}${String(next).padStart(3, '0')}`
 }
 
 interface BatchItem {
@@ -64,7 +67,7 @@ export async function POST(
   let tx: RollbackContext | undefined
   try {
     const { shopId } = await params
-    const { connector } = await requireShopAccess(shopId, 'products.create')
+    const { connector, shop } = await requireShopAccess(shopId, 'products.create')
     tx = new RollbackContext()
 
     const body = await req.json()
@@ -99,7 +102,7 @@ export async function POST(
     }
 
     // 1. Generate sequential movement_no for the batch
-    const movementNo = await generateMovementNo(connector, type)
+    const movementNo = await generateMovementNo(connector, type, shop.tenant_id)
 
     // Cache to prevent duplicate category lookups/creates within this request
     const categoryCache = new Map<string, string>()
