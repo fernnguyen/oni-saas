@@ -71,6 +71,19 @@ export function TableMapPOS({
 
   const vertical = getVerticalConfig(industryType)
   const [viewMode, setViewMode] = useState<ViewMode>('grid')
+  const [selectedZone, setSelectedZone] = useState<string | null>(null)
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'F7') {
+        e.preventDefault()
+        setSelectedZone(null)
+        toast.success('Đã chọn hiển thị Tất cả phòng/bàn')
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
 
   useEffect(() => {
     const saved = localStorage.getItem('pos_view_mode')
@@ -249,6 +262,10 @@ export function TableMapPOS({
     zones.get(zone)!.push(r)
   }
 
+  const displayedZones = selectedZone
+    ? Array.from(zones.entries()).filter(([z]) => z === selectedZone)
+    : Array.from(zones.entries())
+
   // Stats
   const stats = {
     total: activeResources.length,
@@ -324,6 +341,38 @@ export function TableMapPOS({
         </div>
       </div>
 
+      {/* Zone selection filter tabs (F7 to select all) */}
+      {zones.size > 0 && (
+        <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide select-none">
+          <button
+            onClick={() => setSelectedZone(null)}
+            className={[
+              'shrink-0 rounded-xl px-4 py-2 text-xs font-bold transition-all shadow-xs active:scale-95 border cursor-pointer',
+              selectedZone === null
+                ? 'bg-slate-900 border-slate-900 text-white'
+                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50',
+            ].join(' ')}
+            title="Nhấn F7 để chọn Tất cả phòng/bàn"
+          >
+            Tất cả phòng/bàn (F7)
+          </button>
+          {Array.from(zones.keys()).map((z) => (
+            <button
+              key={z}
+              onClick={() => setSelectedZone(z)}
+              className={[
+                'shrink-0 rounded-xl px-4 py-2 text-xs font-bold transition-all shadow-xs active:scale-95 border cursor-pointer',
+                selectedZone === z
+                  ? 'bg-slate-900 border-slate-900 text-white'
+                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50',
+              ].join(' ')}
+            >
+              {z}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Resource grid */}
       {loading ? (
         <div className="flex h-40 items-center justify-center">
@@ -333,8 +382,8 @@ export function TableMapPOS({
         <EmptyState title={`Chưa có ${resourceLabel} nào`} description={`Vào Quản lý vị trí để tạo ${resourceLabel}`} />
       ) : (
         <>
-          {viewMode === 'grid' && Array.from(zones.entries()).map(([zone, items]) => (
-            <div key={zone}>
+          {viewMode === 'grid' && displayedZones.map(([zone, items]) => (
+            <div key={zone} className="mb-6 last:mb-0">
               <div className="flex items-center gap-2 mb-3">
                 <h3 className="text-sm font-semibold text-slate-700">{zone}</h3>
                 <span className="text-xs text-slate-400">{items.length} vị trí</span>

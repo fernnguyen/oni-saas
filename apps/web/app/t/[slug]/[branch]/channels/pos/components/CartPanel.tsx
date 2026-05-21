@@ -29,6 +29,8 @@ interface Props {
   onAddToCart?: (product: LocalProduct) => void
   onAddToCartWithOptions?: (item: CartItem) => void
   mutePosSound?: boolean
+  activeItemId?: string | null
+  onActiveItemChange?: (id: string | null) => void
 }
 
 function fmtVND(v: number | string | null | undefined) {
@@ -67,6 +69,8 @@ export function CartPanel({
   onAddToCart,
   onAddToCartWithOptions,
   mutePosSound = false,
+  activeItemId = null,
+  onActiveItemChange,
 }: Props) {
   const [discountMode, setDiscountMode] = useState<'amount' | 'percent'>('amount')
   const [discountPct, setDiscountPct] = useState('')
@@ -162,8 +166,18 @@ export function CartPanel({
             {items.map((item) => {
               const stock = inventory?.get(item.product_id)
               const atMax = stock !== undefined && item.qty >= stock
+              const isItemActive = item.product_id === activeItemId
               return (
-                <div key={item.product_id} className="px-3 py-2">
+                <div
+                  key={item.product_id}
+                  onClick={() => onActiveItemChange?.(item.product_id)}
+                  className={[
+                    "px-3 py-2.5 transition-all cursor-pointer border-l-2 select-none",
+                    isItemActive
+                      ? "bg-primary/[0.04] border-primary"
+                      : "border-transparent hover:bg-slate-50"
+                  ].join(' ')}
+                >
                   <div className="flex items-start gap-2">
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium text-slate-900 leading-tight">
@@ -375,7 +389,7 @@ export function CartPanel({
             disabled={items.length === 0 || disabled}
             className="flex-1 rounded-xl bg-primary py-2 md:py-2.5 text-xs md:text-sm font-semibold text-white hover:bg-primary-dark disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
-            {total > 0 ? `Thanh toán ${fmtVND(total)}` : 'Thanh toán'}
+            {total > 0 ? `Thanh toán (F9/Enter) ${fmtVND(total)}` : 'Thanh toán (F9/Enter)'}
           </button>
         </div>
       </div>

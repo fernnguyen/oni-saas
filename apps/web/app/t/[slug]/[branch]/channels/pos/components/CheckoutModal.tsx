@@ -359,7 +359,7 @@ export function CheckoutModal({
 
       await localDb.transaction(
         'rw',
-        [localDb.orders, localDb.orderItems, localDb.payments, localDb.syncQueue, localDb.inventory],
+        [localDb.orders, localDb.orderItems, localDb.payments, localDb.syncQueue, localDb.inventory, localDb.inventoryBatches],
         async () => {
           await localDb.orders.add(order)
           await localDb.orderItems.bulkAdd(orderItems)
@@ -370,14 +370,40 @@ export function CheckoutModal({
           }
 
           for (const item of items) {
+            // 1. Decrement general inventory (filter by active branchId)
             const inv = await localDb.inventory
-              .where('product_id').equals(item.product_id)
+              .where('[product_id+branch_id]')
+              .equals([item.product_id, branchId])
               .first()
             if (inv) {
               await localDb.inventory.put({
                 ...inv,
                 stock_qty: Math.max(0, Number(inv.stock_qty) - (item.qty * (item.conversion_rate || 1))),
               })
+            }
+
+            // 2. Decrement specific batches (FIFO/FEFO: oldest expiry first)
+            const batches = await localDb.inventoryBatches
+              .where('[product_id+branch_id]')
+              .equals([item.product_id, branchId])
+              .toArray()
+              
+            if (batches && batches.length > 0) {
+              // Filter active batches with positive stock quantity
+              const activeBatches = batches.filter((b) => Number(b.stock_qty) > 0)
+              
+              // Sort by expiry_date ascending (FEFO/FIFO order)
+              activeBatches.sort((a, b) => a.expiry_date.localeCompare(b.expiry_date))
+              
+              let remainingToSubtract = item.qty * (item.conversion_rate || 1)
+              for (const b of activeBatches) {
+                if (remainingToSubtract <= 0) break
+                const deduct = Math.min(Number(b.stock_qty), remainingToSubtract)
+                await localDb.inventoryBatches.update(b.id, {
+                  stock_qty: Math.max(0, Number(b.stock_qty) - deduct)
+                })
+                remainingToSubtract -= deduct
+              }
             }
           }
         }

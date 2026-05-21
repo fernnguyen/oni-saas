@@ -102,6 +102,7 @@ export function CustomerSearch({ selected, onSelect }: Props) {
         <div className="relative">
           <input
             type="text"
+            id="pos-customer-search-input"
             value={query}
             onChange={(e) => { setQuery(e.target.value); setOpen(true) }}
             onFocus={() => setOpen(true)}
@@ -134,9 +135,16 @@ export function CustomerSearch({ selected, onSelect }: Props) {
                 }
               }
             }}
-            placeholder="Tìm tên hoặc SĐT để tìm kiếm HOẶC tạo mới khách hàng..."
-            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm placeholder:text-slate-400 focus:border-primary focus:outline-none"
+            placeholder="Tìm khách hàng (F4) - tên hoặc SĐT..."
+            className="w-full rounded-xl border border-slate-200 pl-3 pr-10 py-2 text-sm placeholder:text-slate-400 focus:border-primary focus:outline-none bg-white shadow-xs"
           />
+          {!query && (
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center pointer-events-none">
+              <kbd className="hidden sm:inline-flex h-5 select-none items-center gap-0.5 rounded border border-slate-200 bg-slate-50 px-1.5 font-sans text-[10px] font-bold text-slate-400 shadow-xs">
+                F4
+              </kbd>
+            </div>
+          )}
 
           {/* Dropdown */}
           {open && (
