@@ -27,6 +27,7 @@ const ENTITY_PREFIXES: Record<string, string> = {
   'cashbook':           'CB',
   'location-resources': 'LR',
   'product-bom':        'BOM',
+  'product-units':      'PU',
   'inventory-batches':  'IB',
 }
 
@@ -90,6 +91,7 @@ export class PostgresConnector implements IDataConnector {
     'discounts',
     'suppliers',
     'product-bom',
+    'product-units',
   ]
 
   private readonly LEGACY_ID_MAP: Record<string, string> = {
@@ -111,6 +113,7 @@ export class PostgresConnector implements IDataConnector {
     'branches': 'branch_id',
     'location-resources': 'resource_id',
     'product-bom': 'bom_id',
+    'product-units': 'unit_id',
     'inventory-batches': 'batch_id',
   }
 
@@ -211,9 +214,22 @@ export class PostgresConnector implements IDataConnector {
           continue
         }
         const queryKey = (k === legacyIdField) ? 'id' : k
-        whereClauses.push(`"${queryKey}" = $${paramIdx}`)
-        params.push(v)
-        paramIdx++
+        
+        if (Array.isArray(v)) {
+          if (v.length === 0) {
+            whereClauses.push(`1=0`) // Match nothing
+          } else {
+            const inParams = v.map(val => {
+              params.push(val)
+              return `$${paramIdx++}`
+            })
+            whereClauses.push(`"${queryKey}" IN (${inParams.join(', ')})`)
+          }
+        } else {
+          whereClauses.push(`"${queryKey}" = $${paramIdx}`)
+          params.push(v)
+          paramIdx++
+        }
       }
     }
 

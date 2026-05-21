@@ -31,7 +31,39 @@ export async function GET(
     if (parent_id) filters.parent_id = parent_id
 
     const result = await shopCache(
-      () => connector.list('products', { page, limit, search: search || undefined, filters, sortDesc: true }),
+      async () => {
+        const prodResult = await connector.list('products', { page, limit, search: search || undefined, filters, sortDesc: true })
+        
+        if (search) {
+          const unitSearchRes = await connector.list('product-units', { search })
+          const unitProductIds = Array.from(new Set(unitSearchRes.data.map(u => u.product_id)))
+          const existingIds = new Set(prodResult.data.map((p: any) => p.id || p.product_id))
+          const extraIds = unitProductIds.filter(id => !existingIds.has(id))
+          
+          if (extraIds.length > 0) {
+            const extraProds = await connector.list('products', { filters: { ...filters, id: extraIds as any }, limit: 100 })
+            prodResult.data.push(...extraProds.data)
+            prodResult.total += extraProds.data.length
+          }
+        }
+
+        if (prodResult.data.length > 0) {
+          // Fetch product units in parallel or bulk. Since we might have many products, we'll fetch all active units for this shop.
+          // Note: In a real app we'd filter by product_ids, but for simplicity we fetch the first 5000 units.
+          const unitsResult = await connector.list('product-units', { limit: 5000 })
+          const unitsByProduct = unitsResult.data.reduce((acc: Record<string, any[]>, unit: any) => {
+            acc[unit.product_id] = acc[unit.product_id] || []
+            acc[unit.product_id].push(unit)
+            return acc
+          }, {})
+
+          prodResult.data = prodResult.data.map((p: any) => ({
+            ...p,
+            product_units: unitsByProduct[p.id] || []
+          }))
+        }
+        return prodResult
+      },
       ['products', shopId, String(page), String(limit), search, category_id, active, product_type, parent_id],
       { tags: [shopTag(shopId, 'products')], revalidate: cacheTTL.products }
     )
@@ -95,6 +127,20 @@ export async function POST(
 
     // ── Case B: Simple product (unchanged flow) ───────────────────────
     const created = await connector.create('products', data)
+    
+    // ── Unit Conversions ──────────────────────────────────────────────
+    if (Array.isArray(body.product_units) && body.product_units.length > 0) {
+      const unitsData = body.product_units.map((u: any) => ({
+        product_id: created.id || (created as any).product_id,
+        unit_name: u.unit_name,
+        conversion_rate: u.conversion_rate,
+        barcode: u.barcode || '',
+        sell_price: u.sell_price || '0',
+        cost_price: u.cost_price || '0',
+      }))
+      await connector.batchCreate('product-units', unitsData)
+    }
+
     invalidate(shopId, 'products')
     return NextResponse.json(created, { status: 201 })
   } catch (e) {

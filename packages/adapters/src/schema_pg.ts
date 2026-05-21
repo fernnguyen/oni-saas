@@ -56,6 +56,10 @@ export const order_items = pgTable('order_items', {
   tax_amount: varchar('tax_amount', { length: 50 }),
   line_total: varchar('line_total', { length: 50 }),
   employee_id: varchar('employee_id', { length: 255 }),
+  // ── Unit Conversion (Pharmacy/Retail) ────────────────────────────────────
+  unit_id: varchar('unit_id', { length: 255 }),
+  unit_name: varchar('unit_name', { length: 50 }),
+  conversion_rate: varchar('conversion_rate', { length: 50 }).default('1'),
   // ── Variant / Modifier context (Sprint 1) ────────────────────────────────
   variant_label: varchar('variant_label', { length: 500 }),
   modifiers: text('modifiers'),
@@ -101,6 +105,18 @@ export const products = pgTable('products', {
   product_type: varchar('product_type', { length: 20 }).default('simple'),
   parent_id: varchar('parent_id', { length: 255 }),
   variant_options: text('variant_options'),
+});
+
+export const product_units = pgTable('product_units', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  product_id: varchar('product_id', { length: 255 }).notNull(),
+  unit_name: varchar('unit_name', { length: 50 }).notNull(),
+  conversion_rate: varchar('conversion_rate', { length: 50 }).notNull(),
+  barcode: varchar('barcode', { length: 255 }),
+  sell_price: varchar('sell_price', { length: 50 }),
+  cost_price: varchar('cost_price', { length: 50 }),
+  is_base_unit: varchar('is_base_unit', { length: 10 }).default('FALSE'),
 });
 
 export const product_bom = pgTable('product_bom', {
@@ -272,6 +288,9 @@ export const return_items = pgTable('return_items', {
   qty_returned: varchar('qty_returned', { length: 50 }),
   unit_price: varchar('unit_price', { length: 50 }),
   line_total: varchar('line_total', { length: 50 }),
+  unit_id: varchar('unit_id', { length: 255 }),
+  unit_name: varchar('unit_name', { length: 50 }),
+  conversion_rate: varchar('conversion_rate', { length: 50 }).default('1'),
   variant_label: varchar('variant_label', { length: 500 }),
   modifiers: text('modifiers'),
   modifier_total: varchar('modifier_total', { length: 50 }),

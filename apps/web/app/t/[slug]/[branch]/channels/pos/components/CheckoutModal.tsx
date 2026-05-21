@@ -240,6 +240,9 @@ export function CheckoutModal({
         variant_label: item.variant_label,
         modifiers: typeof item.modifiers === 'object' ? JSON.stringify(item.modifiers) : item.modifiers,
         modifier_total: item.modifier_total,
+        unit_id: item.unit_id,
+        unit_name: item.unit_name,
+        conversion_rate: item.conversion_rate,
       }))
 
       const localPayments: LocalPayment[] = payments
@@ -303,7 +306,7 @@ export function CheckoutModal({
         stockMovements: computedItems.map((item) => ({
           type: 'sale_out',
           product_id: item.product_id,
-          qty: -item.qty,
+          qty: -item.qty * (item.conversion_rate || 1),
           branch_id: branchId,
           reference_no: local_id,
         })).filter(m => m.product_id !== 'TIME_CHARGE'),
@@ -373,7 +376,7 @@ export function CheckoutModal({
             if (inv) {
               await localDb.inventory.put({
                 ...inv,
-                stock_qty: Math.max(0, Number(inv.stock_qty) - item.qty),
+                stock_qty: Math.max(0, Number(inv.stock_qty) - (item.qty * (item.conversion_rate || 1))),
               })
             }
           }

@@ -19,6 +19,30 @@ export function usePOSProductSearch(query: string, categoryId?: string) {
           items = items.filter((p) => p.category_id === categoryId)
         }
 
+        // Flatten product units into pseudo-products
+        const flattenedItems: LocalProduct[] = []
+        for (const p of items) {
+          flattenedItems.push(p)
+          if (Array.isArray(p.product_units) && p.product_units.length > 0) {
+            for (const u of p.product_units) {
+              flattenedItems.push({
+                ...p,
+                product_id: p.product_id, // Keep base product ID
+                name: `${p.name} (${u.unit_name})`, // Append unit name for display
+                barcode: u.barcode || '',
+                sell_price: Number(u.sell_price || 0),
+                cost_price: Number(u.cost_price || 0),
+                // Custom fields for cart
+                unit_id: u.unit_id || u.id,
+                unit_name: u.unit_name,
+                conversion_rate: Number(u.conversion_rate || 1),
+                unit: u.unit_name,
+              } as any)
+            }
+          }
+        }
+        items = flattenedItems
+
         if (debouncedQuery) {
           const q = debouncedQuery.toLowerCase()
           items = items.filter(
