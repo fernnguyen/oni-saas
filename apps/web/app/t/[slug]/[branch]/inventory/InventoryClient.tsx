@@ -15,6 +15,7 @@ import { PaymentStatusLabel, PaymentStatus } from '@/app/components/ui/PaymentSt
 import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog'
 import { CopyableId } from '@/app/components/ui/CopyableId'
 import { localDb } from '@/lib/localDb/schema'
+import { hydrateAll } from '@/lib/localDb/hydration'
 
 const Eye = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg>
 const ArrowRight = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M5 12h14" /><path d="m12 5 7 7-7 7" /></svg>
@@ -53,6 +54,8 @@ interface FormItem {
   sell_price?: string
   min_price?: string
   unit?: string
+  batch_no?: string
+  expiry_date?: string
 }
 
 const EMPTY_FORM = {
@@ -69,6 +72,8 @@ const EMPTY_FORM = {
       sell_price: '',
       min_price: '',
       unit: '',
+      batch_no: '',
+      expiry_date: '',
     }
   ] as FormItem[],
   supplier_id: '',
@@ -374,6 +379,94 @@ export function InventoryClient({ shopId, shopName }: Props) {
   const [adjustReason, setAdjustReason] = useState<string>('Hủy hàng hết hạn / hư hỏng')
   const [adjustingLoading, setAdjustingLoading] = useState<boolean>(false)
 
+  // Quick batch creation states
+  const [addingBatch, setAddingBatch] = useState(false)
+  const [newBatchForm, setNewBatchForm] = useState({
+    batch_no: '',
+    expiry_date: '',
+    stock_qty: '0'
+  })
+  const [addingBatchLoading, setAddingBatchLoading] = useState(false)
+
+  const handleConfirmAddBatch = async () => {
+    if (!selectedStockProduct) return
+    if (!newBatchForm.batch_no.trim()) {
+      toast.error('Vui lòng nhập số lô')
+      return
+    }
+    const qty = parseFloat(newBatchForm.stock_qty)
+    if (isNaN(qty) || qty <= 0) {
+      toast.error('Số lượng tồn thực tế ban đầu phải lớn hơn 0')
+      return
+    }
+
+    setAddingBatchLoading(true)
+    try {
+      const product = productMap.get(selectedStockProduct.product_id)
+      const res = await fetch(`/api/shops/${shopId}/inventory/adjust-batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          branch_id: shopId,
+          reason: `Khởi tạo số dư tồn kho ban đầu - Lô: ${newBatchForm.batch_no.trim()}`,
+          items: [
+            {
+              product_id: selectedStockProduct.product_id,
+              qty: String(qty),
+              unit_cost: String(product?.cost_price || selectedStockProduct.cost_price || 0),
+              batch_no: newBatchForm.batch_no.trim(),
+              expiry_date: newBatchForm.expiry_date || new Date().toISOString().split('T')[0]
+            }
+          ]
+        })
+      })
+
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Thêm lô mới thất bại')
+
+      toast.success('Thêm lô và tạo phiếu điều chỉnh thành công!')
+
+      // Sync offline IndexedDB
+      try {
+        await hydrateAll(shopId, shopId)
+      } catch (err) {
+        console.error('Offline database sync failed:', err)
+      }
+
+      // Close modals
+      setAddingBatch(false)
+
+      // Reload batches list from local DB
+      setLoadingBatches(true)
+      if (typeof window !== 'undefined' && localDb) {
+        const list = await localDb.inventoryBatches.where('[product_id+branch_id]').equals([selectedStockProduct.product_id, shopId]).toArray()
+        list.sort((a, b) => {
+          if (!a.expiry_date) return 1
+          if (!b.expiry_date) return -1
+          return a.expiry_date.localeCompare(b.expiry_date)
+        })
+        setSelectedProductBatches(list)
+      }
+
+      // Update selectedStockProduct total stock
+      const updatedStockProduct = {
+        ...selectedStockProduct,
+        stock_qty: Math.max(0, Number(selectedStockProduct.stock_qty || 0) + qty)
+      }
+      setSelectedStockProduct(updatedStockProduct)
+
+      // Invalidate queries to update background UI
+      queryClient.invalidateQueries({ queryKey: ['inventory', shopId] })
+      queryClient.invalidateQueries({ queryKey: ['products-all', shopId] })
+      queryClient.invalidateQueries({ queryKey: ['stock-movements', shopId] })
+    } catch (err: any) {
+      toast.error(err.message || 'Có lỗi xảy ra khi thêm lô nhanh')
+    } finally {
+      setAddingBatchLoading(false)
+      setLoadingBatches(false)
+    }
+  }
+
   const handleStockRowClick = async (row: any) => {
     setSelectedStockProduct(row)
     setLoadingBatches(true)
@@ -461,7 +554,7 @@ export function InventoryClient({ shopId, shopName }: Props) {
 
       toast.success('Điều chỉnh lô hàng thành công!')
       setAdjustingBatch(null)
-      
+
       queryClient.invalidateQueries({ queryKey: ['inventory', shopId] })
       queryClient.invalidateQueries({ queryKey: ['products-all', shopId] })
 
@@ -611,6 +704,9 @@ export function InventoryClient({ shopId, shopName }: Props) {
       setShowForm(false)
       setShowConfirm(false)
       setForm(EMPTY_FORM)
+      hydrateAll(shopId, shopId).catch((err) => {
+        console.error('Lỗi khi đồng bộ IndexedDB:', err)
+      })
       queryClient.invalidateQueries({ queryKey: ['inventory', shopId] })
       queryClient.invalidateQueries({ queryKey: ['products-all', shopId] })
       queryClient.invalidateQueries({ queryKey: ['stock-movements', shopId] })
@@ -660,6 +756,9 @@ export function InventoryClient({ shopId, shopName }: Props) {
           category_name: '',
           sell_price: '',
           min_price: '',
+          unit: '',
+          batch_no: '',
+          expiry_date: '',
         }
       ]
     }))
@@ -678,6 +777,15 @@ export function InventoryClient({ shopId, shopName }: Props) {
     p: { product_id: string; name: string; sku: string; cost_price?: string; is_new?: boolean }
   ) => {
     if (p.is_new) {
+      // Check if product with the same name is already in the list
+      const duplicateNew = form.items.some(
+        (item, i) => i !== idx && item.product_name?.toLowerCase().trim() === p.name.toLowerCase().trim()
+      )
+      if (duplicateNew) {
+        toast.error(`Sản phẩm "${p.name}" đã tồn tại trong danh sách!`)
+        return
+      }
+
       setQuickCreateIdx(idx)
       setQuickProductForm({
         name: p.name,
@@ -688,6 +796,14 @@ export function InventoryClient({ shopId, shopName }: Props) {
       })
       setQuickCreateModal(true)
       return
+    }
+
+    if (p.product_id) {
+      const duplicate = form.items.some((item, i) => i !== idx && item.product_id === p.product_id)
+      if (duplicate) {
+        toast.error(`Sản phẩm "${p.name}" đã tồn tại trong danh sách!`)
+        return
+      }
     }
 
     const newItems = [...form.items]
@@ -701,6 +817,9 @@ export function InventoryClient({ shopId, shopName }: Props) {
       category_name: '',
       sell_price: '',
       min_price: '',
+      unit: '',
+      batch_no: newItems[idx]?.batch_no || '',
+      expiry_date: newItems[idx]?.expiry_date || '',
     }
     setForm(f => ({ ...f, items: newItems }))
   }
@@ -708,6 +827,14 @@ export function InventoryClient({ shopId, shopName }: Props) {
   const handleConfirmQuickCreate = (e: React.FormEvent) => {
     e.preventDefault()
     if (quickCreateIdx === null) return
+
+    const duplicate = form.items.some(
+      (item, i) => i !== quickCreateIdx && item.product_name?.toLowerCase().trim() === quickProductForm.name.toLowerCase().trim()
+    )
+    if (duplicate) {
+      toast.error(`Sản phẩm "${quickProductForm.name}" đã tồn tại trong danh sách!`)
+      return
+    }
 
     const newItems = [...form.items]
     newItems[quickCreateIdx] = {
@@ -734,6 +861,21 @@ export function InventoryClient({ shopId, shopName }: Props) {
 
     const invalidQty = form.items.find(item => !item.qty || Number(item.qty) === 0)
     if (invalidQty) { toast.error('Số lượng của tất cả sản phẩm phải khác 0'); return }
+
+    // Final duplicate check safety-net
+    const productIds = form.items.map(item => item.product_id).filter(Boolean)
+    const hasDuplicateIds = productIds.some((id, idx) => productIds.indexOf(id) !== idx)
+    if (hasDuplicateIds) {
+      toast.error('Có sản phẩm bị trùng lặp trong danh sách!')
+      return
+    }
+
+    const productNames = form.items.map(item => item.product_name?.toLowerCase().trim()).filter(Boolean)
+    const hasDuplicateNames = productNames.some((name, idx) => productNames.indexOf(name) !== idx)
+    if (hasDuplicateNames) {
+      toast.error('Có sản phẩm bị trùng lặp trong danh sách!')
+      return
+    }
 
     let finalPayments = form.payments
     if (form.type === 'purchase_in') {
@@ -765,6 +907,8 @@ export function InventoryClient({ shopId, shopName }: Props) {
         min_price: item.min_price,
         sku: item.sku,
         unit: item.unit,
+        batch_no: item.batch_no || undefined,
+        expiry_date: item.expiry_date || undefined,
       }))
     } : {
       type: form.type,
@@ -776,6 +920,7 @@ export function InventoryClient({ shopId, shopName }: Props) {
       payments: finalPayments,
       workflow_status: form.workflow_status,
       payment_status: form.payment_status,
+      shipment_no: form.shipment_no,
       items: form.items.map(item => ({
         product_id: item.product_id || undefined,
         qty: item.qty,
@@ -787,6 +932,8 @@ export function InventoryClient({ shopId, shopName }: Props) {
         sell_price: item.sell_price,
         min_price: item.min_price,
         unit: item.unit,
+        batch_no: item.batch_no || undefined,
+        expiry_date: item.expiry_date || undefined,
       }))
     }
 
@@ -1166,6 +1313,7 @@ export function InventoryClient({ shopId, shopName }: Props) {
               />
             }
             rowKey={(row, idx) => `${row.movement_id ?? idx}`}
+            onRowClick={(row) => setViewMovement(row)}
           />
         </>
       )}
@@ -1257,6 +1405,39 @@ export function InventoryClient({ shopId, shopName }: Props) {
                           value={item.product_id || item.is_new ? { product_id: item.product_id || 'new', name: item.product_name, sku: item.sku } : null}
                           onChange={(p) => handleSelectItemProduct(idx, p)}
                         />
+                        {(item.product_id || item.is_new) && ['purchase_in', 'adjustment', 'return_in'].includes(form.type) && (
+                          <div className="mt-2 rounded-xl bg-slate-50 border border-slate-200/60 p-2 text-xs">
+                            <div className="flex gap-2">
+                              <div className="flex-1 space-y-1">
+                                <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block">Số lô</label>
+                                <input
+                                  type="text"
+                                  value={item.batch_no || ''}
+                                  onChange={(e) => {
+                                    const newItems = [...form.items]
+                                    newItems[idx].batch_no = e.target.value
+                                    setForm(f => ({ ...f, items: newItems }))
+                                  }}
+                                  placeholder="Nhập số lô..."
+                                  className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 focus:border-primary focus:outline-none"
+                                />
+                              </div>
+                              <div className="flex-1 space-y-1">
+                                <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block">Hạn sử dụng</label>
+                                <input
+                                  type="date"
+                                  value={item.expiry_date || ''}
+                                  onChange={(e) => {
+                                    const newItems = [...form.items]
+                                    newItems[idx].expiry_date = e.target.value
+                                    setForm(f => ({ ...f, items: newItems }))
+                                  }}
+                                  className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 focus:border-primary focus:outline-none"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </td>
                       <td className="px-2 py-1.5 align-top">
                         <input
@@ -1364,28 +1545,16 @@ export function InventoryClient({ shopId, shopName }: Props) {
 
           {['purchase_in'].includes(form.type) && (
             <>
-              {/* Batch + Shipment */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="mb-1.5 block text-xs font-semibold text-slate-600">Lô nhập</label>
-                  <input
-                    type="text"
-                    value={form.batch_no}
-                    onChange={(e) => setForm((f) => ({ ...f, batch_no: e.target.value }))}
-                    placeholder="VD: L01-2024"
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1.5 block text-xs font-semibold text-slate-600">Đợt nhập</label>
-                  <input
-                    type="text"
-                    value={form.shipment_no}
-                    onChange={(e) => setForm((f) => ({ ...f, shipment_no: e.target.value }))}
-                    placeholder="Tùy chọn"
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
-                  />
-                </div>
+              {/* Đợt nhập */}
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold text-slate-600">Đợt nhập</label>
+                <input
+                  type="text"
+                  value={form.shipment_no}
+                  onChange={(e) => setForm((f) => ({ ...f, shipment_no: e.target.value }))}
+                  placeholder="Tùy chọn"
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                />
               </div>
 
               {/* Discount & Payment Status */}
@@ -1572,15 +1741,25 @@ export function InventoryClient({ shopId, shopName }: Props) {
                 <span className="font-medium text-slate-900">{form.items.length} mặt hàng</span>
               </div>
 
-              <div className="mt-2 max-h-40 overflow-y-auto space-y-1 rounded-lg border border-slate-100 bg-white p-2">
+              <div className="mt-2 max-h-40 overflow-y-auto space-y-2 rounded-lg border border-slate-100 bg-white p-2">
                 {form.items.map((item, idx) => (
-                  <div key={idx} className="flex justify-between text-xs gap-4">
-                    <span className="text-slate-600 truncate max-w-[240px]">
-                      {item.product_name || 'Chưa chọn sản phẩm'}
-                    </span>
-                    <span className="font-mono text-slate-900 shrink-0">
-                      x{item.qty} {item.unit_cost && Number(item.unit_cost) > 0 ? `(${fmtVND(item.unit_cost)})` : ''}
-                    </span>
+                  <div key={idx} className="space-y-0.5 text-xs border-b border-slate-50 pb-1.5 last:border-0 last:pb-0">
+                    <div className="flex justify-between gap-4">
+                      <span className="text-slate-700 font-medium truncate max-w-[240px]">
+                        {item.product_name || 'Chưa chọn sản phẩm'}
+                      </span>
+                      <span className="font-mono text-slate-900 shrink-0">
+                        x{item.qty} {item.unit_cost && Number(item.unit_cost) > 0 ? `(${fmtVND(item.unit_cost)})` : ''}
+                      </span>
+                    </div>
+                    {item.batch_no && (
+                      <div className="text-[10px] text-slate-500">
+                        Lô: <span className="font-semibold text-slate-700">{item.batch_no}</span>
+                        {item.expiry_date && (
+                          <> · HSD: <span className="font-semibold text-slate-700">{fmtDate(item.expiry_date)}</span></>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1652,7 +1831,7 @@ export function InventoryClient({ shopId, shopName }: Props) {
           <p className="font-medium text-slate-800">
             Bạn đang điều chỉnh lô hàng <span className="text-orange-600 font-bold">{adjustingBatch?.batch_no}</span> của sản phẩm <span className="font-semibold text-slate-900">{productMap.get(selectedStockProduct?.product_id)?.displayName || productMap.get(selectedStockProduct?.product_id)?.name || selectedStockProduct?.product_name}</span>.
           </p>
-          
+
           <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
             <div>
               <label className="block text-xs font-semibold text-slate-500 mb-1">
@@ -1913,7 +2092,7 @@ export function InventoryClient({ shopId, shopName }: Props) {
           const productName = product?.displayName ?? product?.name ?? selectedStockProduct.product_name ?? 'Không rõ tên sản phẩm'
           const sku = product?.sku ?? selectedStockProduct.sku ?? '—'
           const totalQty = Number(selectedStockProduct.stock_qty || 0)
-          
+
           return (
             <div className="space-y-6">
               {/* Premium Light Gradient Card */}
@@ -1921,12 +2100,12 @@ export function InventoryClient({ shopId, shopName }: Props) {
                 {/* Subtle graphic accent */}
                 <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-orange-400/10 blur-2xl pointer-events-none" />
                 <div className="absolute -left-10 -bottom-10 h-32 w-32 rounded-full bg-amber-400/10 blur-2xl pointer-events-none" />
-                
+
                 <div className="relative space-y-3">
                   <span className="inline-flex items-center rounded-full bg-orange-100/70 px-2.5 py-0.5 text-xs font-semibold text-orange-700 border border-orange-200/50">
                     Thông tin hàng hóa
                   </span>
-                  
+
                   <div>
                     <h3 className="text-lg font-bold tracking-tight text-slate-900 leading-snug">
                       {productName}
@@ -1935,7 +2114,7 @@ export function InventoryClient({ shopId, shopName }: Props) {
                       SKU: {sku}
                     </p>
                   </div>
-                  
+
                   <div className="flex items-center justify-between border-t border-slate-200/60 pt-3 mt-1">
                     <span className="text-xs font-medium text-slate-500">Tổng tồn kho chi nhánh:</span>
                     <span className="text-xl font-extrabold text-orange-600 tabular-nums">
@@ -1947,13 +2126,25 @@ export function InventoryClient({ shopId, shopName }: Props) {
 
               {/* Batches Stock Section */}
               <div className="space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                   <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
                     Danh sách các lô tồn kho
                   </h4>
-                  <span className="text-xs font-medium text-slate-500">
-                    {selectedProductBatches.length} lô đang hoạt động
-                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNewBatchForm({
+                        batch_no: '',
+                        expiry_date: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // Mặc định 1 năm sau
+                        stock_qty: '0'
+                      })
+                      setAddingBatch(true)
+                    }}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:text-primary-dark hover:underline transition-all"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    Thêm lô nhanh
+                  </button>
                 </div>
 
                 {loadingBatches ? (
@@ -1974,15 +2165,15 @@ export function InventoryClient({ shopId, shopName }: Props) {
                       const qty = Number(batch.stock_qty || 0)
                       let expiryText = '—'
                       let statusBadge = null
-                      
+
                       if (batch.expiry_date) {
                         const expDate = new Date(batch.expiry_date)
                         const today = new Date()
-                        today.setHours(0,0,0,0)
-                        
+                        today.setHours(0, 0, 0, 0)
+
                         const timeDiff = expDate.getTime() - today.getTime()
                         const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24))
-                        
+
                         // Expiry format
                         const dateParts = batch.expiry_date.split('-')
                         if (dateParts.length === 3) {
@@ -2073,6 +2264,72 @@ export function InventoryClient({ shopId, shopName }: Props) {
           )
         })()}
       </SlideOver>
+
+      {/* Quick Add Batch Dialog */}
+      <ConfirmDialog
+        open={addingBatch}
+        onClose={() => setAddingBatch(false)}
+        onConfirm={handleConfirmAddBatch}
+        title="Thêm lô tồn kho nhanh"
+        confirmLabel="Xác nhận khởi tạo"
+        cancelLabel="Hủy bỏ"
+        loading={addingBatchLoading}
+      >
+        <div className="space-y-4 text-sm text-slate-600">
+          <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-3.5 text-xs text-blue-700 leading-relaxed space-y-1.5 shadow-sm">
+            <div className="flex items-center gap-1.5 font-bold">
+              <svg className="h-4 w-4 text-blue-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
+              <span>Nghiệp vụ tạo Phiếu Điều Chỉnh (PDK)</span>
+            </div>
+            <p>
+              Hệ thống sẽ tự động tạo một <strong>Phiếu điều chỉnh tồn kho (PDK)</strong> nhằm tăng tồn kho thực tế cho lô hàng này. Việc này đảm bảo tính minh bạch của sổ sách kế toán kho và dễ dàng đối soát sau này.
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600">Sản phẩm</label>
+              <div className="rounded-xl bg-slate-100 px-3 py-2 text-sm text-slate-800 font-medium border border-slate-200/50">
+                {productMap.get(selectedStockProduct?.product_id)?.displayName || productMap.get(selectedStockProduct?.product_id)?.name || selectedStockProduct?.product_name}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-600">Số hiệu lô *</label>
+                <input
+                  type="text"
+                  value={newBatchForm.batch_no}
+                  onChange={(e) => setNewBatchForm(f => ({ ...f, batch_no: e.target.value }))}
+                  placeholder="VD: LOT-001"
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-600">Hạn sử dụng *</label>
+                <input
+                  type="date"
+                  value={newBatchForm.expiry_date}
+                  onChange={(e) => setNewBatchForm(f => ({ ...f, expiry_date: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600">Số lượng tồn thực tế khởi tạo *</label>
+              <input
+                type="number"
+                min="1"
+                value={newBatchForm.stock_qty}
+                onChange={(e) => setNewBatchForm(f => ({ ...f, stock_qty: e.target.value }))}
+                placeholder="VD: 50"
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none font-semibold text-slate-900"
+              />
+            </div>
+          </div>
+        </div>
+      </ConfirmDialog>
 
       {/* Quick Add Supplier Modal */}
       {showSupplierModal && (

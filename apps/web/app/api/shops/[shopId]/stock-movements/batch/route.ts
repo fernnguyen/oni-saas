@@ -50,6 +50,8 @@ interface BatchItem {
   qty: string
   unit_cost: string
   sku?: string
+  batch_no?: string
+  expiry_date?: string
   
   // Quick inline creation
   is_new?: boolean
@@ -82,6 +84,7 @@ export async function POST(
       payments = [],
       workflow_status = 'completed',
       payment_status = 'paid',
+      shipment_no = '',
       items = []
     } = body as {
       type: string
@@ -94,6 +97,7 @@ export async function POST(
       payments?: { amount: string; method: string }[]
       workflow_status?: 'draft' | 'completed'
       payment_status?: string
+      shipment_no?: string
       items: BatchItem[]
     }
 
@@ -112,6 +116,8 @@ export async function POST(
       qty: number
       unitCost: string
       sku: string
+      batch_no?: string
+      expiry_date?: string
     }[] = []
 
     // 2. Loop and process inline product creations
@@ -207,7 +213,9 @@ export async function POST(
         productId,
         qty: qtyVal,
         unitCost: item.unit_cost || '0',
-        sku: finalSku
+        sku: finalSku,
+        batch_no: item.batch_no,
+        expiry_date: item.expiry_date
       })
     }
 
@@ -239,6 +247,8 @@ export async function POST(
         payments: JSON.stringify(payments),
         payment_status: payment_status,
         workflow_status: workflow_status,
+        batch_no: pItem.batch_no || '',
+        shipment_no: shipment_no || '',
         created_at: getGMT7Time()
       }
 
@@ -286,6 +296,49 @@ export async function POST(
           tx.add(async () => {
             await connector.delete('inventory', (createdInv as any).inventory_id).catch(() => {})
           })
+        }
+
+        // Update inventory batches if batch targeted
+        if (pItem.batch_no) {
+          const batchListResult = await connector.list('inventory-batches', {
+            page: 1,
+            limit: 10,
+            filters: {
+              product_id: pItem.productId,
+              branch_id: branch_id || '',
+              batch_no: pItem.batch_no
+            }
+          })
+          const allBatches = batchListResult.data as Record<string, string>[]
+          const batchRow = allBatches[0]
+
+          if (batchRow) {
+            const oldBatchQty = parseFloat(batchRow.stock_qty || '0')
+            const newBatchQty = Math.max(0, oldBatchQty + delta)
+            await connector.update('inventory-batches', (batchRow.batch_id || batchRow.id) as string, {
+              stock_qty: String(newBatchQty)
+            })
+            tx.add(async () => {
+              await connector.update('inventory-batches', (batchRow.batch_id || batchRow.id) as string, {
+                stock_qty: String(oldBatchQty)
+              }).catch(() => {})
+            })
+          } else {
+            // Auto create batch if not found
+            const tenantHash = crypto.createHash('sha256').update(shop.tenant_id).digest('hex').substring(0, 8).toUpperCase()
+            const batchId = `IB-${tenantHash}-${crypto.randomUUID().substring(0, 8).toUpperCase()}`
+            await connector.create('inventory-batches', {
+              id: batchId,
+              product_id: pItem.productId,
+              branch_id: branch_id || '',
+              batch_no: pItem.batch_no,
+              expiry_date: pItem.expiry_date || new Date().toISOString().split('T')[0],
+              stock_qty: String(Math.max(0, delta))
+            })
+            tx.add(async () => {
+              await connector.delete('inventory-batches', batchId).catch(() => {})
+            })
+          }
         }
 
         // Update product cost price on inbound
@@ -361,6 +414,7 @@ export async function POST(
     invalidate(shopId, 'products')
     invalidate(shopId, 'categories')
     invalidate(shopId, 'inventory')
+    invalidate(shopId, 'inventory-batches')
     invalidate(shopId, 'stock-movements')
     if (type === 'purchase_in' && supplier_id) {
       invalidate(shopId, 'suppliers')
