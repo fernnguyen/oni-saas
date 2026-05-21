@@ -17,6 +17,7 @@ export const productCreateSchema = z.object({
   barcode:         z.string().optional().default(''),
   active:          z.string().optional().default('TRUE'),
   has_bom:         z.string().optional().default('FALSE'),
+  metadata:        z.any().optional(),
   // ── Variant / Modifier System (Sprint 1) ────────────────────────
   product_type:    z.string().optional().default('simple'),
   // 'simple' | 'variant_parent' | 'variant_child' | 'modifier'

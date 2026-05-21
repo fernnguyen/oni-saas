@@ -13,6 +13,8 @@ import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog'
 import { SearchBar } from '@/app/components/ui/SearchBar'
 import { NumberInput } from '@/app/components/ui/NumberInput'
 import { CopyableId } from '@/app/components/ui/CopyableId'
+import * as XLSX from 'xlsx'
+import { clearLocalDb } from '@/lib/localDb/clear'
 
 function RowActions({ r, onEdit, onDuplicate, onToggleActive }: { r: Record<string, string>, onEdit: () => void, onDuplicate: () => void, onToggleActive: () => void }) {
   const [open, setOpen] = useState(false)
@@ -103,6 +105,7 @@ const EMPTY_FORM = {
   sell_price: '0',
   cost_price: '0',
   min_price: '0',
+  weight: '',
   description: '',
   image_url: '',
   active: 'TRUE',
@@ -194,6 +197,31 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'uploading'>('idle')
   const [fileInputKey, setFileInputKey] = useState(Date.now())
   const [saveConfirmOpen, setSaveConfirmOpen] = useState(false)
+
+  // ── Pharmacy Metadata State ──
+  const [pharmacyMetadata, setPharmacyMetadata] = useState({
+    registration_no: '',
+    medicine_code: '',
+    active_ingredient: '',
+    concentration: '',
+    manufacturer: '',
+    country_of_origin: '',
+    packaging_spec: '',
+    route_of_admin: ''
+  })
+  const [showPharmacyDetails, setShowPharmacyDetails] = useState(false)
+
+  // ── KiotViet Excel Import / Reset States ──
+  const [importModalOpen, setImportModalOpen] = useState(false)
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [parsedProducts, setParsedProducts] = useState<any[]>([])
+  const [importingProgress, setImportingProgress] = useState(false)
+  const [importConfirmOpen, setImportConfirmOpen] = useState(false)
+  const [isParsingExcel, setIsParsingExcel] = useState(false)
+  
+  const [resetModalOpen, setResetModalOpen] = useState(false)
+  const [resetConfirmText, setResetConfirmText] = useState('')
+  const [resettingProgress, setResettingProgress] = useState(false)
 
 interface UnitRow {
   id?: string
@@ -308,6 +336,9 @@ interface UnitRow {
       setSaveStatus('saving')
       const isVariantParent = formData.product_type === 'variant_parent'
 
+      const hasPharmacyData = Object.values(pharmacyMetadata).some(Boolean)
+      const finalMetadata = hasPharmacyData ? pharmacyMetadata : null
+
       // ── Variant parent: send with variants[] children ─────────────
       if (isVariantParent) {
         if (!optionName.trim()) throw new Error('Vui lòng nhập tên thuộc tính (VD: Size, Màu sắc)')
@@ -327,6 +358,7 @@ interface UnitRow {
             barcode: r.barcode.trim(),
           })),
           product_units: unitRows,
+          metadata: finalMetadata,
         }
 
         const url = editingId
@@ -362,6 +394,7 @@ interface UnitRow {
         product_type: finalProductType,
         variant_options: finalVariantOptions,
         product_units: unitRows,
+        metadata: finalMetadata,
       }
 
       const url = editingId
@@ -529,6 +562,251 @@ interface UnitRow {
     setCategoryModalOpen(true)
   }
 
+  const handleExcelImport = (file: File) => {
+    setImportFile(file)
+    setIsParsingExcel(true)
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      setTimeout(() => {
+        try {
+          const data = e.target?.result
+          const workbook = XLSX.read(data, { type: 'binary', cellDates: true })
+          const sheetName = workbook.SheetNames[0]
+          const sheet = workbook.Sheets[sheetName]
+          const rows = XLSX.utils.sheet_to_json<any>(sheet)
+
+          if (rows.length === 0) {
+            toast.error('File Excel không có dữ liệu')
+            setIsParsingExcel(false)
+            return
+          }
+
+        // Helper robust value fetcher
+        const getValue = (row: any, keys: string[]) => {
+          for (const k of keys) {
+            if (row[k] !== undefined && row[k] !== null) return row[k]
+            const foundKey = Object.keys(row).find(rk => rk.trim().toLowerCase() === k.trim().toLowerCase())
+            if (foundKey) return row[foundKey]
+          }
+          return undefined
+        }
+
+        // 1. Phân loại base products và sub-units
+        const baseProductsMap = new Map<string, any>()
+        const subUnitRows: any[] = []
+
+        rows.forEach((row: any) => {
+          const sku = String(getValue(row, ['mã hàng', 'mã hàng hóa', 'ma hang', 'sku']) || '').trim()
+          if (!sku) return
+
+          const quyDoiVal = getValue(row, ['quy đổi', 'quy doi', 'conversion'])
+          const conversionRate = quyDoiVal !== undefined ? Number(quyDoiVal) : 1
+          const parentSku = String(getValue(row, ['mã hàng liên quan', 'mã hàng cơ bản', 'mã đvt cơ bản', 'mã hh liên quan', 'mã hh liên quan', 'mã liên quan']) || '').trim()
+
+          // Dòng gốc: Quy đổi = 1 hoặc rỗng, và không có parentSku (hoặc parentSku trùng sku)
+          const isBase = conversionRate === 1 && (!parentSku || parentSku === sku)
+
+          if (isBase) {
+            const name = String(getValue(row, ['tên hàng', 'tên hàng hóa', 'ten hang', 'name']) || '').trim()
+            const barcode = String(getValue(row, ['mã vạch', 'barcode', 'ma vach']) || '').trim()
+            const categoryStr = String(getValue(row, ['nhóm hàng(3 cấp)', 'nhóm hàng', 'nhom hang', 'category']) || '').trim()
+            const unit = String(getValue(row, ['đvt', 'đơn vị tính', 'don vi tinh', 'unit']) || '').trim()
+            const sellPrice = String(getValue(row, ['giá bán', 'gia ban', 'price', 'sell_price']) || '0')
+            const costPrice = String(getValue(row, ['giá vốn', 'gia von', 'cost', 'cost_price']) || '0')
+            const minStock = String(getValue(row, ['tồn nhỏ nhất', 'ton nho nhat', 'min_stock']) || '0')
+            const description = String(getValue(row, ['mô tả', 'mo ta', 'description']) || '').trim()
+            const imageUrlStr = String(getValue(row, [
+              'hình ảnh (url1,url2...)',
+              'hình ảnh (url1, url2...)',
+              'hình ảnh',
+              'hinh anh',
+              'image',
+              'image_url'
+            ]) || '').trim()
+            // Support comma separated multi-image KiotViet columns by extracting the first URL
+            const imageUrl = imageUrlStr ? imageUrlStr.split(',')[0].trim() : ''
+            const weight = String(getValue(row, ['trọng lượng', 'trong luong', 'weight']) || '').trim()
+            const stockQty = String(getValue(row, ['tồn kho', 'ton kho', 'stock', 'stock_qty']) || '0')
+            
+            // Expiry management
+            const hasExpiryTracking = getValue(row, ['quản lý lô-hạn sử dụng', 'quản lý lô - hạn sử dụng', 'quản lý lô', 'expiry_track'])
+            const isExpiry = hasExpiryTracking === 1 || hasExpiryTracking === '1' || hasExpiryTracking === true || hasExpiryTracking === 'true'
+
+            const inventoryBatches: any[] = []
+            if (isExpiry) {
+              for (let i = 1; i <= 32; i++) {
+                const batchNo = getValue(row, [`lô ${i}`, `lô${i}`])
+                const expiryVal = getValue(row, [`hạn sử dụng ${i}`, `hạn dùng ${i}`, `hạn sử dụng${i}`])
+                const stockVal = getValue(row, [`tồn ${i}`, `tồn${i}`])
+
+                if (batchNo && stockVal && Number(stockVal) > 0) {
+                  let expiryDateStr = ''
+                  if (expiryVal instanceof Date) {
+                    expiryDateStr = expiryVal.toISOString().split('T')[0]
+                  } else if (expiryVal) {
+                    const str = String(expiryVal).trim()
+                    if (str.includes('/')) {
+                      const parts = str.split('/')
+                      if (parts.length === 3) {
+                        expiryDateStr = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`
+                      }
+                    } else {
+                      expiryDateStr = str.substring(0, 10)
+                    }
+                  }
+                  inventoryBatches.push({
+                    batch_no: String(batchNo).trim(),
+                    expiry_date: expiryDateStr || null,
+                    stock_qty: Number(stockVal)
+                  })
+                }
+              }
+            }
+
+            // Pharmacy Metadata
+            const metadata: Record<string, any> = {}
+            const pharmacyFields: Record<string, string[]> = {
+              registration_no: ['số đăng ký', 'số đăng ký', 'so dang ky'],
+              medicine_code: ['mã thuốc', 'mã thuốc', 'ma thuoc'],
+              active_ingredient: ['hoạt chất', 'hoạt chất', 'hoat chat'],
+              concentration: ['hàm lượng', 'hàm lượng', 'ham luong'],
+              manufacturer: ['hãng sản xuất', 'hãng sản xuất', 'hang san xuat'],
+              country_of_origin: ['nước sản xuất', 'nước sản xuất', 'nuoc san xuat'],
+              packaging_spec: ['quy cách đóng gói', 'quy cách đóng gói', 'quy cach dong goi'],
+              route_of_admin: ['đường dùng', 'đường dùng', 'duong dung']
+            }
+            for (const [metaKey, colNames] of Object.entries(pharmacyFields)) {
+              const val = getValue(row, colNames)
+              if (val !== undefined && val !== null) {
+                metadata[metaKey] = String(val).trim()
+              }
+            }
+
+            baseProductsMap.set(sku, {
+              name,
+              sku,
+              barcode,
+              categoryStr,
+              unit,
+              sell_price: sellPrice,
+              cost_price: costPrice,
+              min_stock: minStock,
+              weight,
+              description,
+              image_url: imageUrl,
+              stock_qty: stockQty,
+              product_units: [],
+              inventory_batches: inventoryBatches,
+              metadata: Object.keys(metadata).length > 0 ? metadata : null
+            })
+          } else {
+            subUnitRows.push(row)
+          }
+        })
+
+        // 2. Gom sub-units vào base products
+        subUnitRows.forEach((row: any) => {
+          const parentSku = String(getValue(row, ['mã hàng liên quan', 'mã hàng cơ bản', 'mã đvt cơ bản', 'mã hh liên quan', 'mã hh liên quan', 'mã liên quan']) || '').trim()
+          if (!parentSku) return
+
+          const baseProd = baseProductsMap.get(parentSku)
+          if (baseProd) {
+            const unitName = String(getValue(row, ['đvt', 'đơn vị tính', 'don vi tinh', 'unit']) || '').trim()
+            const quyDoiVal = getValue(row, ['quy đổi', 'quy doi', 'conversion'])
+            const conversionRate = quyDoiVal !== undefined ? Number(quyDoiVal) : 1
+            const barcode = String(getValue(row, ['mã vạch', 'barcode', 'ma vach']) || '').trim()
+            const sellPrice = String(getValue(row, ['giá bán', 'gia ban', 'price', 'sell_price']) || '0')
+            const costPrice = String(getValue(row, ['giá vốn', 'gia von', 'cost', 'cost_price']) || '0')
+
+            baseProd.product_units.push({
+              unit_name: unitName,
+              conversion_rate: conversionRate,
+              barcode,
+              sell_price: sellPrice,
+              cost_price: costPrice
+            })
+          }
+        })
+
+        const finalProds = Array.from(baseProductsMap.values())
+        setParsedProducts(finalProds)
+        toast.success(`Đã đọc ${finalProds.length} sản phẩm từ file Excel!`)
+      } catch (err: any) {
+        toast.error(`Lỗi phân tích file: ${err.message}`)
+      } finally {
+        setIsParsingExcel(false)
+      }
+    }, 50)
+  }
+  reader.readAsBinaryString(file)
+}
+
+  const submitExcelImport = async () => {
+    if (parsedProducts.length === 0) return
+    setImportConfirmOpen(false)
+    setImportingProgress(true)
+    try {
+      const res = await fetch(`/api/shops/${shopId}/products/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ products: parsedProducts })
+      })
+
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}))
+        throw new Error(json.error ?? 'Import thất bại')
+      }
+
+      toast.success(`Nhập khẩu thành công ${parsedProducts.length} sản phẩm!`)
+      setImportModalOpen(false)
+      setImportFile(null)
+      setParsedProducts([])
+      queryClient.invalidateQueries({ queryKey: ['products', shopId] })
+    } catch (err: any) {
+      toast.error(err.message)
+    } finally {
+      setImportingProgress(false)
+    }
+  }
+
+  const handleResetData = async () => {
+    if (resetConfirmText !== 'RESET') {
+      toast.error('Vui lòng nhập đúng chữ RESET để xác nhận')
+      return
+    }
+    setResettingProgress(true)
+    try {
+      const res = await fetch(`/api/shops/${shopId}/products/reset`, {
+        method: 'POST'
+      })
+
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}))
+        throw new Error(json.error ?? 'Reset thất bại')
+      }
+
+      toast.success('Đã reset toàn bộ dữ liệu chi nhánh hiện tại!')
+      setResetModalOpen(false)
+      setResetConfirmText('')
+      setImportModalOpen(false)
+      setPage(1)
+      queryClient.invalidateQueries({ queryKey: ['products', shopId] })
+      queryClient.invalidateQueries({ queryKey: ['categories', shopId] })
+      queryClient.invalidateQueries({ queryKey: ['all-products', shopId] })
+      
+      // Reset local client-side IndexedDB to prevent stale POS offline data
+      try {
+        await clearLocalDb()
+      } catch (localDbErr) {
+        console.error('Failed to clear local client-side IndexedDB:', localDbErr)
+      }
+    } catch (err: any) {
+      toast.error(err.message)
+    } finally {
+      setResettingProgress(false)
+    }
+  }
+
   function openEdit(row: Record<string, string>) {
     setFormData(row)
     setEditingId(row.product_id)
@@ -537,6 +815,21 @@ interface UnitRow {
     setImageInputMode(row.image_url ? 'url' : 'file')
     setFileInputKey(Date.now())
     setUnitRows((row as any).product_units || [])
+
+    // Setup pharmacy metadata
+    const meta = typeof row.metadata === 'string' ? safeParseJson(row.metadata) : (row.metadata || null)
+    const hasPharmacy = !!(meta?.registration_no || meta?.medicine_code || meta?.active_ingredient || meta?.concentration || meta?.manufacturer || meta?.country_of_origin || meta?.packaging_spec || meta?.route_of_admin)
+    setPharmacyMetadata({
+      registration_no: meta?.registration_no || '',
+      medicine_code: meta?.medicine_code || '',
+      active_ingredient: meta?.active_ingredient || '',
+      concentration: meta?.concentration || '',
+      manufacturer: meta?.manufacturer || '',
+      country_of_origin: meta?.country_of_origin || '',
+      packaging_spec: meta?.packaging_spec || '',
+      route_of_admin: meta?.route_of_admin || ''
+    })
+    setShowPharmacyDetails(hasPharmacy)
 
     // Reset and Fetch BOM items if product is standard (simple or modifier)
     setBomItems([])
@@ -606,6 +899,19 @@ interface UnitRow {
     setPreviousCostPrice('0')
     setUnitRows([])
     setBomItems([])
+
+    // Reset pharmacy metadata
+    setPharmacyMetadata({
+      registration_no: '',
+      medicine_code: '',
+      active_ingredient: '',
+      concentration: '',
+      manufacturer: '',
+      country_of_origin: '',
+      packaging_spec: '',
+      route_of_admin: ''
+    })
+    setShowPharmacyDetails(false)
     setSlideOpen(true)
   }
 
@@ -624,6 +930,21 @@ interface UnitRow {
     setPreviousCostPrice('0')
     setUnitRows([])
     setBomItems([])
+
+    // Duplicate pharmacy metadata
+    const meta = typeof row.metadata === 'string' ? safeParseJson(row.metadata) : (row.metadata || null)
+    const hasPharmacy = !!(meta?.registration_no || meta?.medicine_code || meta?.active_ingredient || meta?.concentration || meta?.manufacturer || meta?.country_of_origin || meta?.packaging_spec || meta?.route_of_admin)
+    setPharmacyMetadata({
+      registration_no: meta?.registration_no || '',
+      medicine_code: meta?.medicine_code || '',
+      active_ingredient: meta?.active_ingredient || '',
+      concentration: meta?.concentration || '',
+      manufacturer: meta?.manufacturer || '',
+      country_of_origin: meta?.country_of_origin || '',
+      packaging_spec: meta?.packaging_spec || '',
+      route_of_admin: meta?.route_of_admin || ''
+    })
+    setShowPharmacyDetails(hasPharmacy)
     setSlideOpen(true)
   }
 
@@ -803,12 +1124,21 @@ interface UnitRow {
             {isFetching && !isLoading && <span className="ml-2 text-xs text-slate-400">Đang cập nhật...</span>}
           </p>
         </div>
-        <button
-          onClick={openCreate}
-          className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
-        >
-          + Thêm sản phẩm
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setImportModalOpen(true)}
+            className="flex items-center gap-1.5 rounded-xl border border-primary/20 bg-primary/5 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/10 transition-colors shadow-sm cursor-pointer"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>
+            Nhập từ KiotViet
+          </button>
+          <button
+            onClick={openCreate}
+            className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark shadow-sm cursor-pointer"
+          >
+            + Thêm sản phẩm
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-col md:flex-row gap-3 w-full">
@@ -889,7 +1219,7 @@ interface UnitRow {
                 </div>
 
                 {formData.product_type !== 'variant_parent' ? (
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1">SKU</label>
                       <input
@@ -918,6 +1248,16 @@ interface UnitRow {
                         onChange={(e) => setFormData(prev => ({ ...prev, unit: e.target.value }))}
                         className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white"
                         placeholder="Cái, Hộp, Ly..."
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Trọng lượng (g)</label>
+                      <input
+                        type="text"
+                        value={formData.weight || ''}
+                        onChange={(e) => setFormData(prev => ({ ...prev, weight: e.target.value }))}
+                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white"
+                        placeholder="gam"
                       />
                     </div>
                     <div>
@@ -1053,6 +1393,133 @@ interface UnitRow {
                         suffix="đ"
                       />
                     </div>
+                  </div>
+                )}
+
+                {/* ── Thông tin Dược phẩm chuyên biệt (Pharmacy Details) ── */}
+                {formData.product_type !== 'variant_parent' && (
+                  <div className={`rounded-xl border transition-all ${
+                    showPharmacyDetails 
+                      ? 'border-emerald-200 bg-emerald-50/20 shadow-sm' 
+                      : 'border-slate-200 bg-white'
+                  }`}>
+                    {/* Header collapsible */}
+                    <div 
+                      onClick={() => setShowPharmacyDetails(!showPharmacyDetails)}
+                      className="flex items-center justify-between p-4 cursor-pointer select-none"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div className={`p-1.5 rounded-lg ${showPharmacyDetails ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-semibold text-slate-800">Thông tin Dược phẩm chuyên biệt</h4>
+                          <p className="text-xs text-slate-500">Các trường thông tin y tế chuyên ngành dược, hoạt chất, số đăng ký...</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+                          showPharmacyDetails ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
+                        }`}>
+                          {showPharmacyDetails ? 'Đang bật' : 'Đang tắt'}
+                        </span>
+                        <svg 
+                          xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" 
+                          className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${showPharmacyDetails ? 'rotate-180' : ''}`}
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                        </svg>
+                      </div>
+                    </div>
+
+                    {showPharmacyDetails && (
+                      <div className="p-4 pt-0 border-t border-emerald-100/50 space-y-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-600 mb-1">Số đăng ký (SĐK)</label>
+                            <input
+                              type="text"
+                              value={pharmacyMetadata.registration_no}
+                              onChange={(e) => setPharmacyMetadata(prev => ({ ...prev, registration_no: e.target.value }))}
+                              placeholder="VD: VD-25123-16"
+                              className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs focus:border-emerald-500 focus:outline-none bg-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-600 mb-1">Mã thuốc (Bộ Y Tế)</label>
+                            <input
+                              type="text"
+                              value={pharmacyMetadata.medicine_code}
+                              onChange={(e) => setPharmacyMetadata(prev => ({ ...prev, medicine_code: e.target.value }))}
+                              placeholder="VD: BYT-10023"
+                              className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs focus:border-emerald-500 focus:outline-none bg-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-600 mb-1">Hoạt chất chính</label>
+                            <input
+                              type="text"
+                              value={pharmacyMetadata.active_ingredient}
+                              onChange={(e) => setPharmacyMetadata(prev => ({ ...prev, active_ingredient: e.target.value }))}
+                              placeholder="VD: Paracetamol"
+                              className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs focus:border-emerald-500 focus:outline-none bg-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-600 mb-1">Hàm lượng</label>
+                            <input
+                              type="text"
+                              value={pharmacyMetadata.concentration}
+                              onChange={(e) => setPharmacyMetadata(prev => ({ ...prev, concentration: e.target.value }))}
+                              placeholder="VD: 500mg"
+                              className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs focus:border-emerald-500 focus:outline-none bg-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-600 mb-1">Hãng sản xuất</label>
+                            <input
+                              type="text"
+                              value={pharmacyMetadata.manufacturer}
+                              onChange={(e) => setPharmacyMetadata(prev => ({ ...prev, manufacturer: e.target.value }))}
+                              placeholder="VD: Dược Hậu Giang (DHG)"
+                              className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs focus:border-emerald-500 focus:outline-none bg-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-600 mb-1">Nước sản xuất</label>
+                            <input
+                              type="text"
+                              value={pharmacyMetadata.country_of_origin}
+                              onChange={(e) => setPharmacyMetadata(prev => ({ ...prev, country_of_origin: e.target.value }))}
+                              placeholder="VD: Việt Nam"
+                              className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs focus:border-emerald-500 focus:outline-none bg-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-600 mb-1">Quy cách đóng gói</label>
+                            <input
+                              type="text"
+                              value={pharmacyMetadata.packaging_spec}
+                              onChange={(e) => setPharmacyMetadata(prev => ({ ...prev, packaging_spec: e.target.value }))}
+                              placeholder="VD: Hộp 10 vỉ x 10 viên"
+                              className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs focus:border-emerald-500 focus:outline-none bg-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-600 mb-1">Đường dùng</label>
+                            <input
+                              type="text"
+                              value={pharmacyMetadata.route_of_admin}
+                              onChange={(e) => setPharmacyMetadata(prev => ({ ...prev, route_of_admin: e.target.value }))}
+                              placeholder="VD: Uống"
+                              className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs focus:border-emerald-500 focus:outline-none bg-white"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -1865,6 +2332,40 @@ interface UnitRow {
         })()}
       </ConfirmDialog>
 
+      <ConfirmDialog
+        open={importConfirmOpen}
+        onClose={() => setImportConfirmOpen(false)}
+        onConfirm={submitExcelImport}
+        title="Xác nhận nhập dữ liệu Excel KiotViet"
+        confirmLabel="Tiến hành Import"
+        cancelLabel="Hủy"
+        variant="default"
+        loading={importingProgress}
+      >
+        <div className="space-y-3 mt-3 text-slate-600 text-sm">
+          <p className="font-semibold text-slate-800 leading-relaxed">
+            Hệ thống cảnh báo các hành động tự động sau sẽ xảy ra:
+          </p>
+          <ul className="text-xs text-slate-600 space-y-1.5 pl-4 list-disc font-medium leading-relaxed">
+            <li>Tự động tạo/cập nhật <strong>{parsedProducts.length}</strong> sản phẩm chính, danh mục đa cấp, và các đơn vị tính quy đổi phụ tương ứng.</li>
+            <li>Tự động tạo các lô hàng & hạn dùng và cập nhật số dư tồn kho thực tế.</li>
+            <li>Tự động tạo các phiếu điều chỉnh tồn kho <strong>(PDK - Phiếu Điều Kho)</strong> tương ứng để ghi nhận số dư tồn kho ban đầu mà không làm phát sinh công nợ nhà cung cấp hay dòng tiền ảo.</li>
+          </ul>
+
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] text-amber-700 flex items-start gap-2 shadow-inner">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 mt-0.5 text-amber-600 shrink-0"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+            <div>
+              <strong className="font-bold text-amber-800">Lưu ý quan trọng:</strong>
+              <p className="mt-0.5 leading-relaxed font-medium text-amber-700">Quá trình này xử lý dữ liệu hàng loạt lớn và có thể mất từ <strong>2-3 phút</strong>. Vui lòng <strong>không tắt trình duyệt, không chuyển trang hoặc tải lại màn hình này</strong> cho đến khi hệ thống hiển thị thông báo thành công.</p>
+            </div>
+          </div>
+
+          <p className="text-xs text-slate-500 font-medium pt-1">
+            Bạn có chắc chắn muốn tiến hành nhập dữ liệu vào hệ thống không?
+          </p>
+        </div>
+      </ConfirmDialog>
+
       {/* TẠO DANH MỤC MODAL */}
       {categoryModalOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
@@ -1923,6 +2424,251 @@ interface UnitRow {
                 className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
               >
                 {createCatMutation.isPending ? 'Đang lưu...' : 'Lưu'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* KIOTVIET EXCEL IMPORT MODAL */}
+      {importModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-4xl rounded-2xl bg-white p-6 shadow-2xl border border-slate-100 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-primary text-white shadow-md shadow-primary/20">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-800">Nhập dữ liệu sản phẩm từ KiotViet</h3>
+                  <p className="text-xs text-slate-500">Hỗ trợ đầy đủ danh mục đa cấp, đơn vị quy đổi, lô hạn dùng và thông tin dược phẩm</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setResetModalOpen(true)}
+                  className="rounded-xl bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-3 py-1.5 text-xs font-semibold shadow-sm transition-colors cursor-pointer flex items-center gap-1"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                  Bắt đầu lại / Reset
+                </button>
+                <button 
+                  onClick={() => { setImportModalOpen(false); setImportFile(null); setParsedProducts([]); }}
+                  className="text-slate-400 hover:text-slate-600 text-lg p-1"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            <div className="my-4 flex-1 overflow-y-auto space-y-4 pr-1">
+              {isParsingExcel ? (
+                <div className="flex flex-col items-center justify-center py-16 px-4 bg-slate-50/50 rounded-2xl border-2 border-dashed border-slate-200">
+                  <div className="relative flex items-center justify-center mb-4">
+                    <div className="w-12 h-12 rounded-full border-4 border-primary/20 border-t-primary animate-spin" />
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5 text-primary absolute animate-pulse"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
+                  </div>
+                  <h4 className="text-sm font-bold text-slate-800 mb-1">Đang đọc và phân tích file Excel...</h4>
+                  <p className="text-xs text-slate-500 text-center max-w-sm leading-relaxed">
+                    Hệ thống đang trích xuất dữ liệu, tự động tạo danh mục đa cấp, tách các đơn vị quy đổi phụ, và cấu trúc lô hạn dùng. Vui lòng đợi trong giây lát!
+                  </p>
+                </div>
+              ) : parsedProducts.length === 0 ? (
+                <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-200 rounded-2xl py-12 px-4 bg-slate-50/50 hover:bg-slate-50 transition-colors">
+                  <div className="p-4 rounded-full bg-primary/5 text-primary mb-3 shadow-inner">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-8 h-8"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
+                  </div>
+                  <h4 className="text-sm font-semibold text-slate-800 mb-1">Chọn file xuất từ KiotViet của bạn</h4>
+                  <p className="text-xs text-slate-400 mb-4 text-center max-w-sm">Hỗ trợ file Excel .xlsx được xuất trực tiếp từ trang quản lý hàng hóa của KiotViet.</p>
+                  
+                  <label className="rounded-xl bg-primary hover:bg-primary-dark px-4 py-2 text-xs font-semibold text-white shadow-md cursor-pointer transition-colors">
+                    Chọn file Excel (.xlsx)
+                    <input 
+                      type="file" 
+                      accept=".xlsx, .xls"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (file) {
+                          handleExcelImport(file)
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* Parsing Stats */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="rounded-xl border border-primary/10 bg-primary/5 p-3 shadow-sm text-center">
+                      <span className="text-[10px] font-semibold text-primary/70 block uppercase tracking-wider">Sản phẩm gốc</span>
+                      <strong className="text-lg font-extrabold text-primary mt-1 block">{parsedProducts.length}</strong>
+                    </div>
+                    <div className="rounded-xl border border-blue-100 bg-blue-50/30 p-3 shadow-sm text-center">
+                      <span className="text-[10px] font-semibold text-blue-600 block uppercase tracking-wider">ĐVT quy đổi phụ</span>
+                      <strong className="text-lg font-extrabold text-blue-800 mt-1 block">
+                        {parsedProducts.reduce((acc, p) => acc + p.product_units.length, 0)}
+                      </strong>
+                    </div>
+                    <div className="rounded-xl border border-amber-100 bg-amber-50/30 p-3 shadow-sm text-center">
+                      <span className="text-[10px] font-semibold text-amber-600 block uppercase tracking-wider">Lô & Hạn sử dụng</span>
+                      <strong className="text-lg font-extrabold text-amber-800 mt-1 block">
+                        {parsedProducts.reduce((acc, p) => acc + p.inventory_batches.length, 0)}
+                      </strong>
+                    </div>
+                    <div className="rounded-xl border border-emerald-100 bg-emerald-50/30 p-3 shadow-sm text-center">
+                      <span className="text-[10px] font-semibold text-emerald-600 block uppercase tracking-wider">Có thông tin dược phẩm</span>
+                      <strong className="text-lg font-extrabold text-emerald-800 mt-1 block">
+                        {parsedProducts.filter(p => p.metadata).length}
+                      </strong>
+                    </div>
+                  </div>
+
+                  {/* Overwrite Strategy Notice */}
+                  <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-3 text-xs text-amber-700 flex items-start gap-2 shadow-inner">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 mt-0.5 text-amber-600 shrink-0"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                    <div>
+                      <strong className="font-semibold">Chiến lược xử lý trùng SKU (Ghi đè - Overwrite):</strong>
+                      <p className="mt-0.5 leading-relaxed text-amber-600">Hệ thống sẽ tự động cập nhật/ghi đè thông tin mới nếu SKU đã tồn tại trong kho chi nhánh, làm sạch các ĐVT và lô cũ của sản phẩm đó trước khi cập nhật dữ liệu mới.</p>
+                    </div>
+                  </div>
+
+                  {/* Preview Table */}
+                  <div className="space-y-1">
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block px-1">Danh sách xem trước (Tối đa 10 dòng đầu)</span>
+                    <div className="rounded-xl border border-slate-200 overflow-x-auto shadow-sm bg-white max-h-80 overflow-y-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider">
+                            <th className="px-3 py-2">Mã SKU</th>
+                            <th className="px-3 py-2">Tên sản phẩm</th>
+                            <th className="px-3 py-2">Danh mục</th>
+                            <th className="px-3 py-2">ĐVT Cơ bản</th>
+                            <th className="px-3 py-2 text-right">Giá bán</th>
+                            <th className="px-3 py-2 text-right">Giá vốn</th>
+                            <th className="px-3 py-2 text-right">Tồn kho</th>
+                            <th className="px-3 py-2 text-center">Chi tiết</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {parsedProducts.slice(0, 10).map((p, idx) => (
+                            <tr key={p.sku} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
+                              <td className="px-3 py-2 font-mono font-bold text-slate-800">{p.sku}</td>
+                              <td className="px-3 py-2 font-medium text-slate-800">{p.name}</td>
+                              <td className="px-3 py-2 text-slate-500">{p.categoryStr || '—'}</td>
+                              <td className="px-3 py-2 text-slate-600">{p.unit || '—'}</td>
+                              <td className="px-3 py-2 text-right font-semibold text-slate-700">{Number(p.sell_price || 0).toLocaleString()}đ</td>
+                              <td className="px-3 py-2 text-right font-semibold text-slate-700">{Number(p.cost_price || 0).toLocaleString()}đ</td>
+                              <td className="px-3 py-2 text-right font-bold text-primary font-mono">{Number(p.stock_qty || 0).toLocaleString()}</td>
+                              <td className="px-3 py-2 text-center space-y-0.5">
+                                {p.product_units.length > 0 && (
+                                  <span className="inline-block text-[9px] bg-blue-100 text-blue-700 font-bold px-1.5 py-0.5 rounded-full shrink-0 mr-1">
+                                    {p.product_units.length} ĐVT phụ
+                                  </span>
+                                )}
+                                {p.inventory_batches.length > 0 && (
+                                  <span className="inline-block text-[9px] bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded-full shrink-0 mr-1">
+                                    {p.inventory_batches.length} Lô
+                                  </span>
+                                )}
+                                {p.metadata && (
+                                  <span className="inline-block text-[9px] bg-emerald-100 text-emerald-700 font-bold px-1.5 py-0.5 rounded-full shrink-0">
+                                    Dược phẩm
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {parsedProducts.length > 10 && (
+                      <span className="text-[10px] text-slate-400 italic block text-right px-1 mt-1">...và {parsedProducts.length - 10} sản phẩm khác</span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-between items-center border-t border-slate-100 pt-3">
+              <span className="text-xs text-slate-500 font-medium">
+                {importFile ? `File: ${importFile.name}` : ''}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setImportModalOpen(false); setImportFile(null); setParsedProducts([]); }}
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 cursor-pointer"
+                >
+                  Hủy
+                </button>
+                {parsedProducts.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setImportConfirmOpen(true)}
+                    disabled={importingProgress}
+                    className="rounded-xl bg-primary hover:bg-primary-dark px-5 py-2 text-sm font-semibold text-white shadow-md disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+                  >
+                    {importingProgress ? 'Đang thực hiện import...' : `Lưu & Import ${parsedProducts.length} sản phẩm`}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DANGEROUS RESET DATA DIALOG */}
+      {resetModalOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-md">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border-2 border-red-100">
+            <div className="flex items-center gap-3 text-red-600">
+              <div className="p-3 rounded-full bg-red-100 shadow-inner">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+              </div>
+              <h3 className="text-lg font-extrabold uppercase tracking-wide">Cảnh báo cực kỳ nguy hiểm</h3>
+            </div>
+            
+            <div className="mt-4 space-y-3">
+              <p className="text-sm font-medium text-slate-700 leading-relaxed">Bạn đang thực hiện xóa sạch toàn bộ danh mục, sản phẩm và kho hàng của chi nhánh này. Hành động này sẽ:</p>
+              <ul className="text-xs text-slate-600 space-y-1.5 pl-4 list-disc font-medium">
+                <li>Xóa toàn bộ các danh mục (Categories) hiện tại.</li>
+                <li>Xóa toàn bộ các sản phẩm chính và đơn vị tính quy đổi.</li>
+                <li>Xóa toàn bộ số dư tồn kho, các lô hàng & hạn sử dụng.</li>
+                <li>Xóa toàn bộ lịch sử biến động kho & các phiếu điều chỉnh tồn kho (PDK) tự động.</li>
+              </ul>
+              <p className="text-xs text-red-500 font-bold bg-red-50 p-2.5 rounded-lg leading-relaxed">DỮ LIỆU SẼ BỊ XÓA VĨNH VIỄN KHÔNG THỂ PHỤC HỒI. Hãy cân nhắc kỹ trước khi tiếp tục.</p>
+              
+              <div className="pt-2">
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Vui lòng nhập đúng chữ <strong className="text-red-600 tracking-wider">RESET</strong> để xác nhận:
+                </label>
+                <input
+                  type="text"
+                  value={resetConfirmText}
+                  onChange={(e) => setResetConfirmText(e.target.value)}
+                  placeholder="RESET"
+                  className="w-full rounded-xl border border-red-200 px-3 py-2 text-sm text-center font-bold tracking-widest text-red-600 focus:border-red-500 focus:outline-none bg-red-50/10"
+                />
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => { setResetModalOpen(false); setResetConfirmText(''); }}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleResetData}
+                disabled={resetConfirmText !== 'RESET' || resettingProgress}
+                className="rounded-xl bg-red-600 hover:bg-red-700 px-4 py-2 text-sm font-bold text-white shadow-md disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+              >
+                {resettingProgress ? 'Đang thực hiện reset...' : 'Tôi chắc chắn, hãy xóa sạch'}
               </button>
             </div>
           </div>
