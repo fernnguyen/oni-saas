@@ -3,6 +3,7 @@ import { requireShopAccess } from '@/lib/server/shopAccess'
 import { invalidate } from '@/lib/server/cache'
 import { handleApiError } from '../../../_helpers'
 import crypto from 'crypto'
+import { prefixSku } from '@/lib/sku'
 
 export async function POST(
   req: NextRequest,
@@ -91,13 +92,14 @@ export async function POST(
         for (const p of products) {
           const sku = p.sku ? String(p.sku).trim() : ''
           if (!sku) continue
+          const prefixedSku = prefixSku(sku, tenantHash)
 
           const categoryId = p.categoryStr ? await getOrCreateCategory(p.categoryStr) : null
 
           // Overwrite Strategy: Check if SKU exists
           const existingRes = await client.query(
             `SELECT id FROM products WHERE sku = $1 AND tenant_id = $2 AND branch_id = $3 AND active != 'FALSE' LIMIT 1`,
-            [sku, tenantId, branchId]
+            [prefixedSku, tenantId, branchId]
           )
 
           let productId: string
@@ -148,7 +150,6 @@ export async function POST(
             await client.query(`DELETE FROM inventory WHERE product_id = $1 AND tenant_id = $2 AND branch_id = $3`, [productId, tenantId, branchId])
           } else {
             // Create new product
-            const tenantHash = crypto.createHash('sha256').update(tenantId).digest('hex').substring(0, 8).toUpperCase()
             productId = `P-${tenantHash}-${crypto.randomUUID().substring(0, 8).toUpperCase()}`
 
             await client.query(
@@ -166,7 +167,7 @@ export async function POST(
                 tenantId,
                 branchId,
                 p.name,
-                sku,
+                prefixedSku,
                 p.barcode || '',
                 categoryId,
                 p.unit || '',
@@ -185,7 +186,6 @@ export async function POST(
           // Insert product units
           if (Array.isArray(p.product_units) && p.product_units.length > 0) {
             for (const u of p.product_units) {
-              const tenantHash = crypto.createHash('sha256').update(tenantId).digest('hex').substring(0, 8).toUpperCase()
               const unitId = `PU-${tenantHash}-${crypto.randomUUID().substring(0, 8).toUpperCase()}`
               await client.query(
                 `INSERT INTO product_units (
@@ -212,7 +212,6 @@ export async function POST(
           // Insert inventory batches
           if (Array.isArray(p.inventory_batches) && p.inventory_batches.length > 0) {
             for (const b of p.inventory_batches) {
-              const tenantHash = crypto.createHash('sha256').update(tenantId).digest('hex').substring(0, 8).toUpperCase()
               const batchId = `IB-${tenantHash}-${crypto.randomUUID().substring(0, 8).toUpperCase()}`
               await client.query(
                 `INSERT INTO inventory_batches (
@@ -236,7 +235,6 @@ export async function POST(
           }
 
           // Insert inventory record
-          const tenantHash = crypto.createHash('sha256').update(tenantId).digest('hex').substring(0, 8).toUpperCase()
           const invId = `INV-${tenantHash}-${crypto.randomUUID().substring(0, 8).toUpperCase()}`
           await client.query(
             `INSERT INTO inventory (
@@ -251,7 +249,7 @@ export async function POST(
               tenantId,
               branchId,
               productId,
-              sku,
+              prefixedSku,
               p.stock_qty || '0',
               p.min_stock || '0',
               p.cost_price || '0'
@@ -269,7 +267,7 @@ export async function POST(
               ) VALUES (
                 $1, $2, $3, $4, $5, 'adjustment', $6, $7, $8, 'Nhập tồn kho ban đầu từ file Excel KiotViet', NOW(), NOW(), 'TRUE'
               )`,
-              [smId, tenantId, branchId, productId, sku, movementNo, String(p.stock_qty), String(p.cost_price || '0')]
+              [smId, tenantId, branchId, productId, prefixedSku, movementNo, String(p.stock_qty), String(p.cost_price || '0')]
             )
           }
         }
@@ -283,15 +281,17 @@ export async function POST(
       }
     } else {
       // Fallback cross-connector logic using standard IDataConnector
+      const tenantHash = crypto.createHash('sha256').update(tenantId).digest('hex').substring(0, 8).toUpperCase()
       for (const p of products) {
         const sku = p.sku ? String(p.sku).trim() : ''
         if (!sku) continue
+        const prefixedSku = prefixSku(sku, tenantHash)
 
         // 1. Check existing
         const existing = await connector.list('products', {
           page: 1,
           limit: 1,
-          filters: { sku, active: 'TRUE' }
+          filters: { sku: prefixedSku, active: 'TRUE' }
         })
 
         let categoryId: string | null = null
@@ -319,7 +319,7 @@ export async function POST(
 
         const productPayload = {
           name: p.name,
-          sku,
+          sku: prefixedSku,
           barcode: p.barcode || '',
           category_id: categoryId || '',
           unit: p.unit || '',
@@ -374,7 +374,7 @@ export async function POST(
         // Insert standard inventory entry
         await connector.create('inventory', {
           product_id: productId,
-          sku,
+          sku: prefixedSku,
           branch_id: branchId,
           stock_qty: p.stock_qty || '0',
           min_stock: p.min_stock || '0',
@@ -388,7 +388,6 @@ export async function POST(
             page: 1, limit: 5000,
             filters: { type: 'adjustment' }
           })
-          const tenantHash = crypto.createHash('sha256').update(tenantId).digest('hex').substring(0, 8).toUpperCase()
           const pdkSearchPrefix = `PDK-${tenantHash}-`
           const existingSM = pdkRes.data as Record<string, string>[]
           const nums = existingSM
@@ -401,7 +400,7 @@ export async function POST(
 
           await connector.create('stock-movements', {
             product_id: productId,
-            sku,
+            sku: prefixedSku,
             branch_id: branchId,
             type: 'adjustment',
             movement_no: movementNo,

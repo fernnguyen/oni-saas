@@ -2,6 +2,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { localDb, type LocalProduct } from '@/lib/localDb/schema'
 import type { CartItem } from '@/hooks/useCart'
+import { cleanSku } from '@/lib/sku'
 
 interface Props {
   parentProduct: LocalProduct          // variant_parent product
@@ -196,7 +197,7 @@ export function VariantPickerModal({ parentProduct, open, onClose, onSelect }: P
                       <span className={`text-sm font-semibold ${outOfStock ? 'text-slate-400' : 'text-primary'}`}>({fmtVND(child.sell_price)})</span>
                       <span className={`text-[11px] font-medium ${outOfStock ? 'text-red-500' : 'text-green-600'}`}>{outOfStock ? 'Hết hàng' : `Còn: ${stock}`}</span>
                       {child.sku && (
-                        <span className="text-[11px] text-slate-400 ml-auto">{child.sku}</span>
+                        <span className="text-[11px] text-slate-400 ml-auto">{cleanSku(child.sku)}</span>
                       )}
                     </div>
                   </button>

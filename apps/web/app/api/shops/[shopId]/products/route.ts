@@ -4,6 +4,8 @@ import { productCreateSchema } from '@/lib/validators/products'
 import { shopTag, invalidate, shopCache } from '@/lib/server/cache'
 import { cacheTTL } from '@/lib/env'
 import { handleApiError } from '../../_helpers'
+import crypto from 'crypto'
+import { prefixSku } from '@/lib/sku'
 
 export async function GET(
   req: NextRequest,
@@ -80,12 +82,17 @@ export async function POST(
 ) {
   try {
     const { shopId } = await params
-    const { connector } = await requireShopAccess(shopId, 'products.create')
+    const { connector, shop } = await requireShopAccess(shopId, 'products.create')
+    const tenantId = shop.tenant_id
+    const tenantHash = crypto.createHash('sha256').update(tenantId).digest('hex').substring(0, 8).toUpperCase()
 
     const body = await req.json()
     const { variants, ...productBody } = body
 
     const data = productCreateSchema.parse(productBody)
+    if (data.sku) {
+      data.sku = prefixSku(data.sku, tenantHash)
+    }
 
     // ── Case A: Variant parent with children ──────────────────────────
     if (data.product_type === 'variant_parent' && Array.isArray(variants) && variants.length > 0) {
@@ -109,7 +116,7 @@ export async function POST(
         product_type: 'variant_child',
         parent_id: parentId,
         variant_options: JSON.stringify({ [optionName]: v.value }),
-        sku: v.sku || '',
+        sku: prefixSku(v.sku || '', tenantHash),
         sell_price: v.sell_price || '0',
         cost_price: v.cost_price || '0',
         min_price: data.min_price ?? '0',
