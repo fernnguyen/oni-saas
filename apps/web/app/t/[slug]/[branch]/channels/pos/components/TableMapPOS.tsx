@@ -340,7 +340,7 @@ export function TableMapPOS({
                 <span className="text-xs text-slate-400">{items.length} vị trí</span>
               </div>
               
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
                 {items.sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0)).map(r => {
                   const st = STATUS_CARDS[r.status] ?? STATUS_CARDS.available
                   const rmd = safeParseJSON(r.metadata)

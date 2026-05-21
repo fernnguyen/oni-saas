@@ -243,16 +243,16 @@ export function BranchSelector({
             canSwitch ? 'hover:bg-slate-50 cursor-pointer' : 'cursor-default'
           }`}
         >
-          <div className="h-8 w-8 rounded-full bg-primary/10 hidden sm:flex items-center justify-center text-primary font-bold text-sm shrink-0">
+          <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm shrink-0">
             {initial}
           </div>
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 hidden lg:block">
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5 leading-none">{branchLabel}</p>
             <p className="text-sm font-semibold text-slate-900 truncate leading-tight">{currentName}</p>
           </div>
           {canSwitch && (
             <svg
-              className={`h-3.5 w-3.5 text-slate-400 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
+              className={`h-3.5 w-3.5 text-slate-400 shrink-0 transition-transform hidden lg:block ${open ? 'rotate-180' : ''}`}
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"

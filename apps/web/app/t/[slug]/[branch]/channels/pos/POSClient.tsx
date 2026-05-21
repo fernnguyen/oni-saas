@@ -37,7 +37,7 @@ export interface HeldCart {
 
 // Break out of DashboardShell padding, fill exactly the space below topbar (h-14 = 3.5rem)
 const shellCls = '-mx-4 -my-4 md:-mx-6 md:-my-6 flex flex-col bg-slate-50 overflow-hidden'
-const shellStyle = { height: 'calc(100vh - 3.5rem)' } as const
+const shellStyle = { height: 'calc(100dvh - 3.5rem)' } as const
 
 export function POSClient({ shopId, branchId, shopName, userEmail, backPath, autoPrintReceipt, mutePosSound }: Props) {
   const { status, lastHydratedAt, refresh } = usePOSHydration(shopId, branchId)
@@ -311,7 +311,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
       {/* Main content — fills all remaining height */}
       <div className="flex flex-1 overflow-hidden">
         {/* Product grid */}
-        <div className="flex-1 overflow-hidden border-r border-slate-200 bg-white">
+        <div className="hidden md:block flex-1 overflow-hidden border-r border-slate-200 bg-white">
           <ProductGrid
             branchId={branchId}
             inventory={inventory}
@@ -322,7 +322,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
         </div>
 
         {/* Cart panel */}
-        <div className="w-72 shrink-0 overflow-hidden xl:w-80">
+        <div className="w-full md:w-72 shrink-0 overflow-hidden xl:w-80">
           <CartPanel
             items={cart.items}
             inventory={inventory}
@@ -340,6 +340,9 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
             onHold={holdCurrentCart}
             onCheckout={() => setCheckoutOpen(true)}
             onClearCart={clearCart}
+            onAddToCart={cart.addItem}
+            onAddToCartWithOptions={cart.addItemWithOptions}
+            mutePosSound={mutePosSound}
           />
         </div>
       </div>
