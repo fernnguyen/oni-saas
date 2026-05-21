@@ -16,6 +16,10 @@ export interface CartItem {
   variant_label?: string       // "Size L" — denormalized for display
   modifiers?: SelectedModifier[] // [{group,option,price_adj}]
   modifier_total?: number      // sum of price_adj
+  // ── Unit Conversion ──────────────────────────────────────────────
+  unit_id?: string
+  unit_name?: string
+  conversion_rate?: number
 }
 
 // A single modifier option selected by cashier
@@ -51,12 +55,13 @@ function lineTotal(item: CartItem): number {
 function cartReducer(state: CartState, action: CartAction): CartState {
   switch (action.type) {
     case 'ADD_ITEM': {
-      const existing = state.items.find((i) => i.product_id === action.product.product_id)
+      const uId = (action.product as any).unit_id
+      const existing = state.items.find((i) => i.product_id === action.product.product_id && i.unit_id === uId)
       if (existing) {
         return {
           ...state,
           items: state.items.map((i) =>
-            i.product_id === action.product.product_id
+            i.product_id === action.product.product_id && i.unit_id === uId
               ? { ...i, qty: i.qty + 1, line_total: lineTotal({ ...i, qty: i.qty + 1 }) }
               : i
           ),
@@ -71,6 +76,9 @@ function cartReducer(state: CartState, action: CartAction): CartState {
         qty: 1,
         discount_amount: 0,
         line_total: Number(action.product.sell_price),
+        unit_id: (action.product as any).unit_id,
+        unit_name: (action.product as any).unit_name,
+        conversion_rate: (action.product as any).conversion_rate,
       }
       return { ...state, items: [...state.items, newItem] }
     }

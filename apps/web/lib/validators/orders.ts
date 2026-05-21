@@ -49,6 +49,10 @@ export const orderItemCreateSchema = z.object({
   tax_amount:     z.string().optional().default('0'),
   line_total:     z.string().min(1),
   employee_id:    z.string().optional().default(''),
+  // ── Unit Conversion ──────────────────────────────────────────────
+  unit_id:        z.string().optional().default(''),
+  unit_name:      z.string().optional().default(''),
+  conversion_rate:z.string().optional().default('1'),
   // ── Variant / Modifier context (Sprint 1) ────────────────────────
   variant_label:  z.string().optional().default(''),
   // Denormalized display: "Size L" — used in bill/history

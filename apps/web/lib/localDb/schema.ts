@@ -18,6 +18,8 @@ export interface LocalProduct {
   parent_id?: string              // NULL → simple/parent; ID → variant_child
   variant_options?: string        // JSON string: {"Size": "L"}
   modifier_groups?: string        // JSON string: modifier config for offline POS
+  // ── Unit Conversion ──────────────────────────────────────────────
+  product_units?: any[]           // Array of unit conversions from backend
 }
 
 export interface LocalCategory {
@@ -98,6 +100,10 @@ export interface LocalOrderItem {
   variant_label?: string          // "Size L" — denormalized display
   modifiers?: string              // JSON string: [{group, option, price_adj}]
   modifier_total?: number         // Sum of price_adj (default 0)
+  // ── Unit Conversion ──────────────────────────────────────────────
+  unit_id?: string
+  unit_name?: string
+  conversion_rate?: number
 }
 
 export interface LocalPayment {

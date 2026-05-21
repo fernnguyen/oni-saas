@@ -9,6 +9,7 @@ export interface NumberInputProps {
   placeholder?: string
   disabled?: boolean
   className?: string
+  inputClassName?: string
   suffix?: string
   min?: number
   max?: number
@@ -31,6 +32,7 @@ export function NumberInput({
   placeholder,
   disabled = false,
   className = '',
+  inputClassName,
   suffix,
   min,
   max,
@@ -78,7 +80,7 @@ export function NumberInput({
           onChange={handleChange}
           placeholder={placeholder}
           disabled={disabled}
-          className={[
+          className={inputClassName || [
             'w-full rounded-xl border border-slate-200 py-2 text-right text-sm',
             'focus:outline-none focus:ring-2 focus:ring-primary/30',
             disabled ? 'cursor-not-allowed bg-slate-50 opacity-60' : 'bg-white',

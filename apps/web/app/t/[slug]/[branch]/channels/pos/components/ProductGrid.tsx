@@ -185,7 +185,7 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
               const isHighlighted = index === highlightedIndex
               return (
                 <button
-                  key={product.product_id}
+                  key={`${product.product_id}-${(product as any).unit_id || 'base'}`}
                   onClick={() => {
                     if (!outOfStock) handleProductClick(product)
                   }}

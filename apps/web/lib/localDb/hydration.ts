@@ -17,6 +17,7 @@ function parseProduct(r: Raw) {
     cost_price: f(r.cost_price),
     min_price:  f(r.min_price),
     active:     bool(r.active),
+    product_units: Array.isArray(r.product_units) ? r.product_units : undefined,
   }
 }
 

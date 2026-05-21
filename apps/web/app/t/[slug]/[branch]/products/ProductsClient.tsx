@@ -96,6 +96,7 @@ function isFashionIndustry(t: string) { return FASHION_INDUSTRIES.includes(t) }
 
 const EMPTY_FORM = {
   sku: '',
+  barcode: '',
   name: '',
   category_id: '',
   unit: '',
@@ -194,14 +195,26 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
   const [fileInputKey, setFileInputKey] = useState(Date.now())
   const [saveConfirmOpen, setSaveConfirmOpen] = useState(false)
 
-  // ── Variant system state ──────────────────────────────────────────
-  const [variantRows, setVariantRows] = useState<VariantRow[]>([])
-  const [optionName, setOptionName] = useState('') // e.g. "Size", "Màu sắc"
+interface UnitRow {
+  id?: string
+  unit_name: string
+  conversion_rate: string
+  barcode: string
+  sell_price: string
+  cost_price: string
+}
 
-  // ── Modifier system state ──────────────────────────────────────────
+// ── Modifier system state ──────────────────────────────────────────
   const [modifierGroups, setModifierGroups] = useState<ModifierGroup[]>([])
   const [hasModifiersToggle, setHasModifiersToggle] = useState(false)
   const [previousCostPrice, setPreviousCostPrice] = useState('0')
+
+  // ── Unit Conversion system state ──────────────────────────────────
+  const [unitRows, setUnitRows] = useState<UnitRow[]>([])
+
+  // ── Variant system state ──────────────────────────────────────────
+  const [variantRows, setVariantRows] = useState<VariantRow[]>([])
+  const [optionName, setOptionName] = useState('') // e.g. "Size", "Màu sắc"
 
   // ── BOM system state ───────────────────────────────────────────
   const [bomItems, setBomItems] = useState<Array<{ component_product_id: string; qty: string }>>([])
@@ -313,6 +326,7 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
             cost_price: r.cost_price || '0',
             barcode: r.barcode.trim(),
           })),
+          product_units: unitRows,
         }
 
         const url = editingId
@@ -347,6 +361,7 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
         ...payload,
         product_type: finalProductType,
         variant_options: finalVariantOptions,
+        product_units: unitRows,
       }
 
       const url = editingId
@@ -521,6 +536,7 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
     setPreviewUrl(row.image_url || null)
     setImageInputMode(row.image_url ? 'url' : 'file')
     setFileInputKey(Date.now())
+    setUnitRows((row as any).product_units || [])
 
     // Reset and Fetch BOM items if product is standard (simple or modifier)
     setBomItems([])
@@ -588,6 +604,7 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
     setModifierGroups([])
     setHasModifiersToggle(false)
     setPreviousCostPrice('0')
+    setUnitRows([])
     setBomItems([])
     setSlideOpen(true)
   }
@@ -605,6 +622,7 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
     setModifierGroups([])
     setHasModifiersToggle(false)
     setPreviousCostPrice('0')
+    setUnitRows([])
     setBomItems([])
     setSlideOpen(true)
   }
@@ -871,7 +889,7 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
                 </div>
 
                 {formData.product_type !== 'variant_parent' ? (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1">SKU</label>
                       <input
@@ -880,6 +898,16 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
                         onChange={(e) => setFormData(prev => ({ ...prev, sku: e.target.value }))}
                         className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white"
                         placeholder="Tự động tạo"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Mã vạch</label>
+                      <input
+                        type="text"
+                        value={formData.barcode}
+                        onChange={(e) => setFormData(prev => ({ ...prev, barcode: e.target.value }))}
+                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white"
+                        placeholder="Mã vạch gốc"
                       />
                     </div>
                     <div>
@@ -1028,9 +1056,127 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
                   </div>
                 )}
 
+                {/* ── Đơn vị tính quy đổi (Unit Conversions) ────────────── */}
+                {formData.product_type !== 'variant_parent' && (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <h4 className="text-sm font-medium text-slate-800">Đơn vị tính quy đổi</h4>
+                        <p className="text-xs text-slate-500">Thiết lập các đơn vị phụ (VD: Hộp, Vỉ) và quy đổi ra đơn vị cơ bản.</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUnitRows(prev => [
+                            ...prev,
+                            { id: `new-unit-${Date.now()}`, unit_name: '', conversion_rate: '1', barcode: '', sell_price: '0', cost_price: '0' }
+                          ])
+                        }}
+                        className="flex items-center gap-1 text-xs font-medium text-primary hover:text-primary/80"
+                      >
+                        <i className="fi fi-rr-plus" /> Thêm đơn vị phụ
+                      </button>
+                    </div>
 
-
-                {/* ── Variant builder (only when variant_parent) ────────────── */}
+                    {unitRows.length > 0 && (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-sm border-collapse">
+                          <thead>
+                            <tr className="border-b border-slate-200 text-xs text-slate-500 font-medium">
+                              <th className="py-2 pr-2 font-medium">Tên ĐV phụ</th>
+                              <th className="py-2 pr-2 font-medium">SL quy đổi</th>
+                              <th className="py-2 pr-2 font-medium">Mã vạch</th>
+                              <th className="py-2 pr-2 font-medium">Giá bán</th>
+                              <th className="py-2 pr-2 font-medium">Giá vốn</th>
+                              <th className="py-2 w-8"></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {unitRows.map((row, idx) => (
+                              <tr key={row.id || idx} className="border-b border-slate-100 last:border-0 group">
+                                <td className="py-2 pr-2">
+                                  <input
+                                    type="text"
+                                    value={row.unit_name}
+                                    placeholder="VD: Hộp"
+                                    onChange={(e) => {
+                                      const newRows = [...unitRows]
+                                      newRows[idx].unit_name = e.target.value
+                                      setUnitRows(newRows)
+                                    }}
+                                    className="w-full rounded border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-primary"
+                                  />
+                                </td>
+                                <td className="py-2 pr-2">
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    value={row.conversion_rate}
+                                    onChange={(e) => {
+                                      const newRows = [...unitRows]
+                                      newRows[idx].conversion_rate = e.target.value
+                                      setUnitRows(newRows)
+                                    }}
+                                    className="w-20 rounded border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-primary"
+                                  />
+                                </td>
+                                <td className="py-2 pr-2">
+                                  <input
+                                    type="text"
+                                    value={row.barcode}
+                                    placeholder="Mã vạch ĐV phụ"
+                                    onChange={(e) => {
+                                      const newRows = [...unitRows]
+                                      newRows[idx].barcode = e.target.value
+                                      setUnitRows(newRows)
+                                    }}
+                                    className="w-full rounded border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-primary"
+                                  />
+                                </td>
+                                <td className="py-2 pr-2">
+                                  <NumberInput
+                                    value={row.sell_price}
+                                    inputClassName="w-full rounded border border-slate-200 px-2 py-1.5 text-right text-sm outline-none focus:border-primary bg-white"
+                                    onChange={(v) => {
+                                      const newRows = [...unitRows]
+                                      newRows[idx].sell_price = v
+                                      setUnitRows(newRows)
+                                    }}
+                                  />
+                                </td>
+                                <td className="py-2 pr-2">
+                                  <NumberInput
+                                    value={row.cost_price}
+                                    inputClassName="w-full rounded border border-slate-200 px-2 py-1.5 text-right text-sm outline-none focus:border-primary bg-white"
+                                    onChange={(v) => {
+                                      const newRows = [...unitRows]
+                                      newRows[idx].cost_price = v
+                                      setUnitRows(newRows)
+                                    }}
+                                  />
+                                </td>
+                                <td className="py-2 text-right">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const newRows = [...unitRows]
+                                      newRows.splice(idx, 1)
+                                      setUnitRows(newRows)
+                                    }}
+                                    className="text-slate-300 hover:text-red-500 p-1"
+                                    title="Xóa đơn vị"
+                                  >
+                                    ✕
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}                {/* ── Variant builder (only when variant_parent) ────────────── */}
                 {formData.product_type === 'variant_parent' && (
                   <div className="rounded-xl border border-violet-200 bg-violet-50/50 p-4 space-y-3">
                     <div className="flex items-center gap-2">

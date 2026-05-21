@@ -33,6 +33,10 @@ interface SyncItem {
   variant_label?: string    // "Size L" — denormalized, for bill display
   modifiers?: string        // JSON string: [{group, option, price_adj}]
   modifier_total?: number   // Sum of price_adj (default 0)
+  // ── Unit Conversion ──────────────────────────────────────────────
+  unit_id?: string
+  unit_name?: string
+  conversion_rate?: number
 }
 
 interface SyncPayment {
@@ -214,6 +218,10 @@ export async function POST(
         variant_label:  it.variant_label ?? '',
         modifiers:      typeof it.modifiers === 'object' ? JSON.stringify(it.modifiers) : (it.modifiers ?? ''),
         modifier_total: String(it.modifier_total ?? 0),
+        // ── Unit Conversion ──────────────────────────────────────────────
+        unit_id:        it.unit_id ?? '',
+        unit_name:      it.unit_name ?? '',
+        conversion_rate:String(it.conversion_rate ?? 1),
       })
     }
     if (itemsToCreate.length > 0) {
