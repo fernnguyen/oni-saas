@@ -98,7 +98,7 @@ export async function POST(
 
           // Overwrite Strategy: Check if SKU exists
           const existingRes = await client.query(
-            `SELECT id FROM products WHERE sku = $1 AND tenant_id = $2 AND branch_id = $3 AND active != 'FALSE' LIMIT 1`,
+            `SELECT id FROM products WHERE sku = $1 AND tenant_id = $2 AND branch_id = $3 LIMIT 1`,
             [prefixedSku, tenantId, branchId]
           )
 
@@ -123,6 +123,7 @@ export async function POST(
                 stock_qty = $10, 
                 metadata = $11, 
                 weight = $12, 
+                active = 'TRUE', 
                 updated_at = NOW() 
               WHERE id = $13 AND tenant_id = $14 AND branch_id = $15`,
               [
@@ -291,7 +292,7 @@ export async function POST(
         const existing = await connector.list('products', {
           page: 1,
           limit: 1,
-          filters: { sku: prefixedSku, active: 'TRUE' }
+          filters: { sku: prefixedSku }
         })
 
         let categoryId: string | null = null
@@ -331,6 +332,7 @@ export async function POST(
           image_url: p.image_url || '',
           stock_qty: p.stock_qty || '0',
           metadata: p.metadata ? JSON.stringify(p.metadata) : '',
+          active: 'TRUE',
         }
 
         let productId: string
