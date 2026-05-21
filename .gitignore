@@ -10,3 +10,4 @@ apps/web/next-env.d.ts
 supabase/.temp
 .claude
 .pnpm-store
+scratch/
