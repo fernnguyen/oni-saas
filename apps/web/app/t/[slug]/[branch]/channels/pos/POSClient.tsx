@@ -80,6 +80,26 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
   }
   const [customer, setCustomer] = useState<LocalCustomer | null>(null)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
+  const [activeCartItemId, setActiveCartItemId] = useState<string | null>(null)
+
+  const prevItemsLengthRef = useRef(cart.items.length)
+  useEffect(() => {
+    if (cart.items.length > 0) {
+      const lastItem = cart.items[cart.items.length - 1]
+      if (cart.items.length > prevItemsLengthRef.current || !activeCartItemId) {
+        setActiveCartItemId(lastItem.product_id)
+      } else {
+        const exists = cart.items.some((item) => item.product_id === activeCartItemId)
+        if (!exists) {
+          setActiveCartItemId(lastItem.product_id)
+        }
+      }
+    } else {
+      setActiveCartItemId(null)
+    }
+    prevItemsLengthRef.current = cart.items.length
+  }, [cart.items, activeCartItemId])
+
   const [heldCarts, setHeldCarts] = useState<HeldCart[]>(() => {
     if (typeof window !== 'undefined') {
       const stored = localStorage.getItem('oni-held-carts')
@@ -99,16 +119,50 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
   }, [heldCarts])
 
   useEffect(() => {
-    const sub = liveQuery(() => localDb.inventory.toArray()).subscribe({
-      next: (rows: LocalInventory[]) => {
+    const sub = liveQuery(async () => {
+      const invs = await localDb.inventory.toArray()
+      const batches = await localDb.inventoryBatches.toArray()
+      return { invs, batches }
+    }).subscribe({
+      next: ({ invs, batches }) => {
         const map = new Map<string, number>()
-        rows.forEach((r) => map.set(r.product_id, (map.get(r.product_id) ?? 0) + Number(r.stock_qty)))
+        
+        // Group batch quantities for current branchId
+        const batchStock = new Map<string, number>()
+        const hasBatches = new Set<string>()
+        batches.forEach((b) => {
+          if (b.branch_id === branchId) {
+            hasBatches.add(b.product_id)
+            batchStock.set(b.product_id, (batchStock.get(b.product_id) ?? 0) + Number(b.stock_qty))
+          }
+        })
+        
+        // Map general stock or batch sum
+        invs.forEach((r) => {
+          if (r.branch_id === branchId) {
+            if (hasBatches.has(r.product_id)) {
+              map.set(r.product_id, batchStock.get(r.product_id) ?? 0)
+            } else {
+              map.set(r.product_id, Number(r.stock_qty))
+            }
+          }
+        })
+        
+        // Fallback for batch-only items not in general inventory
+        batchStock.forEach((qty, productId) => {
+          if (!map.has(productId)) {
+            map.set(productId, qty)
+          }
+        })
+        
         setInventory(map)
       },
-      error: () => {},
+      error: (err) => {
+        console.error('Failed to load local inventory liveQuery:', err)
+      },
     })
     return () => sub.unsubscribe()
-  }, [])
+  }, [branchId])
 
   useEffect(() => {
     const worker = new SyncWorker(shopId)
@@ -127,6 +181,126 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
   useEffect(() => {
     if (isOnline) workerRef.current?.flushAll()
   }, [isOnline])
+
+  // Global POS Hotkeys (KiotViet standard)
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      // Helper to check if user is typing in a text field
+      const isTyping = () => {
+        const activeEl = document.activeElement
+        if (!activeEl) return false
+        const tagName = activeEl.tagName.toLowerCase()
+        return (
+          tagName === 'input' ||
+          tagName === 'textarea' ||
+          activeEl.getAttribute('contenteditable') === 'true'
+        )
+      }
+
+      // F3: Focus Product Search (Tìm sản phẩm)
+      if (e.key === 'F3') {
+        e.preventDefault()
+        const input = (document.getElementById('pos-product-search-input') || document.getElementById('pos-mobile-product-search-input')) as HTMLInputElement | null
+        if (input) {
+          input.focus()
+          input.select()
+        }
+      }
+
+      // F4: Focus Customer Search (Tìm khách hàng)
+      if (e.key === 'F4') {
+        e.preventDefault()
+        // If customer is selected, reset first to allow typing
+        if (customer) {
+          setCustomer(null)
+          setTimeout(() => {
+            const input = document.getElementById('pos-customer-search-input') as HTMLInputElement | null
+            if (input) {
+              input.focus()
+              input.select()
+            }
+          }, 50)
+        } else {
+          const input = document.getElementById('pos-customer-search-input') as HTMLInputElement | null
+          if (input) {
+            input.focus()
+            input.select()
+          }
+        }
+      }
+
+      // F9 or Enter: Open Payment Modal (only Enter if not typing in form/input)
+      if (e.key === 'F9' || (e.key === 'Enter' && !isTyping())) {
+        if (!checkoutOpen && cart.items.length > 0) {
+          e.preventDefault()
+          setCheckoutOpen(true)
+        }
+      }
+
+      // Ctrl + D: Clear Entire Cart
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+        e.preventDefault()
+        if (cart.items.length > 0) {
+          clearCart()
+        }
+      }
+
+      // Ctrl + P: Quick Invoice Print Override / Guidance
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'p') {
+        e.preventDefault()
+        if (checkoutOpen) {
+          toast.success('Đang thực hiện thanh toán và in hóa đơn...')
+        } else if (cart.items.length > 0) {
+          toast.info('Vui lòng nhấn F9 để mở bảng Thanh toán trước khi in hóa đơn!')
+        } else {
+          toast.info('Vui lòng thêm sản phẩm và thanh toán để in hóa đơn!')
+        }
+      }
+
+      // Spacebar: Increase quantity of active/selected cart item by 1 (only when not typing)
+      if (e.key === ' ' || e.code === 'Space') {
+        if (!isTyping()) {
+          e.preventDefault()
+          if (activeCartItemId) {
+            const item = cart.items.find((i) => i.product_id === activeCartItemId)
+            if (item) {
+              const stock = inventory.get(item.product_id)
+              const atMax = stock !== undefined && item.qty >= stock
+              if (!atMax) {
+                cart.setQty(item.product_id, item.qty + 1)
+                // play audio if not muted
+                if (!mutePosSound) {
+                  try {
+                    const audio = new Audio('/beep.wav')
+                    audio.play().catch(() => {})
+                  } catch {}
+                }
+              } else {
+                toast.error(`Sản phẩm "${item.product_name}" đã đạt giới hạn tồn kho!`)
+              }
+            }
+          } else if (cart.items.length > 0) {
+            // Default to the last item if none is active
+            const item = cart.items[cart.items.length - 1]
+            const stock = inventory.get(item.product_id)
+            const atMax = stock !== undefined && item.qty >= stock
+            if (!atMax) {
+              cart.setQty(item.product_id, item.qty + 1)
+              if (!mutePosSound) {
+                try {
+                  const audio = new Audio('/beep.wav')
+                  audio.play().catch(() => {})
+                } catch {}
+              }
+            }
+          }
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleGlobalKeyDown)
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown)
+  }, [checkoutOpen, cart.items, activeCartItemId, inventory, mutePosSound, customer])
 
   if (!lastHydratedAt && !isOnline) {
     return (
@@ -343,6 +517,8 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
             onAddToCart={cart.addItem}
             onAddToCartWithOptions={cart.addItemWithOptions}
             mutePosSound={mutePosSound}
+            activeItemId={activeCartItemId}
+            onActiveItemChange={setActiveCartItemId}
           />
         </div>
       </div>

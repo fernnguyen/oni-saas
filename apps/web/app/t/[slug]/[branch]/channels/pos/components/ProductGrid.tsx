@@ -1,11 +1,13 @@
 'use client'
 import { useEffect, useState, useRef } from 'react'
+import { toast } from 'sonner'
 import { localDb, type LocalCategory, type LocalProduct } from '@/lib/localDb/schema'
 import { usePOSProductSearch } from '@/hooks/usePOSProductSearch'
 import { IconBox } from '@/app/components/layout/nav'
 import type { CartItem } from '@/hooks/useCart'
 import { VariantPickerModal } from './VariantPickerModal'
 import { ModifierPickerModal } from './ModifierPickerModal'
+import { CameraScannerModal } from './CameraScannerModal'
 
 interface Props {
   branchId: string
@@ -33,6 +35,8 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
   const [categoryId, setCategoryId] = useState<string | undefined>(undefined)
   const [categories, setCategories] = useState<LocalCategory[]>([])
   const [highlightedIndex, setHighlightedIndex] = useState<number>(0)
+  const [showOutOfStock, setShowOutOfStock] = useState(false)
+  const [isCameraOpen, setIsCameraOpen] = useState(false)
 
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -49,10 +53,24 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
 
   const { results, isLoading } = usePOSProductSearch(search, categoryId)
 
-  // Reset highlight index when results change
+  // Helper to check if a product is out of stock
+  const isOOS = (p: LocalProduct) => {
+    const stock = inventory.get(p.product_id) ?? 0
+    const type = (p as any).product_type ?? 'simple'
+    return type !== 'variant_parent' && type !== 'modifier' && stock <= 0
+  }
+
+  // Filtered results
+  const filteredResults = showOutOfStock
+    ? results
+    : results.filter((p) => !isOOS(p))
+
+  // Reset highlight index ONLY when search query, category, or stock toggle changes
+  // This solves the issue where highlight focus freezes on the first item during keyboard navigation
   useEffect(() => {
-    setHighlightedIndex(0)
-  }, [results])
+    const firstActive = filteredResults.findIndex((p) => !isOOS(p))
+    setHighlightedIndex(firstActive >= 0 ? firstActive : 0)
+  }, [search, categoryId, showOutOfStock])
 
   useEffect(() => {
     localDb.categories.filter((c) => c.active).sortBy('sort_order').then(setCategories)
@@ -88,6 +106,58 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
     onAddToCartWithOptions(item)
   }
 
+  // Handle successful camera scan
+  async function handleScanSuccess(barcode: string) {
+    if (!barcode) return
+    setSearch(barcode)
+    toast.success(`Đã quét mã: ${barcode}`)
+    if (!mutePosSound) playBeep()
+
+    try {
+      // Query active products from Dexie DB
+      const items = await localDb.products.filter((p) => p.active && (p as any).product_type !== 'variant_child').toArray()
+      
+      // Flatten units identical to search hook
+      let match: LocalProduct | null = null
+      for (const p of items) {
+        if (p.barcode === barcode || p.sku === barcode) {
+          match = p
+          break
+        }
+        if (Array.isArray(p.product_units) && p.product_units.length > 0) {
+          for (const u of p.product_units) {
+            if (u.barcode === barcode || u.sku === barcode) {
+              match = {
+                ...p,
+                product_id: p.product_id,
+                name: `${p.name} (${u.unit_name})`,
+                barcode: u.barcode || '',
+                sell_price: Number(u.sell_price || 0),
+                cost_price: Number(u.cost_price || 0),
+                unit_id: u.unit_id || u.id,
+                unit_name: u.unit_name,
+                conversion_rate: Number(u.conversion_rate || 1),
+                unit: u.unit_name,
+              } as any
+              break
+            }
+          }
+          if (match) break
+        }
+      }
+
+      if (match) {
+        handleProductClick(match)
+        setSearch('') // Clear search bar upon successful auto-add
+        toast.success(`Đã thêm vào giỏ: ${match.name}`)
+      } else {
+        toast.error(`Không tìm thấy sản phẩm với mã: ${barcode}`)
+      }
+    } catch (e) {
+      console.error('Error auto-adding scanned barcode:', e)
+    }
+  }
+
   // Badge label for product type
   function getTypeBadge(product: LocalProduct) {
     const type = (product as any).product_type ?? 'simple'
@@ -97,22 +167,37 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (results.length === 0) return
+    if (filteredResults.length === 0) return
 
     if (e.key === 'ArrowDown') {
       e.preventDefault()
-      setHighlightedIndex((prev) => (prev + 1) % results.length)
+      // Skip out-of-stock (disabled) items
+      let nextIndex = highlightedIndex
+      for (let i = 1; i <= filteredResults.length; i++) {
+        const checkIndex = (highlightedIndex + i) % filteredResults.length
+        if (!isOOS(filteredResults[checkIndex])) {
+          nextIndex = checkIndex
+          break
+        }
+      }
+      setHighlightedIndex(nextIndex)
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
-      setHighlightedIndex((prev) => (prev - 1 + results.length) % results.length)
+      // Skip out-of-stock (disabled) items
+      let nextIndex = highlightedIndex
+      for (let i = 1; i <= filteredResults.length; i++) {
+        const checkIndex = (highlightedIndex - i + filteredResults.length) % filteredResults.length
+        if (!isOOS(filteredResults[checkIndex])) {
+          nextIndex = checkIndex
+          break
+        }
+      }
+      setHighlightedIndex(nextIndex)
     } else if (e.key === 'Enter') {
       e.preventDefault()
-      const targetProduct = results[highlightedIndex]
+      const targetProduct = filteredResults[highlightedIndex]
       if (targetProduct) {
-        const stock = inventory.get(targetProduct.product_id) ?? 0
-        const type = (targetProduct as any).product_type ?? 'simple'
-        const outOfStock = type !== 'variant_parent' && type !== 'modifier' && stock <= 0
-        if (!outOfStock) {
+        if (!isOOS(targetProduct)) {
           handleProductClick(targetProduct)
         }
       }
@@ -122,17 +207,72 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
   return (
     <div className="flex h-full flex-col">
       {/* Search */}
-      <div className="border-b border-slate-100 px-3 py-2">
-        <input
-          ref={inputRef}
-          autoFocus
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Tìm sản phẩm (tên, SKU, barcode)..."
-          className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm placeholder:text-slate-400 focus:border-primary focus:outline-none"
-        />
+      <div className="border-b border-slate-100 px-3 py-2 flex flex-col sm:flex-row sm:items-center gap-2 justify-between bg-slate-50/50">
+        <div className="relative flex-1 flex items-center">
+          {/* Barcode icon / Camera Scan Trigger Button */}
+          <button
+            onClick={() => setIsCameraOpen(true)}
+            type="button"
+            className="absolute left-2.5 flex items-center justify-center p-1 rounded-md text-slate-400 hover:text-primary hover:bg-slate-100 active:scale-95 transition-all cursor-pointer"
+            title="Quét mã vạch bằng camera điện thoại"
+          >
+            <div className="shrink-0 flex items-center justify-center">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 24 24" className="h-5 w-5 text-slate-500">
+                <rect x="3" y="4" width="2" height="16" rx="0.5" />
+                <rect x="7" y="4" width="1" height="16" rx="0.5" />
+                <rect x="10" y="4" width="3" height="16" rx="0.5" />
+                <rect x="15" y="4" width="1" height="16" rx="0.5" />
+                <rect x="18" y="4" width="2" height="16" rx="0.5" />
+                <rect x="21" y="4" width="1" height="16" rx="0.5" />
+              </svg>
+            </div>
+          </button>
+
+          <input
+            ref={inputRef}
+            id="pos-product-search-input"
+            autoFocus
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Tìm sản phẩm (F3) - tên, SKU, barcode..."
+            className="w-full rounded-lg border border-slate-200 pl-10 pr-11 py-1.5 text-sm placeholder:text-slate-400 focus:border-primary focus:outline-none bg-white shadow-xs"
+          />
+
+          {/* Clear search keyword button or F3 kbd indicator */}
+          {search ? (
+            <button
+              onClick={() => {
+                setSearch('')
+                inputRef.current?.focus()
+              }}
+              type="button"
+              className="absolute right-2.5 flex items-center justify-center p-1 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 active:scale-90 transition-all cursor-pointer"
+              title="Xoá từ khoá"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
+              </svg>
+            </button>
+          ) : (
+            <div className="absolute right-2.5 flex items-center pointer-events-none">
+              <kbd className="hidden sm:inline-flex h-5 select-none items-center gap-0.5 rounded border border-slate-200 bg-slate-50 px-1.5 font-sans text-[10px] font-bold text-slate-400 shadow-xs">
+                F3
+              </kbd>
+            </div>
+          )}
+        </div>
+
+        <label className="flex items-center gap-2 shrink-0 cursor-pointer select-none text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 hover:bg-slate-50 transition-colors shadow-xs">
+          <input
+            type="checkbox"
+            checked={showOutOfStock}
+            onChange={(e) => setShowOutOfStock(e.target.checked)}
+            className="rounded border-slate-300 text-primary focus:ring-primary h-3.5 w-3.5 cursor-pointer accent-primary"
+          />
+          <span>Hiện sp hết hàng</span>
+        </label>
       </div>
 
       {/* Category tabs */}
@@ -158,7 +298,7 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
                 categoryId === cat.category_id
                   ? 'bg-primary text-white'
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
-              ].join(' ')}
+            ].join(' ')}
             >
               {cat.name}
             </button>
@@ -170,13 +310,13 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
       <div className="flex-1 overflow-y-auto p-3">
         {isLoading ? (
           <div className="flex h-32 items-center justify-center text-sm text-slate-400">Đang tải...</div>
-        ) : results.length === 0 ? (
+        ) : filteredResults.length === 0 ? (
           <div className="flex h-32 items-center justify-center text-sm text-slate-400">
             {search ? 'Không tìm thấy sản phẩm' : 'Chưa có sản phẩm'}
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-            {results.map((product, index) => {
+            {filteredResults.map((product, index) => {
               const stock = inventory.get(product.product_id) ?? 0
               const type = (product as any).product_type ?? 'simple'
               // variant_parent: don't track stock by itself, always show
@@ -279,7 +419,7 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
         )}
       </div>
 
-      {/* Pickers */}
+      {/* Pickers & Scanners */}
       {variantParent && (
         <VariantPickerModal
           parentProduct={variantParent}
@@ -294,6 +434,13 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
           open={!!modifierProduct}
           onClose={() => setModifierProduct(null)}
           onConfirm={handleModifierConfirmed}
+        />
+      )}
+      {isCameraOpen && (
+        <CameraScannerModal
+          open={isCameraOpen}
+          onClose={() => setIsCameraOpen(false)}
+          onScanSuccess={handleScanSuccess}
         />
       )}
     </div>

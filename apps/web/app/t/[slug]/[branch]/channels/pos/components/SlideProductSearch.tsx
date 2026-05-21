@@ -45,7 +45,8 @@ export function SlideProductSearch({ onSelect }: Props) {
     <div className="relative" ref={wrapperRef}>
       <input
         type="text"
-        placeholder="Tìm tên món, mã SKU..."
+        id="pos-mobile-product-search-input"
+        placeholder="Tìm tên món, mã SKU (F3)..."
         value={query}
         onChange={(e) => {
           setQuery(e.target.value)
@@ -83,8 +84,15 @@ export function SlideProductSearch({ onSelect }: Props) {
             }
           }
         }}
-        className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 bg-white"
+        className="w-full rounded-xl border border-slate-200 pl-3.5 pr-10 py-2.5 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 bg-white"
       />
+      {!query && (
+        <div className="absolute right-3.5 top-1/2 -translate-y-1/2 flex items-center pointer-events-none">
+          <kbd className="hidden sm:inline-flex h-5 select-none items-center gap-0.5 rounded border border-slate-200 bg-slate-50 px-1.5 font-sans text-[10px] font-bold text-slate-400 shadow-xs">
+            F3
+          </kbd>
+        </div>
+      )}
       
       {isOpen && (query || results.length > 0) && (
         <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-60 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">

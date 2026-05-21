@@ -188,7 +188,7 @@ export function useCart(inventory?: Map<string, number>, branchId?: string) {
         // Trigger non-blocking toast warning
         const formattedExpiry = new Date(earliestBatch.expiry_date).toLocaleDateString('vi-VN')
         toast.warning(
-          `⚠️ Sản phẩm cận date đang còn tồn kho!`,
+          `Sản phẩm cận date đang còn tồn kho!`,
           {
             description: `Sản phẩm "${productName}" đang có Lô "${earliestBatch.batch_no}" sắp hết hạn (HSD: ${formattedExpiry}, còn tồn: ${earliestBatch.stock_qty}). Vui lòng ưu tiên bán lô này trước!`,
             duration: 10000,
