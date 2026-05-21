@@ -24,6 +24,7 @@ export async function GET(
     const product_type = sp.get('product_type') ?? ''
     const parent_id = sp.get('parent_id') ?? ''
     const exclude_product_type = sp.get('exclude_product_type') ?? ''
+    const nocache = sp.get('nocache') === 'true' || sp.get('bypassCache') === 'true'
 
     const filters: Record<string, string> = {}
     if (category_id) filters.category_id = category_id
@@ -34,43 +35,47 @@ export async function GET(
     if (exclude_product_type) filters.exclude_product_type = exclude_product_type
     if (parent_id) filters.parent_id = parent_id
 
-    const result = await shopCache(
-      async () => {
-        const prodResult = await connector.list('products', { page, limit, search: search || undefined, filters, sortDesc: true })
+    const fetchProducts = async () => {
+      const prodResult = await connector.list('products', { page, limit, search: search || undefined, filters, sortDesc: true })
+      
+      if (search) {
+        const unitSearchRes = await connector.list('product-units', { search })
+        const unitProductIds = Array.from(new Set(unitSearchRes.data.map(u => u.product_id)))
+        const existingIds = new Set(prodResult.data.map((p: any) => p.id || p.product_id))
+        const extraIds = unitProductIds.filter(id => !existingIds.has(id))
         
-        if (search) {
-          const unitSearchRes = await connector.list('product-units', { search })
-          const unitProductIds = Array.from(new Set(unitSearchRes.data.map(u => u.product_id)))
-          const existingIds = new Set(prodResult.data.map((p: any) => p.id || p.product_id))
-          const extraIds = unitProductIds.filter(id => !existingIds.has(id))
-          
-          if (extraIds.length > 0) {
-            const extraProds = await connector.list('products', { filters: { ...filters, id: extraIds as any }, limit: 100 })
-            prodResult.data.push(...extraProds.data)
-            prodResult.total += extraProds.data.length
-          }
+        if (extraIds.length > 0) {
+          const extraProds = await connector.list('products', { filters: { ...filters, id: extraIds as any }, limit: 100 })
+          prodResult.data.push(...extraProds.data)
+          prodResult.total += extraProds.data.length
         }
+      }
 
-        if (prodResult.data.length > 0) {
-          // Fetch product units in parallel or bulk. Since we might have many products, we'll fetch all active units for this shop.
-          // Note: In a real app we'd filter by product_ids, but for simplicity we fetch the first 5000 units.
-          const unitsResult = await connector.list('product-units', { limit: 5000 })
-          const unitsByProduct = unitsResult.data.reduce((acc: Record<string, any[]>, unit: any) => {
-            acc[unit.product_id] = acc[unit.product_id] || []
-            acc[unit.product_id].push(unit)
-            return acc
-          }, {})
+      if (prodResult.data.length > 0) {
+        // Fetch product units in parallel or bulk. Since we might have many products, we'll fetch all active units for this shop.
+        // Note: In a real app we'd filter by product_ids, but for simplicity we fetch the first 5000 units.
+        const unitsResult = await connector.list('product-units', { limit: 5000 })
+        const unitsByProduct = unitsResult.data.reduce((acc: Record<string, any[]>, unit: any) => {
+          acc[unit.product_id] = acc[unit.product_id] || []
+          acc[unit.product_id].push(unit)
+          return acc
+        }, {})
 
-          prodResult.data = prodResult.data.map((p: any) => ({
-            ...p,
-            product_units: unitsByProduct[p.id] || []
-          }))
-        }
-        return prodResult
-      },
-      ['products', shopId, String(page), String(limit), search, category_id, active, product_type, parent_id],
-      { tags: [shopTag(shopId, 'products')], revalidate: cacheTTL.products }
-    )
+        prodResult.data = prodResult.data.map((p: any) => ({
+          ...p,
+          product_units: unitsByProduct[p.id] || []
+        }))
+      }
+      return prodResult
+    }
+
+    const result = nocache
+      ? await fetchProducts()
+      : await shopCache(
+          fetchProducts,
+          ['products', shopId, String(page), String(limit), search, category_id, active, product_type, parent_id],
+          { tags: [shopTag(shopId, 'products')], revalidate: cacheTTL.products }
+        )
 
     return NextResponse.json(result)
   } catch (e) {
