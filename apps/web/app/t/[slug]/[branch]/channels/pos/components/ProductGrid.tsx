@@ -8,6 +8,7 @@ import type { CartItem } from '@/hooks/useCart'
 import { VariantPickerModal } from './VariantPickerModal'
 import { ModifierPickerModal } from './ModifierPickerModal'
 import { CameraScannerModal } from './CameraScannerModal'
+import { cleanSku } from '@/lib/sku'
 
 interface Props {
   branchId: string
@@ -120,13 +121,13 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
       // Flatten units identical to search hook
       let match: LocalProduct | null = null
       for (const p of items) {
-        if (p.barcode === barcode || p.sku === barcode) {
+        if (p.barcode === barcode || p.sku === barcode || cleanSku(p.sku) === barcode) {
           match = p
           break
         }
         if (Array.isArray(p.product_units) && p.product_units.length > 0) {
           for (const u of p.product_units) {
-            if (u.barcode === barcode || u.sku === barcode) {
+            if (u.barcode === barcode || u.sku === barcode || cleanSku(u.sku) === barcode) {
               match = {
                 ...p,
                 product_id: p.product_id,
@@ -368,7 +369,7 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
                     )}
                     {product.sku && (
                       <span className="absolute top-1.5 left-1.5 rounded bg-black/40 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm leading-none">
-                        {product.sku}
+                        {cleanSku(product.sku)}
                       </span>
                     )}
                     {/* Product type badge */}

@@ -15,6 +15,9 @@ import { NumberInput } from '@/app/components/ui/NumberInput'
 import { CopyableId } from '@/app/components/ui/CopyableId'
 import * as XLSX from 'xlsx'
 import { clearLocalDb } from '@/lib/localDb/clear'
+import { hydrateAll } from '@/lib/localDb/hydration'
+import { broadcastHydrateRefresh } from '@/lib/localDb/tabSync'
+import { cleanSku } from '@/lib/sku'
 
 function RowActions({ r, onEdit, onDuplicate, onToggleActive }: { r: Record<string, string>, onEdit: () => void, onDuplicate: () => void, onToggleActive: () => void }) {
   const [open, setOpen] = useState(false)
@@ -762,6 +765,15 @@ interface UnitRow {
       setImportFile(null)
       setParsedProducts([])
       queryClient.invalidateQueries({ queryKey: ['products', shopId] })
+      
+      // Silent IndexedDB hydration for offline POS
+      hydrateAll(shopId, shopId)
+        .then(() => {
+          broadcastHydrateRefresh()
+        })
+        .catch((err) => {
+          console.error('Failed to silently build offline IndexedDB:', err)
+        })
     } catch (err: any) {
       toast.error(err.message)
     } finally {
@@ -1046,7 +1058,7 @@ interface UnitRow {
     {
       key: 'sku',
       label: 'SKU',
-      render: (row) => row.sku ? <CopyableId id={row.sku} className="text-sm font-semibold text-slate-800" /> : '—'
+      render: (row) => row.sku ? <CopyableId id={cleanSku(row.sku)} className="text-sm font-semibold text-slate-800" /> : '—'
     },
     {
       key: 'name',
@@ -1997,7 +2009,7 @@ interface UnitRow {
                                         </kbd>
                                       )}
                                     </div>
-                                    <p className="text-xs text-slate-500 font-mono">SKU: {p.sku || 'N/A'} • ĐVT: {p.unit || 'Cái'}</p>
+                                    <p className="text-xs text-slate-500 font-mono">SKU: {cleanSku(p.sku) || 'N/A'} • ĐVT: {p.unit || 'Cái'}</p>
                                   </div>
                                   <span className="text-xs font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded flex-shrink-0">
                                     {Number(p.cost_price || 0).toLocaleString()}đ
@@ -2043,7 +2055,7 @@ interface UnitRow {
                                     <tr key={item.component_product_id} className="border-b border-slate-100 text-xs hover:bg-slate-50/50 transition-colors">
                                       <td className="px-3 py-2 min-w-0">
                                         <p className="font-semibold text-slate-900 truncate">{comp.name}</p>
-                                        <p className="text-[10px] text-slate-400 font-mono">{comp.sku || 'N/A'}</p>
+                                        <p className="text-[10px] text-slate-400 font-mono">{cleanSku(comp.sku) || 'N/A'}</p>
                                       </td>
                                       <td className="px-3 py-2 text-center text-slate-600 font-medium">
                                         {comp.unit || 'Cái'}

@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { usePOSProductSearch } from '@/hooks/usePOSProductSearch'
 import type { LocalProduct } from '@/lib/localDb/schema'
+import { cleanSku } from '@/lib/sku'
 
 interface Props {
   onSelect: (product: LocalProduct) => void
@@ -122,7 +123,7 @@ export function SlideProductSearch({ onSelect }: Props) {
                     <div className="min-w-0 flex-1 flex items-center gap-2">
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium text-slate-900 truncate">{p.name}</p>
-                        {p.sku && <p className="text-xs text-slate-500">{p.sku}</p>}
+                        {p.sku && <p className="text-xs text-slate-500">{cleanSku(p.sku)}</p>}
                       </div>
                       {(index === highlightedIndex || displayResults.length === 1) && (
                         <kbd className="inline-flex items-center gap-0.5 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[9px] font-sans font-bold text-slate-500 shadow-sm shrink-0">

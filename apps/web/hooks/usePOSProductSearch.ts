@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useDebounce } from 'use-debounce'
 import { localDb, type LocalProduct } from '@/lib/localDb/schema'
+import { cleanSku } from '@/lib/sku'
 
 export function usePOSProductSearch(query: string, categoryId?: string) {
   const [results, setResults] = useState<LocalProduct[]>([])
@@ -49,6 +50,7 @@ export function usePOSProductSearch(query: string, categoryId?: string) {
             (p) =>
               p.name.toLowerCase().includes(q) ||
               (p.sku ?? '').toLowerCase().includes(q) ||
+              cleanSku(p.sku).toLowerCase().includes(q) ||
               (p.barcode ?? '').toLowerCase().includes(q)
           )
         }

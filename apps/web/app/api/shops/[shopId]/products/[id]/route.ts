@@ -3,6 +3,8 @@ import { requireShopAccess } from '@/lib/server/shopAccess'
 import { productUpdateSchema } from '@/lib/validators/products'
 import { invalidate } from '@/lib/server/cache'
 import { handleApiError } from '../../../_helpers'
+import crypto from 'crypto'
+import { prefixSku } from '@/lib/sku'
 
 export async function GET(
   req: NextRequest,
@@ -26,11 +28,17 @@ export async function PUT(
 ) {
   try {
     const { shopId, id } = await params
-    const { connector } = await requireShopAccess(shopId, 'products.edit')
+    const { connector, shop } = await requireShopAccess(shopId, 'products.edit')
+    const tenantId = shop.tenant_id
+    const tenantHash = crypto.createHash('sha256').update(tenantId).digest('hex').substring(0, 8).toUpperCase()
 
     const body = await req.json()
     const { variants, ...productBody } = body
     const data = productUpdateSchema.parse(productBody)
+
+    if (data.sku) {
+      data.sku = prefixSku(data.sku, tenantHash)
+    }
 
     await connector.update('products', id, data)
 
@@ -68,7 +76,7 @@ export async function PUT(
           product_type: 'variant_child',
           parent_id: id,
           variant_options: JSON.stringify({ [optionName]: v.value }),
-          sku: v.sku || '',
+          sku: prefixSku(v.sku || '', tenantHash),
           sell_price: v.sell_price || '0',
           cost_price: v.cost_price || '0',
           barcode: v.barcode || '',
