@@ -14,6 +14,7 @@ import { TagBadge, TagColor } from '@/app/components/ui/TagBadge'
 import { PaymentStatusLabel, PaymentStatus } from '@/app/components/ui/PaymentStatusLabel'
 import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog'
 import { CopyableId } from '@/app/components/ui/CopyableId'
+import { localDb } from '@/lib/localDb/schema'
 
 const Eye = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg>
 const ArrowRight = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M5 12h14" /><path d="m12 5 7 7-7 7" /></svg>
@@ -349,7 +350,7 @@ function CategorySelect({
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function InventoryClient({ shopId }: Props) {
+export function InventoryClient({ shopId, shopName }: Props) {
   const queryClient = useQueryClient()
   const params = useParams()
   const pathname = usePathname()
@@ -361,6 +362,134 @@ export function InventoryClient({ shopId }: Props) {
   const [debouncedSearch] = useDebounce(search, 300)
   const [showForm, setShowForm] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
+
+  // Selected stock product for batch details modal
+  const [selectedStockProduct, setSelectedStockProduct] = useState<any | null>(null)
+  const [selectedProductBatches, setSelectedProductBatches] = useState<any[]>([])
+  const [loadingBatches, setLoadingBatches] = useState(false)
+
+  // Batch adjustment states
+  const [adjustingBatch, setAdjustingBatch] = useState<any | null>(null)
+  const [adjustQtyInput, setAdjustQtyInput] = useState<string>('0')
+  const [adjustReason, setAdjustReason] = useState<string>('Hủy hàng hết hạn / hư hỏng')
+  const [adjustingLoading, setAdjustingLoading] = useState<boolean>(false)
+
+  const handleStockRowClick = async (row: any) => {
+    setSelectedStockProduct(row)
+    setLoadingBatches(true)
+    try {
+      if (typeof window !== 'undefined' && localDb) {
+        const list = await localDb.inventoryBatches
+          .where('[product_id+branch_id]')
+          .equals([row.product_id, shopId])
+          .toArray()
+        // Sort FEFO (earliest expiry first, empty/null expiry dates last)
+        list.sort((a, b) => {
+          if (!a.expiry_date) return 1
+          if (!b.expiry_date) return -1
+          return a.expiry_date.localeCompare(b.expiry_date)
+        })
+        setSelectedProductBatches(list)
+      } else {
+        setSelectedProductBatches([])
+      }
+    } catch (err) {
+      console.error('Failed to load batches:', err)
+      setSelectedProductBatches([])
+    } finally {
+      setLoadingBatches(false)
+    }
+  }
+
+  const handleInitiateAdjustBatch = (batch: any) => {
+    setAdjustingBatch(batch)
+    setAdjustQtyInput('0')
+    setAdjustReason(`Hủy hàng hết hạn / hư hỏng - Lô: ${batch.batch_no}`)
+  }
+
+  const handleConfirmAdjustBatch = async () => {
+    if (!adjustingBatch || !selectedStockProduct) return
+    setAdjustingLoading(true)
+    try {
+      const product = productMap.get(selectedStockProduct.product_id)
+      const currentQty = Number(adjustingBatch.stock_qty || 0)
+      const targetQty = Number(adjustQtyInput)
+      const delta = targetQty - currentQty
+
+      if (delta === 0) {
+        toast.error('Số lượng tồn không thay đổi')
+        setAdjustingLoading(false)
+        return
+      }
+
+      const res = await fetch(`/api/shops/${shopId}/inventory/adjust-batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          branch_id: shopId,
+          reason: adjustReason || `Điều chỉnh lô hàng ${adjustingBatch.batch_no}: ${currentQty} -> ${targetQty}`,
+          items: [
+            {
+              product_id: selectedStockProduct.product_id,
+              qty: String(delta),
+              batch_no: adjustingBatch.batch_no,
+              unit_cost: String(product?.cost_price || selectedStockProduct.cost_price || 0)
+            }
+          ]
+        })
+      })
+
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Điều chỉnh lô thất bại')
+
+      if (typeof window !== 'undefined' && localDb) {
+        // Update offline IndexedDB inventoryBatches
+        await localDb.inventoryBatches.update(adjustingBatch.id, {
+          stock_qty: targetQty
+        })
+
+        // Update offline IndexedDB inventory
+        const localInvList = await localDb.inventory.where('[product_id+branch_id]').equals([selectedStockProduct.product_id, shopId]).toArray()
+        const localInv = localInvList[0]
+        if (localInv) {
+          const newLocalInvQty = Math.max(0, Number(localInv.stock_qty || 0) + delta)
+          await localDb.inventory.where('[product_id+branch_id]').equals([selectedStockProduct.product_id, shopId]).modify({
+            stock_qty: newLocalInvQty
+          })
+        }
+      }
+
+      toast.success('Điều chỉnh lô hàng thành công!')
+      setAdjustingBatch(null)
+      
+      queryClient.invalidateQueries({ queryKey: ['inventory', shopId] })
+      queryClient.invalidateQueries({ queryKey: ['products-all', shopId] })
+
+      // Dynamically update SlideOver states
+      const updatedStockProduct = {
+        ...selectedStockProduct,
+        stock_qty: Math.max(0, Number(selectedStockProduct.stock_qty || 0) + delta)
+      }
+      setSelectedStockProduct(updatedStockProduct)
+
+      // Refetch local batches list
+      setLoadingBatches(true)
+      if (typeof window !== 'undefined' && localDb) {
+        const list = await localDb.inventoryBatches.where('[product_id+branch_id]').equals([selectedStockProduct.product_id, shopId]).toArray()
+        list.sort((a, b) => {
+          if (!a.expiry_date) return 1
+          if (!b.expiry_date) return -1
+          return a.expiry_date.localeCompare(b.expiry_date)
+        })
+        setSelectedProductBatches(list)
+      }
+      setLoadingBatches(false)
+    } catch (error: any) {
+      toast.error(error.message || 'Có lỗi xảy ra khi điều chỉnh lô')
+    } finally {
+      setAdjustingLoading(false)
+    }
+  }
   const [showSupplierModal, setShowSupplierModal] = useState(false)
   const [supplierForm, setSupplierForm] = useState({ name: '', phone: '', email: '', address: '', note: '' })
   const [form, setForm] = useState(EMPTY_FORM)
@@ -761,7 +890,9 @@ export function InventoryClient({ shopId }: Props) {
       key: 'branch_id',
       label: 'Kho',
       render: (row) => (
-        <span className="text-xs text-slate-400">{row.branch_id || 'Mặc định'}</span>
+        <span className="text-xs text-slate-400">
+          {row.branch_id === shopId ? shopName : 'Kho chính'}
+        </span>
       ),
     },
   ], [productMap])
@@ -977,6 +1108,7 @@ export function InventoryClient({ shopId }: Props) {
             data={data?.data ?? []}
             loading={isLoading}
             pagination={{ page: stockPage, total: data?.total ?? 0, pageSize: 50, onChange: setStockPage }}
+            onRowClick={handleStockRowClick}
             emptyState={
               <EmptyState
                 title="Chưa có dữ liệu tồn kho"
@@ -1506,6 +1638,70 @@ export function InventoryClient({ shopId }: Props) {
         </div>
       </ConfirmDialog>
 
+      {/* Confirm Batch Adjust Dialog */}
+      <ConfirmDialog
+        open={!!adjustingBatch}
+        onClose={() => setAdjustingBatch(null)}
+        onConfirm={handleConfirmAdjustBatch}
+        title="Điều chỉnh / Hủy lô tồn kho"
+        confirmLabel="Cập nhật"
+        cancelLabel="Hủy bỏ"
+        loading={adjustingLoading}
+      >
+        <div className="space-y-4 text-sm text-slate-600">
+          <p className="font-medium text-slate-800">
+            Bạn đang điều chỉnh lô hàng <span className="text-orange-600 font-bold">{adjustingBatch?.batch_no}</span> của sản phẩm <span className="font-semibold text-slate-900">{productMap.get(selectedStockProduct?.product_id)?.displayName || productMap.get(selectedStockProduct?.product_id)?.name || selectedStockProduct?.product_name}</span>.
+          </p>
+          
+          <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 mb-1">
+                Số lượng tồn kho thực tế mới
+              </label>
+              <input
+                type="number"
+                min="0"
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-orange-500"
+                value={adjustQtyInput}
+                onChange={(e) => setAdjustQtyInput(e.target.value)}
+                placeholder="Nhập 0 để hủy hoàn toàn lô"
+              />
+              <span className="block text-[10px] text-slate-400 mt-1">
+                Tồn kho hiện tại: {adjustingBatch ? Number(adjustingBatch.stock_qty).toLocaleString('vi-VN') : 0} {selectedStockProduct?.unit || 'đv'} (Trừ đi {(adjustingBatch ? Number(adjustingBatch.stock_qty) : 0) - Number(adjustQtyInput || 0)} đv)
+              </span>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 mb-1">
+                Lý do điều chỉnh / hủy lô
+              </label>
+              <textarea
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-1 focus:ring-orange-500 focus:border-orange-500"
+                rows={2}
+                value={adjustReason}
+                onChange={(e) => setAdjustReason(e.target.value)}
+                placeholder="Nhập lý do hao hụt, hết hạn, hư hỏng..."
+              />
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-3 text-xs text-blue-800 space-y-1">
+            <span className="font-semibold flex items-center gap-1 text-blue-900">
+              <svg className="h-3.5 w-3.5 text-blue-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 111.085 1.085l-.04.02-.041.02a.75.75 0 01-1.085-1.085l.04-.02zM12 22.5c5.799 0 10.5-4.701 10.5-10.5S17.799 1.5 12 1.5 1.5 6.201 1.5 12 6.201 22.5 12 22.5z" />
+              </svg>
+              Thông tin nghiệp vụ:
+            </span>
+            <p>
+              Khi nhấn nút cập nhật, hệ thống sẽ tự động tạo một <strong>Phiếu điều chỉnh (PDK)</strong> nhằm điều chỉnh tồn kho cho lô này thành <strong>{Number(adjustQtyInput || 0).toLocaleString('vi-VN')} {selectedStockProduct?.unit || 'đv'}</strong> (chênh lệch: {(() => {
+                const diff = Number(adjustQtyInput || 0) - (adjustingBatch ? Number(adjustingBatch.stock_qty) : 0);
+                return diff > 0 ? `+${diff.toLocaleString('vi-VN')}` : diff.toLocaleString('vi-VN');
+              })()} {selectedStockProduct?.unit || 'đv'}).
+            </p>
+          </div>
+        </div>
+      </ConfirmDialog>
+
       {/* View Movement Detail SlideOver */}
       <SlideOver
         open={!!viewMovement}
@@ -1700,6 +1896,182 @@ export function InventoryClient({ shopId }: Props) {
             </div>
           </div>
         )}
+      </SlideOver>
+
+      {/* ── View Stock Product Batches Details SlideOver ── */}
+      <SlideOver
+        open={!!selectedStockProduct}
+        onClose={() => {
+          setSelectedStockProduct(null)
+          setSelectedProductBatches([])
+        }}
+        title="Chi tiết lô tồn kho"
+        width={520}
+      >
+        {selectedStockProduct && (() => {
+          const product = productMap.get(selectedStockProduct.product_id)
+          const productName = product?.displayName ?? product?.name ?? selectedStockProduct.product_name ?? 'Không rõ tên sản phẩm'
+          const sku = product?.sku ?? selectedStockProduct.sku ?? '—'
+          const totalQty = Number(selectedStockProduct.stock_qty || 0)
+          
+          return (
+            <div className="space-y-6">
+              {/* Premium Light Gradient Card */}
+              <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-orange-50/80 via-slate-50/60 to-amber-50/40 p-5 text-slate-800 shadow-sm border border-orange-100/60">
+                {/* Subtle graphic accent */}
+                <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-orange-400/10 blur-2xl pointer-events-none" />
+                <div className="absolute -left-10 -bottom-10 h-32 w-32 rounded-full bg-amber-400/10 blur-2xl pointer-events-none" />
+                
+                <div className="relative space-y-3">
+                  <span className="inline-flex items-center rounded-full bg-orange-100/70 px-2.5 py-0.5 text-xs font-semibold text-orange-700 border border-orange-200/50">
+                    Thông tin hàng hóa
+                  </span>
+                  
+                  <div>
+                    <h3 className="text-lg font-bold tracking-tight text-slate-900 leading-snug">
+                      {productName}
+                    </h3>
+                    <p className="mt-1 text-xs text-slate-500">
+                      SKU: {sku}
+                    </p>
+                  </div>
+                  
+                  <div className="flex items-center justify-between border-t border-slate-200/60 pt-3 mt-1">
+                    <span className="text-xs font-medium text-slate-500">Tổng tồn kho chi nhánh:</span>
+                    <span className="text-xl font-extrabold text-orange-600 tabular-nums">
+                      {totalQty.toLocaleString('vi-VN')} {product?.unit || selectedStockProduct.unit || 'đv'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Batches Stock Section */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    Danh sách các lô tồn kho
+                  </h4>
+                  <span className="text-xs font-medium text-slate-500">
+                    {selectedProductBatches.length} lô đang hoạt động
+                  </span>
+                </div>
+
+                {loadingBatches ? (
+                  <div className="space-y-3 py-6">
+                    {Array.from({ length: 2 }).map((_, idx) => (
+                      <div key={idx} className="flex h-16 items-center justify-between rounded-xl bg-slate-50 p-4 animate-pulse">
+                        <div className="space-y-2 w-1/3">
+                          <div className="h-4 bg-slate-200 rounded w-full" />
+                          <div className="h-3 bg-slate-200 rounded w-2/3" />
+                        </div>
+                        <div className="h-5 bg-slate-200 rounded w-16" />
+                      </div>
+                    ))}
+                  </div>
+                ) : selectedProductBatches.length > 0 ? (
+                  <div className="space-y-2.5">
+                    {selectedProductBatches.map((batch) => {
+                      const qty = Number(batch.stock_qty || 0)
+                      let expiryText = '—'
+                      let statusBadge = null
+                      
+                      if (batch.expiry_date) {
+                        const expDate = new Date(batch.expiry_date)
+                        const today = new Date()
+                        today.setHours(0,0,0,0)
+                        
+                        const timeDiff = expDate.getTime() - today.getTime()
+                        const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24))
+                        
+                        // Expiry format
+                        const dateParts = batch.expiry_date.split('-')
+                        if (dateParts.length === 3) {
+                          expiryText = `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}`
+                        } else {
+                          expiryText = new Date(batch.expiry_date).toLocaleDateString('vi-VN')
+                        }
+
+                        if (daysDiff < 0) {
+                          statusBadge = (
+                            <span className="inline-flex items-center rounded-md bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700 ring-1 ring-inset ring-rose-600/20">
+                              Hết hạn ({Math.abs(daysDiff)} ngày)
+                            </span>
+                          )
+                        } else if (daysDiff <= 30) {
+                          statusBadge = (
+                            <span className="inline-flex items-center rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-600/30">
+                              Cận date ({daysDiff} ngày)
+                            </span>
+                          )
+                        } else {
+                          statusBadge = (
+                            <span className="inline-flex items-center rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/10">
+                              Còn {daysDiff} ngày
+                            </span>
+                          )
+                        }
+                      }
+
+                      return (
+                        <div
+                          key={batch.id || batch.batch_no}
+                          className="group relative flex items-center justify-between rounded-xl border border-slate-100 bg-white p-4 shadow-sm hover:border-indigo-100 hover:bg-indigo-50/10 transition-all duration-200"
+                        >
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="inline-flex items-center gap-1 text-sm font-semibold text-slate-800 bg-slate-100 px-2 py-0.5 rounded-lg border border-slate-200 shadow-sm">
+                                Lô: {batch.batch_no}
+                              </span>
+                              {statusBadge}
+                            </div>
+                            <p className="text-xs text-slate-400 flex items-center gap-1">
+                              <svg className="h-3 w-3 text-slate-400" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
+                              HSD: <span className="font-semibold text-slate-600">{expiryText}</span>
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <div className="text-right">
+                              <span className="text-base font-extrabold text-slate-900 tabular-nums">
+                                {qty.toLocaleString('vi-VN')}
+                              </span>
+                              <span className="block text-[10px] font-medium text-slate-400">
+                                {product?.unit || selectedStockProduct.unit || 'đơn vị'}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleInitiateAdjustBatch(batch)
+                              }}
+                              className="p-1.5 rounded-lg text-slate-500 hover:text-orange-600 hover:bg-orange-50 border border-transparent hover:border-orange-100 transition-all cursor-pointer shrink-0"
+                              title="Điều chỉnh tồn kho lô"
+                            >
+                              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                              </svg>
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  /* Standard non-batch product fallback */
+                  <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 p-6 text-center shadow-sm">
+                    <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-400 mb-3">
+                      <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /><polyline points="3.27 6.96 12 12.01 20.73 6.96" /><line x1="12" y1="22.08" x2="12" y2="12" /></svg>
+                    </div>
+                    <h5 className="text-sm font-semibold text-slate-800 mb-1">Hàng hóa phổ thông</h5>
+                    <p className="text-xs text-slate-400 max-w-xs mx-auto leading-relaxed">
+                      Sản phẩm này không được quản lý theo số lô & hạn sử dụng. Tồn kho của mặt hàng này được theo dõi chung cho toàn chi nhánh.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })()}
       </SlideOver>
 
       {/* Quick Add Supplier Modal */}

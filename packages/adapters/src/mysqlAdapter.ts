@@ -78,7 +78,13 @@ export class MysqlConnector implements IDataConnector {
       params.push(this.tenantId)
     }
 
-    query += ' ORDER BY id DESC LIMIT 1'
+    // Filter to only include numeric suffixes (5 to 10 digits) to prevent mixed
+    // hexadecimal/random IDs from breaking the sequence
+    const regexPattern = `^${searchPrefix}[0-9]{5,10}$`
+    query += ' AND id REGEXP ?'
+    params.push(regexPattern)
+
+    query += ' ORDER BY LENGTH(id) DESC, id DESC LIMIT 1'
 
     const [rows] = await this.db.execute(sql.raw(mysql.format(query, params)))
     const resultRows = rows as unknown as any[]

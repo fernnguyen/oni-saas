@@ -5,6 +5,8 @@ import { shopTag, invalidate } from '@/lib/server/cache'
 import { handleApiError } from '../../../_helpers'
 import { RollbackContext, type IDataConnector } from '@oni/adapters'
 
+import crypto from 'crypto'
+
 const MOVEMENT_NO_PREFIX = 'PDK'
 
 function getGMT7Time() {
@@ -13,22 +15,25 @@ function getGMT7Time() {
   return d.toISOString().replace('Z', '')
 }
 
-async function generateMovementNo(connector: IDataConnector): Promise<string> {
+async function generateMovementNo(connector: IDataConnector, tenantId: string): Promise<string> {
+  const tenantHash = crypto.createHash('sha256').update(tenantId).digest('hex').substring(0, 8).toUpperCase()
+  const searchPrefix = `${MOVEMENT_NO_PREFIX}-${tenantHash}-`
   const result = await connector.list('stock-movements', { page: 1, limit: 5000, filters: { type: 'adjustment' } })
   const existing = result.data as Record<string, string>[]
   const nums = existing
     .map(r => r.movement_no)
-    .filter((n): n is string => !!n && n.startsWith(`${MOVEMENT_NO_PREFIX}-`))
-    .map(n => parseInt(n.slice(MOVEMENT_NO_PREFIX.length + 1), 10))
+    .filter((n): n is string => !!n && n.startsWith(searchPrefix))
+    .map(n => parseInt(n.slice(searchPrefix.length), 10))
     .filter(n => !isNaN(n))
   const next = nums.length > 0 ? Math.max(...nums) + 1 : 1
-  return `${MOVEMENT_NO_PREFIX}-${String(next).padStart(3, '0')}`
+  return `${searchPrefix}${String(next).padStart(3, '0')}`
 }
 
 interface AdjustItem {
   product_id?: string
   qty: string          // delta (e.g. +10 or -5)
   unit_cost?: string
+  batch_no?: string
   
   is_new?: boolean
   product_name?: string
@@ -46,7 +51,7 @@ export async function POST(
   let tx: RollbackContext | undefined
   try {
     const { shopId } = await params
-    const { connector } = await requireShopAccess(shopId, 'products.create')
+    const { connector, shop } = await requireShopAccess(shopId, 'products.create')
     tx = new RollbackContext()
 
     const body = await req.json() as {
@@ -63,12 +68,18 @@ export async function POST(
     }
 
     // 1. Generate sequential PDK movement_no
-    const movementNo = await generateMovementNo(connector)
+    const movementNo = await generateMovementNo(connector, shop.tenant_id)
 
     // Cache to prevent duplicate category lookups/creates within this request
     const categoryCache = new Map<string, string>()
 
-    const processedItems: { productId: string; qty: number; unitCost: string; sku: string }[] = []
+    const processedItems: {
+      productId: string
+      qty: number
+      unitCost: string
+      sku: string
+      batch_no?: string
+    }[] = []
 
     for (const item of items) {
       let productId = item.product_id
@@ -163,7 +174,8 @@ export async function POST(
         productId,
         qty: qtyVal,
         unitCost: item.unit_cost || '0',
-        sku: finalSku
+        sku: finalSku,
+        batch_no: item.batch_no
       })
     }
 
@@ -231,6 +243,34 @@ export async function POST(
         })
       }
 
+      // Update inventory batches if a specific batch number is targeted
+      if (pItem.batch_no) {
+        const batchListResult = await connector.list('inventory-batches', {
+          page: 1,
+          limit: 10,
+          filters: {
+            product_id: pItem.productId,
+            branch_id: branch_id || '',
+            batch_no: pItem.batch_no
+          }
+        })
+        const allBatches = batchListResult.data as Record<string, string>[]
+        const batchRow = allBatches[0]
+
+        if (batchRow) {
+          const oldBatchQty = parseFloat(batchRow.stock_qty || '0')
+          const newBatchQty = Math.max(0, oldBatchQty + pItem.qty)
+          await connector.update('inventory-batches', (batchRow.batch_id || batchRow.id) as string, {
+            stock_qty: String(newBatchQty)
+          })
+          tx.add(async () => {
+            await connector.update('inventory-batches', (batchRow.batch_id || batchRow.id) as string, {
+              stock_qty: String(oldBatchQty)
+            }).catch(() => {})
+          })
+        }
+      }
+
       // Update product cost_price if adjusted with a valid cost price
       if (pItem.unitCost && parseFloat(pItem.unitCost) > 0) {
         const prod = await connector.findById('products', pItem.productId)
@@ -248,6 +288,7 @@ export async function POST(
     invalidate(shopId, 'products')
     invalidate(shopId, 'categories')
     invalidate(shopId, 'inventory')
+    invalidate(shopId, 'inventory-batches')
     invalidate(shopId, 'stock-movements')
 
     return NextResponse.json({ ok: true, movement_no: movementNo })

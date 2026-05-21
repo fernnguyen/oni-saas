@@ -5,6 +5,7 @@ import { handleApiError } from '../../../_helpers'
 import { dispatchNotification } from '@/lib/server/notifications'
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
 import { RollbackContext } from '@oni/adapters'
+import crypto from 'crypto'
 
 const INBOUND_TYPES = ['purchase_in', 'return_in', 'transfer_in']
 const OUTBOUND_TYPES = ['sale_out', 'transfer_out']
@@ -298,12 +299,15 @@ export async function POST(
     // Dedup uses the same reference_no that will be written (consistent key).
     const movRef = orderNo || serverId || ''
 
+    const tenantHash = crypto.createHash('sha256').update(shop.tenant_id).digest('hex').substring(0, 8).toUpperCase()
+    const searchPrefix = `PX-${tenantHash}-`
+
     // Pre-count existing PX movements to generate sequential movement_no
     const existingPX = await connector.list('stock-movements', { page: 1, limit: 5000, filters: { type: 'sale_out' } })
     const pxNums = (existingPX.data as Record<string, string>[])
       .map(r => r.movement_no)
-      .filter((n): n is string => typeof n === 'string' && n.startsWith('PX-'))
-      .map(n => parseInt(n.slice(3), 10))
+      .filter((n): n is string => typeof n === 'string' && n.startsWith(searchPrefix))
+      .map(n => parseInt(n.slice(searchPrefix.length), 10))
       .filter(n => !isNaN(n))
     let pxCounter = pxNums.length > 0 ? Math.max(...pxNums) : 0
 
@@ -352,7 +356,7 @@ export async function POST(
             if (existingMovProductIds.has(compId)) continue
 
             pxCounter += 1
-            const movementNo = `PX-${String(pxCounter).padStart(3, '0')}`
+            const movementNo = `${searchPrefix}${String(pxCounter).padStart(3, '0')}`
             const compQty = Math.abs(mv.qty) * parseFloat(comp.qty || '0')
 
             // Fetch component SKU
@@ -386,7 +390,7 @@ export async function POST(
         if (existingMovProductIds.has(mv.product_id)) continue
 
         pxCounter += 1
-        const movementNo = `PX-${String(pxCounter).padStart(3, '0')}`
+        const movementNo = `${searchPrefix}${String(pxCounter).padStart(3, '0')}`
 
         movsToCreate.push({
           type:         mv.type,
