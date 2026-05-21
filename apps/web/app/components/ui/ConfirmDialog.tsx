@@ -13,6 +13,7 @@ export interface ConfirmDialogProps {
   variant?: 'danger' | 'default'
   loading?: boolean
   children?: React.ReactNode
+  disableOutsideClick?: boolean
 }
 
 export function ConfirmDialog({
@@ -26,21 +27,24 @@ export function ConfirmDialog({
   variant = 'default',
   loading = false,
   children,
+  disableOutsideClick = false,
 }: ConfirmDialogProps) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && open && !loading) onClose()
+      if (e.key === 'Escape' && open && !loading && !disableOutsideClick) onClose()
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [open, loading, onClose])
+  }, [open, loading, disableOutsideClick, onClose])
 
   if (!open) return null
 
   return (
     <div
       className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40"
-      onClick={() => { if (!loading) onClose() }}
+      onClick={() => {
+        if (!loading && !disableOutsideClick) onClose()
+      }}
     >
       <div
         className="mx-4 w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl"

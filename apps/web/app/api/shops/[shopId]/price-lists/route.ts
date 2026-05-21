@@ -18,7 +18,9 @@ export async function GET(
     const active = sp.get('active') ?? '';
     
     const filters: Record<string, string> = {};
-    if (active) filters.active = active;
+    if (active) {
+      filters.active = active.toUpperCase() === 'TRUE' || active === 'true' ? 'TRUE' : 'FALSE';
+    }
 
     const result = await shopCache(
       () => connector.list('price-lists', { page, limit, filters, sortDesc: true }),

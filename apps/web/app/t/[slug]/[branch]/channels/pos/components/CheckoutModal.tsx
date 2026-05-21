@@ -136,7 +136,7 @@ export function CheckoutModal({
       if (!res.ok) return {}
       return res.json()
     },
-    enabled: !!shopId && autoPrintReceipt,
+    enabled: !!shopId,
   })
 
   useEffect(() => {
@@ -378,7 +378,9 @@ export function CheckoutModal({
             if (inv) {
               await localDb.inventory.put({
                 ...inv,
-                stock_qty: Math.max(0, Number(inv.stock_qty) - (item.qty * (item.conversion_rate || 1))),
+                stock_qty: settings?.allow_negative_stock
+                  ? Number(inv.stock_qty) - (item.qty * (item.conversion_rate || 1))
+                  : Math.max(0, Number(inv.stock_qty) - (item.qty * (item.conversion_rate || 1))),
               })
             }
 

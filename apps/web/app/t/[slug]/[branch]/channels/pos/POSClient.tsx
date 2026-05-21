@@ -5,6 +5,7 @@ import { liveQuery } from 'dexie'
 import { usePOSHydration } from '@/hooks/usePOSHydration'
 import { useNetworkStatus } from '@/hooks/useNetworkStatus'
 import { useCart, type CartItem } from '@/hooks/useCart'
+import { useQuery } from '@tanstack/react-query'
 import { useConfirm } from '@/app/components/ui/ConfirmProvider'
 import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog'
 import { localDb, type LocalInventory, type LocalCustomer } from '@/lib/localDb/schema'
@@ -44,7 +45,19 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
   const isOnline = useNetworkStatus()
   const confirm = useConfirm()
   const [inventory, setInventory] = useState<Map<string, number>>(new Map())
-  const cart = useCart(inventory, branchId)
+
+  const { data: settings } = useQuery({
+    queryKey: ['settings', shopId],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/settings`)
+      if (!res.ok) return {}
+      return res.json()
+    },
+    enabled: !!shopId,
+  })
+
+  const allowNegativeStock = settings?.allow_negative_stock ?? false
+  const cart = useCart(inventory, branchId, allowNegativeStock)
   const [nearExpiryDays, setNearExpiryDays] = useState<number>(90)
   const [isNearExpiryModalOpen, setIsNearExpiryModalOpen] = useState(false)
   const [tempNearExpiryDays, setTempNearExpiryDays] = useState<string>('90')
@@ -492,6 +505,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
             mutePosSound={mutePosSound}
             onAddToCart={cart.addItem}
             onAddToCartWithOptions={cart.addItemWithOptions}
+            allowNegativeStock={allowNegativeStock}
           />
         </div>
 

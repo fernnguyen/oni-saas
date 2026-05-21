@@ -9,6 +9,7 @@ interface Props {
   open: boolean
   onClose: () => void
   onSelect: (item: CartItem) => void
+  allowNegativeStock?: boolean
 }
 
 function fmtVND(v: number | string | null | undefined) {
@@ -19,7 +20,7 @@ function safeJson(s?: string | null) {
   try { return s ? JSON.parse(s) : null } catch { return null }
 }
 
-export function VariantPickerModal({ parentProduct, open, onClose, onSelect }: Props) {
+export function VariantPickerModal({ parentProduct, open, onClose, onSelect, allowNegativeStock = false }: Props) {
   const [children, setChildren] = useState<LocalProduct[]>([])
   const [inventory, setInventory] = useState<Map<string, number>>(new Map())
   const [highlightedIndex, setHighlightedIndex] = useState<number>(0)
@@ -153,7 +154,7 @@ export function VariantPickerModal({ parentProduct, open, onClose, onSelect }: P
                 const opts = safeJson(child.variant_options) ?? {}
                 const label = Object.entries(opts).map(([k, v]) => `${k}: ${v}`).join(' / ') || child.name
                 const stock = inventory.get(child.product_id) ?? 0
-                const outOfStock = stock <= 0
+                const outOfStock = !allowNegativeStock && stock <= 0
                 const isHighlighted = index === highlightedIndex
                 return (
                   <button
@@ -195,7 +196,15 @@ export function VariantPickerModal({ parentProduct, open, onClose, onSelect }: P
                         )}
                       </span>
                       <span className={`text-sm font-semibold ${outOfStock ? 'text-slate-400' : 'text-primary'}`}>({fmtVND(child.sell_price)})</span>
-                      <span className={`text-[11px] font-medium ${outOfStock ? 'text-red-500' : 'text-green-600'}`}>{outOfStock ? 'Hết hàng' : `Còn: ${stock}`}</span>
+                      <span className={`text-[11px] font-medium ${
+                        outOfStock
+                          ? 'text-red-500'
+                          : stock < 0
+                            ? 'text-amber-600 font-semibold'
+                            : 'text-green-600'
+                      }`}>
+                        {outOfStock ? 'Hết hàng' : `Còn: ${stock}`}
+                      </span>
                       {child.sku && (
                         <span className="text-[11px] text-slate-400 ml-auto">{cleanSku(child.sku)}</span>
                       )}
