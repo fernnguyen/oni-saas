@@ -73,7 +73,7 @@ async function safeFetch(url: string): Promise<Raw[]> {
 export async function hydrateAll(shopId: string, branchId: string): Promise<void> {
   const [products, categories, priceLists, discounts, employees, inventory, inventoryBatches, customers] =
     await Promise.all([
-      safeFetch(`/api/shops/${shopId}/products?active=true&limit=2000`),
+      safeFetch(`/api/shops/${shopId}/products?active=true&limit=2000&nocache=true`),
       safeFetch(`/api/shops/${shopId}/categories?active=true&limit=200`),
       safeFetch(`/api/shops/${shopId}/price-lists?active=true&limit=2000`),
       safeFetch(`/api/shops/${shopId}/discounts?active=true&limit=200`),
