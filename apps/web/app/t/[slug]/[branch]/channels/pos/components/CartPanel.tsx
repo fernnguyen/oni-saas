@@ -1,9 +1,12 @@
 'use client'
 import { useEffect, useState } from 'react'
 import type { CartItem } from '@/hooks/useCart'
-import type { LocalCustomer } from '@/lib/localDb/schema'
+import type { LocalCustomer, LocalProduct } from '@/lib/localDb/schema'
 import { CustomerSearch } from './CustomerSearch'
 import { IconClipboard, IconWarehouse, IconTrash } from '@/app/components/layout/nav'
+import { SlideProductSearch } from './SlideProductSearch'
+import { VariantPickerModal } from './VariantPickerModal'
+import { ModifierPickerModal } from './ModifierPickerModal'
 
 interface Props {
   items: CartItem[]
@@ -23,10 +26,22 @@ interface Props {
   onCheckout: () => void
   onClearCart: () => void
   disabled?: boolean
+  onAddToCart?: (product: LocalProduct) => void
+  onAddToCartWithOptions?: (item: CartItem) => void
+  mutePosSound?: boolean
 }
 
 function fmtVND(v: number | string | null | undefined) {
   return Number(v ?? 0).toLocaleString('vi-VN') + 'đ'
+}
+
+let _beep: HTMLAudioElement | null = null
+function playBeep() {
+  try {
+    if (!_beep) _beep = new Audio('/beep.wav')
+    _beep.currentTime = 0
+    _beep.play().catch(() => {})
+  } catch {}
 }
 
 const DISCOUNT_PRESETS = [5, 10, 20, 50]
@@ -49,9 +64,43 @@ export function CartPanel({
   onCheckout,
   onClearCart,
   disabled,
+  onAddToCart,
+  onAddToCartWithOptions,
+  mutePosSound = false,
 }: Props) {
   const [discountMode, setDiscountMode] = useState<'amount' | 'percent'>('amount')
   const [discountPct, setDiscountPct] = useState('')
+
+  // State for modals
+  const [variantParent, setVariantParent] = useState<LocalProduct | null>(null)
+  const [modifierProduct, setModifierProduct] = useState<LocalProduct | null>(null)
+
+  function handleProductClick(product: LocalProduct) {
+    const type = (product as any).product_type ?? 'simple'
+
+    if (type === 'variant_parent') {
+      setVariantParent(product)
+      return
+    }
+
+    if (type === 'modifier') {
+      setModifierProduct(product)
+      return
+    }
+
+    if (!mutePosSound) playBeep()
+    onAddToCart?.(product)
+  }
+
+  function handleVariantSelected(item: CartItem) {
+    if (!mutePosSound) playBeep()
+    onAddToCartWithOptions?.(item)
+  }
+
+  function handleModifierConfirmed(item: CartItem) {
+    if (!mutePosSound) playBeep()
+    onAddToCartWithOptions?.(item)
+  }
 
   // Recalculate discount when subtotal changes (percent mode only)
   useEffect(() => {
@@ -88,6 +137,14 @@ export function CartPanel({
           </p>
         </div>
         <CustomerSearch selected={customer} onSelect={onCustomerChange} />
+      </div>
+
+      {/* Product search (Mobile only) */}
+      <div className="block md:hidden border-b border-slate-100 p-3 bg-slate-50/50">
+        <div className="mb-1.5 flex items-center justify-between">
+          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">TÌM SẢN PHẨM</p>
+        </div>
+        <SlideProductSearch onSelect={handleProductClick} />
       </div>
 
       {/* Items list */}
@@ -191,28 +248,28 @@ export function CartPanel({
       </div>
 
       {/* Footer */}
-      <div className="border-t border-slate-100 p-3 space-y-2.5">
+      <div className="border-t border-slate-100 p-2 md:p-3 space-y-1.5 md:space-y-2.5">
         {/* Note */}
         <input
           type="text"
           value={note}
           onChange={(e) => onNoteChange(e.target.value)}
           placeholder="Ghi chú đơn hàng..."
-          className="w-full rounded-xl border border-slate-200 px-3 py-1.5 text-sm placeholder:text-slate-400 focus:border-primary focus:outline-none"
+          className="w-full rounded-xl border border-slate-200 px-3 py-1 md:py-1.5 text-xs md:text-sm placeholder:text-slate-400 focus:border-primary focus:outline-none"
         />
 
         {/* Discount section */}
         {items.length > 0 && (
-          <div className="space-y-1.5">
+          <div className="space-y-1 md:space-y-1.5">
             {/* Preset buttons */}
             <div className="flex items-center gap-1.5">
-              <span className="shrink-0 text-xs text-slate-500">Giảm:</span>
+              <span className="shrink-0 text-[10px] md:text-xs text-slate-500">Giảm:</span>
               {DISCOUNT_PRESETS.map((pct) => (
                 <button
                   key={pct}
                   onClick={() => applyPreset(pct)}
                   className={[
-                    'rounded px-2 py-0.5 text-xs transition-colors',
+                    'rounded px-1.5 py-0.5 text-[10px] md:text-xs transition-colors',
                     discountMode === 'percent' && discountPct === String(pct)
                       ? 'bg-orange-100 text-orange-700 font-medium'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
@@ -223,7 +280,7 @@ export function CartPanel({
               ))}
               <button
                 onClick={() => { setDiscountMode('amount'); setDiscountPct(''); onDiscountChange(0) }}
-                className="ml-auto text-xs text-slate-400 hover:text-slate-600"
+                className="ml-auto text-[10px] md:text-xs text-slate-400 hover:text-slate-600"
               >
                 Xóa
               </button>
@@ -231,16 +288,16 @@ export function CartPanel({
 
             {/* Mode toggle + input */}
             <div className="flex gap-1.5">
-              <div className="flex overflow-hidden rounded-lg border border-slate-200 text-xs">
+              <div className="flex overflow-hidden rounded-lg border border-slate-200 text-[10px] md:text-xs">
                 <button
                   onClick={() => { setDiscountMode('amount'); setDiscountPct('') }}
-                  className={['px-2 py-1', discountMode === 'amount' ? 'bg-slate-100 font-medium' : 'hover:bg-slate-50'].join(' ')}
+                  className={['px-1.5 py-0.5 md:px-2 md:py-1', discountMode === 'amount' ? 'bg-slate-100 font-medium' : 'hover:bg-slate-50'].join(' ')}
                 >
                   VNĐ
                 </button>
                 <button
                   onClick={() => setDiscountMode('percent')}
-                  className={['px-2 py-1 border-l border-slate-200', discountMode === 'percent' ? 'bg-slate-100 font-medium' : 'hover:bg-slate-50'].join(' ')}
+                  className={['px-1.5 py-0.5 md:px-2 md:py-1 border-l border-slate-200', discountMode === 'percent' ? 'bg-slate-100 font-medium' : 'hover:bg-slate-50'].join(' ')}
                 >
                   %
                 </button>
@@ -253,7 +310,7 @@ export function CartPanel({
                   max={subtotal}
                   onChange={(e) => onDiscountChange(Math.min(Number(e.target.value) || 0, subtotal))}
                   placeholder="0"
-                  className="flex-1 rounded-lg border border-slate-200 px-2 py-1 text-right text-sm focus:border-primary focus:outline-none"
+                  className="flex-1 rounded-lg border border-slate-200 px-2 py-0.5 md:py-1 text-right text-xs md:text-sm focus:border-primary focus:outline-none"
                 />
               ) : (
                 <input
@@ -263,7 +320,7 @@ export function CartPanel({
                   max={100}
                   onChange={(e) => handlePctChange(e.target.value)}
                   placeholder="0"
-                  className="flex-1 rounded-lg border border-slate-200 px-2 py-1 text-right text-sm focus:border-primary focus:outline-none"
+                  className="flex-1 rounded-lg border border-slate-200 px-2 py-0.5 md:py-1 text-right text-xs md:text-sm focus:border-primary focus:outline-none"
                 />
               )}
             </div>
@@ -271,30 +328,30 @@ export function CartPanel({
         )}
 
         {/* Totals */}
-        <div className="space-y-1">
-          <div className="flex items-center justify-between text-sm text-slate-500">
+        <div className="space-y-0.5 md:space-y-1">
+          <div className="flex items-center justify-between text-xs md:text-sm text-slate-500">
             <span>Tạm tính ({items.length} sp):</span>
             <span>{fmtVND(subtotal)}</span>
           </div>
           {discount_amount > 0 && (
-            <div className="flex items-center justify-between text-sm text-orange-600">
+            <div className="flex items-center justify-between text-xs md:text-sm text-orange-600">
               <span>Giảm giá:</span>
               <span>−{fmtVND(discount_amount)}</span>
             </div>
           )}
-          <div className="flex items-center justify-between font-bold text-slate-900">
+          <div className="flex items-center justify-between font-bold text-slate-900 text-sm md:text-base">
             <span>Tổng cộng:</span>
-            <span className="text-lg text-primary">{fmtVND(total)}</span>
+            <span className="text-base md:text-lg text-primary">{fmtVND(total)}</span>
           </div>
         </div>
 
         {/* Action buttons */}
-        <div className="flex gap-2">
+        <div className="flex gap-1.5 md:gap-2">
           {items.length > 0 && (
             <button
               onClick={onHold}
               title="Giữ đơn — lưu tạm để làm đơn khác"
-              className="flex items-center gap-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-600 hover:bg-slate-50 transition-colors"
+              className="flex items-center gap-1 rounded-xl border border-slate-200 px-2.5 py-2 md:px-3 md:py-2.5 text-xs md:text-sm text-slate-600 hover:bg-slate-50 transition-colors"
             >
               <IconClipboard className="h-4 w-4 shrink-0" />
               {heldCount > 0 && (
@@ -308,7 +365,7 @@ export function CartPanel({
             <button
               onClick={onClearCart}
               title="Xóa toàn bộ giỏ hàng"
-              className="rounded-xl bg-red-50 border border-red-200 px-3 py-2.5 text-red-600 hover:bg-red-100 hover:border-red-300 transition-colors"
+              className="rounded-xl bg-red-50 border border-red-200 px-2.5 py-2 md:px-3 md:py-2.5 text-red-600 hover:bg-red-100 hover:border-red-300 transition-colors"
             >
               <IconTrash className="h-4 w-4" />
             </button>
@@ -316,12 +373,30 @@ export function CartPanel({
           <button
             onClick={onCheckout}
             disabled={items.length === 0 || disabled}
-            className="flex-1 rounded-xl bg-primary py-2.5 text-sm font-semibold text-white hover:bg-primary-dark disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className="flex-1 rounded-xl bg-primary py-2 md:py-2.5 text-xs md:text-sm font-semibold text-white hover:bg-primary-dark disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             {total > 0 ? `Thanh toán ${fmtVND(total)}` : 'Thanh toán'}
           </button>
         </div>
       </div>
+
+      {/* Pickers */}
+      {variantParent && (
+        <VariantPickerModal
+          parentProduct={variantParent}
+          open={!!variantParent}
+          onClose={() => setVariantParent(null)}
+          onSelect={handleVariantSelected}
+        />
+      )}
+      {modifierProduct && (
+        <ModifierPickerModal
+          product={modifierProduct}
+          open={!!modifierProduct}
+          onClose={() => setModifierProduct(null)}
+          onConfirm={handleModifierConfirmed}
+        />
+      )}
     </div>
   )
 }

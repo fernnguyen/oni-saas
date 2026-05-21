@@ -89,13 +89,14 @@ export function GlobalSearch() {
     <>
       <button
         onClick={() => setOpen(true)}
-        className="flex h-9 w-9 sm:w-full sm:max-w-md items-center justify-center sm:justify-start gap-2 rounded-lg sm:border sm:border-slate-200 sm:bg-slate-50/50 p-0 sm:px-3 text-sm text-slate-500 sm:text-slate-400 hover:bg-slate-100 sm:hover:border-slate-300 sm:hover:bg-slate-50 transition-colors cursor-pointer shrink-0"
+        className="flex h-9 w-full flex-1 max-w-[130px] min-[375px]:max-w-[160px] sm:max-w-md items-center justify-start gap-1.5 rounded-lg border border-slate-200 bg-slate-50/50 px-2 sm:px-3 text-slate-500 sm:text-slate-400 hover:bg-slate-100 sm:hover:border-slate-300 sm:hover:bg-slate-50 transition-colors cursor-pointer min-w-0"
         aria-label="Tìm kiếm"
       >
-        <svg className="h-5 w-5 sm:h-4 sm:w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <svg className="h-4 w-4 shrink-0 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
         </svg>
-        <span className="flex-1 text-left truncate hidden sm:inline-block">Tìm kiếm mã phiếu, khách hàng...</span>
+        <span className="flex-1 text-left truncate sm:hidden text-xs text-slate-400/80">Tìm kiếm...</span>
+        <span className="flex-1 text-left truncate hidden sm:inline-block text-sm">Tìm kiếm mã phiếu, khách hàng...</span>
         <kbd className="hidden md:inline-flex h-5 items-center justify-center rounded border border-slate-200 bg-white px-1.5 font-mono text-[10px] font-medium text-slate-500 shrink-0">
           <span className="text-xs mr-0.5">⌘</span>K
         </kbd>

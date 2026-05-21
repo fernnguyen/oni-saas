@@ -151,7 +151,7 @@ export function Topbar({
             </div>
 
           {/* Middle: Global Search */}
-          <div className="flex-1 hidden sm:flex justify-center px-2 sm:px-4 max-w-2xl mx-auto">
+          <div className="flex-1 flex justify-center px-2 sm:px-4 max-w-2xl mx-auto min-w-0">
             {context === 'shop' && (
               <GlobalSearch />
             )}
