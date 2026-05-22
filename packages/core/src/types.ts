@@ -27,7 +27,7 @@ export interface Shop {
  * Keys are action names registered in planLimits.ts (e.g. "create_shop").
  * Adding a new limit = add a key here + register the counter in planLimits.ts.
  */
-export type PlanMetadata = Record<string, number>;
+export type PlanMetadata = Record<string, number | boolean>;
 
 export interface Plan {
   id: number;

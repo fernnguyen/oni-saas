@@ -323,3 +323,39 @@ export const inventory_batches = pgTable('inventory_batches', {
   expiry_date: varchar('expiry_date', { length: 50 }).notNull(), // Định dạng YYYY-MM-DD
   stock_qty: varchar('stock_qty', { length: 50 }).notNull(),
 });
+
+// ── QR Table Ordering (Plug-and-Play Realtime Module) ────────────────────
+export const qr_ordering_sessions = pgTable('qr_ordering_sessions', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  branch_id: varchar('branch_id', { length: 255 }).notNull(),
+  resource_id: varchar('resource_id', { length: 255 }).notNull(),
+  session_token: varchar('session_token', { length: 255 }).notNull(),
+  status: varchar('status', { length: 50 }).default('active'),
+});
+
+export const qr_session_carts = pgTable('qr_session_carts', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  session_id: varchar('session_id', { length: 255 }).notNull(),
+  user_display_name: varchar('user_display_name', { length: 255 }),
+  product_id: varchar('product_id', { length: 255 }).notNull(),
+  sku: varchar('sku', { length: 255 }),
+  variant_id: varchar('variant_id', { length: 255 }),
+  product_name: varchar('product_name', { length: 255 }),
+  qty: varchar('qty', { length: 50 }).notNull(),
+  unit_price: varchar('unit_price', { length: 50 }).notNull(),
+  modifiers: text('modifiers'),
+});
+
+export const qr_order_requests = pgTable('qr_order_requests', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  branch_id: varchar('branch_id', { length: 255 }).notNull(),
+  session_id: varchar('session_id', { length: 255 }).notNull(),
+  resource_id: varchar('resource_id', { length: 255 }).notNull(),
+  items: jsonb('items').notNull(),
+  status: varchar('status', { length: 50 }).default('pending'),
+  reject_reason: text('reject_reason'),
+});
+
