@@ -346,34 +346,38 @@ export default function MapViewer({
   }
 
   return (
-    <div className="flex flex-col bg-white border border-slate-200 rounded-3xl overflow-hidden relative shadow-sm shadow-slate-100 h-[70vh] min-h-[500px]">
+    <div className="flex flex-col bg-white border border-slate-200 rounded-3xl overflow-hidden relative shadow-sm shadow-slate-100 h-full w-full min-h-[350px]">
       
       {/* Visual Canvas Toolbar Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50/80 border-b border-slate-200 px-6 py-3 select-none w-full">
-        <div className="flex items-center gap-3">
+      <div className="flex items-center justify-between gap-2 sm:gap-3 bg-slate-50/80 border-b border-slate-200 px-4 sm:px-6 py-2.5 sm:py-3 select-none w-full shrink-0">
+        <div className="flex items-center gap-2 sm:gap-3">
           <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
-          <p className="text-xs font-bold text-slate-700">Sơ đồ trực quan: <span className="text-primary">{selectedZone || 'Chưa phân vùng'}</span></p>
-          <div className="h-4 w-px bg-slate-200" />
+          <p className="text-xs font-bold text-slate-700 hidden sm:inline-block">
+            <span>Sơ đồ trực quan:</span>{' '}
+            <span className="text-primary">{selectedZone || 'Chưa phân vùng'}</span>
+          </p>
+          <div className="h-4 w-px bg-slate-200 hidden sm:block" />
           <span className="text-[10px] text-slate-450 font-semibold hidden md:inline">Nhấn kéo bản đồ để di chuyển • Nhấp bàn để thao tác</span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 ml-auto">
           {/* Scale controls */}
           <div className="flex items-center rounded-lg bg-white border border-slate-200 p-0.5 shadow-sm">
-            <button onClick={() => handleZoom('out')} className="rounded px-2.5 py-1 text-xs text-slate-500 hover:text-slate-850 hover:bg-slate-100 transition-colors font-extrabold cursor-pointer">-</button>
-            <span className="px-1 text-[10px] font-extrabold text-slate-700 w-11 text-center">{Math.round(scale * 100)}%</span>
-            <button onClick={() => handleZoom('in')} className="rounded px-2.5 py-1 text-xs text-slate-500 hover:text-slate-850 hover:bg-slate-100 transition-colors font-extrabold cursor-pointer">+</button>
+            <button onClick={() => handleZoom('out')} className="rounded px-2 py-0.5 sm:px-2.5 sm:py-1 text-xs text-slate-500 hover:text-slate-850 hover:bg-slate-100 transition-colors font-extrabold cursor-pointer">-</button>
+            <span className="px-0.5 sm:px-1 text-[9px] sm:text-[10px] font-extrabold text-slate-700 w-9 sm:w-11 text-center">{Math.round(scale * 100)}%</span>
+            <button onClick={() => handleZoom('in')} className="rounded px-2 py-0.5 sm:px-2.5 sm:py-1 text-xs text-slate-500 hover:text-slate-850 hover:bg-slate-100 transition-colors font-extrabold cursor-pointer">+</button>
           </div>
           <button 
             onClick={() => handleZoom('fit')} 
-            className="rounded-lg bg-white border border-slate-200 hover:bg-slate-50 hover:text-slate-850 text-slate-600 px-3 py-1.5 text-[11px] font-bold active:scale-95 transition-all cursor-pointer shadow-sm"
+            className="rounded-lg bg-white border border-slate-200 hover:bg-slate-50 hover:text-slate-850 text-slate-650 px-2 sm:px-3 py-1.5 text-[11px] font-bold active:scale-95 transition-all cursor-pointer shadow-sm"
             title="Co giãn vừa màn hình"
           >
-            Xem toàn cảnh
+            <span className="sm:inline hidden">Xem toàn cảnh</span>
+            <span className="sm:hidden inline">Toàn cảnh</span>
           </button>
           <button 
             onClick={() => handleZoom('reset')} 
-            className="rounded-lg bg-white border border-slate-200 hover:bg-slate-50 hover:text-slate-850 text-slate-600 px-3 py-1.5 text-[11px] font-bold active:scale-95 transition-all cursor-pointer shadow-sm"
+            className="rounded-lg bg-white border border-slate-200 hover:bg-slate-50 hover:text-slate-850 text-slate-650 px-2 sm:px-3 py-1.5 text-[11px] font-bold active:scale-95 transition-all cursor-pointer shadow-sm"
             title="Đặt lại zoom 100%"
           >
             100%
