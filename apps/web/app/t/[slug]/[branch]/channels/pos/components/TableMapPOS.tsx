@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { toast } from 'sonner'
 import { usePOSHydration } from '@/hooks/usePOSHydration'
 import { useNetworkStatus } from '@/hooks/useNetworkStatus'
@@ -9,6 +9,9 @@ import { ResourceSlideOver } from './ResourceSlideOver'
 import { getVerticalConfig } from '@oni/core'
 import { EmptyState } from '@/app/components/ui/EmptyState'
 import { DataTable, type Column } from '@/app/components/ui/DataTable'
+import dynamic from 'next/dynamic'
+
+const MapViewer = dynamic(() => import('./MapViewer'), { ssr: false })
 
 const UserIcon = ({ className }: { className?: string }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -27,6 +30,19 @@ interface Resource {
   hourly_rate: string
   sort_order: string
   metadata?: string
+}
+
+interface OrderData {
+  id: string
+  order_no: string
+  status: string
+  customer_name: string
+  customer_id: string
+  total_amount: string
+  paid_amount: string
+  debt_amount: string
+  metadata: string
+  created_at: string
 }
 
 interface Props {
@@ -52,7 +68,7 @@ const STATUS_CARDS: Record<string, { border: string; bg: string; dot: string; la
   maintenance: { border: 'border-slate-300', bg: 'bg-slate-100', dot: 'bg-slate-400', label: 'Tạm ngừng', text: 'text-slate-600' },
 }
 
-type ViewMode = 'grid' | 'list'
+type ViewMode = 'grid' | 'list' | 'map'
 
 export function TableMapPOS({
   shopId, branchId, shopName, userEmail, backPath,
@@ -70,8 +86,26 @@ export function TableMapPOS({
   const [activeSlideResource, setActiveSlideResource] = useState<Resource | null>(null)
 
   const vertical = getVerticalConfig(industryType)
-  const [viewMode, setViewMode] = useState<ViewMode>('grid')
+  const [viewMode, setViewMode] = useState<ViewMode>('map')
   const [selectedZone, setSelectedZone] = useState<string | null>(null)
+  
+  const [shopSettings, setShopSettings] = useState<any>(null)
+  const [inProgressOrders, setInProgressOrders] = useState<OrderData[]>([])
+
+  // Map orders for fast lookup
+  const ordersMap = useMemo(() => {
+    const map = new Map<string, OrderData>()
+    for (const order of inProgressOrders) {
+      map.set(order.id, order)
+      try {
+        const meta = typeof order.metadata === 'string' ? JSON.parse(order.metadata) : (order.metadata || {})
+        if (meta.resource_id) {
+          map.set(`res-${meta.resource_id}`, order)
+        }
+      } catch {}
+    }
+    return map
+  }, [inProgressOrders])
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -87,7 +121,7 @@ export function TableMapPOS({
 
   useEffect(() => {
     const saved = localStorage.getItem('pos_view_mode')
-    if (saved === 'grid' || saved === 'list') setViewMode(saved)
+    if (saved === 'grid' || saved === 'list' || saved === 'map') setViewMode(saved)
   }, [])
 
   function toggleViewMode(mode: ViewMode) {
@@ -111,6 +145,19 @@ export function TableMapPOS({
     if (isOnline) workerRef.current?.flushAll()
   }, [isOnline])
 
+  const fetchSettings = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/shops/${shopId}/settings`)
+      if (!res.ok) return
+      const json = await res.json()
+      setShopSettings(json)
+    } catch {}
+  }, [shopId])
+
+  useEffect(() => {
+    fetchSettings()
+  }, [fetchSettings])
+
   const fetchResources = useCallback(async () => {
     try {
       // Fetch physical resources and takeaway orders in parallel
@@ -127,7 +174,10 @@ export function TableMapPOS({
       let virtualResources: Resource[] = []
       if (resOrders.ok) {
         const jsonOrders = await resOrders.json()
-        const takeawayOrders = (jsonOrders.data ?? []).filter((o: any) => {
+        const ordersList = jsonOrders.data ?? []
+        setInProgressOrders(ordersList)
+
+        const takeawayOrders = ordersList.filter((o: any) => {
           try {
             const meta = typeof o.metadata === 'string' ? JSON.parse(o.metadata) : (o.metadata || {})
             return meta.resource_id === 'takeaway'
@@ -170,6 +220,73 @@ export function TableMapPOS({
     }
     return () => { if (timerRef.current) clearInterval(timerRef.current) }
   }, [resources])
+
+  // Group by zone (filter out deleted)
+  const activeResources = useMemo<Resource[]>(() => resources.filter((r: Resource) => r.status !== 'deleted'), [resources])
+  const zones = useMemo<Map<string, Resource[]>>(() => {
+    const map = new Map<string, Resource[]>()
+    for (const r of activeResources) {
+      const zone = r.zone || 'Chưa phân vùng'
+      if (!map.has(zone)) map.set(zone, [])
+      map.get(zone)!.push(r)
+    }
+    return map
+  }, [activeResources])
+
+  // Parse custom sorting order from settings
+  const zoneOrder = useMemo<string[]>(() => {
+    if (!shopSettings?.resource_sub_types) return []
+    try {
+      const parsed = typeof shopSettings.resource_sub_types === 'string'
+        ? JSON.parse(shopSettings.resource_sub_types)
+        : shopSettings.resource_sub_types
+      return (parsed[`${industryType}_zone_order`] || []) as string[]
+    } catch {
+      return []
+    }
+  }, [shopSettings, industryType])
+
+  const sortedZones = useMemo<string[]>(() => {
+    const list = Array.from(zones.keys())
+    list.sort((a: string, b: string) => {
+      if (a === 'Chưa phân vùng') return 1
+      if (b === 'Chưa phân vùng') return -1
+      
+      const idxA = zoneOrder.indexOf(a)
+      const idxB = zoneOrder.indexOf(b)
+      
+      if (idxA !== -1 && idxB !== -1) {
+        return idxA - idxB
+      }
+      if (idxA !== -1) return -1
+      if (idxB !== -1) return 1
+      
+      return a.localeCompare(b, 'vi')
+    })
+    
+    // Filter out "Chưa phân vùng" if it has 0 physical tables/active resources
+    return list.filter((z: string) => {
+      if (z === 'Chưa phân vùng') {
+        const count = zones.get(z)?.length || 0
+        return count > 0
+      }
+      return true
+    })
+  }, [zones, zoneOrder])
+
+  // Redirect to first zone when in map mode and selectedZone is null or invalid
+  useEffect(() => {
+    if (viewMode === 'map') {
+      const visibleZones = sortedZones
+      if (!selectedZone || !visibleZones.includes(selectedZone)) {
+        if (visibleZones.length > 0) {
+          setSelectedZone(visibleZones[0])
+        } else {
+          setSelectedZone('Chưa phân vùng')
+        }
+      }
+    }
+  }, [viewMode, selectedZone, sortedZones])
 
   function handleResourceClick(r: Resource) {
     if (r.status === 'available' || r.status === 'occupied') {
@@ -253,25 +370,30 @@ export function TableMapPOS({
   }
 
   // --- Grid View ---
-  // Group by zone (filter out deleted)
-  const activeResources = resources.filter(r => r.status !== 'deleted')
-  const zones = new Map<string, Resource[]>()
-  for (const r of activeResources) {
-    const zone = r.zone || 'Chưa phân vùng'
-    if (!zones.has(zone)) zones.set(zone, [])
-    zones.get(zone)!.push(r)
-  }
-
-  const displayedZones = selectedZone
-    ? Array.from(zones.entries()).filter(([z]) => z === selectedZone)
-    : Array.from(zones.entries())
+  const displayedZones = useMemo<[string, Resource[]][]>(() => {
+    const entries = Array.from(zones.entries())
+    entries.sort((a: [string, Resource[]], b: [string, Resource[]]) => {
+      const idxA = sortedZones.indexOf(a[0])
+      const idxB = sortedZones.indexOf(b[0])
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB
+      if (idxA !== -1) return -1
+      if (idxB !== -1) return 1
+      return a[0].localeCompare(b[0], 'vi')
+    })
+    
+    if (selectedZone) {
+      return entries.filter(([z]: [string, Resource[]]) => z === selectedZone)
+    }
+    
+    return entries.filter(([z]: [string, Resource[]]) => sortedZones.includes(z))
+  }, [zones, sortedZones, selectedZone])
 
   // Stats
   const stats = {
     total: activeResources.length,
-    available: activeResources.filter(r => r.status === 'available').length,
-    occupied: activeResources.filter(r => r.status === 'occupied').length,
-    cleaning: activeResources.filter(r => r.status === 'cleaning').length,
+    available: activeResources.filter((r: Resource) => r.status === 'available').length,
+    occupied: activeResources.filter((r: Resource) => r.status === 'occupied').length,
+    cleaning: activeResources.filter((r: Resource) => r.status === 'cleaning').length,
   }
 
   return (
@@ -302,6 +424,13 @@ export function TableMapPOS({
               title="Dạng danh sách"
             >
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" /></svg>
+            </button>
+            <button
+              onClick={() => toggleViewMode('map')}
+              className={`rounded-lg px-2 py-1 text-xs font-medium transition-colors ${viewMode === 'map' ? 'bg-slate-100 text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+              title="Dạng sơ đồ"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" /></svg>
             </button>
           </div>
 
@@ -342,21 +471,23 @@ export function TableMapPOS({
       </div>
 
       {/* Zone selection filter tabs (F7 to select all) */}
-      {zones.size > 0 && (
+      {sortedZones.length > 0 && (
         <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide select-none">
-          <button
-            onClick={() => setSelectedZone(null)}
-            className={[
-              'shrink-0 rounded-xl px-4 py-2 text-xs font-bold transition-all shadow-xs active:scale-95 border cursor-pointer',
-              selectedZone === null
-                ? 'bg-slate-900 border-slate-900 text-white'
-                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50',
-            ].join(' ')}
-            title="Nhấn F7 để chọn Tất cả phòng/bàn"
-          >
-            Tất cả phòng/bàn (F7)
-          </button>
-          {Array.from(zones.keys()).map((z) => (
+          {viewMode !== 'map' && (
+            <button
+              onClick={() => setSelectedZone(null)}
+              className={[
+                'shrink-0 rounded-xl px-4 py-2 text-xs font-bold transition-all shadow-xs active:scale-95 border cursor-pointer',
+                selectedZone === null
+                  ? 'bg-slate-900 border-slate-900 text-white'
+                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50',
+              ].join(' ')}
+              title="Nhấn F7 để chọn Tất cả phòng/bàn"
+            >
+              Tất cả phòng/bàn (F7)
+            </button>
+          )}
+          {sortedZones.map((z: string) => (
             <button
               key={z}
               onClick={() => setSelectedZone(z)}
@@ -382,7 +513,66 @@ export function TableMapPOS({
         <EmptyState title={`Chưa có ${resourceLabel} nào`} description={`Vào Quản lý vị trí để tạo ${resourceLabel}`} />
       ) : (
         <>
-          {viewMode === 'grid' && displayedZones.map(([zone, items]) => (
+          {viewMode === 'map' && (() => {
+            const activeZoneResources = resources.filter(r => r.status !== 'deleted' && (r.zone || 'Chưa phân vùng') === (selectedZone || 'Chưa phân vùng'))
+            const hasPositionedTables = activeZoneResources.some(r => {
+              try {
+                const meta = r.metadata ? JSON.parse(r.metadata) : {}
+                return !!meta.layout
+              } catch {
+                return false
+              }
+            })
+
+            if (!hasPositionedTables) {
+              return (
+                <div className="flex flex-col items-center justify-center border border-dashed border-slate-200 bg-slate-50/80 rounded-3xl p-12 text-center h-[50vh] relative shadow-sm overflow-hidden select-none">
+                  <div className="relative z-10 max-w-md space-y-4">
+                    <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-white border border-slate-200 shadow-sm">
+                      <svg className="h-7 w-7 text-slate-400 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+                      </svg>
+                    </div>
+                    <div className="space-y-2">
+                      <h3 className="text-base font-bold text-slate-800">Khu vực chưa được thiết lập sơ đồ</h3>
+                      <p className="text-xs text-slate-500 leading-relaxed font-medium">
+                        Phòng/bàn trong khu vực <strong className="text-primary font-bold">{selectedZone || 'Chưa phân vùng'}</strong> chưa được sắp xếp vị trí tọa độ trực quan trên bản đồ.
+                      </p>
+                    </div>
+                    <div className="flex items-center justify-center gap-3 pt-2">
+                      <button
+                        onClick={() => setViewMode('grid')}
+                        className="rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 px-4 py-2 text-xs font-bold active:scale-95 transition-all shadow-sm cursor-pointer"
+                      >
+                        Xem dạng lưới
+                      </button>
+                      <a
+                        href={`${backPath}/resources`}
+                        className="rounded-xl bg-primary hover:bg-primary/90 text-white px-4 py-2 text-xs font-bold active:scale-95 transition-all shadow-md shadow-primary/20 cursor-pointer"
+                      >
+                        Thiết lập sơ đồ
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              )
+            }
+
+            return (
+              <MapViewer
+                shopId={shopId}
+                industryType={industryType}
+                resources={resources}
+                selectedZone={selectedZone}
+                shopSettings={shopSettings}
+                inProgressOrders={inProgressOrders}
+                onResourceClick={handleResourceClick}
+                onRefresh={fetchResources}
+              />
+            )
+          })()}
+
+          {viewMode === 'grid' && displayedZones.map(([zone, items]: [string, Resource[]]) => (
             <div key={zone} className="mb-6 last:mb-0">
               <div className="flex items-center gap-2 mb-3">
                 <h3 className="text-sm font-semibold text-slate-700">{zone}</h3>
@@ -390,11 +580,14 @@ export function TableMapPOS({
               </div>
               
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
-                {items.sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0)).map(r => {
+                {items.sort((a: Resource, b: Resource) => Number(a.sort_order || 0) - Number(b.sort_order || 0)).map((r: Resource) => {
                   const st = STATUS_CARDS[r.status] ?? STATUS_CARDS.available
                   const rmd = safeParseJSON(r.metadata)
                   const tpl = vertical.resourceTemplate
                   const isRoomType = r.type === 'room'
+                  const activeOrder = r.status === 'occupied'
+                    ? (ordersMap.get(r.current_order_id || '') || ordersMap.get(`res-${r.id}`))
+                    : null
                   return (
                     <button
                       key={r.id}
@@ -447,10 +640,13 @@ export function TableMapPOS({
                       </div>
 
                       {/* Status label at the bottom */}
-                      <div className={`mt-auto w-full rounded-lg px-2 py-1.5 text-center transition-colors ${r.status === 'cleaning' ? 'bg-amber-100 border-amber-300 hover:bg-amber-200' : st.bg} ${st.border} border`}>
+                      <div className={`mt-auto w-full rounded-lg px-2 py-1.5 text-center transition-colors ${r.status === 'cleaning' ? 'bg-amber-100 hover:bg-amber-200' : st.bg}`}>
                         <p className={`text-[12px] font-bold flex items-center justify-center gap-1.5 ${st.text}`}>
-                          <span className={`h-1.5 w-1.5 rounded-full ${st.dot} ${r.status === 'occupied' ? 'animate-pulse' : ''}`} />
-                          {r.status === 'cleaning' ? '✓ Dọn xong' : st.label}
+                          {r.status === 'cleaning'
+                            ? '✓ Dọn xong'
+                            : r.status === 'occupied'
+                            ? (activeOrder?.customer_name || 'Khách lẻ')
+                            : st.label}
                         </p>
                       </div>
                     </button>
@@ -484,10 +680,12 @@ export function TableMapPOS({
               className: 'w-[15%]',
               render: (r) => {
                 const st = STATUS_CARDS[r.status] ?? STATUS_CARDS.available
+                const activeOrder = r.status === 'occupied'
+                  ? (ordersMap.get(r.current_order_id || '') || ordersMap.get(`res-${r.id}`))
+                  : null
                 return (
-                  <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ${st.bg} ${st.text} border ${st.border}`}>
-                    <span className={`h-1.5 w-1.5 rounded-full ${st.dot} ${r.status === 'occupied' ? 'animate-pulse' : ''}`} />
-                    {st.label}
+                  <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ${st.bg} ${st.text}`}>
+                    {r.status === 'occupied' ? (activeOrder?.customer_name || 'Khách lẻ') : st.label}
                   </span>
                 )
               }
@@ -539,7 +737,7 @@ export function TableMapPOS({
               )
             }
           ]}
-          groupedData={Array.from(zones.entries()).map(([zone, items]) => ({
+          groupedData={Array.from(zones.entries()).map(([zone, items]: [string, Resource[]]) => ({
             key: zone,
             label: (
               <span className="uppercase tracking-wider">
@@ -547,7 +745,7 @@ export function TableMapPOS({
                 <span className="text-slate-400 text-xs font-normal normal-case ml-2">({items.length} vị trí)</span>
               </span>
             ),
-            items: items.sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0))
+            items: items.sort((a: Resource, b: Resource) => Number(a.sort_order || 0) - Number(b.sort_order || 0))
           }))}
           rowKey={(row) => row.id}
           onRowClick={handleResourceClick}

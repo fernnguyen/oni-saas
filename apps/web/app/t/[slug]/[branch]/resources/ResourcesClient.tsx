@@ -9,6 +9,10 @@ import { getVerticalConfig } from '@oni/core'
 import { useConfirm } from '@/app/components/ui/ConfirmProvider'
 import { DataTable, Column } from '@/app/components/ui/DataTable'
 import { EmptyState } from '@/app/components/ui/EmptyState'
+import dynamic from 'next/dynamic'
+
+const MapEditor = dynamic(() => import('./components/MapEditor'), { ssr: false })
+
 
 const UserIcon = ({ className }: { className?: string }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -141,12 +145,213 @@ export function ResourcesClient({ shopId, industryType }: Props) {
   const branchSlug = params?.branch as string
   const slug = params?.slug as string
 
-  const [filterStatus, setFilterStatus] = useState<'active' | 'maintenance' | 'deleted'>('active')
+  const [filterStatus, setFilterStatus] = useState<'active' | 'maintenance' | 'deleted' | 'map'>('map')
+  const [selectedZone, setSelectedZone] = useState<string | null>(null)
+  const [shopSettings, setShopSettings] = useState<any>(null)
+
+  // Management states
+  const [mgmtDropdownOpen, setMgmtDropdownOpen] = useState(false)
+  const [reorderModalOpen, setReorderModalOpen] = useState(false)
+  const [editableZones, setEditableZones] = useState<string[]>([])
+  const [renameModalOpen, setRenameModalOpen] = useState(false)
+  const [renameValue, setRenameValue] = useState('')
+
+  // Parse custom sorting order from settings
+  const zoneOrder = useMemo(() => {
+    if (!shopSettings?.resource_sub_types) return []
+    try {
+      const parsed = typeof shopSettings.resource_sub_types === 'string'
+        ? JSON.parse(shopSettings.resource_sub_types)
+        : shopSettings.resource_sub_types
+      return parsed[`${industryType}_zone_order`] || []
+    } catch {
+      return []
+    }
+  }, [shopSettings, industryType])
+
+  // Computed zones list with custom sorting
+  const zonesList = useMemo(() => {
+    const set = new Set<string>()
+    resources.filter(r => r.status !== 'deleted').forEach(r => {
+      set.add(r.zone || 'Chưa phân vùng')
+    })
+    const list = Array.from(set)
+    
+    list.sort((a, b) => {
+      if (a === 'Chưa phân vùng') return 1
+      if (b === 'Chưa phân vùng') return -1
+      
+      const idxA = zoneOrder.indexOf(a)
+      const idxB = zoneOrder.indexOf(b)
+      
+      if (idxA !== -1 && idxB !== -1) {
+        return idxA - idxB
+      }
+      if (idxA !== -1) return -1
+      if (idxB !== -1) return 1
+      
+      return a.localeCompare(b, 'vi')
+    })
+    return list
+  }, [resources, zoneOrder])
+
+  // Select default zone
+  useEffect(() => {
+    if (filterStatus === 'map' && !selectedZone && zonesList.length > 0) {
+      setSelectedZone(zonesList[0])
+    }
+  }, [filterStatus, selectedZone, zonesList])
+
+  // Delete an entire zone/location
+  async function handleDeleteZone() {
+    if (!selectedZone || selectedZone === 'Chưa phân vùng') return
+    const zoneResources = resources.filter(r => r.zone === selectedZone && r.status !== 'deleted')
+    const ok = await confirm({
+      title: `Xóa vị trí "${selectedZone}"?`,
+      description: `Khu vực "${selectedZone}" sẽ bị xóa. Toàn bộ ${zoneResources.length} ${tpl?.label.toLowerCase() || 'bàn'} thuộc khu vực này sẽ được chuyển về "Chưa phân vùng".`,
+      confirmLabel: 'Xóa vị trí',
+      cancelLabel: 'Hủy',
+      variant: 'danger',
+    })
+    if (!ok) return
+
+    try {
+      setLoading(true)
+      const patchPromises = zoneResources.map(async (r) => {
+        return fetch(`/api/shops/${shopId}/location-resources/${r.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ zone: '' }),
+        })
+      })
+      await Promise.all(patchPromises)
+      toast.success(`Đã xóa vị trí "${selectedZone}" thành công`)
+      await fetchResources()
+      setSelectedZone('Chưa phân vùng')
+    } catch {
+      toast.error('Lỗi khi xóa vị trí')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Rename a zone/location
+  async function handleRenameZone(newName: string) {
+    if (!selectedZone || selectedZone === 'Chưa phân vùng') return
+    const trimmedNewName = newName.trim()
+    if (!trimmedNewName) {
+      toast.error('Tên vị trí không được để trống')
+      return
+    }
+    if (trimmedNewName === selectedZone) {
+      setRenameModalOpen(false)
+      return
+    }
+
+    const exists = zonesList.some(z => z.toLowerCase() === trimmedNewName.toLowerCase() && z !== selectedZone)
+    if (exists) {
+      toast.error('Tên vị trí này đã tồn tại')
+      return
+    }
+
+    const zoneResources = resources.filter(r => r.zone === selectedZone)
+
+    try {
+      setSaving(true)
+      const patchPromises = zoneResources.map(async (r) => {
+        return fetch(`/api/shops/${shopId}/location-resources/${r.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ zone: trimmedNewName }),
+        })
+      })
+      await Promise.all(patchPromises)
+
+      const getRes = await fetch(`/api/shops/${shopId}/settings`)
+      if (getRes.ok) {
+        const currentSettings = await getRes.json()
+        const parsed = currentSettings.resource_sub_types
+          ? (typeof currentSettings.resource_sub_types === 'string'
+             ? JSON.parse(currentSettings.resource_sub_types)
+             : currentSettings.resource_sub_types)
+          : {}
+
+        const currentOrder = parsed[`${industryType}_zone_order`] || []
+        if (currentOrder.includes(selectedZone)) {
+          parsed[`${industryType}_zone_order`] = currentOrder.map((z: string) => z === selectedZone ? trimmedNewName : z)
+          await fetch(`/api/shops/${shopId}/settings`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ resource_sub_types: JSON.stringify(parsed) }),
+          })
+          await fetchSettings()
+        }
+      }
+
+      toast.success(`Đã đổi tên vị trí thành "${trimmedNewName}"`)
+      setSelectedZone(trimmedNewName)
+      setRenameModalOpen(false)
+      await fetchResources()
+    } catch {
+      toast.error('Lỗi khi đổi tên vị trí')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // Save new custom order of zones/locations
+  async function handleSaveZoneOrder() {
+    try {
+      setSaving(true)
+      const getRes = await fetch(`/api/shops/${shopId}/settings`)
+      const currentSettings = await getRes.json()
+      const parsed = currentSettings.resource_sub_types
+        ? (typeof currentSettings.resource_sub_types === 'string'
+           ? JSON.parse(currentSettings.resource_sub_types)
+           : currentSettings.resource_sub_types)
+        : {}
+      
+      parsed[`${industryType}_zone_order`] = editableZones
+
+      await handleSaveSettings(parsed)
+      toast.success('Đã cập nhật thứ tự vị trí thành công!')
+      setReorderModalOpen(false)
+    } catch {
+      toast.error('Lỗi khi lưu thứ tự vị trí')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   // Custom Settings
   const [customSubTypes, setCustomSubTypes] = useState<{value:string, label:string}[]>([])
   const [subTypeModalOpen, setSubTypeModalOpen] = useState(false)
   const combinedSubTypes = [...(tpl?.subTypes || []), ...customSubTypes]
+
+  const [isCreatingNewZone, setIsCreatingNewZone] = useState(false)
+
+  // Computed existing unique zones
+  const activeExistingZones = useMemo<string[]>(() => {
+    const set = new Set<string>()
+    // Add zones from zoneOrder
+    zoneOrder.forEach((z: string) => {
+      if (z && z !== 'Chưa phân vùng') set.add(z)
+    })
+    // Add zones from current resources
+    resources.filter(r => r.status !== 'deleted').forEach(r => {
+      if (r.zone && r.zone !== 'Chưa phân vùng') {
+        set.add(r.zone)
+      }
+    })
+    return Array.from(set).sort((a, b) => {
+      const idxA = zoneOrder.indexOf(a)
+      const idxB = zoneOrder.indexOf(b)
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB
+      if (idxA !== -1) return -1
+      if (idxB !== -1) return 1
+      return a.localeCompare(b, 'vi')
+    })
+  }, [resources, zoneOrder])
 
   // Form state
   const [formName, setFormName] = useState('')
@@ -185,6 +390,7 @@ export function ResourcesClient({ shopId, industryType }: Props) {
       const res = await fetch(`/api/shops/${shopId}/settings`)
       if (!res.ok) return
       const json = await res.json()
+      setShopSettings(json)
       if (json.resource_sub_types) {
         const parsed = safeParseJSON(json.resource_sub_types)
         if (parsed[industryType]) {
@@ -193,6 +399,16 @@ export function ResourcesClient({ shopId, industryType }: Props) {
       }
     } catch {}
   }, [shopId, industryType])
+
+  async function handleSaveSettings(updatedSubTypes: any) {
+    const res = await fetch(`/api/shops/${shopId}/settings`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resource_sub_types: JSON.stringify(updatedSubTypes) }),
+    })
+    if (!res.ok) throw new Error('Save settings failed')
+    await fetchSettings()
+  }
 
   useEffect(() => { fetchResources(); fetchSettings() }, [fetchResources, fetchSettings])
 
@@ -233,6 +449,7 @@ export function ResourcesClient({ shopId, industryType }: Props) {
     setFormAmenities([])
     setCreating(false)
     setEditingId(null)
+    setIsCreatingNewZone(false)
   }
 
   function startEdit(r: Resource) {
@@ -250,6 +467,7 @@ export function ResourcesClient({ shopId, industryType }: Props) {
     setFormCheckoutTime(md.checkout_time || '12:00'); setFormDepositAmount(maskVND(md.deposit_amount || ''))
     setFormExtraBedFee(maskVND(md.extra_bed_fee || '')); setFormAmenities(md.amenities || [])
     setCreating(true)
+    setIsCreatingNewZone(false)
   }
 
   function handleDuplicate(r: Resource) {
@@ -478,7 +696,6 @@ export function ResourcesClient({ shopId, industryType }: Props) {
         const st = STATUS_STYLES[r.status] ?? STATUS_STYLES.available
         return (
           <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ${st.bg} ${st.text}`}>
-            <span className={`h-1.5 w-1.5 rounded-full ${st.dot}`} />
             {st.label}
           </span>
         )
@@ -542,25 +759,143 @@ export function ResourcesClient({ shopId, industryType }: Props) {
       <div className="flex items-center gap-2 mb-4">
         <button
           onClick={() => setFilterStatus('active')}
-          className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${filterStatus === 'active' ? 'bg-primary text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+          className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${filterStatus === 'active' ? 'bg-primary text-white shadow-sm font-semibold' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
         >
           Đang hoạt động
         </button>
         <button
           onClick={() => setFilterStatus('maintenance')}
-          className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${filterStatus === 'maintenance' ? 'bg-slate-800 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+          className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${filterStatus === 'maintenance' ? 'bg-slate-800 text-white shadow-sm font-semibold' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
         >
           Tạm ngừng
         </button>
         <button
           onClick={() => setFilterStatus('deleted')}
-          className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${filterStatus === 'deleted' ? 'bg-red-500 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+          className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${filterStatus === 'deleted' ? 'bg-red-500 text-white shadow-sm font-semibold' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
         >
           Đã xóa
         </button>
+        <button
+          onClick={() => setFilterStatus('map')}
+          className={`inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+            filterStatus === 'map'
+              ? 'bg-primary text-white shadow-md font-bold shadow-primary/10 border border-primary'
+              : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+          }`}
+        >
+          <svg className="w-3.5 h-3.5 mr-1.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+          </svg>
+          Sơ đồ bàn
+        </button>
       </div>
 
-      {loading ? (
+      {filterStatus === 'map' && zonesList.length > 0 && (
+        <div className="flex justify-between items-center border-b border-slate-200 mb-6 gap-4 relative">
+          <div className="flex overflow-x-auto scrollbar-hide select-none flex-1 -mb-[1px]">
+            {zonesList.map((z) => (
+              <button
+                key={z}
+                onClick={() => setSelectedZone(z)}
+                className={[
+                  'shrink-0 px-5 py-3 text-xs font-bold transition-all cursor-pointer border-b-2',
+                  selectedZone === z
+                    ? 'border-primary text-primary font-extrabold bg-slate-50/50 rounded-t-lg shadow-sm shadow-slate-100/50'
+                    : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50/30 rounded-t-lg',
+                ].join(' ')}
+              >
+                {z}
+              </button>
+            ))}
+          </div>
+
+          {/* Location Management Dropdown */}
+          <div className="relative shrink-0 pb-1.5">
+            <button
+              onClick={() => setMgmtDropdownOpen(!mgmtDropdownOpen)}
+              className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 shadow-sm hover:bg-slate-50 transition-all cursor-pointer whitespace-nowrap"
+            >
+              Quản lý
+              <svg className="w-3.5 h-3.5 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+
+            {mgmtDropdownOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setMgmtDropdownOpen(false)} />
+                <div className="absolute right-0 mt-2 w-48 rounded-xl border border-slate-100 bg-white shadow-xl z-50 py-1.5 flex flex-col items-stretch text-left">
+                  <button
+                    onClick={() => {
+                      setMgmtDropdownOpen(false)
+                      setEditableZones(zonesList.filter(z => z !== 'Chưa phân vùng'))
+                      setReorderModalOpen(true)
+                    }}
+                    className="flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 text-left transition-colors cursor-pointer"
+                  >
+                    <span>↕️</span> Sắp xếp lại vị trí
+                  </button>
+                  
+                  {selectedZone && selectedZone !== 'Chưa phân vùng' ? (
+                    <button
+                      onClick={() => {
+                        setMgmtDropdownOpen(false)
+                        setRenameValue(selectedZone)
+                        setRenameModalOpen(true)
+                      }}
+                      className="flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 text-left transition-colors cursor-pointer"
+                    >
+                      <span>✏️</span> Đổi tên vị trí
+                    </button>
+                  ) : (
+                    <button
+                      disabled
+                      className="flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-slate-300 bg-slate-50/50 text-left cursor-not-allowed"
+                      title="Không thể đổi tên khu vực mặc định"
+                    >
+                      <span>✏️</span> Đổi tên vị trí
+                    </button>
+                  )}
+
+                  {selectedZone && selectedZone !== 'Chưa phân vùng' ? (
+                    <button
+                      onClick={() => {
+                        setMgmtDropdownOpen(false)
+                        handleDeleteZone()
+                      }}
+                      className="flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-red-600 hover:bg-red-50 text-left transition-colors cursor-pointer"
+                    >
+                      <span>🗑️</span> Xóa vị trí này
+                    </button>
+                  ) : (
+                    <button
+                      disabled
+                      className="flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-slate-300 bg-slate-50/50 text-left cursor-not-allowed"
+                      title="Không thể xóa khu vực mặc định"
+                    >
+                      <span>🗑️</span> Xóa vị trí này
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {filterStatus === 'map' ? (
+        <MapEditor
+          shopId={shopId}
+          industryType={industryType}
+          resources={resources}
+          selectedZone={selectedZone}
+          onSaveSuccess={() => {
+            fetchResources()
+          }}
+          shopSettings={shopSettings}
+          onSaveSettings={handleSaveSettings}
+        />
+      ) : loading ? (
         <div className="flex items-center justify-center py-20"><span className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>
       ) : groupedResources.length === 0 ? (
         <EmptyState title={`Chưa có ${typeLabel} nào`} description={`Bấm "Thêm ${typeLabel}" để bắt đầu.`} />
@@ -596,24 +931,84 @@ export function ResourcesClient({ shopId, industryType }: Props) {
             </div>
             <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2"><label className="block text-xs font-medium text-slate-600 mb-1">Tên *</label>
-                  <input value={formName} onChange={e => setFormName(e.target.value)} placeholder={`Ví dụ: ${typeLabel} 1`} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary" /></div>
-                {tpl && combinedSubTypes.length > 0 && (
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="block text-xs font-medium text-slate-600">Hạng {tpl.label.toLowerCase()}</label>
-                      <button onClick={() => setSubTypeModalOpen(true)} className="text-[10px] font-semibold text-primary hover:underline">Quản lý hạng</button>
+                <div className="col-span-2">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Tên {typeLabel} *</label>
+                  <input value={formName} onChange={e => setFormName(e.target.value)} placeholder={`Ví dụ: ${typeLabel} 1`} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary" />
+                </div>
+
+                {/* Hạng bàn | Sức chứa Row */}
+                {tpl && combinedSubTypes.length > 0 ? (
+                  <>
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs font-medium text-slate-600">Hạng {tpl.label.toLowerCase()}</label>
+                        <button onClick={() => setSubTypeModalOpen(true)} className="text-[10px] font-semibold text-primary hover:underline">Quản lý hạng</button>
+                      </div>
+                      <select value={formSubType} onChange={e => setFormSubType(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary">
+                        <option value="">Chọn</option>
+                        {combinedSubTypes.map(st => <option key={st.value} value={st.value}>{st.label}</option>)}
+                      </select>
                     </div>
-                    <select value={formSubType} onChange={e => setFormSubType(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary">
-                      <option value="">Chọn</option>
-                      {combinedSubTypes.map(st => <option key={st.value} value={st.value}>{st.label}</option>)}
-                    </select>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Sức chứa</label>
+                      <input value={formCapacity} onChange={e => setFormCapacity(e.target.value)} placeholder="Số người" type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary" />
+                    </div>
+                  </>
+                ) : (
+                  <div className="col-span-2">
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Sức chứa</label>
+                    <input value={formCapacity} onChange={e => setFormCapacity(e.target.value)} placeholder="Số người" type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary" />
                   </div>
                 )}
-                <div><label className="block text-xs font-medium text-slate-600 mb-1">Khu vực</label>
-                  <input value={formZone} onChange={e => setFormZone(e.target.value)} placeholder="Tầng 1" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary" /></div>
-                <div><label className="block text-xs font-medium text-slate-600 mb-1">Sức chứa</label>
-                  <input value={formCapacity} onChange={e => setFormCapacity(e.target.value)} placeholder="Số người" type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary" /></div>
+
+                {/* Khu vực (Dropdown) hoặc tạo mới */}
+                <div className="col-span-2">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Khu vực</label>
+                  {!isCreatingNewZone ? (
+                    <div className="flex gap-2">
+                      <select
+                        value={formZone}
+                        onChange={(e) => {
+                          if (e.target.value === '__new__') {
+                            setIsCreatingNewZone(true)
+                            setFormZone('')
+                          } else {
+                            setFormZone(e.target.value)
+                          }
+                        }}
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary outline-none"
+                      >
+                        <option value="">Chưa phân vùng</option>
+                        {activeExistingZones.map(z => (
+                          <option key={z} value={z}>{z}</option>
+                        ))}
+                        <option value="__new__" className="text-primary font-medium">+ Tạo vị trí mới...</option>
+                      </select>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <div className="flex gap-2">
+                        <input
+                          value={formZone}
+                          onChange={e => setFormZone(e.target.value)}
+                          placeholder="Tên vị trí mới (ví dụ: Tầng 3)"
+                          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary outline-none"
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsCreatingNewZone(false)
+                            setFormZone('')
+                          }}
+                          className="shrink-0 rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+                        >
+                          Chọn có sẵn
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
                 {vertical.features.hourly_billing && (
                   <div><label className="block text-xs font-medium text-slate-600 mb-1">Giá theo giờ (₫)</label>
                     <input value={formHourlyRate} onChange={e => setFormHourlyRate(maskVND(e.target.value))} placeholder="0" type="text" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary" /></div>
@@ -699,6 +1094,140 @@ export function ResourcesClient({ shopId, industryType }: Props) {
                 handleSaveCustomSubTypes(customSubTypes.filter(st => st.label.trim()))
                 setSubTypeModalOpen(false)
               }} className="w-full rounded-xl bg-primary py-2 text-sm font-semibold text-white hover:bg-primary-dark">Lưu thay đổi</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reorder Zones Modal */}
+      {reorderModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" onClick={() => setReorderModalOpen(false)}>
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl flex flex-col max-h-[85vh]" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+              <h3 className="text-base font-bold text-slate-900">Sắp xếp thứ tự vị trí</h3>
+              <button onClick={() => setReorderModalOpen(false)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100">
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
+              <p className="text-xs text-slate-500 mb-3">
+                Thay đổi thứ tự hiển thị của các khu vực trên thanh tab POS và Quản lý phòng/bàn.
+              </p>
+              
+              <div className="space-y-2">
+                {editableZones.map((z, idx) => (
+                  <div key={z} className="flex items-center justify-between gap-3 p-3 rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-slate-50 transition-colors">
+                    <span className="text-xs font-bold text-slate-700 truncate">{z}</span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        disabled={idx === 0}
+                        onClick={() => {
+                          const clone = [...editableZones]
+                          const temp = clone[idx]
+                          clone[idx] = clone[idx - 1]
+                          clone[idx - 1] = temp
+                          setEditableZones(clone)
+                        }}
+                        className="p-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-650 disabled:opacity-30 disabled:hover:bg-white transition-all cursor-pointer font-bold"
+                        title="Di chuyển lên"
+                      >
+                        ▲
+                      </button>
+                      <button
+                        disabled={idx === editableZones.length - 1}
+                        onClick={() => {
+                          const clone = [...editableZones]
+                          const temp = clone[idx]
+                          clone[idx] = clone[idx + 1]
+                          clone[idx + 1] = temp
+                          setEditableZones(clone)
+                        }}
+                        className="p-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-650 disabled:opacity-30 disabled:hover:bg-white transition-all cursor-pointer font-bold"
+                        title="Di chuyển xuống"
+                      >
+                        ▼
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            
+            <div className="border-t border-slate-100 px-6 py-4 flex items-center gap-3">
+              <button
+                disabled={saving}
+                onClick={handleSaveZoneOrder}
+                className="flex-1 rounded-xl bg-primary hover:bg-primary-dark text-white font-semibold py-2 text-sm transition-colors flex items-center justify-center gap-1.5"
+              >
+                {saving ? 'Đang lưu...' : 'Lưu thứ tự'}
+              </button>
+              <button
+                onClick={() => setReorderModalOpen(false)}
+                className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+              >
+                Hủy
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Rename Zone Modal */}
+      {renameModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" onClick={() => setRenameModalOpen(false)}>
+          <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+              <h3 className="text-base font-bold text-slate-900">Đổi tên vị trí</h3>
+              <button onClick={() => setRenameModalOpen(false)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100">
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            
+            <div className="px-6 py-4 space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1.5">Tên vị trí cũ</label>
+                <div className="text-xs font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 select-all">
+                  {selectedZone}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1.5">Tên vị trí mới</label>
+                <input
+                  type="text"
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  placeholder="Ví dụ: Tầng 2, Ngoài trời..."
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs font-bold text-slate-700 placeholder:text-slate-400 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-all shadow-sm"
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleRenameZone(renameValue)
+                    }
+                  }}
+                />
+              </div>
+            </div>
+            
+            <div className="border-t border-slate-100 px-6 py-4 flex items-center gap-3">
+              <button
+                disabled={saving}
+                onClick={() => handleRenameZone(renameValue)}
+                className="flex-1 rounded-xl bg-primary hover:bg-primary-dark text-white font-semibold py-2.5 text-sm transition-colors flex items-center justify-center gap-1.5"
+              >
+                {saving ? 'Đang lưu...' : 'Lưu thay đổi'}
+              </button>
+              <button
+                onClick={() => setRenameModalOpen(false)}
+                className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+              >
+                Hủy
+              </button>
             </div>
           </div>
         </div>
