@@ -19,7 +19,7 @@ function RowActions({ r, onEdit, onDuplicate, onToggleActive }: { r: Record<stri
   const updatePosition = useCallback(() => {
     if (open && buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect()
-      setCoords({ top: rect.bottom + window.scrollY + 4, left: rect.left + window.scrollX, width: rect.width })
+      setCoords({ top: rect.bottom + 4, left: rect.left, width: rect.width })
     }
   }, [open])
 
