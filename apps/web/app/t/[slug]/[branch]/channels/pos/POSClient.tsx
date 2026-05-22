@@ -17,6 +17,7 @@ import { CheckoutModal } from './components/CheckoutModal'
 import { SyncStatusBar } from './components/SyncStatusBar'
 import { OrderHistoryPanel } from './components/OrderHistoryPanel'
 import { CustomerCreateModal } from './components/CustomerCreateModal'
+import QRNotificationCenter from './components/QRNotificationCenter'
 
 interface Props {
   shopId: string
@@ -911,6 +912,12 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
             )}
             <span className="hidden sm:inline">{status === 'loading' ? 'Đang đồng bộ...' : 'Đồng bộ'}</span>
           </button>
+
+          <QRNotificationCenter
+            shopId={shopId}
+            branchId={branchId}
+            onAcceptRequest={refresh}
+          />
 
           <SyncStatusBar
             isOnline={isOnline}

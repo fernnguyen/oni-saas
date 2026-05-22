@@ -25,6 +25,7 @@ interface ShopSettings {
   qr_template?: string | null;
   receipt_footer?: string | null;
   default_price_type: string;
+  qr_auto_approve_session?: boolean;
   synced_from_sheet_at: string | null;
   updated_at: string;
 }
@@ -80,6 +81,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage }: Props) 
     qr_template: initial.qr_template ?? 'compact2',
     receipt_footer: initial.receipt_footer ?? '',
     default_price_type: initial.default_price_type,
+    qr_auto_approve_session: initial.qr_auto_approve_session ?? false,
   });
   const [saveState, setSaveState] = useState<SaveState>('idle');
 
@@ -116,6 +118,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage }: Props) 
           qr_template: form.qr_template,
           receipt_footer: form.receipt_footer,
           default_price_type: form.default_price_type,
+          qr_auto_approve_session: form.qr_auto_approve_session,
         }),
       });
       if (!res.ok) throw new Error();
@@ -407,6 +410,23 @@ export function ShopSettingsForm({ shop, settings: initial, canManage }: Props) 
                 </div>
                 <span className="text-sm text-slate-600 select-none">
                   {form.skip_return_confirmation ? 'Tự động duyệt và hoàn kho/tạo phiếu chi khi tạo phiếu trả hàng' : 'Cần người có thẩm quyền duyệt phiếu trả hàng'}
+                </span>
+              </div>
+            </Field>
+            <Field label="Tự động mở bàn ăn khi quét QR">
+              <div
+                onClick={() => canManage && set('qr_auto_approve_session', !form.qr_auto_approve_session)}
+                className="flex cursor-pointer items-center gap-3 mt-1"
+              >
+                <div
+                  className={`relative h-6 w-11 rounded-full transition-colors ${form.qr_auto_approve_session ? 'bg-primary' : 'bg-slate-200'} ${canManage ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${form.qr_auto_approve_session ? 'translate-x-5' : ''}`}
+                  />
+                </div>
+                <span className="text-sm text-slate-600 select-none">
+                  {form.qr_auto_approve_session ? 'Tự động kích hoạt bàn ăn ngay khi khách quét QR' : 'Khách quét QR gửi yêu cầu, nhân viên phải duyệt mở bàn ăn bằng tay (Mặc định)'}
                 </span>
               </div>
             </Field>

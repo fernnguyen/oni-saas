@@ -1,10 +1,9 @@
-import { getSupabaseServerClient } from './supabaseServer';
 import { getSupabaseAdminClient } from './supabaseAdmin';
 import type { PlanMetadata } from '@oni/core/types';
 
 /** Returns the active plan's metadata for a tenant. Empty object if no active subscription. */
 export async function getTenantPlanMeta(tenantId: string): Promise<PlanMetadata> {
-  const supabase = await getSupabaseServerClient();
+  const supabase = getSupabaseAdminClient();
   const { data } = await supabase
     .from('subscriptions')
     .select('plans(metadata)')

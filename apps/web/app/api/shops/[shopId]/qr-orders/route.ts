@@ -180,15 +180,176 @@ export async function PATCH(
     }
 
     if (action === 'accept') {
+      // 1. Get connector via shop access
+      const { connector } = await requireShopAccess(shopId, 'pos.use')
+      
+      const resourceId = request.resource_id
+      if (!resourceId) {
+        return NextResponse.json({ error: 'Yêu cầu gọi món không gắn với bàn ăn nào.' }, { status: 400 })
+      }
+
+      // 2. Fetch table status
+      const table = await connector.findById('location-resources', resourceId)
+      if (!table) {
+        return NextResponse.json({ error: 'Bàn ăn không tồn tại trong hệ thống.' }, { status: 404 })
+      }
+
+      const requestItems = Array.isArray(request.items) ? request.items : []
+      let finalOrderId = ''
+
+      const getGMT7Time = () => {
+        const d = new Date()
+        d.setUTCHours(d.getUTCHours() + 7)
+        return d.toISOString().replace('Z', '')
+      }
+
+      const existingOrderId = table.current_order_id || ''
+      let currentOrder = null
+      if (existingOrderId) {
+        try {
+          currentOrder = await connector.findById('orders', existingOrderId)
+        } catch (err) {
+          console.error('[Accept QR Order] Failed to fetch current order:', err)
+        }
+      }
+
+      // Helper to check if two items are identical (same product + variant + modifiers)
+      const isSameItem = (it1: any, it2: any) => {
+        const m1 = typeof it1.modifiers === 'string' ? it1.modifiers : JSON.stringify(it1.modifiers || {});
+        const m2 = typeof it2.modifiers === 'string' ? it2.modifiers : JSON.stringify(it2.modifiers || {});
+        return it1.product_id === it2.product_id && 
+               (it1.variant_label || '') === (it2.variant_label || '') &&
+               m1 === m2;
+      }
+
+      if (currentOrder && currentOrder.status === 'in_progress') {
+        // --- CASE 1: MERGE INTO EXISTING IN-PROGRESS ORDER ---
+        finalOrderId = existingOrderId
+
+        // Fetch current order items
+        const existingItemsResult = await connector.list('order-items', {
+          page: 1, limit: 200,
+          filters: { order_id: finalOrderId }
+        })
+        const existingItems = existingItemsResult.data || []
+
+        for (const newItem of requestItems) {
+          const matchedItem = existingItems.find((ei: any) => isSameItem(ei, newItem))
+          
+          if (matchedItem) {
+            // Update quantity of existing order item
+            const newQty = Number(matchedItem.qty) + Number(newItem.qty)
+            const newLineTotal = newQty * Number(matchedItem.unit_price)
+            await connector.update('order-items', matchedItem.item_id || matchedItem.id, {
+              qty: String(newQty),
+              line_total: String(newLineTotal)
+            })
+          } else {
+            // Create a new order item in this order
+            const lineNo = existingItems.length + 1
+            await connector.create('order-items', {
+              order_id: finalOrderId,
+              order_no: currentOrder.order_no || '',
+              line_no: String(lineNo),
+              product_id: newItem.product_id,
+              sku: newItem.sku || '',
+              product_name: newItem.product_name,
+              qty: String(newItem.qty),
+              unit_price: String(newItem.unit_price),
+              line_discount: '0',
+              line_total: String(newItem.line_total),
+              variant_label: newItem.variant_label || '',
+              modifiers: typeof newItem.modifiers === 'object' ? JSON.stringify(newItem.modifiers) : (newItem.modifiers || ''),
+              modifier_total: String(newItem.modifier_total || 0),
+              unit_id: newItem.unit_id || '',
+              unit_name: newItem.unit_name || '',
+              conversion_rate: String(newItem.conversion_rate || 1)
+            })
+          }
+        }
+
+        // Recalculate order totals
+        const updatedItemsResult = await connector.list('order-items', {
+          page: 1, limit: 200,
+          filters: { order_id: finalOrderId }
+        })
+        const updatedItems = updatedItemsResult.data || []
+        const newSubtotal = updatedItems.reduce((acc: number, it: any) => acc + Number(it.line_total || 0), 0)
+        const newTotalAmount = newSubtotal - Number(currentOrder.discount_amount || 0) + Number(currentOrder.tax_amount || 0)
+
+        await connector.update('orders', finalOrderId, {
+          subtotal: String(newSubtotal),
+          total_amount: String(newTotalAmount)
+        })
+
+      } else {
+        // --- CASE 2: CREATE NEW DINE-IN ORDER ---
+        const newSubtotal = requestItems.reduce((acc: number, it: any) => acc + Number(it.line_total || 0), 0)
+        const orderNo = 'QR-' + Date.now().toString().slice(-6) + Math.floor(100 + Math.random() * 900)
+
+        const createdOrder = await connector.create('orders', {
+          status: 'in_progress',
+          channel: 'qr',
+          customer_id: 'C-DEFAULT-RETAIL',
+          customer_name: 'Khách lẻ',
+          branch_id: shopId,
+          subtotal: String(newSubtotal),
+          discount_amount: '0',
+          tax_amount: '0',
+          total_amount: String(newSubtotal),
+          paid_amount: '0',
+          debt_amount: '0',
+          note: `Gọi món tại bàn ${table.name || table.resource_id}`,
+          order_no: orderNo,
+          created_at: getGMT7Time()
+        })
+
+        finalOrderId = createdOrder.order_id || createdOrder.id
+
+        // Create all order items in batch
+        const itemsToCreate = requestItems.map((newItem: any, idx: number) => ({
+          order_id: finalOrderId,
+          order_no: orderNo,
+          line_no: String(idx + 1),
+          product_id: newItem.product_id,
+          sku: newItem.sku || '',
+          product_name: newItem.product_name,
+          qty: String(newItem.qty),
+          unit_price: String(newItem.unit_price),
+          line_discount: '0',
+          line_total: String(newItem.line_total),
+          variant_label: newItem.variant_label || '',
+          modifiers: typeof newItem.modifiers === 'object' ? JSON.stringify(newItem.modifiers) : (newItem.modifiers || ''),
+          modifier_total: String(newItem.modifier_total || 0),
+          unit_id: newItem.unit_id || '',
+          unit_name: newItem.unit_name || '',
+          conversion_rate: String(newItem.conversion_rate || 1)
+        }))
+
+        if (itemsToCreate.length > 0) {
+          await connector.batchCreate('order-items', itemsToCreate)
+        }
+
+        // Update location resource to occupied and bind to new order
+        await connector.update('location-resources', resourceId, {
+          status: 'occupied',
+          current_order_id: finalOrderId
+        })
+      }
+
+      // Update Supabase request status
       const { data: updatedRequest, error: updateError } = await admin
         .from('qr_order_requests')
-        .update({ status: 'accepted', updated_at: new Date().toISOString() })
+        .update({ 
+          status: 'accepted', 
+          updated_at: new Date().toISOString() 
+        })
         .eq('id', request_id)
         .select()
         .single()
 
       if (updateError) throw updateError
-      return NextResponse.json({ request: updatedRequest })
+      return NextResponse.json({ request: updatedRequest, order_id: finalOrderId })
     }
 
     if (action === 'reject') {

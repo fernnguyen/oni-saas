@@ -34,18 +34,18 @@ export interface ActiveGuest {
 }
 
 const CUTE_ANIMALS = [
-  'Gấu Trúc', 'Sóc Nhỏ', 'Thỏ Ngọc', 'Mèo Con', 'Cáo Đỏ', 
-  'Cánh Cụt', 'Hươu Cao Cổ', 'Rùa Con', 'Sư Tử', 'Khỉ Con', 
+  'Gấu Trúc', 'Sóc Nhỏ', 'Thỏ Ngọc', 'Mèo Con', 'Cáo Đỏ',
+  'Cánh Cụt', 'Hươu Cao Cổ', 'Rùa Con', 'Sư Tử', 'Khỉ Con',
   'Nhím Gai', 'Hải Cẩu', 'Gấu Bắc Cực', 'Nai Vàng', 'Voi Con'
 ];
 
 const CUTE_ADJECTIVES = [
-  'Tinh Nghịch', 'Dễ Thương', 'Nhanh Nhẹn', 'Thông Minh', 
-  'Ngộ Nghĩnh', 'Chăm Chỉ', 'Đáng Yêu', 'Vui Vẻ', 'Hiền Lành', 
+  'Tinh Nghịch', 'Dễ Thương', 'Nhanh Nhẹn', 'Thông Minh',
+  'Ngộ Nghĩnh', 'Chăm Chỉ', 'Đáng Yêu', 'Vui Vẻ', 'Hiền Lành',
   'Ấm Áp', 'Láu Lỉnh', 'Béo Tròn'
 ];
 
-function generateRandomNickname(): string {
+export function generateRandomNickname(): string {
   const animal = CUTE_ANIMALS[Math.floor(Math.random() * CUTE_ANIMALS.length)];
   const adj = CUTE_ADJECTIVES[Math.floor(Math.random() * CUTE_ADJECTIVES.length)];
   return `${animal} ${adj}`;
@@ -154,13 +154,13 @@ export function useQRCollaborativeCart(sessionId: string, tenantId: string) {
       .on('presence', { event: 'join' }, ({ key, newPresences }) => {
         const joinedName = newPresences[0]?.guest_name || 'Thực khách';
         if (key !== guestIdRef.current) {
-          toast.success(`${joinedName} vừa tham gia bàn ăn`);
+          toast.success(`${joinedName} vừa tham gia`);
         }
       })
       .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
         const leftName = leftPresences[0]?.guest_name || 'Thực khách';
         if (key !== guestIdRef.current) {
-          toast.info(`${leftName} đã rời bàn ăn`);
+          toast.info(`${leftName} đã rời đi`);
         }
       });
 
@@ -324,7 +324,7 @@ export function useQRCollaborativeCart(sessionId: string, tenantId: string) {
 
   const updateGuestName = useCallback((newName: string) => {
     if (!newName.trim() || newName === guestNameRef.current) return;
-    
+
     setGuestName(newName);
     localStorage.setItem('oni_qr_guest_name', newName);
 
