@@ -59,6 +59,7 @@ export default async function BranchSettingsPage({ params }: Props) {
     auto_print_receipt: true,
     mute_pos_sound: false,
     default_price_type: 'retail',
+    qr_auto_approve_session: false,
     synced_from_sheet_at: null as string | null,
     updated_at: new Date().toISOString(),
   };

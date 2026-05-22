@@ -119,7 +119,7 @@ function RowActions({ r, onEdit, onDuplicate, onSuspend, onRestore, onStatusChan
                   <button onClick={() => { setOpen(false); onSuspend() }} className="px-3 py-2 text-xs font-medium text-amber-700 hover:bg-amber-50 text-left">Tạm ngừng</button>
                 )}
                 {r.status !== 'occupied' && (
-                  <button onClick={() => { setOpen(false); onDelete() }} className="px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-50 text-left">Xóa</button>
+                  <button onClick={() => { setOpen(false); onDelete() }} className="px-3 py-2 text-xs font-semibold text-red-650 hover:bg-red-50 text-left">Xóa</button>
                 )}
               </>
             )}
@@ -155,6 +155,46 @@ export function ResourcesClient({ shopId, industryType }: Props) {
   const [editableZones, setEditableZones] = useState<string[]>([])
   const [renameModalOpen, setRenameModalOpen] = useState(false)
   const [renameValue, setRenameValue] = useState('')
+
+  // QR Print States & Functions
+  const [printModalOpen, setPrintModalOpen] = useState(false)
+  const [printTargets, setPrintTargets] = useState<Resource[]>([])
+  const [printTemplate, setPrintTemplate] = useState<'color' | 'thermal'>('color')
+  const [printItems, setPrintItems] = useState<Resource[]>([])
+
+  // Reset print items after native system dialog closes
+  useEffect(() => {
+    const handleAfterPrint = () => setPrintItems([])
+    window.addEventListener('afterprint', handleAfterPrint)
+    return () => window.removeEventListener('afterprint', handleAfterPrint)
+  }, [])
+
+  const handleStartPrint = useCallback((item: Resource) => {
+    setPrintTargets([item])
+    setPrintModalOpen(true)
+  }, [])
+
+  const handlePrintAllZoneQRs = useCallback(() => {
+    if (!selectedZone) return
+    const zoneItems = resources.filter(
+      r => r.zone === selectedZone && r.status !== 'deleted'
+    )
+    if (zoneItems.length === 0) {
+      toast.error('Khu vực này hiện không có bàn/phòng nào để in!')
+      return
+    }
+    setPrintTargets(zoneItems)
+    setPrintModalOpen(true)
+  }, [selectedZone, resources])
+
+  const handleExecutePrint = useCallback(() => {
+    setPrintItems(printTargets)
+    setPrintModalOpen(false)
+    // Delay to let React render the print DOM hidden below
+    setTimeout(() => {
+      window.print()
+    }, 300)
+  }, [printTargets])
 
   // Parse custom sorting order from settings
   const zoneOrder = useMemo(() => {
@@ -647,7 +687,7 @@ export function ResourcesClient({ shopId, industryType }: Props) {
     {
       key: 'name',
       label: `Tên ${tpl?.label || 'vị trí'}`,
-      className: 'w-[25%]',
+      className: 'w-[20%]',
       render: (r) => {
         const isRoomType = r.type === 'room'
         return (
@@ -661,7 +701,7 @@ export function ResourcesClient({ shopId, industryType }: Props) {
     {
       key: 'capacity',
       label: 'Sức chứa',
-      className: 'w-[25%]',
+      className: 'w-[20%]',
       render: (r) => r.capacity ? (
         <div className="flex items-center gap-1.5 text-slate-600">
           <UserIcon className="w-3.5 h-3.5 opacity-70" /> {r.capacity} người
@@ -702,10 +742,31 @@ export function ResourcesClient({ shopId, industryType }: Props) {
       }
     },
     {
+      key: 'print_qr',
+      label: 'Mã QR',
+      align: 'center',
+      className: 'w-[12%]',
+      render: (r) => {
+        if (r.status === 'deleted') return null
+        return (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              handleStartPrint(r)
+            }}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-orange-200 bg-orange-50/50 hover:bg-orange-100 px-3 py-1.5 text-xs font-semibold text-orange-700 shadow-sm transition-all hover:scale-102 cursor-pointer active:scale-98"
+            title="In mã QR phòng bàn"
+          >
+            <span>🖨️</span> In QR
+          </button>
+        )
+      }
+    },
+    {
       key: 'actions',
       label: 'Thao tác',
       align: 'right',
-      className: 'w-[20%]',
+      className: 'w-[13%]',
       render: (r) => (
         <RowActions
           r={r}
@@ -874,6 +935,18 @@ export function ResourcesClient({ shopId, industryType }: Props) {
                       title="Không thể xóa khu vực mặc định"
                     >
                       <span>🗑️</span> Xóa vị trí này
+                    </button>
+                  )}
+
+                  {selectedZone && (
+                    <button
+                      onClick={() => {
+                        setMgmtDropdownOpen(false)
+                        handlePrintAllZoneQRs()
+                      }}
+                      className="flex items-center gap-2 px-3.5 py-2.5 text-xs font-bold text-orange-650 hover:bg-orange-50 text-left transition-colors cursor-pointer border-t border-slate-100"
+                    >
+                      <span>🖨️</span> In QR khu vực này
                     </button>
                   )}
                 </div>
@@ -1230,6 +1303,383 @@ export function ResourcesClient({ shopId, industryType }: Props) {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* QR Print Preview Modal */}
+      {printModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4 animate-in fade-in duration-200" onClick={() => setPrintModalOpen(false)}>
+          <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl flex flex-col max-h-[90vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 bg-orange-500 text-white rounded-lg text-sm">🖨️</span>
+                <h3 className="text-base font-bold text-slate-900">Xem trước & Thiết lập In QR ({printTargets.length} bàn)</h3>
+              </div>
+              <button onClick={() => setPrintModalOpen(false)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 transition-colors">
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6 bg-slate-50/50">
+              {/* Template Picker */}
+              <div className="grid grid-cols-2 gap-4">
+                <button
+                  onClick={() => setPrintTemplate('color')}
+                  className={`flex flex-col items-center justify-center p-4 rounded-xl border text-center transition-all cursor-pointer ${
+                    printTemplate === 'color'
+                      ? 'border-orange-500 bg-orange-50/30 ring-1 ring-orange-500'
+                      : 'border-slate-200 bg-white hover:border-slate-350'
+                  }`}
+                >
+                  <span className="text-xl mb-1">🎨</span>
+                  <span className="text-xs font-bold text-slate-800">Thẻ Để Bàn (Premium)</span>
+                  <span className="text-[10px] text-slate-400 mt-0.5">Viền cam rực rỡ, thích hợp standee màu</span>
+                </button>
+                <button
+                  onClick={() => setPrintTemplate('thermal')}
+                  className={`flex flex-col items-center justify-center p-4 rounded-xl border text-center transition-all cursor-pointer ${
+                    printTemplate === 'thermal'
+                      ? 'border-orange-500 bg-orange-50/30 ring-1 ring-orange-500'
+                      : 'border-slate-200 bg-white hover:border-slate-350'
+                  }`}
+                >
+                  <span className="text-xl mb-1">🖨️</span>
+                  <span className="text-xs font-bold text-slate-800">In Nhiệt K80/K58 (B&W)</span>
+                  <span className="text-[10px] text-slate-400 mt-0.5">Tối giản trắng đen, dán bàn cực bền</span>
+                </button>
+              </div>
+
+              {/* Dynamic Preview Box */}
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-2">Bản xem trước ({printTargets[0]?.name || 'Không xác định'})</label>
+                <div className="flex justify-center p-6 bg-slate-100 rounded-2xl border border-slate-200 overflow-hidden">
+                  {printTemplate === 'color' ? (
+                    /* Premium Standee Design */
+                    <div className="w-[280px] bg-gradient-to-b from-orange-500 via-orange-600 to-amber-600 text-white rounded-2xl p-5 text-center shadow-lg flex flex-col justify-between items-center relative overflow-hidden aspect-[4/6]">
+                      {/* Brand Pattern Background */}
+                      <div className="absolute inset-0 opacity-10 bg-[radial-gradient(#fff_1px,transparent_1px)] [background-size:16px_16px]" />
+                      
+                      {/* Shop Name */}
+                      <div className="z-10 w-full">
+                        <span className="block text-[10px] font-extrabold uppercase tracking-widest text-orange-200/90">{shopSettings?.shop_name || 'ONI SMART POS'}</span>
+                        <h4 className="text-2xl font-black mt-1 uppercase tracking-tight">{printTargets[0]?.name || 'Bàn ăn'}</h4>
+                      </div>
+
+                      {/* QR Body Card */}
+                      <div className="z-10 bg-white p-3.5 rounded-xl shadow-md my-4 flex items-center justify-center">
+                        {printTargets[0] && (
+                          <img
+                            src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(
+                              `${window.location.origin}/qr-order/${slug}/${printTargets[0].resource_id || printTargets[0].id}`
+                            )}`}
+                            alt={`QR ${printTargets[0]?.name}`}
+                            className="w-[130px] h-[130px]"
+                          />
+                        )}
+                      </div>
+
+                      {/* Footer Guide */}
+                      <div className="z-10 w-full">
+                        <p className="text-[11px] font-bold tracking-wide">QUÉT MÃ QR ĐỂ GỌI MÓN</p>
+                        <p className="text-[9px] text-orange-100/80 mt-0.5">Không cần cài ứng dụng • Đồng bộ giỏ hàng</p>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Black and White Thermal Label */
+                    <div className="w-[260px] bg-white text-slate-900 border-2 border-dashed border-slate-400 p-5 text-center flex flex-col justify-between items-center aspect-[4/5] font-mono">
+                      <div className="w-full">
+                        <span className="block text-[9px] font-bold uppercase border-b border-dashed border-slate-300 pb-1">{shopSettings?.shop_name || 'ONI SMART POS'}</span>
+                        <h4 className="text-xl font-bold mt-2 uppercase tracking-wide">=== {printTargets[0]?.name || 'BÀN'} ===</h4>
+                      </div>
+
+                      <div className="my-3 bg-white p-1.5 border border-slate-900">
+                        {printTargets[0] && (
+                          <img
+                            src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(
+                              `${window.location.origin}/qr-order/${slug}/${printTargets[0].resource_id || printTargets[0].id}`
+                            )}`}
+                            alt={`QR ${printTargets[0]?.name}`}
+                            className="w-[120px] h-[120px] filter grayscale contrast-200"
+                          />
+                        )}
+                      </div>
+
+                      <div className="w-full text-[9px] leading-relaxed text-slate-700">
+                        <p className="font-bold">1. QUÉT QR BẰNG CAMERA/ZALO</p>
+                        <p className="font-bold">2. CHỌN MÓN VÀ GỬI DUYỆT</p>
+                        <div className="border-t border-dashed border-slate-300 mt-1.5 pt-1 text-[8px] text-slate-400">
+                          Powered by ONI POS
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                {printTargets.length > 1 && (
+                  <p className="text-center text-[10px] text-slate-450 mt-2">
+                    * Đang hiển thị bản xem trước của bàn đầu tiên. Hệ thống sẽ tự động tạo nhãn tương tự cho {printTargets.length - 1} bàn còn lại.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="border-t border-slate-100 px-6 py-4 flex items-center gap-3 bg-white">
+              <button
+                onClick={handleExecutePrint}
+                className="flex-1 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-semibold py-2.5 text-sm transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
+              >
+                <span>🖨️</span> Tiến hành in ({printTargets.length} bản)
+              </button>
+              <button
+                onClick={() => setPrintModalOpen(false)}
+                className="rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-medium text-slate-650 hover:bg-slate-50 hover:border-slate-300 transition-all cursor-pointer"
+              >
+                Hủy bỏ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Hidden DOM layout utilized by @media print */}
+      {printItems.length > 0 && (
+        <div id="qr-print-container" className="hidden-except-print">
+          {printItems.map((item) => {
+            const qrUrl = `${window.location.origin}/qr-order/${slug}/${item.resource_id || item.id}`
+            const qrImg = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(qrUrl)}`
+            
+            return (
+              <div
+                key={item.id}
+                className={`print-page ${printTemplate === 'color' ? 'color-theme' : 'thermal-theme'}`}
+              >
+                {printTemplate === 'color' ? (
+                  /* Premium standee layout */
+                  <div className="color-standee-card">
+                    <div className="card-header">
+                      <span className="shop-title">{shopSettings?.shop_name || 'ONI SMART POS'}</span>
+                      <h2 className="table-title">{item.name}</h2>
+                    </div>
+                    <div className="qr-wrapper">
+                      <img src={qrImg} alt={`QR ${item.name}`} className="qr-image" />
+                    </div>
+                    <div className="card-footer">
+                      <p className="guide-main">QUÉT MÃ QR ĐỂ GỌI MÓN TỰ ĐỘNG</p>
+                      <p className="guide-sub">Dịch vụ gọi món tại bàn thông minh, đồng bộ giỏ hàng tức thời</p>
+                      <span className="brand-signature">Powered by ONI POS</span>
+                    </div>
+                  </div>
+                ) : (
+                  /* Ultra-Contrast thermal printer label layout */
+                  <div className="thermal-label-card">
+                    <div className="card-header-thermal">
+                      <span className="shop-title-thermal">{shopSettings?.shop_name || 'ONI SMART POS'}</span>
+                      <h2 className="table-title-thermal">=== {item.name.toUpperCase()} ===</h2>
+                    </div>
+                    <div className="qr-wrapper-thermal">
+                      <img src={qrImg} alt={`QR ${item.name}`} className="qr-image-thermal" />
+                    </div>
+                    <div className="card-footer-thermal">
+                      <p className="step font-bold">1. DÙNG CAMERA / ZALO QUÉT QR</p>
+                      <p className="step font-bold">2. CHỌN MÓN TRỰC TIẾP TRÊN PHÔN</p>
+                      <p className="step font-bold">3. XÁC NHẬN ĐỂ BẾP THỰC HIỆN</p>
+                      <span className="brand-signature-thermal">Powered by ONI POS</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+
+          {/* Embedded Custom Print Stylesheets */}
+          <style dangerouslySetInnerHTML={{ __html: `
+            @media print {
+              /* Strip all margins/paddings from standard browser styles */
+              @page {
+                margin: 0;
+                size: auto;
+              }
+              body {
+                background: white !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+              }
+              /* Hide all components except the print targets */
+              body > *:not(#qr-print-container) {
+                display: none !important;
+              }
+              #qr-print-container {
+                display: block !important;
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+                margin: 0;
+                padding: 0;
+                background: white;
+              }
+              .print-page {
+                page-break-after: always;
+                break-after: page;
+                display: flex !important;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                width: 100vw;
+                height: 100vh;
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+                background: white;
+              }
+
+              /* 1. PREMIUM COLOR DESIGN */
+              .print-page.color-theme {
+                background: white;
+              }
+              .color-standee-card {
+                width: 105mm;
+                height: 148mm; /* A6 aspect ratio */
+                border: 4mm solid #f97316; /* Thick orange brand border */
+                border-radius: 8mm;
+                padding: 6mm;
+                box-sizing: border-box;
+                display: flex;
+                flex-direction: column;
+                justify-content: space-between;
+                align-items: center;
+                text-align: center;
+                background: linear-gradient(135deg, #ffffff, #fff7ed);
+                box-shadow: none;
+              }
+              .color-standee-card .shop-title {
+                font-size: 11px;
+                font-weight: 800;
+                color: #c2410c;
+                text-transform: uppercase;
+                letter-spacing: 2px;
+                display: block;
+                margin-bottom: 2px;
+              }
+              .color-standee-card .table-title {
+                font-size: 26px;
+                font-weight: 900;
+                color: #1e293b;
+                margin: 0;
+                text-transform: uppercase;
+                letter-spacing: -0.5px;
+              }
+              .color-standee-card .qr-wrapper {
+                border: 1px solid #fed7aa;
+                padding: 4mm;
+                background: white;
+                border-radius: 5mm;
+                box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+              }
+              .color-standee-card .qr-image {
+                width: 50mm;
+                height: 50mm;
+                display: block;
+              }
+              .color-standee-card .guide-main {
+                font-size: 12px;
+                font-weight: 950;
+                color: #ea580c;
+                margin: 0 0 3px 0;
+                letter-spacing: 1px;
+              }
+              .color-standee-card .guide-sub {
+                font-size: 8px;
+                font-weight: 500;
+                color: #64748b;
+                margin: 0;
+                line-height: 1.3;
+                padding: 0 2mm;
+              }
+              .color-standee-card .brand-signature {
+                font-size: 7px;
+                font-weight: 700;
+                color: #94a3b8;
+                text-transform: uppercase;
+                margin-top: 4mm;
+                display: block;
+                border-top: 1px solid #f1f5f9;
+                width: 100%;
+                padding-top: 2mm;
+              }
+
+              /* 2. BLACK & WHITE THERMAL DESIGN */
+              .print-page.thermal-theme {
+                width: 80mm; /* K80 Paper standard */
+                height: auto;
+                min-height: 80mm;
+                page-break-after: always;
+                break-after: page;
+                padding: 4mm;
+              }
+              .thermal-label-card {
+                width: 72mm; /* Printable width margin */
+                border: 2px dashed #000000;
+                padding: 5mm 3mm;
+                box-sizing: border-box;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: flex-start;
+                text-align: center;
+                font-family: 'Courier New', Courier, monospace;
+                background: white;
+              }
+              .thermal-label-card .shop-title-thermal {
+                font-size: 10px;
+                font-weight: bold;
+                text-transform: uppercase;
+                border-bottom: 1px dashed #000000;
+                width: 100%;
+                padding-bottom: 1.5mm;
+                display: block;
+              }
+              .thermal-label-card .table-title-thermal {
+                font-size: 20px;
+                font-weight: bold;
+                margin: 3mm 0;
+                text-transform: uppercase;
+              }
+              .thermal-label-card .qr-wrapper-thermal {
+                border: 1px solid #000000;
+                padding: 2mm;
+                background: white;
+              }
+              .thermal-label-card .qr-image-thermal {
+                width: 42mm;
+                height: 42mm;
+                display: block;
+                filter: grayscale(1) contrast(2);
+              }
+              .thermal-label-card .step {
+                font-size: 9px;
+                font-weight: bold;
+                margin: 1.5mm 0;
+                text-align: left;
+                width: 100%;
+              }
+              .thermal-label-card .brand-signature-thermal {
+                font-size: 8px;
+                text-transform: uppercase;
+                margin-top: 3mm;
+                border-top: 1px dashed #000000;
+                width: 100%;
+                padding-top: 1.5mm;
+                display: block;
+              }
+            }
+          ` }} />
         </div>
       )}
     </div>

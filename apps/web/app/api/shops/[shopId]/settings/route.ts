@@ -20,6 +20,7 @@ const DEFAULT_SETTINGS = {
   skip_cleaning_process: false,
   skip_return_confirmation: false,
   default_price_type: 'retail',
+  qr_auto_approve_session: false,
   synced_from_sheet_at: null as string | null,
   updated_at: new Date().toISOString(),
 };
@@ -47,6 +48,7 @@ const putSchema = z.object({
   skip_return_confirmation: z.boolean().optional(),
   default_price_type: z.enum(['retail', 'wholesale', 'vip', 'staff']).optional(),
   resource_sub_types: z.string().optional(),
+  qr_auto_approve_session: z.boolean().optional(),
 });
 
 async function resolveAuth(req: NextRequest, shopId: string) {

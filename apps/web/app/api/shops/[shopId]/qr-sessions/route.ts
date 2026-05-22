@@ -13,10 +13,11 @@ export async function GET(
   try {
     const { shopId } = await params
     const sp = req.nextUrl.searchParams
+    const statusParam = sp.get('status')
     const resource_id = sp.get('resource_id')
 
-    if (!resource_id) {
-      return NextResponse.json({ error: 'Missing resource_id' }, { status: 400 })
+    if (!resource_id && !statusParam) {
+      return NextResponse.json({ error: 'Missing resource_id or status parameter' }, { status: 400 })
     }
 
     const admin = getSupabaseAdminClient()
@@ -55,25 +56,42 @@ export async function GET(
       )
     }
 
+    // Support fetching all sessions by status (e.g. pending ones for the Cashier notification center)
+    if (statusParam) {
+      const { data: sessions, error: sessError } = await admin
+        .from('qr_ordering_sessions')
+        .select('*')
+        .eq('branch_id', shopId)
+        .eq('status', statusParam)
+        .eq('active', 'TRUE')
+        .order('created_at', { ascending: false })
+
+      if (sessError) throw sessError
+      return NextResponse.json(sessions)
+    }
+
     // 3. Get connector and fetch table status
     const connector = await getConnectorForShop(shopId, tenantId)
-    const table = await connector.findById('location-resources', resource_id)
+    const table = await connector.findById('location-resources', resource_id!)
 
     if (!table) {
       return NextResponse.json({ error: 'Table not found' }, { status: 404 })
     }
 
-    // 4. Query active session
-    const { data: session, error: sessError } = await admin
+    // 4. Query active or pending session (latest one)
+    const { data: sessions, error: sessError } = await admin
       .from('qr_ordering_sessions')
       .select('*')
       .eq('branch_id', shopId)
       .eq('resource_id', resource_id)
-      .eq('status', 'active')
+      .in('status', ['active', 'pending'])
       .eq('active', 'TRUE')
-      .maybeSingle()
+      .order('created_at', { ascending: false })
+      .limit(1)
 
     if (sessError) throw sessError
+    const session = sessions && sessions.length > 0 ? sessions[0] : null
+
 
     // 5. If table is occupied but no active session, auto-create one
     if (table.status === 'occupied' && !session) {
@@ -101,7 +119,7 @@ export async function GET(
     return NextResponse.json({ session, table })
   } catch (e) {
     console.error('[GET qr-sessions]', e)
-    const msg = e instanceof Error ? e.message : String(e)
+    const msg = getErrorMessage(e)
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 }
@@ -163,19 +181,31 @@ export async function POST(
       return NextResponse.json({ error: 'Table not found' }, { status: 404 })
     }
 
-    // 4. Check if session already active
-    const { data: activeSession } = await admin
+    // 4. Check if session already active or pending (get the latest active/pending session)
+    const { data: activeSessions } = await admin
       .from('qr_ordering_sessions')
       .select('*')
       .eq('branch_id', shopId)
       .eq('resource_id', resource_id)
-      .eq('status', 'active')
+      .in('status', ['active', 'pending'])
       .eq('active', 'TRUE')
-      .maybeSingle()
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    const activeSession = activeSessions && activeSessions.length > 0 ? activeSessions[0] : null
 
     if (activeSession) {
       return NextResponse.json({ session: activeSession, table })
     }
+
+    // Fetch shop settings to check if auto-approval is enabled
+    const { data: settings } = await admin
+      .from('shop_settings')
+      .select('qr_auto_approve_session')
+      .eq('shop_id', shopId)
+      .maybeSingle()
+
+    const autoApprove = settings?.qr_auto_approve_session === true
 
     // 5. If table is already occupied but no session, auto-create one
     if (table.status === 'occupied') {
@@ -200,10 +230,35 @@ export async function POST(
       return NextResponse.json({ session: newSession, table })
     }
 
-    // 6. Otherwise (table is available), create a pending approval session
+    // 6. Otherwise (table is available), check if we auto-approve or create a pending session
     const newSessionId = crypto.randomUUID()
-    const tempToken = crypto.randomBytes(32).toString('hex')
+    const sessionToken = crypto.randomBytes(32).toString('hex')
 
+    if (autoApprove) {
+      // Auto-approve: Create an active session and mark table as occupied
+      const { data: newSession, error: createError } = await admin
+        .from('qr_ordering_sessions')
+        .insert({
+          id: newSessionId,
+          tenant_id: tenantId,
+          branch_id: shopId,
+          resource_id,
+          session_token: sessionToken,
+          status: 'active',
+          active: 'TRUE'
+        })
+        .select()
+        .single()
+
+      if (createError) throw createError
+
+      // Update table to occupied via connector
+      await connector.update('location-resources', resource_id, { status: 'occupied' })
+
+      return NextResponse.json({ session: newSession, table: { ...table, status: 'occupied' } })
+    }
+
+    // Otherwise, create a pending approval session
     const { data: pendingSession, error: createError } = await admin
       .from('qr_ordering_sessions')
       .insert({
@@ -211,7 +266,7 @@ export async function POST(
         tenant_id: tenantId,
         branch_id: shopId,
         resource_id,
-        session_token: tempToken,
+        session_token: sessionToken,
         status: 'pending', // Waiting for receptionists to approve/open
         active: 'TRUE'
       })
@@ -223,7 +278,7 @@ export async function POST(
     return NextResponse.json({ session: pendingSession, table })
   } catch (e) {
     console.error('[POST qr-sessions]', e)
-    const msg = e instanceof Error ? e.message : String(e)
+    const msg = getErrorMessage(e)
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 }
@@ -315,7 +370,19 @@ export async function PATCH(
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
   } catch (e) {
     console.error('[PATCH qr-sessions]', e)
-    const msg = e instanceof Error ? e.message : String(e)
+    const msg = getErrorMessage(e)
     return NextResponse.json({ error: msg }, { status: 500 })
   }
+}
+
+function getErrorMessage(e: any): string {
+  if (e instanceof Error) return e.message
+  if (typeof e === 'object' && e !== null) {
+    try {
+      return e.message || e.error || e.details || JSON.stringify(e)
+    } catch (_) {
+      return String(e)
+    }
+  }
+  return String(e)
 }
