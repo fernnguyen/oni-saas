@@ -354,7 +354,7 @@ export default function QRClientPage({
       const data = await res.json();
       setSession(data.session);
       setTable(data.table);
-      toast.success('Đã gửi yêu cầu mở bàn! Vui lòng đợi nhân viên xử lý.');
+      toast.success('Đã gửi yêu cầu mở bàn!');
     } catch (err: any) {
       toast.error(err.message || 'Lỗi gửi yêu cầu');
     } finally {
@@ -706,6 +706,53 @@ export default function QRClientPage({
         <div className="text-center text-xs text-slate-400 dark:text-slate-600 py-4">
           Powered by Oni SaaS • Plug-and-Play QR Ordering
         </div>
+
+        {/* 10. Onboarding Name Modal for Welcome Screen */}
+        {showOnboardingNameModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in">
+            <div className="absolute inset-0 bg-black/75 backdrop-blur-md" />
+            <div className={`relative w-full max-w-sm border rounded-3xl p-6 shadow-2xl space-y-6 animate-scale-in ${themeClasses.modalBg}`}>
+              <div className="text-center space-y-2">
+                <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-orange-500 to-amber-400 flex items-center justify-center text-white mx-auto shadow-lg shadow-orange-500/20">
+                  <SvgIcons.Sparkles className="w-8 h-8" />
+                </div>
+                <h3 className={`text-lg font-black tracking-tight ${themeClasses.modalTextTitle}`}>
+                  Cho quán biết tên của bạn nhé!
+                </h3>
+                <p className={`text-xs ${themeClasses.textMuted} leading-relaxed`}>
+                  Tên này dùng để hiển thị trong giỏ hàng chung với bạn bè cùng bàn và giúp nhân viên phục vụ bạn chu đáo hơn.
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <input
+                  type="text"
+                  value={inputName}
+                  onChange={(e) => setInputName(e.target.value)}
+                  maxLength={20}
+                  placeholder="Nhập tên của bạn (ví dụ: Anh Nam, Lan Anh...)"
+                  className={`w-full border focus:border-orange-500 rounded-2xl px-4 py-3.5 text-sm outline-none transition-colors text-center font-semibold ${themeClasses.inputBg}`}
+                />
+
+                <div className="flex flex-col gap-2.5 pt-2">
+                  <button
+                    onClick={() => handleSaveOnboardingName(inputName)}
+                    disabled={!inputName.trim()}
+                    className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-orange-600 to-amber-500 hover:from-orange-500 hover:to-amber-400 disabled:opacity-50 disabled:pointer-events-none active:scale-[0.98] font-bold text-sm text-white text-center shadow-md transition-all cursor-pointer"
+                  >
+                    Tiếp tục
+                  </button>
+                  <button
+                    onClick={() => handleSaveOnboardingName()}
+                    className={`w-full py-3 rounded-2xl text-xs font-bold transition-all text-center ${themeClasses.closeBtn}`}
+                  >
+                    Bỏ qua & dùng Biệt danh ngẫu nhiên
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -815,11 +862,11 @@ export default function QRClientPage({
             {showActiveGuests && (
               <>
                 {/* Transparent backdrop to catch click outside and close the dropdown */}
-                <div 
-                  className="fixed inset-0 z-40 bg-transparent" 
-                  onClick={() => setShowActiveGuests(false)} 
+                <div
+                  className="fixed inset-0 z-40 bg-transparent"
+                  onClick={() => setShowActiveGuests(false)}
                 />
-                
+
                 {/* Dropdown showing list of friends */}
                 <div className={`absolute right-0 top-full mt-2 w-48 rounded-xl p-2.5 shadow-2xl z-50 border transition-all duration-200 animate-scale-in ${themeClasses.tooltipBg}`}>
                   <p className="text-[10px] font-bold opacity-60 uppercase tracking-wider mb-1.5">Đang online ({colabCart.activeGuests.length})</p>
