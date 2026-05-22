@@ -12,6 +12,7 @@
     "start": "next start apps/web",
     "lint": "eslint apps/web --ext .ts,.tsx",
     "db:push": "pnpm -C packages/adapters run db:push",
+    "db:push:pg": "pnpm -C packages/adapters run db:push:pg",
     "db:generate": "pnpm -C packages/adapters run db:generate"
   },
   "devDependencies": {
