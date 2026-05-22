@@ -23,14 +23,12 @@ function RowActions({ r, onEdit, onDuplicate, onToggleActive }: { r: Record<stri
   const [open, setOpen] = useState(false)
   const buttonRef = useRef<HTMLButtonElement>(null)
   const [coords, setCoords] = useState({ top: 0, left: 0, width: 0 })
-
   const updatePosition = useCallback(() => {
     if (open && buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect()
-      setCoords({ top: rect.bottom + window.scrollY + 4, left: rect.left + window.scrollX, width: rect.width })
+      setCoords({ top: rect.bottom + 4, left: rect.left, width: rect.width })
     }
   }, [open])
-
   useEffect(() => {
     updatePosition()
     window.addEventListener('resize', updatePosition)
@@ -216,13 +214,13 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
 
   // ── Excel Import / Reset States ──
   const [importModalOpen, setImportModalOpen] = useState(false)
-  const [importProvider, setImportProvider] = useState<'kiotviet' | 'pos360' | 'oni' | null>(null)
+  const [importProvider, setImportProvider] = useState<'kiotviet' | 'pos365' | 'oni' | null>(null)
   const [importFile, setImportFile] = useState<File | null>(null)
   const [parsedProducts, setParsedProducts] = useState<any[]>([])
   const [importingProgress, setImportingProgress] = useState(false)
   const [importConfirmOpen, setImportConfirmOpen] = useState(false)
   const [isParsingExcel, setIsParsingExcel] = useState(false)
-  
+
   const [resetModalOpen, setResetModalOpen] = useState(false)
   const [resetConfirmText, setResetConfirmText] = useState('')
   const [resettingProgress, setResettingProgress] = useState(false)
@@ -232,7 +230,7 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
     if (typeof window !== 'undefined') {
       const host = window.location.hostname.toLowerCase()
       const port = window.location.port
-      
+
       const isLocal =
         process.env.NODE_ENV === 'development' ||
         host === 'localhost' ||
@@ -262,16 +260,16 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
     }
   }, [])
 
-interface UnitRow {
-  id?: string
-  unit_name: string
-  conversion_rate: string
-  barcode: string
-  sell_price: string
-  cost_price: string
-}
+  interface UnitRow {
+    id?: string
+    unit_name: string
+    conversion_rate: string
+    barcode: string
+    sell_price: string
+    cost_price: string
+  }
 
-// ── Modifier system state ──────────────────────────────────────────
+  // ── Modifier system state ──────────────────────────────────────────
   const [modifierGroups, setModifierGroups] = useState<ModifierGroup[]>([])
   const [hasModifiersToggle, setHasModifiersToggle] = useState(false)
   const [previousCostPrice, setPreviousCostPrice] = useState('0')
@@ -604,45 +602,45 @@ interface UnitRow {
   const downloadOniTemplate = () => {
     const headers = [
       [
-        'Mã hàng hóa (SKU) *', 
-        'Tên hàng hóa *', 
-        'Mã vạch (Barcode)', 
-        'Nhóm hàng', 
-        'Đơn vị tính', 
-        'Giá bán *', 
-        'Giá vốn', 
-        'Tồn kho', 
-        'Định mức tồn nhỏ nhất', 
-        'Hình ảnh (URL)', 
-        'Trọng lượng (g)', 
+        'Mã hàng hóa (SKU) *',
+        'Tên hàng hóa *',
+        'Mã vạch (Barcode)',
+        'Nhóm hàng',
+        'Đơn vị tính',
+        'Giá bán *',
+        'Giá vốn',
+        'Tồn kho',
+        'Định mức tồn nhỏ nhất',
+        'Hình ảnh (URL)',
+        'Trọng lượng (g)',
         'Mô tả'
       ],
       [
-        'SP-0001', 
-        'Cà phê muối đặc biệt', 
-        '8930000000012', 
-        'Đồ uống >> Cà phê', 
-        'Ly', 
-        29000, 
-        12000, 
-        50, 
-        5, 
-        'https://i.ibb.co/caphe.jpg', 
-        250, 
+        'SP-0001',
+        'Cà phê muối đặc biệt',
+        '8930000000012',
+        'Đồ uống >> Cà phê',
+        'Ly',
+        29000,
+        12000,
+        50,
+        5,
+        'https://i.ibb.co/caphe.jpg',
+        250,
         'Cà phê muối béo ngậy vị đậm đà'
       ],
       [
-        'SP-0002', 
-        'Bánh mì Pate xúc xích', 
-        '', 
-        'Đồ ăn sáng', 
-        'Cái', 
-        20000, 
-        8000, 
-        20, 
-        2, 
-        '', 
-        150, 
+        'SP-0002',
+        'Bánh mì Pate xúc xích',
+        '',
+        'Đồ ăn sáng',
+        'Cái',
+        20000,
+        8000,
+        20,
+        2,
+        '',
+        150,
         'Bánh mì pate giòn rụm thơm ngon'
       ]
     ]
@@ -728,7 +726,7 @@ interface UnitRow {
                 const imageUrl = imageUrlStr ? imageUrlStr.split(',')[0].trim() : ''
                 const weight = String(getValue(row, ['trọng lượng', 'trong luong', 'weight']) || '').trim()
                 const stockQty = String(getValue(row, ['tồn kho', 'ton kho', 'stock', 'stock_qty']) || '0')
-                
+
                 // Expiry management
                 const hasExpiryTracking = getValue(row, ['quản lý lô-hạn sử dụng', 'quản lý lô - hạn sử dụng', 'quản lý lô', 'expiry_track'])
                 const isExpiry = hasExpiryTracking === 1 || hasExpiryTracking === '1' || hasExpiryTracking === true || hasExpiryTracking === 'true'
@@ -833,8 +831,8 @@ interface UnitRow {
             const finalProds = Array.from(baseProductsMap.values())
             setParsedProducts(finalProds)
             toast.success(`Đã đọc ${finalProds.length} sản phẩm từ file Excel KiotViet!`)
-          } 
-          else if (importProvider === 'pos360') {
+          }
+          else if (importProvider === 'pos365') {
             const finalProds: any[] = []
             rows.forEach((row: any) => {
               const sku = String(getValue(row, ['mã hàng hóa', 'mã hàng', 'sku']) || '').trim()
@@ -878,7 +876,7 @@ interface UnitRow {
                 name,
                 sku,
                 barcode: barcode || sku,
-                categoryStr: '', // POS360 exports do not contain structured hierarchy
+                categoryStr: '', // pos365 exports do not contain structured hierarchy
                 unit,
                 sell_price: sellPrice,
                 cost_price: costPrice,
@@ -895,8 +893,8 @@ interface UnitRow {
             })
 
             setParsedProducts(finalProds)
-            toast.success(`Đã đọc ${finalProds.length} sản phẩm từ file Excel POS360!`)
-          } 
+            toast.success(`Đã đọc ${finalProds.length} sản phẩm từ file Excel pos365!`)
+          }
           else if (importProvider === 'oni') {
             const finalProds: any[] = []
             rows.forEach((row: any) => {
@@ -966,13 +964,13 @@ interface UnitRow {
         throw new Error(json.error ?? 'Import thất bại')
       }
 
-      toast.success(`Nhập khẩu thành công ${parsedProducts.length} sản phẩm!`)
+      toast.success(`Nhập thành công ${parsedProducts.length} sản phẩm!`)
       setImportConfirmOpen(false)
       setImportModalOpen(false)
       setImportFile(null)
       setParsedProducts([])
       queryClient.invalidateQueries({ queryKey: ['products', shopId] })
-      
+
       // Silent IndexedDB hydration for offline POS
       hydrateAll(shopId, shopId)
         .then(() => {
@@ -1012,7 +1010,7 @@ interface UnitRow {
       queryClient.invalidateQueries({ queryKey: ['products', shopId] })
       queryClient.invalidateQueries({ queryKey: ['categories', shopId] })
       queryClient.invalidateQueries({ queryKey: ['all-products', shopId] })
-      
+
       // Reset local client-side IndexedDB to prevent stale POS offline data
       try {
         await clearLocalDb()
@@ -1441,72 +1439,76 @@ interface UnitRow {
                     }
                   />
                 </div>
-
                 {formData.product_type !== 'variant_parent' ? (
-                  <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">SKU</label>
-                      <input
-                        type="text"
-                        value={formData.sku}
-                        onChange={(e) => setFormData(prev => ({ ...prev, sku: e.target.value }))}
-                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white"
-                        placeholder="Tự động tạo"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Mã vạch</label>
-                      <input
-                        type="text"
-                        value={formData.barcode}
-                        onChange={(e) => setFormData(prev => ({ ...prev, barcode: e.target.value }))}
-                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white"
-                        placeholder="Mã vạch gốc"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Đơn vị</label>
-                      <input
-                        type="text"
-                        value={formData.unit}
-                        onChange={(e) => setFormData(prev => ({ ...prev, unit: e.target.value }))}
-                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white"
-                        placeholder="Cái, Hộp, Ly..."
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Trọng lượng (g)</label>
-                      <input
-                        type="text"
-                        value={formData.weight || ''}
-                        onChange={(e) => setFormData(prev => ({ ...prev, weight: e.target.value }))}
-                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white"
-                        placeholder="gam"
-                      />
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="block text-sm font-medium text-slate-700">Danh mục</label>
-                        <button
-                          type="button"
-                          onClick={openCreateCategory}
-                          className="text-xs text-primary hover:underline font-medium"
-                        >
-                          + Tạo mới
-                        </button>
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">SKU</label>
+                        <input
+                          type="text"
+                          value={formData.sku}
+                          onChange={(e) => setFormData(prev => ({ ...prev, sku: e.target.value }))}
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white"
+                          placeholder="Tự động tạo"
+                        />
                       </div>
-                      <select
-                        value={formData.category_id}
-                        onChange={(e) => setFormData(prev => ({ ...prev, category_id: e.target.value }))}
-                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white"
-                      >
-                        <option value="">-- Chọn danh mục --</option>
-                        {categories.map((c: any) => (
-                          <option key={c.category_id} value={c.category_id}>
-                            {c.name}
-                          </option>
-                        ))}
-                      </select>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Mã vạch</label>
+                        <input
+                          type="text"
+                          value={formData.barcode}
+                          onChange={(e) => setFormData(prev => ({ ...prev, barcode: e.target.value }))}
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white"
+                          placeholder="Mã vạch gốc"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-sm font-medium text-slate-700">Danh mục</label>
+                          <button
+                            type="button"
+                            onClick={openCreateCategory}
+                            className="text-xs text-primary hover:underline font-medium"
+                          >
+                            + Tạo mới
+                          </button>
+                        </div>
+                        <select
+                          value={formData.category_id}
+                          onChange={(e) => setFormData(prev => ({ ...prev, category_id: e.target.value }))}
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white"
+                        >
+                          <option value="">-- Chọn danh mục --</option>
+                          {categories.map((c: any) => (
+                            <option key={c.category_id} value={c.category_id}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Đơn vị</label>
+                        <input
+                          type="text"
+                          value={formData.unit}
+                          onChange={(e) => setFormData(prev => ({ ...prev, unit: e.target.value }))}
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white"
+                          placeholder="Cái, Hộp, Ly..."
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Trọng lượng (g)</label>
+                        <input
+                          type="text"
+                          value={formData.weight || ''}
+                          onChange={(e) => setFormData(prev => ({ ...prev, weight: e.target.value }))}
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white"
+                          placeholder="gam"
+                        />
+                      </div>
                     </div>
                   </div>
                 ) : (
@@ -1622,13 +1624,12 @@ interface UnitRow {
 
                 {/* ── Thông tin Dược phẩm chuyên biệt (Pharmacy Details) ── */}
                 {formData.product_type !== 'variant_parent' && (
-                  <div className={`rounded-xl border transition-all ${
-                    showPharmacyDetails 
-                      ? 'border-emerald-200 bg-emerald-50/20 shadow-sm' 
-                      : 'border-slate-200 bg-white'
-                  }`}>
+                  <div className={`rounded-xl border transition-all ${showPharmacyDetails
+                    ? 'border-emerald-200 bg-emerald-50/20 shadow-sm'
+                    : 'border-slate-200 bg-white'
+                    }`}>
                     {/* Header collapsible */}
-                    <div 
+                    <div
                       onClick={() => setShowPharmacyDetails(!showPharmacyDetails)}
                       className="flex items-center justify-between p-4 cursor-pointer select-none"
                     >
@@ -1644,13 +1645,12 @@ interface UnitRow {
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
-                          showPharmacyDetails ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
-                        }`}>
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${showPharmacyDetails ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
+                          }`}>
                           {showPharmacyDetails ? 'Đang bật' : 'Đang tắt'}
                         </span>
-                        <svg 
-                          xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" 
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor"
                           className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${showPharmacyDetails ? 'rotate-180' : ''}`}
                         >
                           <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
@@ -2206,11 +2206,10 @@ interface UnitRow {
                                       toast.success(`Đã thêm ${p.name}`)
                                     }
                                   }}
-                                  className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors ${
-                                    index === bomHighlightedIndex
-                                      ? 'bg-primary/10 border-l-2 border-primary'
-                                      : 'hover:bg-slate-50'
-                                  }`}
+                                  className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors ${index === bomHighlightedIndex
+                                    ? 'bg-primary/10 border-l-2 border-primary'
+                                    : 'hover:bg-slate-50'
+                                    }`}
                                 >
                                   <div className="flex-1 min-w-0 pr-2">
                                     <div className="flex items-center gap-2">
@@ -2564,9 +2563,9 @@ interface UnitRow {
         title={
           importProvider === 'kiotviet'
             ? 'Xác nhận nhập dữ liệu Excel KiotViet'
-            : importProvider === 'pos360'
-            ? 'Xác nhận nhập dữ liệu Excel POS 360'
-            : 'Xác nhận nhập dữ liệu Excel Template Oni'
+            : importProvider === 'pos365'
+              ? 'Xác nhận nhập dữ liệu Excel POS 365'
+              : 'Xác nhận nhập dữ liệu Excel Template Oni'
         }
         confirmLabel="Tiến hành Import"
         cancelLabel="Hủy"
@@ -2691,19 +2690,19 @@ interface UnitRow {
                     {importProvider === null
                       ? 'Nhập dữ liệu sản phẩm từ file Excel'
                       : importProvider === 'kiotviet'
-                      ? 'Nhập dữ liệu sản phẩm từ KiotViet'
-                      : importProvider === 'pos360'
-                      ? 'Nhập dữ liệu sản phẩm từ POS 360'
-                      : 'Nhập dữ liệu sản phẩm từ Template Oni'}
+                        ? 'Nhập dữ liệu sản phẩm từ KiotViet'
+                        : importProvider === 'pos365'
+                          ? 'Nhập dữ liệu sản phẩm từ POS 365'
+                          : 'Nhập dữ liệu sản phẩm từ Template Oni'}
                   </h3>
                   <p className="text-xs text-slate-500">
                     {importProvider === null
                       ? 'Chọn nhà cung cấp dịch vụ hoặc sử dụng file mẫu chuẩn hệ thống'
                       : importProvider === 'kiotviet'
-                      ? 'Hỗ trợ đầy đủ danh mục đa cấp, đơn vị quy đổi, lô hạn dùng và thông tin dược phẩm'
-                      : importProvider === 'pos360'
-                      ? 'Hỗ trợ tự động nhận diện quy đổi đơn vị tính lớn phẳng, tồn kho và trạng thái'
-                      : 'Mẫu file tối ưu hóa dữ liệu sản phẩm chuẩn hệ thống với cấu trúc đơn giản'}
+                        ? 'Hỗ trợ đầy đủ danh mục đa cấp, đơn vị quy đổi, lô hạn dùng và thông tin dược phẩm'
+                        : importProvider === 'pos365'
+                          ? 'Hỗ trợ tự động nhận diện quy đổi đơn vị tính lớn phẳng, tồn kho và trạng thái'
+                          : 'Mẫu file tối ưu hóa dữ liệu sản phẩm chuẩn hệ thống với cấu trúc đơn giản'}
                   </p>
                 </div>
               </div>
@@ -2720,7 +2719,7 @@ interface UnitRow {
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
                   Bắt đầu lại / Reset
                 </button>
-                <button 
+                <button
                   disabled={importingProgress}
                   onClick={() => {
                     if (importingProgress) return
@@ -2741,7 +2740,7 @@ interface UnitRow {
                 <div className="py-4">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     {/* KIOTVIET CARD */}
-                    <div 
+                    <div
                       onClick={() => setImportProvider('kiotviet')}
                       className="group cursor-pointer rounded-2xl border-2 border-slate-100 hover:border-orange-200 bg-white p-6 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col justify-between min-h-[220px]"
                     >
@@ -2750,7 +2749,7 @@ interface UnitRow {
                           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 21v-7.5a.75.75 0 01.75-.75h3a.75.75 0 01.75.75V21m-4.5 0H2.36m11.14 0H18m0 0h3.64m-1.39 0V9.349m-16.5 11.65V9.35m0 0a3.001 3.001 0 003.75-.615A2.993 2.993 0 009.75 9.75c.896 0 1.7-.393 2.25-1.016a2.993 2.993 0 002.25 1.016c.896 0 1.7-.393 2.25-1.016a3.001 3.001 0 003.75.614m-16.5 0a3.004 3.004 0 01-.621-4.72L4.318 3.44A1.5 1.5 0 015.378 3h13.243a1.5 1.5 0 011.06.44l1.19 1.189a3 3 0 01-.621 4.72m-13.5 8.65h3.75a.75.75 0 00.75-.75V13.5a.75.75 0 00-.75-.75H6.75a.75.75 0 00-.75.75v3.75c0 .414.336.75.75.75z" /></svg>
                         </div>
                         <h4 className="text-base font-bold text-slate-800 group-hover:text-orange-600 transition-colors">KiotViet Excel</h4>
-                        <p className="text-xs text-slate-500 mt-2 leading-relaxed">Nhập khẩu toàn bộ danh mục sản phẩm từ file Excel xuất bản quản lý KiotViet. Hỗ trợ đơn vị quy đổi, lô hạn dùng.</p>
+                        <p className="text-xs text-slate-500 mt-2 leading-relaxed">Nhập toàn bộ danh mục sản phẩm từ file Excel xuất bản quản lý KiotViet. Hỗ trợ đơn vị quy đổi, lô hạn dùng.</p>
                       </div>
                       <div className="mt-4 flex items-center text-xs font-semibold text-orange-600 group-hover:translate-x-1 transition-transform">
                         Chọn nguồn này
@@ -2758,17 +2757,17 @@ interface UnitRow {
                       </div>
                     </div>
 
-                    {/* POS 360 CARD */}
-                    <div 
-                      onClick={() => setImportProvider('pos360')}
+                    {/* POS 365 CARD */}
+                    <div
+                      onClick={() => setImportProvider('pos365')}
                       className="group cursor-pointer rounded-2xl border-2 border-slate-100 hover:border-blue-200 bg-white p-6 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col justify-between min-h-[220px]"
                     >
                       <div>
                         <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300">
                           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" /></svg>
                         </div>
-                        <h4 className="text-base font-bold text-slate-800 group-hover:text-blue-600 transition-colors">POS 360 Excel</h4>
-                        <p className="text-xs text-slate-500 mt-2 leading-relaxed">Nhập khẩu dữ liệu phẳng từ file Excel xuất bản quản lý POS 360. Tự động nhận diện ĐVT Lớn quy đổi và định mức tồn kho.</p>
+                        <h4 className="text-base font-bold text-slate-800 group-hover:text-blue-600 transition-colors">POS 365 Excel</h4>
+                        <p className="text-xs text-slate-500 mt-2 leading-relaxed">Nhập dữ liệu phẳng từ file Excel xuất bản quản lý POS 365. Tự động nhận diện ĐVT Lớn quy đổi và định mức tồn kho.</p>
                       </div>
                       <div className="mt-4 flex items-center text-xs font-semibold text-blue-600 group-hover:translate-x-1 transition-transform">
                         Chọn nguồn này
@@ -2777,7 +2776,7 @@ interface UnitRow {
                     </div>
 
                     {/* TEMPLATE ONI CARD */}
-                    <div 
+                    <div
                       className="group rounded-2xl border-2 border-slate-100 hover:border-primary/30 bg-white p-6 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col justify-between min-h-[220px]"
                     >
                       <div onClick={() => setImportProvider('oni')} className="cursor-pointer">
@@ -2785,9 +2784,9 @@ interface UnitRow {
                           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
                         </div>
                         <h4 className="text-base font-bold text-slate-800 group-hover:text-primary transition-colors">Template Oni</h4>
-                        <p className="text-xs text-slate-500 mt-2 leading-relaxed">Nhập khẩu dữ liệu tối ưu theo file Excel mẫu chuẩn Oni. Thích hợp cho việc khởi tạo mới hoặc chuyển đổi từ hệ thống khác.</p>
+                        <p className="text-xs text-slate-500 mt-2 leading-relaxed">Nhập dữ liệu tối ưu theo file Excel mẫu chuẩn Oni. Thích hợp cho việc khởi tạo mới hoặc chuyển đổi từ hệ thống khác.</p>
                       </div>
-                      
+
                       <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
                         <button
                           type="button"
@@ -2797,7 +2796,7 @@ interface UnitRow {
                           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
                           Tải File Mẫu
                         </button>
-                        
+
                         <button
                           type="button"
                           onClick={() => setImportProvider('oni')}
@@ -2818,7 +2817,7 @@ interface UnitRow {
                   </div>
                   <h4 className="text-sm font-bold text-slate-800 mb-1">Đang đọc và phân tích file Excel...</h4>
                   <p className="text-xs text-slate-500 text-center max-w-sm leading-relaxed">
-                    Hệ thống đang trích xuất dữ liệu, kiểm tra các cột thuộc tính, tự động ánh xạ cấu trúc sản phẩm của {importProvider === 'kiotviet' ? 'KiotViet' : importProvider === 'pos360' ? 'POS 360' : 'Template Oni'}. Vui lòng đợi 3-5 giây!
+                    Hệ thống đang trích xuất dữ liệu, kiểm tra các cột thuộc tính, tự động ánh xạ cấu trúc sản phẩm của {importProvider === 'kiotviet' ? 'KiotViet' : importProvider === 'pos365' ? 'POS 365' : 'Template Oni'}. Vui lòng đợi 3-5 giây!
                   </p>
                 </div>
               ) : parsedProducts.length === 0 ? (
@@ -2827,20 +2826,20 @@ interface UnitRow {
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-8 h-8"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
                   </div>
                   <h4 className="text-sm font-semibold text-slate-800 mb-1">
-                    {importProvider === 'kiotviet' 
-                      ? 'Chọn file xuất từ KiotViet của bạn' 
-                      : importProvider === 'pos360' 
-                      ? 'Chọn file xuất từ POS 360 của bạn' 
-                      : 'Chọn file Excel Template Oni của bạn'}
+                    {importProvider === 'kiotviet'
+                      ? 'Chọn file xuất từ KiotViet của bạn'
+                      : importProvider === 'pos365'
+                        ? 'Chọn file xuất từ POS 365 của bạn'
+                        : 'Chọn file Excel Template Oni của bạn'}
                   </h4>
                   <p className="text-xs text-slate-400 mb-4 text-center max-w-sm leading-relaxed">
                     {importProvider === 'kiotviet'
                       ? 'Hỗ trợ file Excel .xlsx được xuất trực tiếp từ trang quản lý hàng hóa của KiotViet.'
-                      : importProvider === 'pos360'
-                      ? 'Hỗ trợ file Excel .xlsx được xuất trực tiếp từ trang quản lý hàng hóa của POS 360.'
-                      : 'Đảm bảo file Excel đúng định dạng cấu trúc cột mẫu để hệ thống nhập chính xác.'}
+                      : importProvider === 'pos365'
+                        ? 'Hỗ trợ file Excel .xlsx được xuất trực tiếp từ trang quản lý hàng hóa của POS 365.'
+                        : 'Đảm bảo file Excel đúng định dạng cấu trúc cột mẫu để hệ thống nhập chính xác.'}
                   </p>
-                  
+
                   <div className="flex gap-3">
                     {importProvider === 'oni' && (
                       <button
@@ -2854,8 +2853,8 @@ interface UnitRow {
                     )}
                     <label className="rounded-xl bg-primary hover:bg-primary-dark px-4 py-2 text-xs font-semibold text-white shadow-md cursor-pointer transition-colors">
                       Chọn file Excel (.xlsx)
-                      <input 
-                        type="file" 
+                      <input
+                        type="file"
                         accept=".xlsx, .xls"
                         className="hidden"
                         onChange={(e) => {
@@ -3025,7 +3024,7 @@ interface UnitRow {
                 Cảnh báo cực kỳ nguy hiểm
               </h3>
             </div>
-            
+
             <div className="mt-4 space-y-3">
               {/* ENVIRONMENT WARNING INDICATOR */}
               {isProduction ? (
@@ -3061,7 +3060,7 @@ interface UnitRow {
                   </div>
                 </div>
               )}
-              
+
               <p className="text-sm font-medium text-slate-700 leading-relaxed">Bạn đang thực hiện xóa sạch toàn bộ danh mục, sản phẩm và kho hàng của chi nhánh này. Hành động này sẽ:</p>
               <ul className="text-xs text-slate-600 space-y-1.5 pl-4 list-disc font-medium">
                 <li>Xóa toàn bộ các danh mục (Categories) hiện tại.</li>
@@ -3069,11 +3068,11 @@ interface UnitRow {
                 <li>Xóa toàn bộ số dư tồn kho, các lô hàng & hạn sử dụng.</li>
                 <li>Xóa toàn bộ lịch sử biến động kho & các phiếu điều chỉnh tồn kho (PDK) tự động.</li>
               </ul>
-              
+
               <p className="text-xs font-bold p-2.5 rounded-lg leading-relaxed text-red-500 bg-red-50 border border-red-100">
                 DỮ LIỆU SẼ BỊ XÓA VĨNH VIỄN KHÔNG THỂ PHỤC HỒI. Hãy cân nhắc kỹ trước khi tiếp tục.
               </p>
-              
+
               <div className="pt-2">
                 <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                   Vui lòng nhập đúng chữ <strong className="text-red-600 tracking-wider">RESET</strong> để xác nhận:
