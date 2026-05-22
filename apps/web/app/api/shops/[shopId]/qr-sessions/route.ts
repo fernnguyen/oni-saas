@@ -35,7 +35,13 @@ export async function GET(
     const tenantId = shop.tenant_id
 
     // Lazy cleanup expired sessions older than 4 hours (fire and forget)
-    admin.rpc('cleanup_expired_qr_sessions').catch(err => console.error('Lazy cleanup error:', err))
+    void (async () => {
+      try {
+        await admin.rpc('cleanup_expired_qr_sessions');
+      } catch (err) {
+        console.error('Lazy cleanup error:', err);
+      }
+    })();
 
     // 2. Check Feature Access (Plug-and-Play Feature Gate)
     const hasAccess = await checkFeatureAccess(tenantId, 'qr_table_ordering')
@@ -129,7 +135,13 @@ export async function POST(
     const tenantId = shop.tenant_id
 
     // Lazy cleanup expired sessions older than 4 hours (fire and forget)
-    admin.rpc('cleanup_expired_qr_sessions').catch(err => console.error('Lazy cleanup error:', err))
+    void (async () => {
+      try {
+        await admin.rpc('cleanup_expired_qr_sessions');
+      } catch (err) {
+        console.error('Lazy cleanup error:', err);
+      }
+    })();
 
     // 2. Check Feature Access
     const hasAccess = await checkFeatureAccess(tenantId, 'qr_table_ordering')
@@ -224,7 +236,8 @@ export async function PATCH(
     const { shopId } = await params
     
     // Only authenticated staff with 'pos.use' permission can approve/complete/reject sessions
-    const { connector, tenantId } = await requireShopAccess(shopId, 'pos.use')
+    const { connector, shop } = await requireShopAccess(shopId, 'pos.use')
+    const tenantId = shop.tenant_id
 
     const body = await req.json()
     const { session_id, action } = body

@@ -112,7 +112,7 @@ export async function enforceLimit(
 ): Promise<void> {
   const meta = await getTenantPlanMeta(tenantId);
   const limit = meta[action];
-  if (limit === undefined || limit === -1) return;
+  if (limit === undefined || typeof limit !== 'number' || limit === -1) return;
 
   const def = ACTION_REGISTRY[action];
   if (!def) return;
@@ -140,7 +140,7 @@ export async function getLimitStatus(
 ): Promise<LimitStatus | null> {
   const meta = await getTenantPlanMeta(tenantId);
   const limit = meta[action];
-  if (limit === undefined) return null;
+  if (limit === undefined || typeof limit !== 'number') return null;
 
   const def = ACTION_REGISTRY[action];
   if (!def) return null;
