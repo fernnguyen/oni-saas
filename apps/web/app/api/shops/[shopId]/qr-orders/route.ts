@@ -24,7 +24,7 @@ export async function GET(
 
     try {
       const access = await requireShopAccess(shopId, 'pos.use')
-      tenantId = access.tenantId
+      tenantId = access.shop.tenant_id
       isStaff = true
     } catch {
       // Not a staff or not logged in, must be a guest
@@ -151,7 +151,8 @@ export async function PATCH(
     const { shopId } = await params
     
     // Only staff with 'pos.use' can update request status (accept/reject)
-    const { tenantId } = await requireShopAccess(shopId, 'pos.use')
+    const { shop } = await requireShopAccess(shopId, 'pos.use')
+    const tenantId = shop.tenant_id
 
     const body = await req.json()
     const { request_id, action, reject_reason } = body
