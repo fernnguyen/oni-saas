@@ -397,9 +397,9 @@ export function TableMapPOS({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col h-[calc(100vh-88px)] md:h-[calc(100vh-104px)] gap-4 overflow-hidden">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
         <div>
           <h1 className="text-xl font-semibold text-slate-900">{posLabel || `${resourceLabel} POS`}</h1>
           <div className="flex items-center gap-3 mt-1 text-xs text-slate-400">
@@ -408,9 +408,9 @@ export function TableMapPOS({
             <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" />{stats.cleaning} dọn dẹp</span>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
           {/* View Mode Toggle */}
-          <div className="flex items-center rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+          <div className="flex items-center rounded-xl border border-slate-200 bg-white p-1 shadow-sm shrink-0">
             <button
               onClick={() => toggleViewMode('grid')}
               className={`rounded-lg px-2 py-1 text-xs font-medium transition-colors ${viewMode === 'grid' ? 'bg-slate-100 text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
@@ -472,7 +472,7 @@ export function TableMapPOS({
 
       {/* Zone selection filter tabs (F7 to select all) */}
       {sortedZones.length > 0 && (
-        <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide select-none">
+        <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide select-none shrink-0">
           {viewMode !== 'map' && (
             <button
               onClick={() => setSelectedZone(null)}
@@ -506,13 +506,15 @@ export function TableMapPOS({
 
       {/* Resource grid */}
       {loading ? (
-        <div className="flex h-40 items-center justify-center">
+        <div className="flex-1 flex items-center justify-center min-h-[300px]">
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
         </div>
       ) : resources.length === 0 ? (
-        <EmptyState title={`Chưa có ${resourceLabel} nào`} description={`Vào Quản lý vị trí để tạo ${resourceLabel}`} />
+        <div className="flex-1 flex items-center justify-center min-h-[300px]">
+          <EmptyState title={`Chưa có ${resourceLabel} nào`} description={`Vào Quản lý vị trí để tạo ${resourceLabel}`} />
+        </div>
       ) : (
-        <>
+        <div className={`flex-1 min-h-0 w-full ${viewMode === 'map' ? 'overflow-hidden h-full' : 'overflow-y-auto h-full pr-1 pb-4'}`}>
           {viewMode === 'map' && (() => {
             const activeZoneResources = resources.filter(r => r.status !== 'deleted' && (r.zone || 'Chưa phân vùng') === (selectedZone || 'Chưa phân vùng'))
             const hasPositionedTables = activeZoneResources.some(r => {
@@ -526,7 +528,7 @@ export function TableMapPOS({
 
             if (!hasPositionedTables) {
               return (
-                <div className="flex flex-col items-center justify-center border border-dashed border-slate-200 bg-slate-50/80 rounded-3xl p-12 text-center h-[50vh] relative shadow-sm overflow-hidden select-none">
+                <div className="flex flex-col items-center justify-center border border-dashed border-slate-200 bg-slate-50/80 rounded-3xl p-12 text-center h-full min-h-[300px] relative shadow-sm overflow-hidden select-none">
                   <div className="relative z-10 max-w-md space-y-4">
                     <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-white border border-slate-200 shadow-sm">
                       <svg className="h-7 w-7 text-slate-400 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -583,7 +585,6 @@ export function TableMapPOS({
                 {items.sort((a: Resource, b: Resource) => Number(a.sort_order || 0) - Number(b.sort_order || 0)).map((r: Resource) => {
                   const st = STATUS_CARDS[r.status] ?? STATUS_CARDS.available
                   const rmd = safeParseJSON(r.metadata)
-                  const tpl = vertical.resourceTemplate
                   const isRoomType = r.type === 'room'
                   const activeOrder = r.status === 'occupied'
                     ? (ordersMap.get(r.current_order_id || '') || ordersMap.get(`res-${r.id}`))
@@ -611,10 +612,7 @@ export function TableMapPOS({
 
                       {/* Header */}
                       <div className="flex items-start justify-between mb-2 mt-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-xl">{tpl?.icon || (isRoomType ? '🛏️' : r.type === 'court' ? '🏸' : '🪑')}</span>
-                          <p className="text-base font-bold text-slate-800 line-clamp-2 leading-tight">{r.name}</p>
-                        </div>
+                        <p className="text-base font-bold text-slate-800 line-clamp-2 leading-tight">{r.name}</p>
                       </div>
 
                       {/* Meta info */}
@@ -662,13 +660,10 @@ export function TableMapPOS({
             {
               key: 'name',
               label: 'Tên',
-              className: 'w-[25%]',
+              className: 'w-[20%]',
               render: (r) => {
-                const tpl = vertical.resourceTemplate
-                const isRoomType = r.type === 'room'
                 return (
-                  <button onClick={(e) => { e.stopPropagation(); handleResourceClick(r); }} className="flex items-center gap-2 text-left group">
-                    <span className="text-lg group-hover:scale-110 transition-transform">{tpl?.icon || (isRoomType ? '🛏️' : r.type === 'court' ? '🏸' : '🪑')}</span>
+                  <button onClick={(e) => { e.stopPropagation(); handleResourceClick(r); }} className="text-left group">
                     <span className="font-bold text-slate-800 group-hover:text-primary transition-colors">{r.name}</span>
                   </button>
                 )
@@ -680,13 +675,27 @@ export function TableMapPOS({
               className: 'w-[15%]',
               render: (r) => {
                 const st = STATUS_CARDS[r.status] ?? STATUS_CARDS.available
+                return (
+                  <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ${st.bg} ${st.text}`}>
+                    {st.label}
+                  </span>
+                )
+              }
+            },
+            {
+              key: 'customer',
+              label: 'Khách hàng',
+              className: 'w-[20%]',
+              render: (r) => {
                 const activeOrder = r.status === 'occupied'
                   ? (ordersMap.get(r.current_order_id || '') || ordersMap.get(`res-${r.id}`))
                   : null
-                return (
-                  <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ${st.bg} ${st.text}`}>
-                    {r.status === 'occupied' ? (activeOrder?.customer_name || 'Khách lẻ') : st.label}
+                return activeOrder ? (
+                  <span className="font-bold text-slate-700">
+                    {activeOrder.customer_name || 'Khách lẻ'}
                   </span>
+                ) : (
+                  <span className="text-slate-400">—</span>
                 )
               }
             },
@@ -751,7 +760,7 @@ export function TableMapPOS({
           onRowClick={handleResourceClick}
         />
       )}
-      </>
+        </div>
       )}
 
       {/* Slide-over Manager */}
