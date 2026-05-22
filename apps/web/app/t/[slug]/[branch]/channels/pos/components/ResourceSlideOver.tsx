@@ -67,6 +67,7 @@ interface Props {
   allResources?: any[]
   onRefresh?: () => void
   autoPrintReceipt?: boolean
+  permissions?: string[]
 }
 
 import { fmtDateTimeVN } from './CheckoutModal'
@@ -110,6 +111,7 @@ export function ResourceSlideOver({
   open, onClose, resource, shopId, branchId, shopName, employeeId,
   onCheckInSuccess, onSessionClosed, resourceTemplate,
   allResources = [], onRefresh, autoPrintReceipt = false,
+  permissions = [],
 }: Props) {
   const tpl = resourceTemplate ?? DEFAULT_TEMPLATE
   const sec = tpl.sections
@@ -748,6 +750,10 @@ export function ResourceSlideOver({
   }
   async function handleCancelOrder() {
     if (!order) return
+    if (!permissions.includes('orders.delete')) {
+      toast.error('Bạn không có quyền hủy đơn hàng')
+      return
+    }
     setCancellingOrder(true)
     try {
       const payload: any = { reason: `Hủy ${tpl.label.toLowerCase()} chưa thanh toán` }
@@ -1755,15 +1761,17 @@ export function ResourceSlideOver({
                   >
                     {tpl.actions.payAndClose}
                   </button>
-                  <button
-                    onClick={() => {
-                      setRefundAmountInput(order?.paid_amount ? Number(order.paid_amount).toLocaleString('vi-VN') : '')
-                      setConfirmCancelResource(true)
-                    }}
-                    className="shrink-0 px-5 rounded-xl bg-red-50 text-red-600 border border-red-200 py-3.5 text-sm font-bold hover:bg-red-100 transition-colors"
-                  >
-                    {resource.id.startsWith('takeaway') ? 'Hủy đơn' : `Hủy ${tpl.label.toLowerCase()}`}
-                  </button>
+                  {permissions.includes('orders.delete') && (
+                    <button
+                      onClick={() => {
+                        setRefundAmountInput(order?.paid_amount ? Number(order.paid_amount).toLocaleString('vi-VN') : '')
+                        setConfirmCancelResource(true)
+                      }}
+                      className="shrink-0 px-5 rounded-xl bg-red-50 text-red-600 border border-red-200 py-3.5 text-sm font-bold hover:bg-red-100 transition-colors"
+                    >
+                      {resource.id.startsWith('takeaway') ? 'Hủy đơn' : `Hủy ${tpl.label.toLowerCase()}`}
+                    </button>
+                  )}
                 </div>
               </div>
           </div>

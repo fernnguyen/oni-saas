@@ -8,7 +8,7 @@ import { useCart, type CartItem } from '@/hooks/useCart'
 import { useQuery } from '@tanstack/react-query'
 import { useConfirm } from '@/app/components/ui/ConfirmProvider'
 import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog'
-import { localDb, type LocalInventory, type LocalCustomer } from '@/lib/localDb/schema'
+import { localDb, type LocalInventory, type LocalCustomer, type LocalOrder } from '@/lib/localDb/schema'
 import { SyncWorker } from '@/lib/pos/syncWorker'
 import { IconClipboard } from '@/app/components/layout/nav'
 import { ProductGrid } from './components/ProductGrid'
@@ -16,6 +16,7 @@ import { CartPanel } from './components/CartPanel'
 import { CheckoutModal } from './components/CheckoutModal'
 import { SyncStatusBar } from './components/SyncStatusBar'
 import { OrderHistoryPanel } from './components/OrderHistoryPanel'
+import { CustomerCreateModal } from './components/CustomerCreateModal'
 
 interface Props {
   shopId: string
@@ -25,9 +26,10 @@ interface Props {
   backPath: string
   autoPrintReceipt: boolean
   mutePosSound: boolean
+  permissions?: string[]
 }
 
-export interface HeldCart {
+export interface OrderTab {
   id: string
   label: string
   items: CartItem[]
@@ -36,11 +38,13 @@ export interface HeldCart {
   note: string
 }
 
+export type HeldCart = OrderTab
+
 // Break out of DashboardShell padding, fill exactly the space below topbar (h-14 = 3.5rem)
 const shellCls = '-mx-4 -my-4 md:-mx-6 md:-my-6 flex flex-col bg-slate-50 overflow-hidden'
 const shellStyle = { height: 'calc(100dvh - 3.5rem)' } as const
 
-export function POSClient({ shopId, branchId, shopName, userEmail, backPath, autoPrintReceipt, mutePosSound }: Props) {
+export function POSClient({ shopId, branchId, shopName, userEmail, backPath, autoPrintReceipt, mutePosSound, permissions = [] }: Props) {
   const { status, lastHydratedAt, refresh } = usePOSHydration(shopId, branchId)
   const isOnline = useNetworkStatus()
   const confirm = useConfirm()
@@ -113,23 +117,327 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
     prevItemsLengthRef.current = cart.items.length
   }, [cart.items, activeCartItemId])
 
-  const [heldCarts, setHeldCarts] = useState<HeldCart[]>(() => {
+  // ── Parallel Tabs & Storage System (Sprint 1) ───────────────────────
+  const [tabs, setTabs] = useState<OrderTab[]>(() => {
     if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('oni-held-carts')
+      const stored = localStorage.getItem('oni-pos-tabs')
       if (stored) {
         try {
           return JSON.parse(stored)
-        } catch (e) {}
+        } catch (e) { }
       }
     }
-    return []
+    return [{ id: 'default', label: 'Đơn hàng 1', items: [], customer: null, discount_amount: 0, note: '' }]
   })
-  const [orderPanelOpen, setOrderPanelOpen] = useState(false)
-  const workerRef = useRef<SyncWorker | null>(null)
+
+  const [activeTabId, setActiveTabId] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('oni-pos-active-tab-id')
+      if (stored) return stored
+    }
+    return 'default'
+  })
+
+  const [editingTabId, setEditingTabId] = useState<string | null>(null)
+  const [editingLabel, setEditingLabel] = useState('')
+
+  const [customerModalOpen, setCustomerModalOpen] = useState(false)
+  const [customerModalCallback, setCustomerModalCallback] = useState<((c: LocalCustomer) => void) | null>(null)
+
+  const [cartSide, setCartSide] = useState<'left' | 'right'>(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('oni-pos-cart-side')
+      if (stored === 'right') return 'right'
+    }
+    return 'left'
+  })
 
   useEffect(() => {
-    localStorage.setItem('oni-held-carts', JSON.stringify(heldCarts))
-  }, [heldCarts])
+    localStorage.setItem('oni-pos-cart-side', cartSide)
+  }, [cartSide])
+
+  const [isMobile, setIsMobile] = useState(false)
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768)
+    }
+    handleResize()
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
+
+  const dropdownRef = useRef<HTMLDivElement>(null)
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onClickOutside)
+    return () => document.removeEventListener('mousedown', onClickOutside)
+  }, [])
+
+  const maxVisible = isMobile ? 2 : 4
+  let visibleTabs: OrderTab[] = []
+  let overflowTabs: OrderTab[] = []
+
+  if (tabs.length <= maxVisible) {
+    visibleTabs = tabs
+    overflowTabs = []
+  } else {
+    const activeTab = tabs.find((t) => t.id === activeTabId) || tabs[0]
+    visibleTabs = [activeTab]
+    const otherTabs = tabs.filter((t) => t.id !== activeTab.id)
+    visibleTabs.push(...otherTabs.slice(0, maxVisible - 1))
+    visibleTabs.sort((a, b) => tabs.findIndex(t => t.id === a.id) - tabs.findIndex(t => t.id === b.id))
+    overflowTabs = tabs.filter((t) => !visibleTabs.some(vt => vt.id === t.id))
+  }
+
+  const isSwitchingTabRef = useRef(false)
+  const isInitialRestoreRef = useRef(false)
+
+  useEffect(() => {
+    localStorage.setItem('oni-pos-tabs', JSON.stringify(tabs))
+  }, [tabs])
+
+  useEffect(() => {
+    localStorage.setItem('oni-pos-active-tab-id', activeTabId)
+  }, [activeTabId])
+
+  // Mount-time restore from active tab
+  useEffect(() => {
+    if (!isInitialRestoreRef.current && tabs.length > 0) {
+      const activeTab = tabs.find((t) => t.id === activeTabId) || tabs[0]
+      if (activeTab) {
+        isSwitchingTabRef.current = true
+        setActiveTabId(activeTab.id)
+        setCustomer(activeTab.customer)
+        cart.restore({
+          items: activeTab.items,
+          discount_amount: activeTab.discount_amount,
+          note: activeTab.note,
+        })
+        isInitialRestoreRef.current = true
+        setTimeout(() => {
+          isSwitchingTabRef.current = false
+        }, 50)
+      }
+    }
+  }, [tabs, activeTabId, cart])
+
+  // Sync cart details into the active tab in tabs list
+  useEffect(() => {
+    if (isSwitchingTabRef.current) return
+    setTabs((prev) =>
+      prev.map((t) =>
+        t.id === activeTabId
+          ? {
+            ...t,
+            items: cart.items,
+            customer,
+            discount_amount: cart.discount_amount,
+            note: cart.note,
+          }
+          : t
+      )
+    )
+  }, [cart.items, customer, cart.discount_amount, cart.note, activeTabId])
+
+  function switchTab(targetTabId: string) {
+    const target = tabs.find((t) => t.id === targetTabId)
+    if (!target) return
+    isSwitchingTabRef.current = true
+    setActiveTabId(targetTabId)
+    setCustomer(target.customer)
+    cart.restore({
+      items: target.items,
+      discount_amount: target.discount_amount,
+      note: target.note,
+    })
+    setTimeout(() => {
+      isSwitchingTabRef.current = false
+    }, 50)
+  }
+
+  function addNewTab(label?: string) {
+    const newId = crypto.randomUUID()
+    const newLabel = label || `Đơn hàng ${tabs.length + 1}`
+    const newTab: OrderTab = {
+      id: newId,
+      label: newLabel,
+      items: [],
+      customer: null,
+      discount_amount: 0,
+      note: '',
+    }
+    setTabs((prev) => [...prev, newTab])
+    isSwitchingTabRef.current = true
+    setActiveTabId(newId)
+    setCustomer(null)
+    cart.restore({ items: [], discount_amount: 0, note: '' })
+    setTimeout(() => {
+      isSwitchingTabRef.current = false
+    }, 50)
+  }
+
+  async function closeTab(tabId: string, e?: React.MouseEvent) {
+    if (e) e.stopPropagation()
+
+    if (tabs.length <= 1) {
+      cart.clear()
+      setCustomer(null)
+      setTabs([{ id: 'default', label: 'Đơn hàng 1', items: [], customer: null, discount_amount: 0, note: '' }])
+      setActiveTabId('default')
+      return
+    }
+
+    const targetTab = tabs.find((t) => t.id === tabId)
+    if (!targetTab) return
+
+    if (targetTab.items.length > 0) {
+      const ok = await confirm({
+        title: 'Đóng đơn hàng?',
+        description: `Đơn hàng "${targetTab.label}" có chứa sản phẩm chưa thanh toán. Bạn có chắc muốn đóng?`,
+        confirmLabel: 'Đóng đơn',
+        variant: 'danger',
+      })
+      if (!ok) return
+    }
+
+    const remainingTabs = tabs.filter((t) => t.id !== tabId)
+    setTabs(remainingTabs)
+
+    if (activeTabId === tabId) {
+      const nextTab = remainingTabs[remainingTabs.length - 1]
+      switchTab(nextTab.id)
+    }
+  }
+
+  function startEditingTab(tabId: string, label: string) {
+    setEditingTabId(tabId)
+    setEditingLabel(label)
+  }
+
+  function finishEditingTab(tabId: string) {
+    const trimmed = editingLabel.trim()
+    if (trimmed) {
+      setTabs((prev) => prev.map((t) => (t.id === tabId ? { ...t, label: trimmed } : t)))
+    }
+    setEditingTabId(null)
+  }
+
+  function copyToNewTab(customer: LocalCustomer | null, items: CartItem[], discountAmount: number, note: string) {
+    const newId = crypto.randomUUID()
+    const label = `Sao chép ${tabs.length + 1}`
+    const newTab: OrderTab = {
+      id: newId,
+      label,
+      items,
+      customer,
+      discount_amount: discountAmount,
+      note,
+    }
+    setTabs((prev) => [...prev, newTab])
+    isSwitchingTabRef.current = true
+    setActiveTabId(newId)
+    setCustomer(customer)
+    cart.restore({ items, discount_amount: discountAmount, note })
+    setTimeout(() => {
+      isSwitchingTabRef.current = false
+    }, 50)
+    toast.success(`Đã sao chép đơn thành "${label}"`)
+  }
+
+  async function cancelAndEditOrder(order: LocalOrder): Promise<boolean> {
+    if (!permissions.includes('orders.delete')) {
+      toast.error('Bạn không có quyền hủy đơn hàng này')
+      return false
+    }
+    try {
+      if (order.server_id) {
+        if (!isOnline) {
+          toast.error('Cần kết nối mạng để hủy đơn hàng đã đồng bộ')
+          return false
+        }
+        const res = await fetch(`/api/shops/${shopId}/orders/${order.server_id}/cancel`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: 'Hủy & Sửa từ POS' })
+        })
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}))
+          toast.error(err.error || 'Hủy đơn trên server thất bại')
+          return false
+        }
+      }
+
+      await localDb.transaction('rw', [localDb.orders, localDb.orderItems, localDb.syncQueue, localDb.inventory], async () => {
+        await localDb.orders.update(order.local_id, { status: 'cancelled' })
+        if (order.sync_status === 'pending') {
+          await localDb.syncQueue.where('local_order_id').equals(order.local_id).delete()
+        }
+        const items = await localDb.orderItems.where('order_local_id').equals(order.local_id).toArray()
+        for (const item of items) {
+          const inv = await localDb.inventory.where('[product_id+branch_id]').equals([item.product_id, branchId]).first()
+          if (inv) {
+            await localDb.inventory.put({
+              ...inv,
+              stock_qty: Number(inv.stock_qty) + (item.qty * (item.conversion_rate || 1))
+            })
+          }
+        }
+      })
+
+      const orderItems = await localDb.orderItems.where('order_local_id').equals(order.local_id).toArray()
+      const cartItems: CartItem[] = orderItems.map(it => ({
+        product_id: it.product_id,
+        product_name: it.product_name,
+        qty: it.qty,
+        unit_price: it.unit_price,
+        cost_price: it.cost_price,
+        discount_amount: it.discount_amount,
+        line_total: it.line_total,
+        variant_label: it.variant_label,
+        modifiers: it.modifiers ? JSON.parse(it.modifiers) : undefined,
+        modifier_total: it.modifier_total,
+        unit_id: it.unit_id,
+        unit_name: it.unit_name,
+        conversion_rate: it.conversion_rate
+      }))
+
+      let orderCustomer: LocalCustomer | null = null
+      if (order.customer_id) {
+        orderCustomer = await localDb.customers.get(order.customer_id) || null
+      }
+
+      copyToNewTab(orderCustomer, cartItems, order.discount_amount, order.note || '')
+      toast.success('Đã hủy đơn hàng cũ và tải lại vào đơn mới để chỉnh sửa!')
+      return true
+    } catch (e) {
+      console.error(e)
+      toast.error('Lỗi khi hủy và sửa đơn')
+      return false
+    }
+  }
+
+  function openCustomerModalGlobal(callback?: (c: LocalCustomer) => void) {
+    setCustomerModalCallback(() => callback || null)
+    setCustomerModalOpen(true)
+  }
+
+  function handleCustomerCreatedGlobal(created: LocalCustomer) {
+    if (customerModalCallback) {
+      customerModalCallback(created)
+    } else {
+      setCustomer(created)
+    }
+    setCustomerModalCallback(null)
+  }
+
+  const [orderPanelOpen, setOrderPanelOpen] = useState(false)
+  const workerRef = useRef<SyncWorker | null>(null)
 
   useEffect(() => {
     const sub = liveQuery(async () => {
@@ -139,7 +447,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
     }).subscribe({
       next: ({ invs, batches }) => {
         const map = new Map<string, number>()
-        
+
         // Group batch quantities for current branchId
         const batchStock = new Map<string, number>()
         const hasBatches = new Set<string>()
@@ -149,7 +457,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
             batchStock.set(b.product_id, (batchStock.get(b.product_id) ?? 0) + Number(b.stock_qty))
           }
         })
-        
+
         // Map general stock or batch sum
         invs.forEach((r) => {
           if (r.branch_id === branchId) {
@@ -160,14 +468,14 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
             }
           }
         })
-        
+
         // Fallback for batch-only items not in general inventory
         batchStock.forEach((qty, productId) => {
           if (!map.has(productId)) {
             map.set(productId, qty)
           }
         })
-        
+
         setInventory(map)
       },
       error: (err) => {
@@ -242,8 +550,8 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
         }
       }
 
-      // F9 or Enter: Open Payment Modal (only Enter if not typing in form/input)
-      if (e.key === 'F9' || (e.key === 'Enter' && !isTyping())) {
+      // F9: Open Payment Modal
+      if (e.key === 'F9') {
         if (!checkoutOpen && cart.items.length > 0) {
           e.preventDefault()
           setCheckoutOpen(true)
@@ -285,8 +593,8 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
                 if (!mutePosSound) {
                   try {
                     const audio = new Audio('/beep.wav')
-                    audio.play().catch(() => {})
-                  } catch {}
+                    audio.play().catch(() => { })
+                  } catch { }
                 }
               } else {
                 toast.error(`Sản phẩm "${item.product_name}" đã đạt giới hạn tồn kho!`)
@@ -302,8 +610,8 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
               if (!mutePosSound) {
                 try {
                   const audio = new Audio('/beep.wav')
-                  audio.play().catch(() => {})
-                } catch {}
+                  audio.play().catch(() => { })
+                } catch { }
               }
             }
           }
@@ -377,35 +685,11 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
   }
 
   function holdCurrentCart() {
-    if (cart.items.length === 0) return
-    const label = `Đơn ${heldCarts.length + 1}`
-    setHeldCarts((prev) => [
-      ...prev,
-      { id: crypto.randomUUID(), label, items: cart.items, customer, discount_amount: cart.discount_amount, note: cart.note },
-    ])
-    cart.clear()
-    setCustomer(null)
-    toast.success(`Đã giữ "${label}"`)
+    addNewTab()
+    toast.success('Đã lưu giữ đơn và mở tab mới')
   }
 
-  function loadHeldCart(held: HeldCart) {
-    if (cart.items.length > 0) {
-      const currentLabel = `Đơn ${heldCarts.length + 1}`
-      setHeldCarts((prev) => [
-        ...prev.filter((h) => h.id !== held.id),
-        { id: crypto.randomUUID(), label: currentLabel, items: cart.items, customer, discount_amount: cart.discount_amount, note: cart.note },
-      ])
-    } else {
-      setHeldCarts((prev) => prev.filter((h) => h.id !== held.id))
-    }
-    cart.restore({ items: held.items, discount_amount: held.discount_amount, note: held.note })
-    setCustomer(held.customer)
-    toast(`Đã tải "${held.label}"`)
-  }
 
-  function discardHeldCart(id: string) {
-    setHeldCarts((prev) => prev.filter((h) => h.id !== id))
-  }
 
   async function clearCart() {
     const totalQty = cart.items.reduce((s, i) => s + i.qty, 0)
@@ -421,22 +705,168 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
     toast.success(`Đã xóa giỏ hàng (${totalQty} sản phẩm)`)
   }
 
-  const headerBadge = heldCarts.length
-
   return (
     <div className={shellCls} style={shellStyle}>
       {/* POS toolbar — slim, POS-specific controls only */}
-      <header className="flex h-10 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-3 gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <div className="flex items-center gap-1.5 text-xs bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-full">
-            <span className={['h-2 w-2 rounded-full shrink-0', isOnline ? 'bg-green-500' : 'bg-red-500'].join(' ')} />
-            <span className={['tracking-wide', isOnline ? 'text-green-600' : 'text-red-500'].join(' ')}>
-              {isOnline ? 'Online' : 'Offline'}
-            </span>
-          </div>
+      <header className="flex flex-col md:flex-row md:h-11 h-auto shrink-0 items-stretch justify-between border-b border-slate-200 bg-white px-3 gap-y-1.5 md:gap-y-0 select-none relative z-20">
+        {/* Left/Middle: Tabs */}
+        <div className="order-2 md:order-1 flex items-end h-9 md:h-full min-w-0 flex-1 gap-1 overflow-visible">
+          {/* Visible tabs list */}
+          {visibleTabs.map((tab) => {
+            const isActive = tab.id === activeTabId
+            const isEditing = tab.id === editingTabId
+            return (
+              <div
+                key={tab.id}
+                onClick={() => !isActive && switchTab(tab.id)}
+                className={[
+                  'flex items-center gap-1.5 h-9 px-3.5 rounded-t-sm border text-sm shrink-0',
+                  isActive
+                    ? 'bg-gradient-to-b from-orange-50 to-white border-orange-100 border-b-white text-orange-600 font-medium relative z-10 top-[1px]'
+                    : 'bg-slate-100/40 border-slate-200 border-b-transparent text-slate-600 hover:bg-slate-200/50 hover:text-slate-800 cursor-pointer -mb-[1px] transition-colors duration-150',
+                ].join(' ')}
+              >
+                {isEditing ? (
+                  <input
+                    type="text"
+                    value={editingLabel}
+                    onChange={(e) => setEditingLabel(e.target.value)}
+                    onBlur={() => finishEditingTab(tab.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') finishEditingTab(tab.id)
+                      if (e.key === 'Escape') setEditingTabId(null)
+                    }}
+                    className={[
+                      'w-20 bg-transparent border-b focus:outline-none py-0.5 text-sm font-medium',
+                      isActive ? 'border-orange-300 text-orange-700' : 'border-primary text-slate-900'
+                    ].join(' ')}
+                    autoFocus
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                ) : (
+                  <span
+                    onDoubleClick={(e) => {
+                      e.stopPropagation()
+                      startEditingTab(tab.id, tab.label)
+                    }}
+                    className="truncate max-w-[120px]"
+                    title="Nhấp đúp chuột để đổi tên"
+                  >
+                    {tab.label}
+                  </span>
+                )}
+
+                {/* Items count indicator */}
+                {tab.items.length > 0 && (
+                  <span className={[
+                    'flex h-4 min-w-[16px] items-center justify-center rounded-full px-1.5 text-[10px] font-semibold transition-colors',
+                    isActive ? 'bg-orange-100 text-orange-700' : 'bg-slate-200 text-slate-700'
+                  ].join(' ')}>
+                    {tab.items.reduce((acc, curr) => acc + curr.qty, 0)}
+                  </span>
+                )}
+
+                {/* Close Tab button */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    closeTab(tab.id, e)
+                  }}
+                  className={[
+                    'ml-1 rounded-full p-0.5 transition-colors shrink-0 cursor-pointer',
+                    isActive ? 'text-orange-400 hover:bg-orange-100 hover:text-orange-600' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600'
+                  ].join(' ')}
+                  title="Đóng đơn hàng"
+                >
+                  ✕
+                </button>
+              </div>
+            )
+          })}
+
+          {/* Dropdown for overflow tabs */}
+          {overflowTabs.length > 0 && (
+            <div className="relative shrink-0" ref={dropdownRef}>
+              <button
+                onClick={() => setDropdownOpen(!dropdownOpen)}
+                className={[
+                  'flex items-center gap-1.5 h-9 px-3 rounded-t-sm border text-sm shrink-0 -mb-[1px] cursor-pointer',
+                  dropdownOpen || overflowTabs.some(t => t.id === activeTabId)
+                    ? 'bg-gradient-to-b from-orange-50 to-white border-orange-100 border-b-white text-orange-600 font-medium relative z-10 shadow-sm top-[1px]'
+                    : 'bg-slate-100/40 border-slate-200 border-b-transparent text-slate-600 hover:bg-slate-200/50 hover:text-slate-800 transition-colors duration-150'
+                ].join(' ')}
+              >
+                <span>Khác ({overflowTabs.length})</span>
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor" className={`w-3.5 h-3.5 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                </svg>
+              </button>
+
+              {dropdownOpen && (
+                <div className="absolute left-0 top-full mt-0 w-56 rounded-b-xl border border-slate-200 bg-white shadow-lg py-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-150">
+                  {overflowTabs.map((tab) => {
+                    const qty = tab.items.reduce((acc, curr) => acc + curr.qty, 0)
+                    return (
+                      <div
+                        key={tab.id}
+                        onClick={() => {
+                          switchTab(tab.id)
+                          setDropdownOpen(false)
+                        }}
+                        className="flex items-center justify-between px-3.5 py-2 text-sm text-slate-700 hover:bg-slate-50 cursor-pointer transition-colors"
+                      >
+                        <span className="truncate font-medium flex-1 mr-2">{tab.label}</span>
+
+                        <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
+                          {qty > 0 && (
+                            <span className="flex h-4 min-w-[16px] items-center justify-center rounded-full bg-slate-100 px-1.5 text-[10px] font-semibold text-slate-600">
+                              {qty}
+                            </span>
+                          )}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              closeTab(tab.id, e)
+                            }}
+                            className="rounded-full p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Add new tab button */}
+          <button
+            onClick={() => addNewTab()}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-t-sm border border-slate-200 border-b-transparent bg-slate-100/40 text-slate-500 hover:bg-slate-200/50 hover:text-primary transition-colors duration-150 cursor-pointer -mb-[1px]"
+            title="Tạo đơn hàng mới (Tab)"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="3" stroke="currentColor" className="w-4 h-4">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+          </button>
         </div>
 
-        <div className="flex items-center gap-1.5 shrink-0">
+        {/* Right side controls */}
+        <div className="order-1 md:order-2 flex flex-wrap items-center gap-1.5 shrink-0 py-1 md:py-1.5 self-stretch md:self-center justify-center md:justify-end">
+          {/* Cart layout side switcher */}
+          <button
+            onClick={() => setCartSide(prev => prev === 'left' ? 'right' : 'left')}
+            className="hidden md:flex items-center gap-1.5 rounded border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50 transition-colors"
+            title="Đổi vị trí thanh toán (Trái / Phải)"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor" className="h-3.5 w-3.5 shrink-0 text-slate-500">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 4.5v15m6-15v15M3 5.25h18c.414 0 .75.336.75.75v12c0 .414-.336.75-.75.75H3a.75.75 0 01-.75-.75V6c0-.414.336-.75.75-.75z" />
+            </svg>
+            <span>Giỏ hàng: <strong className="text-primary font-semibold">{cartSide === 'left' ? 'Trái' : 'Phải'}</strong></span>
+          </button>
+
           <button
             onClick={handleConfigNearExpiry}
             className="flex items-center gap-1.5 rounded border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50 transition-colors"
@@ -445,20 +875,15 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor" className="h-3.5 w-3.5 shrink-0 text-orange-500">
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <span>Cận date: <strong className="text-orange-600">{nearExpiryDays} ngày</strong></span>
+            <strong className="text-orange-600 font-semibold">{nearExpiryDays} ngày</strong>
           </button>
 
           <button
             onClick={() => setOrderPanelOpen(true)}
             className="relative flex items-center gap-1 rounded border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50 transition-colors"
-            title="Đơn đang giữ và đơn hôm nay"
+            title="Xem đơn hàng hôm nay"
           >
             <IconClipboard className="h-3.5 w-3.5 shrink-0" /> Đơn hàng
-            {headerBadge > 0 && (
-              <span className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-orange-500 text-[10px] font-bold text-white">
-                {headerBadge}
-              </span>
-            )}
           </button>
 
           <button
@@ -492,13 +917,23 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
             onRetryFailed={() => workerRef.current?.retryFailed()}
             onRetryAll={() => workerRef.current?.retryAll()}
           />
+
+          {/* Online/Offline Badge */}
+          <div className="flex items-center gap-1.5 text-xs bg-slate-50 border-slate-200 px-2.5 py-1 rounded-full shrink-0 select-none">
+            <span className={['h-2 w-2 rounded-full shrink-0', isOnline ? 'bg-green-500' : 'bg-red-500'].join(' ')} />
+            <span className={['tracking-wide font-medium', isOnline ? 'text-green-600' : 'text-red-500'].join(' ')}>
+              {isOnline ? 'Online' : 'Offline'}
+            </span>
+          </div>
         </div>
       </header>
 
       {/* Main content — fills all remaining height */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className={['flex flex-1 overflow-hidden', cartSide === 'left' ? 'flex-row-reverse' : 'flex-row'].join(' ')}>
         {/* Product grid */}
-        <div className="hidden md:block flex-1 overflow-hidden border-r border-slate-200 bg-white">
+        <div className={['hidden md:block flex-1 overflow-hidden bg-white',
+          cartSide === 'left' ? 'border-l border-slate-200' : 'border-r border-slate-200'
+        ].join(' ')}>
           <ProductGrid
             branchId={branchId}
             inventory={inventory}
@@ -519,7 +954,6 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
             total={cart.total}
             note={cart.note}
             customer={customer}
-            heldCount={heldCarts.length}
             onCustomerChange={setCustomer}
             onQtyChange={cart.setQty}
             onRemove={cart.removeItem}
@@ -533,6 +967,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
             mutePosSound={mutePosSound}
             activeItemId={activeCartItemId}
             onActiveItemChange={setActiveCartItemId}
+            onOpenCustomerModal={() => openCustomerModalGlobal()}
           />
         </div>
       </div>
@@ -540,12 +975,10 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
       <OrderHistoryPanel
         open={orderPanelOpen}
         onClose={() => setOrderPanelOpen(false)}
-        heldCarts={heldCarts}
-        onLoadHeld={loadHeldCart}
-        onDiscardHeld={discardHeldCart}
         shopName={shopName}
         ordersPath={`/t/${backPath.split('/')[1]}/${branchId}/orders`}
         shopId={shopId}
+        onCopyToNewTab={copyToNewTab}
       />
 
       <CheckoutModal
@@ -555,6 +988,34 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
           setCheckoutOpen(false)
           cart.clear()
           setCustomer(null)
+
+          if (tabs.length > 1) {
+            const remainingTabs = tabs.filter((t) => t.id !== activeTabId)
+            const nextTab = remainingTabs[remainingTabs.length - 1]
+
+            isSwitchingTabRef.current = true
+            setActiveTabId(nextTab.id)
+            setCustomer(nextTab.customer)
+            cart.restore({
+              items: nextTab.items,
+              discount_amount: nextTab.discount_amount,
+              note: nextTab.note,
+            })
+            setTabs(remainingTabs)
+
+            setTimeout(() => {
+              isSwitchingTabRef.current = false
+            }, 50)
+          } else {
+            setTabs([{
+              id: activeTabId,
+              label: tabs[0]?.label || 'Đơn hàng 1',
+              items: [],
+              customer: null,
+              discount_amount: 0,
+              note: '',
+            }])
+          }
         }}
         items={cart.items}
         subtotal={cart.subtotal}
@@ -609,11 +1070,10 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
                   key={d}
                   type="button"
                   onClick={() => setTempNearExpiryDays(d)}
-                  className={`text-xs font-semibold py-2 px-1 rounded-lg border transition-all active:scale-95 ${
-                    tempNearExpiryDays === d
-                      ? 'bg-primary/10 border-primary text-primary shadow-xs'
-                      : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
-                  }`}
+                  className={`text-xs font-semibold py-2 px-1 rounded-lg border transition-all active:scale-95 ${tempNearExpiryDays === d
+                    ? 'bg-primary/10 border-primary text-primary shadow-xs'
+                    : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                    }`}
                 >
                   {d} ngày
                 </button>
@@ -622,6 +1082,13 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
           </div>
         </div>
       </ConfirmDialog>
+
+      <CustomerCreateModal
+        open={customerModalOpen}
+        onClose={() => setCustomerModalOpen(false)}
+        shopId={shopId}
+        onSuccess={handleCustomerCreatedGlobal}
+      />
     </div>
   )
 }
