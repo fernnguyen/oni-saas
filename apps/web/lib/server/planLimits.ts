@@ -8,6 +8,9 @@
  *
  * Limit is only applied when the key exists in the tenant's plan metadata.
  * If the key is absent, no limit is enforced for that action.
+ *
+ * NOTE: For binary feature gates (unlocked vs locked features like 'qr_table_ordering'),
+ * use checkFeatureAccess() from ./features.ts instead.
  */
 
 import { NextResponse } from 'next/server';
