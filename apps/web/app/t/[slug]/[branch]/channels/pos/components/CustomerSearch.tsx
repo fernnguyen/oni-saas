@@ -6,6 +6,7 @@ import { localDb, type LocalCustomer } from '@/lib/localDb/schema'
 interface Props {
   selected: LocalCustomer | null
   onSelect: (customer: LocalCustomer | null) => void
+  onOpenCustomerModal?: () => void
 }
 
 function QuickCustomerBadge({ customer, onClear }: { customer: LocalCustomer; onClear: () => void }) {
@@ -32,7 +33,7 @@ function QuickCustomerBadge({ customer, onClear }: { customer: LocalCustomer; on
   )
 }
 
-export function CustomerSearch({ selected, onSelect }: Props) {
+export function CustomerSearch({ selected, onSelect, onOpenCustomerModal }: Props) {
   const [query, setQuery] = useState('')
   const [phone, setPhone] = useState('')
   const [results, setResults] = useState<LocalCustomer[]>([])
@@ -99,7 +100,7 @@ export function CustomerSearch({ selected, onSelect }: Props) {
   return (
     <div ref={ref} className="space-y-2">
       {!showQuickForm ? (
-        <div className="relative">
+        <div className="relative flex items-stretch rounded-xl border border-slate-200 bg-white shadow-xs focus-within:border-primary focus-within:ring-1 focus-within:ring-primary">
           <input
             type="text"
             id="pos-customer-search-input"
@@ -135,20 +136,26 @@ export function CustomerSearch({ selected, onSelect }: Props) {
                 }
               }
             }}
-            placeholder="Tìm khách hàng (F4) - tên hoặc SĐT..."
-            className="w-full rounded-xl border border-slate-200 pl-3 pr-10 py-2 text-sm placeholder:text-slate-400 focus:border-primary focus:outline-none bg-white shadow-xs"
+            placeholder="Tìm khách hàng (F4)"
+            className={`flex-1 min-w-0 rounded-l-xl border-0 bg-transparent pl-3 pr-3 ${onOpenCustomerModal ? '' : 'rounded-r-xl'} py-2 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-0 text-slate-800`}
           />
-          {!query && (
-            <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center pointer-events-none">
-              <kbd className="hidden sm:inline-flex h-5 select-none items-center gap-0.5 rounded border border-slate-200 bg-slate-50 px-1.5 font-sans text-[10px] font-bold text-slate-400 shadow-xs">
-                F4
-              </kbd>
-            </div>
+
+          {onOpenCustomerModal && (
+            <button
+              type="button"
+              onClick={onOpenCustomerModal}
+              className="flex items-center justify-center px-3 rounded-r-xl border-l border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100 hover:text-emerald-600 active:bg-slate-200 transition-colors shrink-0 cursor-pointer"
+              title="Thêm đầy đủ thông tin khách hàng mới"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor" className="w-5 h-5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM4 19.235A8.91 8.91 0 0110.5 15a8.91 8.91 0 016.5 4.235M10.5 15a8.91 8.91 0 00-6.5 4.235" />
+              </svg>
+            </button>
           )}
 
           {/* Dropdown */}
           {open && (
-            <div className="absolute z-50 mt-1 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
+            <div className="absolute z-50 left-0 right-0 top-full mt-1 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
               {results.map((c, index) => (
                 <button
                   key={c.customer_id}

@@ -22,11 +22,13 @@ export default async function OrdersPage({ params }: Props) {
   // Lấy ID trực tiếp để truyền cho Client, các logic kiểm tra quyền đã nằm ở Layout
   const { data: shop } = await admin
     .from('shops_view')
-    .select('id, name')
+    .select('id, name, tenant_id')
     .eq('slug', branch)
     .maybeSingle()
 
   if (!shop) notFound()
 
-  return <OrdersClient shopId={shop.id} shopName={shop.name} />
+  const permissions = await getUserPermissions(authData.user.id, shop.tenant_id, shop.id).catch(() => [] as string[])
+
+  return <OrdersClient shopId={shop.id} shopName={shop.name} permissions={permissions} />
 }

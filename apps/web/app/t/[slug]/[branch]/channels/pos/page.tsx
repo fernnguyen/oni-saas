@@ -2,6 +2,7 @@ import { redirect, notFound } from 'next/navigation'
 import { getSupabaseServerClient } from '@/lib/server/supabaseServer'
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
 import { getVerticalConfig, type ResourceTemplate } from '@oni/core'
+import { getUserPermissions } from '@/lib/server/permissions'
 import { POSClientDynamic as POSClient } from './POSClientDynamic'
 import { TableMapPOS } from './components/TableMapPOS'
 
@@ -62,6 +63,8 @@ export default async function POSPage({ params }: Props) {
   const mutePosSound = settings?.mute_pos_sound ?? false
   const backPath = `/${branch}`
 
+  const permissions = await getUserPermissions(authData.user.id, tenant.id, shop.id).catch(() => [] as string[])
+
   // Determine POS layout from industry type
   const vertical = getVerticalConfig(tenant.industry_type ?? 'retail')
 
@@ -80,6 +83,7 @@ export default async function POSPage({ params }: Props) {
         autoPrintReceipt={autoPrintReceipt}
         mutePosSound={mutePosSound}
         industryType={tenant.industry_type ?? 'retail'}
+        permissions={permissions}
       />
     )
   }
@@ -93,6 +97,7 @@ export default async function POSPage({ params }: Props) {
       backPath={backPath}
       autoPrintReceipt={autoPrintReceipt}
       mutePosSound={mutePosSound}
+      permissions={permissions}
     />
   )
 }

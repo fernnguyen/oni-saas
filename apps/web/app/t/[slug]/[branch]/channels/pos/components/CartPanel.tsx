@@ -16,7 +16,6 @@ interface Props {
   total: number
   note: string
   customer: LocalCustomer | null
-  heldCount: number
   onCustomerChange: (c: LocalCustomer | null) => void
   onQtyChange: (product_id: string, qty: number) => void
   onRemove: (product_id: string) => void
@@ -31,6 +30,7 @@ interface Props {
   mutePosSound?: boolean
   activeItemId?: string | null
   onActiveItemChange?: (id: string | null) => void
+  onOpenCustomerModal?: () => void
 }
 
 function fmtVND(v: number | string | null | undefined) {
@@ -56,7 +56,6 @@ export function CartPanel({
   total,
   note,
   customer,
-  heldCount,
   onCustomerChange,
   onQtyChange,
   onRemove,
@@ -71,6 +70,7 @@ export function CartPanel({
   mutePosSound = false,
   activeItemId = null,
   onActiveItemChange,
+  onOpenCustomerModal,
 }: Props) {
   const [discountMode, setDiscountMode] = useState<'amount' | 'percent'>('amount')
   const [discountPct, setDiscountPct] = useState('')
@@ -140,7 +140,7 @@ export function CartPanel({
             {customer ? customer.name : 'Khách lẻ'}
           </p>
         </div>
-        <CustomerSearch selected={customer} onSelect={onCustomerChange} />
+        <CustomerSearch selected={customer} onSelect={onCustomerChange} onOpenCustomerModal={onOpenCustomerModal} />
       </div>
 
       {/* Product search (Mobile only) */}
@@ -154,12 +154,18 @@ export function CartPanel({
       {/* Items list */}
       <div className="flex-1 overflow-y-auto">
         {items.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center gap-2 text-slate-400">
-            <IconWarehouse className="h-12 w-12" />
-            <p className="text-sm">Chọn hoặc quét mã để thêm</p>
-            {heldCount > 0 && (
-              <p className="text-xs text-primary">{heldCount} đơn đang giữ</p>
-            )}
+          <div className="flex h-full flex-col items-center justify-center gap-3 text-slate-400 px-6 text-center select-none">
+            <div className="relative flex h-20 w-20 items-center justify-center rounded-3xl bg-slate-50 border border-slate-100/80 shadow-sm text-slate-300 mb-1 transition-transform duration-300 hover:scale-105">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.25" stroke="currentColor" className="h-10 w-10 text-slate-400">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 0 0-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 0 0-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm12.75 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z" />
+              </svg>
+              {/* Decorative plus badge */}
+              <span className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 border border-white text-xs font-bold text-slate-500 shadow-xs">+</span>
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-slate-600">Giỏ hàng trống</p>
+              <p className="text-xs text-slate-400 max-w-[180px] leading-relaxed">Chọn sản phẩm hoặc quét mã vạch để bán hàng</p>
+            </div>
           </div>
         ) : (
           <div className="divide-y divide-slate-50">
@@ -226,7 +232,7 @@ export function CartPanel({
                           if (!isNaN(v) && v > 0) onQtyChange(item.product_id, v)
                         }}
                         className={[
-                          'h-6 w-10 rounded border text-center text-sm focus:outline-none',
+                          'h-6 w-10 rounded border text-center text-sm focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none',
                           atMax
                             ? 'border-orange-300 text-orange-600 focus:border-orange-400'
                             : 'border-slate-200 focus:border-primary',
@@ -361,33 +367,10 @@ export function CartPanel({
 
         {/* Action buttons */}
         <div className="flex gap-1.5 md:gap-2">
-          {items.length > 0 && (
-            <button
-              onClick={onHold}
-              title="Giữ đơn — lưu tạm để làm đơn khác"
-              className="flex items-center gap-1 rounded-xl border border-slate-200 px-2.5 py-2 md:px-3 md:py-2.5 text-xs md:text-sm text-slate-600 hover:bg-slate-50 transition-colors"
-            >
-              <IconClipboard className="h-4 w-4 shrink-0" />
-              {heldCount > 0 && (
-                <span className="min-w-[16px] rounded-full bg-orange-100 px-1 text-center text-xs font-semibold text-orange-600">
-                  {heldCount}
-                </span>
-              )}
-            </button>
-          )}
-          {items.length > 0 && (
-            <button
-              onClick={onClearCart}
-              title="Xóa toàn bộ giỏ hàng"
-              className="rounded-xl bg-red-50 border border-red-200 px-2.5 py-2 md:px-3 md:py-2.5 text-red-600 hover:bg-red-100 hover:border-red-300 transition-colors"
-            >
-              <IconTrash className="h-4 w-4" />
-            </button>
-          )}
           <button
             onClick={onCheckout}
             disabled={items.length === 0 || disabled}
-            className="flex-1 rounded-xl bg-primary py-2 md:py-2.5 text-xs md:text-sm font-semibold text-white hover:bg-primary-dark disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className="w-full rounded-xl bg-primary py-2 md:py-2.5 text-xs md:text-sm font-semibold text-white hover:bg-primary-dark disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             {total > 0 ? `Thanh toán (F9) ${fmtVND(total)}` : 'Thanh toán (F9)'}
           </button>

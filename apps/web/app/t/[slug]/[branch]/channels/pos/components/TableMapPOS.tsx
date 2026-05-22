@@ -58,6 +58,7 @@ interface Props {
   autoPrintReceipt?: boolean
   mutePosSound?: boolean
   industryType: string
+  permissions?: string[]
 }
 
 const STATUS_CARDS: Record<string, { border: string; bg: string; dot: string; label: string; text?: string }> = {
@@ -75,6 +76,7 @@ export function TableMapPOS({
   resourceLabel, resourceType, posLabel, hasHourlyBilling,
   autoPrintReceipt = false, mutePosSound = false,
   industryType,
+  permissions = [],
 }: Props) {
   const [resources, setResources] = useState<Resource[]>([])
   const [loading, setLoading] = useState(true)
@@ -778,6 +780,7 @@ export function TableMapPOS({
         allResources={activeResources}
         onRefresh={fetchResources}
         autoPrintReceipt={autoPrintReceipt}
+        permissions={permissions}
       />
     </div>
   )

@@ -22,6 +22,7 @@ const RotateCcw = ({ className }: { className?: string }) => <svg xmlns="http://
 interface Props {
   shopId: string
   shopName: string
+  permissions?: string[]
 }
 
 interface StatPeriod {
@@ -106,7 +107,7 @@ const STAT_CARDS: { key: keyof OrderStats; label: string }[] = [
   { key: 'returns', label: 'Trả hàng' },
 ]
 
-export function OrdersClient({ shopId, shopName }: Props) {
+export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
   const queryClient = useQueryClient()
   const searchParams = useSearchParams()
   const initialSearch = searchParams?.get('search') || searchParams?.get('orderId') || ''
@@ -446,6 +447,9 @@ export function OrdersClient({ shopId, shopName }: Props) {
   // Cancel order
   const cancelMutation = useMutation({
     mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
+      if (!permissions.includes('orders.delete')) {
+        throw new Error('Bạn không có quyền hủy đơn hàng này')
+      }
       const res = await fetch(`/api/shops/${shopId}/orders/${id}/cancel`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -604,7 +608,7 @@ export function OrdersClient({ shopId, shopName }: Props) {
           >
             <Printer className="h-3.5 w-3.5" /> In
           </button>
-          {row.status !== 'cancelled' && row.status !== 'in_progress' && (
+          {row.status !== 'cancelled' && row.status !== 'in_progress' && permissions.includes('orders.delete') && (
             <button
               onClick={() => setCancelTarget(row)}
               className="flex items-center gap-1.5 rounded-lg border border-red-100 bg-white px-3 py-1.5 text-xs font-medium text-red-500 shadow-sm hover:bg-red-50 transition-colors"
@@ -804,7 +808,7 @@ export function OrdersClient({ shopId, shopName }: Props) {
                   disabled={selectedOrder.status === 'cancelled'}
                   className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none disabled:opacity-50 disabled:bg-slate-50"
                 >
-                  {STATUS_OPTIONS.filter((o) => o.value).map((opt) => (
+                  {STATUS_OPTIONS.filter((o) => o.value && (o.value !== 'cancelled' || permissions.includes('orders.delete'))).map((opt) => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
                   ))}
                 </select>
