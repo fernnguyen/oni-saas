@@ -72,7 +72,13 @@ export default async function BranchSettingsPage({ params }: Props) {
     updated_at: new Date().toISOString(),
   };
 
-  const settings = settingsResult.data ?? defaultSettings;
+  const { checkFeatureAccess } = await import('@/lib/server/features');
+  const hasCrmAccess = await checkFeatureAccess(shop.tenant_id, 'crm');
+
+  const settings = {
+    ...(settingsResult.data ?? defaultSettings),
+    has_crm_access: hasCrmAccess
+  };
 
   return (
     <div className="space-y-6">
