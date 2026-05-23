@@ -342,7 +342,7 @@ export default function MapEditor({
     delete updated[tableId]
     setTableLayouts(updated)
     if (selectedId === tableId) setSelectedId('boundary')
-    toast.success('Đã đưa bàn về trạng thái chưa phân tọa độ')
+    toast.success(`Đã đưa ${(tpl?.label || 'bàn').toLowerCase()} về trạng thái chưa phân tọa độ`)
   }
 
   // Create a new static decoration shape
@@ -515,7 +515,7 @@ export default function MapEditor({
       const failed = responses.some(res => !res.ok)
       if (failed) throw new Error('Save layout failed')
 
-      toast.success('Đã lưu toàn bộ sơ đồ bàn thành công!')
+      toast.success(`Đã lưu toàn bộ sơ đồ ${(tpl?.label || 'bàn').toLowerCase()} thành công!`)
       onSaveSuccess()
     } catch (e) {
       console.error(e)
@@ -556,14 +556,14 @@ export default function MapEditor({
 
           <div className="border-t border-slate-100 pt-4 flex flex-col">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Bàn chưa xếp vị trí</h3>
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">{tpl?.label || 'Bàn'} chưa xếp vị trí</h3>
               <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-650">{unpositionedTables.length}</span>
             </div>
             
             <div className="max-h-[220px] overflow-y-auto space-y-2 pr-1">
               {unpositionedTables.length === 0 ? (
                 <div className="flex h-20 items-center justify-center rounded-xl border border-dashed border-slate-200 text-center px-4 bg-slate-50/50">
-                  <p className="text-xs text-slate-400 font-medium">Tất cả bàn đã xếp vị trí!</p>
+                  <p className="text-xs text-slate-400 font-medium">Tất cả {(tpl?.label || 'bàn').toLowerCase()} đã xếp vị trí!</p>
                 </div>
               ) : (
                 unpositionedTables.map(r => (
