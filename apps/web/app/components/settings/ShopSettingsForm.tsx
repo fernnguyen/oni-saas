@@ -498,7 +498,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, industryT
                   Tính năng quản lý Ví trả trước, Tích điểm thành viên và tự động thăng hạng thẻ khách hàng yêu cầu gói đăng ký <strong>Chuyên nghiệp (Pro)</strong> trở lên hoặc khi đã kích hoạt Add-on CRM.
                 </p>
                 <a
-                  href={`/t/${shop.slug}/billing`}
+                  href="/billing"
                   className="inline-block rounded-xl bg-orange-600 px-4 py-2 text-xs font-bold text-white hover:bg-orange-700 active:scale-95 transition-all shadow-xs"
                 >
                   Nâng cấp gói ngay
