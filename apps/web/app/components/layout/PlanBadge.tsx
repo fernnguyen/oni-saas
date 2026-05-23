@@ -134,20 +134,64 @@ export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd
     }
   }, [isOpen]);
 
-  // Listen for custom event to open modal from anywhere
+  // Listen for custom events to open modal from anywhere
   useEffect(() => {
     const handleOpenModal = () => {
       setIsOpen(true);
       setIsExpanded(true); // Always expand to show pricing when triggered externally
     };
+
+    const handleOpenSepayQr = async (e: Event) => {
+      const customEvent = e as CustomEvent<{ orderId: string }>;
+      const orderId = customEvent.detail?.orderId;
+      if (!orderId) return;
+
+      setIsOpen(true);
+      setStep('qr');
+      setLoadingQr(true);
+      setError(null);
+
+      try {
+        const { data, error: fnError } = await supabase.functions.invoke('check-sepay-order', {
+          body: { order_id: orderId },
+        });
+        if (fnError) throw fnError;
+        if (data?.error) throw new Error(data.error);
+        if (data?.status === 'expired') {
+          setError('expired');
+        } else {
+          setOrder(data as SepayOrder);
+          // Set billing cycle state based on fetched order
+          setBillingCycle(data.billing_interval === 'yearly' ? 'yearly' : 'monthly');
+        }
+      } catch (err) {
+        console.error('[PlanBadge] open-sepay-qr fetch error:', err);
+        setError('Không thể tải thông tin thanh toán. Vui lòng thử lại.');
+      } finally {
+        setLoadingQr(false);
+      }
+    };
+
     window.addEventListener('open-plan-modal', handleOpenModal);
-    return () => window.removeEventListener('open-plan-modal', handleOpenModal);
-  }, []);
+    window.addEventListener('open-sepay-qr', handleOpenSepayQr);
+    return () => {
+      window.removeEventListener('open-plan-modal', handleOpenModal);
+      window.removeEventListener('open-sepay-qr', handleOpenSepayQr);
+    };
+  }, [supabase.functions]);
 
   // Countdown timer for QR
   useEffect(() => {
-    if (step !== 'qr') return;
-    setTimeLeft(15 * 60);
+    if (step !== 'qr' || !order) return;
+    
+    const calculateTimeLeft = () => {
+      const expires = new Date(order.expires_at).getTime();
+      const now = new Date().getTime();
+      return Math.max(0, Math.floor((expires - now) / 1000));
+    };
+
+    setTimeLeft(calculateTimeLeft());
+
     timerRef.current = setInterval(() => {
       setTimeLeft(t => {
         if (t <= 1) { stopTimer(); return 0; }
@@ -155,7 +199,7 @@ export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd
       });
     }, 1000);
     return stopTimer;
-  }, [step]);
+  }, [step, order]);
 
   // Poll trạng thái đơn hàng mỗi 3 giây
   useEffect(() => {
@@ -216,7 +260,10 @@ export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const fmtVnd = (n: number) => n.toLocaleString('vi-VN') + ' đ';
+  const fmtVnd = (n: number | undefined | null) => {
+    if (n == null) return '0 đ';
+    return n.toLocaleString('vi-VN') + ' đ';
+  };
   const fmtTime = (s: number) => {
     const m = Math.floor(s / 60).toString().padStart(2, '0');
     const sec = (s % 60).toString().padStart(2, '0');
@@ -474,72 +521,84 @@ export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd
             )}
 
             {/* STEP 2: QR CHECKOUT (SEPAY) */}
-            {step === 'qr' && order && (
+            {step === 'qr' && (
               <div className="p-6 space-y-5 animate-in slide-in-from-right-4 duration-300">
-                <div className="text-center">
-                  <h2 className="text-2xl font-black dark:text-white">Thanh toán VietQR</h2>
-                  <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
-                    Gói {order.plan_name} ({billingCycle === 'yearly' ? '1 Năm' : '1 Tháng'})
-                  </p>
-                </div>
-
-                <div className="flex justify-center pt-2">
-                  {isExpired ? (
-                    <div className="w-56 h-56 rounded-[24px] bg-zinc-100 dark:bg-zinc-800 flex flex-col items-center justify-center gap-4">
-                      <p className="text-sm font-bold text-zinc-500">Mã QR đã hết hạn</p>
-                      <button
-                        onClick={() => { setError(null); setStep('select'); setIsExpanded(true); }}
-                        className="flex items-center gap-2 px-5 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white text-sm font-bold rounded-2xl transition-colors"
-                      >
-                        Tạo mã mới
-                      </button>
+                {loadingQr || !order ? (
+                  <div className="flex flex-col items-center justify-center py-16 gap-3">
+                    <svg className="animate-spin h-10 w-10 text-primary" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    <p className="text-sm text-zinc-500 font-medium">Đang tải thông tin thanh toán...</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="text-center">
+                      <h2 className="text-2xl font-black dark:text-white">Thanh toán VietQR</h2>
+                      <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
+                        Gói {order.plan_name} ({billingCycle === 'yearly' ? '1 Năm' : '1 Tháng'})
+                      </p>
                     </div>
-                  ) : (
-                    <div className="relative p-2 bg-white rounded-[24px] border border-slate-200 shadow-sm">
-                      <img src={order.qr_url} alt="VietQR" className="w-[200px] h-[200px] rounded-[16px] object-cover" />
-                    </div>
-                  )}
-                </div>
 
-                <div className="space-y-3 text-sm bg-zinc-50 dark:bg-zinc-800/50 rounded-2xl p-5 border border-zinc-100 dark:border-zinc-800">
-                  <div className="flex items-center justify-between">
-                    <span className="text-zinc-500 font-medium">Ngân hàng</span>
-                    <span className="font-bold">{order.bank_name}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-zinc-500 font-medium">Số tài khoản</span>
-                    <span className="font-bold">{order.account_number}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-zinc-500 font-medium">Chủ tài khoản</span>
-                    <span className="font-bold">{order.account_name}</span>
-                  </div>
-                  <div className="flex items-center justify-between pt-1">
-                    <span className="text-zinc-500 font-medium">Số tiền</span>
-                    <span className="font-black text-blue-600 text-base">{fmtVnd(order.amount_vnd)}</span>
-                  </div>
-                  <div className="flex items-center justify-between pt-3 border-t border-zinc-200 dark:border-zinc-700">
-                    <span className="text-zinc-500 font-medium">Nội dung CK</span>
-                    <div className="flex items-center gap-2">
-                      <span className="font-black text-blue-600 tracking-widest bg-blue-50 px-2 py-1 rounded-lg">{order.transfer_content}</span>
-                      <button onClick={copyRef} className="p-1.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 transition-colors">
-                        {copied ? <IconCheck /> : <IconCopy />}
-                      </button>
+                    <div className="flex justify-center pt-2">
+                      {isExpired ? (
+                        <div className="w-56 h-56 rounded-[24px] bg-zinc-100 dark:bg-zinc-800 flex flex-col items-center justify-center gap-4">
+                          <p className="text-sm font-bold text-zinc-500">Mã QR đã hết hạn</p>
+                          <button
+                            onClick={() => { setError(null); setStep('select'); setIsExpanded(true); }}
+                            className="flex items-center gap-2 px-5 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white text-sm font-bold rounded-2xl transition-colors"
+                          >
+                            Tạo mã mới
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="relative p-2 bg-white rounded-[24px] border border-slate-200 shadow-sm">
+                          <img src={order.qr_url} alt="VietQR" className="w-[200px] h-[200px] rounded-[16px] object-cover" />
+                        </div>
+                      )}
                     </div>
-                  </div>
-                </div>
 
-                <div className="flex items-center justify-between text-sm px-1">
-                  <div className="flex items-center gap-2 font-medium text-emerald-600">
-                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-                    Đang chờ thanh toán...
-                  </div>
-                  {!isExpired && (
-                    <span className={`font-mono font-bold px-2 py-1 rounded-lg ${timeLeft < 120 ? 'bg-red-50 text-red-600' : 'bg-zinc-100 text-zinc-600'}`}>
-                      {fmtTime(timeLeft)}
-                    </span>
-                  )}
-                </div>
+                    <div className="space-y-3 text-sm bg-zinc-50 dark:bg-zinc-800/50 rounded-2xl p-5 border border-zinc-100 dark:border-zinc-800">
+                      <div className="flex items-center justify-between">
+                        <span className="text-zinc-500 font-medium">Ngân hàng</span>
+                        <span className="font-bold">{order.bank_name}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-zinc-500 font-medium">Số tài khoản</span>
+                        <span className="font-bold">{order.account_number}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-zinc-500 font-medium">Chủ tài khoản</span>
+                        <span className="font-bold">{order.account_name}</span>
+                      </div>
+                      <div className="flex items-center justify-between pt-1">
+                        <span className="text-zinc-500 font-medium">Số tiền</span>
+                        <span className="font-black text-blue-600 text-base">{fmtVnd(order.amount_vnd)}</span>
+                      </div>
+                      <div className="flex items-center justify-between pt-3 border-t border-zinc-200 dark:border-zinc-700">
+                        <span className="text-zinc-500 font-medium">Nội dung CK</span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-black text-blue-600 tracking-widest bg-blue-50 px-2 py-1 rounded-lg">{order.transfer_content}</span>
+                          <button onClick={copyRef} className="p-1.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 transition-colors">
+                            {copied ? <IconCheck /> : <IconCopy />}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between text-sm px-1">
+                      <div className="flex items-center gap-2 font-medium text-emerald-600">
+                        <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                        Đang chờ thanh toán...
+                      </div>
+                      {!isExpired && (
+                        <span className={`font-mono font-bold px-2 py-1 rounded-lg ${timeLeft < 120 ? 'bg-red-50 text-red-600' : 'bg-zinc-100 text-zinc-600'}`}>
+                          {fmtTime(timeLeft)}
+                        </span>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
