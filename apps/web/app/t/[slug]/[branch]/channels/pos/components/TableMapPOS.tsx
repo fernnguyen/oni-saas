@@ -625,7 +625,7 @@ export function TableMapPOS({
                       </div>
 
                       {/* Meta info */}
-                      <div className="space-y-1 text-[11px] text-slate-500">
+                      <div className="space-y-1 text-[11px] text-slate-500 mb-3.5">
                         {r.capacity && <div className="flex items-center gap-1.5"><UserIcon className="w-3 h-3 opacity-70" />{r.capacity} người</div>}
                         {hasHourlyBilling && r.hourly_rate && Number(r.hourly_rate) > 0 && (
                           <div className="flex items-center gap-1.5"><span>⏱️</span> <span className="font-semibold text-slate-700">{Number(r.hourly_rate).toLocaleString('vi-VN')}₫/h</span></div>
@@ -637,17 +637,21 @@ export function TableMapPOS({
                           <div className="flex items-center gap-1.5"><span>⭐</span> <span className="capitalize">{rmd.room_class}</span></div>
                         )}
                         {isRoomType && rmd.amenities?.length > 0 && (
-                          <div className="flex flex-wrap gap-1 mt-2">
+                          <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
                             {rmd.amenities.slice(0, 3).map((a: string) => (
-                              <span key={a} className="rounded-full bg-white border border-slate-200 px-1.5 py-0.5 text-[9px] text-slate-500">{a}</span>
+                              <span key={a} className="rounded-full bg-white border border-slate-200 px-1.5 py-0.5 text-[9px] text-slate-550 font-medium shadow-2xs">{a}</span>
                             ))}
-                            {rmd.amenities.length > 3 && <span className="text-[9px] text-slate-400">+{rmd.amenities.length - 3}</span>}
+                            {rmd.amenities.length > 3 && (
+                              <span className="text-[10px] text-slate-400 font-bold ml-1.5 select-none shrink-0 self-center">
+                                +{rmd.amenities.length - 3}
+                              </span>
+                            )}
                           </div>
                         )}
                       </div>
 
                       {/* Status label at the bottom */}
-                      <div className={`mt-auto w-full rounded-lg px-2 py-1.5 text-center transition-colors ${r.status === 'cleaning' ? 'bg-amber-100 hover:bg-amber-200' : st.bg}`}>
+                      <div className={`mt-auto mt-3.5 w-full rounded-lg px-2 py-1.5 text-center transition-colors ${r.status === 'cleaning' ? 'bg-amber-100 hover:bg-amber-200' : st.bg}`}>
                         <p className={`text-[12px] font-bold flex items-center justify-center gap-1.5 ${st.text}`}>
                           {r.status === 'cleaning'
                             ? '✓ Dọn xong'
