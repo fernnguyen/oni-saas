@@ -147,8 +147,8 @@ export function CheckoutModal({
       if (item.product_id === 'TIME_CHARGE') {
         return { 
           ...item, 
-          qty: newBillableHours, 
-          unit_price: hourlyRate,
+          qty: 1, 
+          unit_price: newTimeCharge, 
           line_total: newTimeCharge, 
           product_name: `Tiền giờ sử dụng (${pricingResult.durationLabel})` 
         }

@@ -27,7 +27,9 @@ function fmtDate(iso: string) {
 function fmtTimeSpan(checkInIso: string, checkOutIso?: string) {
   const inDate = new Date(checkInIso)
   const inTimeStr = inDate.toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit' })
-  const inDateStr = inDate.toLocaleString('vi-VN', { day: '2-digit', month: '2-digit' })
+  const day = String(inDate.getDate()).padStart(2, '0')
+  const month = String(inDate.getMonth() + 1).padStart(2, '0')
+  const inDateStr = `${day}/${month}`
   
   if (!checkOutIso) {
     return { in: inTimeStr, out: '' }
@@ -35,7 +37,9 @@ function fmtTimeSpan(checkInIso: string, checkOutIso?: string) {
   
   const outDate = new Date(checkOutIso)
   const outTimeStr = outDate.toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit' })
-  const outDateStr = outDate.toLocaleString('vi-VN', { day: '2-digit', month: '2-digit' })
+  const outDay = String(outDate.getDate()).padStart(2, '0')
+  const outMonth = String(outDate.getMonth() + 1).padStart(2, '0')
+  const outDateStr = `${outDay}/${outMonth}`
   
   if (inDateStr === outDateStr && inDate.getFullYear() === outDate.getFullYear()) {
     return { in: inTimeStr, out: outTimeStr }
@@ -149,11 +153,11 @@ ${(() => {
   return `<table style="margin-bottom: 4px;">
   <tr>
     <td style="width: 50%; padding-right: 4px;">${customerName ? 'Khách: ' + customerName : 'Khách lẻ'}</td>
-    <td style="width: 50%; padding-left: 4px;">${orderMeta?.resource_name ? 'Bàn/Phòng: ' + orderMeta.resource_name : ''}</td>
+    <td style="width: 50%; padding-left: 4px;">${orderMeta?.resource_name ? orderMeta.resource_name : ''}</td>
   </tr>
   ${timeSpan ? `<tr>
-    <td style="width: 50%; padding-right: 4px;">Giờ vào: ${timeSpan.in}</td>
-    <td style="width: 50%; padding-left: 4px;">${timeSpan.out ? 'Giờ ra: ' + timeSpan.out : ''}</td>
+    <td style="width: 50%; padding-right: 4px;">Vào: ${timeSpan.in}</td>
+    <td style="width: 50%; padding-left: 4px;">${timeSpan.out ? 'Ra: ' + timeSpan.out : ''}</td>
   </tr>` : ''}
 </table>`
 })()}
