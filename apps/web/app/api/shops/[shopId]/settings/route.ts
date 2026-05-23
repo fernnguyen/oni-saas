@@ -27,16 +27,10 @@ const DEFAULT_SETTINGS = {
   loyalty_point_to_money: 1000,
   tier_evaluation_years: 3,
   tier_reward_type: 'discount_bill',
-  tier_bronze_threshold: 5000000,
-  tier_silver_threshold: 15000000,
-  tier_gold_threshold: 35000000,
-  tier_bronze_discount: 2,
-  tier_silver_discount: 5,
-  tier_gold_discount: 10,
   membership_tiers: [
-    { name: 'Đồng', threshold: 5000000, discount: 2 },
-    { name: 'Bạc', threshold: 15000000, discount: 5 },
-    { name: 'Vàng', threshold: 35000000, discount: 10 }
+    { name: 'Đồng', threshold: 5000000, discount: 2, color: 'slate' },
+    { name: 'Bạc', threshold: 15000000, discount: 5, color: 'sapphire' },
+    { name: 'Vàng', threshold: 35000000, discount: 10, color: 'gold' }
   ],
   updated_at: new Date().toISOString(),
 };
@@ -70,16 +64,11 @@ const putSchema = z.object({
   loyalty_point_to_money: z.number().min(0).optional(),
   tier_evaluation_years: z.number().int().min(1).optional(),
   tier_reward_type: z.enum(['discount_bill', 'price_list']).optional(),
-  tier_bronze_threshold: z.number().min(0).optional(),
-  tier_silver_threshold: z.number().min(0).optional(),
-  tier_gold_threshold: z.number().min(0).optional(),
-  tier_bronze_discount: z.number().min(0).max(100).optional(),
-  tier_silver_discount: z.number().min(0).max(100).optional(),
-  tier_gold_discount: z.number().min(0).max(100).optional(),
   membership_tiers: z.array(z.object({
     name: z.string().min(1),
     threshold: z.number().min(0),
-    discount: z.number().min(0).max(100)
+    discount: z.number().min(0).max(100),
+    color: z.string().optional()
   })).optional(),
 });
 

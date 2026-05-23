@@ -12,6 +12,39 @@ import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog'
 import { SearchBar } from '@/app/components/ui/SearchBar'
 import { NumberInput } from '@/app/components/ui/NumberInput'
 import { CopyableId } from '@/app/components/ui/CopyableId'
+import { format } from 'date-fns'
+
+export function MemberTierBadge({ label, color }: { label: string; color?: string }) {
+  const c = (color || 'slate').toLowerCase()
+  let classes = 'bg-gradient-to-r from-slate-100 to-slate-200 text-slate-700 border border-slate-200/60 shadow-xs'
+  
+  const TYPE_LABEL_MAP: Record<string, string> = {
+    retail: 'Bán lẻ',
+    wholesale: 'Khách sỉ',
+    vip: 'VIP',
+    staff: 'Nội bộ'
+  }
+  const displayLabel = TYPE_LABEL_MAP[label.toLowerCase()] || label
+
+  if (c === 'emerald') classes = 'bg-gradient-to-r from-emerald-500 to-teal-650 text-white border border-emerald-400/30 shadow-xs'
+  else if (c === 'sapphire') classes = 'bg-gradient-to-r from-blue-600 to-indigo-650 text-white border border-blue-500/30 shadow-xs'
+  else if (c === 'amethyst') classes = 'bg-gradient-to-r from-purple-500 to-fuchsia-650 text-white border border-purple-400/30 shadow-xs'
+  else if (c === 'ruby') classes = 'bg-gradient-to-r from-rose-500 to-red-600 text-white border border-rose-400/30 shadow-xs'
+  else if (c === 'amber') classes = 'bg-gradient-to-r from-amber-500 to-orange-600 text-white border border-amber-400/30 shadow-xs'
+  else if (c === 'rose') classes = 'bg-gradient-to-r from-pink-500 to-rose-500 text-white border border-pink-400/30 shadow-xs'
+  else if (c === 'cyan') classes = 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white border border-cyan-400/30 shadow-xs'
+  else if (c === 'indigo') classes = 'bg-gradient-to-r from-indigo-500 to-violet-650 text-white border border-indigo-400/30 shadow-xs'
+  else if (c === 'slate') classes = 'bg-gradient-to-r from-slate-500 to-slate-700 text-white border border-slate-400/30 shadow-xs'
+  else if (c === 'gold') classes = 'bg-gradient-to-r from-amber-400 via-yellow-500 to-amber-600 text-white border border-yellow-400/35 shadow-sm font-bold uppercase tracking-wider'
+  else if (c === 'silver') classes = 'bg-gradient-to-r from-slate-200 via-slate-350 to-zinc-500 text-slate-800 border border-slate-300/40 shadow-xs font-bold uppercase tracking-wider'
+  else if (c === 'bronze') classes = 'bg-gradient-to-r from-orange-400 via-amber-700 to-orange-700 text-white border border-orange-500/30 shadow-xs font-bold uppercase tracking-wider'
+
+  return (
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-semibold leading-relaxed ${classes}`}>
+      {displayLabel}
+    </span>
+  )
+}
 
 interface Props {
   shopId: string
@@ -33,6 +66,15 @@ export function CustomersClient({ shopId }: Props) {
   const searchParams = useSearchParams()
   const initialSearch = searchParams?.get('search') || searchParams?.get('customerId') || ''
   
+  const { data: settings } = useQuery({
+    queryKey: ['settings', shopId],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/settings`)
+      if (!res.ok) return {}
+      return res.json()
+    },
+  })
+  
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState(initialSearch)
   const [debouncedSearch] = useDebounce(search, 300)
@@ -47,6 +89,12 @@ export function CustomersClient({ shopId }: Props) {
   const [depositAmount, setDepositAmount] = useState('0')
   const [depositMethod, setDepositMethod] = useState('bank_transfer')
   const [depositNote, setDepositNote] = useState('')
+  const [confirmDepositOpen, setConfirmDepositOpen] = useState(false)
+
+  // Customer Detail States
+  const [viewTarget, setViewTarget] = useState<Record<string, string> | null>(null)
+  const [detailOpen, setDetailOpen] = useState(false)
+  const [detailTab, setDetailTab] = useState<'info' | 'orders' | 'transactions'>('info')
 
   const { data, isLoading, isFetching } = useQuery({
     queryKey: ['customers', shopId, page, debouncedSearch],
@@ -104,6 +152,36 @@ export function CustomersClient({ shopId }: Props) {
     setEditingId(row.customer_id)
     setSlideOpen(true)
   }
+
+  function openDetail(row: Record<string, string>) {
+    setViewTarget(row)
+    setDetailTab('info')
+    setDetailOpen(true)
+  }
+
+  // 1. Fetch Customer Purchase History
+  const { data: customerOrders, isLoading: ordersLoading } = useQuery({
+    queryKey: ['customer-orders', shopId, viewTarget?.customer_id],
+    queryFn: async () => {
+      if (!viewTarget?.customer_id) return { data: [] }
+      const res = await fetch(`/api/shops/${shopId}/orders?customer_id=${viewTarget.customer_id}&limit=100`)
+      if (!res.ok) throw new Error('Không tải được lịch sử đơn hàng')
+      return res.json() as Promise<{ data: Record<string, any>[] }>
+    },
+    enabled: !!viewTarget?.customer_id && detailOpen,
+  })
+
+  // 2. Fetch Customer Financial Transaction History
+  const { data: customerTransactions, isLoading: txLoading } = useQuery({
+    queryKey: ['customer-transactions', shopId, viewTarget?.customer_id],
+    queryFn: async () => {
+      if (!viewTarget?.customer_id) return { data: [] }
+      const res = await fetch(`/api/shops/${shopId}/cashbook?reference_id=${viewTarget.customer_id}&limit=100`)
+      if (!res.ok) throw new Error('Không tải được lịch sử giao dịch')
+      return res.json() as Promise<{ data: Record<string, any>[] }>
+    },
+    enabled: !!viewTarget?.customer_id && detailOpen,
+  })
 
   const depositMutation = useMutation({
     mutationFn: async (payload: { amount: number; method: string; note: string }) => {
@@ -167,13 +245,18 @@ export function CustomersClient({ shopId }: Props) {
     { key: 'phone', label: 'SĐT' },
     {
       key: 'customer_type',
-      label: 'Loại KH',
-      render: (row) => <TagBadge label={row.customer_type} />,
+      label: 'Hạng thành viên',
+      render: (row) => {
+        const type = (row.customer_type || '').trim().toLowerCase()
+        const tiers = settings?.membership_tiers || []
+        const activeTier = tiers.find((t: any) => (t.name || '').trim().toLowerCase() === type)
+        return <MemberTierBadge label={row.customer_type} color={activeTier?.color || 'slate'} />
+      },
     },
     {
       key: 'loyalty_points',
       label: 'Điểm tích lũy',
-      render: (row) => <span className="font-medium text-blue-600">{Number(row.loyalty_points || 0).toLocaleString('vi-VN')}đ</span>,
+      render: (row) => <span className="font-medium text-blue-600">{Number(row.loyalty_points || 0).toLocaleString('vi-VN')} điểm</span>,
     },
     {
       key: 'prepaid_balance',
@@ -183,7 +266,7 @@ export function CustomersClient({ shopId }: Props) {
     {
       key: 'debt_amount',
       label: 'Công nợ',
-      render: (row) => <span>{Number(row.debt_amount || 0).toLocaleString('vi-VN')}đ</span>,
+      render: (row) => <span className="font-medium text-slate-700">{Number(row.debt_amount || 0).toLocaleString('vi-VN')}đ</span>,
     },
     {
       key: 'actions',
@@ -191,28 +274,28 @@ export function CustomersClient({ shopId }: Props) {
       render: (row) => (
         <div className="flex items-center gap-2">
           <button
-            onClick={() => openDeposit(row)}
-            className="rounded-lg border border-emerald-100 bg-white px-3 py-1.5 text-xs font-medium text-emerald-600 shadow-sm hover:bg-emerald-50 transition-colors"
+            onClick={(e) => { e.stopPropagation(); openDeposit(row); }}
+            className="rounded-lg border border-emerald-100 bg-white px-3 py-1.5 text-xs font-medium text-emerald-600 shadow-sm hover:bg-emerald-50 transition-colors cursor-pointer"
             title="Nạp tiền trả trước"
           >
             Nạp tiền
           </button>
           <button
-            onClick={() => openEdit(row)}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:bg-slate-50 transition-colors"
+            onClick={(e) => { e.stopPropagation(); openEdit(row); }}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:bg-slate-50 transition-colors cursor-pointer"
           >
             Sửa
           </button>
           <button
-            onClick={() => setDeleteTarget(row)}
-            className="rounded-lg border border-red-100 bg-white px-3 py-1.5 text-xs font-medium text-red-500 shadow-sm hover:bg-red-50 transition-colors"
+            onClick={(e) => { e.stopPropagation(); setDeleteTarget(row); }}
+            className="rounded-lg border border-red-100 bg-white px-3 py-1.5 text-xs font-medium text-red-500 shadow-sm hover:bg-red-50 transition-colors cursor-pointer"
           >
             Xóa
           </button>
         </div>
       ),
     },
-  ], [])
+  ], [settings])
 
   return (
     <div className="space-y-4">
@@ -245,6 +328,7 @@ export function CustomersClient({ shopId }: Props) {
         pagination={{ page, total: data?.total ?? 0, pageSize: 50, onChange: setPage }}
         emptyState={<EmptyState title="Chưa có khách hàng nào" description="Nhấn '+ Thêm khách hàng' để bắt đầu." />}
         rowKey={(row) => row.customer_id}
+        onRowClick={openDetail}
       />
 
       <SlideOver
@@ -317,10 +401,20 @@ export function CustomersClient({ shopId }: Props) {
               onChange={(e) => setFormData(prev => ({ ...prev, customer_type: e.target.value }))}
               className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
             >
-              <option value="retail">Bán lẻ</option>
-              <option value="wholesale">Sỉ</option>
-              <option value="vip">VIP</option>
-              <option value="staff">Nội bộ</option>
+              <option value="retail">Bán lẻ (Mặc định)</option>
+              <option value="wholesale">Sỉ (Mặc định)</option>
+              <option value="vip">VIP (Mặc định)</option>
+              <option value="staff">Nội bộ (Mặc định)</option>
+              {settings?.membership_tiers?.map((t: any) => {
+                const lowercaseName = (t.name || '').trim().toLowerCase()
+                const isLegacy = ['retail', 'wholesale', 'vip', 'staff'].includes(lowercaseName)
+                if (isLegacy) return null
+                return (
+                  <option key={t.name} value={t.name}>
+                    {t.name} (Chiết khấu {t.discount}%)
+                  </option>
+                )
+              })}
             </select>
           </div>
           <NumberInput
@@ -378,6 +472,32 @@ export function CustomersClient({ shopId }: Props) {
         loading={deleteMutation.isPending}
       />
 
+      <ConfirmDialog
+        open={confirmDepositOpen}
+        onClose={() => setConfirmDepositOpen(false)}
+        onConfirm={() => {
+          if (depositTarget) {
+            depositMutation.mutate({
+              amount: parseFloat(depositAmount),
+              method: depositMethod,
+              note: depositNote,
+            })
+          }
+          setConfirmDepositOpen(false)
+        }}
+        title="Xác nhận nạp tiền Ví trả trước"
+        description={`Hành động này sẽ tự động tạo một PHIẾU THU SỔ QUỸ (Cashbook) tương ứng. Bạn có chắc chắn muốn nạp ${Number(depositAmount).toLocaleString('vi-VN')}đ bằng hình thức "${
+          depositMethod === 'bank_transfer' ? 'Chuyển khoản' :
+          depositMethod === 'cash' ? 'Tiền mặt' :
+          depositMethod === 'momo' ? 'Momo' :
+          depositMethod === 'vnpay' ? 'VNPay' :
+          depositMethod === 'zalopay' ? 'ZaloPay' : depositMethod
+        }" cho khách hàng "${depositTarget?.name}" không?`}
+        confirmLabel="Xác nhận nạp tiền"
+        variant="default"
+        loading={depositMutation.isPending}
+      />
+
       {/* Deposit SlideOver */}
       <SlideOver
         open={!!depositTarget}
@@ -392,15 +512,7 @@ export function CustomersClient({ shopId }: Props) {
               Hủy
             </button>
             <button
-              onClick={() => {
-                if (depositTarget) {
-                  depositMutation.mutate({
-                    amount: parseFloat(depositAmount),
-                    method: depositMethod,
-                    note: depositNote,
-                  })
-                }
-              }}
+              onClick={() => setConfirmDepositOpen(true)}
               disabled={depositMutation.isPending || parseFloat(depositAmount) <= 0}
               className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
             >
@@ -457,7 +569,345 @@ export function CustomersClient({ shopId }: Props) {
               placeholder="Nhập ghi chú nạp tiền..."
             />
           </div>
-        </div>
+          </div>
+      </SlideOver>
+
+      {/* Customer Detail SlideOver (Read-Only) */}
+      <SlideOver
+        open={detailOpen}
+        onClose={() => setDetailOpen(false)}
+        title={`Chi tiết khách hàng: ${viewTarget?.name || ''}`}
+        width={720}
+        footer={
+          <div className="flex w-full items-center justify-between">
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  if (viewTarget) {
+                    setDetailOpen(false)
+                    openDeposit(viewTarget)
+                  }
+                }}
+                className="rounded-xl border border-emerald-250 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100 cursor-pointer active:scale-95 transition-all shadow-xs"
+              >
+                Nạp tiền ví
+              </button>
+              <button
+                onClick={() => {
+                  if (viewTarget) {
+                    setDetailOpen(false)
+                    openEdit(viewTarget)
+                  }
+                }}
+                className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark cursor-pointer active:scale-95 transition-all shadow-xs"
+              >
+                Chỉnh sửa thông tin
+              </button>
+            </div>
+            <button
+              onClick={() => setDetailOpen(false)}
+              className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 cursor-pointer"
+            >
+              Đóng
+            </button>
+          </div>
+        }
+      >
+        {viewTarget && (
+          <div className="space-y-6">
+            {/* Header Profiling & Membership Color Badge */}
+            <div className="flex flex-col items-center bg-slate-50 border border-slate-100 rounded-2xl p-4 text-center space-y-2 relative overflow-hidden">
+              {/* Branch pro ambient gradient accent backdrop */}
+              <div className="absolute inset-0 bg-gradient-to-b from-primary/5 to-transparent pointer-events-none" />
+              <div className="w-12 h-12 bg-primary/10 text-primary rounded-full flex items-center justify-center text-lg font-bold">
+                {viewTarget.name?.charAt(0).toUpperCase()}
+              </div>
+              <h3 className="font-bold text-base text-slate-900 leading-tight">{viewTarget.name}</h3>
+              <p className="text-xs text-slate-500">{viewTarget.phone || '—'}</p>
+              
+              <div className="pt-1">
+                {(() => {
+                  const type = (viewTarget.customer_type || '').trim().toLowerCase()
+                  const tiers = settings?.membership_tiers || []
+                  const activeTier = tiers.find((t: any) => (t.name || '').trim().toLowerCase() === type)
+                  return <MemberTierBadge label={viewTarget.customer_type || 'Bán lẻ'} color={activeTier?.color || 'slate'} />
+                })()}
+              </div>
+            </div>
+
+            {/* Premium Tabs */}
+            <div className="border-b border-slate-200">
+              <nav className="-mb-px flex space-x-6" aria-label="Tabs">
+                <button
+                  onClick={() => setDetailTab('info')}
+                  className={`border-b-2 py-2 px-1 text-sm font-medium transition-all cursor-pointer ${
+                    detailTab === 'info'
+                      ? 'border-primary text-primary font-semibold'
+                      : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+                  }`}
+                >
+                  Thông tin cơ bản
+                </button>
+                <button
+                  onClick={() => setDetailTab('orders')}
+                  className={`border-b-2 py-2 px-1 text-sm font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
+                    detailTab === 'orders'
+                      ? 'border-primary text-primary font-semibold'
+                      : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+                  }`}
+                >
+                  <span>Lịch sử mua hàng</span>
+                  {customerOrders?.data && (
+                    <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full text-[10px]">
+                      {customerOrders.data.length}
+                    </span>
+                  )}
+                </button>
+                <button
+                  onClick={() => setDetailTab('transactions')}
+                  className={`border-b-2 py-2 px-1 text-sm font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
+                    detailTab === 'transactions'
+                      ? 'border-primary text-primary font-semibold'
+                      : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+                  }`}
+                >
+                  <span>Lịch sử ví & thu nợ</span>
+                  {customerTransactions?.data && (
+                    <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full text-[10px]">
+                      {customerTransactions.data.length}
+                    </span>
+                  )}
+                </button>
+              </nav>
+            </div>
+
+            {/* Tab Contents */}
+            <div className="space-y-4 pt-1">
+              {/* Tab 1: Info (Read-only) */}
+              {detailTab === 'info' && (
+                <div className="space-y-4">
+                  {/* Financial Quick Cards */}
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-3 text-center space-y-0.5">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Điểm tích lũy</span>
+                      <span className="text-sm font-bold text-blue-600 block">
+                        {Number(viewTarget.loyalty_points || 0).toLocaleString('vi-VN')}
+                      </span>
+                    </div>
+                    <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-3 text-center space-y-0.5">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Ví trả trước</span>
+                      <span className="text-sm font-bold text-emerald-600 block">
+                        {Number(viewTarget.prepaid_balance || 0).toLocaleString('vi-VN')}đ
+                      </span>
+                    </div>
+                    <div className="rounded-xl border border-red-100 bg-red-50/40 p-3 text-center space-y-0.5">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Nợ hiện tại</span>
+                      <span className="text-sm font-bold text-red-655 block">
+                        {Number(viewTarget.debt_amount || 0).toLocaleString('vi-VN')}đ
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Profile Details List */}
+                  <div className="rounded-2xl border border-slate-100 bg-white p-4 space-y-4 text-sm">
+                    <div className="grid grid-cols-2 gap-y-4 gap-x-2">
+                      <div className="space-y-0.5">
+                        <span className="text-xs text-slate-400 block font-medium">Mã khách hàng</span>
+                        <span className="text-slate-800 block break-all font-semibold"><CopyableId id={viewTarget.customer_id} className="text-slate-800 text-sm font-semibold" /></span>
+                      </div>
+                      <div className="space-y-0.5">
+                        <span className="text-xs text-slate-400 block font-medium">Hạn mức tín dụng</span>
+                        <span className="text-slate-800 font-semibold block">{Number(viewTarget.credit_limit || 0).toLocaleString('vi-VN')}đ</span>
+                      </div>
+                      <div className="space-y-0.5">
+                        <span className="text-xs text-slate-400 block font-medium">Địa chỉ Email</span>
+                        <span className="text-slate-800 block break-all">{viewTarget.email || '—'}</span>
+                      </div>
+                      <div className="space-y-0.5">
+                        <span className="text-xs text-slate-400 block font-medium">Địa chỉ nhà</span>
+                        <span className="text-slate-800 block">{viewTarget.address || '—'}</span>
+                      </div>
+                    </div>
+                    
+                    {viewTarget.note && (
+                      <div className="border-t border-slate-100 pt-3 space-y-1">
+                        <span className="text-xs text-slate-400 block font-medium">Ghi chú đặc biệt</span>
+                        <p className="text-slate-600 bg-slate-50/70 p-2.5 rounded-xl border border-slate-100/60 leading-relaxed text-xs italic">
+                          {viewTarget.note}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Tab 2: Purchase/Order History */}
+              {detailTab === 'orders' && (
+                <div className="space-y-3">
+                  {ordersLoading ? (
+                    <div className="py-8 text-center text-xs text-slate-400 animate-pulse">Đang tải lịch sử đơn hàng...</div>
+                  ) : !customerOrders?.data || customerOrders.data.length === 0 ? (
+                    <div className="py-8 text-center text-xs text-slate-400 italic">Khách hàng chưa có lịch sử mua hàng.</div>
+                  ) : (
+                    <div className="overflow-hidden border border-slate-200 rounded-2xl bg-white shadow-xs max-h-[380px] overflow-y-auto">
+                      <table className="min-w-full text-xs text-left">
+                        <thead className="bg-slate-50 text-slate-500 uppercase font-semibold border-b border-slate-200 sticky top-0 z-10">
+                          <tr>
+                            <th className="px-3 py-2.5">Mã đơn / Ngày</th>
+                            <th className="px-3 py-2.5">Kênh / Giao dịch</th>
+                            <th className="px-3 py-2.5 text-right">Tổng tiền</th>
+                            <th className="px-3 py-2.5 text-right">Đã thanh toán / Nợ</th>
+                            <th className="px-3 py-2.5 text-center">Trạng thái</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {(() => {
+                            const CHANNEL_MAP: Record<string, string> = {
+                              pos: 'POS (Cửa hàng)',
+                              online: 'Trực tuyến',
+                              phone: 'Điện thoại',
+                              zalo: 'Zalo'
+                            }
+                            const ORDER_PAYMENT_MAP: Record<string, string> = {
+                              cash: 'Tiền mặt',
+                              card: 'Thẻ',
+                              bank_transfer: 'Chuyển khoản',
+                              momo: 'Ví Momo',
+                              vnpay: 'VNPAY',
+                              zalopay: 'ZaloPay',
+                              debt: 'Ghi nợ',
+                              prepaid: 'Ví trả trước'
+                            }
+                            
+                            return customerOrders.data.map((order, i) => {
+                              const subtotalVal = Number(order.subtotal || 0)
+                              const discountVal = Number(order.discount_amount || 0)
+                              const totalVal = Number(order.total_amount || 0)
+                              const paidVal = Number(order.paid_amount || 0)
+                              const debtVal = Number(order.debt_amount || 0)
+
+                              return (
+                                <tr key={order.order_id || i} className="hover:bg-slate-50">
+                                  <td className="px-3 py-2.5">
+                                    <span className="font-bold text-slate-800">#{order.order_no || order.order_id || '—'}</span>
+                                    <div className="text-[10px] text-slate-400 mt-0.5">
+                                      {order.created_at ? format(new Date(order.created_at), 'HH:mm dd/MM/yyyy') : '—'}
+                                    </div>
+                                  </td>
+                                  <td className="px-3 py-2.5">
+                                    <div className="font-medium text-slate-700 text-xs">
+                                      {CHANNEL_MAP[order.channel] || order.channel || 'POS'}
+                                    </div>
+                                    <div className="text-[10px] text-slate-400 mt-0.5">
+                                      {ORDER_PAYMENT_MAP[order.payment_method] || order.payment_method || '—'}
+                                    </div>
+                                  </td>
+                                  <td className="px-3 py-2.5 text-right">
+                                    <div className="font-semibold text-slate-800">{totalVal.toLocaleString('vi-VN')}đ</div>
+                                    {discountVal > 0 && (
+                                      <div className="text-[9px] text-red-500 font-medium">Giảm {discountVal.toLocaleString('vi-VN')}đ</div>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-2.5 text-right text-xs">
+                                    <div className="text-emerald-600 font-semibold">{paidVal.toLocaleString('vi-VN')}đ</div>
+                                    {debtVal > 0 && (
+                                      <div className="text-red-600 font-bold text-[9px] mt-0.5">{debtVal.toLocaleString('vi-VN')}đ nợ</div>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-2.5 text-center">
+                                    <TagBadge
+                                      label={
+                                        order.status === 'completed' ? 'Hoàn thành' :
+                                        order.status === 'cancelled' ? 'Đã hủy' :
+                                        order.status === 'pending' ? 'Chờ duyệt' : order.status || '—'
+                                      }
+                                      color={order.status === 'completed' ? 'green' : order.status === 'cancelled' ? 'red' : 'yellow'}
+                                    />
+                                  </td>
+                                </tr>
+                              )
+                            })
+                          })()}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Tab 3: prepaid / cashbook financial history */}
+              {detailTab === 'transactions' && (
+                <div className="space-y-3">
+                  {txLoading ? (
+                    <div className="py-8 text-center text-xs text-slate-400 animate-pulse">Đang tải lịch sử giao dịch...</div>
+                  ) : !customerTransactions?.data || customerTransactions.data.length === 0 ? (
+                    <div className="py-8 text-center text-xs text-slate-400 italic">Chưa có phát sinh giao dịch tài chính/nạp ví.</div>
+                  ) : (
+                    <div className="overflow-hidden border border-slate-200 rounded-2xl bg-white shadow-xs max-h-[380px] overflow-y-auto">
+                      <table className="min-w-full text-xs text-left">
+                        <thead className="bg-slate-50 text-slate-500 uppercase font-semibold border-b border-slate-200 sticky top-0 z-10">
+                          <tr>
+                            <th className="px-3 py-2.5">Số phiếu / Ngày</th>
+                            <th className="px-3 py-2.5">Danh mục / Ghi chú</th>
+                            <th className="px-3 py-2.5">Hình thức</th>
+                            <th className="px-3 py-2.5 text-right">Số tiền</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {customerTransactions.data.map((tx, i) => {
+                            const isReceipt = tx.type === 'receipt'
+                            // Vietnamese category translations for customer view
+                            const catMap: Record<string, string> = {
+                              prepaid_deposit: 'Nạp tiền ví trả trước',
+                              debt_collection: 'Thu nợ khách hàng',
+                              sales: 'Thu tiền bán hàng',
+                              other: 'Giao dịch khác'
+                            }
+                            const methodMap: Record<string, string> = {
+                              cash: 'Tiền mặt',
+                              bank_transfer: 'Chuyển khoản',
+                              card: 'Thẻ (POS)',
+                              momo: 'Momo',
+                              prepaid: 'Ví trả trước'
+                            }
+                            return (
+                              <tr key={tx.transaction_id || i} className="hover:bg-slate-50">
+                                <td className="px-3 py-2.5">
+                                  <span className="font-bold text-slate-800">
+                                    {tx.transaction_id ? <CopyableId id={tx.transaction_id} className="text-slate-800 font-bold" /> : '—'}
+                                  </span>
+                                  <div className="text-[10px] text-slate-400 mt-0.5">
+                                    {tx.created_at ? format(new Date(tx.created_at), 'HH:mm dd/MM/yyyy') : '—'}
+                                  </div>
+                                </td>
+                                <td className="px-3 py-2.5">
+                                  <span className="font-semibold text-slate-700 block">
+                                    {catMap[tx.category] || tx.category || 'Thu/Chi khác'}
+                                  </span>
+                                  {tx.note && <div className="text-[10px] text-slate-500 max-w-[220px] break-words mt-0.5">{tx.note}</div>}
+                                </td>
+                                <td className="px-3 py-2.5">
+                                  <span className="inline-flex text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200/60 font-medium">
+                                    {methodMap[tx.method] || tx.method}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2.5 text-right">
+                                  <span className={`font-bold block text-sm ${isReceipt ? 'text-green-600' : 'text-red-600'}`}>
+                                    {isReceipt ? '+' : '-'}{Number(tx.amount || 0).toLocaleString('vi-VN')}đ
+                                  </span>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </SlideOver>
     </div>
   )
