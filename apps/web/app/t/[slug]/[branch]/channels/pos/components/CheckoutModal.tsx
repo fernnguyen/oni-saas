@@ -100,6 +100,9 @@ export function CheckoutModal({
     { id: nextId(), method: 'cash', amount: String(total - discount_amount - orderPaidAmount) },
   ])
   const [saving, setSaving] = useState(false)
+  const [localRentalType, setLocalRentalType] = useState<'hourly' | 'overnight'>(() => {
+    return metadata?.rental_type || 'hourly'
+  })
   const [localNote, setLocalNote] = useState(note)
   const [localDiscount, setLocalDiscount] = useState(discount_amount)
   const [isEditingDiscount, setIsEditingDiscount] = useState(false)
@@ -108,8 +111,24 @@ export function CheckoutModal({
   const [isEditingCheckout, setIsEditingCheckout] = useState(false)
   const [checkoutInput, setCheckoutInput] = useState('')
 
-  // Recalculate time charge when checkout time changes
+  // Recalculate time charge when checkout time or rental type changes
   const computedItems = useMemo(() => {
+    if (localRentalType === 'overnight') {
+      const overnightRate = Number(metadata?.overnight_rate) || Number(hourlyRate) || 0
+      return items.map(item => {
+        if (item.product_id === 'TIME_CHARGE') {
+          return {
+            ...item,
+            product_name: 'Tiền phòng (Qua đêm)',
+            qty: 1,
+            unit_price: overnightRate,
+            line_total: overnightRate,
+          }
+        }
+        return item
+      })
+    }
+
     if (!metadata?.check_in || hourlyRate <= 0) return items
     const checkInDate = new Date(metadata.check_in)
     const effectiveCheckout = localCheckoutTime ? new Date(localCheckoutTime) : (customCheckoutTime ? new Date(customCheckoutTime) : new Date())
@@ -129,13 +148,14 @@ export function CheckoutModal({
         return { 
           ...item, 
           qty: newBillableHours, 
+          unit_price: hourlyRate,
           line_total: newTimeCharge, 
           product_name: `Tiền giờ sử dụng (${pricingResult.durationLabel})` 
         }
       }
       return item
     })
-  }, [items, localCheckoutTime, customCheckoutTime, metadata, hourlyRate])
+  }, [items, localCheckoutTime, customCheckoutTime, metadata, hourlyRate, localRentalType])
 
   const computedSubtotal = computedItems.reduce((s, it) => s + (it.line_total || 0), 0)
   const finalTotal = Math.max(0, computedSubtotal - localDiscount)
@@ -162,13 +182,12 @@ export function CheckoutModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  // When checkout time changes → recalculate payment
+  // When checkout time or rental type changes → recalculate payment
   useEffect(() => {
-    if (!localCheckoutTime) return
     const newRemaining = Math.max(0, finalTotal - orderPaidAmount)
     setPayments([{ id: nextId(), method: 'cash', amount: String(newRemaining) }])
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [localCheckoutTime])
+  }, [localCheckoutTime, localRentalType])
 
   const overPaid = Math.max(0, orderPaidAmount - finalTotal)
   const remainingTotal = Math.max(0, finalTotal - orderPaidAmount)
@@ -301,7 +320,8 @@ export function CheckoutModal({
       if (metadata) {
         order.metadata = JSON.stringify({
           ...metadata,
-          check_out: localCheckoutTime || customCheckoutTime || new Date().toISOString()
+          check_out: localCheckoutTime || customCheckoutTime || new Date().toISOString(),
+          rental_type: localRentalType
         })
       }
 
@@ -496,6 +516,35 @@ export function CheckoutModal({
           {/* Resource Info */}
           {metadata?.check_in && (
             <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-3 text-sm space-y-1.5 mb-4">
+              {metadata.overnight_rate && (
+                <div className="pb-2 mb-2 border-b border-blue-100/50 flex flex-col gap-1.5">
+                  <span className="text-[10px] font-bold text-slate-500 tracking-wide uppercase">Hình thức tính tiền</span>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setLocalRentalType('hourly')}
+                      className={`flex-1 py-1.5 px-2.5 rounded-lg border text-xs font-bold transition-all text-center ${
+                        localRentalType === 'hourly'
+                          ? 'border-primary bg-primary/10 text-primary ring-1 ring-primary'
+                          : 'border-slate-300 text-slate-500 bg-white hover:border-slate-350 hover:bg-slate-50'
+                      }`}
+                    >
+                      ⏱️ Theo giờ
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLocalRentalType('overnight')}
+                      className={`flex-1 py-1.5 px-2.5 rounded-lg border text-xs font-bold transition-all text-center ${
+                        localRentalType === 'overnight'
+                          ? 'border-primary bg-primary/10 text-primary ring-1 ring-primary'
+                          : 'border-slate-300 text-slate-500 bg-white hover:border-slate-350 hover:bg-slate-50'
+                      }`}
+                    >
+                      🌙 Qua đêm ({Number(metadata.overnight_rate).toLocaleString('vi-VN')}₫)
+                    </button>
+                  </div>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-slate-600">Giờ vào:</span>
                 <span className="font-medium text-slate-900">{fmtDateTimeVN(new Date(metadata.check_in))}</span>
