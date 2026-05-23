@@ -4,6 +4,8 @@ import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
 import { getUserPermissions } from '@/lib/server/permissions';
 import { DashboardShell } from '@/app/components/layout/DashboardShell';
 import type { Metadata } from 'next';
+import { NotificationProvider } from '@/app/components/notifications/NotificationContext';
+import QRNotificationCenter from './channels/pos/components/QRNotificationCenter';
 
 interface Props {
   params: Promise<{ slug: string; branch: string }>;
@@ -151,33 +153,40 @@ export default async function BranchLayout({ params, children }: Props) {
     '';
 
   return (
-    <DashboardShell
-      tenantId={tenant.id}
-      tenantName={tenant.name}
-      shopName={shop.name}
-      userEmail={authData.user.email}
-      displayName={displayName || undefined}
-      roleName={roleName || undefined}
-      sidebarBasePath={homePath}
-      tenantHref={`${controlPlaneOrigin}/dashboard/tenants`}
-      connectorsHref={`${homePath}/connectors`}
-      settingsHref={`${homePath}/settings`}
-      tenantBillingHref={`/billing`}
-      tenantSettingsHref={`/settings`}
-      tenantTeamHref={`/team`}
-      tenantRolesHref={`/roles`}
-      accountHref={`${homePath}/account`}
-      supportHref={`${homePath}/support`}
-      permissions={permissions}
-      planCode={planCode}
-      planName={planName}
-      periodStart={periodStart}
-      periodEnd={periodEnd}
-      currentBranchSlug={branch}
-      currentBranchAddress={shop.address}
-      industryType={tenant.industry_type}
-    >
-      {children}
-    </DashboardShell>
+    <NotificationProvider shopId={shop.id}>
+      <DashboardShell
+        tenantId={tenant.id}
+        tenantName={tenant.name}
+        shopName={shop.name}
+        userEmail={authData.user.email}
+        displayName={displayName || undefined}
+        roleName={roleName || undefined}
+        sidebarBasePath={homePath}
+        tenantHref={`${controlPlaneOrigin}/dashboard/tenants`}
+        connectorsHref={`${homePath}/connectors`}
+        settingsHref={`${homePath}/settings`}
+        tenantBillingHref={`/billing`}
+        tenantSettingsHref={`/settings`}
+        tenantTeamHref={`/team`}
+        tenantRolesHref={`/roles`}
+        accountHref={`${homePath}/account`}
+        supportHref={`${homePath}/support`}
+        permissions={permissions}
+        planCode={planCode}
+        planName={planName}
+        periodStart={periodStart}
+        periodEnd={periodEnd}
+        currentBranchSlug={branch}
+        currentBranchAddress={shop.address}
+        industryType={tenant.industry_type}
+      >
+        {children}
+      </DashboardShell>
+      <QRNotificationCenter
+        shopId={shop.id}
+        branchId={shop.id}
+        isGlobalDrawer={true}
+      />
+    </NotificationProvider>
   );
 }

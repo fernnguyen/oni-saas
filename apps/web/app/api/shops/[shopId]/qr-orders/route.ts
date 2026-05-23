@@ -155,7 +155,7 @@ export async function PATCH(
     const tenantId = shop.tenant_id
 
     const body = await req.json()
-    const { request_id, action, reject_reason } = body
+    const { request_id, action, reject_reason, items } = body
 
     if (!request_id || !action) {
       return NextResponse.json({ error: 'Missing request_id or action' }, { status: 400 })
@@ -194,7 +194,7 @@ export async function PATCH(
         return NextResponse.json({ error: 'Bàn ăn không tồn tại trong hệ thống.' }, { status: 404 })
       }
 
-      const requestItems = Array.isArray(request.items) ? request.items : []
+      const requestItems = Array.isArray(items) ? items : (Array.isArray(request.items) ? request.items : [])
       let finalOrderId = ''
 
       const getGMT7Time = () => {
@@ -338,12 +338,21 @@ export async function PATCH(
       }
 
       // Update Supabase request status
+      const updateData: any = {
+        status: 'accepted',
+        updated_at: new Date().toISOString()
+      }
+      
+      if (Array.isArray(items)) {
+        updateData.items = items // Save only the accepted items to the DB
+        if (reject_reason) {
+          updateData.reject_reason = reject_reason // Write the automatic partial reject reason
+        }
+      }
+
       const { data: updatedRequest, error: updateError } = await admin
         .from('qr_order_requests')
-        .update({ 
-          status: 'accepted', 
-          updated_at: new Date().toISOString() 
-        })
+        .update(updateData)
         .eq('id', request_id)
         .select()
         .single()
