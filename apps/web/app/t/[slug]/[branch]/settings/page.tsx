@@ -26,6 +26,14 @@ export default async function BranchSettingsPage({ params }: Props) {
     .maybeSingle();
 
   if (!shop) notFound();
+
+  // Fetch tenant to get the industry_type
+  const { data: tenant } = await admin
+    .from('tenants')
+    .select('industry_type')
+    .eq('id', shop.tenant_id)
+    .maybeSingle();
+
   const permissions: string[] = await getUserPermissions(authData.user.id, shop.tenant_id, shop.id).catch(() => [] as string[]);
   if (!permissions.includes('settings.view') && !permissions.includes('shops.view') && !permissions.includes('shops.manage')) {
     return (
@@ -77,6 +85,7 @@ export default async function BranchSettingsPage({ params }: Props) {
         shop={{ id: shopId, name: shop.name, slug: shop.slug, address: shop.address ?? null, phone: shopResult.data?.phone ?? null }}
         settings={settings}
         canManage={canManage}
+        industryType={tenant?.industry_type ?? 'retail'}
       />
     </div>
   );

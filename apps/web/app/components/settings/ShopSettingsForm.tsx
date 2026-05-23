@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { BANKS } from '@/lib/constants/banks';
+import { getVerticalConfig } from '@oni/core';
 
 interface ShopSettings {
   shop_id: string;
@@ -54,11 +55,14 @@ interface Props {
   shop: Shop;
   settings: ShopSettings;
   canManage: boolean;
+  industryType?: string;
 }
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
-export function ShopSettingsForm({ shop, settings: initial, canManage }: Props) {
+export function ShopSettingsForm({ shop, settings: initial, canManage, industryType }: Props) {
+  const vertical = getVerticalConfig(industryType || 'retail');
+  const resourceLabel = industryType === 'fnb' ? 'bàn ăn' : (vertical.resourceLabel?.toLowerCase() || 'bàn');
   const [form, setForm] = useState({
     shop_name: shop.name, // always prefer the canonical name from the shops table
     address: shop.address ?? '',
@@ -413,7 +417,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage }: Props) 
                 </span>
               </div>
             </Field>
-            <Field label="Tự động mở bàn ăn khi quét QR">
+            <Field label={`Tự động mở ${resourceLabel} khi quét QR`}>
               <div
                 onClick={() => canManage && set('qr_auto_approve_session', !form.qr_auto_approve_session)}
                 className="flex cursor-pointer items-center gap-3 mt-1"
@@ -426,7 +430,9 @@ export function ShopSettingsForm({ shop, settings: initial, canManage }: Props) 
                   />
                 </div>
                 <span className="text-sm text-slate-600 select-none">
-                  {form.qr_auto_approve_session ? 'Tự động kích hoạt bàn ăn ngay khi khách quét QR' : 'Khách quét QR gửi yêu cầu, nhân viên phải duyệt mở bàn ăn bằng tay (Mặc định)'}
+                  {form.qr_auto_approve_session 
+                    ? `Tự động kích hoạt ${resourceLabel} ngay khi khách quét QR` 
+                    : `Khách quét QR gửi yêu cầu, nhân viên phải duyệt mở ${resourceLabel} bằng tay (Mặc định)`}
                 </span>
               </div>
             </Field>
