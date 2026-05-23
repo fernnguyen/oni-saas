@@ -200,6 +200,60 @@ export default function QRClientPage({
   // Active Orders History States
   const [orderRequests, setOrderRequests] = useState<any[]>([]);
   const [submittingOrder, setSubmittingOrder] = useState(false);
+  const [splitCount, setSplitCount] = useState(2);
+
+  // Touch drag states for swiping down to close bottom sheet drawers
+  const [historyDragY, setHistoryDragY] = useState(0);
+  const [isDraggingHistory, setIsDraggingHistory] = useState(false);
+  const historyTouchStart = React.useRef<number | null>(null);
+
+  const handleHistoryTouchStart = (e: React.TouchEvent) => {
+    historyTouchStart.current = e.touches[0].clientY;
+    setIsDraggingHistory(true);
+  };
+
+  const handleHistoryTouchMove = (e: React.TouchEvent) => {
+    if (historyTouchStart.current === null) return;
+    const deltaY = e.touches[0].clientY - historyTouchStart.current;
+    if (deltaY > 0) {
+      setHistoryDragY(deltaY);
+    }
+  };
+
+  const handleHistoryTouchEnd = () => {
+    if (historyDragY > 120) {
+      setIsHistoryOpen(false);
+    }
+    setHistoryDragY(0);
+    setIsDraggingHistory(false);
+    historyTouchStart.current = null;
+  };
+
+  const [cartDragY, setCartDragY] = useState(0);
+  const [isDraggingCart, setIsDraggingCart] = useState(false);
+  const cartTouchStart = React.useRef<number | null>(null);
+
+  const handleCartTouchStart = (e: React.TouchEvent) => {
+    cartTouchStart.current = e.touches[0].clientY;
+    setIsDraggingCart(true);
+  };
+
+  const handleCartTouchMove = (e: React.TouchEvent) => {
+    if (cartTouchStart.current === null) return;
+    const deltaY = e.touches[0].clientY - cartTouchStart.current;
+    if (deltaY > 0) {
+      setCartDragY(deltaY);
+    }
+  };
+
+  const handleCartTouchEnd = () => {
+    if (cartDragY > 120) {
+      setIsCartOpen(false);
+    }
+    setCartDragY(0);
+    setIsDraggingCart(false);
+    cartTouchStart.current = null;
+  };
 
   // Initialize Supabase collaborative cart when session is available
   const currentSessionId = session?.id || '';
@@ -315,8 +369,61 @@ export default function QRClientPage({
         throw new Error('Không thể tải thông tin Phòng/Bàn.');
       }
       const data = await res.json();
-      setSession(data.session);
-      setTable(data.table);
+
+      if (data.session) {
+        // Prevent redundant state updates of session if nothing changed, avoiding continuous re-fetching loops
+        setSession((prev: any) => {
+          if (prev && prev.id === data.session.id && prev.status === data.session.status) {
+            return prev; // keep same reference
+          }
+          return data.session;
+        });
+
+        setTable((prev: any) => {
+          if (prev && prev.status === data.table.status && prev.current_order_id === data.table.current_order_id) {
+            return prev; // keep same reference
+          }
+          return data.table;
+        });
+
+        // Persist active session credentials
+        localStorage.setItem('oni_qr_session_id', data.session.id);
+        localStorage.setItem('oni_qr_session_token', data.session.session_token);
+      } else {
+        // No active session on table. Check if we have a saved session in localStorage to resume recap
+        const savedId = localStorage.getItem('oni_qr_session_id');
+        const savedToken = localStorage.getItem('oni_qr_session_token');
+        if (savedId && savedToken) {
+          const verifyRes = await fetch(`/api/shops/${shopId}/qr-sessions?session_id=${savedId}&session_token=${savedToken}`);
+          if (verifyRes.ok) {
+            const verifyData = await verifyRes.json();
+            // Ensure this session belongs to this specific table/resource
+            if (verifyData.session && verifyData.session.resource_id === resourceId) {
+              setSession((prev: any) => {
+                if (prev && prev.id === verifyData.session.id && prev.status === verifyData.session.status) {
+                  return prev;
+                }
+                return verifyData.session;
+              });
+
+              setTable((prev: any) => {
+                if (prev && prev.status === verifyData.table.status && prev.current_order_id === verifyData.table.current_order_id) {
+                  return prev;
+                }
+                return verifyData.table;
+              });
+              return;
+            }
+          }
+        }
+        setSession((prev: any) => prev === null ? null : null);
+        setTable((prev: any) => {
+          if (prev && prev.status === data.table.status && prev.current_order_id === data.table.current_order_id) {
+            return prev;
+          }
+          return data.table;
+        });
+      }
     } catch (err: any) {
       setError(err.message || 'Lỗi kết nối máy chủ');
     } finally {
@@ -328,16 +435,87 @@ export default function QRClientPage({
     fetchSessionStatus(true);
   }, [shopId, resourceId]);
 
-  // 3. Poll session status if it's pending (waiting for staff to open table)
+  // 3. Poll session status if it's pending or active (waiting for staff to open table or cashier checkout)
   useEffect(() => {
-    if (!session || session.status !== 'pending') return;
+    if (!session || (session.status !== 'pending' && session.status !== 'active')) return;
 
     const interval = setInterval(() => {
       fetchSessionStatus(false);
-    }, 3000);
+    }, 5000);
 
     return () => clearInterval(interval);
   }, [session]);
+
+  // Subscribe to real-time session status and order requests updates
+  useEffect(() => {
+    if (!session || session.status === 'completed') return;
+
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase) return;
+
+    const channelName = `session_realtime_status_${session.id}`;
+    const channel = supabase.channel(channelName);
+
+    channel
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'qr_ordering_sessions',
+          filter: `id=eq.${session.id}`
+        },
+        (payload) => {
+          const updatedRecord = payload.new as any;
+          if (updatedRecord && updatedRecord.status === 'completed') {
+            setSession((prev: any) => {
+              if (prev && prev.id === updatedRecord.id && prev.status === updatedRecord.status) {
+                return prev;
+              }
+              return updatedRecord;
+            });
+            colabCart.clearCart();
+            if (updatedRecord.active === 'FALSE') {
+              toast.error('Yêu cầu mở bàn ăn của bạn đã bị từ chối.');
+            } else {
+              toast.info('Phiên phục vụ tại bàn đã được hoàn tất. Cảm ơn quý khách!');
+            }
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // Listen to INSERT, UPDATE, DELETE
+          schema: 'public',
+          table: 'qr_order_requests',
+          filter: `session_id=eq.${session.id}`
+        },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const newRequest = payload.new as any;
+            setOrderRequests((prev) => {
+              // Avoid duplicates
+              if (prev.some((r) => r.id === newRequest.id)) return prev;
+              return [newRequest, ...prev];
+            });
+          } else if (payload.eventType === 'UPDATE') {
+            const updatedRequest = payload.new as any;
+            setOrderRequests((prev) =>
+              prev.map((r) => (r.id === updatedRequest.id ? updatedRequest : r))
+            );
+          } else if (payload.eventType === 'DELETE') {
+            const deletedRequest = payload.old as any;
+            setOrderRequests((prev) => prev.filter((r) => r.id !== deletedRequest.id));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [session?.id, session?.status, colabCart]);
 
   // 4. Request session creation (Yêu cầu mở bàn)
   const handleRequestSession = async () => {
@@ -354,6 +532,12 @@ export default function QRClientPage({
       const data = await res.json();
       setSession(data.session);
       setTable(data.table);
+
+      if (data.session) {
+        localStorage.setItem('oni_qr_session_id', data.session.id);
+        localStorage.setItem('oni_qr_session_token', data.session.session_token);
+      }
+
       toast.success('Đã gửi yêu cầu mở bàn!');
     } catch (err: any) {
       toast.error(err.message || 'Lỗi gửi yêu cầu');
@@ -362,14 +546,24 @@ export default function QRClientPage({
     }
   };
 
-  // 4. Fetch menu & order requests when session becomes active
+  // 4. Fetch menu & order requests when session becomes active or completed
   const fetchMenuAndOrders = async () => {
-    if (!session || session.status !== 'active') return;
+    if (!session || (session.status !== 'active' && session.status !== 'completed')) return;
     setMenuLoading(true);
     try {
-      const pUrl = `/api/shops/${shopId}/qr-products?session_id=${session.id}&session_token=${session.session_token}`;
       const oUrl = `/api/shops/${shopId}/qr-orders?session_id=${session.id}&session_token=${session.session_token}`;
 
+      // If session is completed, we don't load the menu, only fetch historical orders for invoice recap
+      if (session.status === 'completed') {
+        const ordersRes = await fetch(oUrl).then((r) => {
+          if (!r.ok) throw new Error('Không thể tải lịch sử gọi món.');
+          return r.json();
+        });
+        setOrderRequests(ordersRes || []);
+        return;
+      }
+
+      const pUrl = `/api/shops/${shopId}/qr-products?session_id=${session.id}&session_token=${session.session_token}`;
       const [menuRes, ordersRes] = await Promise.all([
         fetch(pUrl).then((r) => {
           if (!r.ok) throw new Error('Không thể tải menu.');
@@ -395,25 +589,7 @@ export default function QRClientPage({
     fetchMenuAndOrders();
   }, [session]);
 
-  // 5. Poll order request status for real-time kitchen updates
-  useEffect(() => {
-    if (!session || session.status !== 'active') return;
 
-    const interval = setInterval(async () => {
-      try {
-        const oUrl = `/api/shops/${shopId}/qr-orders?session_id=${session.id}&session_token=${session.session_token}`;
-        const res = await fetch(oUrl);
-        if (res.ok) {
-          const data = await res.json();
-          setOrderRequests(data);
-        }
-      } catch (err) {
-        console.error('Error polling orders:', err);
-      }
-    }, 5000);
-
-    return () => clearInterval(interval);
-  }, [session]);
 
   // 6. Handle nicknames
   const openNameEdit = () => {
@@ -659,6 +835,151 @@ export default function QRClientPage({
     }
   };
 
+  const handleDownloadInvoiceImage = () => {
+    const acceptedOrders = orderRequests.filter(r => r.status === 'accepted');
+    if (acceptedOrders.length === 0) return;
+
+    try {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      const items = acceptedOrders.flatMap(o => o.items || []);
+      const totalAmount = acceptedOrders.reduce((sum, order) => {
+        const orderSum = (order.items || []).reduce((s: number, it: any) => s + (Number(it.line_total) || 0), 0);
+        return sum + orderSum;
+      }, 0);
+
+      const width = 600;
+      const padding = 40;
+      const itemHeight = 35;
+
+      const headerHeight = 220;
+      const itemsHeight = items.length * itemHeight;
+      const footerHeight = 180;
+      const height = headerHeight + itemsHeight + footerHeight;
+
+      canvas.width = width * 2;
+      canvas.height = height * 2;
+      ctx.scale(2, 2);
+
+      ctx.fillStyle = isDark ? '#0f172a' : '#ffffff';
+      ctx.fillRect(0, 0, width, height);
+
+      ctx.strokeStyle = isDark ? '#334155' : '#e2e8f0';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(10, 10, width - 20, height - 20);
+
+      ctx.fillStyle = '#f97316';
+      ctx.font = 'bold 24px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(shopName.toUpperCase(), width / 2, 60);
+
+      ctx.fillStyle = isDark ? '#94a3b8' : '#64748b';
+      ctx.font = 'bold 14px sans-serif';
+      ctx.fillText('HÓA ĐƠN ĐIỆN TỬ - ELECTRONIC RECEIPT', width / 2, 85);
+
+      ctx.fillStyle = isDark ? '#f1f5f9' : '#1e293b';
+      ctx.font = 'bold 16px sans-serif';
+      ctx.fillText(`Phòng/Bàn: ${table?.name || 'Chưa rõ'}`, width / 2, 115);
+
+      ctx.fillStyle = isDark ? '#94a3b8' : '#64748b';
+      ctx.font = '12px sans-serif';
+      const timeStr = new Date().toLocaleString('vi-VN');
+      ctx.fillText(`Thời gian thanh toán: ${timeStr}`, width / 2, 135);
+
+      ctx.beginPath();
+      ctx.strokeStyle = isDark ? '#334155' : '#cbd5e1';
+      ctx.setLineDash([6, 4]);
+      ctx.moveTo(padding, 160);
+      ctx.lineTo(width - padding, 160);
+      ctx.stroke();
+
+      let y = 190;
+      ctx.fillStyle = isDark ? '#f1f5f9' : '#0f172a';
+      ctx.font = 'bold 13px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText('SẢN PHẨM / DỊCH VỤ', padding, y);
+      ctx.textAlign = 'center';
+      ctx.fillText('SL', width - padding - 120, y);
+      ctx.textAlign = 'right';
+      ctx.fillText('THÀNH TIỀN', width - padding, y);
+
+      ctx.beginPath();
+      ctx.setLineDash([]);
+      ctx.strokeStyle = isDark ? '#475569' : '#e2e8f0';
+      ctx.moveTo(padding, y + 10);
+      ctx.lineTo(width - padding, y + 10);
+      ctx.stroke();
+
+      y += 35;
+
+      ctx.font = '13px sans-serif';
+      items.forEach((it: any) => {
+        ctx.fillStyle = isDark ? '#e2e8f0' : '#334155';
+        ctx.textAlign = 'left';
+
+        const maxNameWidth = 260;
+        let displayName = it.product_name;
+        if (it.variant_label) displayName += ` (${it.variant_label})`;
+
+        if (ctx.measureText(displayName).width > maxNameWidth) {
+          displayName = displayName.substring(0, 30) + '...';
+        }
+
+        ctx.fillText(displayName, padding, y);
+
+        ctx.textAlign = 'center';
+        ctx.fillText(String(it.qty), width - padding - 120, y);
+
+        ctx.textAlign = 'right';
+        ctx.fillStyle = isDark ? '#f1f5f9' : '#0f172a';
+        ctx.font = 'bold 13px sans-serif';
+        ctx.fillText(fmtVND(it.line_total), width - padding, y);
+
+        y += itemHeight;
+      });
+
+      ctx.beginPath();
+      ctx.strokeStyle = isDark ? '#334155' : '#cbd5e1';
+      ctx.setLineDash([6, 4]);
+      ctx.moveTo(padding, y - 10);
+      ctx.lineTo(width - padding, y - 10);
+      ctx.stroke();
+
+      y += 20;
+
+      ctx.fillStyle = '#f97316';
+      ctx.font = 'bold 18px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText('TỔNG CỘNG:', padding, y);
+
+      ctx.textAlign = 'right';
+      ctx.fillText(fmtVND(totalAmount), width - padding, y);
+
+      y += 50;
+
+      ctx.fillStyle = isDark ? '#94a3b8' : '#64748b';
+      ctx.font = 'italic 12px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Cảm ơn quý khách đã tin tưởng và ủng hộ chúng tôi!', width / 2, y);
+      ctx.fillText('Hẹn gặp lại quý khách lần sau! Chúc một ngày tuyệt vời.', width / 2, y + 20);
+
+      ctx.font = '9px sans-serif';
+      ctx.fillStyle = isDark ? '#475569' : '#94a3b8';
+      ctx.fillText('Powered by Oni SaaS • Plug-and-Play QR Ordering System', width / 2, y + 50);
+
+      const link = document.createElement('a');
+      link.download = `HoaDon_${table?.name || 'Ban'}_${Date.now()}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+      toast.success('Đã tải hình ảnh hóa đơn thành công! 📸');
+    } catch (err) {
+      console.error('Invoice image generation failed:', err);
+      toast.error('Lỗi khi xuất ảnh hóa đơn.');
+    }
+  };
+
   // Render Onboarding Screen (No session yet)
   if (!session && !loadingSession) {
     return (
@@ -804,6 +1125,187 @@ export default function QRClientPage({
             100% { transform: translateX(200%); }
           }
         `}</style>
+      </div>
+    );
+  }
+
+  // Render Session Completed Screen (Check-out or rejection)
+  if (session?.status === 'completed' && !loadingSession) {
+    const isRejected = session.active === 'FALSE';
+
+    // Calculate total price of accepted orders to display in invoice recap
+    const acceptedOrders = orderRequests.filter(r => r.status === 'accepted');
+    const totalOrderAmount = acceptedOrders.reduce((sum, order) => {
+      const items = order.items || [];
+      const orderSum = items.reduce((s: number, it: any) => s + (Number(it.line_total) || 0), 0);
+      return sum + orderSum;
+    }, 0);
+
+    return (
+      <div className={`min-h-screen ${themeClasses.bg} flex flex-col justify-between p-6 transition-colors duration-300`}>
+        {/* Header */}
+        <header className="flex justify-between items-center pt-2">
+          <span className="text-xs font-bold uppercase tracking-wider opacity-60">
+            📍 {table?.name || 'Phòng/Bàn'}
+          </span>
+          <button
+            onClick={toggleTheme}
+            className={`p-2.5 rounded-full transition-all ${themeClasses.iconBtn}`}
+          >
+            {isDark ? <SvgIcons.Sun className="w-5 h-5" /> : <SvgIcons.Moon className="w-5 h-5" />}
+          </button>
+        </header>
+
+        <div className="flex-1 flex flex-col items-center justify-center max-w-md mx-auto text-center py-8 space-y-6 w-full">
+          {isRejected ? (
+            <>
+              {/* Rejected State */}
+              <div className="w-20 h-20 rounded-full bg-red-100 dark:bg-red-950/40 flex items-center justify-center text-red-500 border border-red-200 dark:border-red-900/30 shadow-lg shrink-0">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-10 h-10">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                </svg>
+              </div>
+              <div className="space-y-2">
+                <h1 className="text-xl font-black text-red-600 dark:text-red-400">Yêu cầu bị từ chối</h1>
+                <p className={`text-sm leading-relaxed ${themeClasses.textMuted}`}>
+                  Yêu cầu mở bàn ăn tại <span className="font-bold">{table?.name}</span> đã bị nhân viên từ chối hoặc bàn này hiện không khả dụng. Vui lòng liên hệ trực tiếp với nhân viên để được hỗ trợ.
+                </p>
+              </div>
+            </>
+          ) : (
+            <>
+              {/* Completed/Paid State */}
+              <div className="w-20 h-20 rounded-full bg-emerald-100 dark:bg-emerald-950/40 flex items-center justify-center text-emerald-500 border border-emerald-200 dark:border-emerald-900/30 shadow-lg shadow-emerald-500/10 shrink-0 animate-bounce">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-10 h-10">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                </svg>
+              </div>
+
+              <div className="space-y-2">
+                <h1 className="text-2xl font-black text-emerald-600 dark:text-emerald-400">Thanh toán hoàn tất!</h1>
+                <p className={`text-sm leading-relaxed ${themeClasses.textMuted}`}>
+                  Cảm ơn quý khách đã tin tưởng và ủng hộ <span className="font-bold text-orange-500">{shopName}</span>. Phiên phục vụ đã hoàn tất và bàn đã thanh toán thành công.
+                </p>
+              </div>
+
+              {/* Order Invoice Recap */}
+              {acceptedOrders.length > 0 && (
+                <div className={`w-full text-left rounded-2xl border p-4 space-y-3 overflow-y-auto ${themeClasses.cardBg}`}>
+                  <p className="text-[10px] font-bold opacity-60 uppercase tracking-wider border-b pb-1.5 flex justify-between items-center">
+                    <span>Tóm tắt đơn hàng ({acceptedOrders.length} lần gọi)</span>
+                    <button
+                      onClick={handleDownloadInvoiceImage}
+                      className="px-2.5 py-1 rounded bg-orange-500 hover:bg-orange-600 text-white font-bold text-[9px] uppercase tracking-wide transition-all active:scale-95 flex items-center gap-1 shadow-sm shrink-0 cursor-pointer"
+                    >
+                      Tải ảnh hóa đơn
+                    </button>
+                  </p>
+                  <div className="divide-y divide-slate-100 dark:divide-slate-800 space-y-2.5">
+                    {acceptedOrders.flatMap((order, oIdx) =>
+                      (order.items || []).map((it: any, iIdx: number) => (
+                        <div key={`${oIdx}-${iIdx}`} className="flex justify-between items-baseline pt-2 text-xs">
+                          <div className="pr-4 truncate flex-1">
+                            <span className="font-bold text-slate-800 dark:text-slate-200">{it.product_name}</span>
+                            {it.variant_label && (
+                              <span className="block text-[10px] text-slate-400 font-medium">({it.variant_label})</span>
+                            )}
+                          </div>
+                          <span className="text-slate-500 mr-4">x{it.qty}</span>
+                          <span className="font-bold text-slate-700 dark:text-slate-300">{fmtVND(it.line_total)}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  <div className="border-t pt-2.5 flex justify-between items-center text-sm font-black">
+                    <span className={themeClasses.textMain}>Tổng thanh toán</span>
+                    <span className="text-orange-600 dark:text-amber-400">{fmtVND(totalOrderAmount)}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Split Bill Calculator ("Tính năng vui vẻ") */}
+              {acceptedOrders.length > 0 && (
+                <div className={`w-full text-left rounded-2xl border p-4 space-y-4 ${themeClasses.cardBg}`}>
+                  <p className="text-[10px] font-bold opacity-60 uppercase tracking-wider border-b pb-1.5 flex items-center justify-between">
+                    <span>Chia tiền (Split Bill)</span>
+                    <span className="text-[9px] px-1.5 py-0.5 bg-orange-100 dark:bg-orange-950/40 text-orange-600 dark:text-orange-400 rounded-full font-bold">Tính năng vui vẻ</span>
+                  </p>
+
+                  <div className="flex items-center justify-between gap-4">
+                    <span className={`text-xs font-semibold ${themeClasses.textMain}`}>Số người chia:</span>
+                    <div className="flex items-center gap-2.5">
+                      <button
+                        onClick={() => setSplitCount(prev => Math.max(1, prev - 1))}
+                        className={`w-7.5 h-7.5 rounded-lg flex items-center justify-center font-bold text-lg select-none cursor-pointer ${themeClasses.iconBtn}`}
+                      >
+                        -
+                      </button>
+                      <span className="text-sm font-black w-8 text-center">{splitCount}</span>
+                      <button
+                        onClick={() => setSplitCount(prev => prev + 1)}
+                        className={`w-7.5 h-7.5 rounded-lg flex items-center justify-center font-bold text-lg select-none cursor-pointer ${themeClasses.iconBtn}`}
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-50 dark:bg-slate-950/60 rounded-xl p-3.5 border border-dashed border-slate-200 dark:border-slate-800 flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-[9px] font-bold opacity-65 uppercase tracking-wider">Mỗi người cần trả</p>
+                      <p className="text-base font-black text-orange-600 dark:text-amber-400">
+                        {fmtVND(Math.round(totalOrderAmount / splitCount))}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[9px] font-bold opacity-65 uppercase tracking-wider">Trạng thái chia</p>
+                      <span className="text-[10px] font-semibold text-slate-500 italic block mt-0.5">
+                        {splitCount === 1 ? 'Solo bao trọn! 😎' :
+                          splitCount === 2 ? 'Chia đôi tình nghĩa! 🤝' :
+                            splitCount <= 4 ? 'Đồng đội săn mồi! 🦁' : 'Đại gia đình ONI! 🥳'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      const shareAmt = Math.round(totalOrderAmount / splitCount);
+                      const msg = `Tóm tắt hóa đơn tại ${shopName} - ${table?.name || 'Phòng/Bàn'}:\n- Tổng cộng: ${totalOrderAmount.toLocaleString('vi-VN')}đ.\n- Chia đều cho ${splitCount} người: mỗi người ${shareAmt.toLocaleString('vi-VN')}đ.\n💸 Chuyển khoản cho thủ quỹ nhé!`;
+                      navigator.clipboard.writeText(msg);
+                      toast.success('Đã sao chép tin nhắn gửi nhóm bạn bè!');
+                    }}
+                    className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700/80 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    📋 Sao chép tin nhắn gửi đi
+                  </button>
+                </div>
+              )}
+
+              <p className="text-[11px] text-slate-400 italic">
+                Chúc quý khách một ngày tuyệt vời và hẹn gặp lại quý khách lần sau!
+              </p>
+            </>
+          )}
+
+          <button
+            onClick={() => {
+              setSession(null);
+              setOrderRequests([]);
+              localStorage.removeItem('oni_qr_guest_name_configured');
+              localStorage.removeItem('oni_qr_session_id');
+              localStorage.removeItem('oni_qr_session_token');
+              toast.success('Bắt đầu phiên gọi món mới.');
+            }}
+            className="w-full py-4 px-6 bg-gradient-to-r from-orange-600 to-amber-500 hover:from-orange-500 hover:to-amber-400 font-bold text-sm rounded-2xl shadow-lg transition-all text-white flex items-center justify-center gap-2"
+          >
+            <SvgIcons.Sparkles className="w-4 h-4" />
+            Bắt đầu gọi món mới
+          </button>
+        </div>
+
+        <div className="text-center text-[10px] text-slate-400 dark:text-slate-600 py-2">
+          Powered by Oni SaaS • Plug-and-Play QR Ordering
+        </div>
       </div>
     );
   }
@@ -1219,29 +1721,43 @@ export default function QRClientPage({
       {isCartOpen && (
         <div className="fixed inset-0 z-50 flex items-end justify-center">
           <div className="absolute inset-0 bg-black/70 backdrop-blur-sm animate-fade-in" onClick={() => setIsCartOpen(false)} />
-          <div className={`relative w-full max-w-md border-t rounded-t-3xl shadow-2xl flex flex-col max-h-[85vh] z-10 animate-slide-up ${themeClasses.modalBg}`}>
-            {/* Grab handle */}
-            <div className={`w-12 h-1 rounded-full mx-auto my-3 shrink-0 ${isDark ? 'bg-slate-700' : 'bg-slate-300'}`} />
+          <div
+            style={{
+              transform: `translateY(${cartDragY}px)`,
+              transition: isDraggingCart ? 'none' : 'transform 0.2s cubic-bezier(0.16, 1, 0.3, 1)'
+            }}
+            className={`relative w-full max-w-md border-t rounded-t-3xl shadow-2xl flex flex-col max-h-[85vh] z-10 animate-slide-up ${themeClasses.modalBg}`}
+          >
+            {/* Touchable Drag Area to Slide Down */}
+            <div
+              onTouchStart={handleCartTouchStart}
+              onTouchMove={handleCartTouchMove}
+              onTouchEnd={handleCartTouchEnd}
+              className="cursor-ns-resize select-none shrink-0 touch-none active:bg-slate-100/5 dark:active:bg-slate-800/5 transition-colors"
+            >
+              {/* Grab handle */}
+              <div className={`w-12 h-1 rounded-full mx-auto my-3 ${isDark ? 'bg-slate-700' : 'bg-slate-300'}`} />
 
-            {/* Header */}
-            <div className={`px-5 pb-3 border-b flex items-center justify-between shrink-0 ${themeClasses.border}`}>
-              <div>
-                <h3 className={`text-base font-black flex items-center gap-1.5 ${themeClasses.modalTextTitle}`}>
-                  🛒 Giỏ hàng chung
-                </h3>
-                <p className={`text-[10px] font-bold ${themeClasses.textMuted}`}>Mọi thay đổi sẽ đồng bộ với bạn bè cùng bàn</p>
+              {/* Header */}
+              <div className={`px-5 pb-3 border-b flex items-center justify-between ${themeClasses.border}`}>
+                <div>
+                  <h3 className={`text-base font-black flex items-center gap-1.5 ${themeClasses.modalTextTitle}`}>
+                    🛒 Giỏ hàng chung
+                  </h3>
+                  <p className={`text-[10px] font-bold ${themeClasses.textMuted}`}>Mọi thay đổi sẽ đồng bộ với bạn bè cùng bàn</p>
+                </div>
+                <button
+                  onClick={() => {
+                    colabCart.clearCart();
+                    setIsCartOpen(false);
+                    toast.info('Đã xoá toàn bộ giỏ hàng.');
+                  }}
+                  className={`text-xs flex items-center gap-1 hover:bg-slate-100 dark:hover:bg-slate-800/50 py-1.5 px-2.5 rounded-lg transition-colors cursor-pointer ${themeClasses.textMuted} hover:text-red-500`}
+                >
+                  <SvgIcons.Trash />
+                  Xoá tất cả
+                </button>
               </div>
-              <button
-                onClick={() => {
-                  colabCart.clearCart();
-                  setIsCartOpen(false);
-                  toast.info('Đã xoá toàn bộ giỏ hàng.');
-                }}
-                className={`text-xs flex items-center gap-1 hover:bg-slate-100 dark:hover:bg-slate-800/50 py-1.5 px-2.5 rounded-lg transition-colors cursor-pointer ${themeClasses.textMuted} hover:text-red-500`}
-              >
-                <SvgIcons.Trash />
-                Xoá tất cả
-              </button>
             </div>
 
             {/* Items list */}
@@ -1329,24 +1845,38 @@ export default function QRClientPage({
       {isHistoryOpen && (
         <div className="fixed inset-0 z-50 flex items-end justify-center">
           <div className="absolute inset-0 bg-black/70 backdrop-blur-sm animate-fade-in" onClick={() => setIsHistoryOpen(false)} />
-          <div className={`relative w-full max-w-md border-t rounded-t-3xl shadow-2xl flex flex-col max-h-[85vh] z-10 animate-slide-up ${themeClasses.modalBg}`}>
-            {/* Grab handle */}
-            <div className={`w-12 h-1 rounded-full mx-auto my-3 shrink-0 ${isDark ? 'bg-slate-700' : 'bg-slate-300'}`} />
+          <div
+            style={{
+              transform: `translateY(${historyDragY}px)`,
+              transition: isDraggingHistory ? 'none' : 'transform 0.2s cubic-bezier(0.16, 1, 0.3, 1)'
+            }}
+            className={`relative w-full max-w-md border-t rounded-t-3xl shadow-2xl flex flex-col max-h-[85vh] z-10 animate-slide-up ${themeClasses.modalBg}`}
+          >
+            {/* Touchable Drag Area to Slide Down */}
+            <div
+              onTouchStart={handleHistoryTouchStart}
+              onTouchMove={handleHistoryTouchMove}
+              onTouchEnd={handleHistoryTouchEnd}
+              className="cursor-ns-resize select-none shrink-0 touch-none active:bg-slate-100/5 dark:active:bg-slate-800/5 transition-colors"
+            >
+              {/* Grab handle */}
+              <div className={`w-12 h-1 rounded-full mx-auto my-3 ${isDark ? 'bg-slate-700' : 'bg-slate-300'}`} />
 
-            {/* Header */}
-            <div className={`px-5 pb-3 border-b flex items-center justify-between shrink-0 ${themeClasses.border}`}>
-              <div>
-                <h3 className={`text-base font-black flex items-center gap-1.5 ${themeClasses.modalTextTitle}`}>
-                  🛎️ Lịch sử gọi món
-                </h3>
-                <p className={`text-[10px] font-bold ${themeClasses.textMuted}`}>Các đơn của bàn hiện tại</p>
+              {/* Header */}
+              <div className={`px-5 pb-3 border-b flex items-center justify-between ${themeClasses.border}`}>
+                <div>
+                  <h3 className={`text-base font-black flex items-center gap-1.5 ${themeClasses.modalTextTitle}`}>
+                    🛎️ Lịch sử gọi món
+                  </h3>
+                  <p className={`text-[10px] font-bold ${themeClasses.textMuted}`}>Các đơn của bàn hiện tại</p>
+                </div>
+                <button
+                  onClick={() => setIsHistoryOpen(false)}
+                  className={`h-8 w-8 flex items-center justify-center rounded-full transition-colors ${themeClasses.closeBtn}`}
+                >
+                  ✕
+                </button>
               </div>
-              <button
-                onClick={() => setIsHistoryOpen(false)}
-                className={`h-8 w-8 flex items-center justify-center rounded-full transition-colors ${themeClasses.closeBtn}`}
-              >
-                ✕
-              </button>
             </div>
 
             {/* Requests list */}
