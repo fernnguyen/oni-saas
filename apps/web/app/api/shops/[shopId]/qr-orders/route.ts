@@ -40,7 +40,7 @@ export async function GET(
         .eq('session_token', session_token)
         .single()
 
-      if (!session || session.status !== 'active' || session.active !== 'TRUE') {
+      if (!session || (session.status !== 'active' && session.status !== 'completed') || session.active !== 'TRUE') {
         return NextResponse.json({ error: 'Invalid or expired session' }, { status: 403 })
       }
       tenantId = session.tenant_id

@@ -15,9 +15,11 @@ export async function GET(
     const sp = req.nextUrl.searchParams
     const statusParam = sp.get('status')
     const resource_id = sp.get('resource_id')
+    const session_id = sp.get('session_id')
+    const session_token = sp.get('session_token')
 
-    if (!resource_id && !statusParam) {
-      return NextResponse.json({ error: 'Missing resource_id or status parameter' }, { status: 400 })
+    if (!resource_id && !statusParam && !session_id) {
+      return NextResponse.json({ error: 'Missing resource_id, status or session_id parameter' }, { status: 400 })
     }
 
     const admin = getSupabaseAdminClient()
@@ -54,6 +56,27 @@ export async function GET(
         },
         { status: 403 }
       )
+    }
+
+    // Support fetching by specific session_id & session_token (used for persistent recap of completed sessions)
+    if (session_id && session_token) {
+      const { data: session, error: sessError } = await admin
+        .from('qr_ordering_sessions')
+        .select('*')
+        .eq('id', session_id)
+        .eq('session_token', session_token)
+        .eq('branch_id', shopId)
+        .single()
+
+      if (sessError || !session) {
+        return NextResponse.json({ session: null, table: null })
+      }
+
+      // Also get the table details
+      const connector = await getConnectorForShop(shopId, tenantId)
+      const table = await connector.findById('location-resources', session.resource_id)
+
+      return NextResponse.json({ session, table })
     }
 
     // Support fetching all sessions by status (e.g. pending ones for the Cashier notification center)
