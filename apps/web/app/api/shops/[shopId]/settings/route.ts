@@ -116,7 +116,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ shop
   }
   
   // Inject CRM access flag
-  const { checkFeatureAccess } = await import('../../../../../lib/server/features');
+  const { checkFeatureAccess } = await import('@/lib/server/features');
   settings.has_crm_access = ctx.tenantId ? await checkFeatureAccess(ctx.tenantId, 'crm') : false;
   
   return NextResponse.json(settings);
@@ -138,15 +138,33 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ shop
     return NextResponse.json({ message: 'Dữ liệu không hợp lệ', errors: parsed.error.flatten() }, { status: 400 });
   }
 
+  // Check CRM Access
+  const { checkFeatureAccess } = await import('@/lib/server/features');
+  const hasCrmAccess = ctx.tenantId ? await checkFeatureAccess(ctx.tenantId, 'crm') : false;
+
   const now = new Date().toISOString();
   const admin = getSupabaseAdminClient();
 
   const { address, phone, ...settingsData } = parsed.data;
 
+  // Enforce CRM access gate: force crm features to be disabled and strip crm settings if tenant does not have access
+  let finalSettingsData = { ...settingsData };
+  if (!hasCrmAccess) {
+    finalSettingsData = {
+      ...finalSettingsData,
+      loyalty_points_enabled: false,
+    };
+    delete finalSettingsData.membership_tiers;
+    delete finalSettingsData.loyalty_money_to_point;
+    delete finalSettingsData.loyalty_point_to_money;
+    delete finalSettingsData.tier_evaluation_years;
+    delete finalSettingsData.tier_reward_type;
+  }
+
   const { error } = await admin
     .from('shop_settings')
     .upsert(
-      { shop_id: shopId, ...settingsData, updated_at: now },
+      { shop_id: shopId, ...finalSettingsData, updated_at: now },
       { onConflict: 'shop_id' },
     );
 

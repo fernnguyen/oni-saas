@@ -84,6 +84,9 @@ export async function POST(
     const { connector, shop, user } = await requireShopAccess(shopId, 'orders.create')
     tx = new RollbackContext()
 
+    const { checkFeatureAccess } = await import('@/lib/server/features')
+    const hasCrmAccess = await checkFeatureAccess(shop.tenant_id, 'crm')
+
     const admin = getSupabaseAdminClient()
     const { data: settingsData } = await admin
       .from('shop_settings')
@@ -494,8 +497,8 @@ export async function POST(
 
           // 2. Loyalty points (Tích điểm & Tiêu điểm)
           const currentPoints = parseFloat((customer.loyalty_points as string) || '0')
-          const earned = Number(order.points_earned || 0)
-          const redeemed = Number(order.points_redeemed || 0)
+          const earned = hasCrmAccess ? Number(order.points_earned || 0) : 0
+          const redeemed = hasCrmAccess ? Number(order.points_redeemed || 0) : 0
           if (earned > 0 || redeemed > 0) {
             const newPoints = Math.max(0, currentPoints + earned - redeemed)
             updates.loyalty_points = String(newPoints)
@@ -538,7 +541,7 @@ export async function POST(
 
           // Exclude manual segments (wholesale, staff, vip) and check if CRM is enabled globally
           const isLegacyGroup = ['wholesale', 'staff', 'vip'].includes(currentType.toLowerCase())
-          const crmEnabled = settings.loyalty_points_enabled !== false
+          const crmEnabled = settings.loyalty_points_enabled !== false && hasCrmAccess
 
           if (crmEnabled && !isLegacyGroup) {
             if (dynamicTiers && dynamicTiers.length > 0) {

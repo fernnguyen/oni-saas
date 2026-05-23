@@ -260,7 +260,7 @@ export function CustomerCreateModal({ open, onClose, shopId, onSuccess }: Props)
                 <option value="wholesale">Sỉ (Mặc định)</option>
                 <option value="vip">VIP (Mặc định)</option>
                 <option value="staff">Nội bộ (Mặc định)</option>
-                {settings?.membership_tiers?.map((t: any) => {
+                {settings?.has_crm_access && settings?.membership_tiers?.map((t: any) => {
                   const lowercaseName = (t.name || '').trim().toLowerCase()
                   const isLegacy = ['retail', 'wholesale', 'vip', 'staff'].includes(lowercaseName)
                   if (isLegacy) return null

@@ -253,7 +253,7 @@ export function CustomersClient({ shopId }: Props) {
       label: 'Hạng thành viên',
       render: (row) => {
         const type = (row.customer_type || '').trim().toLowerCase()
-        const tiers = settings?.membership_tiers || []
+        const tiers = settings?.has_crm_access ? (settings?.membership_tiers || []) : []
         const activeTier = tiers.find((t: any) => (t.name || '').trim().toLowerCase() === type)
         return <MemberTierBadge label={row.customer_type} color={activeTier?.color || 'slate'} />
       },
@@ -410,7 +410,7 @@ export function CustomersClient({ shopId }: Props) {
               <option value="wholesale">Sỉ (Mặc định)</option>
               <option value="vip">VIP (Mặc định)</option>
               <option value="staff">Nội bộ (Mặc định)</option>
-              {settings?.membership_tiers?.map((t: any) => {
+              {settings?.has_crm_access && settings?.membership_tiers?.map((t: any) => {
                 const lowercaseName = (t.name || '').trim().toLowerCase()
                 const isLegacy = ['retail', 'wholesale', 'vip', 'staff'].includes(lowercaseName)
                 if (isLegacy) return null
@@ -633,7 +633,7 @@ export function CustomersClient({ shopId }: Props) {
               <div className="pt-1">
                 {(() => {
                   const type = (viewTarget.customer_type || '').trim().toLowerCase()
-                  const tiers = settings?.membership_tiers || []
+                  const tiers = settings?.has_crm_access ? (settings?.membership_tiers || []) : []
                   const activeTier = tiers.find((t: any) => (t.name || '').trim().toLowerCase() === type)
                   return <MemberTierBadge label={viewTarget.customer_type || 'Bán lẻ'} color={activeTier?.color || 'slate'} />
                 })()}
