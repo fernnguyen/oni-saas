@@ -34,7 +34,11 @@ export async function PUT(
     const { connector } = await requireShopAccess(shopId, 'customers.edit')
 
     const body = await req.json()
-    const data = customerUpdateSchema.parse(body)
+    const parsed = customerUpdateSchema.parse(body)
+
+    // STRICT accounting integrity: prevent direct updates to accounting & CRM statistics via PUT
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { prepaid_balance, loyalty_points, debt_amount, ...data } = parsed
 
     const updated = await connector.update('customers', id, data)
     invalidate(shopId, 'customers')

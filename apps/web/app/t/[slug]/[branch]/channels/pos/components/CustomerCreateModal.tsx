@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
 import { localDb, type LocalCustomer } from '@/lib/localDb/schema'
+import { useQuery } from '@tanstack/react-query'
 
 interface Props {
   open: boolean
@@ -11,6 +12,15 @@ interface Props {
 }
 
 export function CustomerCreateModal({ open, onClose, shopId, onSuccess }: Props) {
+  const { data: settings } = useQuery({
+    queryKey: ['settings', shopId],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/settings`)
+      if (!res.ok) return {}
+      return res.json()
+    },
+  })
+
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [customerCode, setCustomerCode] = useState('')
@@ -246,8 +256,20 @@ export function CustomerCreateModal({ open, onClose, shopId, onSuccess }: Props)
                 onChange={(e) => setCustomerType(e.target.value)}
                 className="w-full rounded-xl border border-slate-200 px-3.5 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none bg-white text-slate-800"
               >
-                <option value="retail">Khách mua lẻ (Retail)</option>
-                <option value="wholesale">Khách mua sỉ (Wholesale)</option>
+                <option value="retail">Bán lẻ (Mặc định)</option>
+                <option value="wholesale">Sỉ (Mặc định)</option>
+                <option value="vip">VIP (Mặc định)</option>
+                <option value="staff">Nội bộ (Mặc định)</option>
+                {settings?.membership_tiers?.map((t: any) => {
+                  const lowercaseName = (t.name || '').trim().toLowerCase()
+                  const isLegacy = ['retail', 'wholesale', 'vip', 'staff'].includes(lowercaseName)
+                  if (isLegacy) return null
+                  return (
+                    <option key={t.name} value={t.name}>
+                      {t.name} (Chiết khấu {t.discount}%)
+                    </option>
+                  )
+                })}
               </select>
             </div>
 

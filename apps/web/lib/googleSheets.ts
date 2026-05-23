@@ -89,7 +89,7 @@ export function buildOniTemplateSheets(): OniTemplateSheet[] {
       headers: [
         'customer_id', 'customer_code', 'name', 'phone', 'email',
         'address', 'birthday', 'customer_type',
-        'credit_limit', 'debt_amount', 'loyalty_points',
+        'credit_limit', 'debt_amount', 'loyalty_points', 'prepaid_balance',
         'note', 'created_at',
       ],
     },
@@ -147,7 +147,7 @@ export function buildOniTemplateSheets(): OniTemplateSheet[] {
   ];
 }
 
-export const ONI_SCHEMA_VERSION = '1';
+export const ONI_SCHEMA_VERSION = '2';
 
 export const ONI_DEFAULT_SETTINGS: Array<[string, string, string]> = [
   ['schema_version', ONI_SCHEMA_VERSION, 'Phiên bản schema ONI — không xóa/sửa'],
@@ -158,4 +158,15 @@ export const ONI_DEFAULT_SETTINGS: Array<[string, string, string]> = [
   ['low_stock_threshold', '5', 'Cảnh báo hết hàng khi tồn kho xuống dưới mức này'],
   ['allow_negative_stock', 'false', 'Cho phép bán khi hết hàng (true/false)'],
   ['default_price_type', 'retail', 'Loại giá mặc định khi tạo đơn'],
+  ['loyalty_points_enabled', 'true', 'Kích hoạt tích điểm thành viên (true/false)'],
+  ['loyalty_money_to_point', '100000', 'Số tiền chi tiêu tương ứng với 1 điểm'],
+  ['loyalty_point_to_money', '1000', 'Giá trị quy đổi của 1 điểm khi thanh toán'],
+  ['tier_evaluation_years', '3', 'Số năm tính lũy kế doanh thu để xét hạng thành viên'],
+  ['tier_reward_type', 'discount_bill', 'Hình thức ưu đãi thành viên (discount_bill/price_list)'],
+  ['tier_bronze_threshold', '5000000', 'Mốc doanh thu tích lũy tối thiểu cho hạng Đồng'],
+  ['tier_silver_threshold', '15000000', 'Mốc doanh thu tích lũy tối thiểu cho hạng Bạc'],
+  ['tier_gold_threshold', '35000000', 'Mốc doanh thu tích lũy tối thiểu cho hạng Vàng'],
+  ['tier_bronze_discount', '2', '% chiết khấu hóa đơn cho hạng Đồng'],
+  ['tier_silver_discount', '5', '% chiết khấu hóa đơn cho hạng Bạc'],
+  ['tier_gold_discount', '10', '% chiết khấu hóa đơn cho hạng Vàng'],
 ];

@@ -68,6 +68,8 @@ interface SyncOrder {
   total_amount: number
   paid_amount: number
   debt_amount?: number
+  points_earned?: number
+  points_redeemed?: number
   note?: string
   metadata?: string
 }
@@ -81,6 +83,14 @@ export async function POST(
     const { shopId } = await params
     const { connector, shop, user } = await requireShopAccess(shopId, 'orders.create')
     tx = new RollbackContext()
+
+    const admin = getSupabaseAdminClient()
+    const { data: settingsData } = await admin
+      .from('shop_settings')
+      .select('*')
+      .eq('shop_id', shopId)
+      .maybeSingle()
+    const settings = settingsData || {}
 
     const body = await req.json() as {
       local_order_id: string
@@ -145,6 +155,8 @@ export async function POST(
         total_amount:    String(order.total_amount),
         paid_amount:     String(order.paid_amount),
         debt_amount:     String(order.debt_amount ?? 0),
+        points_earned:   String(order.points_earned ?? 0),
+        points_redeemed: String(order.points_redeemed ?? 0),
         note:            order.note ?? '',
         reference_no:    local_order_id ?? '',
         created_at:      getGMT7Time(),
@@ -169,6 +181,8 @@ export async function POST(
         total_amount:    String(order.total_amount),
         paid_amount:     String(order.paid_amount),
         debt_amount:     String(order.debt_amount ?? 0),
+        points_earned:   String(order.points_earned ?? 0),
+        points_redeemed: String(order.points_redeemed ?? 0),
         note:            order.note ?? '',
       }
       if (local_order_id) {
@@ -461,7 +475,7 @@ export async function POST(
       }
     }
 
-    // ── Step 5: Update Customer Debt & Fetch Info ──
+    // ── Step 5: Update Customer CRM, Debt & Fetch Info ──
     let customerPhone = ''
     if (isNewOrder && order.customer_id) {
       try {
@@ -469,22 +483,138 @@ export async function POST(
         if (customer) {
           customerPhone = (customer.phone as string) || ''
           
+          const updates: Record<string, string> = {}
+          
+          // 1. Debt amount
+          const currentDebt = parseFloat((customer.debt_amount as string) || '0')
           if (order.debt_amount && Number(order.debt_amount) > 0) {
-            const currentDebt = parseFloat((customer.debt_amount as string) || '0')
             const newDebt = currentDebt + Number(order.debt_amount)
-            await connector.update('customers', order.customer_id, {
-              debt_amount: String(newDebt)
+            updates.debt_amount = String(newDebt)
+          }
+
+          // 2. Loyalty points (Tích điểm & Tiêu điểm)
+          const currentPoints = parseFloat((customer.loyalty_points as string) || '0')
+          const earned = Number(order.points_earned || 0)
+          const redeemed = Number(order.points_redeemed || 0)
+          if (earned > 0 || redeemed > 0) {
+            const newPoints = Math.max(0, currentPoints + earned - redeemed)
+            updates.loyalty_points = String(newPoints)
+          }
+
+          // 3. Prepaid balance
+          const currentPrepaid = parseFloat((customer.prepaid_balance as string) || '0')
+          const prepaidSpent = payments
+            .filter((p) => p.method === 'prepaid')
+            .reduce((s, p) => s + Number(p.amount), 0)
+          if (prepaidSpent > 0) {
+            const newPrepaid = Math.max(0, currentPrepaid - prepaidSpent)
+            updates.prepaid_balance = String(newPrepaid)
+          }
+
+          // 4. Automatic Membership Tiers (3 years evaluation)
+          // Sum up completed orders in the last N years
+          const evaluationYears = Number(settings?.tier_evaluation_years || 3)
+          const minDate = new Date()
+          minDate.setFullYear(minDate.getFullYear() - evaluationYears)
+          const minDateString = minDate.toISOString().split('T')[0] // YYYY-MM-DD
+
+          // Fetch all customer orders
+          const customerOrders = await connector.list('orders', {
+            page: 1, limit: 1000,
+            filters: { customer_id: order.customer_id, status: 'completed' }
+          })
+          
+          const recentTotal = (customerOrders.data as Record<string, string>[])
+            .filter(o => {
+              const orderDate = o.created_at || ''
+              return orderDate >= minDateString
             })
+            .reduce((sum, o) => sum + parseFloat(o.total_amount || '0'), 0)
+          
+          // Determine new tier
+          let newType = 'retail'
+          const dynamicTiers = (settings?.membership_tiers || []) as { name: string; threshold: number; discount: number }[]
+          const currentType = (customer.customer_type || 'retail').trim()
+
+          // Exclude manual segments (wholesale, staff, vip) and check if CRM is enabled globally
+          const isLegacyGroup = ['wholesale', 'staff', 'vip'].includes(currentType.toLowerCase())
+          const crmEnabled = settings.loyalty_points_enabled !== false
+
+          if (crmEnabled && !isLegacyGroup) {
+            if (dynamicTiers && dynamicTiers.length > 0) {
+              // Sort tiers by threshold DESC (highest threshold first)
+              const sortedTiers = [...dynamicTiers].sort((a, b) => Number(b.threshold) - Number(a.threshold))
+              const matchingTier = sortedTiers.find(t => recentTotal >= Number(t.threshold))
+              if (matchingTier) {
+                newType = matchingTier.name
+              } else {
+                newType = 'retail'
+              }
+            } else {
+              // Fallback to legacy hardcoded levels
+              const tierGold = Number(settings?.tier_gold_threshold || 35000000)
+              const tierSilver = Number(settings?.tier_silver_threshold || 15000000)
+              const tierBronze = Number(settings?.tier_bronze_threshold || 5000000)
+
+              if (recentTotal >= tierGold) {
+                newType = 'gold'
+              } else if (recentTotal >= tierSilver) {
+                newType = 'silver'
+              } else if (recentTotal >= tierBronze) {
+                newType = 'bronze'
+              }
+            }
+
+            // --- NEVER DOWNGRADE & UPGRADE-ONLY POLICY ---
+            // If they are currently at retail, they can be upgraded to any tier.
+            // If they are currently at a tier, they can ONLY be upgraded to a tier with a HIGHER threshold.
+            if (newType !== currentType) {
+              let shouldUpdate = false
+
+              if (currentType.toLowerCase() === 'retail') {
+                shouldUpdate = true
+              } else {
+                // Find threshold of current tier
+                const currentTierObj = dynamicTiers.find(t => t.name.toLowerCase() === currentType.toLowerCase())
+                const newTierObj = dynamicTiers.find(t => t.name.toLowerCase() === newType.toLowerCase())
+                
+                if (currentTierObj && newTierObj) {
+                  // Upgrade only: new tier threshold must be strictly greater than current tier threshold
+                  if (Number(newTierObj.threshold) > Number(currentTierObj.threshold)) {
+                    shouldUpdate = true
+                  }
+                } else if (!currentTierObj && newTierObj) {
+                  // If current tier is some custom string but not in list, allow setting newType if it's not retail
+                  if (newType !== 'retail') {
+                    shouldUpdate = true
+                  }
+                }
+              }
+
+              if (shouldUpdate) {
+                updates.customer_type = newType
+              }
+            }
+          }
+
+          // Apply updates
+          if (Object.keys(updates).length > 0) {
+            await connector.update('customers', order.customer_id, updates)
             tx.add(async () => {
-              await connector.update('customers', order.customer_id!, {
-                debt_amount: String(currentDebt)
-              }).catch(() => {})
+              // Rollback update logic
+              const rollbackObj: Record<string, string> = {}
+              if (updates.debt_amount !== undefined) rollbackObj.debt_amount = String(currentDebt)
+              if (updates.loyalty_points !== undefined) rollbackObj.loyalty_points = String(currentPoints)
+              if (updates.prepaid_balance !== undefined) rollbackObj.prepaid_balance = String(currentPrepaid)
+              if (updates.customer_type !== undefined) rollbackObj.customer_type = String(customer.customer_type || 'retail')
+              
+              await connector.update('customers', order.customer_id!, rollbackObj).catch(() => {})
             })
             invalidate(shopId, 'customers')
           }
         }
       } catch (err) {
-        console.error('Failed to fetch customer:', err)
+        console.error('Failed to update customer CRM:', err)
       }
     }
 

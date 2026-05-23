@@ -47,6 +47,7 @@ const METHODS = [
   { value: 'momo', label: 'MoMo' },
   { value: 'vnpay', label: 'VNPay' },
   { value: 'zalopay', label: 'ZaloPay' },
+  { value: 'prepaid', label: 'Ví trả trước' },
   { value: 'debt', label: 'Ghi nợ' },
 ]
 
@@ -58,6 +59,43 @@ interface PaymentRow {
 
 function fmtVND(v: number | string | null | undefined) {
   return Number(v ?? 0).toLocaleString('vi-VN') + 'đ'
+}
+
+export function MemberTierBadge({ label, color }: { label: string; color?: string }) {
+  const c = (color || 'slate').toLowerCase()
+  let classes = 'bg-slate-100 text-slate-600 border border-slate-200/50 shadow-none font-medium'
+  
+  const TYPE_LABEL_MAP: Record<string, string> = {
+    retail: 'Bán lẻ',
+    wholesale: 'Khách sỉ',
+    vip: 'VIP',
+    staff: 'Nội bộ'
+  }
+  const displayLabel = TYPE_LABEL_MAP[label.toLowerCase()] || label
+  const isRetail = label.trim().toLowerCase() === 'retail' || displayLabel === 'Bán lẻ'
+
+  if (isRetail) {
+    classes = 'bg-slate-100 text-slate-500 border border-slate-200/60 shadow-none font-medium'
+  } else {
+    if (c === 'emerald') classes = 'bg-gradient-to-r from-emerald-500 to-teal-650 text-white border border-emerald-400/30 shadow-xs'
+    else if (c === 'sapphire') classes = 'bg-gradient-to-r from-blue-600 to-indigo-650 text-white border border-blue-500/30 shadow-xs'
+    else if (c === 'amethyst') classes = 'bg-gradient-to-r from-purple-500 to-fuchsia-650 text-white border border-purple-400/30 shadow-xs'
+    else if (c === 'ruby') classes = 'bg-gradient-to-r from-rose-500 to-red-600 text-white border border-rose-400/30 shadow-xs'
+    else if (c === 'amber') classes = 'bg-gradient-to-r from-amber-500 to-orange-600 text-white border border-amber-400/30 shadow-xs'
+    else if (c === 'rose') classes = 'bg-gradient-to-r from-pink-500 to-rose-500 text-white border border-pink-400/30 shadow-xs'
+    else if (c === 'cyan') classes = 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white border border-cyan-400/30 shadow-xs'
+    else if (c === 'indigo') classes = 'bg-gradient-to-r from-indigo-500 to-violet-650 text-white border border-indigo-400/30 shadow-xs'
+    else if (c === 'slate') classes = 'bg-gradient-to-r from-slate-500 to-slate-700 text-white border border-slate-400/30 shadow-xs'
+    else if (c === 'gold') classes = 'bg-gradient-to-r from-amber-400 via-yellow-500 to-amber-600 text-white border border-yellow-400/35 shadow-sm'
+    else if (c === 'silver') classes = 'bg-gradient-to-r from-slate-200 via-slate-350 to-zinc-500 text-slate-800 border border-slate-300/40 shadow-xs'
+    else if (c === 'bronze') classes = 'bg-gradient-to-r from-orange-400 via-amber-700 to-orange-700 text-white border border-orange-500/30 shadow-xs'
+  }
+
+  return (
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-semibold leading-relaxed ${classes}`}>
+      {displayLabel}
+    </span>
+  )
 }
 
 export function fmtDateTimeVN(d: Date) {
@@ -158,8 +196,7 @@ export function CheckoutModal({
   }, [items, localCheckoutTime, customCheckoutTime, metadata, hourlyRate, localRentalType])
 
   const computedSubtotal = computedItems.reduce((s, it) => s + (it.line_total || 0), 0)
-  const finalTotal = Math.max(0, computedSubtotal - localDiscount)
-
+  
   const { data: settings } = useQuery({
     queryKey: ['settings', shopId],
     queryFn: async () => {
@@ -170,24 +207,116 @@ export function CheckoutModal({
     enabled: !!shopId,
   })
 
+  const [pointsRedeemed, setPointsRedeemed] = useState('0')
+
+  const tierDiscountPct = useMemo(() => {
+    if (!localCustomer || settings?.tier_reward_type !== 'discount_bill') return 0
+    const type = (localCustomer.customer_type || '').trim().toLowerCase()
+    
+    // Check dynamic membership tiers
+    const tiers = settings?.membership_tiers || []
+    if (tiers.length > 0) {
+      const activeTier = tiers.find((t: any) => (t.name || '').trim().toLowerCase() === type)
+      if (activeTier) return Number(activeTier.discount ?? 0)
+    }
+
+    // Fallback to legacy hardcoded levels
+    if (type === 'gold' || type === 'vàng') return Number(settings?.tier_gold_discount ?? 10)
+    if (type === 'silver' || type === 'bạc') return Number(settings?.tier_silver_discount ?? 5)
+    if (type === 'bronze' || type === 'đồng') return Number(settings?.tier_bronze_discount ?? 2)
+    return 0
+  }, [localCustomer, settings])
+  
+  const customerTierColor = useMemo(() => {
+    if (!localCustomer || !settings?.membership_tiers) return 'slate'
+    const type = (localCustomer.customer_type || '').trim().toLowerCase()
+    const activeTier = settings.membership_tiers.find((t: any) => (t.name || '').trim().toLowerCase() === type)
+    return activeTier?.color || 'slate'
+  }, [localCustomer, settings])
+  
+  const tierDiscountAmount = useMemo(() => {
+    return Math.floor((computedSubtotal - localDiscount) * (tierDiscountPct / 100))
+  }, [computedSubtotal, localDiscount, tierDiscountPct])
+
+  const totalAfterDiscounts = useMemo(() => {
+    return Math.max(0, computedSubtotal - localDiscount - tierDiscountAmount)
+  }, [computedSubtotal, localDiscount, tierDiscountAmount])
+
+  const maxPointsRedeemable = useMemo(() => {
+    if (!localCustomer) return 0
+    const pts = Math.floor(Number(localCustomer.loyalty_points || 0))
+    const costToMoney = Number(settings?.loyalty_point_to_money || 1000)
+    if (costToMoney <= 0) return 0
+    return Math.min(pts, Math.floor(totalAfterDiscounts / costToMoney))
+  }, [localCustomer, totalAfterDiscounts, settings])
+
+  const redemptionValue = useMemo(() => {
+    return Number(pointsRedeemed) * Number(settings?.loyalty_point_to_money || 1000)
+  }, [pointsRedeemed, settings])
+
+  const finalTotal = useMemo(() => {
+    return Math.max(0, totalAfterDiscounts - redemptionValue)
+  }, [totalAfterDiscounts, redemptionValue])
+
+  const earnedPoints = useMemo(() => {
+    if (!localCustomer || settings?.loyalty_points_enabled === false) return 0
+    const moneyToPoint = Number(settings?.loyalty_money_to_point || 100000)
+    if (moneyToPoint <= 0) return 0
+    return Math.floor(finalTotal / moneyToPoint)
+  }, [localCustomer, finalTotal, settings])
+
   useEffect(() => {
     if (open) {
       setLocalCustomer(customer)
       setLocalDiscount(discount_amount)
       setDiscountInput(String(discount_amount))
-      const newTotal = Math.max(0, subtotal - discount_amount - orderPaidAmount)
-      setPayments([{ id: nextId(), method: 'cash', amount: String(newTotal) }])
+      setPointsRedeemed('0')
       setLocalNote(note)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  // When checkout time or rental type changes → recalculate payment
+  // Hydrate selected customer details in real-time when online to fetch latest loyalty_points and prepaid_balance
+  async function refreshCustomerDetails() {
+    if (!localCustomer || !isOnline || localCustomer.customer_id.startsWith('virtual:')) return null
+    try {
+      const res = await fetch(`/api/shops/${shopId}/customers/${localCustomer.customer_id}`)
+      if (res.ok) {
+        const data = await res.json()
+        const parsed = {
+          ...data,
+          customer_id: String(data.id || data.customer_id),
+          debt_amount: data.debt_amount != null ? parseFloat(String(data.debt_amount)) || 0 : 0,
+          credit_limit: data.credit_limit != null ? parseFloat(String(data.credit_limit)) || 0 : 0,
+          loyalty_points: data.loyalty_points != null ? parseFloat(String(data.loyalty_points)) || 0 : 0,
+          prepaid_balance: data.prepaid_balance != null ? parseFloat(String(data.prepaid_balance)) || 0 : 0,
+        }
+        setLocalCustomer(parsed)
+        if (localDb) {
+          await localDb.customers.put(parsed)
+        }
+        onCustomerChange(parsed)
+        return parsed
+      }
+    } catch (e) {
+      console.error('Failed to sync customer details:', e)
+    }
+    return null
+  }
+
+  useEffect(() => {
+    if (open && localCustomer && isOnline && !localCustomer.customer_id.startsWith('virtual:')) {
+      void refreshCustomerDetails()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, localCustomer?.customer_id, isOnline, shopId])
+
+  // When checkout time, rental type, or finalTotal changes → recalculate payment
   useEffect(() => {
     const newRemaining = Math.max(0, finalTotal - orderPaidAmount)
     setPayments([{ id: nextId(), method: 'cash', amount: String(newRemaining) }])
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [localCheckoutTime, localRentalType])
+  }, [localCheckoutTime, localRentalType, finalTotal])
 
   const overPaid = Math.max(0, orderPaidAmount - finalTotal)
   const remainingTotal = Math.max(0, finalTotal - orderPaidAmount)
@@ -198,6 +327,9 @@ export function CheckoutModal({
 
   function updatePayment(id: string, field: 'method' | 'amount', value: string) {
     setPayments((prev) => prev.map((p) => (p.id === id ? { ...p, [field]: value } : p)))
+    if (field === 'method' && value === 'prepaid') {
+      void refreshCustomerDetails()
+    }
   }
 
   function removePayment(id: string) {
@@ -210,6 +342,9 @@ export function CheckoutModal({
     if (!nextMethod) return
     const leftover = Math.max(0, remaining)
     setPayments((prev) => [...prev, { id: nextId(), method: nextMethod.value, amount: leftover > 0 ? String(leftover) : '' }])
+    if (nextMethod.value === 'prepaid') {
+      void refreshCustomerDetails()
+    }
   }
 
   function distributeRemaining() {
@@ -244,6 +379,21 @@ export function CheckoutModal({
     if (hasDebt && !localCustomer) {
       toast.error('Phương thức Ghi nợ yêu cầu phải chọn Khách hàng')
       return
+    }
+
+    const prepaidSpent = payments
+      .filter((p) => p.method === 'prepaid')
+      .reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
+    if (prepaidSpent > 0) {
+      if (!localCustomer) {
+        toast.error('Phương thức Ví trả trước yêu cầu phải chọn Khách hàng')
+        return
+      }
+      const customerPrepaid = Number(localCustomer.prepaid_balance || 0)
+      if (prepaidSpent > customerPrepaid) {
+        toast.error(`Số dư Ví trả trước của khách chỉ còn ${fmtVND(customerPrepaid)}, không đủ để thanh toán ${fmtVND(prepaidSpent)}`)
+        return
+      }
     }
 
     setSaving(true)
@@ -305,11 +455,13 @@ export function CheckoutModal({
         branch_id: branchId,
         employee_id: employeeId,
         subtotal: computedSubtotal,
-        discount_amount: localDiscount,
+        discount_amount: localDiscount + tierDiscountAmount,
         tax_amount: 0,
         total_amount: finalTotal,
         paid_amount: actualPaid,
         debt_amount: debtAmount,
+        points_earned: earnedPoints,
+        points_redeemed: Number(pointsRedeemed),
         note: localNote,
         created_at: now,
         status: 'completed',
@@ -501,10 +653,13 @@ export function CheckoutModal({
               <p className="text-xs font-medium text-slate-500">KHÁCH HÀNG</p>
               <p className="text-xs text-slate-600 font-medium">
                 {localCustomer ? (
-                  <>
-                    {localCustomer.name}
-                    {localCustomer.phone && <span className="text-slate-400 font-normal ml-1">({localCustomer.phone})</span>}
-                  </>
+                  <span className="flex items-center gap-1.5 justify-end">
+                    <span>{localCustomer.name}</span>
+                    {localCustomer.phone && <span className="text-slate-400 font-normal">({localCustomer.phone})</span>}
+                    {localCustomer.customer_type && (
+                      <MemberTierBadge label={localCustomer.customer_type} color={customerTierColor} />
+                    )}
+                  </span>
                 ) : (
                   'Khách lẻ'
                 )}
@@ -512,6 +667,36 @@ export function CheckoutModal({
             </div>
             <CustomerSearch selected={localCustomer} onSelect={setLocalCustomer} />
           </div>
+
+          {/* Prepaid Wallet inline suggest banner */}
+          {localCustomer && Number(localCustomer.prepaid_balance || 0) > 0 && (
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-3 text-xs text-emerald-800 animate-in fade-in slide-in-from-top-2 duration-200">
+              <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                <span className="text-base shrink-0">💳</span>
+                <span className="whitespace-normal leading-normal">
+                  Khách có <strong>{Number(localCustomer.prepaid_balance).toLocaleString('vi-VN')}đ</strong> ví trả trước. Bạn có muốn dùng không?
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const balance = Number(localCustomer.prepaid_balance || 0)
+                  setPayments(() => {
+                    const payAmount = Math.min(balance, finalTotal)
+                    const rows = [{ id: nextId(), method: 'prepaid', amount: String(payAmount) }]
+                    const remaining = finalTotal - payAmount
+                    if (remaining > 0) {
+                      rows.push({ id: nextId(), method: 'cash', amount: String(remaining) })
+                    }
+                    return rows
+                  })
+                }}
+                className="shrink-0 rounded-lg bg-emerald-600 px-2.5 py-1.5 font-bold text-white hover:bg-emerald-700 active:scale-95 transition-all shadow-sm cursor-pointer"
+              >
+                Sử dụng
+              </button>
+            </div>
+          )}
 
           {/* Resource Info */}
           {metadata?.check_in && (
@@ -634,6 +819,52 @@ export function CheckoutModal({
                   </button>
                 )}
               </div>
+
+              {tierDiscountAmount > 0 && (
+                <div className="flex justify-between font-medium text-slate-600 text-sm mt-1">
+                  <span className="flex items-center gap-1.5">
+                    <span>Ưu đãi hạng</span>
+                    <MemberTierBadge label={localCustomer?.customer_type || ''} color={customerTierColor} />
+                    <span>(-{tierDiscountPct}%):</span>
+                  </span>
+                  <span className="text-emerald-600">-{fmtVND(tierDiscountAmount)}</span>
+                </div>
+              )}
+
+              {settings?.loyalty_points_enabled !== false && localCustomer && (
+                <div className="flex items-center justify-between mt-1">
+                  <div className="flex flex-col">
+                    <span className="text-slate-500">Tiêu điểm (Có: {Math.floor(Number(localCustomer.loyalty_points || 0))}đ):</span>
+                    {!isOnline && <span className="text-[10px] text-orange-500 font-medium">(Chỉ khả dụng khi online)</span>}
+                  </div>
+                  {isOnline ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min="0"
+                        max={maxPointsRedeemable}
+                        value={pointsRedeemed}
+                        onChange={(e) => {
+                          const val = Math.min(maxPointsRedeemable, Math.max(0, parseInt(e.target.value) || 0))
+                          setPointsRedeemed(String(val))
+                        }}
+                        className="w-16 text-right border border-slate-200 rounded px-1.5 py-0.5 outline-none text-slate-800 bg-transparent text-xs"
+                      />
+                      <span className="text-slate-400 text-xs">= -{fmtVND(redemptionValue)}</span>
+                    </div>
+                  ) : (
+                    <span className="text-slate-400 text-xs">—</span>
+                  )}
+                </div>
+              )}
+
+              {settings?.loyalty_points_enabled !== false && localCustomer && earnedPoints > 0 && (
+                <div className="flex justify-between font-medium text-slate-600 text-xs mt-1 border-t border-slate-100 pt-1">
+                  <span>Tích lũy nhận thêm:</span>
+                  <span className="text-blue-600">+{earnedPoints} điểm</span>
+                </div>
+              )}
+
               <div className="flex justify-between font-bold text-slate-900 text-base border-t border-dashed border-slate-200 pt-2">
                 <span>Tổng cộng:</span>
                 <span className={orderPaidAmount > 0 ? "text-slate-900" : "text-primary"}>{fmtVND(finalTotal)}</span>
@@ -681,50 +912,72 @@ export function CheckoutModal({
               </button>
             </div>
 
-            {payments.map((p, idx) => (
-              <div key={p.id} className="flex gap-2">
-                <select
-                  value={p.method}
-                  onChange={(e) => updatePayment(p.id, 'method', e.target.value)}
-                  className="w-32 shrink-0 rounded-lg border border-slate-200 px-2 py-2 text-sm focus:border-primary focus:outline-none"
-                >
-                  {METHODS.filter(
-                    (m) => m.value === p.method || !payments.some((other) => other.id !== p.id && other.method === m.value)
-                  ).map((m) => (
-                    <option key={m.value} value={m.value}>{m.label}</option>
-                  ))}
-                </select>
-                <div className="relative flex-1">
-                  <input
-                    type="text"
-                    value={p.amount ? Number(String(p.amount).replace(/\D/g, '')).toLocaleString('vi-VN') : ''}
-                    onChange={(e) => {
-                      const val = e.target.value.replace(/\D/g, '')
-                      updatePayment(p.id, 'amount', val)
-                    }}
-                    placeholder="0"
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-right text-sm focus:border-primary focus:outline-none"
-                  />
-                  {idx === payments.length - 1 && remaining > 0 && (
-                    <button
-                      onClick={distributeRemaining}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-primary hover:underline"
-                      title="Điền số tiền còn thiếu"
+            {payments.map((p, idx) => {
+              const isPrepaid = p.method === 'prepaid'
+              const isDebt = p.method === 'debt'
+              return (
+                <div key={p.id} className="space-y-1.5">
+                  <div className="flex gap-2">
+                    <select
+                      value={p.method}
+                      onChange={(e) => updatePayment(p.id, 'method', e.target.value)}
+                      className="w-32 shrink-0 rounded-lg border border-slate-200 px-2 py-2 text-sm focus:border-primary focus:outline-none"
                     >
-                      Điền
-                    </button>
+                      {METHODS.filter(
+                        (m) => m.value === p.method || !payments.some((other) => other.id !== p.id && other.method === m.value)
+                      ).map((m) => (
+                        <option key={m.value} value={m.value}>{m.label}</option>
+                      ))}
+                    </select>
+                    <div className="relative flex-1">
+                      <input
+                        type="text"
+                        value={p.amount ? Number(String(p.amount).replace(/\D/g, '')).toLocaleString('vi-VN') : ''}
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/\D/g, '')
+                          updatePayment(p.id, 'amount', val)
+                        }}
+                        placeholder="0"
+                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-right text-sm focus:border-primary focus:outline-none"
+                      />
+                      {idx === payments.length - 1 && remaining > 0 && (
+                        <button
+                          onClick={distributeRemaining}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-primary hover:underline"
+                          title="Điền số tiền còn thiếu"
+                        >
+                          Điền
+                        </button>
+                      )}
+                    </div>
+                    {payments.length > 1 && (
+                      <button
+                        onClick={() => removePayment(p.id)}
+                        className="shrink-0 rounded-lg border border-slate-200 px-2 text-slate-400 hover:border-red-200 hover:text-red-400"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                  {isPrepaid && (
+                    <div className="flex justify-between items-center text-xs px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 font-semibold border border-emerald-100">
+                      <span>Số dư ví trả trước khả dụng:</span>
+                      <span>
+                        {localCustomer ? `${fmtVND(Number(localCustomer.prepaid_balance || 0))}` : 'Khách lẻ (0đ)'}
+                      </span>
+                    </div>
+                  )}
+                  {isDebt && (
+                    <div className="flex justify-between items-center text-xs px-2.5 py-1.5 rounded-lg bg-red-50 text-red-700 font-semibold border border-red-100">
+                      <span>Nợ hiện tại / Hạn mức nợ:</span>
+                      <span>
+                        {localCustomer ? `${fmtVND(Number(localCustomer.debt_amount || 0))} / ${fmtVND(Number(localCustomer.credit_limit || 0))}` : 'Khách lẻ (Không nợ)'}
+                      </span>
+                    </div>
                   )}
                 </div>
-                {payments.length > 1 && (
-                  <button
-                    onClick={() => removePayment(p.id)}
-                    className="shrink-0 rounded-lg border border-slate-200 px-2 text-slate-400 hover:border-red-200 hover:text-red-400"
-                  >
-                    ✕
-                  </button>
-                )}
-              </div>
-            ))}
+              )
+            })}
 
             {/* Summary rows */}
             <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm space-y-1">

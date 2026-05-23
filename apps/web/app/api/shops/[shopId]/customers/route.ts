@@ -67,7 +67,15 @@ export async function POST(
     const { connector } = await requireShopAccess(shopId, 'customers.create')
 
     const body = await req.json()
-    const data = customerCreateSchema.parse(body)
+    const parsed = customerCreateSchema.parse(body)
+
+    // STRICT accounting integrity: override accounting & CRM statistics to '0' on creation
+    const data = {
+      ...parsed,
+      prepaid_balance: '0',
+      loyalty_points: '0',
+      debt_amount: '0',
+    }
 
     const created = await connector.create('customers', data)
     invalidate(shopId, 'customers')
