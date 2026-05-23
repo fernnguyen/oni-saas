@@ -46,10 +46,26 @@ interface NotificationContextProps {
 
 const NotificationContext = createContext<NotificationContextProps | undefined>(undefined);
 
+const SAFE_FALLBACK_CONTEXT: NotificationContextProps = {
+  notifications: [],
+  unreadCount: 0,
+  isMuted: true,
+  toggleMute: () => {},
+  markAsRead: () => {},
+  markAllAsRead: () => {},
+  isQRDrawerOpen: false,
+  activeQRTab: 'sessions',
+  highlightQRId: null,
+  openQRDrawer: () => {},
+  closeQRDrawer: () => {},
+  tables: {},
+  refreshNotifications: async () => {},
+};
+
 export function useNotificationCenter() {
   const context = useContext(NotificationContext);
   if (!context) {
-    throw new Error('useNotificationCenter must be used within a NotificationProvider');
+    return SAFE_FALLBACK_CONTEXT;
   }
   return context;
 }

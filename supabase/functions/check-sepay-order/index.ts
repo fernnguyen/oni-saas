@@ -22,6 +22,11 @@ import { verifyUser, AuthError } from "../_shared/auth.ts"
 const supabaseUrl            = Deno.env.get("SUPABASE_URL") ?? ""
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
 
+const BANK_CODE      = Deno.env.get("SEPAY_BANK_CODE")      ?? "MB"
+const ACCOUNT_NUMBER = Deno.env.get("SEPAY_ACCOUNT_NUMBER") ?? ""
+const ACCOUNT_NAME   = Deno.env.get("SEPAY_ACCOUNT_NAME")   ?? "ONI SAAS TECH"
+const BANK_NAME      = Deno.env.get("SEPAY_BANK_NAME")      ?? "MBBank"
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return respond(null, 204)
 
@@ -48,7 +53,7 @@ serve(async (req) => {
   // 3. Lookup order — chỉ trả về nếu thuộc về user này
   const { data: order, error } = await admin
     .from("subscription_orders")
-    .select("id, status, expires_at, fulfilled_at")
+    .select("id, status, expires_at, fulfilled_at, reference_code, amount_vnd, plan_code, billing_interval")
     .eq("id", orderId)
     .eq("user_id", user.id)
     .maybeSingle()
@@ -72,10 +77,41 @@ serve(async (req) => {
     status = "expired"
   }
 
-  return respond({
+  // Construct response payload
+  const responseData: Record<string, any> = {
     status,
     fulfilled_at: order.fulfilled_at ?? undefined,
-  })
+  }
+
+  // If the order is pending, return all payment details so the client can display the QR
+  if (status === "pending") {
+    const transferContent = `SEVQR ${order.reference_code}`
+    const addInfo = encodeURIComponent(transferContent)
+    const accName = encodeURIComponent(ACCOUNT_NAME)
+    const qrUrl   = `https://img.vietqr.io/image/${BANK_CODE}-${ACCOUNT_NUMBER}-compact.png` +
+      `?amount=${order.amount_vnd}&addInfo=${addInfo}&accountName=${accName}`
+
+    // Fetch plan details to show plan name
+    const { data: plan } = await admin
+      .from("plans")
+      .select("name")
+      .eq("code", order.plan_code)
+      .maybeSingle()
+
+    responseData.order_id = order.id
+    responseData.reference_code = order.reference_code
+    responseData.transfer_content = transferContent
+    responseData.amount_vnd = order.amount_vnd
+    responseData.qr_url = qrUrl
+    responseData.bank_name = BANK_NAME
+    responseData.account_number = ACCOUNT_NUMBER
+    responseData.account_name = ACCOUNT_NAME
+    responseData.expires_at = order.expires_at
+    responseData.plan_name = plan?.name ?? order.plan_code
+    responseData.billing_interval = order.billing_interval
+  }
+
+  return respond(responseData)
 })
 
 function respond(data: unknown, status = 200) {

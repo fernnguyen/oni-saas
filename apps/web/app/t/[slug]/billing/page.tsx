@@ -4,6 +4,8 @@ import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
 import { getUserPermissions } from '@/lib/server/permissions';
 import { DashboardShell } from '@/app/components/layout/DashboardShell';
 import { getTenantActivePlanDetails } from '@/lib/server/subscriptions';
+import { UpgradeButton } from '@/app/components/billing/UpgradeButton';
+import { PayNowButton } from '@/app/components/billing/PayNowButton';
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -96,9 +98,7 @@ export default async function BillingPage({ params }: Props) {
             <p className="mt-1 text-sm text-slate-500">Quản lý các gói dịch vụ và xem lịch sử giao dịch.</p>
           </div>
           <div>
-            <button className="rounded-xl bg-primary px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-primary-dark transition-all focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors">
-              Nâng cấp gói dịch vụ
-            </button>
+            <UpgradeButton />
           </div>
         </div>
 
@@ -155,28 +155,39 @@ export default async function BillingPage({ params }: Props) {
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {history.map((o) => {
+                    const orderExpiresAt = new Date(o.expires_at);
+                    const now = new Date();
+                    const isOrderExpired = o.status === 'pending' && now > orderExpiresAt;
+
                     const isDone = o.status === 'fulfilled' || o.status === 'completed';
+                    const currentStatus = isOrderExpired ? 'expired' : o.status;
+
                     const statusStyle =
-                      isDone                   ? 'bg-green-100 text-green-700' :
-                      o.status === 'pending'   ? 'bg-yellow-100 text-yellow-700' :
-                      o.status === 'expired'   ? 'bg-slate-100 text-slate-500' :
+                      isDone                        ? 'bg-green-100 text-green-700' :
+                      currentStatus === 'pending'   ? 'bg-yellow-100 text-yellow-700' :
+                      currentStatus === 'expired'   ? 'bg-slate-100 text-slate-500' :
                       'bg-red-100 text-red-700';
                     const statusLabel =
-                      isDone                   ? 'Hoàn thành' :
-                      o.status === 'pending'   ? 'Chờ thanh toán' :
-                      o.status === 'expired'   ? 'Hết hạn' : o.status;
+                      isDone                        ? 'Hoàn thành' :
+                      currentStatus === 'pending'   ? 'Chờ thanh toán' :
+                      currentStatus === 'expired'   ? 'Hết hạn' : currentStatus;
                     return (
                       <tr key={o.id} className="hover:bg-slate-50 transition-colors">
                         <td className="px-6 py-4 font-medium text-slate-800">{o.plan_code}</td>
                         <td className="px-6 py-4 text-slate-500">{o.billing_interval === 'yearly' ? 'Năm' : 'Tháng'}</td>
                         <td className="px-6 py-4 text-right font-mono font-semibold text-slate-800">
-                          {o.amount_vnd.toLocaleString('vi-VN')}₫
+                          {(o.amount_vnd ?? 0).toLocaleString('vi-VN')}₫
                         </td>
                         <td className="px-6 py-4 font-mono text-xs text-slate-400">{o.reference_code}</td>
                         <td className="px-6 py-4">
-                          <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${statusStyle}`}>
-                            {statusLabel}
-                          </span>
+                          <div className="flex items-center">
+                            <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${statusStyle}`}>
+                              {statusLabel}
+                            </span>
+                            {currentStatus === 'pending' && (
+                              <PayNowButton orderId={o.id} expiresAt={o.expires_at} />
+                            )}
+                          </div>
                         </td>
                         <td className="px-6 py-4 text-xs text-slate-400 whitespace-nowrap">
                           {new Date(o.created_at).toLocaleString('vi-VN')}

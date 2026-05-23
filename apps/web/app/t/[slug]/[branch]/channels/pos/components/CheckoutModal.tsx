@@ -210,6 +210,7 @@ export function CheckoutModal({
   const [pointsRedeemed, setPointsRedeemed] = useState('0')
 
   const tierDiscountPct = useMemo(() => {
+    if (!settings?.has_crm_access) return 0
     if (!localCustomer || settings?.tier_reward_type !== 'discount_bill') return 0
     const type = (localCustomer.customer_type || '').trim().toLowerCase()
     
@@ -243,7 +244,7 @@ export function CheckoutModal({
   }, [computedSubtotal, localDiscount, tierDiscountAmount])
 
   const maxPointsRedeemable = useMemo(() => {
-    if (!localCustomer) return 0
+    if (!settings?.has_crm_access || !localCustomer) return 0
     const pts = Math.floor(Number(localCustomer.loyalty_points || 0))
     const costToMoney = Number(settings?.loyalty_point_to_money || 1000)
     if (costToMoney <= 0) return 0
@@ -251,6 +252,7 @@ export function CheckoutModal({
   }, [localCustomer, totalAfterDiscounts, settings])
 
   const redemptionValue = useMemo(() => {
+    if (!settings?.has_crm_access) return 0
     return Number(pointsRedeemed) * Number(settings?.loyalty_point_to_money || 1000)
   }, [pointsRedeemed, settings])
 
@@ -259,7 +261,7 @@ export function CheckoutModal({
   }, [totalAfterDiscounts, redemptionValue])
 
   const earnedPoints = useMemo(() => {
-    if (!localCustomer || settings?.loyalty_points_enabled === false) return 0
+    if (!settings?.has_crm_access || !localCustomer || settings?.loyalty_points_enabled === false) return 0
     const moneyToPoint = Number(settings?.loyalty_money_to_point || 100000)
     if (moneyToPoint <= 0) return 0
     return Math.floor(finalTotal / moneyToPoint)
@@ -831,7 +833,7 @@ export function CheckoutModal({
                 </div>
               )}
 
-              {settings?.loyalty_points_enabled !== false && localCustomer && (
+              {settings?.has_crm_access && settings?.loyalty_points_enabled !== false && localCustomer && (
                 <div className="flex items-center justify-between mt-1">
                   <div className="flex flex-col">
                     <span className="text-slate-500">Tiêu điểm (Có: {Math.floor(Number(localCustomer.loyalty_points || 0))}đ):</span>
@@ -858,7 +860,7 @@ export function CheckoutModal({
                 </div>
               )}
 
-              {settings?.loyalty_points_enabled !== false && localCustomer && earnedPoints > 0 && (
+              {settings?.has_crm_access && settings?.loyalty_points_enabled !== false && localCustomer && earnedPoints > 0 && (
                 <div className="flex justify-between font-medium text-slate-600 text-xs mt-1 border-t border-slate-100 pt-1">
                   <span>Tích lũy nhận thêm:</span>
                   <span className="text-blue-600">+{earnedPoints} điểm</span>
