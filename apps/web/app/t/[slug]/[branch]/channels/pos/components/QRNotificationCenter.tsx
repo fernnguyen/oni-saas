@@ -3,11 +3,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 import { getSupabaseBrowserClient } from '@/lib/supabaseBrowser'
+import { useNotificationCenter } from '@/app/components/notifications/NotificationContext'
 
 interface QRNotificationCenterProps {
   shopId: string
   branchId: string
   onAcceptRequest?: () => void
+  isGlobalDrawer?: boolean
 }
 
 interface OrderRequestItem {
@@ -55,17 +57,76 @@ interface TableResource {
 export default function QRNotificationCenter({
   shopId,
   branchId,
-  onAcceptRequest
+  onAcceptRequest,
+  isGlobalDrawer = false
 }: QRNotificationCenterProps) {
+  let context: any;
+  try {
+    context = useNotificationCenter();
+  } catch {
+    context = null;
+  }
+
   const [requests, setRequests] = useState<QROrderRequest[]>([])
   const [sessionRequests, setSessionRequests] = useState<QROrderingSession[]>([])
   const [activeTab, setActiveTab] = useState<'sessions' | 'orders'>('sessions')
   const [tables, setTables] = useState<Record<string, string>>({})
   const [isOpen, setIsOpen] = useState(false)
+
+  const drawerOpen = isGlobalDrawer && context ? context.isQRDrawerOpen : isOpen;
+  const highlightId = isGlobalDrawer && context ? context.highlightQRId : null;
+
+  const handleClose = () => {
+    if (isGlobalDrawer && context) {
+      context.closeQRDrawer()
+    } else {
+      setIsOpen(false)
+    }
+  }
+
+  // Sync tab state from context if global
+  useEffect(() => {
+    if (isGlobalDrawer && context) {
+      setActiveTab(context.activeQRTab);
+    }
+  }, [isGlobalDrawer, context?.activeQRTab]);
+
+  // Scroll to highlighted item smoothly
+  useEffect(() => {
+    if (drawerOpen && highlightId) {
+      const timer = setTimeout(() => {
+        const id = activeTab === 'sessions' ? `qr-session-req-${highlightId}` : `qr-order-req-${highlightId}`;
+        const el = document.getElementById(id);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 350);
+      return () => clearTimeout(timer);
+    }
+  }, [drawerOpen, highlightId, activeTab]);
+
+  const triggerSync = () => {
+    if (typeof window !== 'undefined') {
+      const bc = new BroadcastChannel('oni-pos-sync')
+      bc.postMessage({ type: 'REFRESH_TABLE_MAP', shopId })
+      bc.close()
+    }
+  };
   const [selectedRequest, setSelectedRequest] = useState<QROrderRequest | null>(null)
   const [rejectReason, setRejectReason] = useState('')
   const [showRejectModal, setShowRejectModal] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
+  const [excludedItemIds, setExcludedItemIds] = useState<Record<string, number[]>>({})
+
+  const toggleItemExclusion = (reqId: string, idx: number) => {
+    setExcludedItemIds((prev) => {
+      const current = prev[reqId] || []
+      const updated = current.includes(idx)
+        ? current.filter((i) => i !== idx)
+        : [...current, idx]
+      return { ...prev, [reqId]: updated }
+    })
+  }
   const [isMuted, setIsMuted] = useState(false)
 
   // Initialize mute sound setting
@@ -83,7 +144,7 @@ export default function QRNotificationCenter({
 
   // Synthesize Premium Ding-Dong Chime using Web Audio API (0% static asset dependency)
   const playChime = useCallback(() => {
-    if (isMuted) return
+    if (isMuted || isGlobalDrawer) return // Context will play chime globally
     try {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext
       if (!AudioContextClass) return
@@ -185,12 +246,22 @@ export default function QRNotificationCenter({
     fetchData()
   }, [fetchData])
 
-  // Subscribe to Realtime notifications from Supabase
+  const tablesRef = useRef(tables)
+  useEffect(() => {
+    tablesRef.current = tables
+  }, [tables])
+
+  const playChimeRef = useRef(playChime)
+  useEffect(() => {
+    playChimeRef.current = playChime
+  }, [playChime])
+
+  // Subscribe to Realtime notifications from Supabase (Silent listener, layout's NotificationContext handles chimes and toasts)
   useEffect(() => {
     const supabase = getSupabaseBrowserClient()
     if (!supabase) return
 
-    const channelName = `qr-orders-pos-${shopId}`
+    const channelName = `qr-orders-pos-${shopId}-${Math.random().toString(36).slice(2, 9)}`
     const channel = supabase.channel(channelName, {
       config: {
         broadcast: { self: false },
@@ -215,20 +286,6 @@ export default function QRNotificationCenter({
               setRequests((prev) => {
                 if (prev.some((r) => r.id === newReq.id)) return prev
                 return [newReq, ...prev]
-              })
-              playChime()
-              
-              const tableName = tables[newReq.resource_id] || 'Bàn ăn ẩn danh'
-              const itemQty = Array.isArray(newReq.items) ? newReq.items.length : 0
-              toast.info(`🔔 ${tableName} vừa gọi ${itemQty} món mới!`, {
-                duration: 8000,
-                action: {
-                  label: 'Duyệt ngay',
-                  onClick: () => {
-                    setIsOpen(true)
-                    setActiveTab('orders')
-                  }
-                }
               })
             }
           } else if (eventType === 'UPDATE') {
@@ -268,18 +325,6 @@ export default function QRNotificationCenter({
                 if (prev.some((s) => s.id === sess.id)) return prev
                 return [sess, ...prev]
               })
-              playChime()
-              const tableName = tables[sess.resource_id] || 'Bàn ăn ẩn danh'
-              toast.info(`🔔 ${tableName} yêu cầu mở bàn!`, {
-                duration: 8000,
-                action: {
-                  label: 'Duyệt ngay',
-                  onClick: () => {
-                    setIsOpen(true)
-                    setActiveTab('sessions')
-                  }
-                }
-              })
             }
           } else if (eventType === 'UPDATE') {
             const sess = newRecord as QROrderingSession
@@ -306,19 +351,42 @@ export default function QRNotificationCenter({
     return () => {
       void supabase.removeChannel(channel)
     }
-  }, [shopId, tables, playChime])
+  }, [shopId])
 
   // Accept a QR order request
   const handleAccept = async (reqId: string) => {
     if (isProcessing) return
     setIsProcessing(true)
     try {
+      const req = requests.find((r) => r.id === reqId)
+      if (!req) return
+
+      const excluded = excludedItemIds[reqId] || []
+      const acceptedItems = req.items.filter((_, idx) => !excluded.includes(idx))
+
+      if (acceptedItems.length === 0) {
+        toast.error('Vui lòng chọn ít nhất 1 món để chấp nhận, hoặc nhấn "Từ chối" toàn bộ.')
+        setIsProcessing(false)
+        return
+      }
+
+      let rejectReasonForExcluded = ''
+      if (excluded.length > 0) {
+        const rejectedItemNames = req.items
+          .filter((_, idx) => excluded.includes(idx))
+          .map((item) => `${item.qty}x ${item.product_name}`)
+          .join(', ')
+        rejectReasonForExcluded = `Từ chối các món hết hàng: ${rejectedItemNames}`
+      }
+
       const res = await fetch(`/api/shops/${shopId}/qr-orders`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           request_id: reqId,
-          action: 'accept'
+          action: 'accept',
+          items: acceptedItems,
+          reject_reason: rejectReasonForExcluded || undefined
         })
       })
 
@@ -327,9 +395,14 @@ export default function QRNotificationCenter({
         throw new Error(err.error || 'Duyệt đơn thất bại')
       }
 
-      toast.success('Đã chấp nhận đơn và gộp món thành công!')
+      toast.success(
+        excluded.length > 0
+          ? 'Đã chấp nhận các món được chọn và từ chối món còn lại!'
+          : 'Đã chấp nhận đơn và gộp món thành công!'
+      )
       setRequests((prev) => prev.filter((r) => r.id !== reqId))
       setSelectedRequest(null)
+      triggerSync()
       
       // Reload map tables in parent component
       if (onAcceptRequest) {
@@ -367,6 +440,7 @@ export default function QRNotificationCenter({
       setSelectedRequest(null)
       setShowRejectModal(false)
       setRejectReason('')
+      triggerSync()
     } catch (err: any) {
       toast.error(err.message || 'Lỗi hệ thống khi từ chối đơn.')
     } finally {
@@ -395,6 +469,7 @@ export default function QRNotificationCenter({
 
       toast.success('Đã cho phép mở bàn ăn thành công!')
       setSessionRequests((prev) => prev.filter((s) => s.id !== sessionId))
+      triggerSync()
       
       if (onAcceptRequest) {
         onAcceptRequest()
@@ -427,6 +502,7 @@ export default function QRNotificationCenter({
 
       toast.success('Đã từ chối mở bàn thành công.')
       setSessionRequests((prev) => prev.filter((s) => s.id !== sessionId))
+      triggerSync()
       
       if (onAcceptRequest) {
         onAcceptRequest()
@@ -441,59 +517,64 @@ export default function QRNotificationCenter({
   const totalPending = requests.length + sessionRequests.length
 
   return (
-    <div className="relative inline-flex items-center">
-      {/* Bell Button */}
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="relative p-2 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-orange-500"
-        title="Yêu cầu QR Chờ Duyệt"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          fill="none"
-          viewBox="0 0 24 24"
-          strokeWidth={1.5}
-          stroke="currentColor"
-          className={`w-6 h-6 ${totalPending > 0 ? 'animate-[wiggle_1.5s_infinite] text-orange-500' : ''}`}
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0"
-          />
-        </svg>
+    <div className={isGlobalDrawer ? "" : "relative inline-flex items-center"}>
+      {/* Bell & Mute Trigger Buttons (Only when NOT global) */}
+      {!isGlobalDrawer && (
+        <>
+          {/* Bell Button */}
+          <button
+            onClick={() => setIsOpen(!isOpen)}
+            className="relative p-2 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-orange-500"
+            title="Yêu cầu QR Chờ Duyệt"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={1.5}
+              stroke="currentColor"
+              className={`w-6 h-6 ${totalPending > 0 ? 'animate-[wiggle_1.5s_infinite] text-orange-500' : ''}`}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0"
+              />
+            </svg>
 
-        {/* Counter Badge */}
-        {totalPending > 0 && (
-          <span className="absolute top-0 right-0 inline-flex items-center justify-center px-1.5 py-0.5 text-xs font-bold leading-none text-white bg-orange-600 rounded-full transform translate-x-1 -translate-y-1">
-            {totalPending}
-          </span>
-        )}
-      </button>
+            {/* Counter Badge */}
+            {totalPending > 0 && (
+              <span className="absolute top-0 right-0 inline-flex items-center justify-center px-1.5 py-0.5 text-xs font-bold leading-none text-white bg-orange-600 rounded-full transform translate-x-1 -translate-y-1">
+                {totalPending}
+              </span>
+            )}
+          </button>
 
-      {/* Mute Button */}
-      <button
-        onClick={toggleMute}
-        className="p-2 ml-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-full transition-all focus:outline-none"
-        title={isMuted ? 'Bật chuông báo' : 'Tắt chuông báo'}
-      >
-        {isMuted ? (
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 9.75 19.5 12m0 0 2.25 2.25M19.5 12l2.25-2.25M19.5 12l-2.25 2.25m-10.5-6 4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z" />
-          </svg>
-        ) : (
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19.114 5.636a9 9 0 0 1 0 12.728M16.463 8.288a5.25 5.25 0 0 1 0 7.424M6.75 8.25l4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z" />
-          </svg>
-        )}
-      </button>
+          {/* Mute Button */}
+          <button
+            onClick={toggleMute}
+            className="p-2 ml-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-full transition-all focus:outline-none"
+            title={isMuted ? 'Bật chuông báo' : 'Tắt chuông báo'}
+          >
+            {isMuted ? (
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 9.75 19.5 12m0 0 2.25 2.25M19.5 12l2.25-2.25M19.5 12l-2.25 2.25m-10.5-6 4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z" />
+              </svg>
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19.114 5.636a9 9 0 0 1 0 12.728M16.463 8.288a5.25 5.25 0 0 1 0 7.424M6.75 8.25l4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z" />
+              </svg>
+            )}
+          </button>
+        </>
+      )}
 
       {/* Main Drawer Overlay */}
-      {isOpen && (
+      {drawerOpen && (
         <>
           <div
             className="fixed inset-0 z-50 bg-black/40 animate-in fade-in duration-200"
-            onClick={() => setIsOpen(false)}
+            onClick={handleClose}
           />
           <div className="fixed top-0 right-0 z-50 h-full w-full max-w-md bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col transition-transform animate-[slideIn_0.2s_ease-out]">
             
@@ -510,10 +591,10 @@ export default function QRNotificationCenter({
                 </h3>
               </div>
               <button
-                onClick={() => setIsOpen(false)}
+                onClick={handleClose}
                 className="p-1 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100 rounded-full hover:bg-slate-200 dark:hover:bg-slate-800 transition-all"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} className="w-6 h-6">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
                 </svg>
               </button>
@@ -523,7 +604,7 @@ export default function QRNotificationCenter({
             <div className="flex border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 p-1 gap-1">
               <button
                 onClick={() => setActiveTab('sessions')}
-                className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                className={`flex-1 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 ${
                   activeTab === 'sessions'
                     ? 'bg-white dark:bg-slate-800 text-orange-600 dark:text-orange-400 shadow-sm border border-slate-200/50 dark:border-slate-700/50'
                     : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/40'
@@ -538,7 +619,7 @@ export default function QRNotificationCenter({
               </button>
               <button
                 onClick={() => setActiveTab('orders')}
-                className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                className={`flex-1 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 ${
                   activeTab === 'orders'
                     ? 'bg-white dark:bg-slate-800 text-orange-600 dark:text-orange-400 shadow-sm border border-slate-200/50 dark:border-slate-700/50'
                     : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/40'
@@ -572,7 +653,12 @@ export default function QRNotificationCenter({
                     return (
                       <div
                         key={sess.id}
-                        className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden hover:border-orange-200 dark:hover:border-orange-900 bg-slate-50/50 dark:bg-slate-800/40 p-4 transition-all"
+                        id={`qr-session-req-${sess.id}`}
+                        className={`border rounded-xl overflow-hidden p-4 transition-all ${
+                          highlightId === sess.id
+                            ? 'border-orange-500 ring-2 ring-orange-500/20 bg-orange-50/10'
+                            : 'border-slate-200 dark:border-slate-800 hover:border-orange-200 dark:hover:border-orange-900 bg-slate-50/50 dark:bg-slate-800/40'
+                        }`}
                       >
                         {/* Card Header */}
                         <div className="flex items-start justify-between mb-3">
@@ -645,7 +731,12 @@ export default function QRNotificationCenter({
                     return (
                       <div
                         key={req.id}
-                        className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden hover:border-orange-200 dark:hover:border-orange-900 bg-slate-50/50 dark:bg-slate-800/40 p-4 transition-all"
+                        id={`qr-order-req-${req.id}`}
+                        className={`border rounded-xl overflow-hidden p-4 transition-all ${
+                          highlightId === req.id
+                            ? 'border-orange-500 ring-2 ring-orange-500/20 bg-orange-50/10'
+                            : 'border-slate-200 dark:border-slate-800 hover:border-orange-200 dark:hover:border-orange-900 bg-slate-50/50 dark:bg-slate-800/40'
+                        }`}
                       >
                         {/* Card Header */}
                         <div className="flex items-start justify-between mb-3">
@@ -663,44 +754,67 @@ export default function QRNotificationCenter({
                         </div>
 
                         {/* Items List */}
-                        <div className="divide-y divide-slate-100 dark:divide-slate-800 border-y border-slate-100 dark:border-slate-800 py-2 my-2 max-h-48 overflow-y-auto">
-                          {req.items.map((item, idx) => (
-                            <div key={idx} className="py-2 flex items-start justify-between text-sm">
-                              <div className="flex-1 pr-2">
-                                <div className="flex items-baseline gap-1.5">
-                                  <span className="font-semibold text-slate-800 dark:text-slate-200">
-                                    {item.qty}x
-                                  </span>
-                                  <span className="font-medium text-slate-700 dark:text-slate-300">
-                                    {item.product_name}
-                                  </span>
+                        <div className="divide-y divide-slate-100 dark:divide-slate-800 border-y border-slate-100 dark:border-slate-800 py-2 my-2">
+                          {req.items.map((item, idx) => {
+                            const isExcluded = (excludedItemIds[req.id] || []).includes(idx)
+                            return (
+                              <div key={idx} className={`py-2 flex items-start justify-between text-sm ${isExcluded ? 'bg-slate-50/20 opacity-60' : ''}`}>
+                                <div className="flex items-start gap-2.5 flex-1 pr-2">
+                                  {/* Custom Premium Checkbox (White checkmark on orange background, completely OS independent) */}
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleItemExclusion(req.id, idx)}
+                                    disabled={isProcessing}
+                                    className="mt-0.5 shrink-0 h-4.5 w-4.5 rounded border flex items-center justify-center transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-orange-500/25 select-none text-white"
+                                    style={{
+                                      backgroundColor: !isExcluded ? '#f97316' : 'transparent',
+                                      borderColor: !isExcluded ? '#f97316' : '#cbd5e1',
+                                    }}
+                                  >
+                                    {!isExcluded && (
+                                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={4} stroke="white" className="w-3 h-3 text-white stroke-white" style={{ stroke: '#ffffff' }}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" stroke="#ffffff" style={{ stroke: '#ffffff' }} />
+                                      </svg>
+                                    )}
+                                  </button>
+
+                                  <div className="flex-1">
+                                    <div className="flex items-baseline gap-1.5">
+                                      <span className={`font-semibold ${isExcluded ? 'text-slate-400 line-through' : 'text-slate-800 dark:text-slate-200'}`}>
+                                        {item.qty}x
+                                      </span>
+                                      <span className={`font-medium ${isExcluded ? 'text-slate-400 line-through' : 'text-slate-700 dark:text-slate-300'}`}>
+                                        {item.product_name}
+                                      </span>
+                                    </div>
+                                    {/* Variant context */}
+                                    {item.variant_label && (
+                                      <span className={`block text-[11px] font-medium ml-0.5 mt-0.5 ${isExcluded ? 'text-slate-400 line-through' : 'text-slate-400'}`}>
+                                        Phân loại: {item.variant_label}
+                                      </span>
+                                    )}
+                                    {/* Modifiers topping */}
+                                    {item.modifiers && (() => {
+                                      try {
+                                        const parsed = typeof item.modifiers === 'string' ? JSON.parse(item.modifiers) : item.modifiers
+                                        if (Array.isArray(parsed) && parsed.length > 0) {
+                                          return (
+                                            <span className={`block text-[11px] font-medium ml-0.5 mt-0.5 ${isExcluded ? 'text-slate-400 line-through' : 'text-orange-500/80'}`}>
+                                              + Toppings: {parsed.map((m: any) => m.option).join(', ')}
+                                            </span>
+                                          )
+                                        }
+                                      } catch {}
+                                      return null
+                                    })()}
+                                  </div>
                                 </div>
-                                {/* Variant context */}
-                                {item.variant_label && (
-                                  <span className="block text-[11px] text-slate-400 font-medium ml-5">
-                                    Phân loại: {item.variant_label}
-                                  </span>
-                                )}
-                                {/* Modifiers topping */}
-                                {item.modifiers && (() => {
-                                  try {
-                                    const parsed = typeof item.modifiers === 'string' ? JSON.parse(item.modifiers) : item.modifiers
-                                    if (Array.isArray(parsed) && parsed.length > 0) {
-                                      return (
-                                        <span className="block text-[11px] text-orange-500/80 font-medium ml-5 mt-0.5">
-                                          + Toppings: {parsed.map((m: any) => m.option).join(', ')}
-                                        </span>
-                                      )
-                                    }
-                                  } catch {}
-                                  return null
-                                })()}
+                                <span className={`font-semibold text-xs mt-0.5 ${isExcluded ? 'text-slate-400 line-through' : 'text-slate-600 dark:text-slate-400'}`}>
+                                  {Number(item.line_total).toLocaleString('vi-VN')}đ
+                                </span>
                               </div>
-                              <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs mt-0.5">
-                                {Number(item.line_total).toLocaleString('vi-VN')}đ
-                              </span>
-                            </div>
-                          ))}
+                            )
+                          })}
                         </div>
 
                         {/* Action Buttons */}
