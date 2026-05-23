@@ -7,6 +7,7 @@ import { CustomerSearch } from './CustomerSearch'
 import { SlideProductSearch } from './SlideProductSearch'
 import { getVerticalConfig, calculateHourlyBilling } from '@oni/core'
 import { CheckoutModal } from './CheckoutModal'
+import { CustomerCreateModal } from './CustomerCreateModal'
 import { useConfirm } from '@/app/components/ui/ConfirmProvider'
 import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog'
 import type { LocalCustomer, LocalProduct } from '@/lib/localDb/schema'
@@ -96,14 +97,14 @@ function pushOfflineAction(orderId: string, action: any) {
   const queueKey = `offline_table_actions:${orderId}`
   const queueStr = localStorage.getItem(queueKey)
   const queue = queueStr ? JSON.parse(queueStr) : []
-  
+
   // Optimization: If it's a DELETE on a tempId, filter out any ADD/UPDATE for that tempId
   if (action.type === 'DELETE' && action.itemId.startsWith('temp-')) {
     const filtered = queue.filter((act: any) => act.tempId !== action.itemId && act.itemId !== action.itemId)
     localStorage.setItem(queueKey, JSON.stringify(filtered))
     return
   }
-  
+
   queue.push(action)
   localStorage.setItem(queueKey, JSON.stringify(queue))
 }
@@ -127,6 +128,8 @@ export function ResourceSlideOver({
   const [expectedCheckout, setExpectedCheckout] = useState('')
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
+  const [rentalType, setRentalType] = useState<'hourly' | 'overnight'>('hourly')
+  const [customerCreateModalOpen, setCustomerCreateModalOpen] = useState(false)
   const [guests, setGuests] = useState<any[]>([{
     id: Date.now(), name: '', gender: '', dob: '', id_type: 'CCCD',
     id_number: '', expiry_date: '', nationality: 'Việt Nam', address: '', note: '', is_child: false
@@ -160,7 +163,7 @@ export function ResourceSlideOver({
   const [menuOpen, setMenuOpen] = useState(false)
   const [splitSelectedItems, setSplitSelectedItems] = useState<Set<string>>(new Set())
   const [transferring, setTransferring] = useState(false)
-  
+
   const [editCustomerModalOpen, setEditCustomerModalOpen] = useState(false)
   const [editCustomerValue, setEditCustomerValue] = useState<LocalCustomer | null>(null)
   const [updatingCustomer, setUpdatingCustomer] = useState(false)
@@ -197,7 +200,7 @@ export function ResourceSlideOver({
     const queueKey = `offline_table_actions:${orderId}`
     const queueStr = localStorage.getItem(queueKey)
     if (!queueStr) return
-    
+
     let actions = JSON.parse(queueStr)
     if (actions.length === 0) return
 
@@ -215,7 +218,7 @@ export function ResourceSlideOver({
           })
           if (!res.ok) throw new Error()
           const savedItem = await res.json()
-          
+
           const tempId = action.tempId
           const serverId = savedItem.id
           for (let j = i + 1; j < actions.length; j++) {
@@ -226,7 +229,7 @@ export function ResourceSlideOver({
               actions[j].tempId = serverId
             }
           }
-          
+
           setExistingItems(prev => prev.map(item => item.id === tempId ? savedItem : item))
         } else if (action.type === 'UPDATE') {
           const res = await fetch(`/api/shops/${shopId}/order-items/${action.itemId}`, {
@@ -261,7 +264,7 @@ export function ResourceSlideOver({
   const fetchOrder = useCallback(async () => {
     if (!isOccupied || !resource.current_order_id) return
     if (fetchingRef.current === resource.current_order_id) return
-    
+
     fetchingRef.current = resource.current_order_id
     setLoadingOrder(true)
     const orderId = resource.current_order_id
@@ -284,7 +287,7 @@ export function ResourceSlideOver({
         fetch(`/api/shops/${shopId}/order-items?order_id=${orderId}&limit=200&t=${Date.now()}`),
         fetch(`/api/shops/${shopId}/payments?order_id=${orderId}&limit=100`),
       ])
-      
+
       if (orderRes.ok) {
         oData = await orderRes.json()
         localStorage.setItem(`table_order:${orderId}`, JSON.stringify(oData))
@@ -305,7 +308,7 @@ export function ResourceSlideOver({
       const cachedOrder = localStorage.getItem(`table_order:${orderId}`)
       const cachedItems = localStorage.getItem(`table_order_items:${orderId}`)
       const cachedPayments = localStorage.getItem(`table_order_payments:${orderId}`)
-      
+
       if (cachedOrder) oData = JSON.parse(cachedOrder)
       if (cachedItems) items = JSON.parse(cachedItems)
       if (cachedPayments) payments = JSON.parse(cachedPayments)
@@ -349,9 +352,11 @@ export function ResourceSlideOver({
       setExpectedCheckout('')
       setNote('')
       setNumGuests('1')
+      setRentalType('hourly')
+      setCustomerCreateModalOpen(false)
       const now = new Date()
       setCheckInTime(`${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`)
-      
+
       fetchingRef.current = ''
       fetchOrder()
       setCustomCheckoutTime('')
@@ -402,31 +407,40 @@ export function ResourceSlideOver({
 
   // Calculate Time Charge
   const hourlyRate = Number(resource.hourly_rate) || 0
+  const activeRentalType = orderMeta?.rental_type || 'hourly'
   let billableHours = 0
   let timeCharge = 0
   let durationLabel = fmtDuration(elapsed)
   let detailsLabel = ''
 
-  if (hourlyRate > 0 && order) {
-    let checkInDate = new Date(order.created_at)
-    if (orderMeta?.check_in) {
-      checkInDate = new Date(orderMeta.check_in)
-    } else if (orderMeta?.check_in_time) {
-      const [hh, mm] = orderMeta.check_in_time.split(':').map(Number)
-      checkInDate.setHours(hh, mm, 0, 0)
+  if (order) {
+    if (activeRentalType === 'overnight') {
+      const overnightRate = Number(orderMeta?.overnight_rate) || Number(safeParse(resource.metadata).overnight_rate) || 0
+      billableHours = 1
+      timeCharge = overnightRate
+      durationLabel = 'Qua đêm'
+      detailsLabel = 'Trọn gói qua đêm'
+    } else if (hourlyRate > 0) {
+      let checkInDate = new Date(order.created_at)
+      if (orderMeta?.check_in) {
+        checkInDate = new Date(orderMeta.check_in)
+      } else if (orderMeta?.check_in_time) {
+        const [hh, mm] = orderMeta.check_in_time.split(':').map(Number)
+        checkInDate.setHours(hh, mm, 0, 0)
+      }
+
+      const pricingResult = calculateHourlyBilling({
+        checkIn: checkInDate,
+        checkOut: customCheckoutTime ? new Date(customCheckoutTime) : new Date(),
+        standardRate: hourlyRate,
+        config: orderMeta?.advanced_pricing || safeParse(resource.metadata).advanced_pricing
+      })
+
+      billableHours = pricingResult.billableQty
+      timeCharge = pricingResult.totalAmount
+      durationLabel = pricingResult.durationLabel
+      detailsLabel = pricingResult.detailsLabel
     }
-
-    const pricingResult = calculateHourlyBilling({
-      checkIn: checkInDate,
-      checkOut: customCheckoutTime ? new Date(customCheckoutTime) : new Date(),
-      standardRate: hourlyRate,
-      config: orderMeta?.advanced_pricing || safeParse(resource.metadata).advanced_pricing
-    })
-
-    billableHours = pricingResult.billableQty
-    timeCharge = pricingResult.totalAmount
-    durationLabel = pricingResult.durationLabel
-    detailsLabel = pricingResult.detailsLabel
   }
 
   // --- Handlers ---
@@ -476,6 +490,11 @@ export function ResourceSlideOver({
             guests: showGuests ? activeGuests : undefined,
             note: note,
             advanced_pricing: advPricing,
+            rental_type: rentalType,
+            overnight_rate: resourceMeta.overnight_rate,
+            weekend_rate: resourceMeta.weekend_rate,
+            room_class: resourceMeta.room_class,
+            bed_type: resourceMeta.bed_type,
           })
         }),
       })
@@ -504,6 +523,11 @@ export function ResourceSlideOver({
           guests: showGuests ? activeGuests : undefined,
           note: note,
           advanced_pricing: advPricing,
+          rental_type: rentalType,
+          overnight_rate: resourceMeta.overnight_rate,
+          weekend_rate: resourceMeta.weekend_rate,
+          room_class: resourceMeta.room_class,
+          bed_type: resourceMeta.bed_type,
         })
       })
       setExistingItems([])
@@ -524,7 +548,7 @@ export function ResourceSlideOver({
     try {
       const meta = safeParse(order.metadata)
       const validGuests = guests.filter(g => g.name.trim() !== '')
-      
+
       const newMeta = {
         ...meta,
         guests: showGuests ? validGuests : undefined,
@@ -532,11 +556,11 @@ export function ResourceSlideOver({
         expected_checkout: expectedCheckout,
         note: note,
       }
-      
+
       const res = await fetch(`/api/shops/${shopId}/orders/${order.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           metadata: JSON.stringify(newMeta),
           note: note
         }),
@@ -561,7 +585,7 @@ export function ResourceSlideOver({
       toast.error('Vui lòng nhập số tiền hợp lệ')
       return
     }
-    
+
     const ok = await confirm({
       title: 'Xác nhận thu tiền',
       description: `Khoản thanh toán ${fmtVND(amt)} sẽ lập tức được ghi nhận vào Sổ Quỹ (phiếu thu ${fmtVND(amt)}). Bạn có chắc chắn?`,
@@ -611,15 +635,15 @@ export function ResourceSlideOver({
     if (existingInDb) {
       const newQty = Number(existingInDb.qty) + item.qty
       const newLineTotal = newQty * unitPrice
-      
+
       const updatedItems = existingItems.map(i => getSig(i) === sig ? {
         ...i,
         qty: String(newQty),
         line_total: String(newLineTotal)
       } : i)
-      
+
       setExistingItems(updatedItems)
-      
+
       try {
         const res = await fetch(`/api/shops/${shopId}/order-items/${existingInDb.id}`, {
           method: 'PUT',
@@ -627,7 +651,7 @@ export function ResourceSlideOver({
           body: JSON.stringify({ qty: String(newQty), line_total: String(newLineTotal) })
         })
         if (!res.ok) throw new Error()
-        
+
         toast.success(`Đã cập nhật: ${item.product_name} (x${newQty})`)
         localStorage.setItem(`table_order_items:${order.id}`, JSON.stringify(updatedItems))
       } catch (err) {
@@ -666,7 +690,7 @@ export function ResourceSlideOver({
         body: JSON.stringify(newItem)
       })
       if (!res.ok) throw new Error()
-      
+
       const savedItem = await res.json()
       const finalizedItems = updatedItems.map(i => i.id === tempId ? savedItem : i)
       setExistingItems(finalizedItems)
@@ -706,7 +730,7 @@ export function ResourceSlideOver({
     const clone = [...existingItems]
     const currQty = Number(clone[idx].qty)
     const newQty = currQty + delta
-    
+
     if (newQty <= 0) {
       setConfirmDeleteId(clone[idx].id!)
       return
@@ -727,7 +751,7 @@ export function ResourceSlideOver({
       })
       if (!res.ok) throw new Error()
       toast.success(`Đã cập nhật: ${p.product_name} (x${newQty})`)
-      
+
       const itemsRes = await fetch(`/api/shops/${shopId}/order-items?order_id=${order.id}&limit=200&t=${Date.now()}`)
       if (itemsRes.ok) {
         const iData = await itemsRes.json()
@@ -827,11 +851,11 @@ export function ResourceSlideOver({
   async function handleDeleteExistingItem(itemId: string) {
     if (!order) return
     setDeletingItemId(itemId)
-    
+
     const updatedItems = existingItems.filter(i => i.id !== itemId)
     setExistingItems(updatedItems)
     localStorage.setItem(`table_order_items:${order.id}`, JSON.stringify(updatedItems))
-    
+
     setDirtyItems(prev => {
       const newD = { ...prev }
       delete newD[itemId]
@@ -947,11 +971,11 @@ export function ResourceSlideOver({
     if (splitSelectedItems.size === 0) { toast.error('Vui lòng chọn ít nhất 1 món để tách'); return }
     setTransferring(true)
     const targetResource = allResources.find(r => r.id === targetId)
-    
+
     // Separate items
     const remainingItems = existingItems.filter(it => !splitSelectedItems.has(it.id!))
     const itemsToMove = existingItems.filter(it => splitSelectedItems.has(it.id!))
-    
+
     try {
       // 1. Update old order (sync-batch)
       const oldSubtotal = remainingItems.reduce((acc, it) => acc + Number(it.line_total), 0)
@@ -966,13 +990,13 @@ export function ResourceSlideOver({
       })
 
       // 2. Create new order
-      const newOrderMeta = { 
-        resource_id: targetId, 
+      const newOrderMeta = {
+        resource_id: targetId,
         resource_name: targetResource?.name,
         check_in: new Date().toISOString()
       }
       const newSubtotal = itemsToMove.reduce((acc, it) => acc + Number(it.line_total), 0)
-      
+
       const createRes = await fetch(`/api/shops/${shopId}/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1105,7 +1129,7 @@ export function ResourceSlideOver({
         })
       })
       if (!res.ok) throw new Error()
-      
+
       toast.success('Đã cập nhật khách hàng')
       setEditCustomerModalOpen(false)
       fetchingRef.current = ''
@@ -1144,10 +1168,10 @@ export function ResourceSlideOver({
     if (timeCharge > 0) {
       items.push({
         product_id: 'TIME_CHARGE',
-        product_name: `Tiền giờ sử dụng (${durationLabel})`,
+        product_name: activeRentalType === 'overnight' ? 'Tiền phòng (Qua đêm)' : `Tiền giờ sử dụng (${durationLabel})`,
         sku: 'TIME_CHARGE',
         qty: billableHours,
-        unit_price: hourlyRate,
+        unit_price: activeRentalType === 'overnight' ? timeCharge : hourlyRate,
         cost_price: 0,
         discount_amount: 0,
         line_total: timeCharge,
@@ -1166,7 +1190,7 @@ export function ResourceSlideOver({
         ].join(' ')}
         onClick={onClose}
       />
-      
+
       {/* Panel */}
       <div className={`fixed inset-y-0 right-0 z-50 w-full max-w-[800px] bg-white shadow-2xl flex flex-col transition-transform duration-300 ease-in-out !m-0 ${open ? 'translate-x-0' : 'translate-x-full'}`}>
         {/* Header */}
@@ -1189,7 +1213,7 @@ export function ResourceSlideOver({
           <div className="flex items-center gap-2">
             {isOccupied && !resource.id.startsWith('takeaway') && (
               <div className="relative">
-                <button 
+                <button
                   onClick={() => setMenuOpen(!menuOpen)}
                   className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors flex items-center gap-1.5 shadow-sm"
                 >
@@ -1200,19 +1224,19 @@ export function ResourceSlideOver({
                   <>
                     <div className="fixed inset-0 z-40 !m-0" onClick={() => setMenuOpen(false)} />
                     <div className="absolute right-0 top-full mt-1.5 w-44 rounded-xl border border-slate-100 bg-white shadow-xl z-50 overflow-hidden py-1">
-                      <button 
+                      <button
                         onClick={() => { setTransferModalOpen(true); setMenuOpen(false) }}
                         className="w-full px-4 py-2.5 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
                       >
                         <span className="text-base leading-none">🔄</span> Chuyển {tpl.label.toLowerCase()}
                       </button>
-                      <button 
+                      <button
                         onClick={() => { setSplitModalOpen(true); setMenuOpen(false) }}
                         className="w-full px-4 py-2.5 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
                       >
                         <span className="text-base leading-none">✂️</span> Tách {tpl.label.toLowerCase()}
                       </button>
-                      <button 
+                      <button
                         onClick={() => { setMergeModalOpen(true); setMenuOpen(false) }}
                         className="w-full px-4 py-2.5 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
                       >
@@ -1232,17 +1256,15 @@ export function ResourceSlideOver({
           <div className="px-5 border-b border-slate-100 flex gap-6 shrink-0 bg-white">
             <button
               onClick={() => setActiveTab('general')}
-              className={`py-3 text-sm font-medium border-b-2 transition-colors ${
-                activeTab === 'general' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
-              }`}
+              className={`py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'general' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+                }`}
             >
               Thông tin chung
             </button>
             <button
               onClick={() => setActiveTab('guests')}
-              className={`py-3 text-sm font-medium border-b-2 transition-colors ${
-                activeTab === 'guests' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
-              }`}
+              className={`py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'guests' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+                }`}
             >
               Khách lưu trú ({guests.filter(g => g.name.trim()).length || 0})
             </button>
@@ -1255,46 +1277,134 @@ export function ResourceSlideOver({
             <div className="p-5 space-y-6">
               {(!showGuests || activeTab === 'general') && (
                 <>
-              {/* Customer */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs font-bold text-slate-800 uppercase tracking-wide">Khách hàng</p>
-                  {(!customer || customer.customer_id === 'C-DEFAULT-RETAIL') && (
-                    <span className="text-xs text-slate-500 font-medium bg-slate-100 px-2 py-0.5 rounded">Mặc định: Khách lẻ</span>
-                  )}
-                </div>
-                <CustomerSearch selected={customer} onSelect={handleCustomerSelect} />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1.5">Số người</label>
-                  <input
-                    value={numGuests} onChange={e => setNumGuests(e.target.value)}
-                    type="number" min="1"
-                    className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 bg-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1.5">Giờ vào</label>
-                  <input
-                    value={checkInTime} onChange={e => setCheckInTime(e.target.value)}
-                    type="time"
-                    className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 bg-white"
-                  />
-                </div>
-              </div>
-
-              {/* Fee preview */}
-              {(Number(resource.hourly_rate) > 0 || meta.overnight_rate) && (
-                <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-4 text-xs text-blue-800">
-                  <p className="font-semibold mb-2">Dự tính phí:</p>
-                  <div className="space-y-1">
-                    {Number(resource.hourly_rate) > 0 && <div className="flex justify-between"><span>Giá giờ:</span> <span>{Number(resource.hourly_rate).toLocaleString('vi-VN')}₫/h</span></div>}
-                    {meta.overnight_rate && <div className="flex justify-between"><span>Qua đêm:</span> <span>{Number(meta.overnight_rate).toLocaleString('vi-VN')}₫</span></div>}
+                  {/* Customer */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs font-bold text-slate-800 uppercase tracking-wide">Khách hàng</p>
+                      {(!customer || customer.customer_id === 'C-DEFAULT-RETAIL') && (
+                        <span className="text-xs text-slate-500 font-medium bg-slate-100 px-2 py-0.5 rounded">Mặc định: Khách lẻ</span>
+                      )}
+                    </div>
+                    <CustomerSearch selected={customer} onSelect={handleCustomerSelect} onOpenCustomerModal={() => setCustomerCreateModalOpen(true)} />
                   </div>
-                </div>
-              )}
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1.5">Số người</label>
+                      <input
+                        value={numGuests} onChange={e => setNumGuests(e.target.value)}
+                        type="number" min="1"
+                        className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1.5">Giờ vào</label>
+                      <input
+                        value={checkInTime} onChange={e => setCheckInTime(e.target.value)}
+                        type="time"
+                        className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Rental Type Segment Toggle */}
+                  {meta.overnight_rate && (
+                    <div className="space-y-2">
+                      <label className="block text-xs font-bold text-slate-800 uppercase tracking-wide">Hình thức thuê</label>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setRentalType('hourly')}
+                          className={`flex-1 py-2 px-3 rounded-xl border text-xs font-bold transition-all text-center ${rentalType === 'hourly'
+                            ? 'border-primary bg-primary/5 text-primary ring-1 ring-primary'
+                            : 'border-slate-200 text-slate-500 bg-white hover:border-slate-300'
+                            }`}
+                        >
+                          ⏱️ Theo giờ
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRentalType('overnight')}
+                          className={`flex-1 py-2 px-3 rounded-xl border text-xs font-bold transition-all text-center ${rentalType === 'overnight'
+                            ? 'border-primary bg-primary/5 text-primary ring-1 ring-primary'
+                            : 'border-slate-200 text-slate-500 bg-white hover:border-slate-300'
+                            }`}
+                        >
+                          🌙 Qua đêm ({Number(meta.overnight_rate).toLocaleString('vi-VN')}₫)
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Fee preview */}
+                  {(rentalType === 'hourly' ? (Number(resource.hourly_rate) > 0 || meta.advanced_pricing?.enabled) : !!meta.overnight_rate) && (
+                    <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4 text-xs text-blue-800 space-y-2.5">
+                      <p className="font-bold text-[11px] uppercase tracking-wide text-blue-900">
+                        {rentalType === 'hourly' ? '⏱️ DỰ TÍNH PHÍ THEO GIỜ:' : '🌙 DỰ TÍNH PHÍ QUA ĐÊM:'}
+                      </p>
+
+                      {rentalType === 'hourly' ? (
+                        <div className="space-y-2.5">
+                          <div className="space-y-1.5 border-b border-blue-100/50 pb-2">
+                            {meta.advanced_pricing?.enabled ? (
+                              <>
+                                <div className="flex justify-between">
+                                  <span className="font-medium">Block đầu ({meta.advanced_pricing.base_hours}h):</span>
+                                  <span className="font-bold text-blue-900">{Number(meta.advanced_pricing.base_price).toLocaleString('vi-VN')}₫</span>
+                                </div>
+                                {meta.advanced_pricing.next_hourly_rate && (
+                                  <div className="flex justify-between">
+                                    <span className="font-medium">Giờ tiếp theo mặc định:</span>
+                                    <span className="font-bold text-blue-900">{Number(meta.advanced_pricing.next_hourly_rate).toLocaleString('vi-VN')}₫/h</span>
+                                  </div>
+                                )}
+                                {Number(meta.advanced_pricing.grace_minutes) > 0 && (
+                                  <div className="flex justify-between text-blue-700/80 italic text-[11px]">
+                                    <span>Thời gian quá giờ cho phép (Grace):</span>
+                                    <span>{meta.advanced_pricing.grace_minutes} phút</span>
+                                  </div>
+                                )}
+                              </>
+                            ) : (
+                              Number(resource.hourly_rate) > 0 && (
+                                <div className="flex justify-between">
+                                  <span className="font-medium">Giá theo giờ phẳng:</span>
+                                  <span className="font-bold text-blue-900">{Number(resource.hourly_rate).toLocaleString('vi-VN')}₫/h</span>
+                                </div>
+                              )
+                            )}
+                          </div>
+
+                          {meta.advanced_pricing?.enabled && meta.advanced_pricing.progressive_rates && Object.keys(meta.advanced_pricing.progressive_rates).length > 0 && (
+                            <div className="space-y-2">
+                              <p className="font-semibold text-blue-800 text-[10px] uppercase tracking-wider">Bảng giá lũy tiến giờ tiếp theo</p>
+                              <div className="flex flex-wrap gap-1.5 pt-0.5">
+                                {Object.entries(meta.advanced_pricing.progressive_rates)
+                                  .sort((a, b) => Number(a[0]) - Number(b[0]))
+                                  .map(([hour, rate]) => (
+                                    <div
+                                      key={hour}
+                                      className="inline-flex items-center gap-1 bg-blue-100/60 text-blue-800 rounded-lg px-2.5 py-1 font-medium text-[11px] border border-blue-200/40"
+                                    >
+                                      <span>Giờ thứ {hour}:</span>
+                                      <span className="font-bold text-blue-900">{Number(rate).toLocaleString('vi-VN')}₫</span>
+                                    </div>
+                                  ))
+                                }
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        meta.overnight_rate && (
+                          <div className="flex justify-between py-1">
+                            <span className="font-medium">Giá thuê qua đêm:</span>
+                            <span className="font-bold text-blue-900">{Number(meta.overnight_rate).toLocaleString('vi-VN')}₫/đêm</span>
+                          </div>
+                        )
+                      )}
+                    </div>
+                  )}
                 </>
               )}
 
@@ -1395,9 +1505,9 @@ export function ResourceSlideOver({
               </div>
 
               <div className="flex-1 overflow-y-auto px-5 pb-5">
-                  <div className="space-y-6">
-                    {activeTab === 'general' && (
-                      <>
+                <div className="space-y-6">
+                  {activeTab === 'general' && (
+                    <>
                       <div className="flex flex-col gap-6">
 
                         {/* TOP SECTION: Grid 2 columns */}
@@ -1408,15 +1518,15 @@ export function ResourceSlideOver({
                               <div>
                                 <div className="flex items-center gap-2 mb-0.5">
                                   <p className="text-xs text-slate-500">Khách hàng</p>
-                                  <button 
-                                    onClick={() => { 
-                                      setEditCustomerValue((order?.customer_name && order.customer_name !== 'Khách lẻ') ? { 
-                                        customer_id: order.customer_id || '', 
-                                        name: order.customer_name, 
-                                        phone: orderMeta?.customer_phone || '' 
+                                  <button
+                                    onClick={() => {
+                                      setEditCustomerValue((order?.customer_name && order.customer_name !== 'Khách lẻ') ? {
+                                        customer_id: order.customer_id || '',
+                                        name: order.customer_name,
+                                        phone: orderMeta?.customer_phone || ''
                                       } : null)
-                                      setEditCustomerModalOpen(true) 
-                                    }} 
+                                      setEditCustomerModalOpen(true)
+                                    }}
                                     className="text-[10px] font-semibold text-primary hover:underline"
                                   >
                                     Thay đổi
@@ -1452,8 +1562,8 @@ export function ResourceSlideOver({
                                 <span>{customCheckoutTime ? 'Giờ ra:' : 'Giờ ra (Hiện tại):'}</span>
                                 {isEditingCheckout ? (
                                   <div className="flex items-center gap-2">
-                                    <input 
-                                      type="datetime-local" 
+                                    <input
+                                      type="datetime-local"
                                       value={checkoutInput}
                                       onChange={e => setCheckoutInput(e.target.value)}
                                       className="text-xs border border-slate-300 rounded px-1 py-0.5 outline-none"
@@ -1461,9 +1571,9 @@ export function ResourceSlideOver({
                                     <button onClick={() => { setCustomCheckoutTime(checkoutInput); setIsEditingCheckout(false); }} className="text-primary font-bold">OK</button>
                                   </div>
                                 ) : (
-                                  <button onClick={() => { 
-                                    setCheckoutInput(customCheckoutTime || new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)); 
-                                    setIsEditingCheckout(true); 
+                                  <button onClick={() => {
+                                    setCheckoutInput(customCheckoutTime || new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16));
+                                    setIsEditingCheckout(true);
                                   }} className="font-medium border-b border-dotted border-slate-400 hover:text-primary transition-colors cursor-pointer">
                                     {customCheckoutTime ? fmtDateTimeVN(new Date(customCheckoutTime)) : fmtDateTimeVN(new Date())}
                                   </button>
@@ -1479,10 +1589,10 @@ export function ResourceSlideOver({
                           </div>
                         </div>
 
-{/* RIGHT COLUMN: Order Items */}
+                        {/* RIGHT COLUMN: Order Items */}
                         <div className="flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                           <p className="text-xs font-bold text-slate-800 uppercase tracking-wide mb-3">Sản phẩm/Dịch vụ</p>
-                          
+
                           <div className="mb-4 shrink-0">
                             <SlideProductSearch onSelect={handleProductSelect} />
                           </div>
@@ -1526,8 +1636,8 @@ export function ResourceSlideOver({
                                     <button onClick={() => handleAdjustExistingQty(idx, -1)} className="w-6 h-6 flex items-center justify-center rounded-md bg-slate-200 text-slate-600 hover:bg-slate-300 transition-colors">
                                       -
                                     </button>
-                                    <input 
-                                      type="text" 
+                                    <input
+                                      type="text"
                                       value={item.qty}
                                       onChange={e => {
                                         const val = e.target.value.replace(/\D/g, '')
@@ -1569,7 +1679,7 @@ export function ResourceSlideOver({
 
 
                             {/* Auto-saved items end */}
-                          
+
                             <div className="mt-6 pt-4 border-t border-slate-200 flex items-center justify-between sticky bottom-0 bg-white">
                               <span className="font-bold text-slate-800 text-xs uppercase tracking-wide">Tổng tiền tạm tính</span>
                               <span className="text-base font-bold text-primary">
@@ -1579,188 +1689,188 @@ export function ResourceSlideOver({
                           </div>
                         </div>
 
-{/* Lịch sử thu tiền */}
-                          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col">
-                            <div className="flex items-center justify-between mb-3">
-                              <label className="block text-xs font-bold text-slate-800 uppercase tracking-wide">Lịch sử thanh toán</label>
-                              <div className="flex items-center gap-4">
-                                <span className="text-xs font-medium text-slate-500">Tổng: <span className="font-bold text-slate-900">{fmtVND(installments.reduce((sum, p) => sum + Number(p.amount), 0))}</span></span>
-                                <button onClick={() => setShowPaymentForm(!showPaymentForm)} className="text-xs font-bold text-primary hover:underline">
-                                  {showPaymentForm ? 'Đóng' : '+ Thêm thanh toán'}
-                                </button>
-                              </div>
+                        {/* Lịch sử thu tiền */}
+                        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col">
+                          <div className="flex items-center justify-between mb-3">
+                            <label className="block text-xs font-bold text-slate-800 uppercase tracking-wide">Lịch sử thanh toán</label>
+                            <div className="flex items-center gap-4">
+                              <span className="text-xs font-medium text-slate-500">Tổng: <span className="font-bold text-slate-900">{fmtVND(installments.reduce((sum, p) => sum + Number(p.amount), 0))}</span></span>
+                              <button onClick={() => setShowPaymentForm(!showPaymentForm)} className="text-xs font-bold text-primary hover:underline">
+                                {showPaymentForm ? 'Đóng' : '+ Thêm thanh toán'}
+                              </button>
                             </div>
-                            
-                            <div className="flex-1 overflow-y-auto min-h-[50px] max-h-[200px]">
-                              {loadingOrder ? (
-                                <div className="space-y-2">
-                                  <div className="h-12 w-full bg-slate-100 rounded-lg animate-pulse" />
-                                </div>
-                              ) : installments.length > 0 ? (
-                                <div className="space-y-2">
-                                  {installments.map((p, i) => {
-                                    const mName = { cash: 'Tiền mặt', card: 'Thẻ', bank_transfer: 'CK', momo: 'MoMo', vnpay: 'VNPay', zalopay: 'ZaloPay' }[p.method as string] || p.method
-                                    return (
-                                      <div key={p.id || i} className="flex items-center justify-between rounded-lg bg-slate-50 border border-slate-100 p-2.5">
-                                        <div>
-                                          <p className="text-xs font-medium text-slate-700">{mName}</p>
-                                          <p className="text-[10px] text-slate-400">{new Date(p.paid_at || Date.now()).toLocaleString('vi-VN')}</p>
-                                          {p.note && <p className="text-[10px] text-slate-500 mt-0.5">Ghi chú: {p.note}</p>}
-                                        </div>
-                                        <p className="text-sm font-bold text-slate-900">{fmtVND(p.amount)}</p>
-                                      </div>
-                                    )
-                                  })}
-                                </div>
-                              ) : (
-                                <div className="rounded-lg bg-slate-50 border border-slate-100 p-3 text-center h-full flex items-center justify-center">
-                                  <p className="text-xs text-slate-400">Chưa có giao dịch</p>
-                                </div>
-                              )}
-                            </div>
+                          </div>
 
-                            {showPaymentForm && (
-                              <div className="mt-3 rounded-lg border border-primary/20 bg-primary/5 p-3 shrink-0">
-                                <label className="block text-[10px] font-bold text-primary mb-1 uppercase tracking-wide">Thêm thanh toán mới</label>
-                                <div className="flex bg-white rounded-md border border-primary/20 overflow-hidden mb-2">
-                                  <select value={installmentMethod} onChange={e => setInstallmentMethod(e.target.value)} className="bg-transparent text-sm border-r border-primary/20 px-2 py-1.5 focus:outline-none text-slate-700 w-1/3">
-                                    <option value="cash">Tiền mặt</option>
-                                    <option value="bank_transfer">Chuyển khoản</option>
-                                    <option value="card">Thẻ/Quẹt máy</option>
-                                    <option value="momo">MoMo</option>
-                                    <option value="vnpay">VNPay</option>
-                                    <option value="zalopay">ZaloPay</option>
-                                  </select>
-                                  <input 
-                                    type="text" 
-                                    placeholder="0"
-                                    value={installmentAmount}
-                                    onChange={e => {
-                                      const val = e.target.value.replace(/\D/g, '')
-                                      setInstallmentAmount(val ? Number(val).toLocaleString('vi-VN') : '')
-                                    }}
-                                    className="flex-1 w-full bg-transparent text-sm px-3 py-1.5 focus:outline-none text-right font-bold text-primary" 
-                                  />
-                                </div>
-                                <div className="flex gap-2">
-                                  <input 
-                                    type="text" 
-                                    placeholder="Ghi chú (tùy chọn)..."
-                                    value={installmentNote}
-                                    onChange={e => setInstallmentNote(e.target.value)}
-                                    className="flex-1 rounded-md border border-slate-200 px-2 py-1.5 text-xs focus:outline-none focus:border-primary bg-white" 
-                                  />
-                                  <button onClick={handlePayInstallment} disabled={isPayingInstallment || !installmentAmount} className="rounded-md bg-primary px-3 py-1.5 text-xs font-bold text-white hover:bg-primary-dark transition-colors disabled:opacity-50 shrink-0">
-                                    {isPayingInstallment ? 'Đang lưu...' : 'Thu'}
-                                  </button>
-                                </div>
+                          <div className="flex-1 overflow-y-auto min-h-[50px] max-h-[200px]">
+                            {loadingOrder ? (
+                              <div className="space-y-2">
+                                <div className="h-12 w-full bg-slate-100 rounded-lg animate-pulse" />
+                              </div>
+                            ) : installments.length > 0 ? (
+                              <div className="space-y-2">
+                                {installments.map((p, i) => {
+                                  const mName = { cash: 'Tiền mặt', card: 'Thẻ', bank_transfer: 'CK', momo: 'MoMo', vnpay: 'VNPay', zalopay: 'ZaloPay' }[p.method as string] || p.method
+                                  return (
+                                    <div key={p.id || i} className="flex items-center justify-between rounded-lg bg-slate-50 border border-slate-100 p-2.5">
+                                      <div>
+                                        <p className="text-xs font-medium text-slate-700">{mName}</p>
+                                        <p className="text-[10px] text-slate-400">{new Date(p.paid_at || Date.now()).toLocaleString('vi-VN')}</p>
+                                        {p.note && <p className="text-[10px] text-slate-500 mt-0.5">Ghi chú: {p.note}</p>}
+                                      </div>
+                                      <p className="text-sm font-bold text-slate-900">{fmtVND(p.amount)}</p>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            ) : (
+                              <div className="rounded-lg bg-slate-50 border border-slate-100 p-3 text-center h-full flex items-center justify-center">
+                                <p className="text-xs text-slate-400">Chưa có giao dịch</p>
                               </div>
                             )}
                           </div>
 
-                      {/* Ghi chú đơn hàng */}
-                      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                        <div className="flex items-center justify-between mb-3">
-                          <label className="block text-xs font-bold text-slate-800 uppercase tracking-wide">Ghi chú đơn hàng</label>
-                          <button onClick={handleUpdateMetadata} disabled={isUpdatingMeta} className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary-dark disabled:opacity-50">
-                            {isUpdatingMeta ? 'Đang lưu...' : 'Lưu ghi chú'}
-                          </button>
-                        </div>
-                        <input type="text" value={note} onChange={(e) => setNote(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none" placeholder="Yêu cầu đặc biệt, chú thích..." />
-                      </div>
-                      </div>
-                      </>
-                    )}
-
-                    {activeTab === 'guests' && (
-                      <div className="space-y-4">
-                        <div className="flex items-center justify-between">
-                          <p className="text-sm font-medium text-slate-900">Danh sách khách lưu trú</p>
-                          <button onClick={handleUpdateMetadata} disabled={isUpdatingMeta} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50">
-                            {isUpdatingMeta ? 'Đang lưu...' : 'Lưu thay đổi'}
-                          </button>
-                        </div>
-                        <div className="space-y-4">
-                          {guests.map((g, idx) => (
-                            <div key={g.id || idx} className="rounded-xl border border-slate-200 bg-slate-50 p-4 relative group">
-                              {guests.length > 1 && (
-                                <button onClick={() => setGuests(guests.filter((_, i) => i !== idx))} className="absolute top-3 right-3 text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity text-xs font-medium">
-                                  Xóa
-                                </button>
-                              )}
-                              <div className="flex items-center gap-2 mb-3">
-                                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-200 text-xs font-bold text-slate-600">{idx + 1}</span>
-                                <span className="text-sm font-semibold text-slate-700">Khách hàng {idx + 1}</span>
+                          {showPaymentForm && (
+                            <div className="mt-3 rounded-lg border border-primary/20 bg-primary/5 p-3 shrink-0">
+                              <label className="block text-[10px] font-bold text-primary mb-1 uppercase tracking-wide">Thêm thanh toán mới</label>
+                              <div className="flex bg-white rounded-md border border-primary/20 overflow-hidden mb-2">
+                                <select value={installmentMethod} onChange={e => setInstallmentMethod(e.target.value)} className="bg-transparent text-sm border-r border-primary/20 px-2 py-1.5 focus:outline-none text-slate-700 w-1/3">
+                                  <option value="cash">Tiền mặt</option>
+                                  <option value="bank_transfer">Chuyển khoản</option>
+                                  <option value="card">Thẻ/Quẹt máy</option>
+                                  <option value="momo">MoMo</option>
+                                  <option value="vnpay">VNPay</option>
+                                  <option value="zalopay">ZaloPay</option>
+                                </select>
+                                <input
+                                  type="text"
+                                  placeholder="0"
+                                  value={installmentAmount}
+                                  onChange={e => {
+                                    const val = e.target.value.replace(/\D/g, '')
+                                    setInstallmentAmount(val ? Number(val).toLocaleString('vi-VN') : '')
+                                  }}
+                                  className="flex-1 w-full bg-transparent text-sm px-3 py-1.5 focus:outline-none text-right font-bold text-primary"
+                                />
                               </div>
-                              <div className="grid grid-cols-2 gap-3">
-                                <div className="col-span-2 pr-8">
-                                  <label className="block text-xs font-medium text-slate-600 mb-1">Họ và tên</label>
-                                  <input type="text" value={g.name} onChange={e => {
-                                    const newG = [...guests]; newG[idx].name = e.target.value; setGuests(newG);
-                                  }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none" placeholder="Nhập tên khách..." />
-                                </div>
-                                <div>
-                                  <label className="block text-xs font-medium text-slate-600 mb-1">Loại giấy tờ</label>
-                                  <select value={g.id_type} onChange={e => {
-                                    const newG = [...guests]; newG[idx].id_type = e.target.value; setGuests(newG);
-                                  }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white">
-                                    <option value="CCCD">CCCD/CMND</option>
-                                    <option value="Passport">Hộ chiếu</option>
-                                    <option value="Other">Khác</option>
-                                  </select>
-                                </div>
-                                <div>
-                                  <label className="block text-xs font-medium text-slate-600 mb-1">Số giấy tờ</label>
-                                  <input type="text" value={g.id_number} onChange={e => {
-                                    const newG = [...guests]; newG[idx].id_number = e.target.value; setGuests(newG);
-                                  }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none" />
-                                </div>
-                                <div>
-                                  <label className="block text-xs font-medium text-slate-600 mb-1">Ngày hết hạn</label>
-                                  <input type="date" value={g.expiry_date || ''} onChange={e => {
-                                    const newG = [...guests]; newG[idx].expiry_date = e.target.value; setGuests(newG);
-                                  }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white" />
-                                </div>
-                                <div>
-                                  <label className="block text-xs font-medium text-slate-600 mb-1">Quốc tịch</label>
-                                  <input type="text" value={g.nationality} onChange={e => {
-                                    const newG = [...guests]; newG[idx].nationality = e.target.value; setGuests(newG);
-                                  }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none" />
-                                </div>
-                                <div>
-                                  <label className="block text-xs font-medium text-slate-600 mb-1">Ngày sinh</label>
-                                  <input type="date" value={g.dob || ''} onChange={e => {
-                                    const newG = [...guests]; newG[idx].dob = e.target.value; setGuests(newG);
-                                  }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white" />
-                                </div>
-                                <div>
-                                  <label className="block text-xs font-medium text-slate-600 mb-1">Giới tính</label>
-                                  <select value={g.gender || ''} onChange={e => {
-                                    const newG = [...guests]; newG[idx].gender = e.target.value; setGuests(newG);
-                                  }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white">
-                                    <option value="">-- Chọn --</option>
-                                    <option value="Nam">Nam</option>
-                                    <option value="Nữ">Nữ</option>
-                                  </select>
-                                </div>
-                                <div className="col-span-2">
-                                  <label className="block text-xs font-medium text-slate-600 mb-1">Ghi chú</label>
-                                  <input type="text" value={g.note || ''} onChange={e => {
-                                    const newG = [...guests]; newG[idx].note = e.target.value; setGuests(newG);
-                                  }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none" placeholder="Ghi chú thêm (địa chỉ, lưu ý...)" />
-                                </div>
+                              <div className="flex gap-2">
+                                <input
+                                  type="text"
+                                  placeholder="Ghi chú (tùy chọn)..."
+                                  value={installmentNote}
+                                  onChange={e => setInstallmentNote(e.target.value)}
+                                  className="flex-1 rounded-md border border-slate-200 px-2 py-1.5 text-xs focus:outline-none focus:border-primary bg-white"
+                                />
+                                <button onClick={handlePayInstallment} disabled={isPayingInstallment || !installmentAmount} className="rounded-md bg-primary px-3 py-1.5 text-xs font-bold text-white hover:bg-primary-dark transition-colors disabled:opacity-50 shrink-0">
+                                  {isPayingInstallment ? 'Đang lưu...' : 'Thu'}
+                                </button>
                               </div>
                             </div>
-                          ))}
-                          <button onClick={() => setGuests([...guests, { id: Date.now(), name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', note: '' }])} className="w-full rounded-xl border border-dashed border-slate-300 py-3 text-sm font-medium text-slate-500 hover:border-primary hover:text-primary transition-colors bg-white">
-                            + Thêm khách lưu trú
-                          </button>
+                          )}
+                        </div>
+
+                        {/* Ghi chú đơn hàng */}
+                        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                          <div className="flex items-center justify-between mb-3">
+                            <label className="block text-xs font-bold text-slate-800 uppercase tracking-wide">Ghi chú đơn hàng</label>
+                            <button onClick={handleUpdateMetadata} disabled={isUpdatingMeta} className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary-dark disabled:opacity-50">
+                              {isUpdatingMeta ? 'Đang lưu...' : 'Lưu ghi chú'}
+                            </button>
+                          </div>
+                          <input type="text" value={note} onChange={(e) => setNote(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none" placeholder="Yêu cầu đặc biệt, chú thích..." />
                         </div>
                       </div>
-                    )}
+                    </>
+                  )}
+
+                  {activeTab === 'guests' && (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-medium text-slate-900">Danh sách khách lưu trú</p>
+                        <button onClick={handleUpdateMetadata} disabled={isUpdatingMeta} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50">
+                          {isUpdatingMeta ? 'Đang lưu...' : 'Lưu thay đổi'}
+                        </button>
+                      </div>
+                      <div className="space-y-4">
+                        {guests.map((g, idx) => (
+                          <div key={g.id || idx} className="rounded-xl border border-slate-200 bg-slate-50 p-4 relative group">
+                            {guests.length > 1 && (
+                              <button onClick={() => setGuests(guests.filter((_, i) => i !== idx))} className="absolute top-3 right-3 text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity text-xs font-medium">
+                                Xóa
+                              </button>
+                            )}
+                            <div className="flex items-center gap-2 mb-3">
+                              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-200 text-xs font-bold text-slate-600">{idx + 1}</span>
+                              <span className="text-sm font-semibold text-slate-700">Khách hàng {idx + 1}</span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="col-span-2 pr-8">
+                                <label className="block text-xs font-medium text-slate-600 mb-1">Họ và tên</label>
+                                <input type="text" value={g.name} onChange={e => {
+                                  const newG = [...guests]; newG[idx].name = e.target.value; setGuests(newG);
+                                }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none" placeholder="Nhập tên khách..." />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-slate-600 mb-1">Loại giấy tờ</label>
+                                <select value={g.id_type} onChange={e => {
+                                  const newG = [...guests]; newG[idx].id_type = e.target.value; setGuests(newG);
+                                }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white">
+                                  <option value="CCCD">CCCD/CMND</option>
+                                  <option value="Passport">Hộ chiếu</option>
+                                  <option value="Other">Khác</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-slate-600 mb-1">Số giấy tờ</label>
+                                <input type="text" value={g.id_number} onChange={e => {
+                                  const newG = [...guests]; newG[idx].id_number = e.target.value; setGuests(newG);
+                                }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none" />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-slate-600 mb-1">Ngày hết hạn</label>
+                                <input type="date" value={g.expiry_date || ''} onChange={e => {
+                                  const newG = [...guests]; newG[idx].expiry_date = e.target.value; setGuests(newG);
+                                }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white" />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-slate-600 mb-1">Quốc tịch</label>
+                                <input type="text" value={g.nationality} onChange={e => {
+                                  const newG = [...guests]; newG[idx].nationality = e.target.value; setGuests(newG);
+                                }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none" />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-slate-600 mb-1">Ngày sinh</label>
+                                <input type="date" value={g.dob || ''} onChange={e => {
+                                  const newG = [...guests]; newG[idx].dob = e.target.value; setGuests(newG);
+                                }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white" />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-slate-600 mb-1">Giới tính</label>
+                                <select value={g.gender || ''} onChange={e => {
+                                  const newG = [...guests]; newG[idx].gender = e.target.value; setGuests(newG);
+                                }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white">
+                                  <option value="">-- Chọn --</option>
+                                  <option value="Nam">Nam</option>
+                                  <option value="Nữ">Nữ</option>
+                                </select>
+                              </div>
+                              <div className="col-span-2">
+                                <label className="block text-xs font-medium text-slate-600 mb-1">Ghi chú</label>
+                                <input type="text" value={g.note || ''} onChange={e => {
+                                  const newG = [...guests]; newG[idx].note = e.target.value; setGuests(newG);
+                                }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none" placeholder="Ghi chú thêm (địa chỉ, lưu ý...)" />
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                        <button onClick={() => setGuests([...guests, { id: Date.now(), name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', note: '' }])} className="w-full rounded-xl border border-dashed border-slate-300 py-3 text-sm font-medium text-slate-500 hover:border-primary hover:text-primary transition-colors bg-white">
+                          + Thêm khách lưu trú
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
 
-                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -1799,7 +1909,7 @@ export function ResourceSlideOver({
                   )}
                 </div>
               </div>
-          </div>
+            </div>
           )}
         </div>
       </div>
@@ -1810,10 +1920,10 @@ export function ResourceSlideOver({
           orderId={order.id}
           onClose={() => setCheckoutOpen(false)}
           onSuccess={handleCheckoutSuccess}
-          customer={(order?.customer_name && order.customer_name !== 'Khách lẻ') ? { 
-            customer_id: order.customer_id || '', 
-            name: order.customer_name, 
-            phone: orderMeta?.customer_phone || '' 
+          customer={(order?.customer_name && order.customer_name !== 'Khách lẻ') ? {
+            customer_id: order.customer_id || '',
+            name: order.customer_name,
+            phone: orderMeta?.customer_phone || ''
           } : null}
           onCustomerChange={handleCustomerSelect}
           metadata={orderMeta || undefined}
@@ -1919,8 +2029,8 @@ export function ResourceSlideOver({
                   <div className="space-y-1">
                     {existingItems.map(it => (
                       <label key={it.id} className="flex items-center gap-2 p-2 rounded hover:bg-slate-50 cursor-pointer border border-transparent hover:border-slate-100">
-                        <input 
-                          type="checkbox" 
+                        <input
+                          type="checkbox"
                           checked={splitSelectedItems.has(it.id!)}
                           onChange={(e) => {
                             const newSet = new Set(splitSelectedItems)
@@ -2009,7 +2119,7 @@ export function ResourceSlideOver({
             </div>
             <div className="flex-1 overflow-y-auto p-5 space-y-5">
               <CustomerSearch selected={editCustomerValue} onSelect={setEditCustomerValue} />
-              
+
               <div className="pt-2">
                 <button
                   onClick={() => setEditCustomerValue(null)}
@@ -2056,8 +2166,8 @@ export function ResourceSlideOver({
             <label className="block text-sm font-medium text-slate-700 mb-1">
               Hoàn trả tiền cọc / thanh toán trước (Tối đa: {Number(order?.paid_amount || 0).toLocaleString('vi-VN')}đ)
             </label>
-            <input 
-              type="text" 
+            <input
+              type="text"
               value={refundAmountInput}
               onChange={e => {
                 const val = e.target.value.replace(/\D/g, '')
@@ -2092,6 +2202,16 @@ export function ResourceSlideOver({
           onConfirm={handleAddCartItem}
         />
       )}
+      <CustomerCreateModal
+        open={customerCreateModalOpen}
+        onClose={() => setCustomerCreateModalOpen(false)}
+        shopId={shopId}
+        onSuccess={(created) => {
+          setCustomer(created)
+          setCustomerCreateModalOpen(false)
+          toast.success(`Đã thêm khách hàng: ${created.name}`)
+        }}
+      />
     </>
   )
 }
