@@ -11,6 +11,7 @@ export const customerCreateSchema = z.object({
   credit_limit:   z.string().optional().default('0'),
   debt_amount:    z.string().optional().default('0'),
   loyalty_points: z.string().optional().default('0'),
+  prepaid_balance: z.string().optional().default('0'),
   note:           z.string().optional().default(''),
 })
 

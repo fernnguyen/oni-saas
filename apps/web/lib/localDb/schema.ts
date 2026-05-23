@@ -82,6 +82,9 @@ export interface LocalCustomer {
   email?: string
   customer_type?: string
   debt_amount?: number
+  credit_limit?: number
+  loyalty_points?: number
+  prepaid_balance?: number
   last_seen_at?: string
 }
 
@@ -130,6 +133,8 @@ export interface LocalOrder {
   total_amount: number
   paid_amount: number
   debt_amount?: number
+  points_earned?: number
+  points_redeemed?: number
   note?: string
   metadata?: string
   created_at: string
