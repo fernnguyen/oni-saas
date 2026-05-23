@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { CustomerSearch } from './CustomerSearch'
 import { SlideProductSearch } from './SlideProductSearch'
+import { getVerticalConfig, calculateHourlyBilling } from '@oni/core'
 import { CheckoutModal } from './CheckoutModal'
 import { useConfirm } from '@/app/components/ui/ConfirmProvider'
 import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog'
@@ -397,14 +398,35 @@ export function ResourceSlideOver({
     return () => window.removeEventListener('online', handleOnline)
   }, [open, isOccupied, resource.current_order_id, fetchOrder])
 
+  const orderMeta = order ? safeParse(order.metadata) : null
+
   // Calculate Time Charge
   const hourlyRate = Number(resource.hourly_rate) || 0
   let billableHours = 0
   let timeCharge = 0
+  let durationLabel = fmtDuration(elapsed)
+  let detailsLabel = ''
+
   if (hourlyRate > 0 && order) {
-    const hours = elapsed / 3600
-    billableHours = Math.ceil(hours)
-    timeCharge = billableHours * hourlyRate
+    let checkInDate = new Date(order.created_at)
+    if (orderMeta?.check_in) {
+      checkInDate = new Date(orderMeta.check_in)
+    } else if (orderMeta?.check_in_time) {
+      const [hh, mm] = orderMeta.check_in_time.split(':').map(Number)
+      checkInDate.setHours(hh, mm, 0, 0)
+    }
+
+    const pricingResult = calculateHourlyBilling({
+      checkIn: checkInDate,
+      checkOut: customCheckoutTime ? new Date(customCheckoutTime) : new Date(),
+      standardRate: hourlyRate,
+      config: orderMeta?.advanced_pricing || safeParse(resource.metadata).advanced_pricing
+    })
+
+    billableHours = pricingResult.billableQty
+    timeCharge = pricingResult.totalAmount
+    durationLabel = pricingResult.durationLabel
+    detailsLabel = pricingResult.detailsLabel
   }
 
   // --- Handlers ---
@@ -429,6 +451,9 @@ export function ResourceSlideOver({
       const [ch, cm] = checkInTime.split(':').map(Number)
       const checkInDate = new Date(now.setHours(ch, cm, 0, 0))
 
+      const resourceMeta = safeParse(resource.metadata)
+      const advPricing = resourceMeta.advanced_pricing
+
       const res = await fetch(`/api/shops/${shopId}/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -450,6 +475,7 @@ export function ResourceSlideOver({
             customer_phone: customer?.phone || '',
             guests: showGuests ? activeGuests : undefined,
             note: note,
+            advanced_pricing: advPricing,
           })
         }),
       })
@@ -477,6 +503,7 @@ export function ResourceSlideOver({
           customer_phone: customer?.phone || '',
           guests: showGuests ? activeGuests : undefined,
           note: note,
+          advanced_pricing: advPricing,
         })
       })
       setExistingItems([])
@@ -1117,7 +1144,7 @@ export function ResourceSlideOver({
     if (timeCharge > 0) {
       items.push({
         product_id: 'TIME_CHARGE',
-        product_name: `Tiền giờ sử dụng (${fmtDuration(elapsed)})`,
+        product_name: `Tiền giờ sử dụng (${durationLabel})`,
         sku: 'TIME_CHARGE',
         qty: billableHours,
         unit_price: hourlyRate,
@@ -1128,8 +1155,6 @@ export function ResourceSlideOver({
     }
     return items
   }
-
-  const orderMeta = order ? safeParse(order.metadata) : null
 
   return (
     <>
@@ -1447,7 +1472,7 @@ export function ResourceSlideOver({
                             </div>
                             {timeCharge > 0 && (
                               <div className="mt-3 pt-3 border-t border-dashed border-slate-200 flex items-center justify-between">
-                                <span className="text-xs font-medium text-slate-600">Tiền giờ ({billableHours}h)</span>
+                                <span className="text-xs font-medium text-slate-600">Tiền giờ ({detailsLabel || `${billableHours}h`})</span>
                                 <span className="text-sm font-bold text-slate-900">{fmtVND(timeCharge)}</span>
                               </div>
                             )}

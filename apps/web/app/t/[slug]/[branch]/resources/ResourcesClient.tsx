@@ -48,12 +48,14 @@ const TYPE_LABELS: Record<string, string> = {
 
 const STATUS_STYLES: Record<string, { bg: string; text: string; dot: string; label: string }> = {
   available: { bg: 'bg-green-50', text: 'text-green-700', dot: 'bg-green-500', label: 'Trống' },
-  occupied:  { bg: 'bg-red-50',   text: 'text-red-700',   dot: 'bg-red-500',   label: 'Đang sử dụng' },
-  cleaning:  { bg: 'bg-amber-50', text: 'text-amber-700', dot: 'bg-amber-500', label: 'Dọn dẹp' },
-  reserved:  { bg: 'bg-blue-50',  text: 'text-blue-700',  dot: 'bg-blue-500',  label: 'Đã đặt' },
+  occupied: { bg: 'bg-red-50', text: 'text-red-700', dot: 'bg-red-500', label: 'Đang sử dụng' },
+  cleaning: { bg: 'bg-amber-50', text: 'text-amber-700', dot: 'bg-amber-500', label: 'Dọn dẹp' },
+  reserved: { bg: 'bg-blue-50', text: 'text-blue-700', dot: 'bg-blue-500', label: 'Đã đặt' },
   maintenance: { bg: 'bg-slate-100', text: 'text-slate-600', dot: 'bg-slate-400', label: 'Tạm ngừng' },
-  deleted:   { bg: 'bg-slate-100', text: 'text-slate-500', dot: 'bg-slate-300', label: 'Đã xóa' },
+  deleted: { bg: 'bg-slate-100', text: 'text-slate-500', dot: 'bg-slate-300', label: 'Đã xóa' },
 }
+
+const DEFAULT_AMENITIES = ['Điều hòa', 'Nước nóng', 'WiFi', 'TV', 'Tủ lạnh', 'Két sắt', 'Bồn tắm', 'Ban công', 'Cửa sổ']
 
 /** Display mask: 150000 → "150.000", stores raw number string */
 function maskVND(raw: string): string {
@@ -89,7 +91,7 @@ function RowActions({ r, onEdit, onDuplicate, onSuspend, onRestore, onStatusChan
       window.removeEventListener('scroll', handleResize, true)
     }
   }, [open])
-  
+
   return (
     <div className="flex items-center justify-end gap-1.5">
       <button onClick={onEdit} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:bg-slate-50 transition-colors whitespace-nowrap">
@@ -103,7 +105,7 @@ function RowActions({ r, onEdit, onDuplicate, onSuspend, onRestore, onStatusChan
       {open && typeof document !== 'undefined' && createPortal(
         <>
           <div className="fixed inset-0 z-[100]" onClick={() => setOpen(false)} />
-          <div 
+          <div
             className="absolute w-32 rounded-lg border border-slate-200 bg-white shadow-lg z-[101] py-1 flex flex-col items-stretch text-left"
             style={{ top: coords.top + 4, right: coords.right }}
           >
@@ -216,20 +218,20 @@ export function ResourcesClient({ shopId, industryType }: Props) {
       set.add(r.zone || 'Chưa phân vùng')
     })
     const list = Array.from(set)
-    
+
     list.sort((a, b) => {
       if (a === 'Chưa phân vùng') return 1
       if (b === 'Chưa phân vùng') return -1
-      
+
       const idxA = zoneOrder.indexOf(a)
       const idxB = zoneOrder.indexOf(b)
-      
+
       if (idxA !== -1 && idxB !== -1) {
         return idxA - idxB
       }
       if (idxA !== -1) return -1
       if (idxB !== -1) return 1
-      
+
       return a.localeCompare(b, 'vi')
     })
     return list
@@ -312,8 +314,8 @@ export function ResourcesClient({ shopId, industryType }: Props) {
         const currentSettings = await getRes.json()
         const parsed = currentSettings.resource_sub_types
           ? (typeof currentSettings.resource_sub_types === 'string'
-             ? JSON.parse(currentSettings.resource_sub_types)
-             : currentSettings.resource_sub_types)
+            ? JSON.parse(currentSettings.resource_sub_types)
+            : currentSettings.resource_sub_types)
           : {}
 
         const currentOrder = parsed[`${industryType}_zone_order`] || []
@@ -347,10 +349,10 @@ export function ResourcesClient({ shopId, industryType }: Props) {
       const currentSettings = await getRes.json()
       const parsed = currentSettings.resource_sub_types
         ? (typeof currentSettings.resource_sub_types === 'string'
-           ? JSON.parse(currentSettings.resource_sub_types)
-           : currentSettings.resource_sub_types)
+          ? JSON.parse(currentSettings.resource_sub_types)
+          : currentSettings.resource_sub_types)
         : {}
-      
+
       parsed[`${industryType}_zone_order`] = editableZones
 
       await handleSaveSettings(parsed)
@@ -364,7 +366,7 @@ export function ResourcesClient({ shopId, industryType }: Props) {
   }
 
   // Custom Settings
-  const [customSubTypes, setCustomSubTypes] = useState<{value:string, label:string}[]>([])
+  const [customSubTypes, setCustomSubTypes] = useState<{ value: string, label: string }[]>([])
   const [subTypeModalOpen, setSubTypeModalOpen] = useState(false)
   const combinedSubTypes = [...(tpl?.subTypes || []), ...customSubTypes]
 
@@ -412,6 +414,29 @@ export function ResourcesClient({ shopId, industryType }: Props) {
   const [formExtraBedFee, setFormExtraBedFee] = useState('')
   const [formAmenities, setFormAmenities] = useState<string[]>([])
 
+  // Advanced Hourly Pricing States
+  const [useAdvancedPricing, setUseAdvancedPricing] = useState(false)
+  const [formBaseHours, setFormBaseHours] = useState('1')
+  const [formBasePrice, setFormBasePrice] = useState('')
+  const [formNextHourlyRate, setFormNextHourlyRate] = useState('')
+  const [formGraceMinutes, setFormGraceMinutes] = useState('0')
+  const [formProgressiveRates, setFormProgressiveRates] = useState<{ hour: string; rate: string }[]>([])
+  const [newProgHour, setNewProgHour] = useState('')
+  const [newProgRate, setNewProgRate] = useState('')
+
+  const nextProgressiveHour = useMemo(() => {
+    const baseHourNum = Number(formBaseHours) || 1
+    if (formProgressiveRates.length === 0) {
+      return baseHourNum + 1
+    }
+    const maxHour = Math.max(...formProgressiveRates.map(r => Number(r.hour)))
+    return Math.max(maxHour, baseHourNum) + 1
+  }, [formBaseHours, formProgressiveRates])
+
+  // Dynamic Amenities States
+  const [amenityOptions, setAmenityOptions] = useState<string[]>(DEFAULT_AMENITIES)
+  const [newAmenityInput, setNewAmenityInput] = useState('')
+
   const fetchResources = useCallback(async () => {
     try {
       const res = await fetch(`/api/shops/${shopId}/location-resources?limit=500`)
@@ -437,7 +462,7 @@ export function ResourcesClient({ shopId, industryType }: Props) {
           setCustomSubTypes(parsed[industryType])
         }
       }
-    } catch {}
+    } catch { }
   }, [shopId, industryType])
 
   async function handleSaveSettings(updatedSubTypes: any) {
@@ -452,13 +477,13 @@ export function ResourcesClient({ shopId, industryType }: Props) {
 
   useEffect(() => { fetchResources(); fetchSettings() }, [fetchResources, fetchSettings])
 
-  async function handleSaveCustomSubTypes(newList: {value:string, label:string}[]) {
+  async function handleSaveCustomSubTypes(newList: { value: string, label: string }[]) {
     try {
       // 1. Fetch current settings first
       const getRes = await fetch(`/api/shops/${shopId}/settings`)
       const currentSettings = await getRes.json()
       const parsed = currentSettings.resource_sub_types ? safeParseJSON(currentSettings.resource_sub_types) : {}
-      
+
       // 2. Update vertical
       parsed[industryType] = newList
 
@@ -487,6 +512,16 @@ export function ResourcesClient({ shopId, industryType }: Props) {
     setFormOvernightRate(''); setFormSurchargePct(''); setFormCheckinTime('14:00')
     setFormCheckoutTime('12:00'); setFormDepositAmount(''); setFormExtraBedFee('')
     setFormAmenities([])
+    setUseAdvancedPricing(false)
+    setFormBaseHours('1')
+    setFormBasePrice('')
+    setFormNextHourlyRate('')
+    setFormGraceMinutes('0')
+    setFormProgressiveRates([])
+    setNewProgHour('')
+    setNewProgRate('')
+    setAmenityOptions(DEFAULT_AMENITIES)
+    setNewAmenityInput('')
     setCreating(false)
     setEditingId(null)
     setIsCreatingNewZone(false)
@@ -505,7 +540,28 @@ export function ResourcesClient({ shopId, industryType }: Props) {
     setFormWeekendRate(maskVND(md.weekend_rate || '')); setFormOvernightRate(maskVND(md.overnight_rate || ''))
     setFormSurchargePct(md.surcharge_pct?.toString() || ''); setFormCheckinTime(md.checkin_time || '14:00')
     setFormCheckoutTime(md.checkout_time || '12:00'); setFormDepositAmount(maskVND(md.deposit_amount || ''))
-    setFormExtraBedFee(maskVND(md.extra_bed_fee || '')); setFormAmenities(md.amenities || [])
+    const savedAmenities = md.amenities || []
+    setFormExtraBedFee(maskVND(md.extra_bed_fee || ''))
+    setFormAmenities(savedAmenities)
+    setAmenityOptions(Array.from(new Set([...DEFAULT_AMENITIES, ...savedAmenities])))
+
+    // Parse Advanced Pricing
+    const adv = md.advanced_pricing || {}
+    setUseAdvancedPricing(!!adv.enabled)
+    setFormBaseHours(String(adv.base_hours ?? '1'))
+    setFormBasePrice(maskVND(String(adv.base_price ?? '')))
+    setFormNextHourlyRate(maskVND(String(adv.next_hourly_rate ?? '')))
+    setFormGraceMinutes(String(adv.grace_minutes ?? '0'))
+
+    const progList: { hour: string; rate: string }[] = []
+    if (adv.progressive_rates) {
+      for (const [h, rateVal] of Object.entries(adv.progressive_rates)) {
+        progList.push({ hour: h, rate: maskVND(String(rateVal)) })
+      }
+    }
+    progList.sort((a, b) => Number(a.hour) - Number(b.hour))
+    setFormProgressiveRates(progList)
+
     setCreating(true)
     setIsCreatingNewZone(false)
   }
@@ -523,7 +579,28 @@ export function ResourcesClient({ shopId, industryType }: Props) {
     setFormWeekendRate(maskVND(md.weekend_rate || '')); setFormOvernightRate(maskVND(md.overnight_rate || ''))
     setFormSurchargePct(md.surcharge_pct?.toString() || ''); setFormCheckinTime(md.checkin_time || '14:00')
     setFormCheckoutTime(md.checkout_time || '12:00'); setFormDepositAmount(maskVND(md.deposit_amount || ''))
-    setFormExtraBedFee(maskVND(md.extra_bed_fee || '')); setFormAmenities(md.amenities || [])
+    const savedAmenities = md.amenities || []
+    setFormExtraBedFee(maskVND(md.extra_bed_fee || ''))
+    setFormAmenities(savedAmenities)
+    setAmenityOptions(Array.from(new Set([...DEFAULT_AMENITIES, ...savedAmenities])))
+
+    // Parse Advanced Pricing
+    const adv = md.advanced_pricing || {}
+    setUseAdvancedPricing(!!adv.enabled)
+    setFormBaseHours(String(adv.base_hours ?? '1'))
+    setFormBasePrice(maskVND(String(adv.base_price ?? '')))
+    setFormNextHourlyRate(maskVND(String(adv.next_hourly_rate ?? '')))
+    setFormGraceMinutes(String(adv.grace_minutes ?? '0'))
+
+    const progList: { hour: string; rate: string }[] = []
+    if (adv.progressive_rates) {
+      for (const [h, rateVal] of Object.entries(adv.progressive_rates)) {
+        progList.push({ hour: h, rate: maskVND(String(rateVal)) })
+      }
+    }
+    progList.sort((a, b) => Number(a.hour) - Number(b.hour))
+    setFormProgressiveRates(progList)
+
     setCreating(true)
   }
 
@@ -560,12 +637,36 @@ export function ResourcesClient({ shopId, industryType }: Props) {
     if (formExtraBedFee) meta.extra_bed_fee = unmaskVND(formExtraBedFee)
     if (formAmenities.length > 0) meta.amenities = formAmenities
 
+    // Package Advanced Pricing
+    if (useAdvancedPricing) {
+      const progressiveObj: Record<number, number> = {}
+      for (const item of formProgressiveRates) {
+        const hourNum = Number(item.hour)
+        const rateNum = Number(unmaskVND(item.rate))
+        if (!isNaN(hourNum) && !isNaN(rateNum) && hourNum > 0) {
+          progressiveObj[hourNum] = rateNum
+        }
+      }
+      meta.advanced_pricing = {
+        enabled: true,
+        base_hours: Number(formBaseHours) || 1,
+        base_price: Number(unmaskVND(formBasePrice)) || 0,
+        next_hourly_rate: Number(unmaskVND(formNextHourlyRate)) || 0,
+        grace_minutes: Number(formGraceMinutes) || 0,
+        progressive_rates: progressiveObj,
+      }
+    } else {
+      meta.advanced_pricing = {
+        enabled: false,
+      }
+    }
+
     const payload: Record<string, string> = {
       name: formName.trim(),
       type: formType,
       zone: formZone.trim(),
       capacity: formCapacity,
-      hourly_rate: unmaskVND(formHourlyRate),
+      hourly_rate: useAdvancedPricing ? (unmaskVND(formNextHourlyRate) || unmaskVND(formBasePrice) || '0') : unmaskVND(formHourlyRate),
       metadata: JSON.stringify(meta),
     }
 
@@ -838,11 +939,10 @@ export function ResourcesClient({ shopId, industryType }: Props) {
         </button>
         <button
           onClick={() => setFilterStatus('map')}
-          className={`inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-            filterStatus === 'map'
-              ? 'bg-primary text-white shadow-md font-bold shadow-primary/10 border border-primary'
-              : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-          }`}
+          className={`inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${filterStatus === 'map'
+            ? 'bg-primary text-white shadow-md font-bold shadow-primary/10 border border-primary'
+            : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+            }`}
         >
           <svg className="w-3.5 h-3.5 mr-1.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
@@ -896,7 +996,7 @@ export function ResourcesClient({ shopId, industryType }: Props) {
                   >
                     <span>↕️</span> Sắp xếp lại vị trí
                   </button>
-                  
+
                   {selectedZone && selectedZone !== 'Chưa phân vùng' ? (
                     <button
                       onClick={() => {
@@ -994,7 +1094,7 @@ export function ResourcesClient({ shopId, industryType }: Props) {
       {/* SlideOver for Create/Edit */}
       {creating && (
         <>
-          <div className="fixed inset-0 z-40 bg-black/40" onClick={resetForm} />
+          <div className="fixed z-40 bg-black/40" style={{ top: '-100px', right: '-100px', bottom: '-100px', left: '-100px' }} onClick={resetForm} />
           <div className="fixed inset-y-0 right-0 z-50 w-full max-w-lg bg-white shadow-2xl flex flex-col">
             <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
               <h2 className="text-base font-semibold text-slate-900">{editingId ? `Sửa ${typeLabel}` : `Tạo ${typeLabel} mới`}</h2>
@@ -1083,8 +1183,150 @@ export function ResourcesClient({ shopId, industryType }: Props) {
                   )}
                 </div>
                 {vertical.features.hourly_billing && (
-                  <div><label className="block text-xs font-medium text-slate-600 mb-1">Giá theo giờ (₫)</label>
-                    <input value={formHourlyRate} onChange={e => setFormHourlyRate(maskVND(e.target.value))} placeholder="0" type="text" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary" /></div>
+                  <div className="col-span-2 space-y-4 border-t border-slate-100 pt-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="block text-xs font-bold text-slate-800 uppercase tracking-wide">Cấu hình giá theo giờ</span>
+                        <span className="block text-[11px] text-slate-500">Thiết lập block giờ đầu, quá giờ và lũy tiến</span>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={useAdvancedPricing}
+                          onChange={e => setUseAdvancedPricing(e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all after:shadow-sm peer-checked:bg-primary"></div>
+                        <span className="ml-2 text-xs font-medium text-slate-650 whitespace-nowrap">Tính giá nâng cao</span>
+                      </label>
+                    </div>
+
+                    {!useAdvancedPricing ? (
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">Giá theo giờ phẳng (₫/h)</label>
+                        <input
+                          value={formHourlyRate}
+                          onChange={e => setFormHourlyRate(maskVND(e.target.value))}
+                          placeholder="0"
+                          type="text"
+                          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary outline-none"
+                        />
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-slate-200 bg-slate-50/40 p-4 space-y-4">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-650 mb-1">Block giờ đầu (số giờ)</label>
+                            <input
+                              value={formBaseHours}
+                              onChange={e => setFormBaseHours(e.target.value.replace(/\D/g, ''))}
+                              placeholder="1"
+                              type="number"
+                              className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary bg-white outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-650 mb-1">Giá giờ đầu (₫)</label>
+                            <input
+                              value={formBasePrice}
+                              onChange={e => setFormBasePrice(maskVND(e.target.value))}
+                              placeholder="0"
+                              type="text"
+                              className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary bg-white outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-650 mb-1">Giá các giờ sau (₫/h)</label>
+                            <input
+                              value={formNextHourlyRate}
+                              onChange={e => setFormNextHourlyRate(maskVND(e.target.value))}
+                              placeholder="0"
+                              type="text"
+                              className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary bg-white outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-650 mb-1">Thời gian quá giờ cho phép (phút)</label>
+                            <input
+                              value={formGraceMinutes}
+                              onChange={e => setFormGraceMinutes(e.target.value.replace(/\D/g, ''))}
+                              placeholder="10"
+                              type="number"
+                              className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary bg-white outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Progressive Hourly Rates */}
+                        <div className="border-t border-slate-200/80 pt-3.5 space-y-2.5">
+                          <label className="block text-[11px] font-bold text-slate-800 uppercase tracking-wide">Bảng giá lũy tiến tùy chỉnh</label>
+
+                          {/* List of configured progressive rates */}
+                          {formProgressiveRates.length > 0 ? (
+                            <div className="flex flex-wrap gap-2 max-h-28 overflow-y-auto pr-1">
+                              {formProgressiveRates.map((item, idx) => (
+                                <div key={idx} className="flex items-center gap-1.5 bg-primary/5 text-primary text-xs font-semibold px-2.5 py-1 rounded-lg border border-primary/10">
+                                  <span>Giờ {item.hour}: {Number(unmaskVND(item.rate)).toLocaleString('vi-VN')}₫</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setFormProgressiveRates(prev => prev.filter((_, i) => i !== idx))}
+                                    className="text-red-500 hover:text-red-750 font-bold ml-1 text-sm leading-none shrink-0"
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-[11px] text-slate-450 italic">Chưa có mốc lũy tiến nào. Các giờ tiếp theo sẽ tự động kế thừa giá của giờ trước hoặc dùng giá giờ sau mặc định.</p>
+                          )}
+
+                          {/* Inputs to add progressive rate */}
+                          <div className="flex items-center gap-2">
+                            <div className="w-24 shrink-0">
+                              <input
+                                type="text"
+                                readOnly
+                                disabled
+                                value={`Giờ thứ ${nextProgressiveHour}`}
+                                className="w-full rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold bg-slate-50 text-slate-500 text-center select-none cursor-not-allowed"
+                              />
+                            </div>
+                            <div className="flex-1">
+                              <input
+                                type="text"
+                                placeholder="Giá (₫)"
+                                value={newProgRate}
+                                onChange={e => setNewProgRate(maskVND(e.target.value))}
+                                className="w-full rounded-lg border border-slate-300 px-2 py-1 text-xs text-right outline-none bg-white"
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const rVal = newProgRate.trim()
+                                if (!rVal) {
+                                  toast.error('Vui lòng nhập giá cho giờ lũy tiến!')
+                                  return
+                                }
+                                const hVal = String(nextProgressiveHour)
+                                const newList = [...formProgressiveRates, { hour: hVal, rate: maskVND(rVal) }]
+                                newList.sort((a, b) => Number(a.hour) - Number(b.hour))
+                                setFormProgressiveRates(newList)
+                                setNewProgRate('')
+                              }}
+                              className="shrink-0 rounded-lg bg-slate-700 hover:bg-slate-800 text-white font-bold text-xs px-3 py-1.5 transition-colors"
+                            >
+                              Thêm
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
                 {sec?.bedType && (
                   <div><label className="block text-xs font-medium text-slate-600 mb-1">Loại giường</label><select value={formBedType} onChange={e => setFormBedType(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"><option value="">Chọn</option><option value="single">Đơn</option><option value="double">Đôi</option><option value="twin">Twin</option><option value="king">King</option></select></div>
@@ -1110,13 +1352,56 @@ export function ResourcesClient({ shopId, industryType }: Props) {
                 )}
               </div>
               {sec?.amenities && (
-                <div className="border-t border-slate-100 pt-4"><p className="text-xs font-bold text-slate-800 uppercase tracking-wide mb-3">Tiện nghi</p>
+                <div className="border-t border-slate-100 pt-4 space-y-3">
+                  <p className="text-xs font-bold text-slate-800 uppercase tracking-wide">Tiện nghi</p>
                   <div className="flex flex-wrap gap-2">
-                    {['Điều hòa','Nước nóng','WiFi','TV','Tủ lạnh','Két sắt','Bồn tắm','Ban công','Cửa sổ'].map(a => (
-                      <label key={a} className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs cursor-pointer transition-colors ${formAmenities.includes(a)?'border-primary bg-primary/5 text-primary font-semibold':'border-slate-200 text-slate-500 hover:border-slate-300'}`}>
-                        <input type="checkbox" className="sr-only" checked={formAmenities.includes(a)} onChange={() => setFormAmenities(p => p.includes(a)?p.filter(x=>x!==a):[...p,a])} />{a}
+                    {amenityOptions.map(a => (
+                      <label key={a} className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs cursor-pointer transition-colors ${formAmenities.includes(a) ? 'border-primary bg-primary/5 text-primary font-semibold' : 'border-slate-200 text-slate-500 hover:border-slate-300'}`}>
+                        <input type="checkbox" className="sr-only" checked={formAmenities.includes(a)} onChange={() => setFormAmenities(p => p.includes(a) ? p.filter(x => x !== a) : [...p, a])} />{a}
                       </label>))}
-                  </div></div>
+                  </div>
+                  {/* Dynamic Add Amenity Input */}
+                  <div className="flex items-center gap-2 mt-2 pt-1">
+                    <input
+                      type="text"
+                      placeholder="Thêm tiện nghi khác (ví dụ: Bể bơi)..."
+                      value={newAmenityInput}
+                      onChange={e => setNewAmenityInput(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          const val = newAmenityInput.trim()
+                          if (!val) return
+                          if (amenityOptions.includes(val)) {
+                            toast.error(`Tiện nghi "${val}" đã có sẵn!`)
+                            return
+                          }
+                          setAmenityOptions([...amenityOptions, val])
+                          setFormAmenities([...formAmenities, val])
+                          setNewAmenityInput('')
+                        }
+                      }}
+                      className="flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-xs outline-none bg-white focus:border-primary"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const val = newAmenityInput.trim()
+                        if (!val) return
+                        if (amenityOptions.includes(val)) {
+                          toast.error(`Tiện nghi "${val}" đã có sẵn!`)
+                          return
+                        }
+                        setAmenityOptions([...amenityOptions, val])
+                        setFormAmenities([...formAmenities, val])
+                        setNewAmenityInput('')
+                      }}
+                      className="shrink-0 rounded-lg bg-slate-700 hover:bg-slate-800 text-white font-bold text-xs px-3 py-1.5 transition-colors"
+                    >
+                      Thêm
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
             <div className="border-t border-slate-100 px-6 py-4 flex items-center gap-2">
@@ -1184,12 +1469,12 @@ export function ResourcesClient({ shopId, industryType }: Props) {
                 </svg>
               </button>
             </div>
-            
+
             <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
               <p className="text-xs text-slate-500 mb-3">
                 Thay đổi thứ tự hiển thị của các khu vực trên thanh tab POS và Quản lý phòng/bàn.
               </p>
-              
+
               <div className="space-y-2">
                 {editableZones.map((z, idx) => (
                   <div key={z} className="flex items-center justify-between gap-3 p-3 rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-slate-50 transition-colors">
@@ -1228,7 +1513,7 @@ export function ResourcesClient({ shopId, industryType }: Props) {
                 ))}
               </div>
             </div>
-            
+
             <div className="border-t border-slate-100 px-6 py-4 flex items-center gap-3">
               <button
                 disabled={saving}
@@ -1260,7 +1545,7 @@ export function ResourcesClient({ shopId, industryType }: Props) {
                 </svg>
               </button>
             </div>
-            
+
             <div className="px-6 py-4 space-y-4">
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1.5">Tên vị trí cũ</label>
@@ -1286,7 +1571,7 @@ export function ResourcesClient({ shopId, industryType }: Props) {
                 />
               </div>
             </div>
-            
+
             <div className="border-t border-slate-100 px-6 py-4 flex items-center gap-3">
               <button
                 disabled={saving}
@@ -1329,11 +1614,10 @@ export function ResourcesClient({ shopId, industryType }: Props) {
               <div className="grid grid-cols-2 gap-4">
                 <button
                   onClick={() => setPrintTemplate('color')}
-                  className={`flex flex-col items-center justify-center p-4 rounded-xl border text-center transition-all cursor-pointer ${
-                    printTemplate === 'color'
-                      ? 'border-orange-500 bg-orange-50/30 ring-1 ring-orange-500'
-                      : 'border-slate-200 bg-white hover:border-slate-350'
-                  }`}
+                  className={`flex flex-col items-center justify-center p-4 rounded-xl border text-center transition-all cursor-pointer ${printTemplate === 'color'
+                    ? 'border-orange-500 bg-orange-50/30 ring-1 ring-orange-500'
+                    : 'border-slate-200 bg-white hover:border-slate-350'
+                    }`}
                 >
                   <span className="text-xl mb-1">🎨</span>
                   <span className="text-xs font-bold text-slate-800">Thẻ Để Bàn (Premium)</span>
@@ -1341,11 +1625,10 @@ export function ResourcesClient({ shopId, industryType }: Props) {
                 </button>
                 <button
                   onClick={() => setPrintTemplate('thermal')}
-                  className={`flex flex-col items-center justify-center p-4 rounded-xl border text-center transition-all cursor-pointer ${
-                    printTemplate === 'thermal'
-                      ? 'border-orange-500 bg-orange-50/30 ring-1 ring-orange-500'
-                      : 'border-slate-200 bg-white hover:border-slate-350'
-                  }`}
+                  className={`flex flex-col items-center justify-center p-4 rounded-xl border text-center transition-all cursor-pointer ${printTemplate === 'thermal'
+                    ? 'border-orange-500 bg-orange-50/30 ring-1 ring-orange-500'
+                    : 'border-slate-200 bg-white hover:border-slate-350'
+                    }`}
                 >
                   <span className="text-xl mb-1">🖨️</span>
                   <span className="text-xs font-bold text-slate-800">In Nhiệt K80/K58 (B&W)</span>
@@ -1362,7 +1645,7 @@ export function ResourcesClient({ shopId, industryType }: Props) {
                     <div className="w-[280px] bg-gradient-to-b from-orange-500 via-orange-600 to-amber-600 text-white rounded-2xl p-5 text-center shadow-lg flex flex-col justify-between items-center relative overflow-hidden aspect-[4/6]">
                       {/* Brand Pattern Background */}
                       <div className="absolute inset-0 opacity-10 bg-[radial-gradient(#fff_1px,transparent_1px)] [background-size:16px_16px]" />
-                      
+
                       {/* Shop Name */}
                       <div className="z-10 w-full">
                         <span className="block text-[10px] font-extrabold uppercase tracking-widest text-orange-200/90">{shopSettings?.shop_name || 'ONI SMART POS'}</span>
@@ -1451,7 +1734,7 @@ export function ResourcesClient({ shopId, industryType }: Props) {
           {printItems.map((item) => {
             const qrUrl = `${window.location.origin}/qr-order/${slug}/${item.resource_id || item.id}`
             const qrImg = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(qrUrl)}`
-            
+
             return (
               <div
                 key={item.id}
@@ -1496,7 +1779,8 @@ export function ResourcesClient({ shopId, industryType }: Props) {
           })}
 
           {/* Embedded Custom Print Stylesheets */}
-          <style dangerouslySetInnerHTML={{ __html: `
+          <style dangerouslySetInnerHTML={{
+            __html: `
             @media print {
               /* Strip all margins/paddings from standard browser styles */
               @page {

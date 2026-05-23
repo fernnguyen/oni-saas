@@ -14,6 +14,7 @@ import { printBill } from '@/lib/pos/printBill'
 import type { CartItem } from '@/hooks/useCart'
 import { CustomerSearch } from './CustomerSearch'
 import { useQuery } from '@tanstack/react-query'
+import { calculateHourlyBilling } from '@oni/core'
 
 interface Props {
   open: boolean
@@ -112,15 +113,25 @@ export function CheckoutModal({
     if (!metadata?.check_in || hourlyRate <= 0) return items
     const checkInDate = new Date(metadata.check_in)
     const effectiveCheckout = localCheckoutTime ? new Date(localCheckoutTime) : (customCheckoutTime ? new Date(customCheckoutTime) : new Date())
-    const diffSec = Math.max(0, Math.floor((effectiveCheckout.getTime() - checkInDate.getTime()) / 1000))
-    const newBillableHours = Math.ceil(diffSec / 3600)
-    const newTimeCharge = newBillableHours * hourlyRate
-    const h = Math.floor(diffSec / 3600)
-    const m = Math.floor((diffSec % 3600) / 60)
-    const durationLabel = `${h}h ${m}p`
+    
+    const pricingResult = calculateHourlyBilling({
+      checkIn: checkInDate,
+      checkOut: effectiveCheckout,
+      standardRate: hourlyRate,
+      config: metadata.advanced_pricing
+    })
+
+    const newBillableHours = pricingResult.billableQty
+    const newTimeCharge = pricingResult.totalAmount
+
     return items.map(item => {
       if (item.product_id === 'TIME_CHARGE') {
-        return { ...item, qty: newBillableHours, line_total: newTimeCharge, product_name: `Tiền giờ sử dụng (${durationLabel})` }
+        return { 
+          ...item, 
+          qty: newBillableHours, 
+          line_total: newTimeCharge, 
+          product_name: `Tiền giờ sử dụng (${pricingResult.durationLabel})` 
+        }
       }
       return item
     })
