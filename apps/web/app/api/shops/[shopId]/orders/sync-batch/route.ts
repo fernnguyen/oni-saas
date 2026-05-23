@@ -534,33 +534,67 @@ export async function POST(
           // Determine new tier
           let newType = 'retail'
           const dynamicTiers = (settings?.membership_tiers || []) as { name: string; threshold: number; discount: number }[]
+          const currentType = (customer.customer_type || 'retail').trim()
 
-          if (dynamicTiers && dynamicTiers.length > 0) {
-            // Sort tiers by threshold DESC (highest threshold first)
-            const sortedTiers = [...dynamicTiers].sort((a, b) => Number(b.threshold) - Number(a.threshold))
-            const matchingTier = sortedTiers.find(t => recentTotal >= Number(t.threshold))
-            if (matchingTier) {
-              newType = matchingTier.name
+          // Exclude manual segments (wholesale, staff, vip) and check if CRM is enabled globally
+          const isLegacyGroup = ['wholesale', 'staff', 'vip'].includes(currentType.toLowerCase())
+          const crmEnabled = settings.loyalty_points_enabled !== false
+
+          if (crmEnabled && !isLegacyGroup) {
+            if (dynamicTiers && dynamicTiers.length > 0) {
+              // Sort tiers by threshold DESC (highest threshold first)
+              const sortedTiers = [...dynamicTiers].sort((a, b) => Number(b.threshold) - Number(a.threshold))
+              const matchingTier = sortedTiers.find(t => recentTotal >= Number(t.threshold))
+              if (matchingTier) {
+                newType = matchingTier.name
+              } else {
+                newType = 'retail'
+              }
             } else {
-              newType = 'retail'
-            }
-          } else {
-            // Fallback to legacy hardcoded levels
-            const tierGold = Number(settings?.tier_gold_threshold || 35000000)
-            const tierSilver = Number(settings?.tier_silver_threshold || 15000000)
-            const tierBronze = Number(settings?.tier_bronze_threshold || 5000000)
+              // Fallback to legacy hardcoded levels
+              const tierGold = Number(settings?.tier_gold_threshold || 35000000)
+              const tierSilver = Number(settings?.tier_silver_threshold || 15000000)
+              const tierBronze = Number(settings?.tier_bronze_threshold || 5000000)
 
-            if (recentTotal >= tierGold) {
-              newType = 'gold'
-            } else if (recentTotal >= tierSilver) {
-              newType = 'silver'
-            } else if (recentTotal >= tierBronze) {
-              newType = 'bronze'
+              if (recentTotal >= tierGold) {
+                newType = 'gold'
+              } else if (recentTotal >= tierSilver) {
+                newType = 'silver'
+              } else if (recentTotal >= tierBronze) {
+                newType = 'bronze'
+              }
             }
-          }
 
-          if (newType !== (customer.customer_type || 'retail')) {
-            updates.customer_type = newType
+            // --- NEVER DOWNGRADE & UPGRADE-ONLY POLICY ---
+            // If they are currently at retail, they can be upgraded to any tier.
+            // If they are currently at a tier, they can ONLY be upgraded to a tier with a HIGHER threshold.
+            if (newType !== currentType) {
+              let shouldUpdate = false
+
+              if (currentType.toLowerCase() === 'retail') {
+                shouldUpdate = true
+              } else {
+                // Find threshold of current tier
+                const currentTierObj = dynamicTiers.find(t => t.name.toLowerCase() === currentType.toLowerCase())
+                const newTierObj = dynamicTiers.find(t => t.name.toLowerCase() === newType.toLowerCase())
+                
+                if (currentTierObj && newTierObj) {
+                  // Upgrade only: new tier threshold must be strictly greater than current tier threshold
+                  if (Number(newTierObj.threshold) > Number(currentTierObj.threshold)) {
+                    shouldUpdate = true
+                  }
+                } else if (!currentTierObj && newTierObj) {
+                  // If current tier is some custom string but not in list, allow setting newType if it's not retail
+                  if (newType !== 'retail') {
+                    shouldUpdate = true
+                  }
+                }
+              }
+
+              if (shouldUpdate) {
+                updates.customer_type = newType
+              }
+            }
           }
 
           // Apply updates
