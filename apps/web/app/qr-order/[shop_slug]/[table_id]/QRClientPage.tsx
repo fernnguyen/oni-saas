@@ -650,7 +650,7 @@ export default function QRClientPage({
       setOrderRequests([data, ...orderRequests]);
       colabCart.clearCart();
       setIsCartOpen(false);
-      toast.success('🎉 Gửi yêu cầu thành công! Vui lòng đợi nhân viên xử lý.');
+      toast.success('Đã gửi yêu cầu! Nhân viên sẽ xác nhận trong giây lát');
       setIsHistoryOpen(true);
     } catch (err: any) {
       toast.error(err.message || 'Lỗi gửi yêu cầu');
@@ -1368,7 +1368,7 @@ export default function QRClientPage({
                         </span>
                         {req.status === 'pending' && (
                           <span className="rounded-full bg-yellow-50 dark:bg-yellow-950/40 border border-yellow-200 dark:border-yellow-900/30 px-2.5 py-0.5 text-[9px] font-extrabold text-yellow-600 dark:text-yellow-400 flex items-center gap-1 animate-pulse">
-                            ⏳ Chờ nhân viên phục vụ duyệt
+                            ⏳ Chờ duyệt
                           </span>
                         )}
                         {req.status === 'accepted' && (
@@ -1405,7 +1405,7 @@ export default function QRClientPage({
 
                       {req.reject_reason && (
                         <p className="text-[10px] text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/30 rounded-lg p-2 mt-1">
-                          ⚠️ Lý do từ chối: {req.reject_reason}
+                          Lý do từ chối: {req.reject_reason}
                         </p>
                       )}
                     </div>
