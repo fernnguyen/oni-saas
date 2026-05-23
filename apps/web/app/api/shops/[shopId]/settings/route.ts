@@ -22,6 +22,16 @@ const DEFAULT_SETTINGS = {
   default_price_type: 'retail',
   qr_auto_approve_session: false,
   synced_from_sheet_at: null as string | null,
+  loyalty_points_enabled: true,
+  loyalty_money_to_point: 100000,
+  loyalty_point_to_money: 1000,
+  tier_evaluation_years: 3,
+  tier_reward_type: 'discount_bill',
+  membership_tiers: [
+    { name: 'Đồng', threshold: 5000000, discount: 2, color: 'slate' },
+    { name: 'Bạc', threshold: 15000000, discount: 5, color: 'sapphire' },
+    { name: 'Vàng', threshold: 35000000, discount: 10, color: 'gold' }
+  ],
   updated_at: new Date().toISOString(),
 };
 
@@ -49,6 +59,17 @@ const putSchema = z.object({
   default_price_type: z.enum(['retail', 'wholesale', 'vip', 'staff']).optional(),
   resource_sub_types: z.string().optional(),
   qr_auto_approve_session: z.boolean().optional(),
+  loyalty_points_enabled: z.boolean().optional(),
+  loyalty_money_to_point: z.number().min(1).optional(),
+  loyalty_point_to_money: z.number().min(0).optional(),
+  tier_evaluation_years: z.number().int().min(1).optional(),
+  tier_reward_type: z.enum(['discount_bill', 'price_list']).optional(),
+  membership_tiers: z.array(z.object({
+    name: z.string().min(1),
+    threshold: z.number().min(0),
+    discount: z.number().min(0).max(100),
+    color: z.string().optional()
+  })).optional(),
 });
 
 async function resolveAuth(req: NextRequest, shopId: string) {
@@ -65,7 +86,7 @@ async function resolveAuth(req: NextRequest, shopId: string) {
   if (!tenantId) return null;
 
   const permissions = await getUserPermissions(auth.user.id, tenantId, shopId);
-  return { user: auth.user, permissions };
+  return { user: auth.user, permissions, tenantId };
 }
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ shopId: string }> }) {
@@ -93,6 +114,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ shop
     settings.address = shopData.address;
     settings.phone = shopData.phone;
   }
+  
+  // Inject CRM access flag
+  const { checkFeatureAccess } = await import('../../../../../lib/server/features');
+  settings.has_crm_access = ctx.tenantId ? await checkFeatureAccess(ctx.tenantId, 'crm') : false;
   
   return NextResponse.json(settings);
 }
