@@ -29,6 +29,20 @@ interface ShopSettings {
   qr_auto_approve_session?: boolean;
   synced_from_sheet_at: string | null;
   updated_at: string;
+  // CRM Settings
+  has_crm_access?: boolean;
+  loyalty_points_enabled?: boolean;
+  loyalty_money_to_point?: number;
+  loyalty_point_to_money?: number;
+  tier_reward_type?: string;
+  tier_evaluation_years?: number;
+  tier_gold_threshold?: number;
+  tier_silver_threshold?: number;
+  tier_bronze_threshold?: number;
+  tier_gold_discount?: number;
+  tier_silver_discount?: number;
+  tier_bronze_discount?: number;
+  membership_tiers?: { name: string; threshold: number; discount: number }[];
 }
 
 interface ConnectorData {
@@ -86,10 +100,29 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, industryT
     receipt_footer: initial.receipt_footer ?? '',
     default_price_type: initial.default_price_type,
     qr_auto_approve_session: initial.qr_auto_approve_session ?? false,
+    // CRM Settings
+    loyalty_points_enabled: initial.loyalty_points_enabled ?? true,
+    loyalty_money_to_point: String(initial.loyalty_money_to_point ?? 100000),
+    loyalty_point_to_money: String(initial.loyalty_point_to_money ?? 1000),
+    tier_reward_type: initial.tier_reward_type ?? 'discount_bill',
+    tier_evaluation_years: String(initial.tier_evaluation_years ?? 3),
+    tier_gold_threshold: String(initial.tier_gold_threshold ?? 35000000),
+    tier_silver_threshold: String(initial.tier_silver_threshold ?? 15000000),
+    tier_bronze_threshold: String(initial.tier_bronze_threshold ?? 5000000),
+    tier_gold_discount: String(initial.tier_gold_discount ?? 10),
+    tier_silver_discount: String(initial.tier_silver_discount ?? 5),
+    tier_bronze_discount: String(initial.tier_bronze_discount ?? 2),
+    membership_tiers: (initial.membership_tiers && initial.membership_tiers.length > 0
+      ? initial.membership_tiers
+      : [
+          { name: 'Đồng', threshold: 5000000, discount: 2 },
+          { name: 'Bạc', threshold: 15000000, discount: 5 },
+          { name: 'Vàng', threshold: 35000000, discount: 10 }
+        ]) as { name: string; threshold: number | string; discount: number | string }[],
   });
   const [saveState, setSaveState] = useState<SaveState>('idle');
 
-  function set(key: keyof typeof form, value: string | boolean) {
+  function set(key: keyof typeof form, value: any) {
     setForm((f) => ({ ...f, [key]: value }));
     setSaveState('idle');
   }
@@ -123,6 +156,23 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, industryT
           receipt_footer: form.receipt_footer,
           default_price_type: form.default_price_type,
           qr_auto_approve_session: form.qr_auto_approve_session,
+          // CRM updates
+          loyalty_points_enabled: form.loyalty_points_enabled,
+          loyalty_money_to_point: parseFloat(form.loyalty_money_to_point) || 100000,
+          loyalty_point_to_money: parseFloat(form.loyalty_point_to_money) || 1000,
+          tier_reward_type: form.tier_reward_type,
+          tier_evaluation_years: parseInt(form.tier_evaluation_years, 10) || 3,
+          tier_gold_threshold: parseFloat(form.tier_gold_threshold) || 0,
+          tier_silver_threshold: parseFloat(form.tier_silver_threshold) || 0,
+          tier_bronze_threshold: parseFloat(form.tier_bronze_threshold) || 0,
+          tier_gold_discount: parseFloat(form.tier_gold_discount) || 0,
+          tier_silver_discount: parseFloat(form.tier_silver_discount) || 0,
+          tier_bronze_discount: parseFloat(form.tier_bronze_discount) || 0,
+          membership_tiers: form.membership_tiers.map((t: any) => ({
+            name: t.name,
+            threshold: parseFloat(String(t.threshold)) || 0,
+            discount: parseFloat(String(t.discount)) || 0
+          })),
         }),
       });
       if (!res.ok) throw new Error();
@@ -436,6 +486,210 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, industryT
                 </span>
               </div>
             </Field>
+          </Section>
+
+          {/* ── Section: Cấu hình CRM & Hạng thành viên ── */}
+          <Section title="Cấu hình CRM & Hạng thành viên" description="Thiết lập tỷ lệ tích lũy điểm, tiêu điểm và chiết khấu hạng thẻ khách hàng">
+            {initial.has_crm_access === false ? (
+              <div className="rounded-xl border border-dashed border-orange-200 bg-orange-50/50 p-6 text-center space-y-3">
+                <div className="text-3xl">🔒</div>
+                <h3 className="text-sm font-bold text-slate-800">Tính năng CRM & Tích điểm Hạng thẻ đang bị khóa</h3>
+                <p className="text-xs text-slate-500 max-w-sm mx-auto leading-relaxed">
+                  Tính năng quản lý Ví trả trước, Tích điểm thành viên và tự động thăng hạng thẻ khách hàng yêu cầu gói đăng ký <strong>Chuyên nghiệp (Pro)</strong> trở lên hoặc khi đã kích hoạt Add-on CRM.
+                </p>
+                <a
+                  href={`/t/${shop.slug}/billing`}
+                  className="inline-block rounded-xl bg-orange-600 px-4 py-2 text-xs font-bold text-white hover:bg-orange-700 active:scale-95 transition-all shadow-xs"
+                >
+                  Nâng cấp gói ngay
+                </a>
+              </div>
+            ) : (
+              <>
+                <Field label="Tích lũy điểm CRM">
+                  <div
+                    onClick={() => canManage && set('loyalty_points_enabled', !form.loyalty_points_enabled)}
+                    className="flex cursor-pointer items-center gap-3"
+                  >
+                    <div
+                      className={`relative h-6 w-11 rounded-full transition-colors ${form.loyalty_points_enabled ? 'bg-primary' : 'bg-slate-200'} ${canManage ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
+                    >
+                      <span
+                        className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${form.loyalty_points_enabled ? 'translate-x-5' : ''}`}
+                      />
+                    </div>
+                    <span className="text-sm text-slate-600 select-none">
+                      {form.loyalty_points_enabled ? 'Đang bật tích lũy điểm & tiêu dùng điểm cho khách' : 'Đã tắt tính năng tích điểm'}
+                    </span>
+                  </div>
+                </Field>
+
+                {form.loyalty_points_enabled && (
+                  <>
+                    <div className="grid gap-4 sm:grid-cols-2 border-t border-slate-100 pt-4 mt-2">
+                      <Field label="Tỷ lệ Tích điểm (Mua bao nhiêu được 1 điểm)" hint="Ví dụ: 100,000đ chi tiêu = 1 điểm">
+                        <input
+                          type="number" min="1"
+                          value={form.loyalty_money_to_point}
+                          onChange={(e) => set('loyalty_money_to_point', e.target.value)}
+                          disabled={!canManage}
+                          className={inputCls}
+                          placeholder="100000"
+                        />
+                      </Field>
+                      <Field label="Giá trị Tiêu điểm (1 điểm bằng bao nhiêu VNĐ)" hint="Ví dụ: 1 điểm = 1,000đ khi thanh toán">
+                        <input
+                          type="number" min="0"
+                          value={form.loyalty_point_to_money}
+                          onChange={(e) => set('loyalty_point_to_money', e.target.value)}
+                          disabled={!canManage}
+                          className={inputCls}
+                          placeholder="1000"
+                        />
+                      </Field>
+                    </div>
+
+                    <div className="border-t border-slate-100 pt-4 space-y-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="space-y-0.5">
+                          <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Cấu hình Hạng thành viên</h3>
+                          <p className="text-xs text-slate-400">Doanh thu tích lũy được xét trong thời gian quy định.</p>
+                        </div>
+                        <div className="w-full sm:w-32">
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Năm xét hạng</label>
+                          <input
+                            type="number" min="1" max="10"
+                            value={form.tier_evaluation_years}
+                            onChange={(e) => set('tier_evaluation_years', e.target.value)}
+                            disabled={!canManage}
+                            className={inputCls}
+                            placeholder="3"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Dynamic Tier Builder List */}
+                      <div className="space-y-3">
+                        <div className="hidden sm:grid sm:grid-cols-12 gap-4 px-2 text-xs font-semibold text-slate-500 uppercase">
+                          <div className="col-span-4">Tên hạng thành viên</div>
+                          <div className="col-span-4">Doanh thu tối thiểu (VNĐ)</div>
+                          <div className="col-span-3">Chiết khấu bill (%)</div>
+                          <div className="col-span-1 text-center">Xóa</div>
+                        </div>
+
+                        <div className="space-y-3">
+                          {form.membership_tiers.map((tier, idx) => (
+                            <div key={idx} className="flex flex-col sm:grid sm:grid-cols-12 gap-3 sm:gap-4 p-3 sm:p-2 bg-slate-50 sm:bg-transparent rounded-xl sm:rounded-none border border-slate-100 sm:border-0 relative">
+                              {/* Tier Name */}
+                              <div className="col-span-4 space-y-1 sm:space-y-0">
+                                <label className="block sm:hidden text-[10px] font-bold text-slate-400 uppercase">Tên hạng thành viên</label>
+                                <input
+                                  type="text"
+                                  value={tier.name}
+                                  onChange={(e) => {
+                                    const updated = [...form.membership_tiers];
+                                    updated[idx] = { ...updated[idx], name: e.target.value };
+                                    set('membership_tiers', updated);
+                                  }}
+                                  disabled={!canManage}
+                                  className={inputCls}
+                                  placeholder="Ví dụ: Đồng, Bạc, Vàng, VIP..."
+                                />
+                              </div>
+
+                              {/* Minimum Revenue */}
+                              <div className="col-span-4 space-y-1 sm:space-y-0">
+                                <label className="block sm:hidden text-[10px] font-bold text-slate-400 uppercase">Doanh thu tối thiểu (VNĐ)</label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={tier.threshold}
+                                  onChange={(e) => {
+                                    const updated = [...form.membership_tiers];
+                                    updated[idx] = { ...updated[idx], threshold: e.target.value };
+                                    set('membership_tiers', updated);
+                                  }}
+                                  disabled={!canManage}
+                                  className={inputCls}
+                                  placeholder="5000000"
+                                />
+                              </div>
+
+                              {/* Discount bill */}
+                              <div className="col-span-3 space-y-1 sm:space-y-0">
+                                <label className="block sm:hidden text-[10px] font-bold text-slate-400 uppercase">Chiết khấu bill (%)</label>
+                                <div className="relative flex items-center">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    max="100"
+                                    step="0.1"
+                                    value={tier.discount}
+                                    onChange={(e) => {
+                                      const updated = [...form.membership_tiers];
+                                      updated[idx] = { ...updated[idx], discount: e.target.value };
+                                      set('membership_tiers', updated);
+                                    }}
+                                    disabled={!canManage}
+                                    className="w-full rounded-xl border border-slate-200 bg-white pl-4 pr-8 py-2.5 text-sm focus:border-primary focus:outline-none"
+                                    placeholder="5"
+                                  />
+                                  <span className="absolute right-4 text-xs font-semibold text-slate-400">%</span>
+                                </div>
+                              </div>
+
+                              {/* Action: Delete */}
+                              <div className="col-span-1 flex items-center justify-end sm:justify-center mt-2 sm:mt-0">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (form.membership_tiers.length <= 1) {
+                                      toast.error('Cần giữ lại ít nhất 1 hạng thành viên!');
+                                      return;
+                                    }
+                                    const updated = form.membership_tiers.filter((_, i) => i !== idx);
+                                    set('membership_tiers', updated);
+                                  }}
+                                  disabled={!canManage}
+                                  className="p-2 text-rose-500 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50 disabled:hover:bg-transparent rounded-lg transition-colors cursor-pointer"
+                                  title="Xóa hạng thành viên"
+                                >
+                                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                                  </svg>
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Add Tier Button */}
+                        {canManage && (
+                          <div className="pt-2 px-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const updated = [
+                                  ...form.membership_tiers,
+                                  { name: 'Hạng Mới', threshold: 0, discount: 0 }
+                                ];
+                                set('membership_tiers', updated);
+                              }}
+                              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-primary hover:bg-primary/5 rounded-xl border border-dashed border-primary/30 transition-all cursor-pointer active:scale-95"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                              </svg>
+                              Thêm hạng mới
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
           </Section>
 
           {/* ── Save button ── */}

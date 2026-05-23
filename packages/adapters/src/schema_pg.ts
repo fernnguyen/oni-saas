@@ -141,6 +141,7 @@ export const customers = pgTable('customers', {
   credit_limit: varchar('credit_limit', { length: 50 }),
   debt_amount: varchar('debt_amount', { length: 50 }),
   loyalty_points: varchar('loyalty_points', { length: 50 }),
+  prepaid_balance: varchar('prepaid_balance', { length: 50 }).default('0'),
   note: text('note'),
 });
 

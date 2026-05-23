@@ -58,6 +58,9 @@ function parseCustomer(r: Raw) {
     ...r,
     customer_id: String(r.id || r.customer_id),
     debt_amount: r.debt_amount != null ? f(r.debt_amount) : undefined,
+    credit_limit: r.credit_limit != null ? f(r.credit_limit) : undefined,
+    loyalty_points: r.loyalty_points != null ? f(r.loyalty_points) : undefined,
+    prepaid_balance: r.prepaid_balance != null ? f(r.prepaid_balance) : undefined,
   }
 }
 
