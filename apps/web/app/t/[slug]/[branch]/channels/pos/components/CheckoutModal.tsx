@@ -61,6 +61,38 @@ function fmtVND(v: number | string | null | undefined) {
   return Number(v ?? 0).toLocaleString('vi-VN') + 'đ'
 }
 
+export function MemberTierBadge({ label, color }: { label: string; color?: string }) {
+  const c = (color || 'slate').toLowerCase()
+  let classes = 'bg-gradient-to-r from-slate-100 to-slate-200 text-slate-700 border border-slate-200/60 shadow-xs'
+  
+  const TYPE_LABEL_MAP: Record<string, string> = {
+    retail: 'Bán lẻ',
+    wholesale: 'Khách sỉ',
+    vip: 'VIP',
+    staff: 'Nội bộ'
+  }
+  const displayLabel = TYPE_LABEL_MAP[label.toLowerCase()] || label
+
+  if (c === 'emerald') classes = 'bg-gradient-to-r from-emerald-500 to-teal-650 text-white border border-emerald-400/30 shadow-xs'
+  else if (c === 'sapphire') classes = 'bg-gradient-to-r from-blue-600 to-indigo-650 text-white border border-blue-500/30 shadow-xs'
+  else if (c === 'amethyst') classes = 'bg-gradient-to-r from-purple-500 to-fuchsia-650 text-white border border-purple-400/30 shadow-xs'
+  else if (c === 'ruby') classes = 'bg-gradient-to-r from-rose-500 to-red-600 text-white border border-rose-400/30 shadow-xs'
+  else if (c === 'amber') classes = 'bg-gradient-to-r from-amber-500 to-orange-600 text-white border border-amber-400/30 shadow-xs'
+  else if (c === 'rose') classes = 'bg-gradient-to-r from-pink-500 to-rose-500 text-white border border-pink-400/30 shadow-xs'
+  else if (c === 'cyan') classes = 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white border border-cyan-400/30 shadow-xs'
+  else if (c === 'indigo') classes = 'bg-gradient-to-r from-indigo-500 to-violet-650 text-white border border-indigo-400/30 shadow-xs'
+  else if (c === 'slate') classes = 'bg-gradient-to-r from-slate-500 to-slate-700 text-white border border-slate-400/30 shadow-xs'
+  else if (c === 'gold') classes = 'bg-gradient-to-r from-amber-400 via-yellow-500 to-amber-600 text-white border border-yellow-400/35 shadow-sm font-bold uppercase tracking-wider'
+  else if (c === 'silver') classes = 'bg-gradient-to-r from-slate-200 via-slate-350 to-zinc-500 text-slate-800 border border-slate-300/40 shadow-xs font-bold uppercase tracking-wider'
+  else if (c === 'bronze') classes = 'bg-gradient-to-r from-orange-400 via-amber-700 to-orange-700 text-white border border-orange-500/30 shadow-xs font-bold uppercase tracking-wider'
+
+  return (
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-semibold leading-relaxed ${classes}`}>
+      {displayLabel}
+    </span>
+  )
+}
+
 export function fmtDateTimeVN(d: Date) {
   const hh = d.getHours().toString().padStart(2, '0')
   const mm = d.getMinutes().toString().padStart(2, '0')
@@ -188,6 +220,13 @@ export function CheckoutModal({
     if (type === 'silver' || type === 'bạc') return Number(settings?.tier_silver_discount ?? 5)
     if (type === 'bronze' || type === 'đồng') return Number(settings?.tier_bronze_discount ?? 2)
     return 0
+  }, [localCustomer, settings])
+  
+  const customerTierColor = useMemo(() => {
+    if (!localCustomer || !settings?.membership_tiers) return 'slate'
+    const type = (localCustomer.customer_type || '').trim().toLowerCase()
+    const activeTier = settings.membership_tiers.find((t: any) => (t.name || '').trim().toLowerCase() === type)
+    return activeTier?.color || 'slate'
   }, [localCustomer, settings])
   
   const tierDiscountAmount = useMemo(() => {
@@ -609,10 +648,13 @@ export function CheckoutModal({
               <p className="text-xs font-medium text-slate-500">KHÁCH HÀNG</p>
               <p className="text-xs text-slate-600 font-medium">
                 {localCustomer ? (
-                  <>
-                    {localCustomer.name}
-                    {localCustomer.phone && <span className="text-slate-400 font-normal ml-1">({localCustomer.phone})</span>}
-                  </>
+                  <span className="flex items-center gap-1.5 justify-end">
+                    <span>{localCustomer.name}</span>
+                    {localCustomer.phone && <span className="text-slate-400 font-normal">({localCustomer.phone})</span>}
+                    {localCustomer.customer_type && (
+                      <MemberTierBadge label={localCustomer.customer_type} color={customerTierColor} />
+                    )}
+                  </span>
                 ) : (
                   'Khách lẻ'
                 )}
@@ -775,7 +817,11 @@ export function CheckoutModal({
 
               {tierDiscountAmount > 0 && (
                 <div className="flex justify-between font-medium text-slate-600 text-sm mt-1">
-                  <span>Ưu đãi hạng ({localCustomer?.customer_type?.toUpperCase()} - {tierDiscountPct}%):</span>
+                  <span className="flex items-center gap-1.5">
+                    <span>Ưu đãi hạng</span>
+                    <MemberTierBadge label={localCustomer?.customer_type || ''} color={customerTierColor} />
+                    <span>(-{tierDiscountPct}%):</span>
+                  </span>
                   <span className="text-emerald-600">-{fmtVND(tierDiscountAmount)}</span>
                 </div>
               )}

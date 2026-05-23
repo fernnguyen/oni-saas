@@ -72,6 +72,17 @@ interface Props {
   industryType?: string;
 }
 
+function toRawNumber(val: string): string {
+  return val.replace(/\./g, '')
+}
+
+function formatWithDots(val: string | number): string {
+  if (val === undefined || val === null || val === '') return ''
+  const clean = String(val).replace(/[^0-9]/g, '')
+  if (!clean) return ''
+  return parseFloat(clean).toLocaleString('vi-VN')
+}
+
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
 export function ShopSettingsForm({ shop, settings: initial, canManage, industryType }: Props) {
@@ -106,19 +117,13 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, industryT
     loyalty_point_to_money: String(initial.loyalty_point_to_money ?? 1000),
     tier_reward_type: initial.tier_reward_type ?? 'discount_bill',
     tier_evaluation_years: String(initial.tier_evaluation_years ?? 3),
-    tier_gold_threshold: String(initial.tier_gold_threshold ?? 35000000),
-    tier_silver_threshold: String(initial.tier_silver_threshold ?? 15000000),
-    tier_bronze_threshold: String(initial.tier_bronze_threshold ?? 5000000),
-    tier_gold_discount: String(initial.tier_gold_discount ?? 10),
-    tier_silver_discount: String(initial.tier_silver_discount ?? 5),
-    tier_bronze_discount: String(initial.tier_bronze_discount ?? 2),
     membership_tiers: (initial.membership_tiers && initial.membership_tiers.length > 0
       ? initial.membership_tiers
       : [
-          { name: 'Đồng', threshold: 5000000, discount: 2 },
-          { name: 'Bạc', threshold: 15000000, discount: 5 },
-          { name: 'Vàng', threshold: 35000000, discount: 10 }
-        ]) as { name: string; threshold: number | string; discount: number | string }[],
+          { name: 'Đồng', threshold: 5000000, discount: 2, color: 'slate' },
+          { name: 'Bạc', threshold: 15000000, discount: 5, color: 'sapphire' },
+          { name: 'Vàng', threshold: 35000000, discount: 10, color: 'gold' }
+        ]) as { name: string; threshold: number | string; discount: number | string; color?: string }[],
   });
   const [saveState, setSaveState] = useState<SaveState>('idle');
 
@@ -162,16 +167,11 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, industryT
           loyalty_point_to_money: parseFloat(form.loyalty_point_to_money) || 1000,
           tier_reward_type: form.tier_reward_type,
           tier_evaluation_years: parseInt(form.tier_evaluation_years, 10) || 3,
-          tier_gold_threshold: parseFloat(form.tier_gold_threshold) || 0,
-          tier_silver_threshold: parseFloat(form.tier_silver_threshold) || 0,
-          tier_bronze_threshold: parseFloat(form.tier_bronze_threshold) || 0,
-          tier_gold_discount: parseFloat(form.tier_gold_discount) || 0,
-          tier_silver_discount: parseFloat(form.tier_silver_discount) || 0,
-          tier_bronze_discount: parseFloat(form.tier_bronze_discount) || 0,
           membership_tiers: form.membership_tiers.map((t: any) => ({
             name: t.name,
             threshold: parseFloat(String(t.threshold)) || 0,
-            discount: parseFloat(String(t.discount)) || 0
+            discount: parseFloat(String(t.discount)) || 0,
+            color: t.color || 'slate'
           })),
         }),
       });
@@ -527,24 +527,24 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, industryT
                 {form.loyalty_points_enabled && (
                   <>
                     <div className="grid gap-4 sm:grid-cols-2 border-t border-slate-100 pt-4 mt-2">
-                      <Field label="Tỷ lệ Tích điểm (Mua bao nhiêu được 1 điểm)" hint="Ví dụ: 100,000đ chi tiêu = 1 điểm">
+                      <Field label="Tỷ lệ Tích điểm (Mua bao nhiêu được 1 điểm)" hint="Ví dụ: 100.000đ chi tiêu = 1 điểm">
                         <input
-                          type="number" min="1"
-                          value={form.loyalty_money_to_point}
-                          onChange={(e) => set('loyalty_money_to_point', e.target.value)}
+                          type="text"
+                          value={formatWithDots(form.loyalty_money_to_point)}
+                          onChange={(e) => set('loyalty_money_to_point', toRawNumber(e.target.value))}
                           disabled={!canManage}
                           className={inputCls}
-                          placeholder="100000"
+                          placeholder="100.000"
                         />
                       </Field>
-                      <Field label="Giá trị Tiêu điểm (1 điểm bằng bao nhiêu VNĐ)" hint="Ví dụ: 1 điểm = 1,000đ khi thanh toán">
+                      <Field label="Giá trị Tiêu điểm (1 điểm bằng bao nhiêu VNĐ)" hint="Ví dụ: 1 điểm = 1.000đ khi thanh toán">
                         <input
-                          type="number" min="0"
-                          value={form.loyalty_point_to_money}
-                          onChange={(e) => set('loyalty_point_to_money', e.target.value)}
+                          type="text"
+                          value={formatWithDots(form.loyalty_point_to_money)}
+                          onChange={(e) => set('loyalty_point_to_money', toRawNumber(e.target.value))}
                           disabled={!canManage}
                           className={inputCls}
-                          placeholder="1000"
+                          placeholder="1.000"
                         />
                       </Field>
                     </div>
@@ -571,9 +571,10 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, industryT
                       {/* Dynamic Tier Builder List */}
                       <div className="space-y-3">
                         <div className="hidden sm:grid sm:grid-cols-12 gap-4 px-2 text-xs font-semibold text-slate-500 uppercase">
-                          <div className="col-span-4">Tên hạng thành viên</div>
-                          <div className="col-span-4">Doanh thu tối thiểu (VNĐ)</div>
-                          <div className="col-span-3">Chiết khấu bill (%)</div>
+                          <div className="col-span-3">Tên hạng thành viên</div>
+                          <div className="col-span-3">Doanh thu tối thiểu (VNĐ)</div>
+                          <div className="col-span-2">Chiết khấu bill (%)</div>
+                          <div className="col-span-3">Màu sắc / Template</div>
                           <div className="col-span-1 text-center">Xóa</div>
                         </div>
 
@@ -581,7 +582,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, industryT
                           {form.membership_tiers.map((tier, idx) => (
                             <div key={idx} className="flex flex-col sm:grid sm:grid-cols-12 gap-3 sm:gap-4 p-3 sm:p-2 bg-slate-50 sm:bg-transparent rounded-xl sm:rounded-none border border-slate-100 sm:border-0 relative">
                               {/* Tier Name */}
-                              <div className="col-span-4 space-y-1 sm:space-y-0">
+                              <div className="col-span-3 space-y-1 sm:space-y-0">
                                 <label className="block sm:hidden text-[10px] font-bold text-slate-400 uppercase">Tên hạng thành viên</label>
                                 <input
                                   type="text"
@@ -597,26 +598,25 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, industryT
                                 />
                               </div>
 
-                              {/* Minimum Revenue */}
-                              <div className="col-span-4 space-y-1 sm:space-y-0">
+                              {/* Minimum Revenue with thousands separator masking */}
+                              <div className="col-span-3 space-y-1 sm:space-y-0">
                                 <label className="block sm:hidden text-[10px] font-bold text-slate-400 uppercase">Doanh thu tối thiểu (VNĐ)</label>
                                 <input
-                                  type="number"
-                                  min="0"
-                                  value={tier.threshold}
+                                  type="text"
+                                  value={formatWithDots(tier.threshold)}
                                   onChange={(e) => {
                                     const updated = [...form.membership_tiers];
-                                    updated[idx] = { ...updated[idx], threshold: e.target.value };
+                                    updated[idx] = { ...updated[idx], threshold: toRawNumber(e.target.value) };
                                     set('membership_tiers', updated);
                                   }}
                                   disabled={!canManage}
                                   className={inputCls}
-                                  placeholder="5000000"
+                                  placeholder="5.000.000"
                                 />
                               </div>
 
                               {/* Discount bill */}
-                              <div className="col-span-3 space-y-1 sm:space-y-0">
+                              <div className="col-span-2 space-y-1 sm:space-y-0">
                                 <label className="block sm:hidden text-[10px] font-bold text-slate-400 uppercase">Chiết khấu bill (%)</label>
                                 <div className="relative flex items-center">
                                   <input
@@ -636,6 +636,34 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, industryT
                                   />
                                   <span className="absolute right-4 text-xs font-semibold text-slate-400">%</span>
                                 </div>
+                              </div>
+
+                              {/* Color template selector */}
+                              <div className="col-span-3 space-y-1 sm:space-y-0">
+                                <label className="block sm:hidden text-[10px] font-bold text-slate-400 uppercase">Màu sắc / Template</label>
+                                <select
+                                  value={tier.color || 'slate'}
+                                  onChange={(e) => {
+                                    const updated = [...form.membership_tiers];
+                                    updated[idx] = { ...updated[idx], color: e.target.value };
+                                    set('membership_tiers', updated);
+                                  }}
+                                  disabled={!canManage}
+                                  className={inputCls}
+                                >
+                                  <option value="emerald">🟢 Ngọc lục bảo (Emerald)</option>
+                                  <option value="sapphire">🔵 Xanh Sapphire</option>
+                                  <option value="amethyst">🟣 Tím Amethyst</option>
+                                  <option value="ruby">🔴 Đỏ Ruby</option>
+                                  <option value="amber">🟠 Hổ phách (Amber)</option>
+                                  <option value="rose">💗 Hồng Rose</option>
+                                  <option value="cyan">🩵 Xanh Cyan</option>
+                                  <option value="indigo">🌀 Xanh Indigo</option>
+                                  <option value="slate">⚪ Xám Slate</option>
+                                  <option value="gold">👑 Vàng Gold</option>
+                                  <option value="silver">🥈 Bạc Silver</option>
+                                  <option value="bronze">🟤 Đồng Bronze</option>
+                                </select>
                               </div>
 
                               {/* Action: Delete */}

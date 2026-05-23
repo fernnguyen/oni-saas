@@ -92,6 +92,7 @@ export function CashbookClient({ shopId }: Props) {
     inventory: 'Kho hàng',
     inventory_payment: 'Thanh toán nhập kho',
     inventory_receipt: 'Thu nhập kho',
+    prepaid_deposit: 'Nạp tiền ví trả trước',
   }
 
   const METHOD_MAP: Record<string, string> = {
@@ -99,6 +100,7 @@ export function CashbookClient({ shopId }: Props) {
     bank_transfer: 'Chuyển khoản',
     card: 'Thẻ (POS)',
     momo: 'Ví Momo',
+    prepaid: 'Ví trả trước',
   }
 
   const columns = useMemo<Column<Record<string, string>>[]>(() => [
