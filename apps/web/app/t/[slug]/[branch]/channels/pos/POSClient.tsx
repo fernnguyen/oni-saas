@@ -17,7 +17,6 @@ import { CheckoutModal } from './components/CheckoutModal'
 import { SyncStatusBar } from './components/SyncStatusBar'
 import { OrderHistoryPanel } from './components/OrderHistoryPanel'
 import { CustomerCreateModal } from './components/CustomerCreateModal'
-import QRNotificationCenter from './components/QRNotificationCenter'
 
 interface Props {
   shopId: string
@@ -50,6 +49,22 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
   const isOnline = useNetworkStatus()
   const confirm = useConfirm()
   const [inventory, setInventory] = useState<Map<string, number>>(new Map())
+
+  // Real-time synchronization for POS data via BroadcastChannel
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const bc = new BroadcastChannel('oni-pos-sync')
+    const listener = (e: MessageEvent) => {
+      if (e.data?.type === 'REFRESH_TABLE_MAP' && e.data?.shopId === shopId) {
+        void refresh()
+      }
+    }
+    bc.addEventListener('message', listener)
+    return () => {
+      bc.removeEventListener('message', listener)
+      bc.close()
+    }
+  }, [shopId, refresh])
 
   const { data: settings } = useQuery({
     queryKey: ['settings', shopId],
@@ -912,12 +927,6 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
             )}
             <span className="hidden sm:inline">{status === 'loading' ? 'Đang đồng bộ...' : 'Đồng bộ'}</span>
           </button>
-
-          <QRNotificationCenter
-            shopId={shopId}
-            branchId={branchId}
-            onAcceptRequest={refresh}
-          />
 
           <SyncStatusBar
             isOnline={isOnline}
