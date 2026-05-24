@@ -9,6 +9,7 @@ import { getVerticalConfig } from '@oni/core'
 import { useConfirm } from '@/app/components/ui/ConfirmProvider'
 import { DataTable, Column } from '@/app/components/ui/DataTable'
 import { EmptyState } from '@/app/components/ui/EmptyState'
+import { usePermissions } from '@/app/components/ui/PermissionGate'
 import dynamic from 'next/dynamic'
 
 const MapEditor = dynamic(() => import('./components/MapEditor'), { ssr: false })
@@ -134,6 +135,11 @@ function RowActions({ r, onEdit, onDuplicate, onSuspend, onRestore, onStatusChan
 }
 
 export function ResourcesClient({ shopId, industryType }: Props) {
+  const { hasPermission } = usePermissions()
+  const canCreate = hasPermission('products.create')
+  const canEdit = hasPermission('products.edit')
+  const canDelete = hasPermission('products.delete')
+
   const vertical = getVerticalConfig(industryType)
   const tpl = vertical.resourceTemplate
   const sec = tpl?.sections
@@ -920,7 +926,7 @@ export function ResourcesClient({ shopId, industryType }: Props) {
             </svg>
             Quay lại POS
           </Link>
-          {!creating && (
+          {!creating && canCreate && (
             <button
               onClick={() => setCreating(true)}
               className="flex items-center gap-1.5 rounded-xl bg-primary px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-primary-dark transition-all"
@@ -934,31 +940,55 @@ export function ResourcesClient({ shopId, industryType }: Props) {
         </div>
       </div>
 
-      <div className="flex items-center gap-2 mb-4">
-        <button
-          onClick={() => setFilterStatus('active')}
-          className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${filterStatus === 'active' ? 'bg-primary text-white shadow-sm font-semibold' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
-        >
-          Đang hoạt động
-        </button>
-        <button
-          onClick={() => setFilterStatus('maintenance')}
-          className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${filterStatus === 'maintenance' ? 'bg-slate-800 text-white shadow-sm font-semibold' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
-        >
-          Tạm ngừng
-        </button>
-        <button
-          onClick={() => setFilterStatus('deleted')}
-          className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${filterStatus === 'deleted' ? 'bg-red-500 text-white shadow-sm font-semibold' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
-        >
-          Đã xóa
-        </button>
-        <button
-          onClick={() => setFilterStatus('map')}
-          className={`inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${filterStatus === 'map'
-            ? 'bg-primary text-white shadow-md font-bold shadow-primary/10 border border-primary'
-            : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+      <div className="flex items-center justify-between gap-4 mb-4">
+        {/* Left Side: Status Filters */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setFilterStatus('active')}
+            className={`rounded-xl px-3 py-1.5 text-xs font-medium transition-all ${
+              filterStatus === 'active'
+                ? 'bg-primary text-white shadow-sm font-semibold scale-102'
+                : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
             }`}
+          >
+            Đang hoạt động
+          </button>
+          <button
+            onClick={() => setFilterStatus('maintenance')}
+            className={`rounded-xl px-3 py-1.5 text-xs font-medium transition-all ${
+              filterStatus === 'maintenance'
+                ? 'bg-slate-800 text-white shadow-sm font-semibold scale-102'
+                : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            Tạm ngừng
+          </button>
+          <button
+            onClick={() => setFilterStatus('deleted')}
+            className={`rounded-xl px-3 py-1.5 text-xs font-medium transition-all ${
+              filterStatus === 'deleted'
+                ? 'bg-red-500 text-white shadow-sm font-semibold scale-102'
+                : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            Đã xóa
+          </button>
+        </div>
+
+        {/* Right Side: Map View Independent Toggle */}
+        <button
+          onClick={() => {
+            if (filterStatus === 'map') {
+              setFilterStatus('active')
+            } else {
+              setFilterStatus('map')
+            }
+          }}
+          className={`inline-flex items-center rounded-xl px-3 py-1.5 text-xs font-medium transition-all cursor-pointer ${
+            filterStatus === 'map'
+              ? 'bg-primary text-white shadow-md font-bold shadow-primary/10 border border-primary scale-102'
+              : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-800'
+          }`}
         >
           <svg className="w-3.5 h-3.5 mr-1.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
@@ -1002,18 +1032,36 @@ export function ResourcesClient({ shopId, industryType }: Props) {
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setMgmtDropdownOpen(false)} />
                 <div className="absolute right-0 mt-2 w-48 rounded-xl border border-slate-100 bg-white shadow-xl z-50 py-1.5 flex flex-col items-stretch text-left">
-                  <button
-                    onClick={() => {
-                      setMgmtDropdownOpen(false)
-                      setEditableZones(zonesList.filter(z => z !== 'Chưa phân vùng'))
-                      setReorderModalOpen(true)
-                    }}
-                    className="flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 text-left transition-colors cursor-pointer"
-                  >
-                    <span>↕️</span> Sắp xếp lại vị trí
-                  </button>
+                  {canEdit ? (
+                    <button
+                      onClick={() => {
+                        setMgmtDropdownOpen(false)
+                        setEditableZones(zonesList.filter(z => z !== 'Chưa phân vùng'))
+                        setReorderModalOpen(true)
+                      }}
+                      className="flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 text-left transition-colors cursor-pointer"
+                    >
+                      <span>↕️</span> Sắp xếp lại vị trí
+                    </button>
+                  ) : (
+                    <button
+                      disabled
+                      className="flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-slate-300 bg-slate-50/50 text-left cursor-not-allowed"
+                      title="Bạn không có quyền sắp xếp lại vị trí"
+                    >
+                      <span>↕️</span> Sắp xếp lại vị trí
+                    </button>
+                  )}
 
-                  {selectedZone && selectedZone !== 'Chưa phân vùng' ? (
+                  {!canEdit ? (
+                    <button
+                      disabled
+                      className="flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-slate-300 bg-slate-50/50 text-left cursor-not-allowed"
+                      title="Bạn không có quyền đổi tên khu vực"
+                    >
+                      <span>✏️</span> Đổi tên vị trí
+                    </button>
+                  ) : selectedZone && selectedZone !== 'Chưa phân vùng' ? (
                     <button
                       onClick={() => {
                         setMgmtDropdownOpen(false)
@@ -1034,13 +1082,21 @@ export function ResourcesClient({ shopId, industryType }: Props) {
                     </button>
                   )}
 
-                  {selectedZone && selectedZone !== 'Chưa phân vùng' ? (
+                  {!canDelete ? (
+                    <button
+                      disabled
+                      className="flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-slate-300 bg-slate-50/50 text-left cursor-not-allowed"
+                      title="Bạn không có quyền xóa khu vực"
+                    >
+                      <span>🗑️</span> Xóa vị trí này
+                    </button>
+                  ) : selectedZone && selectedZone !== 'Chưa phân vùng' ? (
                     <button
                       onClick={() => {
                         setMgmtDropdownOpen(false)
                         handleDeleteZone()
                       }}
-                      className="flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-red-600 hover:bg-red-50 text-left transition-colors cursor-pointer"
+                      className="flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-red-650 hover:bg-red-50 text-left transition-colors cursor-pointer"
                     >
                       <span>🗑️</span> Xóa vị trí này
                     </button>
@@ -1102,6 +1158,9 @@ export function ResourcesClient({ shopId, industryType }: Props) {
             items: g.items
           }))}
           rowKey={(row) => row.id}
+          onRowClick={(row) => {
+            if (canEdit) startEdit(row)
+          }}
         />
       )}
 
