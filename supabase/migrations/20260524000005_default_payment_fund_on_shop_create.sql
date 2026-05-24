@@ -1,5 +1,8 @@
 -- migration: 20260524000005_default_payment_fund_on_shop_create
--- ONI.vn — Automatically seed default counter cash fund on shop creation
+-- ONI.vn — Automatically seed default counter cash fund on shop creation & Add strict_shift_lock to shop_settings
+
+ALTER TABLE public.shop_settings 
+ADD COLUMN IF NOT EXISTS strict_shift_lock BOOLEAN NOT NULL DEFAULT false;
 
 create or replace function public.create_shop(
   p_tenant_id uuid,

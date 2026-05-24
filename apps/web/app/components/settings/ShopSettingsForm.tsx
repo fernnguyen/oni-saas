@@ -28,6 +28,7 @@ interface ShopSettings {
   default_price_type: string;
   qr_auto_approve_session?: boolean;
   enable_shift_management?: boolean;
+  strict_shift_lock?: boolean;
   synced_from_sheet_at: string | null;
   updated_at: string;
   // CRM Settings
@@ -118,6 +119,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
     default_price_type: initial.default_price_type,
     qr_auto_approve_session: initial.qr_auto_approve_session ?? false,
     enable_shift_management: initial.enable_shift_management ?? false,
+    strict_shift_lock: initial.strict_shift_lock ?? false,
     // CRM Settings
     loyalty_points_enabled: initial.loyalty_points_enabled ?? true,
     loyalty_money_to_point: String(initial.loyalty_money_to_point ?? 100000),
@@ -169,6 +171,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
           default_price_type: form.default_price_type,
           qr_auto_approve_session: form.qr_auto_approve_session,
           enable_shift_management: form.enable_shift_management,
+          strict_shift_lock: form.strict_shift_lock,
           // CRM updates
           loyalty_points_enabled: form.loyalty_points_enabled,
           loyalty_money_to_point: parseFloat(form.loyalty_money_to_point) || 100000,
@@ -424,6 +427,27 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
                 </span>
               </div>
             </Field>
+            {form.enable_shift_management && (
+              <div className="ml-6 mt-3 border-l-2 border-slate-100 dark:border-slate-800 pl-4 space-y-4">
+                <Field label="Chế độ bảo mật chốt ca nghiêm ngặt">
+                  <div
+                    onClick={() => canManage && set('strict_shift_lock', !form.strict_shift_lock)}
+                    className="flex cursor-pointer items-center gap-3 mt-1"
+                  >
+                    <div
+                      className={`relative h-6 w-11 rounded-full transition-colors ${form.strict_shift_lock ? 'bg-primary' : 'bg-slate-200'} ${canManage ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
+                    >
+                      <span
+                        className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${form.strict_shift_lock ? 'translate-x-5' : ''}`}
+                      />
+                    </div>
+                    <span className="text-sm text-slate-600 select-none">
+                      {form.strict_shift_lock ? 'Ẩn số tiền lý thuyết (Blind Close) & Ca đã chốt không thể sửa' : 'Hiện số tiền lý thuyết & Cho phép tự do sửa ca đã chốt (Khuyên dùng cho SME/Chủ shop)'}
+                    </span>
+                  </div>
+                </Field>
+              </div>
+            )}
             <Field label="Tự động in hóa đơn">
               <div
                 onClick={() => canManage && set('auto_print_receipt', !form.auto_print_receipt)}

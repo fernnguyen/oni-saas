@@ -261,6 +261,48 @@ export async function POST(
       (existingPays.data as Record<string, string>[]).map((r) => r.id)
     )
 
+    // Fetch and resolve default payment funds for this branch
+    const branchId = order.branch_id ?? ''
+    const fundsRes = await connector.list('payment-funds', {
+      filters: { branch_id: branchId },
+      limit: 100
+    })
+    let funds = fundsRes.data as Record<string, string>[]
+
+    // Self-healing: auto-seed cash and bank funds if empty during order sync
+    if (funds.length === 0 && branchId) {
+      const cashFund = await connector.create('payment-funds', {
+        branch_id: branchId,
+        name: 'Quỹ tiền mặt tại quầy',
+        type: 'cash',
+        account_number: '',
+        bank_name: '',
+        initial_balance: '0',
+        current_balance: '0',
+        is_default: 'TRUE',
+        active: 'TRUE',
+      }) as Record<string, string>
+
+      const bankFund = await connector.create('payment-funds', {
+        branch_id: branchId,
+        name: 'Tài khoản ngân hàng mặc định',
+        type: 'bank',
+        account_number: '',
+        bank_name: '',
+        initial_balance: '0',
+        current_balance: '0',
+        is_default: 'FALSE',
+        active: 'TRUE',
+      }) as Record<string, string>
+
+      funds = [cashFund, bankFund]
+      invalidate(shopId, 'payment-funds')
+    }
+
+    const defaultCashFund = funds.find(f => f.type === 'cash' && f.is_default === 'TRUE') || funds.find(f => f.type === 'cash')
+    const defaultBankFund = funds.find(f => f.type === 'bank' && f.is_default === 'TRUE') || funds.find(f => f.type === 'bank')
+    const fallbackFund = funds.find(f => f.is_default === 'TRUE') || funds[0]
+
     const paysToCreate = []
     const cashbookToCreate = []
     for (const pay of payments) {
@@ -280,9 +322,42 @@ export async function POST(
 
       if (pay.method !== 'debt') {
         const isRefund = Number(pay.amount) < 0
+        const amount = Math.abs(Number(pay.amount))
+        
+        // Find matching payment fund
+        const targetFund = pay.method === 'cash'
+          ? (defaultCashFund || fallbackFund)
+          : (defaultBankFund || defaultCashFund || fallbackFund)
+
+        let fundId = ''
+        let balanceAfter = ''
+
+        if (targetFund) {
+          fundId = targetFund.id
+          const currentBalance = parseFloat(targetFund.current_balance || '0')
+          const nextBalance = isRefund ? currentBalance - amount : currentBalance + amount
+          balanceAfter = String(nextBalance)
+
+          // Update local memory balance in case of multiple transactions in same batch
+          const oldBalance = targetFund.current_balance || '0'
+          targetFund.current_balance = balanceAfter
+
+          // Update fund balance in the database
+          await connector.update('payment-funds', targetFund.id, {
+            current_balance: balanceAfter
+          })
+
+          // Register transaction rollback to restore original balance if error occurs
+          tx.add(async () => {
+            await connector.update('payment-funds', targetFund!.id, {
+              current_balance: oldBalance
+            }).catch(() => {})
+          })
+        }
+
         cashbookToCreate.push({
           type:           isRefund ? 'expense' : 'receipt',
-          amount:         String(Math.abs(Number(pay.amount))),
+          amount:         String(amount),
           method:         pay.method,
           category:       isRefund ? 'refund' : 'sales',
           reference_id:   serverId,
@@ -290,6 +365,8 @@ export async function POST(
           note:           isRefund ? `Hoàn tiền thừa đơn hàng ${orderNo || serverId}` : `Thanh toán đơn hàng ${orderNo || serverId}`,
           employee_id:    order.employee_id ?? '',
           branch_id:      order.branch_id ?? '',
+          fund_id:        fundId,
+          balance_after_transaction: balanceAfter,
         })
       }
     }
