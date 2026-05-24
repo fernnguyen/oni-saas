@@ -54,6 +54,7 @@ export function MemberTierBadge({ label, color }: { label: string; color?: strin
 interface Props {
   shopId: string
   shopName: string
+  permissions?: string[]
 }
 
 const EMPTY_FORM = {
@@ -66,7 +67,10 @@ const EMPTY_FORM = {
   note: '',
 }
 
-export function CustomersClient({ shopId }: Props) {
+export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
+  const canManageCrm = permissions.includes('crm.manage')
+  const canAdjustWallet = permissions.includes('crm.wallet_adjust')
+
   const queryClient = useQueryClient()
   const searchParams = useSearchParams()
   const initialSearch = searchParams?.get('search') || searchParams?.get('customerId') || ''
@@ -279,11 +283,16 @@ export function CustomersClient({ shopId }: Props) {
       render: (row) => (
         <div className="flex items-center gap-2">
           <button
-            onClick={(e) => { e.stopPropagation(); openDeposit(row); }}
-            className="rounded-lg border border-emerald-100 bg-white px-3 py-1.5 text-xs font-medium text-emerald-600 shadow-sm hover:bg-emerald-50 transition-colors cursor-pointer"
-            title="Nạp tiền trả trước"
+            onClick={(e) => { e.stopPropagation(); if (canAdjustWallet) openDeposit(row); }}
+            disabled={!canAdjustWallet}
+            className={`rounded-lg border px-3 py-1.5 text-xs font-medium shadow-sm transition-colors cursor-pointer ${
+              canAdjustWallet
+                ? 'border-emerald-100 bg-white text-emerald-600 hover:bg-emerald-50'
+                : 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed opacity-60'
+            }`}
+            title={canAdjustWallet ? "Nạp tiền trả trước" : "Nạp tiền trả trước 🔒 (Cần quyền)"}
           >
-            Nạp tiền
+            Nạp tiền {!canAdjustWallet && '🔒'}
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); openEdit(row); }}
@@ -400,11 +409,12 @@ export function CustomersClient({ shopId }: Props) {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Loại khách</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Loại khách {!canManageCrm && '🔒 (Cần quyền crm.manage)'}</label>
             <select
               value={formData.customer_type}
               onChange={(e) => setFormData(prev => ({ ...prev, customer_type: e.target.value }))}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+              disabled={!canManageCrm}
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"
             >
               <option value="retail">Bán lẻ (Mặc định)</option>
               <option value="wholesale">Sỉ (Mặc định)</option>
@@ -588,14 +598,20 @@ export function CustomersClient({ shopId }: Props) {
             <div className="flex gap-2">
               <button
                 onClick={() => {
-                  if (viewTarget) {
+                  if (viewTarget && canAdjustWallet) {
                     setDetailOpen(false)
                     openDeposit(viewTarget)
                   }
                 }}
-                className="rounded-xl border border-emerald-250 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100 cursor-pointer active:scale-95 transition-all shadow-xs"
+                disabled={!canAdjustWallet}
+                className={`rounded-xl border px-4 py-2 text-sm font-medium shadow-xs transition-all ${
+                  canAdjustWallet
+                    ? 'border-emerald-250 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 cursor-pointer active:scale-95'
+                    : 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed opacity-60'
+                }`}
+                title={canAdjustWallet ? "Nạp tiền ví trả trước" : "Nạp tiền ví trả trước 🔒 (Cần quyền)"}
               >
-                Nạp tiền ví
+                Nạp tiền ví {!canAdjustWallet && '🔒'}
               </button>
               <button
                 onClick={() => {

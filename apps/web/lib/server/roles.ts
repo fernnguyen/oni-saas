@@ -9,6 +9,7 @@ export interface Role {
   scope: 'any' | 'tenant' | 'shop' | 'workspace';
   tenant_id: string | null;
   permissions?: string[];
+  description?: string | null;
 }
 
 export interface Permission {
@@ -26,7 +27,7 @@ export async function listRoles(tenantId: string): Promise<Role[]> {
   // Get roles available for this tenant
   const { data: roles, error: rolesError } = await supabase
     .from('roles')
-    .select('id, code, name, is_system, scope, tenant_id')
+    .select('id, code, name, is_system, scope, tenant_id, description')
     .or(`is_system.eq.true,tenant_id.eq.${tenantId}`)
     .order('id', { ascending: true });
 
@@ -68,11 +69,25 @@ export async function listPermissions(): Promise<Permission[]> {
   return data;
 }
 
-export async function createCustomRole(tenantId: string, input: { name: string, scope: 'workspace' | 'shop', permissionCodes: string[] }) {
+function slugify(str: string): string {
+  return str
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // remove accents
+    .replace(/[đĐ]/g, 'd')
+    .replace(/([^0-9a-z-\s])/g, '') // keep alphanumeric, hyphen, spaces
+    .trim()
+    .replace(/\s+/g, '-') // spaces to hyphen
+    .replace(/-+/g, '-'); // collapse multiple hyphens
+}
+
+export async function createCustomRole(tenantId: string, input: { name: string, scope: 'workspace' | 'shop', permissionCodes: string[], description?: string }) {
   const supabase = getSupabaseAdminClient();
   
-  // Generate unique code
-  const code = `custom_${tenantId}_${Date.now()}`;
+  // Generate unique clean code: e.g., nhan-vien-bep_9f2d7cd3
+  const baseCode = slugify(input.name) || 'custom-role';
+  const shortTenantId = tenantId.substring(0, 8);
+  const code = `${baseCode}_${shortTenantId}`;
 
   const { data: role, error: roleError } = await supabase
     .from('roles')
@@ -81,7 +96,8 @@ export async function createCustomRole(tenantId: string, input: { name: string, 
       name: input.name,
       is_system: false,
       scope: input.scope,
-      tenant_id: tenantId
+      tenant_id: tenantId,
+      description: input.description || null
     })
     .select('id')
     .single();
@@ -108,7 +124,7 @@ export async function createCustomRole(tenantId: string, input: { name: string, 
   return role;
 }
 
-export async function updateCustomRole(tenantId: string, roleId: number, input: { name?: string, permissionCodes?: string[] }) {
+export async function updateCustomRole(tenantId: string, roleId: number, input: { name?: string, permissionCodes?: string[], description?: string }) {
   const supabase = getSupabaseAdminClient();
 
   // Ensure role belongs to tenant
@@ -122,8 +138,12 @@ export async function updateCustomRole(tenantId: string, roleId: number, input: 
   if (existingRole.is_system) throw new Error('Cannot edit system role');
   if (existingRole.tenant_id !== tenantId) throw new Error('Forbidden');
 
-  if (input.name) {
-    await supabase.from('roles').update({ name: input.name }).eq('id', roleId);
+  const updateData: Record<string, any> = {};
+  if (input.name) updateData.name = input.name;
+  if (input.description !== undefined) updateData.description = input.description || null;
+
+  if (Object.keys(updateData).length > 0) {
+    await supabase.from('roles').update(updateData).eq('id', roleId);
   }
 
   if (input.permissionCodes) {

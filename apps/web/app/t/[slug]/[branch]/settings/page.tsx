@@ -91,6 +91,7 @@ export default async function BranchSettingsPage({ params }: Props) {
         shop={{ id: shopId, name: shop.name, slug: shop.slug, address: shop.address ?? null, phone: shopResult.data?.phone ?? null }}
         settings={settings}
         canManage={canManage}
+        permissions={permissions}
         industryType={tenant?.industry_type ?? 'retail'}
       />
     </div>

@@ -28,3 +28,28 @@ export function PermissionGate() {
     </div>
   )
 }
+
+interface HasPermissionProps {
+  permissions: string[]
+  has: string | string[]
+  fallback?: React.ReactNode
+  children: React.ReactNode
+}
+
+/**
+ * Visual UI Gating Component: Hides or shows fallback UI based on permissions list.
+ * Purely in-memory, fast, with zero network overhead.
+ */
+export function HasPermission({ permissions, has, fallback = null, children }: HasPermissionProps) {
+  const list = permissions || []
+  const hasAccess = Array.isArray(has)
+    ? has.some((p) => list.includes(p))
+    : list.includes(has)
+
+  if (!hasAccess) {
+    return <>{fallback}</>
+  }
+
+  return <>{children}</>
+}
+

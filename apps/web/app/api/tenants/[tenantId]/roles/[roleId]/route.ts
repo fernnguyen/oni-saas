@@ -7,6 +7,7 @@ import { updateCustomRole, deleteCustomRole } from '../../../../../../lib/server
 const updateSchema = z.object({
   name: z.string().min(1, 'Tên vai trò không được để trống').max(100).optional(),
   permissionCodes: z.array(z.string()).optional(),
+  description: z.string().max(255).optional(),
 });
 
 export async function PUT(

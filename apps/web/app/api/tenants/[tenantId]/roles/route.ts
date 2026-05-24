@@ -32,6 +32,7 @@ const createSchema = z.object({
   name: z.string().min(1, 'Tên vai trò không được để trống').max(100),
   scope: z.enum(['workspace', 'shop']),
   permissionCodes: z.array(z.string()),
+  description: z.string().max(255).optional(),
 });
 
 export async function POST(
