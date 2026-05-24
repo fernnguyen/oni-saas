@@ -21,6 +21,8 @@ const DEFAULT_SETTINGS = {
   skip_return_confirmation: false,
   default_price_type: 'retail',
   qr_auto_approve_session: false,
+  enable_shift_management: false,
+  strict_shift_lock: false,
   synced_from_sheet_at: null as string | null,
   loyalty_points_enabled: true,
   loyalty_money_to_point: 100000,
@@ -59,6 +61,8 @@ const putSchema = z.object({
   default_price_type: z.enum(['retail', 'wholesale', 'vip', 'staff']).optional(),
   resource_sub_types: z.string().optional(),
   qr_auto_approve_session: z.boolean().optional(),
+  enable_shift_management: z.boolean().optional(),
+  strict_shift_lock: z.boolean().optional(),
   loyalty_points_enabled: z.boolean().optional(),
   loyalty_money_to_point: z.number().min(1).optional(),
   loyalty_point_to_money: z.number().min(0).optional(),
@@ -71,6 +75,7 @@ const putSchema = z.object({
     color: z.string().optional()
   })).optional(),
 });
+
 
 async function resolveAuth(req: NextRequest, shopId: string) {
   const supabase = await getSupabaseServerClient();

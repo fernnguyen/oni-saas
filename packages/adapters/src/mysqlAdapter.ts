@@ -29,6 +29,9 @@ const ENTITY_PREFIXES: Record<string, string> = {
   'cashbook':            'CB',
   'location-resources':  'LR',
   'product-bom':         'BOM',
+  'payment-funds':       'PF',
+  'shop-shifts':         'SHF',
+  'fund-audits':         'FA',
 }
 
 export class MysqlConnector implements IDataConnector {
@@ -121,6 +124,9 @@ export class MysqlConnector implements IDataConnector {
     'branches': 'branch_id',
     'location-resources': 'resource_id',
     'product-bom': 'bom_id',
+    'payment-funds': 'fund_id',
+    'shop-shifts': 'shift_id',
+    'fund-audits': 'audit_id',
   }
 
   private formatRow(entity: string, row: any): Record<string, string> {

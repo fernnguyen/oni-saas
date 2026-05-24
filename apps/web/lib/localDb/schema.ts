@@ -116,6 +116,7 @@ export interface LocalPayment {
   amount: number
   reference_no?: string
   note?: string
+  fund_id?: string
 }
 
 export interface LocalOrder {

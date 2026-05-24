@@ -70,6 +70,9 @@ interface Props {
   onRefresh?: () => void
   autoPrintReceipt?: boolean
   permissions?: string[]
+  hasActiveShift?: boolean
+  isShiftEnabled?: boolean
+  onOpenShiftModal?: () => void
 }
 
 import { fmtDateTimeVN } from './CheckoutModal'
@@ -114,6 +117,9 @@ export function ResourceSlideOver({
   onCheckInSuccess, onSessionClosed, resourceTemplate,
   allResources = [], onRefresh, autoPrintReceipt = false,
   permissions = [],
+  hasActiveShift = false,
+  isShiftEnabled = false,
+  onOpenShiftModal,
 }: Props) {
   const tpl = resourceTemplate ?? DEFAULT_TEMPLATE
   const sec = tpl.sections
@@ -882,6 +888,11 @@ export function ResourceSlideOver({
 
   async function handlePayAndCloseClick() {
     if (!order) return
+    if (isShiftEnabled && !hasActiveShift) {
+      toast.error('Vui lòng mở ca làm việc trước khi thanh toán!')
+      onOpenShiftModal?.()
+      return
+    }
     const queueKey = `offline_table_actions:${order.id}`
     const queueStr = localStorage.getItem(queueKey)
     if (queueStr) {
