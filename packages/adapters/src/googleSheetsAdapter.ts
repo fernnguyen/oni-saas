@@ -137,14 +137,34 @@ async function readTab(
     for (let j = 0; j < headers.length; j++) {
       const v = (values[i] as unknown[])[j]
       // Normalise booleans to uppercase string so existing checks (=== 'FALSE') keep working
-      if (typeof v === 'boolean') row[headers[j]] = v ? 'TRUE' : 'FALSE'
-      else row[headers[j]] = v != null ? String(v) : ''
+      if (typeof v === 'boolean') {
+        row[headers[j]] = v ? 'TRUE' : 'FALSE'
+      } else {
+        let valStr = v != null ? String(v) : ''
+        if (headers[j] === 'phone' && valStr) {
+          const trimmed = valStr.trim()
+          if (/^[1-9][0-9]{8}$/.test(trimmed)) {
+            valStr = '0' + trimmed
+          }
+        }
+        row[headers[j]] = valStr
+      }
     }
     rows.push(row)
   }
 
   cacheSet(cacheKey, headers, rows)
   return { headers, rows }
+}
+
+function formatCellForWrite(header: string, val: string): string {
+  if (header === 'phone' && val) {
+    const trimmed = val.trim()
+    if (/^[0-9]+$/.test(trimmed) && !trimmed.startsWith("'")) {
+      return "'" + trimmed
+    }
+  }
+  return val
 }
 
 async function appendRow(
@@ -364,7 +384,7 @@ export class GoogleSheetsConnector implements IDataConnector {
       fullRow.branch_id = this.branchId
     }
 
-    const rowValues = headers.map(h => fullRow[h] ?? '')
+    const rowValues = headers.map(h => formatCellForWrite(h, fullRow[h] ?? ''))
     await appendRow(token, this.sheetId, tab, rowValues)
     
     const cacheKey = `${this.sheetId}:${tab}`
@@ -401,7 +421,7 @@ export class GoogleSheetsConnector implements IDataConnector {
     if (!currentRow) throw new Error(`${entity}/${id} not found`)
 
     const merged: Record<string, string> = { ...currentRow, ...sanitizedData }
-    const rowValues = headers.map(h => merged[h] ?? '')
+    const rowValues = headers.map(h => formatCellForWrite(h, merged[h] ?? ''))
 
     await updateRow(token, this.sheetId, tab, sheetRowNumber, rowValues)
     
@@ -451,7 +471,7 @@ export class GoogleSheetsConnector implements IDataConnector {
       if (this.branchId && headers.includes('branch_id')) {
         fullRow.branch_id = this.branchId
       }
-      const rowValues = headers.map(h => fullRow[h] ?? '')
+      const rowValues = headers.map(h => formatCellForWrite(h, fullRow[h] ?? ''))
       allRowValues.push(rowValues)
       created.push(fullRow)
     }

@@ -167,14 +167,23 @@ export class PostgresConnector implements IDataConnector {
     const stringifiedRow: Record<string, string> = {}
     for (const key in row) {
       const v = row[key]
+      let valStr = ''
       if (v instanceof Date) {
-        stringifiedRow[key] = v.toISOString()
+        valStr = v.toISOString()
       } else if (typeof v === 'object' && v !== null) {
         // JSONB → store as JSON string for IDataConnector compatibility
-        stringifiedRow[key] = JSON.stringify(v)
+        valStr = JSON.stringify(v)
       } else {
-        stringifiedRow[key] = v !== null && v !== undefined ? String(v) : ''
+        valStr = v !== null && v !== undefined ? String(v) : ''
       }
+
+      if (key === 'phone' && valStr) {
+        const trimmed = valStr.trim()
+        if (/^[1-9][0-9]{8}$/.test(trimmed)) {
+          valStr = '0' + trimmed
+        }
+      }
+      stringifiedRow[key] = valStr
     }
     const legacyIdField = this.LEGACY_ID_MAP[entity]
     if (legacyIdField && stringifiedRow.id) {

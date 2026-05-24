@@ -86,7 +86,11 @@ export function CustomerSearch({ selected, onSelect, onOpenCustomerModal }: Prop
   function handleUseVirtual() {
     const name = query.trim()
     if (!name) return
-    onSelect({ customer_id: `virtual:${Date.now()}`, name, phone: phone.trim() || undefined })
+    let trimmedPhone = phone.trim()
+    if (trimmedPhone && /^[1-9][0-9]{8}$/.test(trimmedPhone)) {
+      trimmedPhone = '0' + trimmedPhone
+    }
+    onSelect({ customer_id: `virtual:${Date.now()}`, name, phone: trimmedPhone || undefined })
     setQuery('')
     setPhone('')
     setOpen(false)

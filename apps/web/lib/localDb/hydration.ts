@@ -90,6 +90,19 @@ export async function hydrateAll(shopId: string, branchId: string): Promise<void
     [localDb.products, localDb.categories, localDb.priceLists, localDb.discounts,
      localDb.employees, localDb.inventory, localDb.inventoryBatches, localDb.customers, localDb.meta],
     async () => {
+      // Clear tables to remove deleted/stale items from the server
+      await Promise.all([
+        localDb.products.clear(),
+        localDb.categories.clear(),
+        localDb.priceLists.clear(),
+        localDb.discounts.clear(),
+        localDb.employees.clear(),
+        localDb.inventory.clear(),
+        localDb.inventoryBatches.clear(),
+        // Only delete fully-synced customers, preserve offline-created ones (virtual: prefix)
+        localDb.customers.filter(c => !c.customer_id.startsWith('virtual:')).delete(),
+      ])
+
       await Promise.all([
         products.length   ? localDb.products.bulkPut(products.map(parseProduct) as never[])       : null,
         categories.length ? localDb.categories.bulkPut(categories.map(parseCategory) as never[])  : null,
