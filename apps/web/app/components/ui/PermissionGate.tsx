@@ -29,8 +29,47 @@ export function PermissionGate() {
   )
 }
 
-interface HasPermissionProps {
+import { createContext, useContext, useCallback } from 'react'
+
+const PermissionsContext = createContext<{
   permissions: string[]
+  hasPermission: (has: string | string[]) => boolean
+}>({
+  permissions: [],
+  hasPermission: () => false,
+})
+
+export function PermissionsProvider({
+  permissions,
+  children,
+}: {
+  permissions: string[]
+  children: React.ReactNode
+}) {
+  const list = permissions || []
+  
+  const hasPermission = useCallback(
+    (has: string | string[]) => {
+      return Array.isArray(has)
+        ? has.some((p) => list.includes(p))
+        : list.includes(has)
+    },
+    [list]
+  )
+
+  return (
+    <PermissionsContext.Provider value={{ permissions: list, hasPermission }}>
+      {children}
+    </PermissionsContext.Provider>
+  )
+}
+
+export function usePermissions() {
+  return useContext(PermissionsContext)
+}
+
+interface HasPermissionProps {
+  permissions?: string[]
   has: string | string[]
   fallback?: React.ReactNode
   children: React.ReactNode
@@ -41,10 +80,12 @@ interface HasPermissionProps {
  * Purely in-memory, fast, with zero network overhead.
  */
 export function HasPermission({ permissions, has, fallback = null, children }: HasPermissionProps) {
-  const list = permissions || []
-  const hasAccess = Array.isArray(has)
-    ? has.some((p) => list.includes(p))
-    : list.includes(has)
+  const { hasPermission } = usePermissions()
+  
+  // Support both context-based and manual prop-based permissions
+  const hasAccess = permissions 
+    ? (Array.isArray(has) ? has.some((p) => permissions.includes(p)) : permissions.includes(has))
+    : hasPermission(has)
 
   if (!hasAccess) {
     return <>{fallback}</>
@@ -52,4 +93,5 @@ export function HasPermission({ permissions, has, fallback = null, children }: H
 
   return <>{children}</>
 }
+
 

@@ -39,5 +39,5 @@ export default async function CashbookPage({ params }: Props) {
     )
   }
 
-  return <CashbookClient shopId={shop.id} shopName={shop.name} />
+  return <CashbookClient shopId={shop.id} shopName={shop.name} permissions={permissions} />
 }
