@@ -1,10 +1,11 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireShopAccess } from '@/lib/server/shopAccess'
-import { invalidate, shopTag, shopCache } from '@/lib/server/cache'
+import { invalidate } from '@/lib/server/cache'
 import { handleApiError } from '../../_helpers'
 import { cashbookCreateSchema } from '@/lib/validators/cashbook'
 import { RollbackContext } from '@oni/adapters'
+import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
 
 export async function GET(
   req: NextRequest,
@@ -12,7 +13,7 @@ export async function GET(
 ) {
   try {
     const { shopId } = await params
-    const { connector, permissions } = await requireShopAccess(shopId, 'cashbook.view')
+    const { connector } = await requireShopAccess(shopId, 'cashbook.view')
 
     const { searchParams } = new URL(req.url)
     const page = parseInt(searchParams.get('page') || '1', 10)
@@ -20,16 +21,73 @@ export async function GET(
     const type = searchParams.get('type')
     const branch_id = searchParams.get('branch_id')
     const reference_id = searchParams.get('reference_id')
+    const fund_id = searchParams.get('fund_id')
+    const from_date = searchParams.get('from_date')
+    const to_date = searchParams.get('to_date')
 
     const filters: Record<string, string> = {}
     if (type) filters.type = type
     if (branch_id) filters.branch_id = branch_id
     if (reference_id) filters.reference_id = reference_id
+    if (fund_id) filters.fund_id = fund_id
 
-    const cacheKey = ['cashbook', shopId, page, limit, type, branch_id, reference_id].join(':')
+    // Lấy dữ liệu phân trang cho bảng hiển thị
     const result = await connector.list('cashbook', { page, limit, filters, sortDesc: true })
 
-    return NextResponse.json(result)
+    // --- TÍNH TOÁN SỐ DƯ ĐỘNG (Đầu kỳ, phát sinh, cuối kỳ) ---
+    // 1. Lấy tất cả tài khoản quỹ để tính tổng initial_balance
+    const fundsRes = await connector.list('payment-funds', {
+      filters: branch_id ? { branch_id } : {},
+      limit: 100
+    })
+    const funds = (fundsRes.data as Record<string, string>[]).filter(f => !fund_id || f.id === fund_id)
+    const totalInitialBalance = funds.reduce((sum, f) => sum + parseFloat(f.initial_balance || '0'), 0)
+
+    // 2. Lấy toàn bộ lịch sử giao dịch để tính toán lũy kế
+    const allCbRes = await connector.list('cashbook', {
+      filters: branch_id ? { branch_id } : {},
+      limit: 100000 // Tối đa 100k dòng để tính toán chính xác
+    })
+    const allTransactions = allCbRes.data as Record<string, string>[]
+
+    // Lọc theo quỹ được chọn
+    const filteredTransactions = allTransactions.filter(tx => !fund_id || tx.fund_id === fund_id)
+
+    let opening_balance = totalInitialBalance
+    let total_receipt = 0
+    let total_payment = 0
+
+    const fromTime = from_date ? new Date(from_date).getTime() : 0
+    const toTime = to_date ? new Date(to_date).getTime() : Infinity
+
+    for (const tx of filteredTransactions) {
+      const txTime = new Date(tx.created_at || '').getTime()
+      const amount = parseFloat(tx.amount || '0')
+
+      if (txTime < fromTime) {
+        if (tx.type === 'receipt') {
+          opening_balance += amount
+        } else if (tx.type === 'payment') {
+          opening_balance -= amount
+        }
+      } else if (txTime >= fromTime && txTime <= toTime) {
+        if (tx.type === 'receipt') {
+          total_receipt += amount
+        } else if (tx.type === 'payment') {
+          total_payment += amount
+        }
+      }
+    }
+
+    const closing_balance = opening_balance + total_receipt - total_payment
+
+    return NextResponse.json({
+      ...result,
+      opening_balance: String(opening_balance),
+      total_receipt: String(total_receipt),
+      total_payment: String(total_payment),
+      closing_balance: String(closing_balance)
+    })
   } catch (e) {
     return handleApiError(e, 'GET cashbook')
   }
@@ -42,12 +100,95 @@ export async function POST(
   let tx: RollbackContext | undefined;
   try {
     const { shopId } = await params
-    const { connector, permissions, user, shop } = await requireShopAccess(shopId, 'cashbook.manage')
+    const { connector, user } = await requireShopAccess(shopId, 'cashbook.manage')
     tx = new RollbackContext()
 
     const body = await req.json()
     const payload = cashbookCreateSchema.parse(body)
+    const branchId = payload.branch_id ?? ''
 
+    // --- KIỂM TRA CA LÀM VIỆC (SHIFT MANAGEMENT) ---
+    const admin = getSupabaseAdminClient()
+    const { data: settings } = await admin
+      .from('shop_settings')
+      .select('enable_shift_management')
+      .eq('shop_id', shopId)
+      .maybeSingle()
+
+    const isShiftEnabled = settings?.enable_shift_management ?? false
+    let activeShift: Record<string, string> | null = null
+
+    if (isShiftEnabled) {
+      const userEmail = user.email || ''
+      
+      const shiftsRes = await connector.list('shop-shifts', {
+        filters: { branch_id: branchId, user_id: userEmail, status: 'open' },
+        limit: 1
+      })
+      
+      if (shiftsRes.total === 0) {
+        return NextResponse.json(
+          { error: 'Yêu cầu mở ca làm việc: Vui lòng mở ca làm việc tại POS trước khi thực hiện thu/chi!' },
+          { status: 400 }
+        )
+      }
+      activeShift = shiftsRes.data[0]
+    }
+
+    // --- XỬ LÝ QUỸ THANH TOÁN (FUND) ---
+    let selectedFundId = payload.fund_id
+
+    // Nếu không truyền fund_id, tìm quỹ mặc định
+    if (!selectedFundId) {
+      const fundsRes = await connector.list('payment-funds', {
+        filters: { branch_id: branchId },
+        limit: 100
+      })
+      const funds = fundsRes.data as Record<string, string>[]
+      const defaultFund = funds.find(f => f.is_default === 'TRUE') || funds[0]
+
+      if (defaultFund) {
+        selectedFundId = defaultFund.id
+      } else {
+        // Phòng vệ chiều sâu: Nếu chưa có bất kỳ quỹ nào, tự động tạo 1 quỹ tiền mặt mặc định
+        const newDefaultFund = await connector.create('payment-funds', {
+          branch_id: branchId,
+          name: 'Quỹ tiền mặt mặc định',
+          type: 'cash',
+          initial_balance: '0',
+          current_balance: '0',
+          is_default: 'TRUE',
+          active: 'TRUE',
+        })
+        selectedFundId = newDefaultFund.id
+      }
+    }
+
+    // Lấy thông tin quỹ hiện tại để cập nhật số dư
+    const fund = await connector.findById('payment-funds', selectedFundId!)
+    if (!fund) throw new Error('Không tìm thấy tài khoản quỹ thanh toán')
+
+    const currentFundBalance = parseFloat(fund.current_balance || '0')
+    const amountFloat = payload.amount
+    let newFundBalance = currentFundBalance
+
+    if (payload.type === 'receipt') {
+      newFundBalance = currentFundBalance + amountFloat
+    } else if (payload.type === 'payment') {
+      newFundBalance = currentFundBalance - amountFloat
+    }
+
+    // Cập nhật số dư tài khoản quỹ
+    await connector.update('payment-funds', selectedFundId!, {
+      current_balance: String(newFundBalance)
+    })
+    tx.add(async () => {
+      await connector.update('payment-funds', selectedFundId!, {
+        current_balance: String(currentFundBalance)
+      }).catch(() => {})
+    })
+
+    // --- TẠO PHIẾU THU/CHI ---
     const createdCb = await connector.create('cashbook', {
       type: payload.type,
       amount: String(payload.amount),
@@ -56,12 +197,36 @@ export async function POST(
       reference_id: payload.reference_id ?? '',
       reference_name: payload.reference_name ?? '',
       note: payload.note ?? '',
-      branch_id: payload.branch_id ?? '',
+      branch_id: branchId,
       employee_id: payload.employee_id ?? user.email ?? '',
+      fund_id: selectedFundId!,
+      balance_after_transaction: String(newFundBalance),
     })
     tx.add(async () => {
       await connector.delete('cashbook', (createdCb as any).transaction_id).catch(() => {})
     })
+
+    // Cập nhật expected_closing_cash của ca nếu giao dịch bằng tiền mặt
+    if (isShiftEnabled && activeShift && payload.method === 'cash') {
+      const currentExpected = parseFloat(activeShift.expected_closing_cash || '0')
+      const amountFloat = payload.amount
+      let newExpected = currentExpected
+
+      if (payload.type === 'receipt') {
+        newExpected = currentExpected + amountFloat
+      } else if (payload.type === 'payment') {
+        newExpected = currentExpected - amountFloat
+      }
+
+      await connector.update('shop-shifts', activeShift.id, {
+        expected_closing_cash: String(newExpected)
+      })
+      tx.add(async () => {
+        await connector.update('shop-shifts', activeShift.id!, {
+          expected_closing_cash: String(currentExpected)
+        }).catch(() => {})
+      })
+    }
 
     // If this is a debt collection, reduce customer debt
     if (payload.category === 'debt_collection' && payload.reference_id) {
@@ -96,6 +261,7 @@ export async function POST(
     }
 
     invalidate(shopId, 'cashbook')
+    invalidate(shopId, 'payment-funds')
     return NextResponse.json(createdCb, { status: 201 })
   } catch (e) {
     if (tx) {

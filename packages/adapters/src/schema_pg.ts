@@ -158,6 +158,52 @@ export const cashbook = pgTable('cashbook', {
   employee_id: varchar('employee_id', { length: 255 }),
   note: text('note'),
   date: varchar('date', { length: 50 }),
+  fund_id: varchar('fund_id', { length: 255 }),
+  balance_after_transaction: varchar('balance_after_transaction', { length: 50 }),
+});
+
+export const payment_funds = pgTable('payment_funds', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  branch_id: varchar('branch_id', { length: 255 }).notNull(),
+  name: varchar('name', { length: 255 }).notNull(),
+  type: varchar('type', { length: 50 }).notNull(), // 'cash' | 'bank' | 'wallet'
+  account_number: varchar('account_number', { length: 100 }),
+  bank_name: varchar('bank_name', { length: 255 }),
+  initial_balance: varchar('initial_balance', { length: 50 }).default('0'),
+  current_balance: varchar('current_balance', { length: 50 }).default('0'),
+  is_default: varchar('is_default', { length: 10 }).default('FALSE'),
+});
+
+export const shop_shifts = pgTable('shop_shifts', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  branch_id: varchar('branch_id', { length: 255 }).notNull(),
+  user_id: varchar('user_id', { length: 255 }).notNull(),
+  opened_at: varchar('opened_at', { length: 50 }).notNull(),
+  closed_at: varchar('closed_at', { length: 50 }),
+  status: varchar('status', { length: 50 }).default('open'), // 'open' | 'closed'
+  opening_cash: varchar('opening_cash', { length: 50 }).default('0'),
+  expected_closing_cash: varchar('expected_closing_cash', { length: 50 }).default('0'),
+  actual_closing_cash: varchar('actual_closing_cash', { length: 50 }).default('0'),
+  cash_variance: varchar('cash_variance', { length: 50 }).default('0'),
+  non_cash_revenue: text('non_cash_revenue'), // JSON string
+  note: text('note'),
+});
+
+export const fund_audits = pgTable('fund_audits', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  branch_id: varchar('branch_id', { length: 255 }).notNull(),
+  fund_id: varchar('fund_id', { length: 255 }).notNull(),
+  audited_by: varchar('audited_by', { length: 255 }).notNull(),
+  audited_at: varchar('audited_at', { length: 50 }).notNull(),
+  system_balance: varchar('system_balance', { length: 50 }).notNull(),
+  actual_balance: varchar('actual_balance', { length: 50 }).notNull(),
+  variance: varchar('variance', { length: 50 }).notNull(),
+  cash_denominations: text('cash_denominations'), // JSON string
+  status: varchar('status', { length: 50 }).default('draft'), // 'draft' | 'confirmed'
+  note: text('note'),
 });
 
 export const categories = pgTable('categories', {

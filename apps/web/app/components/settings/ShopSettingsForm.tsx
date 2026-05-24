@@ -27,6 +27,7 @@ interface ShopSettings {
   receipt_footer?: string | null;
   default_price_type: string;
   qr_auto_approve_session?: boolean;
+  enable_shift_management?: boolean;
   synced_from_sheet_at: string | null;
   updated_at: string;
   // CRM Settings
@@ -116,6 +117,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
     receipt_footer: initial.receipt_footer ?? '',
     default_price_type: initial.default_price_type,
     qr_auto_approve_session: initial.qr_auto_approve_session ?? false,
+    enable_shift_management: initial.enable_shift_management ?? false,
     // CRM Settings
     loyalty_points_enabled: initial.loyalty_points_enabled ?? true,
     loyalty_money_to_point: String(initial.loyalty_money_to_point ?? 100000),
@@ -166,6 +168,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
           receipt_footer: form.receipt_footer,
           default_price_type: form.default_price_type,
           qr_auto_approve_session: form.qr_auto_approve_session,
+          enable_shift_management: form.enable_shift_management,
           // CRM updates
           loyalty_points_enabled: form.loyalty_points_enabled,
           loyalty_money_to_point: parseFloat(form.loyalty_money_to_point) || 100000,
@@ -401,6 +404,23 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
                 </div>
                 <span className="text-sm text-slate-600 select-none">
                   {form.allow_negative_stock ? 'Cho phép bán khi tồn kho = 0' : 'Không cho phép bán khi hết hàng'}
+                </span>
+              </div>
+            </Field>
+            <Field label="Quản lý ca làm việc (POS)">
+              <div
+                onClick={() => canManage && set('enable_shift_management', !form.enable_shift_management)}
+                className="flex cursor-pointer items-center gap-3 mt-1"
+              >
+                <div
+                  className={`relative h-6 w-11 rounded-full transition-colors ${form.enable_shift_management ? 'bg-primary' : 'bg-slate-200'} ${canManage ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${form.enable_shift_management ? 'translate-x-5' : ''}`}
+                  />
+                </div>
+                <span className="text-sm text-slate-600 select-none">
+                  {form.enable_shift_management ? 'Bắt buộc đóng/mở ca khi bán hàng tại POS (Hạn chế thất thoát)' : 'Bán hàng liên tục không chia ca (Phù hợp hộ kinh doanh/SME)'}
                 </span>
               </div>
             </Field>

@@ -5,8 +5,9 @@ import { liveQuery } from 'dexie'
 import { usePOSHydration } from '@/hooks/usePOSHydration'
 import { useNetworkStatus } from '@/hooks/useNetworkStatus'
 import { useCart, type CartItem } from '@/hooks/useCart'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation } from '@tanstack/react-query'
 import { useConfirm } from '@/app/components/ui/ConfirmProvider'
+import { format } from 'date-fns'
 import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog'
 import { localDb, type LocalInventory, type LocalCustomer, type LocalOrder } from '@/lib/localDb/schema'
 import { SyncWorker } from '@/lib/pos/syncWorker'
@@ -114,6 +115,84 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
   const [customer, setCustomer] = useState<LocalCustomer | null>(null)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [activeCartItemId, setActiveCartItemId] = useState<string | null>(null)
+
+  // --- SHIFT MANAGEMENT STATES & QUERIES ---
+  const [shiftOpenModalOpen, setShiftOpenModalOpen] = useState(false)
+  const [shiftCloseModalOpen, setShiftCloseModalOpen] = useState(false)
+  const [openingCashInput, setOpeningCashInput] = useState('0')
+  const [actualCashInput, setActualCashInput] = useState('0')
+  const [shiftNote, setShiftNote] = useState('')
+  
+  const [lastClosedShift, setLastClosedShift] = useState<Record<string, string> | null>(null)
+  const [shiftSummaryModalOpen, setShiftSummaryModalOpen] = useState(false)
+
+  const isShiftEnabled = settings?.enable_shift_management ?? false
+
+  const { data: openShiftData, isLoading: isOpenShiftLoading, refetch: refetchOpenShift } = useQuery({
+    queryKey: ['open-shift', shopId, branchId, userEmail],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/shifts?status=open&branch_id=${branchId}&user_id=${userEmail}`)
+      if (!res.ok) return { data: [] }
+      return res.json() as Promise<{ data: Record<string, string>[], total: number }>
+    },
+    enabled: !!shopId && !!branchId && !!userEmail && isShiftEnabled,
+  })
+
+  const activeShift = openShiftData?.data?.[0] || null
+  const hasActiveShift = !!activeShift
+
+  // Auto-open Shift Open Modal if enabled but no active shift
+  useEffect(() => {
+    if (isShiftEnabled && !isOpenShiftLoading && !hasActiveShift) {
+      setShiftOpenModalOpen(true)
+    } else {
+      setShiftOpenModalOpen(false)
+    }
+  }, [isShiftEnabled, isOpenShiftLoading, hasActiveShift])
+
+  const openShiftMutation = useMutation({
+    mutationFn: async (payload: { branch_id: string; opening_cash: number }) => {
+      const res = await fetch(`/api/shops/${shopId}/shifts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}))
+        throw new Error(json.error ?? 'Mở ca thất bại')
+      }
+      return res.json()
+    },
+    onSuccess: () => {
+      toast.success('Mở ca làm việc thành công!')
+      setShiftOpenModalOpen(false)
+      refetchOpenShift()
+    },
+    onError: (err: Error) => toast.error(err.message)
+  })
+
+  const closeShiftMutation = useMutation({
+    mutationFn: async (payload: { actual_closing_cash: number; note: string }) => {
+      const res = await fetch(`/api/shops/${shopId}/shifts/${activeShift?.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}))
+        throw new Error(json.error ?? 'Chốt ca thất bại')
+      }
+      return res.json() as Promise<Record<string, string>>
+    },
+    onSuccess: (data) => {
+      toast.success('Chốt ca thành công!')
+      setShiftCloseModalOpen(false)
+      setLastClosedShift(data)
+      setShiftSummaryModalOpen(true)
+      refetchOpenShift()
+    },
+    onError: (err: Error) => toast.error(err.message)
+  })
 
   const prevItemsLengthRef = useRef(cart.items.length)
   useEffect(() => {
@@ -902,6 +981,23 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
             <IconClipboard className="h-3.5 w-3.5 shrink-0" /> Đơn hàng
           </button>
 
+          {isShiftEnabled && hasActiveShift && (
+            <button
+              onClick={() => {
+                setActualCashInput('0')
+                setShiftNote('')
+                setShiftCloseModalOpen(true)
+              }}
+              className="flex items-center gap-1.5 rounded border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100 transition-colors animate-in fade-in cursor-pointer"
+              title="Chốt ca và đếm két tiền"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor" className="h-3.5 w-3.5 shrink-0 text-rose-600">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+              </svg>
+              <span>Chốt ca</span>
+            </button>
+          )}
+
           <button
             onClick={() => {
               if (!isOnline) { toast.error('Không có kết nối mạng'); return }
@@ -1098,6 +1194,178 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
         shopId={shopId}
         onSuccess={handleCustomerCreatedGlobal}
       />
+
+      {/* DIALOG 1: MỞ CA LÀM VIỆC (SHIFT OPEN) */}
+      <ConfirmDialog
+        open={shiftOpenModalOpen}
+        onClose={() => {}} // Khóa, không cho đóng khi chưa mở ca
+        onConfirm={() => openShiftMutation.mutate({ branch_id: branchId, opening_cash: Number(openingCashInput) || 0 })}
+        title="Mở ca làm việc POS"
+        confirmLabel={openShiftMutation.isPending ? 'Đang mở ca...' : 'Xác nhận Mở ca'}
+        cancelLabel="Quay lại Admin"
+      >
+        <div className="flex flex-col gap-4 py-2">
+          <div className="text-center bg-indigo-50 p-4 rounded-2xl border border-indigo-100/50 space-y-1">
+            <div className="text-3xl">🏦</div>
+            <h3 className="text-sm font-bold text-slate-800">Yêu cầu mở ca làm việc</h3>
+            <p className="text-xs text-slate-500 leading-normal">
+              Hệ thống đang bật chế độ Quản lý ca. Nhân viên cần khai báo số tiền mặt hiện có trong két trước khi thanh toán hóa đơn.
+            </p>
+          </div>
+          
+          <div>
+            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Số tiền mặt đầu ca (Tiền lẻ thối)</label>
+            <div className="relative flex items-center">
+              <input
+                type="number"
+                value={openingCashInput}
+                onChange={(e) => setOpeningCashInput(e.target.value)}
+                className="w-full text-center text-xl font-extrabold border border-slate-200 rounded-xl py-2.5 px-8 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 bg-white text-slate-800"
+                placeholder="Nhập số tiền mặt đầu ca"
+                min="0"
+                autoFocus
+              />
+              <span className="absolute right-4 text-sm font-semibold text-slate-400">đ</span>
+            </div>
+          </div>
+
+          <div className="text-center mt-1">
+            <a
+              href={`/t/${backPath.split('/')[1]}`}
+              className="text-xs font-semibold text-slate-500 hover:text-indigo-600 underline"
+            >
+              Quay về trang quản trị
+            </a>
+          </div>
+        </div>
+      </ConfirmDialog>
+
+      {/* DIALOG 2: CHỐT CA LÀM VIỆC (SHIFT CLOSE) */}
+      <ConfirmDialog
+        open={shiftCloseModalOpen}
+        onClose={() => setShiftCloseModalOpen(false)}
+        onConfirm={() => closeShiftMutation.mutate({ actual_closing_cash: Number(actualCashInput) || 0, note: shiftNote })}
+        title="Chốt ca làm việc & Bàn giao"
+        confirmLabel={closeShiftMutation.isPending ? 'Đang chốt ca...' : 'Xác nhận Chốt ca'}
+        cancelLabel="Hủy"
+      >
+        <div className="flex flex-col gap-4 py-2">
+          <div className="text-center bg-rose-50 p-4 rounded-2xl border border-rose-100/50 space-y-1">
+            <div className="text-3xl">🔐</div>
+            <h3 className="text-sm font-bold text-slate-800">Chốt két & Đóng ca</h3>
+            <p className="text-xs text-slate-500 leading-normal">
+              Nhân viên đếm và khai báo toàn bộ số tiền mặt thực tế đang có trong két két tiền lúc đóng ca. Phiếu chốt ca sẽ bị khóa sau khi gửi.
+            </p>
+          </div>
+          
+          <div>
+            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Tổng tiền mặt đếm thực tế</label>
+            <div className="relative flex items-center">
+              <input
+                type="number"
+                value={actualCashInput}
+                onChange={(e) => setActualCashInput(e.target.value)}
+                className="w-full text-center text-xl font-extrabold border border-slate-200 rounded-xl py-2.5 px-8 focus:outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500 bg-white text-slate-800"
+                placeholder="Đếm tiền mặt trong két..."
+                min="0"
+                autoFocus
+              />
+              <span className="absolute right-4 text-sm font-semibold text-slate-400">đ</span>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Ghi chú giải trình (nếu có)</label>
+            <textarea
+              value={shiftNote}
+              onChange={(e) => setShiftNote(e.target.value)}
+              rows={2}
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none resize-none bg-white text-slate-800 shadow-sm"
+              placeholder="Lý do chênh lệch tiền mặt, bàn giao đặc biệt..."
+            />
+          </div>
+        </div>
+      </ConfirmDialog>
+
+      {/* DIALOG 3: XEM KẾT QUẢ CHỐT CA (SHIFT SUMMARY) */}
+      <ConfirmDialog
+        open={shiftSummaryModalOpen}
+        onClose={() => setShiftSummaryModalOpen(false)}
+        onConfirm={() => setShiftSummaryModalOpen(false)}
+        title="Báo cáo kết quả Chốt ca"
+        confirmLabel="Đã hiểu"
+        cancelLabel=""
+      >
+        {lastClosedShift && (
+          <div className="space-y-4 py-1 text-slate-800">
+            <div className="text-center bg-indigo-900 text-white p-5 rounded-2xl space-y-1 shadow-md">
+              <p className="text-xs text-indigo-200 uppercase tracking-wider font-semibold">Trạng thái ca</p>
+              <h3 className="text-xl font-black text-white">CA ĐÃ ĐÓNG THÀNH CÔNG</h3>
+              <p className="text-[10px] text-indigo-300">
+                Thời gian chốt: {format(new Date(), 'HH:mm - dd/MM/yyyy')}
+              </p>
+            </div>
+
+            <div className="border border-slate-200 rounded-2xl p-4 bg-slate-50 space-y-2.5">
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-500 font-medium">Tiền mặt đầu ca:</span>
+                <span className="font-bold font-mono">{Number(lastClosedShift.opening_cash || 0).toLocaleString('vi-VN')}đ</span>
+              </div>
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-500 font-medium">Tiền mặt hệ thống tính toán (Expected):</span>
+                <span className="font-bold font-mono">{Number(lastClosedShift.expected_closing_cash || 0).toLocaleString('vi-VN')}đ</span>
+              </div>
+              <div className="flex justify-between items-center text-xs border-t border-slate-200/60 pt-2">
+                <span className="text-slate-500 font-medium">Tiền mặt đếm thực tế (Actual):</span>
+                <span className="font-bold font-mono text-indigo-600">{Number(lastClosedShift.actual_closing_cash || 0).toLocaleString('vi-VN')}đ</span>
+              </div>
+              <div className="flex justify-between items-center text-xs border-t border-slate-200 pt-2">
+                <span className="text-slate-500 font-bold">Chênh lệch tiền mặt (Variance):</span>
+                <span className={`font-black font-mono ${Number(lastClosedShift.cash_variance || 0) < 0 ? 'text-rose-600' : Number(lastClosedShift.cash_variance || 0) > 0 ? 'text-emerald-600' : 'text-slate-700'}`}>
+                  {Number(lastClosedShift.cash_variance || 0) > 0 ? '+' : ''}
+                  {Number(lastClosedShift.cash_variance || 0).toLocaleString('vi-VN')}đ
+                </span>
+              </div>
+            </div>
+
+            {lastClosedShift.non_cash_revenue && (
+              <div className="border border-slate-100 rounded-2xl p-4 space-y-2.5">
+                <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Doanh thu không tiền mặt khác</h4>
+                {(() => {
+                  try {
+                    const nonCash = JSON.parse(lastClosedShift.non_cash_revenue)
+                    return (
+                      <div className="grid grid-cols-3 gap-2 text-center">
+                        <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
+                          <span className="block text-[10px] text-slate-400 font-semibold uppercase">Chuyển khoản</span>
+                          <span className="text-xs font-bold text-slate-700 font-mono">{Number(nonCash.bank_transfer || 0).toLocaleString('vi-VN')}đ</span>
+                        </div>
+                        <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
+                          <span className="block text-[10px] text-slate-400 font-semibold uppercase">Quẹt thẻ (POS)</span>
+                          <span className="text-xs font-bold text-slate-700 font-mono">{Number(nonCash.card || 0).toLocaleString('vi-VN')}đ</span>
+                        </div>
+                        <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
+                          <span className="block text-[10px] text-slate-400 font-semibold uppercase">Ví điện tử</span>
+                          <span className="text-xs font-bold text-slate-700 font-mono">{Number(nonCash.momo || 0).toLocaleString('vi-VN')}đ</span>
+                        </div>
+                      </div>
+                    )
+                  } catch { return null }
+                })()}
+              </div>
+            )}
+
+            {lastClosedShift.note && (
+              <div className="space-y-1 px-1">
+                <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Giải trình của nhân viên:</span>
+                <p className="text-xs text-slate-600 bg-slate-50 p-2.5 rounded-xl border border-slate-100 italic leading-relaxed">
+                  "{lastClosedShift.note}"
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+      </ConfirmDialog>
     </div>
   )
 }

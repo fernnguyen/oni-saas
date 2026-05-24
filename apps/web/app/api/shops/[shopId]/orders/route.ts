@@ -53,6 +53,35 @@ export async function POST(
     const body = await req.json()
     const data = orderCreateSchema.parse(body)
 
+    // --- KIỂM TRA CA LÀM VIỆC (SHIFT MANAGEMENT) ---
+    const admin = getSupabaseAdminClient()
+    const { data: settings } = await admin
+      .from('shop_settings')
+      .select('enable_shift_management')
+      .eq('shop_id', shopId)
+      .maybeSingle()
+
+    const isShiftEnabled = settings?.enable_shift_management ?? false
+    let activeShift: Record<string, string> | null = null
+
+    if (isShiftEnabled) {
+      const userEmail = user.email || ''
+      const branchId = data.branch_id || ''
+      
+      const shiftsRes = await connector.list('shop-shifts', {
+        filters: { branch_id: branchId, user_id: userEmail, status: 'open' },
+        limit: 1
+      })
+      
+      if (shiftsRes.total === 0) {
+        return NextResponse.json(
+          { error: 'Yêu cầu mở ca làm việc: Vui lòng mở ca làm việc tại POS trước khi bán hàng!' },
+          { status: 400 }
+        )
+      }
+      activeShift = shiftsRes.data[0]
+    }
+
     let finalCustomerId = data.customer_id ?? ''
     
     // Auto-create customer if name is provided but no ID
@@ -74,6 +103,16 @@ export async function POST(
       customer_id: finalCustomerId,
       created_at: getGMT7Time()
     })
+
+    // Cập nhật expected_closing_cash của ca nếu thanh toán bằng tiền mặt
+    if (isShiftEnabled && activeShift && data.payment_method === 'cash') {
+      const currentExpected = parseFloat(activeShift.expected_closing_cash || '0')
+      const paid = parseFloat(data.paid_amount || '0')
+      await connector.update('shop-shifts', activeShift.id, {
+        expected_closing_cash: String(currentExpected + paid)
+      })
+    }
+
     invalidate(shopId, 'orders')
     
     // Run notification formatting and dispatch asynchronously to prevent blocking response
