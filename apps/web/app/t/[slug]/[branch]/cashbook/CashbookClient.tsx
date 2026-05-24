@@ -1392,7 +1392,13 @@ export function CashbookClient({ shopId, permissions }: Props) {
             value={String(fundFormData.initial_balance)}
             onChange={(v) => setFundFormData(prev => ({ ...prev, initial_balance: Number(v) || 0 }))}
             suffix="đ"
+            disabled={editingFundId !== null}
           />
+          {editingFundId !== null && (
+            <p className="text-[10px] text-amber-600 leading-normal italic mt-0.5">
+              * Số dư ban đầu chỉ được thiết lập một lần khi tạo quỹ. Để điều chỉnh số dư hiện tại của quỹ, vui lòng sử dụng chức năng "Kiểm quỹ" ngoài màn hình chính để ghi nhận phiếu điều chỉnh tự động.
+            </p>
+          )}
 
           <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-100">
             <input
@@ -1420,18 +1426,32 @@ export function CashbookClient({ shopId, permissions }: Props) {
                     type="button"
                     onClick={handleActivateFund}
                     disabled={updateFundMutation.isPending}
-                    className="w-full rounded-xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 px-4 py-2.5 text-xs font-semibold text-emerald-800 shadow-xs flex items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer"
+                    className="w-full rounded-xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 px-4 py-2.5 text-xs font-semibold text-emerald-800 shadow-xs flex items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
                   >
-                    🚀 Kích hoạt lại tài khoản quỹ
+                    {updateFundMutation.isPending ? (
+                      <>
+                        <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-emerald-600 inline" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                        Đang kích hoạt lại...
+                      </>
+                    ) : (
+                      '🚀 Kích hoạt lại tài khoản quỹ'
+                    )}
                   </button>
                 ) : (
                   <button
                     type="button"
                     onClick={handleDeactivateFund}
                     disabled={deleteFundMutation.isPending}
-                    className="w-full rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 px-4 py-2.5 text-xs font-semibold text-rose-800 shadow-xs flex items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer"
+                    className="w-full rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 px-4 py-2.5 text-xs font-semibold text-rose-800 shadow-xs flex items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
                   >
-                    🔒 Ngừng hoạt động tài khoản quỹ
+                    {deleteFundMutation.isPending ? (
+                      <>
+                        <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-rose-600 inline" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                        Đang ngừng hoạt động quỹ...
+                      </>
+                    ) : (
+                      '🔒 Ngừng hoạt động tài khoản quỹ'
+                    )}
                   </button>
                 )}
                 <p className="text-[10px] text-slate-400 leading-relaxed italic mt-1">
