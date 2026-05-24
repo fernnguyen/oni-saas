@@ -20,6 +20,10 @@ const Wallet = ({ className }: { className?: string }) => <svg xmlns="http://www
 const Plus = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
 const CheckList = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
 
+const CashIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className}><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+const BankIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M3 22h18"/><path d="M6 18V11"/><path d="M10 18V11"/><path d="M14 18V11"/><path d="M18 18V11"/><path d="M12 2L2 7h20L12 2z"/></svg>
+const PhoneIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+
 interface Props {
   shopId: string
   shopName: string
@@ -227,15 +231,44 @@ export function CashbookClient({ shopId, permissions }: Props) {
     setDenominations(prev => {
       const next = { ...prev, [denom]: count }
       const total = Object.entries(next).reduce((sum, [d, c]) => sum + Number(d) * c, 0)
-      setActualBalanceInput(String(total))
+      setActualBalanceInput(total.toLocaleString('vi-VN'))
       return next
     })
   }
 
   const selectedFund = fundsList.find(f => f.id === selectedFundIdForAudit)
   const systemBalance = parseFloat(selectedFund?.current_balance || '0')
-  const actualBalance = parseFloat(actualBalanceInput) || 0
+  const actualBalance = parseFloat(actualBalanceInput.replace(/\./g, '').replace(/,/g, '')) || 0
   const variance = actualBalance - systemBalance
+
+  const handleConfirmSaveAudit = async () => {
+    if (!selectedFundIdForAudit) return;
+    
+    const diff = actualBalance - systemBalance;
+    let diffText = '';
+    if (diff > 0) {
+      diffText = `thừa ${diff.toLocaleString('vi-VN')}đ (hệ thống sẽ tự động tạo phiếu Thu điều chỉnh)`;
+    } else if (diff < 0) {
+      diffText = `thiếu ${Math.abs(diff).toLocaleString('vi-VN')}đ (hệ thống sẽ tự động tạo phiếu Chi điều chỉnh)`;
+    } else {
+      diffText = `khớp số dư sổ sách`;
+    }
+
+    const isConfirmed = await confirm({
+      title: 'Xác nhận kiểm kê & Cân bằng quỹ',
+      description: `Bạn có chắc chắn muốn xác nhận kết quả kiểm kê quỹ "${selectedFund?.name}"? Số dư thực tế là ${actualBalance.toLocaleString('vi-VN')}đ (${diffText}). Giao dịch này sẽ cập nhật số dư quỹ và không thể hoàn tác.`,
+      confirmLabel: 'Xác nhận kiểm kê',
+      cancelLabel: 'Hủy',
+    })
+    if (isConfirmed) {
+      saveAuditMutation.mutate({
+        fund_id: selectedFundIdForAudit,
+        actual_balance: actualBalance,
+        cash_denominations: selectedFund?.type === 'cash' ? denominations : undefined,
+        note: auditNote
+      })
+    }
+  }
 
   const CATEGORY_MAP: Record<string, string> = {
     sales: 'Bán hàng',
@@ -329,7 +362,7 @@ export function CashbookClient({ shopId, permissions }: Props) {
       key: 'balance_after_transaction', 
       label: 'Số dư sau GD',
       render: (row) => (
-        <span className="text-xs text-slate-600 font-medium font-mono">
+        <span className="text-xs text-slate-600 font-medium">
           {row.balance_after_transaction ? `${Number(row.balance_after_transaction).toLocaleString('vi-VN')}đ` : '—'}
         </span>
       )
@@ -351,45 +384,37 @@ export function CashbookClient({ shopId, permissions }: Props) {
             {isFetching && !isLoading && <span className="ml-2 text-xs text-indigo-500 animate-pulse font-medium">Đang đồng bộ...</span>}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => setAuditHistorySlideOpen(true)}
-            className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 shadow-sm flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer"
+            className="rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:text-slate-800 shadow-sm flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer"
           >
-            Lịch sử kiểm quỹ
+            <Clock className="w-3.5 h-3.5 text-slate-400" />
+            Lịch sử kiểm
           </button>
           <HasPermission has="cashbook.audit">
             <button
               onClick={openAudit}
-              className="rounded-xl border border-slate-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 shadow-sm flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer border-amber-100"
+              className="rounded-full border border-slate-200 bg-amber-50 px-3.5 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 shadow-sm flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer border-amber-100"
             >
-              <CheckList className="w-4 h-4 text-amber-700" />
-              Kiểm Quỹ
-            </button>
-          </HasPermission>
-          <HasPermission has="cashbook.funds.manage">
-            <button
-              onClick={openCreateFund}
-              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 shadow-sm flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer"
-            >
-              <Wallet className="w-4 h-4 text-slate-500" />
-              Tài khoản/Quỹ
+              <CheckList className="w-3.5 h-3.5 text-amber-600" />
+              Kiểm quỹ
             </button>
           </HasPermission>
           <HasPermission has="cashbook.manage">
             <button
               onClick={() => openCreate('receipt')}
-              className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 shadow-sm flex items-center gap-1 active:scale-95 transition-all cursor-pointer"
+              className="rounded-full bg-emerald-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 shadow-sm flex items-center gap-1 active:scale-95 transition-all cursor-pointer"
             >
-              <Plus className="w-4 h-4" />
-              Tạo Phiếu Thu
+              <Plus className="w-3.5 h-3.5" />
+              Phiếu Thu
             </button>
             <button
               onClick={() => openCreate('payment')}
-              className="rounded-xl bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700 shadow-sm flex items-center gap-1 active:scale-95 transition-all cursor-pointer"
+              className="rounded-full bg-rose-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-rose-700 shadow-sm flex items-center gap-1 active:scale-95 transition-all cursor-pointer"
             >
-              <Plus className="w-4 h-4" />
-              Tạo Phiếu Chi
+              <Plus className="w-3.5 h-3.5" />
+              Phiếu Chi
             </button>
           </HasPermission>
         </div>
@@ -402,7 +427,7 @@ export function CashbookClient({ shopId, permissions }: Props) {
           <div className="absolute top-0 left-0 h-1 w-full bg-slate-400 group-hover:bg-slate-500 transition-colors" />
           <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Số dư đầu kỳ</p>
           <div className="mt-2 flex items-baseline gap-1">
-            <span className="text-2xl font-bold tracking-tight text-slate-700 font-mono">
+            <span className="text-2xl font-bold tracking-tight text-slate-700">
               {Number(data?.opening_balance || 0).toLocaleString('vi-VN')}
             </span>
             <span className="text-sm font-bold text-slate-400">đ</span>
@@ -415,7 +440,7 @@ export function CashbookClient({ shopId, permissions }: Props) {
           <div className="absolute top-0 left-0 h-1 w-full bg-emerald-500 group-hover:bg-emerald-600 transition-colors" />
           <p className="text-xs font-semibold uppercase tracking-wider text-emerald-600">Tổng Thu (+)</p>
           <div className="mt-2 flex items-baseline gap-1">
-            <span className="text-2xl font-bold tracking-tight text-emerald-600 font-mono">
+            <span className="text-2xl font-bold tracking-tight text-emerald-600">
               {Number(data?.total_receipt || 0).toLocaleString('vi-VN')}
             </span>
             <span className="text-sm font-bold text-emerald-400">đ</span>
@@ -428,7 +453,7 @@ export function CashbookClient({ shopId, permissions }: Props) {
           <div className="absolute top-0 left-0 h-1 w-full bg-rose-500 group-hover:bg-rose-600 transition-colors" />
           <p className="text-xs font-semibold uppercase tracking-wider text-rose-600">Tổng Chi (-)</p>
           <div className="mt-2 flex items-baseline gap-1">
-            <span className="text-2xl font-bold tracking-tight text-rose-600 font-mono">
+            <span className="text-2xl font-bold tracking-tight text-rose-600">
               {Number(data?.total_payment || 0).toLocaleString('vi-VN')}
             </span>
             <span className="text-sm font-bold text-rose-400">đ</span>
@@ -445,7 +470,7 @@ export function CashbookClient({ shopId, permissions }: Props) {
             Số dư cuối kỳ
           </p>
           <div className="mt-2.5 flex items-baseline gap-1">
-            <span className="text-3xl font-extrabold tracking-tight text-white font-mono">
+            <span className="text-3xl font-extrabold tracking-tight text-white">
               {Number(data?.closing_balance || 0).toLocaleString('vi-VN')}
             </span>
             <span className="text-sm font-bold text-orange-200">đ</span>
@@ -455,39 +480,30 @@ export function CashbookClient({ shopId, permissions }: Props) {
       </div>
 
       {/* --- SECTION: TÀI KHOẢN & QUỸ THANH TOÁN --- */}
-      <div className="space-y-3 bg-white border border-slate-200/80 rounded-2xl p-5 shadow-sm">
+      <div className="space-y-3 bg-white border border-slate-200/80 rounded-2xl p-4 shadow-sm">
         <div className="flex items-center justify-between">
           <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
             <Wallet className="w-4 h-4 text-slate-400" />
             Tài khoản & Quỹ thanh toán
           </h2>
-          <HasPermission has="cashbook.funds.manage">
-            <button
-              onClick={openCreateFund}
-              className="text-xs font-bold text-indigo-600 hover:text-indigo-800 transition-colors flex items-center gap-1 cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Thêm tài khoản mới
-            </button>
-          </HasPermission>
         </div>
         
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2.5">
           {/* Card: Tất cả tài khoản */}
           <div 
             onClick={() => { setFundFilter(''); setPage(1) }}
-            className={`cursor-pointer rounded-xl border p-3 transition-all flex flex-col justify-between h-[82px] active:scale-[0.98] ${
+            className={`cursor-pointer rounded-xl border p-2.5 transition-all flex flex-col justify-between h-[72px] active:scale-[0.98] ${
               !fundFilter 
                 ? 'border-indigo-600 bg-indigo-50/50 shadow-sm ring-1 ring-indigo-600/10' 
                 : 'border-slate-200/80 bg-white hover:border-slate-300'
             }`}
           >
             <div className="flex items-center justify-between">
-              <span className={`text-[10px] font-bold uppercase tracking-wider ${!fundFilter ? 'text-indigo-600' : 'text-slate-400'}`}>Tất cả quỹ</span>
-              <span className="text-sm">🏦</span>
+              <span className={`text-[9px] font-bold uppercase tracking-wider ${!fundFilter ? 'text-indigo-600' : 'text-slate-400'}`}>Tất cả quỹ</span>
+              <BankIcon className={`w-3.5 h-3.5 ${!fundFilter ? 'text-indigo-500' : 'text-slate-400'}`} />
             </div>
-            <div className="flex items-baseline gap-0.5 mt-1">
-              <span className={`text-base font-bold font-mono ${!fundFilter ? 'text-indigo-950' : 'text-slate-700'}`}>
+            <div className="flex items-baseline gap-0.5 mt-0.5">
+              <span className={`text-sm font-bold ${!fundFilter ? 'text-indigo-950' : 'text-slate-700'}`}>
                 {fundsList.reduce((sum, f) => sum + parseFloat(f.current_balance || '0'), 0).toLocaleString('vi-VN')}
               </span>
               <span className="text-[9px] font-bold text-slate-400">đ</span>
@@ -498,34 +514,39 @@ export function CashbookClient({ shopId, permissions }: Props) {
           {fundsList.map(fund => {
             const isSelected = fundFilter === fund.id
             const balance = parseFloat(fund.current_balance || '0')
-            let emoji = '💵'
-            if (fund.type === 'bank') emoji = '🏦'
-            else if (fund.type === 'wallet') emoji = '📱'
+            
+            // Render flat SVG icon
+            let icon = <CashIcon className={`w-3.5 h-3.5 ${isSelected ? 'text-indigo-500' : 'text-slate-400'}`} />
+            if (fund.type === 'bank') {
+              icon = <BankIcon className={`w-3.5 h-3.5 ${isSelected ? 'text-indigo-500' : 'text-slate-400'}`} />
+            } else if (fund.type === 'wallet') {
+              icon = <PhoneIcon className={`w-3.5 h-3.5 ${isSelected ? 'text-indigo-500' : 'text-slate-400'}`} />
+            }
 
             return (
               <div 
                 key={fund.id}
                 onClick={() => { setFundFilter(isSelected ? '' : fund.id); setPage(1) }}
-                className={`cursor-pointer rounded-xl border p-3 transition-all flex flex-col justify-between h-[82px] active:scale-[0.98] group relative ${
+                className={`cursor-pointer rounded-xl border p-2.5 transition-all flex flex-col justify-between h-[72px] active:scale-[0.98] group relative ${
                   isSelected 
                     ? 'border-indigo-600 bg-indigo-50/50 shadow-sm ring-1 ring-indigo-600/10' 
                     : 'border-slate-200/80 bg-white hover:border-slate-300'
                 }`}
               >
                 <div className="flex items-center justify-between gap-1">
-                  <span className={`text-[10px] font-bold uppercase tracking-wider truncate max-w-[80%] ${isSelected ? 'text-indigo-600' : 'text-slate-500'}`}>
+                  <span className={`text-[9px] font-bold uppercase tracking-wider truncate max-w-[80%] ${isSelected ? 'text-indigo-600' : 'text-slate-500'}`}>
                     {fund.name}
                   </span>
-                  <span className="text-sm shrink-0">{emoji}</span>
+                  <span className="shrink-0">{icon}</span>
                 </div>
-                <div className="flex items-baseline gap-0.5 mt-1">
-                  <span className={`text-base font-bold font-mono ${isSelected ? 'text-indigo-950' : 'text-slate-700'}`}>
+                <div className="flex items-baseline gap-0.5 mt-0.5">
+                  <span className={`text-sm font-bold ${isSelected ? 'text-indigo-950' : 'text-slate-700'}`}>
                     {balance.toLocaleString('vi-VN')}
                   </span>
                   <span className="text-[9px] font-bold text-slate-400">đ</span>
                 </div>
                 {fund.is_default === 'TRUE' && (
-                  <span className="absolute bottom-1 right-2 text-[8px] bg-emerald-100 text-emerald-800 font-bold px-1 py-0.2 rounded border border-emerald-200">
+                  <span className="absolute bottom-1 right-2 text-[7px] bg-emerald-100 text-emerald-800 font-bold px-1 rounded border border-emerald-200">
                     Mặc định
                   </span>
                 )}
@@ -537,12 +558,12 @@ export function CashbookClient({ shopId, permissions }: Props) {
           <HasPermission has="cashbook.funds.manage">
             <div 
               onClick={openCreateFund}
-              className="cursor-pointer rounded-xl border border-dashed border-slate-300 bg-slate-50/50 hover:bg-indigo-50/30 hover:border-indigo-400/80 p-3 transition-all flex flex-col justify-center items-center h-[82px] text-center active:scale-[0.98] group"
+              className="cursor-pointer rounded-xl border border-dashed border-slate-300 bg-slate-50/50 hover:bg-indigo-50/30 hover:border-indigo-400/80 p-2.5 transition-all flex flex-col justify-center items-center h-[72px] text-center active:scale-[0.98] group"
             >
-              <div className="rounded-full bg-slate-200/80 group-hover:bg-indigo-100 p-1 transition-colors">
-                <Plus className="w-4 h-4 text-slate-500 group-hover:text-indigo-600" />
-              </div>
-              <span className="text-[11px] font-bold text-slate-500 group-hover:text-indigo-600 mt-1">Mở thêm quỹ mới</span>
+              <Plus className="w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-500 group-hover:scale-110 transition-transform" />
+              <span className="text-[9px] font-bold text-slate-400 group-hover:text-indigo-600 mt-1 uppercase tracking-wider">
+                Mở thêm quỹ
+              </span>
             </div>
           </HasPermission>
         </div>
@@ -855,12 +876,7 @@ export function CashbookClient({ shopId, permissions }: Props) {
               Hủy
             </button>
             <button
-              onClick={() => saveAuditMutation.mutate({
-                fund_id: selectedFundIdForAudit,
-                actual_balance: actualBalance,
-                cash_denominations: selectedFund?.type === 'cash' ? denominations : undefined,
-                note: auditNote
-              })}
+              onClick={handleConfirmSaveAudit}
               disabled={saveAuditMutation.isPending || !selectedFundIdForAudit}
               className="rounded-xl px-4 py-2 text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 shadow-sm cursor-pointer"
             >
@@ -893,11 +909,11 @@ export function CashbookClient({ shopId, permissions }: Props) {
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/60 space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-slate-500">Số dư sổ sách hiện tại:</span>
-                <span className="font-bold text-slate-800 font-mono">{systemBalance.toLocaleString('vi-VN')}đ</span>
+                <span className="font-bold text-slate-800">{systemBalance.toLocaleString('vi-VN')}đ</span>
               </div>
               <div className="flex justify-between border-t border-slate-200/50 pt-2 text-xs">
                 <span className="text-slate-500 font-semibold">Chênh lệch khi cân bằng:</span>
-                <span className={`font-black font-mono ${variance > 0 ? 'text-emerald-600' : variance < 0 ? 'text-rose-600' : 'text-slate-500'}`}>
+                <span className={`font-black ${variance > 0 ? 'text-emerald-600' : variance < 0 ? 'text-rose-600' : 'text-slate-500'}`}>
                   {variance > 0 ? '+' : ''}{variance.toLocaleString('vi-VN')}đ
                 </span>
               </div>
@@ -921,10 +937,10 @@ export function CashbookClient({ shopId, permissions }: Props) {
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 gap-2 max-h-64 overflow-y-auto pr-1 border border-slate-200 rounded-xl p-3 bg-slate-50/50">
+              <div className="grid grid-cols-1 gap-2 pr-1 border border-slate-200 rounded-xl p-3 bg-slate-50/50">
                 {DENOMINATIONS.map(denom => (
                   <div key={denom} className="flex items-center justify-between gap-3 text-xs">
-                    <span className="font-bold text-slate-700 font-mono w-16">{denom.toLocaleString('vi-VN')}</span>
+                    <span className="font-bold text-slate-700 w-16">{denom.toLocaleString('vi-VN')}</span>
                     <span className="text-slate-400 font-medium">x</span>
                     <input
                       type="number"
@@ -935,7 +951,7 @@ export function CashbookClient({ shopId, permissions }: Props) {
                       placeholder="0 tờ"
                     />
                     <span className="text-slate-400 font-medium">=</span>
-                    <span className="font-bold text-slate-800 font-mono w-24 text-right">
+                    <span className="font-bold text-slate-800 w-24 text-right">
                       {((denominations[denom] || 0) * denom).toLocaleString('vi-VN')}đ
                     </span>
                   </div>
@@ -948,16 +964,17 @@ export function CashbookClient({ shopId, permissions }: Props) {
             <label className="block text-sm font-medium text-slate-700 mb-1">Số dư đếm thực tế *</label>
             <div className="relative flex items-center">
               <input
-                type="number"
+                type="text"
                 value={actualBalanceInput}
                 onChange={(e) => {
-                  setActualBalanceInput(e.target.value)
+                  const rawVal = e.target.value.replace(/\D/g, '')
+                  const formatted = rawVal ? parseInt(rawVal, 10).toLocaleString('vi-VN') : '0'
+                  setActualBalanceInput(formatted)
                   // Hủy đếm mệnh giá nếu nhập tay
                   if (selectedFund?.type === 'cash') setDenominations({})
                 }}
                 className="w-full text-lg font-bold border border-slate-200 rounded-xl py-2 px-8 focus:outline-none focus:border-amber-500 bg-white text-slate-800 shadow-sm"
                 placeholder="Nhập số dư đếm được..."
-                min="0"
                 required
               />
               <span className="absolute right-4 text-sm font-semibold text-slate-400">đ</span>
@@ -1025,15 +1042,15 @@ export function CashbookClient({ shopId, permissions }: Props) {
                     <div className="grid grid-cols-3 gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-center text-[11px]">
                       <div>
                         <span className="block text-[9px] text-slate-400 font-semibold uppercase">Sổ sách</span>
-                        <span className="font-bold text-slate-700 font-mono">{Number(audit.system_balance || 0).toLocaleString('vi-VN')}</span>
+                        <span className="font-bold text-slate-700">{Number(audit.system_balance || 0).toLocaleString('vi-VN')}</span>
                       </div>
                       <div>
                         <span className="block text-[9px] text-slate-400 font-semibold uppercase">Thực tế</span>
-                        <span className="font-bold text-slate-800 font-mono">{Number(audit.actual_balance || 0).toLocaleString('vi-VN')}</span>
+                        <span className="font-bold text-slate-800">{Number(audit.actual_balance || 0).toLocaleString('vi-VN')}</span>
                       </div>
                       <div>
                         <span className="block text-[9px] text-slate-400 font-semibold uppercase">Chênh lệch</span>
-                        <span className={`font-black font-mono ${v < 0 ? 'text-rose-600' : v > 0 ? 'text-emerald-600' : 'text-slate-600'}`}>
+                        <span className={`font-black ${v < 0 ? 'text-rose-600' : v > 0 ? 'text-emerald-600' : 'text-slate-600'}`}>
                           {v > 0 ? '+' : ''}{v.toLocaleString('vi-VN')}
                         </span>
                       </div>
@@ -1047,7 +1064,7 @@ export function CashbookClient({ shopId, permissions }: Props) {
 
                     <div className="flex items-center justify-between text-[10px] text-slate-400 border-t border-slate-100 pt-2">
                       <span>Người kiểm: <strong className="text-slate-600 font-semibold">{audit.audited_by}</strong></span>
-                      <span className="text-[9px] font-mono text-slate-300">#{audit.id.substring(0, 8).toUpperCase()}</span>
+                      <span className="text-[9px] text-slate-300">#{audit.id.substring(0, 8).toUpperCase()}</span>
                     </div>
                   </div>
                 )
