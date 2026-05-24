@@ -55,6 +55,7 @@ interface PaymentRow {
   id: string
   method: string
   amount: string
+  fund_id?: string
 }
 
 function fmtVND(v: number | string | null | undefined) {
@@ -64,7 +65,7 @@ function fmtVND(v: number | string | null | undefined) {
 export function MemberTierBadge({ label, color }: { label: string; color?: string }) {
   const c = (color || 'slate').toLowerCase()
   let classes = 'bg-slate-100 text-slate-600 border border-slate-200/50 shadow-none font-medium'
-  
+
   const TYPE_LABEL_MAP: Record<string, string> = {
     retail: 'Bán lẻ',
     wholesale: 'Khách sỉ',
@@ -170,7 +171,7 @@ export function CheckoutModal({
     if (!metadata?.check_in || hourlyRate <= 0) return items
     const checkInDate = new Date(metadata.check_in)
     const effectiveCheckout = localCheckoutTime ? new Date(localCheckoutTime) : (customCheckoutTime ? new Date(customCheckoutTime) : new Date())
-    
+
     const pricingResult = calculateHourlyBilling({
       checkIn: checkInDate,
       checkOut: effectiveCheckout,
@@ -183,12 +184,12 @@ export function CheckoutModal({
 
     return items.map(item => {
       if (item.product_id === 'TIME_CHARGE') {
-        return { 
-          ...item, 
-          qty: 1, 
-          unit_price: newTimeCharge, 
-          line_total: newTimeCharge, 
-          product_name: `Tiền giờ sử dụng (${pricingResult.durationLabel})` 
+        return {
+          ...item,
+          qty: 1,
+          unit_price: newTimeCharge,
+          line_total: newTimeCharge,
+          product_name: `Tiền giờ sử dụng (${pricingResult.durationLabel})`
         }
       }
       return item
@@ -196,7 +197,7 @@ export function CheckoutModal({
   }, [items, localCheckoutTime, customCheckoutTime, metadata, hourlyRate, localRentalType])
 
   const computedSubtotal = computedItems.reduce((s, it) => s + (it.line_total || 0), 0)
-  
+
   const { data: settings } = useQuery({
     queryKey: ['settings', shopId],
     queryFn: async () => {
@@ -207,13 +208,43 @@ export function CheckoutModal({
     enabled: !!shopId,
   })
 
+  // Lấy danh sách quỹ thanh toán để lựa chọn tự động/thủ công tại POS
+  const { data: fundsData } = useQuery({
+    queryKey: ['payment-funds', shopId, branchId],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/payment-funds?branch_id=${branchId}`)
+      if (!res.ok) return []
+      const json = await res.json()
+      return (json.data || []) as Record<string, string>[]
+    },
+    enabled: !!shopId && !!branchId && open,
+  })
+  const fundsList = fundsData || []
+
+  const getAutoMatchedFund = (method: string, list: Record<string, string>[]) => {
+    if (list.length === 0) return undefined
+
+    let type = 'bank'
+    if (method === 'cash') type = 'cash'
+    else if (['momo', 'zalopay', 'vnpay', 'wallet'].includes(method)) type = 'wallet'
+
+    const typedFunds = list.filter(f => f.type === type)
+    if (typedFunds.length === 0) {
+      const bankFunds = list.filter(f => f.type === 'bank')
+      if (bankFunds.length > 0) return bankFunds.find(f => f.is_default === 'TRUE') || bankFunds[0]
+      return list.find(f => f.is_default === 'TRUE') || list[0]
+    }
+
+    return typedFunds.find(f => f.is_default === 'TRUE') || typedFunds[0]
+  }
+
   const [pointsRedeemed, setPointsRedeemed] = useState('0')
 
   const tierDiscountPct = useMemo(() => {
     if (!settings?.has_crm_access) return 0
     if (!localCustomer || settings?.tier_reward_type !== 'discount_bill') return 0
     const type = (localCustomer.customer_type || '').trim().toLowerCase()
-    
+
     // Check dynamic membership tiers
     const tiers = settings?.membership_tiers || []
     if (tiers.length > 0) {
@@ -227,14 +258,14 @@ export function CheckoutModal({
     if (type === 'bronze' || type === 'đồng') return Number(settings?.tier_bronze_discount ?? 2)
     return 0
   }, [localCustomer, settings])
-  
+
   const customerTierColor = useMemo(() => {
     if (!localCustomer || !settings?.membership_tiers) return 'slate'
     const type = (localCustomer.customer_type || '').trim().toLowerCase()
     const activeTier = settings.membership_tiers.find((t: any) => (t.name || '').trim().toLowerCase() === type)
     return activeTier?.color || 'slate'
   }, [localCustomer, settings])
-  
+
   const tierDiscountAmount = useMemo(() => {
     return Math.floor((computedSubtotal - localDiscount) * (tierDiscountPct / 100))
   }, [computedSubtotal, localDiscount, tierDiscountPct])
@@ -316,9 +347,10 @@ export function CheckoutModal({
   // When checkout time, rental type, or finalTotal changes → recalculate payment
   useEffect(() => {
     const newRemaining = Math.max(0, finalTotal - orderPaidAmount)
-    setPayments([{ id: nextId(), method: 'cash', amount: String(newRemaining) }])
+    const autoFund = getAutoMatchedFund('cash', fundsList)
+    setPayments([{ id: nextId(), method: 'cash', amount: String(newRemaining), fund_id: autoFund?.id || '' }])
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [localCheckoutTime, localRentalType, finalTotal])
+  }, [localCheckoutTime, localRentalType, finalTotal, fundsList.length])
 
   const overPaid = Math.max(0, orderPaidAmount - finalTotal)
   const remainingTotal = Math.max(0, finalTotal - orderPaidAmount)
@@ -327,8 +359,18 @@ export function CheckoutModal({
   const cashRows = payments.filter((p) => p.method === 'cash')
   const cashChange = overPaid + cashRows.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0) - (remainingTotal - payments.filter((p) => p.method !== 'cash').reduce((s, p) => s + (parseFloat(p.amount) || 0), 0))
 
-  function updatePayment(id: string, field: 'method' | 'amount', value: string) {
-    setPayments((prev) => prev.map((p) => (p.id === id ? { ...p, [field]: value } : p)))
+  function updatePayment(id: string, field: 'method' | 'amount' | 'fund_id', value: string) {
+    setPayments((prev) => prev.map((p) => {
+      if (p.id === id) {
+        const updated = { ...p, [field]: value }
+        if (field === 'method') {
+          const autoFund = getAutoMatchedFund(value, fundsList)
+          updated.fund_id = autoFund?.id || ''
+        }
+        return updated
+      }
+      return p
+    }))
     if (field === 'method' && value === 'prepaid') {
       void refreshCustomerDetails()
     }
@@ -343,7 +385,8 @@ export function CheckoutModal({
     const nextMethod = METHODS.find((m) => !usedMethods.has(m.value))
     if (!nextMethod) return
     const leftover = Math.max(0, remaining)
-    setPayments((prev) => [...prev, { id: nextId(), method: nextMethod.value, amount: leftover > 0 ? String(leftover) : '' }])
+    const autoFund = getAutoMatchedFund(nextMethod.value, fundsList)
+    setPayments((prev) => [...prev, { id: nextId(), method: nextMethod.value, amount: leftover > 0 ? String(leftover) : '', fund_id: autoFund?.id || '' }])
     if (nextMethod.value === 'prepaid') {
       void refreshCustomerDetails()
     }
@@ -427,16 +470,26 @@ export function CheckoutModal({
         conversion_rate: item.conversion_rate,
       }))
 
-      const localPayments: LocalPayment[] = payments
+      const localPayments: any[] = payments
         .filter((p) => parseFloat(p.amount) > 0)
-        .map((p) => ({
-          local_id: crypto.randomUUID(),
-          order_local_id: local_id,
-          method: p.method,
-          amount: parseFloat(p.amount),
-          reference_no: '',
-          note: '',
-        }))
+        .map((p) => {
+          let fundType = 'bank'
+          if (p.method === 'cash') fundType = 'cash'
+          else if (['momo', 'zalopay', 'vnpay', 'wallet'].includes(p.method)) fundType = 'wallet'
+
+          const matching = fundsList.filter((f) => f.type === fundType)
+          const resolvedFundId = p.fund_id || matching.find((f) => f.is_default === 'TRUE')?.id || matching[0]?.id || ''
+
+          return {
+            local_id: crypto.randomUUID(),
+            order_local_id: local_id,
+            method: p.method,
+            amount: parseFloat(p.amount),
+            reference_no: '',
+            note: '',
+            fund_id: resolvedFundId,
+          }
+        })
 
       if (cashChange > 0) {
         localPayments.push({
@@ -470,7 +523,7 @@ export function CheckoutModal({
         print_count: autoPrintReceipt ? 1 : 0,
         items: orderItems,
       }
-      
+
       if (metadata) {
         order.metadata = JSON.stringify({
           ...metadata,
@@ -549,7 +602,7 @@ export function CheckoutModal({
           await localDb.orders.add(order)
           await localDb.orderItems.bulkAdd(orderItems)
           await localDb.payments.bulkAdd(localPayments)
-          
+
           if (!isSuccessDirect) {
             await localDb.syncQueue.add(syncItem)
           }
@@ -574,14 +627,14 @@ export function CheckoutModal({
               .where('[product_id+branch_id]')
               .equals([item.product_id, branchId])
               .toArray()
-              
+
             if (batches && batches.length > 0) {
               // Filter active batches with positive stock quantity
               const activeBatches = batches.filter((b) => Number(b.stock_qty) > 0)
-              
+
               // Sort by expiry_date ascending (FEFO/FIFO order)
               activeBatches.sort((a, b) => a.expiry_date.localeCompare(b.expiry_date))
-              
+
               let remainingToSubtract = item.qty * (item.conversion_rate || 1)
               for (const b of activeBatches) {
                 if (remainingToSubtract <= 0) break
@@ -598,17 +651,17 @@ export function CheckoutModal({
 
       broadcastOrderCreated(order)
       toast.success(isSuccessDirect ? 'Tạo mới đơn hàng thành công!' : 'Tạo mới đơn hàng thành công (chờ đồng bộ)')
-      
+
       onSuccess() // close modal + clear cart first
 
       if (autoPrintReceipt) {
         try {
-          await printBill({ 
-            order, 
-            items: orderItems, 
-            payments: localPayments, 
-            shopName, 
-            settings, 
+          await printBill({
+            order,
+            items: orderItems,
+            payments: localPayments,
+            shopName,
+            settings,
             printCount: 1,
             shopId
           })
@@ -632,7 +685,7 @@ export function CheckoutModal({
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, payments, items])
 
   if (!open) return null
@@ -648,7 +701,7 @@ export function CheckoutModal({
           <button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100">✕</button>
         </div>
 
-        <div className="p-5 space-y-4 overflow-y-auto">
+        <div className="p-4 space-y-3 overflow-y-auto">
           {/* Customer */}
           <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
             <div className="mb-1.5 flex items-center justify-between">
@@ -710,22 +763,20 @@ export function CheckoutModal({
                     <button
                       type="button"
                       onClick={() => setLocalRentalType('hourly')}
-                      className={`flex-1 py-1.5 px-2.5 rounded-lg border text-xs font-bold transition-all text-center ${
-                        localRentalType === 'hourly'
-                          ? 'border-primary bg-primary/10 text-primary ring-1 ring-primary'
-                          : 'border-slate-300 text-slate-500 bg-white hover:border-slate-350 hover:bg-slate-50'
-                      }`}
+                      className={`flex-1 py-1.5 px-2.5 rounded-lg border text-xs font-bold transition-all text-center ${localRentalType === 'hourly'
+                        ? 'border-primary bg-primary/10 text-primary ring-1 ring-primary'
+                        : 'border-slate-300 text-slate-500 bg-white hover:border-slate-350 hover:bg-slate-50'
+                        }`}
                     >
                       ⏱️ Theo giờ
                     </button>
                     <button
                       type="button"
                       onClick={() => setLocalRentalType('overnight')}
-                      className={`flex-1 py-1.5 px-2.5 rounded-lg border text-xs font-bold transition-all text-center ${
-                        localRentalType === 'overnight'
-                          ? 'border-primary bg-primary/10 text-primary ring-1 ring-primary'
-                          : 'border-slate-300 text-slate-500 bg-white hover:border-slate-350 hover:bg-slate-50'
-                      }`}
+                      className={`flex-1 py-1.5 px-2.5 rounded-lg border text-xs font-bold transition-all text-center ${localRentalType === 'overnight'
+                        ? 'border-primary bg-primary/10 text-primary ring-1 ring-primary'
+                        : 'border-slate-300 text-slate-500 bg-white hover:border-slate-350 hover:bg-slate-50'
+                        }`}
                     >
                       🌙 Qua đêm ({Number(metadata.overnight_rate).toLocaleString('vi-VN')}₫)
                     </button>
@@ -740,13 +791,13 @@ export function CheckoutModal({
                 <span className="text-slate-600">{localCheckoutTime || customCheckoutTime ? 'Giờ ra:' : 'Giờ ra (Hiện tại):'}</span>
                 {isEditingCheckout ? (
                   <div className="flex items-center gap-2">
-                    <input 
-                      type="datetime-local" 
+                    <input
+                      type="datetime-local"
                       value={checkoutInput}
                       onChange={e => setCheckoutInput(e.target.value)}
                       className="text-xs border border-slate-300 rounded px-1 py-0.5 outline-none"
                     />
-                    <button onClick={() => { 
+                    <button onClick={() => {
                       const checkInDate = new Date(metadata.check_in)
                       const selectedDate = new Date(checkoutInput)
                       if (selectedDate < checkInDate) {
@@ -758,9 +809,9 @@ export function CheckoutModal({
                     }} className="text-primary font-bold">OK</button>
                   </div>
                 ) : (
-                  <button onClick={() => { 
-                    setCheckoutInput(localCheckoutTime || customCheckoutTime || new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)); 
-                    setIsEditingCheckout(true); 
+                  <button onClick={() => {
+                    setCheckoutInput(localCheckoutTime || customCheckoutTime || new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16));
+                    setIsEditingCheckout(true);
                   }} className="font-medium text-slate-900 border-b border-dotted border-slate-400 hover:text-primary transition-colors cursor-pointer">
                     {localCheckoutTime || customCheckoutTime ? fmtDateTimeVN(new Date((localCheckoutTime || customCheckoutTime) as string)) : fmtDateTimeVN(new Date())}
                   </button>
@@ -771,26 +822,32 @@ export function CheckoutModal({
 
           {/* Order summary */}
           <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-            <div className="max-h-32 overflow-y-auto space-y-0.5">
+            <div className="max-h-[260px] overflow-y-auto space-y-1 pr-1 scrollbar-thin">
               {computedItems.map((item, idx) => (
-                <div key={`${item.product_id}-${idx}`} className="flex justify-between text-sm py-1">
-                  <div className="flex-1 min-w-0 pr-4">
-                    <span className="text-slate-600 block leading-tight">{item.product_name} × {item.qty}</span>
-                    {/* Variant label */}
-                    {item.variant_label && !item.modifiers?.length && (
-                      <span className="text-[11px] text-violet-600 font-medium block truncate mt-0.5">{item.variant_label}</span>
-                    )}
-                    {/* Modifier summary */}
-                    {item.modifiers && item.modifiers.length > 0 && (
-                      <span className="text-[11px] text-amber-600 block truncate mt-0.5">
-                        {item.modifiers.map(m => m.option).join(' · ')}
-                        {(item.modifier_total ?? 0) > 0 && (
-                          <span className="ml-1 text-emerald-600 font-medium">+{item.modifier_total?.toLocaleString('vi-VN')}đ</span>
-                        )}
-                      </span>
-                    )}
+                <div key={`${item.product_id}-${idx}`} className="flex flex-col py-1.5 border-b border-slate-200/40 last:border-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-slate-800 font-medium text-sm leading-tight">
+                      {item.product_name}
+                      <span className="text-slate-400 text-xs font-normal ml-1.5 whitespace-nowrap">× {item.qty}</span>
+                    </span>
+                    <span className="text-slate-950 font-bold text-sm shrink-0">{fmtVND(item.line_total)}</span>
                   </div>
-                  <span className="text-slate-900 shrink-0">{fmtVND(item.line_total)}</span>
+                  {/* Variant or Modifier details underneath */}
+                  {(item.variant_label || (item.modifiers && item.modifiers.length > 0)) && (
+                    <div className="pl-2 mt-0.5 text-[10px] text-slate-500 space-y-0.5">
+                      {item.variant_label && !item.modifiers?.length && (
+                        <span className="text-violet-600 font-semibold block">{item.variant_label}</span>
+                      )}
+                      {item.modifiers && item.modifiers.length > 0 && (
+                        <div className="text-amber-600 font-semibold block">
+                          <span>{item.modifiers.map(m => m.option).join(' · ')}</span>
+                          {(item.modifier_total ?? 0) > 0 && (
+                            <span className="ml-1 text-emerald-600 font-bold">+{item.modifier_total?.toLocaleString('vi-VN')}đ</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -917,6 +974,14 @@ export function CheckoutModal({
             {payments.map((p, idx) => {
               const isPrepaid = p.method === 'prepaid'
               const isDebt = p.method === 'debt'
+
+              let fundType = 'bank'
+              if (p.method === 'cash') fundType = 'cash'
+              else if (['momo', 'zalopay', 'vnpay', 'wallet'].includes(p.method)) fundType = 'wallet'
+
+              const matchingFunds = fundsList.filter((f) => f.type === fundType)
+              const selectedFundObj = fundsList.find((f) => f.id === p.fund_id) || matchingFunds[0]
+
               return (
                 <div key={p.id} className="space-y-1.5">
                   <div className="flex gap-2">
@@ -931,6 +996,21 @@ export function CheckoutModal({
                         <option key={m.value} value={m.value}>{m.label}</option>
                       ))}
                     </select>
+
+                    {/* Lựa chọn Quỹ cụ thể nếu có từ 2 quỹ trở lên cùng loại */}
+                    {matchingFunds.length > 1 && (
+                      <select
+                        value={p.fund_id || selectedFundObj?.id || ''}
+                        onChange={(e) => updatePayment(p.id, 'fund_id', e.target.value)}
+                        className="w-36 shrink-0 rounded-lg border border-orange-200 bg-orange-50/20 px-2 py-2 text-xs font-semibold text-orange-850 focus:border-primary focus:outline-none cursor-pointer"
+                      >
+                        {matchingFunds.map((f) => (
+                          <option key={f.id} value={f.id}>
+                            {f.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                     <div className="relative flex-1">
                       <input
                         type="text"
@@ -961,6 +1041,23 @@ export function CheckoutModal({
                       </button>
                     )}
                   </div>
+
+                  {/* Label chỉ dẫn rõ ràng dòng tiền sẽ được đưa vào quỹ nào */}
+                  {selectedFundObj && p.method !== 'debt' && p.method !== 'prepaid' && (
+                    <div className="w-full flex items-center gap-2 rounded-lg bg-orange-50/50 border border-orange-100/60 px-3 py-1.5 text-xs text-orange-850 animate-in fade-in slide-in-from-top-1 duration-200">
+                      <svg className="h-3.5 w-3.5 text-orange-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 12h15" />
+                      </svg>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-slate-500 font-medium">Dòng tiền sẽ được đưa vào quỹ: </span>
+                        <strong className="text-orange-950 font-bold">{selectedFundObj.name}</strong>
+                        {selectedFundObj.bank_name && (
+                          <span className="text-[10px] text-orange-600 font-medium ml-1">({selectedFundObj.bank_name})</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   {isPrepaid && (
                     <div className="flex justify-between items-center text-xs px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 font-semibold border border-emerald-100">
                       <span>Số dư ví trả trước khả dụng:</span>

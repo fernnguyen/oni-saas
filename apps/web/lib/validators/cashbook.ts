@@ -10,6 +10,7 @@ export const cashbookCreateSchema = z.object({
   note: z.string().optional(),
   branch_id: z.string().optional(), // usually injected by server
   employee_id: z.string().optional(), // usually injected by server
+  fund_id: z.string().optional(),
 })
 
 export type CashbookCreateInput = z.infer<typeof cashbookCreateSchema>

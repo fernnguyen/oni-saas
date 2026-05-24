@@ -29,6 +29,9 @@ const ENTITY_PREFIXES: Record<string, string> = {
   'product-bom':        'BOM',
   'product-units':      'PU',
   'inventory-batches':  'IB',
+  'payment-funds':      'PF',
+  'shop-shifts':        'SHF',
+  'fund-audits':        'FA',
 }
 
 // Shared pool cache to avoid creating a new pool per request
@@ -115,6 +118,9 @@ export class PostgresConnector implements IDataConnector {
     'product-bom': 'bom_id',
     'product-units': 'unit_id',
     'inventory-batches': 'batch_id',
+    'payment-funds': 'fund_id',
+    'shop-shifts': 'shift_id',
+    'fund-audits': 'audit_id',
   }
 
   private async generateSequentialId(entity: string): Promise<string> {
