@@ -18,6 +18,7 @@ export async function GET(
 
     const filters: Record<string, string> = {}
     if (branch_id) filters.branch_id = branch_id
+    filters.active = 'ALL'
 
     let result = await connector.list('payment-funds', { page: 1, limit: 100, filters })
 

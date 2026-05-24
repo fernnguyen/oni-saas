@@ -36,10 +36,6 @@ export async function PUT(
     if (type !== undefined) updatePayload.type = type
     if (account_number !== undefined) updatePayload.account_number = account_number
     if (bank_name !== undefined) updatePayload.bank_name = bank_name
-    if (initial_balance !== undefined) {
-      updatePayload.initial_balance = String(initial_balance)
-      updatePayload.current_balance = String(initial_balance)
-    }
     if (is_default !== undefined) {
       updatePayload.is_default = (is_default === true || is_default === 'TRUE' || is_default === 'true') ? 'TRUE' : 'FALSE'
     }
