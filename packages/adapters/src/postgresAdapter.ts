@@ -146,7 +146,7 @@ export class PostgresConnector implements IDataConnector {
     params.push(regexPattern)
     paramIdx++
 
-    queryText += ' ORDER BY LENGTH(id) DESC, id DESC LIMIT 1'
+    queryText += ` ORDER BY (SUBSTRING(id FROM '[0-9]+$'))::bigint DESC LIMIT 1`
 
     const rows = await this.query(queryText, params)
 
