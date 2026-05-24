@@ -11,6 +11,7 @@ import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog'
 import { SearchBar } from '@/app/components/ui/SearchBar'
 import { PageHeader } from '@/app/components/ui/PageHeader'
 import { CopyableId } from '@/app/components/ui/CopyableId'
+import { HasPermission, usePermissions } from '@/app/components/ui/PermissionGate'
 
 const Plus = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
 const Eye = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -78,6 +79,7 @@ const EMPTY_ITEM = {
 }
 
 export function ReturnsClient({ shopId }: Props) {
+  const { hasPermission } = usePermissions()
   const queryClient = useQueryClient()
   const [page, setPage]       = useState(1)
   const [search, setSearch]   = useState('')
@@ -261,7 +263,7 @@ export function ReturnsClient({ shopId }: Props) {
           >
             <Eye className="h-3.5 w-3.5" /> Xem
           </button>
-          {row.status !== 'processed' && (
+          {row.status !== 'processed' && hasPermission('returns.create') && (
             <button
               className="flex items-center gap-1.5 rounded-lg border border-red-100 bg-white px-3 py-1.5 text-xs font-medium text-red-500 shadow-sm hover:bg-red-50 transition-colors"
               onClick={() => setDeleteTarget(row)}
@@ -294,12 +296,14 @@ export function ReturnsClient({ shopId }: Props) {
       <PageHeader
         title="Đơn trả hàng"
         actions={
-          <button
-            onClick={() => setShowCreate(true)}
-            className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-          >
-            <Plus className="h-4 w-4" /> Tạo phiếu trả
-          </button>
+          <HasPermission has="returns.create">
+            <button
+              onClick={() => setShowCreate(true)}
+              className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            >
+              <Plus className="h-4 w-4" /> Tạo phiếu trả
+            </button>
+          </HasPermission>
         }
       />
 
@@ -454,30 +458,32 @@ export function ReturnsClient({ shopId }: Props) {
             <div className="flex items-center justify-between">
               <TagBadge color={statusColor(selected.status)} label={statusLabel(selected.status)} />
               <div className="flex gap-2">
-                {selected.status === 'pending' && (
-                  <>
+                <HasPermission has="returns.approve">
+                  {selected.status === 'pending' && (
+                    <>
+                      <button
+                        onClick={() => setConfirmAction('approved')}
+                        className="flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100"
+                      >
+                        <Check className="h-3.5 w-3.5" /> Duyệt
+                      </button>
+                      <button
+                        onClick={() => setConfirmAction('rejected')}
+                        className="flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"
+                      >
+                        <X className="h-3.5 w-3.5" /> Từ chối
+                      </button>
+                    </>
+                  )}
+                  {(selected.status === 'pending' || selected.status === 'approved') && (
                     <button
-                      onClick={() => setConfirmAction('approved')}
-                      className="flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100"
+                      onClick={() => setConfirmAction('process')}
+                      className="flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700"
                     >
-                      <Check className="h-3.5 w-3.5" /> Duyệt
+                      <PackageCheck className="h-3.5 w-3.5" /> Xử lý & nhập kho
                     </button>
-                    <button
-                      onClick={() => setConfirmAction('rejected')}
-                      className="flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"
-                    >
-                      <X className="h-3.5 w-3.5" /> Từ chối
-                    </button>
-                  </>
-                )}
-                {(selected.status === 'pending' || selected.status === 'approved') && (
-                  <button
-                    onClick={() => setConfirmAction('process')}
-                    className="flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700"
-                  >
-                    <PackageCheck className="h-3.5 w-3.5" /> Xử lý & nhập kho
-                  </button>
-                )}
+                  )}
+                </HasPermission>
               </div>
             </div>
 
@@ -525,7 +531,7 @@ export function ReturnsClient({ shopId }: Props) {
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-slate-700">Sản phẩm trả</h3>
-                {selected.status !== 'processed' && (
+                {selected.status !== 'processed' && hasPermission('returns.create') && (
                   <button
                     onClick={() => setAddingItem(true)}
                     className="flex items-center gap-1 text-xs text-blue-600 hover:underline"

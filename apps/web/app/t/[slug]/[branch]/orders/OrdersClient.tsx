@@ -13,6 +13,7 @@ import { SearchBar } from '@/app/components/ui/SearchBar'
 import { CopyableId } from '@/app/components/ui/CopyableId'
 import { useConfirm } from '@/app/components/ui/ConfirmProvider'
 import { printBill } from '@/lib/pos/printBill'
+import { HasPermission } from '@/app/components/ui/PermissionGate'
 
 const Eye = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
 const Ban = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>
@@ -706,35 +707,37 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
         footer={
           <div className="flex w-full items-center justify-between">
             <div className="flex gap-2">
-              {selectedOrder?.status === 'completed' || selectedOrder?.status === 'partially_refunded' ? (
-                <button
-                  onClick={() => {
-                    setShowReturnForm((v) => {
-                      if (!v) {
-                        setTimeout(() => {
-                          document.getElementById('return-section')?.scrollIntoView({ behavior: 'smooth' })
-                        }, 100)
-                      }
-                      return !v
-                    })
-                    setReturnReason('other')
-                    setReturnRefundMethod('cash')
-                    setReturnNote('')
-                    setReturnRefundAmount('')
-                    setReturnItems({})
-                  }}
-                  className="flex items-center gap-1.5 rounded-xl border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-medium text-orange-700 shadow-sm hover:bg-orange-100 transition-colors"
-                >
-                  <RotateCcw className="h-4 w-4" /> Tạo phiếu trả
-                </button>
-              ) : (
-                <span
-                  title={selectedOrder?.status === 'refunded' ? 'Đơn đã hoàn tiền' : 'Chỉ tạo được phiếu trả khi đơn đã Hoàn thành'}
-                  className="flex items-center gap-1.5 cursor-not-allowed rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-medium text-slate-400"
-                >
-                  <RotateCcw className="h-4 w-4" /> Tạo phiếu trả
-                </span>
-              )}
+              <HasPermission has="returns.create">
+                {selectedOrder?.status === 'completed' || selectedOrder?.status === 'partially_refunded' ? (
+                  <button
+                    onClick={() => {
+                      setShowReturnForm((v) => {
+                        if (!v) {
+                          setTimeout(() => {
+                            document.getElementById('return-section')?.scrollIntoView({ behavior: 'smooth' })
+                          }, 100)
+                        }
+                        return !v
+                      })
+                      setReturnReason('other')
+                      setReturnRefundMethod('cash')
+                      setReturnNote('')
+                      setReturnRefundAmount('')
+                      setReturnItems({})
+                    }}
+                    className="flex items-center gap-1.5 rounded-xl border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-medium text-orange-700 shadow-sm hover:bg-orange-100 transition-colors"
+                  >
+                    <RotateCcw className="h-4 w-4" /> Tạo phiếu trả
+                  </button>
+                ) : (
+                  <span
+                    title={selectedOrder?.status === 'refunded' ? 'Đơn đã hoàn tiền' : 'Chỉ tạo được phiếu trả khi đơn đã Hoàn thành'}
+                    className="flex items-center gap-1.5 cursor-not-allowed rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-medium text-slate-400"
+                  >
+                    <RotateCcw className="h-4 w-4" /> Tạo phiếu trả
+                  </span>
+                )}
+              </HasPermission>
               <button
                 onClick={() => {
                   if (parseInt(selectedOrder?.print_count || '0', 10) > 0) {

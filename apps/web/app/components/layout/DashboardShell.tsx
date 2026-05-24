@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
 import { ConfirmProvider } from '@/app/components/ui/ConfirmProvider';
+import { PermissionsProvider } from '@/app/components/ui/PermissionGate';
 
 interface DashboardShellProps {
   children: React.ReactNode;
@@ -86,58 +87,60 @@ export function DashboardShell({
 
   return (
     <ConfirmProvider>
-      <div className="min-h-screen bg-slate-50 flex flex-col">
-        <Topbar
-          tenantId={tenantId}
-          tenantName={tenantName}
-          shopName={shopName}
-          userEmail={userEmail}
-          displayName={displayName}
-          roleName={roleName}
-          settingsHref={settingsHref}
-          accountHref={accountHref}
-          permissions={permissions}
-          currentBranchSlug={currentBranchSlug}
-          currentBranchAddress={currentBranchAddress}
-          context={sidebarContext}
-          onMobileMenuClick={() => setMobileNavOpen(true)}
-          collapsed={collapsed}
-          onToggleCollapsed={toggleCollapsed}
-          basePath={sidebarBasePath}
-          industryType={industryType}
-        />
-        <div className="flex-1 flex min-w-0 w-full">
-          <Sidebar
-            basePath={sidebarBasePath}
-            supportHref={supportHref}
-            tenantHref={tenantHref}
-            connectorsHref={connectorsHref}
-            settingsHref={settingsHref}
-            tenantBillingHref={tenantBillingHref}
-            tenantSettingsHref={tenantSettingsHref}
-            tenantTeamHref={tenantTeamHref}
-            tenantRolesHref={tenantRolesHref}
-            permissions={permissions}
-            context={sidebarContext}
+      <PermissionsProvider permissions={permissions}>
+        <div className="min-h-screen bg-slate-50 flex flex-col">
+          <Topbar
             tenantId={tenantId}
+            tenantName={tenantName}
+            shopName={shopName}
+            userEmail={userEmail}
+            displayName={displayName}
+            roleName={roleName}
+            settingsHref={settingsHref}
+            accountHref={accountHref}
+            permissions={permissions}
             currentBranchSlug={currentBranchSlug}
-            currentBranchName={shopName}
             currentBranchAddress={currentBranchAddress}
-            industryType={industryType}
-            planCode={planCode}
-            planName={planName}
-            periodStart={periodStart}
-            periodEnd={periodEnd}
-            hidePlanBadge={hidePlanBadge}
-            mobileOpen={mobileNavOpen}
-            onMobileClose={() => setMobileNavOpen(false)}
+            context={sidebarContext}
+            onMobileMenuClick={() => setMobileNavOpen(true)}
             collapsed={collapsed}
+            onToggleCollapsed={toggleCollapsed}
+            basePath={sidebarBasePath}
+            industryType={industryType}
           />
-          <main className="flex-1 min-w-0 p-4 md:p-6">
-            {children}
-          </main>
+          <div className="flex-1 flex min-w-0 w-full">
+            <Sidebar
+              basePath={sidebarBasePath}
+              supportHref={supportHref}
+              tenantHref={tenantHref}
+              connectorsHref={connectorsHref}
+              settingsHref={settingsHref}
+              tenantBillingHref={tenantBillingHref}
+              tenantSettingsHref={tenantSettingsHref}
+              tenantTeamHref={tenantTeamHref}
+              tenantRolesHref={tenantRolesHref}
+              permissions={permissions}
+              context={sidebarContext}
+              tenantId={tenantId}
+              currentBranchSlug={currentBranchSlug}
+              currentBranchName={shopName}
+              currentBranchAddress={currentBranchAddress}
+              industryType={industryType}
+              planCode={planCode}
+              planName={planName}
+              periodStart={periodStart}
+              periodEnd={periodEnd}
+              hidePlanBadge={hidePlanBadge}
+              mobileOpen={mobileNavOpen}
+              onMobileClose={() => setMobileNavOpen(false)}
+              collapsed={collapsed}
+            />
+            <main className="flex-1 min-w-0 p-4 md:p-6">
+              {children}
+            </main>
+          </div>
         </div>
-      </div>
+      </PermissionsProvider>
     </ConfirmProvider>
   );
 }
