@@ -909,7 +909,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
               workerRef.current?.flushAll()
             }}
             disabled={status === 'loading'}
-            className="flex items-center gap-1 rounded border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50 transition-colors"
+            className="flex items-center gap-1 rounded border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50 transition-colors shrink-0"
             title="Đồng bộ dữ liệu mới nhất từ server"
           >
             {status === 'loading' ? (
@@ -919,13 +919,14 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
               </svg>
             ) : (
               <svg
-                className="h-3.5 w-3.5 shrink-0"
+                className="h-3.5 w-3.5 shrink-0 text-slate-500"
                 xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor"
               >
                 <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
               </svg>
             )}
             <span className="hidden sm:inline">{status === 'loading' ? 'Đang đồng bộ...' : 'Đồng bộ'}</span>
+            <span className={['h-2 w-2 rounded-full shrink-0 ml-0.5', isOnline ? 'bg-green-500 animate-pulse' : 'bg-red-500'].join(' ')} title={isOnline ? 'Online' : 'Offline'} />
           </button>
 
           <SyncStatusBar
@@ -933,14 +934,6 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
             onRetryFailed={() => workerRef.current?.retryFailed()}
             onRetryAll={() => workerRef.current?.retryAll()}
           />
-
-          {/* Online/Offline Badge */}
-          <div className="flex items-center gap-1.5 text-xs bg-slate-50 border-slate-200 px-2.5 py-1 rounded-full shrink-0 select-none">
-            <span className={['h-2 w-2 rounded-full shrink-0', isOnline ? 'bg-green-500' : 'bg-red-500'].join(' ')} />
-            <span className={['tracking-wide font-medium', isOnline ? 'text-green-600' : 'text-red-500'].join(' ')}>
-              {isOnline ? 'Online' : 'Offline'}
-            </span>
-          </div>
         </div>
       </header>
 
