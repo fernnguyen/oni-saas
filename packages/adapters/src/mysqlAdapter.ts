@@ -126,7 +126,14 @@ export class MysqlConnector implements IDataConnector {
   private formatRow(entity: string, row: any): Record<string, string> {
     const stringifiedRow: Record<string, string> = {}
     for (const key in row) {
-      stringifiedRow[key] = row[key] !== null && row[key] !== undefined ? String(row[key]) : ''
+      let valStr = row[key] !== null && row[key] !== undefined ? String(row[key]) : ''
+      if (key === 'phone' && valStr) {
+        const trimmed = valStr.trim()
+        if (/^[1-9][0-9]{8}$/.test(trimmed)) {
+          valStr = '0' + trimmed
+        }
+      }
+      stringifiedRow[key] = valStr
     }
     const legacyIdField = this.LEGACY_ID_MAP[entity]
     if (legacyIdField && stringifiedRow.id) {

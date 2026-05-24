@@ -65,9 +65,14 @@ export function CustomerCreateModal({ open, onClose, shopId, onSuccess }: Props)
 
     setSaving(true)
     try {
+      let normalizedPhone = trimmedPhone
+      if (/^[1-9][0-9]{8}$/.test(normalizedPhone)) {
+        normalizedPhone = '0' + normalizedPhone
+      }
+
       const payload = {
         name: trimmedName,
-        phone: trimmedPhone,
+        phone: normalizedPhone,
         customer_code: customerCode.trim() || undefined,
         email: email.trim() || undefined,
         address: address.trim() || undefined,
