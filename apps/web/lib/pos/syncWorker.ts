@@ -59,8 +59,11 @@ export class SyncWorker {
   async retryFailed() {
     await localDb.syncQueue
       .where('status').equals('failed')
-      .and((item) => item.retry_count < MAX_RETRY)
-      .modify({ status: 'pending', last_error: undefined })
+      .modify((item) => {
+        item.status = 'pending'
+        item.retry_count = 0
+        delete item.last_error
+      })
     void this.tick()
   }
 
