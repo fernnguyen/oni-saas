@@ -43,6 +43,9 @@ export function RolesClient({ tenantId, initialRoles, permissions, canManage }: 
   const [editingRole, setEditingRole] = useState<Role | Partial<Role> | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Role | null>(null);
 
+  const [blockedDeleteUsers, setBlockedDeleteUsers] = useState<{ displayName: string; username: string }[] | null>(null);
+  const [blockedDeleteRole, setBlockedDeleteRole] = useState<Role | null>(null);
+
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -63,7 +66,16 @@ export function RolesClient({ tenantId, initialRoles, permissions, canManage }: 
   async function handleDelete(role: Role) {
     const res = await fetch(`/api/tenants/${tenantId}/roles/${role.id}`, { method: 'DELETE' });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) { flash(data.message || 'Không thể xóa vai trò', 'err'); return; }
+    if (!res.ok) {
+      if (data.code === 'ROLE_IN_USE') {
+        setDeleteTarget(null); // Close the confirmation dialog
+        setBlockedDeleteRole(role);
+        setBlockedDeleteUsers(data.users || []);
+        return;
+      }
+      flash(data.message || 'Không thể xóa vai trò', 'err');
+      return;
+    }
     setDeleteTarget(null);
     flash('Đã xóa vai trò');
     startTransition(() => { refreshRoles(); });
@@ -207,6 +219,49 @@ export function RolesClient({ tenantId, initialRoles, permissions, canManage }: 
           onConfirm={() => handleDelete(deleteTarget)}
           onCancel={() => setDeleteTarget(null)}
         />
+      )}
+
+      {blockedDeleteUsers && blockedDeleteRole && (
+        <Modal
+          title="Không thể xóa vai trò"
+          onClose={() => { setBlockedDeleteUsers(null); setBlockedDeleteRole(null); }}
+        >
+          <div className="space-y-4">
+            <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 text-sm text-amber-800 leading-normal flex items-start gap-2.5">
+              <svg className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <div>
+                <p className="font-semibold text-amber-900">Vai trò đang được sử dụng</p>
+                <p className="mt-1 text-xs text-amber-700">
+                  Không thể xóa vai trò <span className="font-bold">"{blockedDeleteRole.name}"</span> vì đang có {blockedDeleteUsers.length} người dùng đang sử dụng vai trò này. Vui lòng chuyển người dùng dưới đây sang vai trò khác trước khi thực hiện xóa.
+                </p>
+              </div>
+            </div>
+
+            <div>
+              <p className="text-sm font-medium text-slate-800 mb-2">Danh sách người dùng:</p>
+              <div className="max-h-[220px] overflow-y-auto rounded-xl border border-slate-100 divide-y divide-slate-100 bg-slate-50/50 custom-scrollbar">
+                {blockedDeleteUsers.map((u, i) => (
+                  <div key={i} className="px-4 py-2.5 text-xs text-slate-700 flex items-center justify-between">
+                    <span className="font-semibold text-slate-900">{u.displayName}</span>
+                    <span className="font-mono text-slate-400">({u.username})</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => { setBlockedDeleteUsers(null); setBlockedDeleteRole(null); }}
+                className="w-full rounded-xl bg-slate-900 hover:bg-slate-800 py-2.5 text-sm font-semibold text-white transition-colors"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

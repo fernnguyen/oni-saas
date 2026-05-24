@@ -65,8 +65,15 @@ export async function DELETE(
     await deleteCustomRole(tenantId, id);
     return NextResponse.json({ ok: true });
   } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Không thể xóa vai trò';
+    if (msg.startsWith('{"code":"ROLE_IN_USE"')) {
+      try {
+        const payload = JSON.parse(msg);
+        return NextResponse.json(payload, { status: 400 });
+      } catch {}
+    }
     return NextResponse.json(
-      { message: err instanceof Error ? err.message : 'Không thể xóa vai trò' },
+      { message: msg },
       { status: 400 },
     );
   }
