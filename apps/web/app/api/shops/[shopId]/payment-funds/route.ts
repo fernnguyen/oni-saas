@@ -19,7 +19,39 @@ export async function GET(
     const filters: Record<string, string> = {}
     if (branch_id) filters.branch_id = branch_id
 
-    const result = await connector.list('payment-funds', { page: 1, limit: 100, filters })
+    let result = await connector.list('payment-funds', { page: 1, limit: 100, filters })
+
+    // Auto-seed default funds if none exists for this branch
+    if (result.total === 0 && branch_id) {
+      await connector.create('payment-funds', {
+        branch_id,
+        name: 'Quỹ tiền mặt tại quầy',
+        type: 'cash',
+        account_number: '',
+        bank_name: '',
+        initial_balance: '0',
+        current_balance: '0',
+        is_default: 'TRUE',
+        active: 'TRUE',
+      })
+
+      await connector.create('payment-funds', {
+        branch_id,
+        name: 'Tài khoản ngân hàng mặc định',
+        type: 'bank',
+        account_number: '',
+        bank_name: '',
+        initial_balance: '0',
+        current_balance: '0',
+        is_default: 'FALSE',
+        active: 'TRUE',
+      })
+
+      // Query again to get the newly seeded funds
+      result = await connector.list('payment-funds', { page: 1, limit: 100, filters })
+      invalidate(shopId, 'payment-funds')
+    }
+
     return NextResponse.json(result)
   } catch (e) {
     return handleApiError(e, 'GET payment-funds')
