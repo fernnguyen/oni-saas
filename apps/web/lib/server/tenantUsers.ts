@@ -25,7 +25,7 @@ export interface CreateWorkspaceUserParams {
   username: string;
   password: string;
   displayName?: string;
-  roleCode: TenantUserRole;
+  roleCode: string;
   shopId?: string;
 }
 
@@ -37,7 +37,7 @@ export interface CreatePersonalUserParams {
   email: string;
   password: string;
   displayName?: string;
-  roleCode: TenantUserRole;
+  roleCode: string;
   shopId?: string;
 }
 
@@ -138,7 +138,7 @@ async function _finalizeUser({
   admin: ReturnType<typeof import('./supabaseAdmin').getSupabaseAdminClient>;
   userId: string;
   tenantId: string;
-  roleCode: TenantUserRole;
+  roleCode: string;
   shopId?: string;
   profile: { username: string | null; display_name: string; account_type: string; login_email: string };
 }) {
