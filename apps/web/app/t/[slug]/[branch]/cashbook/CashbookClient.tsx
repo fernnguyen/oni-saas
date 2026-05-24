@@ -179,7 +179,7 @@ export function CashbookClient({ shopId, permissions }: Props) {
   const [auditNote, setAuditNote] = useState('')
 
   // --- QUERY: LẤY DANH SÁCH QUỸ ---
-  const { data: fundsData } = useQuery({
+  const { data: fundsData, refetch: refetchFunds } = useQuery({
     queryKey: ['payment-funds', shopId],
     queryFn: async () => {
       const res = await fetch(`/api/shops/${shopId}/payment-funds`)
@@ -613,7 +613,7 @@ export function CashbookClient({ shopId, permissions }: Props) {
         <div className="flex flex-wrap gap-2.5">
           {/* Card: Tất cả tài khoản */}
           <div 
-            onClick={() => { setFundFilter(''); setPage(1) }}
+            onClick={() => { setFundFilter(''); setPage(1); refetchFunds() }}
             className={`cursor-pointer rounded-xl border p-2 transition-all flex flex-col justify-between h-[62px] active:scale-[0.98] w-full sm:w-[170px] shrink-0 ${
               !fundFilter 
                 ? 'border-orange-500 bg-orange-50/30 shadow-sm ring-1 ring-orange-500/10' 
@@ -648,7 +648,7 @@ export function CashbookClient({ shopId, permissions }: Props) {
             return (
               <div 
                 key={fund.id}
-                onClick={() => { setFundFilter(isSelected ? '' : fund.id); setPage(1) }}
+                onClick={() => { setFundFilter(isSelected ? '' : fund.id); setPage(1); refetchFunds() }}
                 className={`cursor-pointer rounded-xl border p-2 transition-all flex flex-col justify-between h-[62px] active:scale-[0.98] group relative w-full sm:w-[170px] shrink-0 ${
                   isSelected 
                     ? 'border-orange-500 bg-orange-50/30 shadow-sm ring-1 ring-orange-500/10' 
