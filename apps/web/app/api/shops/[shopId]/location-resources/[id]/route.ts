@@ -10,7 +10,7 @@ export async function PATCH(
 ) {
   try {
     const { shopId, id } = await params
-    const { connector } = await requireShopAccess(shopId, 'pos.use')
+    const { connector } = await requireShopAccess(shopId, 'products.edit')
 
     const body = await req.json()
     const data = resourceUpdateSchema.parse(body)
@@ -47,7 +47,7 @@ export async function DELETE(
 ) {
   try {
     const { shopId, id } = await params
-    const { connector } = await requireShopAccess(shopId, 'pos.use')
+    const { connector } = await requireShopAccess(shopId, 'products.delete')
 
     await connector.delete('location-resources', id)
     invalidate(shopId, 'location-resources')

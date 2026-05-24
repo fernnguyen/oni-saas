@@ -133,6 +133,7 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
     {
       label: 'Danh mục',
       items: [
+        { href: joinPath(base, '/resources'),  label: `Quản lý ${vertical.resourceLabel || 'vị trí'}`, icon: IconTable, permission: 'products.view', featureGate: 'location_resource' },
         { href: joinPath(base, '/products'),   label: 'Sản phẩm',    icon: IconBox,       permission: 'products.view' },
         { href: joinPath(base, '/categories'), label: 'Danh mục',    icon: IconGrid,      permission: 'products.view' },
         { href: joinPath(base, '/employees'),  label: 'Nhân viên',   icon: IconUsers,     permission: 'dashboard.view' },

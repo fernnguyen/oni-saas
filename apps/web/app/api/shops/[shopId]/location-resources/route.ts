@@ -32,7 +32,7 @@ export async function POST(
 ) {
   try {
     const { shopId } = await params
-    const { connector } = await requireShopAccess(shopId, 'pos.use')
+    const { connector } = await requireShopAccess(shopId, 'products.create')
 
     const body = await req.json()
     const data = resourceCreateSchema.parse(body)
