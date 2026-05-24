@@ -24,15 +24,7 @@ export async function GET(
     const fund_id = searchParams.get('fund_id')
     const from_date = searchParams.get('from_date')
     const to_date = searchParams.get('to_date')
-
-    const filters: Record<string, string> = {}
-    if (type) filters.type = type
-    if (branch_id) filters.branch_id = branch_id
-    if (reference_id) filters.reference_id = reference_id
-    if (fund_id) filters.fund_id = fund_id
-
-    // Lấy dữ liệu phân trang cho bảng hiển thị
-    const result = await connector.list('cashbook', { page, limit, filters, sortDesc: true })
+    const search = searchParams.get('search')
 
     // --- TÍNH TOÁN SỐ DƯ ĐỘNG (Đầu kỳ, phát sinh, cuối kỳ) ---
     // 1. Lấy tất cả tài khoản quỹ để tính tổng initial_balance
@@ -43,7 +35,7 @@ export async function GET(
     const funds = (fundsRes.data as Record<string, string>[]).filter(f => !fund_id || f.id === fund_id)
     const totalInitialBalance = funds.reduce((sum, f) => sum + parseFloat(f.initial_balance || '0'), 0)
 
-    // 2. Lấy toàn bộ lịch sử giao dịch để tính toán lũy kế
+    // 2. Lấy toàn bộ lịch sử giao dịch để tính toán lũy kế và lọc
     const allCbRes = await connector.list('cashbook', {
       filters: branch_id ? { branch_id } : {},
       limit: 100000 // Tối đa 100k dòng để tính toán chính xác
@@ -57,8 +49,8 @@ export async function GET(
     let total_receipt = 0
     let total_payment = 0
 
-    const fromTime = from_date ? new Date(from_date).getTime() : 0
-    const toTime = to_date ? new Date(to_date).getTime() : Infinity
+    const fromTime = from_date ? new Date(from_date + 'T00:00:00').getTime() : 0
+    const toTime = to_date ? new Date(to_date + 'T23:59:59.999').getTime() : Infinity
 
     for (const tx of filteredTransactions) {
       const txTime = new Date(tx.created_at || '').getTime()
@@ -81,8 +73,38 @@ export async function GET(
 
     const closing_balance = opening_balance + total_receipt - total_payment
 
+    // Lọc và phân trang danh sách hiển thị khớp với khoảng thời gian và các bộ lọc khác
+    const searchLower = search ? search.toLowerCase() : ''
+    const finalTransactions = filteredTransactions.filter(tx => {
+      const txTime = new Date(tx.created_at || '').getTime()
+      const inDateRange = txTime >= fromTime && txTime <= toTime
+      
+      const matchesType = !type || tx.type === type
+      const matchesReference = !reference_id || tx.reference_id === reference_id
+      
+      const matchesSearch = !searchLower || 
+        (tx.transaction_id || '').toLowerCase().includes(searchLower) ||
+        (tx.note || '').toLowerCase().includes(searchLower) ||
+        (tx.reference_name || '').toLowerCase().includes(searchLower)
+        
+      return inDateRange && matchesType && matchesReference && matchesSearch
+    })
+
+    // Sắp xếp các giao dịch theo thời gian giảm dần (mới nhất lên đầu)
+    const sortedTransactions = [...finalTransactions].sort((a, b) => {
+      const timeA = new Date(a.created_at || '').getTime()
+      const timeB = new Date(b.created_at || '').getTime()
+      return timeB - timeA
+    })
+
+    const total = sortedTransactions.length
+    const paginatedData = sortedTransactions.slice((page - 1) * limit, page * limit)
+
     return NextResponse.json({
-      ...result,
+      data: paginatedData,
+      total,
+      page,
+      limit,
       opening_balance: String(opening_balance),
       total_receipt: String(total_receipt),
       total_payment: String(total_payment),

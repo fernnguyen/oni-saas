@@ -51,6 +51,47 @@ const EMPTY_FUND_FORM = {
 
 const DENOMINATIONS = [500000, 200000, 100000, 50000, 20000, 10000, 5000, 2000, 1000]
 
+const formatDateLocal = (date: Date) => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+const getPresetDates = (type: string) => {
+  const now = new Date()
+  let from = ''
+  let to = formatDateLocal(now)
+  
+  switch (type) {
+    case 'today':
+      from = formatDateLocal(now)
+      to = formatDateLocal(now)
+      break
+    case 'last_7_days': {
+      const d = new Date()
+      d.setDate(d.getDate() - 7)
+      from = formatDateLocal(d)
+      break
+    }
+    case 'this_month': {
+      const d = new Date()
+      const firstDay = new Date(d.getFullYear(), d.getMonth(), 1)
+      from = formatDateLocal(firstDay)
+      break
+    }
+    case 'last_3_months': {
+      const d = new Date()
+      d.setMonth(d.getMonth() - 3)
+      from = formatDateLocal(d)
+      break
+    }
+    default:
+      break
+  }
+  return { from, to }
+}
+
 export function CashbookClient({ shopId, permissions }: Props) {
   const confirm = useConfirm()
   const queryClient = useQueryClient()
@@ -60,8 +101,65 @@ export function CashbookClient({ shopId, permissions }: Props) {
   const [page, setPage] = useState(1)
   const [typeFilter, setTypeFilter] = useState<string>('')
   const [fundFilter, setFundFilter] = useState<string>('')
+  const [dateRangeType, setDateRangeType] = useState<string>('this_month')
   const [fromDate, setFromDate] = useState<string>('')
   const [toDate, setToDate] = useState<string>('')
+
+  // Tự động tính khoảng thời gian khi dateRangeType thay đổi
+  useEffect(() => {
+    if (dateRangeType !== 'custom') {
+      const { from, to } = getPresetDates(dateRangeType)
+      setFromDate(from)
+      setToDate(to)
+      setPage(1)
+    }
+  }, [dateRangeType])
+
+  const handleCustomFromDateChange = (val: string) => {
+    if (toDate && val) {
+      const start = new Date(val)
+      const end = new Date(toDate)
+      if (start > end) {
+        toast.error('Ngày bắt đầu không được lớn hơn ngày kết thúc')
+        return
+      }
+      const diffTime = Math.abs(end.getTime() - start.getTime())
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+      if (diffDays > 180) {
+        toast.warning('Thời gian tra cứu tối đa là 180 ngày để đảm bảo tốc độ tải báo cáo.')
+        const newStart = new Date(end)
+        newStart.setDate(end.getDate() - 180)
+        setFromDate(formatDateLocal(newStart))
+        setPage(1)
+        return
+      }
+    }
+    setFromDate(val)
+    setPage(1)
+  }
+
+  const handleCustomToDateChange = (val: string) => {
+    if (fromDate && val) {
+      const start = new Date(fromDate)
+      const end = new Date(val)
+      if (start > end) {
+        toast.error('Ngày kết thúc không được nhỏ hơn ngày bắt đầu')
+        return
+      }
+      const diffTime = Math.abs(end.getTime() - start.getTime())
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+      if (diffDays > 180) {
+        toast.warning('Thời gian tra cứu tối đa là 180 ngày để đảm bảo tốc độ tải báo cáo.')
+        const newEnd = new Date(start)
+        newEnd.setDate(start.getDate() + 180)
+        setToDate(formatDateLocal(newEnd))
+        setPage(1)
+        return
+      }
+    }
+    setToDate(val)
+    setPage(1)
+  }
   
   const [search, setSearch] = useState(initialSearch)
   const [debouncedSearch] = useDebounce(search, 300)
@@ -462,20 +560,20 @@ export function CashbookClient({ shopId, permissions }: Props) {
         </div>
 
         {/* CARD: SỐ DƯ CUỐI KỲ */}
-        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-amber-500 via-orange-600 to-rose-700 p-5 shadow-lg shadow-orange-500/10 hover:shadow-xl hover:shadow-orange-500/20 transition-all duration-300 group text-white">
-          <div className="absolute right-[-10%] top-[-25%] h-24 w-24 rounded-full bg-white/10 blur-[1px] group-hover:scale-110 transition-transform duration-500" />
-          <div className="absolute right-[15%] bottom-[-30%] h-16 w-16 rounded-full bg-white/5 blur-[2px]" />
-          <p className="text-xs font-semibold uppercase tracking-wider text-orange-100 flex items-center gap-1.5">
-            <Wallet className="w-3.5 h-3.5 text-orange-200" />
+        <div className="relative overflow-hidden rounded-2xl border border-orange-100 bg-orange-50/40 p-5 shadow-sm hover:shadow-md transition-all duration-300 group">
+          <div className="absolute right-[-10%] top-[-10%] h-24 w-24 rounded-full bg-orange-100/30 blur-xl group-hover:scale-110 transition-transform duration-500" />
+          <div className="absolute right-[10%] bottom-[-20%] h-16 w-16 rounded-full bg-orange-200/20 blur-lg" />
+          <p className="text-xs font-semibold uppercase tracking-wider text-orange-600 flex items-center gap-1.5 relative z-10">
+            <Wallet className="w-3.5 h-3.5 text-orange-500" />
             Số dư cuối kỳ
           </p>
-          <div className="mt-2.5 flex items-baseline gap-1">
-            <span className="text-3xl font-extrabold tracking-tight text-white">
+          <div className="mt-2.5 flex items-baseline gap-1 relative z-10">
+            <span className="text-3xl font-extrabold tracking-tight text-orange-950">
               {Number(data?.closing_balance || 0).toLocaleString('vi-VN')}
             </span>
-            <span className="text-sm font-bold text-orange-200">đ</span>
+            <span className="text-sm font-bold text-orange-500">đ</span>
           </div>
-          <p className="text-[10px] text-orange-100/90 mt-1">Lượng tiền hiện có thực tế</p>
+          <p className="text-[10px] text-orange-600/80 mt-1 relative z-10">Lượng tiền hiện có thực tế</p>
         </div>
       </div>
 
@@ -492,18 +590,18 @@ export function CashbookClient({ shopId, permissions }: Props) {
           {/* Card: Tất cả tài khoản */}
           <div 
             onClick={() => { setFundFilter(''); setPage(1) }}
-            className={`cursor-pointer rounded-xl border p-2.5 transition-all flex flex-col justify-between h-[72px] active:scale-[0.98] ${
+            className={`cursor-pointer rounded-xl border p-2 transition-all flex flex-col justify-between h-[62px] active:scale-[0.98] ${
               !fundFilter 
-                ? 'border-indigo-600 bg-indigo-50/50 shadow-sm ring-1 ring-indigo-600/10' 
+                ? 'border-orange-500 bg-orange-50/30 shadow-sm ring-1 ring-orange-500/10' 
                 : 'border-slate-200/80 bg-white hover:border-slate-300'
             }`}
           >
             <div className="flex items-center justify-between">
-              <span className={`text-[9px] font-bold uppercase tracking-wider ${!fundFilter ? 'text-indigo-600' : 'text-slate-400'}`}>Tất cả quỹ</span>
-              <BankIcon className={`w-3.5 h-3.5 ${!fundFilter ? 'text-indigo-500' : 'text-slate-400'}`} />
+              <span className={`text-[9px] font-bold uppercase tracking-wider ${!fundFilter ? 'text-orange-600' : 'text-slate-400'}`}>Tất cả quỹ</span>
+              <BankIcon className={`w-3.5 h-3.5 ${!fundFilter ? 'text-orange-500' : 'text-slate-400'}`} />
             </div>
             <div className="flex items-baseline gap-0.5 mt-0.5">
-              <span className={`text-sm font-bold ${!fundFilter ? 'text-indigo-950' : 'text-slate-700'}`}>
+              <span className={`text-sm font-bold ${!fundFilter ? 'text-orange-950' : 'text-slate-700'}`}>
                 {fundsList.reduce((sum, f) => sum + parseFloat(f.current_balance || '0'), 0).toLocaleString('vi-VN')}
               </span>
               <span className="text-[9px] font-bold text-slate-400">đ</span>
@@ -516,31 +614,31 @@ export function CashbookClient({ shopId, permissions }: Props) {
             const balance = parseFloat(fund.current_balance || '0')
             
             // Render flat SVG icon
-            let icon = <CashIcon className={`w-3.5 h-3.5 ${isSelected ? 'text-indigo-500' : 'text-slate-400'}`} />
+            let icon = <CashIcon className={`w-3.5 h-3.5 ${isSelected ? 'text-orange-500' : 'text-slate-400'}`} />
             if (fund.type === 'bank') {
-              icon = <BankIcon className={`w-3.5 h-3.5 ${isSelected ? 'text-indigo-500' : 'text-slate-400'}`} />
+              icon = <BankIcon className={`w-3.5 h-3.5 ${isSelected ? 'text-orange-500' : 'text-slate-400'}`} />
             } else if (fund.type === 'wallet') {
-              icon = <PhoneIcon className={`w-3.5 h-3.5 ${isSelected ? 'text-indigo-500' : 'text-slate-400'}`} />
+              icon = <PhoneIcon className={`w-3.5 h-3.5 ${isSelected ? 'text-orange-500' : 'text-slate-400'}`} />
             }
 
             return (
               <div 
                 key={fund.id}
                 onClick={() => { setFundFilter(isSelected ? '' : fund.id); setPage(1) }}
-                className={`cursor-pointer rounded-xl border p-2.5 transition-all flex flex-col justify-between h-[72px] active:scale-[0.98] group relative ${
+                className={`cursor-pointer rounded-xl border p-2 transition-all flex flex-col justify-between h-[62px] active:scale-[0.98] group relative ${
                   isSelected 
-                    ? 'border-indigo-600 bg-indigo-50/50 shadow-sm ring-1 ring-indigo-600/10' 
+                    ? 'border-orange-500 bg-orange-50/30 shadow-sm ring-1 ring-orange-500/10' 
                     : 'border-slate-200/80 bg-white hover:border-slate-300'
                 }`}
               >
                 <div className="flex items-center justify-between gap-1">
-                  <span className={`text-[9px] font-bold uppercase tracking-wider truncate max-w-[80%] ${isSelected ? 'text-indigo-600' : 'text-slate-500'}`}>
+                  <span className={`text-[9px] font-bold uppercase tracking-wider truncate max-w-[80%] ${isSelected ? 'text-orange-600' : 'text-slate-500'}`}>
                     {fund.name}
                   </span>
                   <span className="shrink-0">{icon}</span>
                 </div>
                 <div className="flex items-baseline gap-0.5 mt-0.5">
-                  <span className={`text-sm font-bold ${isSelected ? 'text-indigo-950' : 'text-slate-700'}`}>
+                  <span className={`text-sm font-bold ${isSelected ? 'text-orange-950' : 'text-slate-700'}`}>
                     {balance.toLocaleString('vi-VN')}
                   </span>
                   <span className="text-[9px] font-bold text-slate-400">đ</span>
@@ -558,10 +656,10 @@ export function CashbookClient({ shopId, permissions }: Props) {
           <HasPermission has="cashbook.funds.manage">
             <div 
               onClick={openCreateFund}
-              className="cursor-pointer rounded-xl border border-dashed border-slate-300 bg-slate-50/50 hover:bg-indigo-50/30 hover:border-indigo-400/80 p-2.5 transition-all flex flex-col justify-center items-center h-[72px] text-center active:scale-[0.98] group"
+              className="cursor-pointer rounded-xl border border-dashed border-slate-300 bg-slate-50/50 hover:bg-orange-50/20 hover:border-orange-400/80 p-2 transition-all flex flex-col justify-center items-center h-[62px] text-center active:scale-[0.98] group"
             >
-              <Plus className="w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-500 group-hover:scale-110 transition-transform" />
-              <span className="text-[9px] font-bold text-slate-400 group-hover:text-indigo-600 mt-1 uppercase tracking-wider">
+              <Plus className="w-3.5 h-3.5 text-slate-400 group-hover:text-orange-500 group-hover:scale-110 transition-transform" />
+              <span className="text-[9px] font-bold text-slate-400 group-hover:text-orange-600 mt-1 uppercase tracking-wider">
                 Mở thêm quỹ
               </span>
             </div>
@@ -573,73 +671,91 @@ export function CashbookClient({ shopId, permissions }: Props) {
       <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-sm space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {/* Ô Tìm kiếm */}
-          <div className="w-full">
+          <div className="sm:col-span-2 lg:col-span-2 w-full">
             <label className="block text-xs font-medium text-slate-500 mb-1.5">Tìm kiếm nhanh</label>
             <SearchBar
               value={search}
               onChange={(v) => { setSearch(v); setPage(1) }}
               placeholder="Mã phiếu, ghi chú, người nhận..."
+              hideFilter={true}
             />
           </div>
 
-          {/* Bộ lọc Quỹ */}
-          <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1.5">Tài khoản/Quỹ</label>
+          {/* Loại phiếu */}
+          <div className="w-full">
+            <label className="block text-xs font-medium text-slate-500 mb-1.5">Loại phiếu</label>
             <select
-              value={fundFilter}
-              onChange={(e) => { setFundFilter(e.target.value); setPage(1) }}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 bg-white focus:border-indigo-500 focus:outline-none h-[38px] shadow-sm"
+              value={typeFilter}
+              onChange={(e) => { setTypeFilter(e.target.value); setPage(1) }}
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 bg-white focus:border-indigo-500 focus:outline-none h-[38px] shadow-sm cursor-pointer"
             >
-              <option value="">Tất cả tài khoản ({fundsList.length})</option>
-              {fundsList.map(f => (
-                <option key={f.id} value={f.id}>{f.name} ({Number(f.current_balance || 0).toLocaleString('vi-VN')}đ)</option>
-              ))}
+              <option value="">Tất cả</option>
+              <option value="receipt">Phiếu Thu</option>
+              <option value="payment">Phiếu Chi</option>
+            </select>
+          </div>
+
+          {/* Thời gian tra cứu */}
+          <div className="w-full">
+            <label className="block text-xs font-medium text-slate-500 mb-1.5">Thời gian tra cứu</label>
+            <select
+              value={dateRangeType}
+              onChange={(e) => setDateRangeType(e.target.value)}
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 bg-white focus:border-indigo-500 focus:outline-none h-[38px] shadow-sm cursor-pointer"
+            >
+              <option value="today">Hôm nay</option>
+              <option value="last_7_days">7 ngày trước</option>
+              <option value="this_month">Tháng này</option>
+              <option value="last_3_months">3 tháng trước</option>
+              <option value="custom">Tùy chỉnh</option>
             </select>
           </div>
 
           {/* Ngày bắt đầu */}
-          <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1.5">Từ ngày</label>
-            <input
-              type="date"
-              value={fromDate}
-              onChange={(e) => { setFromDate(e.target.value); setPage(1) }}
-              className="w-full rounded-xl border border-slate-200 px-3 py-1.5 text-sm text-slate-700 focus:border-indigo-500 focus:outline-none h-[38px] shadow-sm"
-            />
-          </div>
+          {dateRangeType === 'custom' && (
+            <div className="w-full">
+              <label className="block text-xs font-medium text-slate-500 mb-1.5">Từ ngày</label>
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(e) => handleCustomFromDateChange(e.target.value)}
+                onClick={(e) => {
+                  try {
+                    e.currentTarget.showPicker()
+                  } catch (err) {}
+                }}
+                onFocus={(e) => {
+                  try {
+                    e.currentTarget.showPicker()
+                  } catch (err) {}
+                }}
+                className="w-full rounded-xl border border-slate-200 px-3 py-1.5 text-sm text-slate-700 focus:border-indigo-500 focus:outline-none h-[38px] shadow-sm cursor-pointer"
+              />
+            </div>
+          )}
 
           {/* Ngày kết thúc */}
-          <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1.5">Đến ngày</label>
-            <input
-              type="date"
-              value={toDate}
-              onChange={(e) => { setToDate(e.target.value); setPage(1) }}
-              className="w-full rounded-xl border border-slate-200 px-3 py-1.5 text-sm text-slate-700 focus:border-indigo-500 focus:outline-none h-[38px] shadow-sm"
-            />
-          </div>
-        </div>
-
-        {/* Lọc loại phiếu */}
-        <div className="flex gap-1.5 flex-wrap border-t border-slate-100 pt-3">
-          <button 
-            onClick={() => { setTypeFilter(''); setPage(1) }}
-            className={`px-3.5 py-1.5 text-xs font-medium rounded-lg border transition-all ${!typeFilter ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}
-          >
-            Tất cả phiếu
-          </button>
-          <button 
-            onClick={() => { setTypeFilter('receipt'); setPage(1) }}
-            className={`px-3.5 py-1.5 text-xs font-medium rounded-lg border transition-all ${typeFilter === 'receipt' ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}
-          >
-            Chỉ Phiếu Thu
-          </button>
-          <button 
-            onClick={() => { setTypeFilter('payment'); setPage(1) }}
-            className={`px-3.5 py-1.5 text-xs font-medium rounded-lg border transition-all ${typeFilter === 'payment' ? 'bg-rose-600 text-white border-rose-600 shadow-sm' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}
-          >
-            Chỉ Phiếu Chi
-          </button>
+          {dateRangeType === 'custom' && (
+            <div className="w-full">
+              <label className="block text-xs font-medium text-slate-500 mb-1.5">Đến ngày</label>
+              <input
+                type="date"
+                value={toDate}
+                onChange={(e) => handleCustomToDateChange(e.target.value)}
+                onClick={(e) => {
+                  try {
+                    e.currentTarget.showPicker()
+                  } catch (err) {}
+                }}
+                onFocus={(e) => {
+                  try {
+                    e.currentTarget.showPicker()
+                  } catch (err) {}
+                }}
+                className="w-full rounded-xl border border-slate-200 px-3 py-1.5 text-sm text-slate-700 focus:border-indigo-500 focus:outline-none h-[38px] shadow-sm cursor-pointer"
+              />
+            </div>
+          )}
         </div>
       </div>
 
