@@ -25,13 +25,27 @@ export async function listRoles(tenantId: string): Promise<Role[]> {
   const supabase = await getSupabaseServerClient();
   
   // Get roles available for this tenant
-  const { data: roles, error: rolesError } = await supabase
+  let { data: roles, error: rolesError } = await supabase
     .from('roles')
     .select('id, code, name, is_system, scope, tenant_id, description')
     .or(`is_system.eq.true,tenant_id.eq.${tenantId}`)
     .order('id', { ascending: true });
 
+  // Resilient fallback: if description column does not exist yet (e.g. migration hasn't been pushed)
+  if (rolesError && (rolesError.code === 'PGRST204' || rolesError.message?.includes('description'))) {
+    console.warn('[listRoles] Falling back to query without description column');
+    const fallback = await supabase
+      .from('roles')
+      .select('id, code, name, is_system, scope, tenant_id')
+      .or(`is_system.eq.true,tenant_id.eq.${tenantId}`)
+      .order('id', { ascending: true });
+    
+    roles = fallback.data;
+    rolesError = fallback.error;
+  }
+
   if (rolesError) throw rolesError;
+  if (!roles) return [];
 
   // Get permissions for these roles
   const roleIds = roles.map(r => r.id);

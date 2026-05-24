@@ -6,7 +6,7 @@ import { createTenantUser, listTenantUsers } from '../../../../../lib/server/ten
 
 const baseSchema = z.object({
   display_name: z.string().min(1).max(100).optional(),
-  role: z.enum(['owner', 'admin', 'staff', 'viewer']),
+  role: z.string().min(1, 'Vai trò không được để trống'),
   shop_id: z.string().uuid().optional(),
 });
 
