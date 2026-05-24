@@ -3,6 +3,33 @@
 import { useState, useTransition, FormEvent } from 'react';
 import type { Role, Permission } from '@/lib/server/roles';
 
+const ROLE_LOCALIZATION: Record<string, { name: string; desc: string }> = {
+  owner: { name: 'Chủ sở hữu / Lãnh đạo', desc: 'Có toàn quyền vĩ mô, thanh toán gói dịch vụ và xem báo cáo tài chính tổng hợp toàn chuỗi.' },
+  admin: { name: 'Giám đốc điều hành / Quản lý chuỗi', desc: 'Quản trị nhân sự toàn hệ thống, tạo chi nhánh, cấu hình và đồng bộ danh mục sản phẩm chung.' },
+  staff: { name: 'Nhân viên Thu ngân', desc: 'Vận hành máy POS bán hàng tại chi nhánh, tích điểm CRM cho khách. Không được tự ý hủy hóa đơn.' },
+  viewer: { name: 'Cổ đông / Giám sát chi nhánh', desc: 'Chỉ xem số liệu báo cáo doanh thu chi nhánh và lịch sử đơn hàng ở chế độ Đọc.' },
+};
+
+function getFriendlyCode(code: string): string {
+  if (['owner', 'admin', 'staff', 'viewer'].includes(code)) return code;
+
+  // New format: nhan-vien-bep_9f2d7cd3 -> nhan-vien-bep
+  if (code.includes('_') && !code.startsWith('custom_')) {
+    return code.split('_')[0];
+  }
+
+  // Old format: custom_uuid_timestamp -> show vai-tro-tuy-chinh
+  if (code.startsWith('custom_')) {
+    const parts = code.split('_');
+    if (parts.length >= 3) {
+      return 'tuy-chinh';
+    }
+  }
+
+  return code;
+}
+
+
 interface Props {
   tenantId: string;
   initialRoles: Role[];
@@ -15,7 +42,7 @@ export function RolesClient({ tenantId, initialRoles, permissions, canManage }: 
   const [showModal, setShowModal] = useState(false);
   const [editingRole, setEditingRole] = useState<Role | Partial<Role> | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Role | null>(null);
-  
+
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -89,58 +116,71 @@ export function RolesClient({ tenantId, initialRoles, permissions, canManage }: 
 
       {/* Roles Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {roles.map(role => (
-          <div key={role.id} className="relative rounded-2xl border border-slate-200 bg-white p-5 flex flex-col hover:border-slate-300 transition-colors">
-            <div className="flex items-start justify-between mb-4">
-              <div>
-                <h3 className="font-semibold text-slate-900 flex items-center gap-2">
-                  {role.name}
-                  {role.is_system && (
-                    <span className="text-[10px] font-bold tracking-wider text-white bg-slate-800 px-1.5 py-0.5 rounded uppercase">Hệ thống</span>
-                  )}
+        {roles.map(role => {
+          const localization = ROLE_LOCALIZATION[role.code];
+          const displayName = localization ? localization.name : role.name;
+          const displayDesc = localization ? localization.desc : `Vai trò tùy chỉnh được thiết lập cho chi nhánh hoặc hệ thống.`;
+          const friendlyCode = getFriendlyCode(role.code);
+
+          return (
+            <div key={role.id} className="relative rounded-2xl border border-slate-200 bg-white p-5 flex flex-col hover:border-slate-300 transition-colors">
+              <div className="mb-4">
+                <h3 className="text-base font-bold text-slate-900 leading-snug">
+                  {displayName}
                 </h3>
-                <p className="text-xs text-slate-500 mt-1">
-                  Mã: <span className="font-mono bg-slate-100 px-1 rounded">{role.code}</span>
-                </p>
+
+                {/* Badges & Meta Row */}
+                <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                  <span className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full ${role.scope === 'workspace' ? 'bg-purple-100 text-purple-700' : 'bg-amber-100 text-amber-700'
+                    }`}>
+                    {role.scope === 'workspace' ? 'Workspace' : 'Chi nhánh'}
+                  </span>
+
+                  {role.is_system && (
+                    <span className="text-[10px] font-bold tracking-wider text-slate-500 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full uppercase">
+                      Hệ thống
+                    </span>
+                  )}
+
+                  <span className="text-[10px] font-bold tracking-wider text-blue-700 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded-full uppercase">
+                    {friendlyCode}
+                  </span>
+                </div>
               </div>
-              <span className={`text-[10px] font-semibold uppercase px-2 py-1 rounded-full ${
-                role.scope === 'workspace' ? 'bg-purple-100 text-purple-700' : 'bg-amber-100 text-amber-700'
-              }`}>
-                {role.scope === 'workspace' ? 'Workspace' : 'Chi nhánh'}
-              </span>
-            </div>
 
-            <div className="flex-1">
-              <p className="text-sm text-slate-600 mb-2">Được cấp <span className="font-semibold text-slate-900">{role.permissions?.length || 0}</span> quyền.</p>
-            </div>
+              <div className="flex-1">
+                <p className="text-xs text-slate-500 mb-3 leading-normal">{displayDesc}</p>
+                <p className="text-sm text-slate-600 mb-2">Được cấp <span className="font-semibold text-slate-900">{role.permissions?.length || 0}</span> quyền.</p>
+              </div>
 
-            <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-end gap-2">
-              {canManage && (
+              <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-end gap-2">
+                {canManage && (
+                  <button
+                    onClick={() => handleDuplicate(role)}
+                    className="text-xs font-medium text-blue-600 border border-blue-100 bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-100 transition-colors"
+                  >
+                    Sao chép
+                  </button>
+                )}
                 <button
-                  onClick={() => handleDuplicate(role)}
-                  className="text-xs font-medium text-blue-600 border border-blue-100 bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-100 transition-colors"
+                  onClick={() => handleEdit(role)}
+                  className="text-xs font-medium text-slate-600 border border-slate-200 px-3 py-1.5 rounded-lg hover:bg-slate-50 transition-colors"
                 >
-                  Sao chép
+                  {canManage && !role.is_system ? 'Chỉnh sửa' : 'Xem chi tiết'}
                 </button>
-              )}
-              <button
-                onClick={() => handleEdit(role)}
-                className="text-xs font-medium text-slate-600 border border-slate-200 px-3 py-1.5 rounded-lg hover:bg-slate-50 transition-colors"
-              >
-                {canManage && !role.is_system ? 'Chỉnh sửa' : 'Xem chi tiết'}
-              </button>
-              
-              {canManage && !role.is_system && (
-                <button
-                  onClick={() => setDeleteTarget(role)}
-                  className="text-xs font-medium text-red-600 border border-red-200 px-3 py-1.5 rounded-lg hover:bg-red-50 transition-colors"
-                >
-                  Xóa
-                </button>
-              )}
+
+                {canManage && !role.is_system && (
+                  <button
+                    onClick={() => setDeleteTarget(role)}
+                    className="text-xs font-medium text-red-600 border border-red-200 px-3 py-1.5 rounded-lg hover:bg-red-50 transition-colors"
+                  >
+                    Xóa
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {showModal && (
@@ -183,16 +223,20 @@ function RoleModal({ tenantId, role, permissions, onClose, onSuccess, onError }:
   onError: (msg: string) => void;
 }) {
   const isReadOnly = role?.is_system;
-  
-  const [name, setName] = useState(role?.name || '');
+  const systemLocalization = role?.code ? ROLE_LOCALIZATION[role.code] : null;
+
+  const [name, setName] = useState(systemLocalization ? systemLocalization.name : (role?.name || ''));
+  const [description, setDescription] = useState(
+    systemLocalization ? systemLocalization.desc : (role?.description || '')
+  );
   const [scope, setScope] = useState<'workspace' | 'shop'>(
     (role?.scope as 'workspace' | 'shop') || 'workspace'
   );
-  
+
   const [selectedPerms, setSelectedPerms] = useState<Set<string>>(
     new Set(role?.permissions || [])
   );
-  
+
   const [loading, setLoading] = useState(false);
 
   // Group permissions
@@ -228,28 +272,29 @@ function RoleModal({ tenantId, role, permissions, onClose, onSuccess, onError }:
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     if (isReadOnly) { onClose(); return; }
-    
+
     setLoading(true);
     const body = {
       name: name.trim(),
       scope,
-      permissionCodes: Array.from(selectedPerms)
+      permissionCodes: Array.from(selectedPerms),
+      description: description.trim()
     };
 
     const isEdit = role && 'id' in role && role.id;
-    const url = isEdit 
+    const url = isEdit
       ? `/api/tenants/${tenantId}/roles/${role.id}`
       : `/api/tenants/${tenantId}/roles`;
-    
+
     const res = await fetch(url, {
       method: isEdit ? 'PUT' : 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
-    
+
     const data = await res.json().catch(() => ({}));
     setLoading(false);
-    
+
     if (!res.ok) { onError(data.message || 'Không thể lưu vai trò'); return; }
     onSuccess(isEdit ? 'Đã lưu vai trò' : 'Đã tạo vai trò mới');
   }
@@ -285,12 +330,24 @@ function RoleModal({ tenantId, role, permissions, onClose, onSuccess, onError }:
         </div>
 
         <div>
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">Mô tả vai trò</label>
+          <textarea
+            value={description}
+            onChange={e => setDescription(e.target.value)}
+            placeholder="Mô tả ngắn gọn chức năng, quyền hạn của vai trò này..."
+            disabled={isReadOnly}
+            rows={2}
+            className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:bg-slate-50 disabled:text-slate-500 resize-none"
+          />
+        </div>
+
+        <div>
           <label className="mb-3 block text-sm font-medium text-slate-700">Phân quyền chi tiết</label>
-          <div className="h-[400px] overflow-y-auto pr-2 space-y-4 custom-scrollbar">
+          <div className="space-y-4">
             {groups.map(g => {
               const allChecked = g.perms.every(p => selectedPerms.has(p.code));
               const someChecked = g.perms.some(p => selectedPerms.has(p.code));
-              
+
               return (
                 <div key={g.groupName} className="rounded-xl border border-slate-200 overflow-hidden">
                   <div className="bg-slate-50 px-4 py-3 flex items-center justify-between border-b border-slate-200">

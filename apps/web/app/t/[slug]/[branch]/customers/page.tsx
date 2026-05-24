@@ -24,6 +24,15 @@ export default async function CustomersPage({ params }: Props) {
     .maybeSingle()
     
   if (!shop) notFound()
+  const { getUserPermissions } = await import('@/lib/server/permissions')
+  const { data: tenantShop } = await admin
+    .from('shops')
+    .select('tenant_id')
+    .eq('id', shop.id)
+    .single()
+  const permissions = tenantShop 
+    ? await getUserPermissions(authData.user.id, tenantShop.tenant_id, shop.id).catch(() => [] as string[])
+    : []
 
-  return <CustomersClient shopId={shop.id} shopName={shop.name} />
+  return <CustomersClient shopId={shop.id} shopName={shop.name} permissions={permissions} />
 }

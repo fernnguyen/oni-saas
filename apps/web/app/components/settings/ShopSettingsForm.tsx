@@ -69,6 +69,7 @@ interface Props {
   shop: Shop;
   settings: ShopSettings;
   canManage: boolean;
+  permissions?: string[];
   industryType?: string;
 }
 
@@ -85,7 +86,11 @@ function formatWithDots(val: string | number): string {
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
-export function ShopSettingsForm({ shop, settings: initial, canManage, industryType }: Props) {
+export function ShopSettingsForm({ shop, settings: initial, canManage, permissions = [], industryType }: Props) {
+  const canManageSettings = canManage;
+  const canManageQr = permissions.includes('qr_order.manage') || canManageSettings;
+  const canManageCrm = permissions.includes('crm.manage') || canManageSettings;
+
   const vertical = getVerticalConfig(industryType || 'retail');
   const resourceLabel = industryType === 'fnb' ? 'bàn ăn' : (vertical.resourceLabel?.toLowerCase() || 'bàn');
   const [form, setForm] = useState({
@@ -467,13 +472,13 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, industryT
                 </span>
               </div>
             </Field>
-            <Field label={`Tự động mở ${resourceLabel} khi quét QR`}>
+            <Field label={`Tự động mở ${resourceLabel} khi quét QR` + (!canManageQr ? ' 🔒 (Cần quyền)' : '')}>
               <div
-                onClick={() => canManage && set('qr_auto_approve_session', !form.qr_auto_approve_session)}
-                className="flex cursor-pointer items-center gap-3 mt-1"
+                onClick={() => canManageQr && set('qr_auto_approve_session', !form.qr_auto_approve_session)}
+                className={`flex items-center gap-3 mt-1 ${canManageQr ? 'cursor-pointer' : 'cursor-not-allowed'}`}
               >
                 <div
-                  className={`relative h-6 w-11 rounded-full transition-colors ${form.qr_auto_approve_session ? 'bg-primary' : 'bg-slate-200'} ${canManage ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
+                  className={`relative h-6 w-11 rounded-full transition-colors ${form.qr_auto_approve_session ? 'bg-primary' : 'bg-slate-200'} ${canManageQr ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
                 >
                   <span
                     className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${form.qr_auto_approve_session ? 'translate-x-5' : ''}`}
@@ -506,13 +511,13 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, industryT
               </div>
             ) : (
               <>
-                <Field label="Tích lũy điểm CRM">
+                <Field label={`Tích lũy điểm CRM` + (!canManageCrm ? ' 🔒 (Cần quyền)' : '')}>
                   <div
-                    onClick={() => canManage && set('loyalty_points_enabled', !form.loyalty_points_enabled)}
-                    className="flex cursor-pointer items-center gap-3"
+                    onClick={() => canManageCrm && set('loyalty_points_enabled', !form.loyalty_points_enabled)}
+                    className={`flex items-center gap-3 ${canManageCrm ? 'cursor-pointer' : 'cursor-not-allowed'}`}
                   >
                     <div
-                      className={`relative h-6 w-11 rounded-full transition-colors ${form.loyalty_points_enabled ? 'bg-primary' : 'bg-slate-200'} ${canManage ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
+                      className={`relative h-6 w-11 rounded-full transition-colors ${form.loyalty_points_enabled ? 'bg-primary' : 'bg-slate-200'} ${canManageCrm ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
                     >
                       <span
                         className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${form.loyalty_points_enabled ? 'translate-x-5' : ''}`}
@@ -527,22 +532,22 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, industryT
                 {form.loyalty_points_enabled && (
                   <>
                     <div className="grid gap-4 sm:grid-cols-2 border-t border-slate-100 pt-4 mt-2">
-                      <Field label="Tỷ lệ Tích điểm (Mua bao nhiêu được 1 điểm)" hint="Ví dụ: 100.000đ chi tiêu = 1 điểm">
+                      <Field label={`Tỷ lệ Tích điểm (Mua bao nhiêu được 1 điểm)` + (!canManageCrm ? ' 🔒' : '')} hint="Ví dụ: 100.000đ chi tiêu = 1 điểm">
                         <input
                           type="text"
                           value={formatWithDots(form.loyalty_money_to_point)}
                           onChange={(e) => set('loyalty_money_to_point', toRawNumber(e.target.value))}
-                          disabled={!canManage}
+                          disabled={!canManageCrm}
                           className={inputCls}
                           placeholder="100.000"
                         />
                       </Field>
-                      <Field label="Giá trị Tiêu điểm (1 điểm bằng bao nhiêu VNĐ)" hint="Ví dụ: 1 điểm = 1.000đ khi thanh toán">
+                      <Field label={`Giá trị Tiêu điểm (1 điểm bằng bao nhiêu VNĐ)` + (!canManageCrm ? ' 🔒' : '')} hint="Ví dụ: 1 điểm = 1.000đ khi thanh toán">
                         <input
                           type="text"
                           value={formatWithDots(form.loyalty_point_to_money)}
                           onChange={(e) => set('loyalty_point_to_money', toRawNumber(e.target.value))}
-                          disabled={!canManage}
+                          disabled={!canManageCrm}
                           className={inputCls}
                           placeholder="1.000"
                         />
@@ -552,7 +557,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, industryT
                     <div className="border-t border-slate-100 pt-4 space-y-4">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div className="space-y-0.5">
-                          <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Cấu hình Hạng thành viên</h3>
+                          <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Cấu hình Hạng thành viên {!canManageCrm && '🔒'}</h3>
                           <p className="text-xs text-slate-400">Doanh thu tích lũy được xét trong thời gian quy định.</p>
                         </div>
                         <div className="w-full sm:w-32">
@@ -561,7 +566,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, industryT
                             type="number" min="1" max="10"
                             value={form.tier_evaluation_years}
                             onChange={(e) => set('tier_evaluation_years', e.target.value)}
-                            disabled={!canManage}
+                            disabled={!canManageCrm}
                             className={inputCls}
                             placeholder="3"
                           />
@@ -592,7 +597,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, industryT
                                     updated[idx] = { ...updated[idx], name: e.target.value };
                                     set('membership_tiers', updated);
                                   }}
-                                  disabled={!canManage}
+                                  disabled={!canManageCrm}
                                   className={inputCls}
                                   placeholder="Ví dụ: Đồng, Bạc, Vàng, VIP..."
                                 />
@@ -609,7 +614,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, industryT
                                     updated[idx] = { ...updated[idx], threshold: toRawNumber(e.target.value) };
                                     set('membership_tiers', updated);
                                   }}
-                                  disabled={!canManage}
+                                  disabled={!canManageCrm}
                                   className={inputCls}
                                   placeholder="5.000.000"
                                 />
@@ -630,7 +635,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, industryT
                                       updated[idx] = { ...updated[idx], discount: e.target.value };
                                       set('membership_tiers', updated);
                                     }}
-                                    disabled={!canManage}
+                                    disabled={!canManageCrm}
                                     className="w-full rounded-xl border border-slate-200 bg-white pl-4 pr-8 py-2.5 text-sm focus:border-primary focus:outline-none"
                                     placeholder="5"
                                   />
@@ -648,7 +653,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, industryT
                                     updated[idx] = { ...updated[idx], color: e.target.value };
                                     set('membership_tiers', updated);
                                   }}
-                                  disabled={!canManage}
+                                  disabled={!canManageCrm}
                                   className={inputCls}
                                 >
                                   <option value="emerald">🟢 Ngọc lục bảo (Emerald)</option>
@@ -678,7 +683,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, industryT
                                     const updated = form.membership_tiers.filter((_, i) => i !== idx);
                                     set('membership_tiers', updated);
                                   }}
-                                  disabled={!canManage}
+                                  disabled={!canManageCrm}
                                   className="p-2 text-rose-500 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50 disabled:hover:bg-transparent rounded-lg transition-colors cursor-pointer"
                                   title="Xóa hạng thành viên"
                                 >
@@ -692,7 +697,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, industryT
                         </div>
 
                         {/* Add Tier Button */}
-                        {canManage && (
+                        {canManageCrm && (
                           <div className="pt-2 px-2">
                             <button
                               type="button"
@@ -721,7 +726,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, industryT
           </Section>
 
           {/* ── Save button ── */}
-          {canManage && (
+          {(canManage || canManageQr || canManageCrm) && (
             <div className="flex items-center gap-3">
               <button
                 onClick={handleSave}

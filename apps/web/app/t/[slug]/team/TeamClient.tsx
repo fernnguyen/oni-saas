@@ -3,6 +3,13 @@
 import { useState, useTransition, FormEvent } from 'react';
 import type { Role } from '@/lib/server/roles';
 
+const ROLE_LOCALIZATION: Record<string, { name: string; desc: string }> = {
+  owner: { name: 'Chủ sở hữu / Lãnh đạo', desc: 'Có toàn quyền vĩ mô, thanh toán gói dịch vụ và xem báo cáo tài chính tổng hợp toàn chuỗi.' },
+  admin: { name: 'Giám đốc điều hành / Quản lý chuỗi', desc: 'Quản trị nhân sự toàn hệ thống, tạo chi nhánh, cấu hình và đồng bộ danh mục sản phẩm chung.' },
+  staff: { name: 'Nhân viên Thu ngân', desc: 'Vận hành máy POS bán hàng tại chi nhánh, tích điểm CRM cho khách. Không được tự ý hủy hóa đơn.' },
+  viewer: { name: 'Cổ đông / Giám sát chi nhánh', desc: 'Chỉ xem số liệu báo cáo doanh thu chi nhánh và lịch sử đơn hàng ở chế độ Đọc.' },
+};
+
 interface UserRole {
   code: string;
   name: string;
@@ -363,31 +370,37 @@ function AddMemberModal({ tenantId, tenantSlug, shops, roles, onClose, onSuccess
         <div>
           <label className="mb-2 block text-sm font-medium text-slate-700">Vai trò & phạm vi</label>
           <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1 custom-scrollbar">
-            {roles.map((r) => (
-              <label key={r.code} className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors ${
-                role === r.code ? 'border-primary bg-blue-50/50' : 'border-slate-200 hover:border-slate-300'
-              }`}>
-                <input
-                  type="radio"
-                  name="role"
-                  value={r.code}
-                  checked={role === r.code}
-                  onChange={() => setRole(r.code)}
-                  className="mt-0.5 accent-primary"
-                />
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-slate-900">{r.name}</span>
-                    <span className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded-full ${
-                      r.scope === 'workspace' ? 'bg-purple-100 text-purple-700' : 'bg-amber-100 text-amber-700'
-                    }`}>
-                      {r.scope === 'workspace' ? 'Workspace' : 'Chi nhánh'}
-                    </span>
-                    {r.is_system && <span className="text-[10px] bg-slate-100 text-slate-500 px-1 rounded uppercase font-bold tracking-wider">Hệ thống</span>}
+            {roles.map((r) => {
+              const localization = ROLE_LOCALIZATION[r.code];
+              const displayName = localization ? localization.name : r.name;
+              const displayDesc = localization ? localization.desc : `Vai trò tùy chỉnh được thiết lập cho chi nhánh hoặc hệ thống.`;
+              return (
+                <label key={r.code} className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors ${
+                  role === r.code ? 'border-primary bg-blue-50/50' : 'border-slate-200 hover:border-slate-300'
+                }`}>
+                  <input
+                    type="radio"
+                    name="role"
+                    value={r.code}
+                    checked={role === r.code}
+                    onChange={() => setRole(r.code)}
+                    className="mt-1 accent-primary"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-semibold text-slate-900">{displayName}</span>
+                      <span className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded-full ${
+                        r.scope === 'workspace' ? 'bg-purple-100 text-purple-700' : 'bg-amber-100 text-amber-700'
+                      }`}>
+                        {r.scope === 'workspace' ? 'Workspace' : 'Chi nhánh'}
+                      </span>
+                      {r.is_system && <span className="text-[10px] bg-slate-100 text-slate-500 px-1 rounded uppercase font-bold tracking-wider">Hệ thống</span>}
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1 leading-normal">{displayDesc}</p>
                   </div>
-                </div>
-              </label>
-            ))}
+                </label>
+              );
+            })}
           </div>
         </div>
 
@@ -539,27 +552,33 @@ function EditRoleModal({ tenantId, user, roles, shops, onClose, onSuccess, onErr
           <div>
             <label className="mb-2 block text-sm font-medium text-slate-700">Vai trò & phạm vi</label>
             <div className="space-y-2 max-h-[250px] overflow-y-auto pr-1 custom-scrollbar">
-              {roles.map((r) => (
-                <label key={r.code} className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors ${
-                  role === r.code ? 'border-primary bg-blue-50/50' : 'border-slate-200 hover:border-slate-300'
-                }`}>
-                  <input
-                    type="radio" name="edit_role" value={r.code} checked={role === r.code} onChange={() => setRole(r.code)}
-                    className="mt-0.5 accent-primary"
-                  />
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-slate-900">{r.name}</span>
-                      <span className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded-full ${
-                        r.scope === 'workspace' ? 'bg-purple-100 text-purple-700' : 'bg-amber-100 text-amber-700'
-                      }`}>
-                        {r.scope === 'workspace' ? 'Workspace' : 'Chi nhánh'}
-                      </span>
-                      {r.is_system && <span className="text-[10px] bg-slate-100 text-slate-500 px-1 rounded uppercase font-bold tracking-wider">Hệ thống</span>}
+              {roles.map((r) => {
+                const localization = ROLE_LOCALIZATION[r.code];
+                const displayName = localization ? localization.name : r.name;
+                const displayDesc = localization ? localization.desc : `Vai trò tùy chỉnh được thiết lập cho chi nhánh hoặc hệ thống.`;
+                return (
+                  <label key={r.code} className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors ${
+                    role === r.code ? 'border-primary bg-blue-50/50' : 'border-slate-200 hover:border-slate-300'
+                  }`}>
+                    <input
+                      type="radio" name="edit_role" value={r.code} checked={role === r.code} onChange={() => setRole(r.code)}
+                      className="mt-1 accent-primary"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-semibold text-slate-900">{displayName}</span>
+                        <span className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded-full ${
+                          r.scope === 'workspace' ? 'bg-purple-100 text-purple-700' : 'bg-amber-100 text-amber-700'
+                        }`}>
+                          {r.scope === 'workspace' ? 'Workspace' : 'Chi nhánh'}
+                        </span>
+                        {r.is_system && <span className="text-[10px] bg-slate-100 text-slate-500 px-1 rounded uppercase font-bold tracking-wider">Hệ thống</span>}
+                      </div>
+                      <p className="text-xs text-slate-500 mt-1 leading-normal">{displayDesc}</p>
                     </div>
-                  </div>
-                </label>
-              ))}
+                  </label>
+                );
+              })}
             </div>
           </div>
 
@@ -650,9 +669,10 @@ function RoleBadge({ code, name }: { code: string, name?: string }) {
     staff: 'bg-amber-100 text-amber-700',
     viewer: 'bg-slate-100 text-slate-600',
   };
+  const localizedName = ROLE_LOCALIZATION[code]?.name || name || code;
   return (
     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${map[code] ?? 'bg-slate-100 text-slate-500'}`}>
-      {name || code}
+      {localizedName}
     </span>
   );
 }
