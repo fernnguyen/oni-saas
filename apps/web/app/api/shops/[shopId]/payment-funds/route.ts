@@ -47,6 +47,18 @@ export async function GET(
         active: 'TRUE',
       })
 
+      await connector.create('payment-funds', {
+        branch_id,
+        name: 'Ví điện tử (Momo, ZaloPay...)',
+        type: 'wallet',
+        account_number: '',
+        bank_name: '',
+        initial_balance: '0',
+        current_balance: '0',
+        is_default: 'FALSE',
+        active: 'TRUE',
+      })
+
       // Query again to get the newly seeded funds
       result = await connector.list('payment-funds', { page: 1, limit: 100, filters })
       invalidate(shopId, 'payment-funds')

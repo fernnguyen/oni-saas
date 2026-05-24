@@ -46,6 +46,7 @@ interface SyncPayment {
   amount: number
   reference_no?: string
   note?: string
+  fund_id?: string
 }
 
 interface SyncMovement {
@@ -295,12 +296,25 @@ export async function POST(
         active: 'TRUE',
       }) as Record<string, string>
 
-      funds = [cashFund, bankFund]
+      const walletFund = await connector.create('payment-funds', {
+        branch_id: branchId,
+        name: 'Ví điện tử (Momo, ZaloPay...)',
+        type: 'wallet',
+        account_number: '',
+        bank_name: '',
+        initial_balance: '0',
+        current_balance: '0',
+        is_default: 'FALSE',
+        active: 'TRUE',
+      }) as Record<string, string>
+
+      funds = [cashFund, bankFund, walletFund]
       invalidate(shopId, 'payment-funds')
     }
 
     const defaultCashFund = funds.find(f => f.type === 'cash' && f.is_default === 'TRUE') || funds.find(f => f.type === 'cash')
     const defaultBankFund = funds.find(f => f.type === 'bank' && f.is_default === 'TRUE') || funds.find(f => f.type === 'bank')
+    const defaultWalletFund = funds.find(f => f.type === 'wallet' && f.is_default === 'TRUE') || funds.find(f => f.type === 'wallet')
     const fallbackFund = funds.find(f => f.is_default === 'TRUE') || funds[0]
 
     const paysToCreate = []
@@ -324,10 +338,14 @@ export async function POST(
         const isRefund = Number(pay.amount) < 0
         const amount = Math.abs(Number(pay.amount))
         
-        // Find matching payment fund
-        const targetFund = pay.method === 'cash'
-          ? (defaultCashFund || fallbackFund)
-          : (defaultBankFund || defaultCashFund || fallbackFund)
+        // Find matching payment fund (either explicit fund_id from client, or smart matching by type)
+        const targetFund = pay.fund_id
+          ? (funds.find(f => f.id === pay.fund_id) || fallbackFund)
+          : (pay.method === 'cash'
+              ? (defaultCashFund || fallbackFund)
+              : (['momo', 'zalopay', 'vnpay', 'wallet'].includes(pay.method)
+                  ? (defaultWalletFund || defaultBankFund || defaultCashFund || fallbackFund)
+                  : (defaultBankFund || defaultCashFund || fallbackFund)))
 
         let fundId = ''
         let balanceAfter = ''

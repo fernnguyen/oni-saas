@@ -525,10 +525,16 @@ export function CashbookClient({ shopId, permissions }: Props) {
           <div className="absolute top-0 left-0 h-1 w-full bg-slate-400 group-hover:bg-slate-500 transition-colors" />
           <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Số dư đầu kỳ</p>
           <div className="mt-2 flex items-baseline gap-1">
-            <span className="text-2xl font-bold tracking-tight text-slate-700">
-              {Number(data?.opening_balance || 0).toLocaleString('vi-VN')}
-            </span>
-            <span className="text-sm font-bold text-slate-400">đ</span>
+            {isLoading || isFetching ? (
+              <div className="h-8 w-28 bg-slate-100 animate-pulse rounded-lg mt-0.5" />
+            ) : (
+              <>
+                <span className="text-2xl font-bold tracking-tight text-slate-700">
+                  {Number(data?.opening_balance || 0).toLocaleString('vi-VN')}
+                </span>
+                <span className="text-sm font-bold text-slate-400">đ</span>
+              </>
+            )}
           </div>
           <p className="text-[10px] text-slate-400 mt-1">Số dư tích lũy trước thời gian lọc</p>
         </div>
@@ -538,10 +544,16 @@ export function CashbookClient({ shopId, permissions }: Props) {
           <div className="absolute top-0 left-0 h-1 w-full bg-emerald-500 group-hover:bg-emerald-600 transition-colors" />
           <p className="text-xs font-semibold uppercase tracking-wider text-emerald-600">Tổng Thu (+)</p>
           <div className="mt-2 flex items-baseline gap-1">
-            <span className="text-2xl font-bold tracking-tight text-emerald-600">
-              {Number(data?.total_receipt || 0).toLocaleString('vi-VN')}
-            </span>
-            <span className="text-sm font-bold text-emerald-400">đ</span>
+            {isLoading || isFetching ? (
+              <div className="h-8 w-28 bg-emerald-50 animate-pulse rounded-lg mt-0.5" />
+            ) : (
+              <>
+                <span className="text-2xl font-bold tracking-tight text-emerald-600">
+                  {Number(data?.total_receipt || 0).toLocaleString('vi-VN')}
+                </span>
+                <span className="text-sm font-bold text-emerald-400">đ</span>
+              </>
+            )}
           </div>
           <p className="text-[10px] text-emerald-500/80 mt-1">Doanh thu phát sinh trong kỳ</p>
         </div>
@@ -551,10 +563,16 @@ export function CashbookClient({ shopId, permissions }: Props) {
           <div className="absolute top-0 left-0 h-1 w-full bg-rose-500 group-hover:bg-rose-600 transition-colors" />
           <p className="text-xs font-semibold uppercase tracking-wider text-rose-600">Tổng Chi (-)</p>
           <div className="mt-2 flex items-baseline gap-1">
-            <span className="text-2xl font-bold tracking-tight text-rose-600">
-              {Number(data?.total_payment || 0).toLocaleString('vi-VN')}
-            </span>
-            <span className="text-sm font-bold text-rose-400">đ</span>
+            {isLoading || isFetching ? (
+              <div className="h-8 w-28 bg-rose-50 animate-pulse rounded-lg mt-0.5" />
+            ) : (
+              <>
+                <span className="text-2xl font-bold tracking-tight text-rose-600">
+                  {Number(data?.total_payment || 0).toLocaleString('vi-VN')}
+                </span>
+                <span className="text-sm font-bold text-rose-400">đ</span>
+              </>
+            )}
           </div>
           <p className="text-[10px] text-rose-500/80 mt-1">Các chi phí phát sinh trong kỳ</p>
         </div>
@@ -568,10 +586,16 @@ export function CashbookClient({ shopId, permissions }: Props) {
             Số dư cuối kỳ
           </p>
           <div className="mt-2.5 flex items-baseline gap-1 relative z-10">
-            <span className="text-3xl font-extrabold tracking-tight text-orange-950">
-              {Number(data?.closing_balance || 0).toLocaleString('vi-VN')}
-            </span>
-            <span className="text-sm font-bold text-orange-500">đ</span>
+            {isLoading || isFetching ? (
+              <div className="h-9 w-32 bg-orange-100/60 animate-pulse rounded-lg mt-0.5" />
+            ) : (
+              <>
+                <span className="text-3xl font-extrabold tracking-tight text-orange-950">
+                  {Number(data?.closing_balance || 0).toLocaleString('vi-VN')}
+                </span>
+                <span className="text-sm font-bold text-orange-500">đ</span>
+              </>
+            )}
           </div>
           <p className="text-[10px] text-orange-600/80 mt-1 relative z-10">Lượng tiền hiện có thực tế</p>
         </div>
@@ -586,11 +610,11 @@ export function CashbookClient({ shopId, permissions }: Props) {
           </h2>
         </div>
         
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2.5">
+        <div className="flex flex-wrap gap-2.5">
           {/* Card: Tất cả tài khoản */}
           <div 
             onClick={() => { setFundFilter(''); setPage(1) }}
-            className={`cursor-pointer rounded-xl border p-2 transition-all flex flex-col justify-between h-[62px] active:scale-[0.98] ${
+            className={`cursor-pointer rounded-xl border p-2 transition-all flex flex-col justify-between h-[62px] active:scale-[0.98] w-full sm:w-[170px] shrink-0 ${
               !fundFilter 
                 ? 'border-orange-500 bg-orange-50/30 shadow-sm ring-1 ring-orange-500/10' 
                 : 'border-slate-200/80 bg-white hover:border-slate-300'
@@ -625,7 +649,7 @@ export function CashbookClient({ shopId, permissions }: Props) {
               <div 
                 key={fund.id}
                 onClick={() => { setFundFilter(isSelected ? '' : fund.id); setPage(1) }}
-                className={`cursor-pointer rounded-xl border p-2 transition-all flex flex-col justify-between h-[62px] active:scale-[0.98] group relative ${
+                className={`cursor-pointer rounded-xl border p-2 transition-all flex flex-col justify-between h-[62px] active:scale-[0.98] group relative w-full sm:w-[170px] shrink-0 ${
                   isSelected 
                     ? 'border-orange-500 bg-orange-50/30 shadow-sm ring-1 ring-orange-500/10' 
                     : 'border-slate-200/80 bg-white hover:border-slate-300'
@@ -656,7 +680,7 @@ export function CashbookClient({ shopId, permissions }: Props) {
           <HasPermission has="cashbook.funds.manage">
             <div 
               onClick={openCreateFund}
-              className="cursor-pointer rounded-xl border border-dashed border-slate-300 bg-slate-50/50 hover:bg-orange-50/20 hover:border-orange-400/80 p-2 transition-all flex flex-col justify-center items-center h-[62px] text-center active:scale-[0.98] group"
+              className="cursor-pointer rounded-xl border border-dashed border-slate-300 bg-slate-50/50 hover:bg-orange-50/20 hover:border-orange-400/80 p-2 transition-all flex flex-col justify-center items-center h-[62px] text-center active:scale-[0.98] group w-full sm:w-[170px] shrink-0"
             >
               <Plus className="w-3.5 h-3.5 text-slate-400 group-hover:text-orange-500 group-hover:scale-110 transition-transform" />
               <span className="text-[9px] font-bold text-slate-400 group-hover:text-orange-600 mt-1 uppercase tracking-wider">
