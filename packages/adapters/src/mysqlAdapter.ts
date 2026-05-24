@@ -84,7 +84,7 @@ export class MysqlConnector implements IDataConnector {
     query += ' AND id REGEXP ?'
     params.push(regexPattern)
 
-    query += ' ORDER BY LENGTH(id) DESC, id DESC LIMIT 1'
+    query += ' ORDER BY CAST(SUBSTRING_INDEX(id, \'-\', -1) AS UNSIGNED) DESC LIMIT 1'
 
     const [rows] = await this.db.execute(sql.raw(mysql.format(query, params)))
     const resultRows = rows as unknown as any[]
