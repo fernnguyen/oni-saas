@@ -34,20 +34,10 @@ export async function PUT(
     const closedTime = Date.now()
 
     // 2. Tính toán chính xác expected_closing_cash & non_cash_revenue phát sinh trong ca
-    // Quét orders
-    const ordersRes = await connector.list('orders', {
-      filters: { branch_id: shift.branch_id },
-      limit: 5000
-    })
-    const orders = (ordersRes.data as Record<string, string>[]).filter(o => {
-      const t = new Date(o.created_at || '').getTime()
-      return t >= openedTime && t <= closedTime
-    })
-
-    // Quét cashbook
+    // Quét cashbook (Nguồn dữ liệu duy nhất ghi nhận toàn bộ dòng tiền: bán hàng, hoàn tiền, thu chi khác)
     const cbRes = await connector.list('cashbook', {
       filters: { branch_id: shift.branch_id },
-      limit: 5000
+      limit: 100000 // Lấy tối đa 100k dòng lịch sử
     })
     const cashbook = (cbRes.data as Record<string, string>[]).filter(cb => {
       const t = new Date(cb.created_at || '').getTime()
@@ -58,42 +48,33 @@ export async function PUT(
     let cash_out = 0
     let bank_transfer = 0
     let card = 0
-    let momo = 0
+    let momo = 0 // Bao gồm Momo, ZaloPay, VNPay, và ví điện tử khác
 
-    // Tổng hợp doanh thu đơn hàng
-    for (const order of orders) {
-      const paid = parseFloat(order.paid_amount || '0')
-      const method = order.payment_method || 'cash'
-      
-      if (method === 'cash') {
-        cash_in += paid
-      } else if (method === 'bank_transfer') {
-        bank_transfer += paid
-      } else if (method === 'card') {
-        card += paid
-      } else if (method === 'momo') {
-        momo += paid
-      }
-    }
-
-    // Tổng hợp phiếu thu chi cashbook khác (bỏ qua 'sales' tránh trùng lặp)
     for (const cb of cashbook) {
-      if (cb.category === 'sales') continue
-
       const amount = parseFloat(cb.amount || '0')
       const method = cb.method || 'cash'
-      const type = cb.type // 'receipt' | 'payment'
+      const type = cb.type // 'receipt' | 'payment' | 'expense'
 
       if (type === 'receipt') {
-        if (method === 'cash') cash_in += amount
-        else if (method === 'bank_transfer') bank_transfer += amount
-        else if (method === 'card') card += amount
-        else if (method === 'momo') momo += amount
-      } else if (type === 'payment') {
-        if (method === 'cash') cash_out += amount
-        else if (method === 'bank_transfer') bank_transfer -= amount
-        else if (method === 'card') card -= amount
-        else if (method === 'momo') momo -= amount
+        if (method === 'cash') {
+          cash_in += amount
+        } else if (method === 'bank_transfer') {
+          bank_transfer += amount
+        } else if (method === 'card') {
+          card += amount
+        } else if (['momo', 'zalopay', 'vnpay', 'wallet'].includes(method)) {
+          momo += amount
+        }
+      } else if (type === 'payment' || type === 'expense') {
+        if (method === 'cash') {
+          cash_out += amount
+        } else if (method === 'bank_transfer') {
+          bank_transfer -= amount
+        } else if (method === 'card') {
+          card -= amount
+        } else if (['momo', 'zalopay', 'vnpay', 'wallet'].includes(method)) {
+          momo -= amount
+        }
       }
     }
 
