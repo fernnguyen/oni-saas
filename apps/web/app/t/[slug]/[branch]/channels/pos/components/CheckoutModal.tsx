@@ -55,6 +55,7 @@ interface PaymentRow {
   id: string
   method: string
   amount: string
+  fund_id?: string
 }
 
 function fmtVND(v: number | string | null | undefined) {
@@ -207,6 +208,36 @@ export function CheckoutModal({
     enabled: !!shopId,
   })
 
+  // Lấy danh sách quỹ thanh toán để lựa chọn tự động/thủ công tại POS
+  const { data: fundsData } = useQuery({
+    queryKey: ['payment-funds', shopId, branchId],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/payment-funds?branch_id=${branchId}`)
+      if (!res.ok) return []
+      const json = await res.json()
+      return (json.data || []) as Record<string, string>[]
+    },
+    enabled: !!shopId && !!branchId && open,
+  })
+  const fundsList = fundsData || []
+
+  const getAutoMatchedFund = (method: string, list: Record<string, string>[]) => {
+    if (list.length === 0) return undefined
+    
+    let type = 'bank'
+    if (method === 'cash') type = 'cash'
+    else if (['momo', 'zalopay', 'vnpay', 'wallet'].includes(method)) type = 'wallet'
+    
+    const typedFunds = list.filter(f => f.type === type)
+    if (typedFunds.length === 0) {
+      const bankFunds = list.filter(f => f.type === 'bank')
+      if (bankFunds.length > 0) return bankFunds.find(f => f.is_default === 'TRUE') || bankFunds[0]
+      return list.find(f => f.is_default === 'TRUE') || list[0]
+    }
+    
+    return typedFunds.find(f => f.is_default === 'TRUE') || typedFunds[0]
+  }
+
   const [pointsRedeemed, setPointsRedeemed] = useState('0')
 
   const tierDiscountPct = useMemo(() => {
@@ -316,9 +347,10 @@ export function CheckoutModal({
   // When checkout time, rental type, or finalTotal changes → recalculate payment
   useEffect(() => {
     const newRemaining = Math.max(0, finalTotal - orderPaidAmount)
-    setPayments([{ id: nextId(), method: 'cash', amount: String(newRemaining) }])
+    const autoFund = getAutoMatchedFund('cash', fundsList)
+    setPayments([{ id: nextId(), method: 'cash', amount: String(newRemaining), fund_id: autoFund?.id || '' }])
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [localCheckoutTime, localRentalType, finalTotal])
+  }, [localCheckoutTime, localRentalType, finalTotal, fundsList.length])
 
   const overPaid = Math.max(0, orderPaidAmount - finalTotal)
   const remainingTotal = Math.max(0, finalTotal - orderPaidAmount)
@@ -327,8 +359,18 @@ export function CheckoutModal({
   const cashRows = payments.filter((p) => p.method === 'cash')
   const cashChange = overPaid + cashRows.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0) - (remainingTotal - payments.filter((p) => p.method !== 'cash').reduce((s, p) => s + (parseFloat(p.amount) || 0), 0))
 
-  function updatePayment(id: string, field: 'method' | 'amount', value: string) {
-    setPayments((prev) => prev.map((p) => (p.id === id ? { ...p, [field]: value } : p)))
+  function updatePayment(id: string, field: 'method' | 'amount' | 'fund_id', value: string) {
+    setPayments((prev) => prev.map((p) => {
+      if (p.id === id) {
+        const updated = { ...p, [field]: value }
+        if (field === 'method') {
+          const autoFund = getAutoMatchedFund(value, fundsList)
+          updated.fund_id = autoFund?.id || ''
+        }
+        return updated
+      }
+      return p
+    }))
     if (field === 'method' && value === 'prepaid') {
       void refreshCustomerDetails()
     }
@@ -343,7 +385,8 @@ export function CheckoutModal({
     const nextMethod = METHODS.find((m) => !usedMethods.has(m.value))
     if (!nextMethod) return
     const leftover = Math.max(0, remaining)
-    setPayments((prev) => [...prev, { id: nextId(), method: nextMethod.value, amount: leftover > 0 ? String(leftover) : '' }])
+    const autoFund = getAutoMatchedFund(nextMethod.value, fundsList)
+    setPayments((prev) => [...prev, { id: nextId(), method: nextMethod.value, amount: leftover > 0 ? String(leftover) : '', fund_id: autoFund?.id || '' }])
     if (nextMethod.value === 'prepaid') {
       void refreshCustomerDetails()
     }
@@ -427,16 +470,26 @@ export function CheckoutModal({
         conversion_rate: item.conversion_rate,
       }))
 
-      const localPayments: LocalPayment[] = payments
+      const localPayments: any[] = payments
         .filter((p) => parseFloat(p.amount) > 0)
-        .map((p) => ({
-          local_id: crypto.randomUUID(),
-          order_local_id: local_id,
-          method: p.method,
-          amount: parseFloat(p.amount),
-          reference_no: '',
-          note: '',
-        }))
+        .map((p) => {
+          let fundType = 'bank'
+          if (p.method === 'cash') fundType = 'cash'
+          else if (['momo', 'zalopay', 'vnpay', 'wallet'].includes(p.method)) fundType = 'wallet'
+
+          const matching = fundsList.filter((f) => f.type === fundType)
+          const resolvedFundId = p.fund_id || matching.find((f) => f.is_default === 'TRUE')?.id || matching[0]?.id || ''
+
+          return {
+            local_id: crypto.randomUUID(),
+            order_local_id: local_id,
+            method: p.method,
+            amount: parseFloat(p.amount),
+            reference_no: '',
+            note: '',
+            fund_id: resolvedFundId,
+          }
+        })
 
       if (cashChange > 0) {
         localPayments.push({
@@ -917,6 +970,14 @@ export function CheckoutModal({
             {payments.map((p, idx) => {
               const isPrepaid = p.method === 'prepaid'
               const isDebt = p.method === 'debt'
+
+              let fundType = 'bank'
+              if (p.method === 'cash') fundType = 'cash'
+              else if (['momo', 'zalopay', 'vnpay', 'wallet'].includes(p.method)) fundType = 'wallet'
+
+              const matchingFunds = fundsList.filter((f) => f.type === fundType)
+              const selectedFundObj = fundsList.find((f) => f.id === p.fund_id) || matchingFunds[0]
+
               return (
                 <div key={p.id} className="space-y-1.5">
                   <div className="flex gap-2">
@@ -931,6 +992,21 @@ export function CheckoutModal({
                         <option key={m.value} value={m.value}>{m.label}</option>
                       ))}
                     </select>
+
+                    {/* Lựa chọn Quỹ cụ thể nếu có từ 2 quỹ trở lên cùng loại */}
+                    {matchingFunds.length > 1 && (
+                      <select
+                        value={p.fund_id || selectedFundObj?.id || ''}
+                        onChange={(e) => updatePayment(p.id, 'fund_id', e.target.value)}
+                        className="w-36 shrink-0 rounded-lg border border-orange-200 bg-orange-50/20 px-2 py-2 text-xs font-semibold text-orange-850 focus:border-primary focus:outline-none cursor-pointer"
+                      >
+                        {matchingFunds.map((f) => (
+                          <option key={f.id} value={f.id}>
+                            {f.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                     <div className="relative flex-1">
                       <input
                         type="text"
@@ -961,6 +1037,23 @@ export function CheckoutModal({
                       </button>
                     )}
                   </div>
+
+                  {/* Label chỉ dẫn rõ ràng dòng tiền sẽ được đưa vào quỹ nào */}
+                  {selectedFundObj && p.method !== 'debt' && p.method !== 'prepaid' && (
+                    <div className="w-full flex items-center gap-2 rounded-lg bg-orange-50/50 border border-orange-100/60 px-3 py-1.5 text-xs text-orange-850 animate-in fade-in slide-in-from-top-1 duration-200">
+                      <svg className="h-3.5 w-3.5 text-orange-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 12h15" />
+                      </svg>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-slate-500 font-medium">Dòng tiền sẽ được đưa vào quỹ: </span>
+                        <strong className="text-orange-950 font-bold">{selectedFundObj.name}</strong>
+                        {selectedFundObj.bank_name && (
+                          <span className="text-[10px] text-orange-600 font-medium ml-1">({selectedFundObj.bank_name})</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   {isPrepaid && (
                     <div className="flex justify-between items-center text-xs px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 font-semibold border border-emerald-100">
                       <span>Số dư ví trả trước khả dụng:</span>
