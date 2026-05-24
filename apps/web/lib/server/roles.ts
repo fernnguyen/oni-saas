@@ -194,15 +194,45 @@ export async function deleteCustomRole(tenantId: string, roleId: number) {
   if (existingRole.is_system) throw new Error('Cannot delete system role');
   if (existingRole.tenant_id !== tenantId) throw new Error('Forbidden');
 
-  // role_permissions and user_shops / user_tenants might have foreign keys.
-  // if ON DELETE CASCADE is set, it will be fine. Otherwise we might need to handle it or block deletion if users are assigned.
+  // Check if any users have this role in user_tenants (tenant scope) or user_shops (shop scope)
+  const { data: utMembers } = await supabase
+    .from('user_tenants')
+    .select('user_id')
+    .eq('role_id', roleId);
+    
+  const { data: tenantShops } = await supabase
+    .from('shops')
+    .select('id')
+    .eq('tenant_id', tenantId);
+  const shopIds = (tenantShops ?? []).map(s => s.id);
   
-  // Check if any users have this role
-  const { count: utCount } = await supabase.from('user_tenants').select('id', { count: 'exact', head: true }).eq('role_id', roleId);
-  const { count: usCount } = await supabase.from('user_shops').select('id', { count: 'exact', head: true }).eq('role_id', roleId);
-  
-  if ((utCount && utCount > 0) || (usCount && usCount > 0)) {
-    throw new Error('Không thể xóa vai trò đang có thành viên sử dụng. Vui lòng chuyển thành viên sang vai trò khác trước.');
+  const { data: usMembers } = shopIds.length > 0
+    ? await supabase.from('user_shops').select('user_id').eq('role_id', roleId).in('shop_id', shopIds)
+    : { data: [] };
+    
+  const userIds = Array.from(new Set([
+    ...(utMembers ?? []).map(m => m.user_id),
+    ...(usMembers ?? []).map(m => m.user_id)
+  ]));
+
+  if (userIds.length > 0) {
+    const { data: profiles } = await supabase
+      .from('tenant_user_profiles')
+      .select('display_name, username, login_email')
+      .eq('tenant_id', tenantId)
+      .in('user_id', userIds);
+      
+    const users = (profiles ?? []).map(p => ({
+      displayName: p.display_name || p.username || p.login_email,
+      username: p.username || p.login_email
+    }));
+
+    const errorPayload = JSON.stringify({
+      code: 'ROLE_IN_USE',
+      message: 'Không thể xóa vai trò đang có thành viên sử dụng. Vui lòng chuyển thành viên sang vai trò khác trước.',
+      users
+    });
+    throw new Error(errorPayload);
   }
 
   const { error } = await supabase.from('roles').delete().eq('id', roleId);
