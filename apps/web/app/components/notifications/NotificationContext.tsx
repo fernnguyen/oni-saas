@@ -112,15 +112,30 @@ export function NotificationProvider({ shopId, tenantId, children }: ProviderPro
     }
   }, []);
 
-  // Fetch and cache the currently authenticated user
+  // Fetch and cache the currently authenticated user with reactive updates
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return;
+    
+    // Initial fetch
     supabase.auth.getUser().then(({ data }) => {
       if (data?.user) {
         authUserRef.current = data.user;
       }
     });
+
+    // Sub to auth changes to ensure user ref is never stale
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        authUserRef.current = session.user;
+      } else {
+        authUserRef.current = null;
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   const toggleMute = () => {
@@ -273,8 +288,22 @@ export function NotificationProvider({ shopId, tenantId, children }: ProviderPro
         }
       }
 
+      // Filter out duplicate historical QR notifications if their active pending counterparts are already in the list
+      const activeSessionIds = new Set((qrSessionNotifications || []).map(n => n.metadata?.sessionId).filter(Boolean));
+      const activeOrderIds = new Set((qrOrderNotifications || []).map(n => n.metadata?.orderId).filter(Boolean));
+
+      const filteredInApp = (inAppNotifications || []).filter((n) => {
+        if (n.type === 'qr_session' && n.metadata?.sessionId && activeSessionIds.has(n.metadata.sessionId)) {
+          return false; // Skip duplicate history item, active pending is already displayed
+        }
+        if (n.type === 'qr_order' && n.metadata?.orderId && activeOrderIds.has(n.metadata.orderId)) {
+          return false; // Skip duplicate history item, active pending is already displayed
+        }
+        return true;
+      });
+
       // Combine and sort by createdAt desc
-      const combined = [...qrSessionNotifications, ...qrOrderNotifications, ...inAppNotifications].sort(
+      const combined = [...qrSessionNotifications, ...qrOrderNotifications, ...filteredInApp].sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
       setNotifications(combined);
@@ -557,20 +586,12 @@ export function NotificationProvider({ shopId, tenantId, children }: ProviderPro
               }
 
               if (shouldAlert) {
-                // Play bell sound
-                playChimeRef.current();
+                const isQrEvent = data.type === 'qr_order' || data.type === 'qr_session';
 
-                // Show toast popup
-                toast.info(data.title, {
-                  description: data.content,
-                  duration: 8000,
-                  action: data.metadata?.path ? {
-                    label: 'Xem ngay',
-                    onClick: () => {
-                      window.location.href = data.metadata.path;
-                    }
-                  } : undefined
-                });
+                // Play bell chime sound for all operational in-app events (QR events have dedicated table listeners that chime & toast)
+                if (!isQrEvent) {
+                  playChimeRef.current();
+                }
 
                 // Pull latest notification list from the server
                 void fetchData();
@@ -604,16 +625,35 @@ export function NotificationProvider({ shopId, tenantId, children }: ProviderPro
           {
             event: 'INSERT',
             schema: 'public',
-            table: 'in_app_notifications',
-            filter: `tenant_id=eq.${tenantId}`
+            table: 'in_app_notifications'
           },
           (payload) => {
             const newNoti = payload.new as any;
             if (!newNoti) return;
 
-            // Enforce branch and recipient user scope checks on client
-            if (newNoti.branch_id && newNoti.branch_id !== shopId) return;
-            if (newNoti.recipient_id && newNoti.recipient_id !== authUserRef.current?.id) return;
+            // Detailed debug logs for realtime notification routing in development
+            console.log("[Notification Realtime DB Event] Received row:", {
+              id: newNoti.id,
+              tenant_id: newNoti.tenant_id,
+              branch_id: newNoti.branch_id,
+              recipient_id: newNoti.recipient_id,
+              recipient_role: newNoti.recipient_role,
+              currentUser: authUserRef.current?.id
+            });
+
+            // Enforce tenant, branch and recipient user scope checks on client
+            if (newNoti.tenant_id !== tenantId) {
+              console.log("[Notification Realtime DB Event] Filtered out: tenant mismatch");
+              return;
+            }
+            if (newNoti.branch_id && newNoti.branch_id !== shopId) {
+              console.log("[Notification Realtime DB Event] Filtered out: branch mismatch");
+              return;
+            }
+            if (newNoti.recipient_id && newNoti.recipient_id !== authUserRef.current?.id) {
+              console.log("[Notification Realtime DB Event] Filtered out: recipient mismatch");
+              return;
+            }
 
             const notiId = `in_app_${newNoti.id}`;
             let shouldAlert = false;
@@ -626,22 +666,14 @@ export function NotificationProvider({ shopId, tenantId, children }: ProviderPro
             }
 
             if (shouldAlert) {
-              // Play bell sound
-              playChimeRef.current();
+              const isQrEvent = newNoti.type === 'qr_order' || newNoti.type === 'qr_session';
 
-              // Show Toaster
-              toast.info(newNoti.title, {
-                description: newNoti.content,
-                duration: 8000,
-                action: newNoti.metadata?.path ? {
-                  label: 'Xem ngay',
-                  onClick: () => {
-                    window.location.href = newNoti.metadata.path;
-                  }
-                } : undefined
-              });
+              // Play bell chime sound for all operational in-app events (QR table events have dedicated table listeners that chime & toast)
+              if (!isQrEvent) {
+                playChimeRef.current();
+              }
 
-              // Pull latest notifications
+              // Pull latest notifications (quietly updates Noti Center)
               void fetchData();
             }
           }
