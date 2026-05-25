@@ -196,6 +196,15 @@ export async function POST(
         const po = await connector.findById('purchase-orders', purchase_order_id);
         if (!po) return NextResponse.json({ error: 'Đơn đặt hàng PO không tồn tại.' }, { status: 404 });
 
+        // Check if GRN already exists for this PO to prevent duplicate voucher creation
+        const existingGrns = await connector.list('goods-receipt-notes', {
+          limit: 1,
+          filters: { purchase_order_id: po.id }
+        });
+        if (existingGrns.data && existingGrns.data.length > 0) {
+          return NextResponse.json({ error: 'Đơn đặt hàng này đã được lập phiếu đối chiếu GRN từ trước.' }, { status: 400 });
+        }
+
         // 2. Tạo GRN Header
         const grnHeader = await connector.create('goods-receipt-notes', {
           purchase_order_id: po.id,

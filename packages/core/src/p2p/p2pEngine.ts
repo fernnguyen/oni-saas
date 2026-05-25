@@ -228,6 +228,8 @@ export class P2PEngine {
         employee_id: userId,
         reason: `Nhập kho đối chiếu theo chứng từ GRN #${grn.grn_no || grnId}`,
         workflow_status: 'COMPLETED',
+        payment_status: 'unpaid',
+        paid_amount: '0',
       };
       await connector.create('stock-movements', stockMovementData);
 
