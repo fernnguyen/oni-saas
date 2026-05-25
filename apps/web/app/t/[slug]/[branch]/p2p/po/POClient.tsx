@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useDebounce } from 'use-debounce';
@@ -10,8 +10,9 @@ import { EmptyState } from '@/app/components/ui/EmptyState';
 import { SearchBar } from '@/app/components/ui/SearchBar';
 import { TagBadge } from '@/app/components/ui/TagBadge';
 import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { CopyableId } from '@/app/components/ui/CopyableId';
+import { DocumentFlowMap } from '@/app/components/p2p/DocumentFlowMap';
 interface Props {
   shopId: string;
   shopName: string;
@@ -29,10 +30,68 @@ export function POClient({ shopId, userId }: Props) {
   const queryClient = useQueryClient();
   const pathname = usePathname();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialSearchId = searchParams.get('search');
+
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [debouncedSearch] = useDebounce(search, 300);
   const [statusFilter, setStatusFilter] = useState('ALL');
+
+  const [detailPo, setDetailPo] = useState<Record<string, string> | null>(null);
+  const [detailItems, setDetailItems] = useState<Record<string, string>[]>([]);
+  const [detailSlideOpen, setDetailSlideOpen] = useState(false);
+  const [loadingItems, setLoadingItems] = useState(false);
+
+  // Automatically fetch and open detail if a search ID is provided in URL query string without filtering the main table
+  useEffect(() => {
+    if (initialSearchId && initialSearchId.startsWith('PO-')) {
+      const fetchPoAndOpenDetail = async () => {
+        try {
+          const res = await fetch(`/api/shops/${shopId}/p2p?entity=purchase-orders&search=${initialSearchId}`);
+          if (res.ok) {
+            const json = await res.json();
+            const foundPo = json?.data?.find((r: any) => r.id === initialSearchId);
+            if (foundPo) {
+              openDetail(foundPo);
+            }
+          }
+        } catch (e) {
+          console.error('Error fetching initial PO from URL:', e);
+        }
+      };
+      fetchPoAndOpenDetail();
+    }
+  }, [initialSearchId, shopId]);
+
+  // Fetch related PR for this PO
+  const { data: relatedPrData } = useQuery({
+    queryKey: ['related-pr', shopId, detailPo?.requisition_id],
+    queryFn: async () => {
+      if (!detailPo?.requisition_id) return null;
+      const sp = new URLSearchParams({
+        entity: 'purchase-requisitions',
+        limit: '1',
+        filters: JSON.stringify({ id: detailPo.requisition_id }),
+      });
+      const res = await fetch(`/api/shops/${shopId}/p2p?${sp}`);
+      if (!res.ok) return null;
+      const json = await res.json();
+      return json.data?.[0] || null;
+    },
+    enabled: !!detailPo?.requisition_id && detailSlideOpen,
+  });
+
+  const handleFlowNavigate = (type: 'PR' | 'PO' | 'GRN', id: string) => {
+    if (type === 'PO') {
+      const found = data?.data?.find(r => r.id === id);
+      if (found) openDetail(found);
+    } else {
+      const targetPath = pathname.replace('/po', `/${type.toLowerCase()}`) + `?search=${id}`;
+      router.push(targetPath);
+      setDetailSlideOpen(false);
+    }
+  };
 
   // Fetch user details / role inside tenant
   const { data: permissionsData } = useQuery({
@@ -54,11 +113,6 @@ export function POClient({ shopId, userId }: Props) {
       ['admin', 'owner', 'purchaser', 'purchasing.manage', 'chief_accountant', 'settings.manage', 'warehouse.manage'].includes(p)
     ) || false;
   }, [permissionsData]);
-
-  const [detailPo, setDetailPo] = useState<Record<string, string> | null>(null);
-  const [detailItems, setDetailItems] = useState<Record<string, string>[]>([]);
-  const [detailSlideOpen, setDetailSlideOpen] = useState(false);
-  const [loadingItems, setLoadingItems] = useState(false);
 
   // Fetch existing GRNs for this PO to prevent duplicates
   const { data: existingGrnsData, isLoading: isLoadingGrns } = useQuery({
@@ -224,7 +278,7 @@ export function POClient({ shopId, userId }: Props) {
         </button>
       ),
     },
-  ], []);
+  ], [canViewPricing, openDetail]);
 
   return (
     <div className="space-y-4">
@@ -286,6 +340,7 @@ export function POClient({ shopId, userId }: Props) {
         open={detailSlideOpen}
         onClose={() => setDetailSlideOpen(false)}
         title={`Chi tiết Đơn PO #${detailPo?.id}`}
+        width={640}
         footer={
           <div className="flex justify-end gap-2 w-full">
             <button
@@ -462,6 +517,32 @@ export function POClient({ shopId, userId }: Props) {
                 ))}
               </div>
             )}
+          </div>
+
+          <div className="border-t border-slate-100 pt-4">
+            <DocumentFlowMap
+              currentType="PO"
+              pr={relatedPrData ? {
+                id: relatedPrData.id,
+                status: relatedPrData.status,
+                createdAt: relatedPrData.created_at,
+                creatorName: relatedPrData.creator_name,
+                amount: relatedPrData.estimated_total
+              } : null}
+              po={detailPo ? {
+                id: detailPo.id,
+                status: detailPo.status,
+                createdAt: detailPo.created_at,
+                supplierName: detailPo.supplier_name,
+                amount: detailPo.total_amount
+              } : null}
+              grn={existingGrnsData?.data && existingGrnsData.data.length > 0 ? {
+                id: existingGrnsData.data[0].id,
+                status: existingGrnsData.data[0].status,
+                createdAt: existingGrnsData.data[0].created_at
+              } : null}
+              onNavigate={handleFlowNavigate}
+            />
           </div>
         </div>
       </SlideOver>
