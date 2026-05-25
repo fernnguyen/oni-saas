@@ -67,7 +67,7 @@ function ProductSelect({
 
   if (value) {
     return (
-      <div className="flex items-center justify-between rounded-xl border border-blue-100 bg-blue-50/70 px-2 py-0.5 min-h-[38px]">
+      <div className="flex-1 min-w-0 flex items-center justify-between rounded-xl border border-blue-100 bg-blue-50/70 px-3 py-1.5 min-h-[38px]">
         <div className="truncate flex-1 min-w-0 pr-1.5">
           <div className="flex items-center gap-1 truncate">
             <p className="text-xs font-semibold text-slate-900 truncate leading-normal">{value.name}</p>
@@ -77,7 +77,7 @@ function ProductSelect({
         <button
           type="button"
           onClick={() => onChange({ product_id: '', name: '', sku: '' })}
-          className="text-slate-400 hover:text-red-500 px-0.5 text-[10px] shrink-0 font-bold"
+          className="text-slate-400 hover:text-red-500 px-0.5 text-[10px] shrink-0 font-bold ml-1.5"
         >
           ✕
         </button>
@@ -403,8 +403,12 @@ export function PRClient({ shopId, userId }: Props) {
       setNewSupplierName('');
       setNewSupplierPhone('');
       setNewSupplierAddress('');
+      setConfirmState(prev => ({ ...prev, open: false }));
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => {
+      toast.error(err.message);
+      setConfirmState(prev => ({ ...prev, open: false }));
+    },
   });
 
   // Handle viewing PR details
@@ -901,53 +905,6 @@ export function PRClient({ shopId, userId }: Props) {
               </>
             )}
 
-            {detailPr?.status === 'APPROVED' && (
-              <div className="w-full flex flex-col gap-2 border-t border-slate-100 pt-4 mt-2">
-                <label className="block text-sm font-semibold text-slate-700">Chọn Nhà Cung Cấp chính thức để đặt hàng *</label>
-                <div className="flex gap-2">
-                  <select
-                    value={selectedSupplierId}
-                    onChange={(e) => setSelectedSupplierId(e.target.value)}
-                    className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white shadow-sm"
-                  >
-                    <option value="">-- Chọn Nhà cung cấp --</option>
-                    {suppliersData?.data.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    onClick={() => {
-                      if (!selectedSupplierId) {
-                        toast.error('Vui lòng chọn một nhà cung cấp.');
-                        return;
-                      }
-                      const sup = suppliersData?.data.find((s) => s.id === selectedSupplierId);
-                      if (detailPr?.id && sup) {
-                        setConfirmState({
-                          open: true,
-                          title: 'Lập Đơn đặt hàng PO?',
-                          description: `Bạn có chắc chắn muốn lập đơn đặt hàng PO chính thức gửi tới nhà cung cấp "${sup.name}"?`,
-                          onConfirm: () => {
-                            convertToPOMutation.mutate({
-                              prId: detailPr.id,
-                              supplierId: sup.id,
-                              supplierName: sup.name,
-                            });
-                            setConfirmState(prev => ({ ...prev, open: false }));
-                          }
-                        });
-                      }
-                    }}
-                    disabled={convertToPOMutation.isPending}
-                    className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-dark shadow-sm transition-colors disabled:opacity-50"
-                  >
-                    Lập Đơn Đặt Hàng (PO)
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
         }
       >
@@ -1027,11 +984,18 @@ export function PRClient({ shopId, userId }: Props) {
                             </div>
                             <div className="flex items-center gap-2">
                               <input
-                                type="number"
-                                value={priceEdits[item.id] || ''}
-                                onChange={(e) => setPriceEdits((prev) => ({ ...prev, [item.id]: e.target.value }))}
+                                type="text"
+                                value={
+                                  priceEdits[item.id] && priceEdits[item.id] !== '0'
+                                    ? parseInt(priceEdits[item.id], 10).toLocaleString('vi-VN')
+                                    : priceEdits[item.id] === '0' ? '0' : ''
+                                }
+                                onChange={(e) => {
+                                  const rawVal = e.target.value.replace(/\D/g, '');
+                                  setPriceEdits((prev) => ({ ...prev, [item.id]: rawVal || '0' }));
+                                }}
                                 className="w-32 rounded-xl border border-slate-200 px-3 py-1.5 text-sm focus:border-primary focus:outline-none text-right"
-                                placeholder="Đơn giá"
+                                placeholder="0"
                               />
                               <span className="text-xs text-slate-400">đ</span>
                             </div>
@@ -1072,6 +1036,55 @@ export function PRClient({ shopId, userId }: Props) {
               </>
             )}
           </div>
+
+          {detailPr?.status === 'APPROVED' && (
+            <div className="rounded-xl bg-primary-50/50 p-4 border border-primary-100 mt-4 space-y-3">
+              <label className="block text-sm font-bold text-slate-800">
+                Chọn Nhà Cung Cấp chính thức để lập Đơn đặt hàng (PO) *
+              </label>
+              <div className="flex gap-2">
+                <select
+                  value={selectedSupplierId}
+                  onChange={(e) => setSelectedSupplierId(e.target.value)}
+                  className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white shadow-sm"
+                >
+                  <option value="">-- Chọn Nhà cung cấp --</option>
+                  {suppliersData?.data.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => {
+                    if (!selectedSupplierId) {
+                      toast.error('Vui lòng chọn một nhà cung cấp.');
+                      return;
+                    }
+                    const sup = suppliersData?.data.find((s) => s.id === selectedSupplierId);
+                    if (detailPr?.id && sup) {
+                      setConfirmState({
+                        open: true,
+                        title: 'Lập Đơn đặt hàng PO?',
+                        description: `Bạn có chắc chắn muốn lập đơn đặt hàng PO chính thức gửi tới nhà cung cấp "${sup.name}"?`,
+                        onConfirm: () => {
+                          convertToPOMutation.mutate({
+                            prId: detailPr.id,
+                            supplierId: sup.id,
+                            supplierName: sup.name,
+                            });
+                        }
+                      });
+                    }
+                  }}
+                  disabled={convertToPOMutation.isPending}
+                  className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-dark shadow-sm transition-colors disabled:opacity-50"
+                >
+                  Lập Đơn Đặt Hàng (PO)
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </SlideOver>
 
@@ -1094,7 +1107,6 @@ export function PRClient({ shopId, userId }: Props) {
                 phone: newSupplierPhone,
                 address: newSupplierAddress,
               });
-              setConfirmState(prev => ({ ...prev, open: false }));
             }
           });
         }}

@@ -10,7 +10,7 @@ import { EmptyState } from '@/app/components/ui/EmptyState';
 import { SearchBar } from '@/app/components/ui/SearchBar';
 import { TagBadge } from '@/app/components/ui/TagBadge';
 import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog';
-
+import { usePathname, useRouter } from 'next/navigation';
 interface Props {
   shopId: string;
   shopName: string;
@@ -26,6 +26,8 @@ const STATUS_OPTIONS = [
 
 export function POClient({ shopId, userId }: Props) {
   const queryClient = useQueryClient();
+  const pathname = usePathname();
+  const router = useRouter();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [debouncedSearch] = useDebounce(search, 300);
@@ -36,6 +38,23 @@ export function POClient({ shopId, userId }: Props) {
   const [detailItems, setDetailItems] = useState<Record<string, string>[]>([]);
   const [detailSlideOpen, setDetailSlideOpen] = useState(false);
   const [loadingItems, setLoadingItems] = useState(false);
+
+  // Fetch existing GRNs for this PO to prevent duplicates
+  const { data: existingGrnsData, isLoading: isLoadingGrns } = useQuery({
+    queryKey: ['existing-grns', shopId, detailPo?.id],
+    queryFn: async () => {
+      if (!detailPo?.id) return { data: [] };
+      const sp = new URLSearchParams({
+        entity: 'goods_receipt_notes',
+        limit: '10',
+        filters: JSON.stringify({ purchase_order_id: detailPo.id }),
+      });
+      const res = await fetch(`/api/shops/${shopId}/p2p?${sp}`);
+      if (!res.ok) return { data: [] };
+      return res.json() as Promise<{ data: Record<string, string>[] }>;
+    },
+    enabled: !!detailPo?.id && detailSlideOpen,
+  });
 
   // Confirm dialog state
   const [confirmState, setConfirmState] = useState<{
@@ -261,16 +280,48 @@ export function POClient({ shopId, userId }: Props) {
                     });
                   }
                 }}
-                disabled={createGRNMutation.isPending}
+                disabled={createGRNMutation.isPending || isLoadingGrns || (existingGrnsData?.data && existingGrnsData.data.length > 0)}
                 className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-dark shadow-sm transition-colors disabled:opacity-50"
               >
-                Lập phiếu Nhập kho đối chiếu (GRN)
+                {existingGrnsData?.data && existingGrnsData.data.length > 0 
+                  ? 'Đã lập phiếu đối chiếu GRN'
+                  : createGRNMutation.isPending 
+                    ? 'Đang lập phiếu...' 
+                    : 'Lập phiếu Nhập kho đối chiếu (GRN)'
+                }
               </button>
             )}
           </div>
         }
       >
         <div className="space-y-4">
+          {existingGrnsData?.data && existingGrnsData.data.length > 0 && (
+            <div className="rounded-xl bg-amber-50 p-4 border border-amber-200 text-sm text-amber-800 flex flex-col gap-1.5 shadow-sm">
+              <span className="font-bold flex items-center gap-1">
+                ⚠️ Đơn đặt hàng đã lập phiếu đối chiếu GRN
+              </span>
+              <span>
+                Đơn đặt hàng PO này đã được khởi tạo Phiếu nhập kho đối chiếu (GRN) từ trước:{' '}
+                <span className="font-mono font-bold text-amber-950 bg-amber-100 px-1.5 py-0.5 rounded">
+                  {existingGrnsData.data[0].id}
+                </span>
+                {' '}({
+                  existingGrnsData.data[0].status === 'COMPLETED' ? 'Đã hoàn tất nhập kho' : 'Bản nháp chờ đối chiếu'
+                }).
+              </span>
+              <button
+                onClick={() => {
+                  const grnRedirectPath = pathname.replace('/po', '/grn') + `?search=${existingGrnsData.data[0].id}`;
+                  router.push(grnRedirectPath);
+                  setDetailSlideOpen(false);
+                }}
+                className="mt-1 self-start text-xs text-primary font-bold hover:underline flex items-center gap-1"
+              >
+                Xem chi tiết phiếu GRN này →
+              </button>
+            </div>
+          )}
+
           <div className="rounded-xl bg-slate-50 p-4 border border-slate-100">
             <div className="grid grid-cols-2 gap-y-2 text-sm">
               <span className="text-slate-500">Nhà cung cấp:</span>
