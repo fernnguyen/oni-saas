@@ -11,7 +11,14 @@ export async function PUT(
 ) {
   try {
     const { shopId, id } = await params
-    const { connector } = await requireShopAccess(shopId, 'cashbook.manage')
+    const { connector, permissions } = await requireShopAccess(shopId)
+
+    if (!permissions.includes('cashbook.manage') && !permissions.includes('pos.use')) {
+      return NextResponse.json(
+        { error: 'Bạn không có quyền thực hiện tính năng này. Vui lòng liên hệ người quản trị.' },
+        { status: 403 }
+      )
+    }
 
     const body = await req.json()
     const payload = shiftCloseSchema.parse(body)

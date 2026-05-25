@@ -127,7 +127,8 @@ export function TableMapPOS({
     queryFn: async () => {
       const res = await fetch(`/api/shops/${shopId}/employees`)
       if (!res.ok) return []
-      return res.json() as Promise<Record<string, string>[]>
+      const json = await res.json()
+      return (Array.isArray(json) ? json : json.data || []) as Record<string, string>[]
     },
     enabled: !!shopId && isShiftEnabled,
   })
@@ -135,7 +136,8 @@ export function TableMapPOS({
   const otherOpenShifts = allOpenShiftsData?.data?.filter(s => s.user_id !== userEmail) || []
 
   const getEmployeeName = (email: string) => {
-    const emp = employeesData?.find((e: any) => e.email === email)
+    const list = Array.isArray(employeesData) ? employeesData : (employeesData as any)?.data || []
+    const emp = list.find((e: any) => e.email === email)
     return emp ? emp.name : email.split('@')[0]
   }
 
