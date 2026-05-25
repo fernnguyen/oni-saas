@@ -405,6 +405,20 @@ export function GRNClient({ shopId, userId, shopName }: Props) {
                 ) : '---'}
               </span>
 
+              <span className="text-slate-500">Cập nhật cuối:</span>
+              <span className="font-semibold text-slate-800">
+                {detailGrn?.updated_at ? (
+                  new Date(detailGrn.updated_at).toLocaleString('vi-VN', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric'
+                  })
+                ) : '---'}
+              </span>
+
               <span className="text-slate-500">Kế toán nhận:</span>
               <span className="font-semibold text-slate-800">{detailGrn?.receiver_name || detailGrn?.received_by || 'N/A'}</span>
 
