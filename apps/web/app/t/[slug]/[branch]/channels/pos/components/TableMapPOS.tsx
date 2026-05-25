@@ -112,6 +112,33 @@ export function TableMapPOS({
     enabled: !!shopId && !!branchId && !!userEmail && isShiftEnabled,
   })
 
+  const { data: allOpenShiftsData } = useQuery({
+    queryKey: ['all-open-shifts', shopId, branchId],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/shifts?status=open&branch_id=${branchId}`)
+      if (!res.ok) return { data: [] }
+      return res.json() as Promise<{ data: Record<string, string>[], total: number }>
+    },
+    enabled: !!shopId && !!branchId && isShiftEnabled,
+  })
+
+  const { data: employeesData } = useQuery({
+    queryKey: ['employees', shopId],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/employees`)
+      if (!res.ok) return []
+      return res.json() as Promise<Record<string, string>[]>
+    },
+    enabled: !!shopId && isShiftEnabled,
+  })
+
+  const otherOpenShifts = allOpenShiftsData?.data?.filter(s => s.user_id !== userEmail) || []
+
+  const getEmployeeName = (email: string) => {
+    const emp = employeesData?.find((e: any) => e.email === email)
+    return emp ? emp.name : email.split('@')[0]
+  }
+
   const activeShift = openShiftData?.data?.[0] || null
   const hasActiveShift = !!activeShift
 
@@ -631,6 +658,23 @@ export function TableMapPOS({
         </div>
       </div>
 
+      {isShiftEnabled && otherOpenShifts.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200/80 rounded-2xl px-4 py-2.5 flex items-center justify-between text-xs text-amber-800 animate-in slide-in-from-top duration-300 shadow-sm shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="flex h-2 w-2 relative shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+            </span>
+            <span>
+              🔔 <strong>Nhắc nhở:</strong> Nhân viên <strong className="font-bold text-amber-950">{getEmployeeName(otherOpenShifts[0].user_id)}</strong> ({otherOpenShifts[0].user_id}) đang có ca trùng hoạt động chưa chốt tại chi nhánh này (mở lúc {new Date(otherOpenShifts[0].opened_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}).
+            </span>
+          </div>
+          <span className="text-[10px] text-amber-600 font-medium hidden lg:inline">
+            Vui lòng chắc chắn các phiên làm việc và bàn giao két được đối soát độc lập, tránh chồng chéo dòng tiền!
+          </span>
+        </div>
+      )}
+
       {/* Zone selection filter tabs (F7 to select all) */}
       {sortedZones.length > 0 && (
         <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide select-none shrink-0">
@@ -969,6 +1013,23 @@ export function TableMapPOS({
               Hệ thống đang bật chế độ Quản lý ca. Nhân viên cần khai báo số tiền mặt hiện có trong két trước khi thanh toán hóa đơn.
             </p>
           </div>
+
+          {otherOpenShifts.length > 0 && (
+            <div className="bg-amber-50 border border-amber-200/60 rounded-xl p-3 text-xs text-amber-800 space-y-1 animate-in fade-in slide-in-from-top-1 duration-300">
+              <div className="flex items-center gap-1.5 font-bold text-amber-900">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-amber-600">
+                  <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+                </svg>
+                <span>Chú ý: Phát sinh ca trùng lặp!</span>
+              </div>
+              <p className="leading-relaxed">
+                Nhân viên <strong className="font-semibold text-amber-950">{getEmployeeName(otherOpenShifts[0].user_id)}</strong> ({otherOpenShifts[0].user_id}) hiện đang trong một ca làm việc chưa chốt tại chi nhánh này (mở từ {new Date(otherOpenShifts[0].opened_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}).
+              </p>
+              <p className="text-[10px] text-amber-600/90 italic pt-1 leading-normal border-t border-amber-200/40">
+                * Vui lòng nhắc nhở nhân viên trên thực hiện chốt ca bàn giao trước để đảm bảo tính tách bạch và tránh nhầm lẫn két tiền!
+              </p>
+            </div>
+          )}
 
           <div>
             <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Số tiền mặt đầu ca</label>
