@@ -24,8 +24,23 @@ const STATUS_OPTIONS = [
   { value: 'COMPLETED', label: 'Đã nhập kho' },
 ];
 
-export function GRNClient({ shopId }: Props) {
+export function GRNClient({ shopId, userId, shopName }: Props) {
   const queryClient = useQueryClient();
+
+  // Fetch user details / role inside tenant
+  const { data: permissionsData } = useQuery({
+    queryKey: ['user-permissions', shopId],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/settings`);
+      return res.json();
+    },
+  });
+
+  const hasGrnApprovePermission = useMemo(() => {
+    return permissionsData?.permissions?.some((p: string) =>
+      ['admin', 'owner', 'chief_accountant', 'warehouse.manage'].includes(p)
+    ) || false;
+  }, [permissionsData]);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [debouncedSearch] = useDebounce(search, 300);
@@ -266,7 +281,7 @@ export function GRNClient({ shopId }: Props) {
               Hủy / Đóng
             </button>
 
-            {detailGrn?.status === 'DRAFT' && (
+            {detailGrn?.status === 'DRAFT' && hasGrnApprovePermission && (
               <button
                 onClick={() => {
                   if (detailGrn?.id) {
