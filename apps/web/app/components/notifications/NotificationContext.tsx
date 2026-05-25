@@ -6,7 +6,18 @@ import { getSupabaseBrowserClient } from '@/lib/supabaseBrowser';
 
 export interface AppNotification {
   id: string;
-  type: 'qr_session' | 'qr_order' | 'low_stock' | 'system' | 'payment' | 'booking';
+  type: 
+    | 'qr_session' 
+    | 'qr_order' 
+    | 'low_stock' 
+    | 'system' 
+    | 'payment' 
+    | 'booking'
+    | 'system_broadcast' 
+    | 'order_expiring' 
+    | 'debt_alert' 
+    | 'return_approval' 
+    | 'purchase_approval';
   title: string;
   description: string;
   status: 'unread' | 'read' | 'archived';
@@ -20,6 +31,7 @@ export interface AppNotification {
     orderId?: string;
     productId?: string;
     itemCount?: number;
+    path?: string;
     [key: string]: any;
   };
 }
@@ -72,10 +84,11 @@ export function useNotificationCenter() {
 
 interface ProviderProps {
   shopId: string;
+  tenantId?: string; // Optional tenant ID for general operational notifications
   children: React.ReactNode;
 }
 
-export function NotificationProvider({ shopId, children }: ProviderProps) {
+export function NotificationProvider({ shopId, tenantId, children }: ProviderProps) {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [isMuted, setIsMuted] = useState(false);
   const [tables, setTables] = useState<Record<string, string>>({});
@@ -84,6 +97,9 @@ export function NotificationProvider({ shopId, children }: ProviderProps) {
   const [isQRDrawerOpen, setIsQRDrawerOpen] = useState(false);
   const [activeQRTab, setActiveQRTab] = useState<'sessions' | 'orders'>('sessions');
   const [highlightQRId, setHighlightQRId] = useState<string | null>(null);
+
+  // Authenticated user reference for scoping notifications
+  const authUserRef = useRef<any>(null);
 
   // Deduplication cache to prevent duplicate toasts for the same realtime event
   const toastedIdsRef = useRef<Set<string>>(new Set());
@@ -94,6 +110,17 @@ export function NotificationProvider({ shopId, children }: ProviderProps) {
       const muted = localStorage.getItem('global_notification_mute_sound') === 'true';
       setIsMuted(muted);
     }
+  }, []);
+
+  // Fetch and cache the currently authenticated user
+  useEffect(() => {
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase) return;
+    supabase.auth.getUser().then(({ data }) => {
+      if (data?.user) {
+        authUserRef.current = data.user;
+      }
+    });
   }, []);
 
   const toggleMute = () => {
@@ -170,7 +197,7 @@ export function NotificationProvider({ shopId, children }: ProviderProps) {
         setTables(tableMap);
       }
 
-      // 2. Fetch pending requests
+      // 2. Fetch pending requests (QR Orders)
       const reqRes = await fetch(`/api/shops/${shopId}/qr-orders?status=pending`);
       let qrOrderNotifications: AppNotification[] = [];
       if (reqRes.ok) {
@@ -198,7 +225,7 @@ export function NotificationProvider({ shopId, children }: ProviderProps) {
         });
       }
 
-      // 3. Fetch pending table sessions
+      // 3. Fetch pending table sessions (QR Sessions)
       const sessRes = await fetch(`/api/shops/${shopId}/qr-sessions?status=pending`);
       let qrSessionNotifications: AppNotification[] = [];
       if (sessRes.ok) {
@@ -223,15 +250,38 @@ export function NotificationProvider({ shopId, children }: ProviderProps) {
         });
       }
 
+      // 4. Fetch general in-app notifications if tenantId is provided
+      let inAppNotifications: AppNotification[] = [];
+      if (tenantId) {
+        const inAppRes = await fetch(`/api/notifications?tenantId=${tenantId}&shopId=${shopId}`);
+        if (inAppRes.ok) {
+          const inAppList = await inAppRes.json();
+          inAppNotifications = (inAppList || []).map((n: any) => ({
+            id: `in_app_${n.id}`,
+            type: n.type as any,
+            title: n.title,
+            description: n.content,
+            status: n.status,
+            priority: (n.metadata?.priority || 'medium') as any,
+            createdAt: n.created_at,
+            metadata: {
+              ...n.metadata,
+              branchId: n.branch_id,
+              tenantId: n.tenant_id,
+            }
+          }));
+        }
+      }
+
       // Combine and sort by createdAt desc
-      const combined = [...qrSessionNotifications, ...qrOrderNotifications].sort(
+      const combined = [...qrSessionNotifications, ...qrOrderNotifications, ...inAppNotifications].sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
       setNotifications(combined);
     } catch (err) {
       console.error('Failed to fetch global notifications metadata:', err);
     }
-  }, [shopId]);
+  }, [shopId, tenantId]);
 
   useEffect(() => {
     fetchData();
@@ -247,7 +297,7 @@ export function NotificationProvider({ shopId, children }: ProviderProps) {
     playChimeRef.current = playChime;
   }, [playChime]);
 
-  // Subscribe to Realtime notifications from Supabase
+  // Subscribe to Realtime QR notifications from Supabase (postgres_changes)
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return;
@@ -275,7 +325,6 @@ export function NotificationProvider({ shopId, children }: ProviderProps) {
             if (newReq && newReq.status === 'pending') {
               const notiId = `qr_order_${newReq.id}`;
               
-              // Prevent double notify using deduplication ref
               let shouldAlert = false;
               if (!toastedIdsRef.current.has(notiId)) {
                 toastedIdsRef.current.add(notiId);
@@ -285,7 +334,7 @@ export function NotificationProvider({ shopId, children }: ProviderProps) {
                 }, 10000);
               }
 
-              // 1. Update State (PURE transition)
+              // Update State
               setNotifications((prev) => {
                 if (prev.some((n) => n.id === notiId)) return prev;
                 
@@ -312,7 +361,6 @@ export function NotificationProvider({ shopId, children }: ProviderProps) {
                 return [newNoti, ...prev];
               });
 
-              // 2. Trigger Side Effects Outside setNotifications (guarantees exactly once execution)
               if (shouldAlert) {
                 const tableName = tablesRef.current[newReq.resource_id] || 'Bàn ăn ẩn danh';
                 const qty = Array.isArray(newReq.items) ? newReq.items.length : 0;
@@ -334,7 +382,6 @@ export function NotificationProvider({ shopId, children }: ProviderProps) {
             if (req) {
               const notiId = `qr_order_${req.id}`;
               if (req.status !== 'pending') {
-                // If no longer pending, remove from unread notifications list
                 setNotifications((prev) => prev.filter((n) => n.id !== notiId));
               } else {
                 setNotifications((prev) => {
@@ -385,7 +432,6 @@ export function NotificationProvider({ shopId, children }: ProviderProps) {
             if (sess && sess.status === 'pending' && sess.active === 'TRUE') {
               const notiId = `qr_session_${sess.id}`;
               
-              // Prevent double notify using deduplication ref
               let shouldAlert = false;
               if (!toastedIdsRef.current.has(notiId)) {
                 toastedIdsRef.current.add(notiId);
@@ -395,7 +441,7 @@ export function NotificationProvider({ shopId, children }: ProviderProps) {
                 }, 10000);
               }
 
-              // 1. Update State (PURE transition)
+              // Update State
               setNotifications((prev) => {
                 if (prev.some((n) => n.id === notiId)) return prev;
                 
@@ -419,7 +465,6 @@ export function NotificationProvider({ shopId, children }: ProviderProps) {
                 return [newNoti, ...prev];
               });
 
-              // 2. Trigger Side Effects Outside setNotifications (guarantees exactly once execution)
               if (shouldAlert) {
                 const tableName = tablesRef.current[sess.resource_id] || 'Bàn ăn ẩn danh';
                 
@@ -479,16 +524,173 @@ export function NotificationProvider({ shopId, children }: ProviderProps) {
     };
   }, [shopId]);
 
-  const markAsRead = (id: string) => {
+  // Subscribe to General operational in-app notifications
+  useEffect(() => {
+    if (!tenantId) return;
+
+    const provider = process.env.NEXT_PUBLIC_REALTIME_PROVIDER || 'supabase';
+
+    if (provider === 'socketio') {
+      // 1. Native WebSocket Connection (Lightweight self-hosted custom WS on /socket)
+      let ws: WebSocket | null = null;
+      try {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        // Connect directly to domain/socket (which Nginx reverse proxies to internal port 3001)
+        ws = new WebSocket(`${protocol}//${window.location.host}/socket?tenantId=${tenantId}`);
+
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data && data.tenantId === tenantId) {
+              // Apply scoping checks
+              if (data.branchId && data.branchId !== shopId) return;
+              if (data.recipientId && data.recipientId !== authUserRef.current?.id) return;
+
+              const notiId = `in_app_ws_${Date.now()}`;
+              let shouldAlert = false;
+              if (!toastedIdsRef.current.has(notiId)) {
+                toastedIdsRef.current.add(notiId);
+                shouldAlert = true;
+                setTimeout(() => {
+                  toastedIdsRef.current.delete(notiId);
+                }, 8000);
+              }
+
+              if (shouldAlert) {
+                // Play bell sound
+                playChimeRef.current();
+
+                // Show toast popup
+                toast.info(data.title, {
+                  description: data.content,
+                  duration: 8000,
+                  action: data.metadata?.path ? {
+                    label: 'Xem ngay',
+                    onClick: () => {
+                      window.location.href = data.metadata.path;
+                    }
+                  } : undefined
+                });
+
+                // Pull latest notification list from the server
+                void fetchData();
+              }
+            }
+          } catch (err) {
+            console.error('Failed to parse WS message:', err);
+          }
+        };
+
+        ws.onerror = (err) => {
+          console.error('WebSocket connection error:', err);
+        };
+      } catch (err) {
+        console.error('Failed to initialize WebSocket client:', err);
+      }
+
+      return () => {
+        if (ws) ws.close();
+      };
+    } else {
+      // 2. Supabase Cloud Realtime listener (Postgres changes)
+      const supabase = getSupabaseBrowserClient();
+      if (!supabase) return;
+
+      const channelName = `in-app-notifications-${tenantId}-${Math.random().toString(36).slice(2, 9)}`;
+      const channel = supabase
+        .channel(channelName)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'in_app_notifications',
+            filter: `tenant_id=eq.${tenantId}`
+          },
+          (payload) => {
+            const newNoti = payload.new as any;
+            if (!newNoti) return;
+
+            // Enforce branch and recipient user scope checks on client
+            if (newNoti.branch_id && newNoti.branch_id !== shopId) return;
+            if (newNoti.recipient_id && newNoti.recipient_id !== authUserRef.current?.id) return;
+
+            const notiId = `in_app_${newNoti.id}`;
+            let shouldAlert = false;
+            if (!toastedIdsRef.current.has(notiId)) {
+              toastedIdsRef.current.add(notiId);
+              shouldAlert = true;
+              setTimeout(() => {
+                toastedIdsRef.current.delete(notiId);
+              }, 10000);
+            }
+
+            if (shouldAlert) {
+              // Play bell sound
+              playChimeRef.current();
+
+              // Show Toaster
+              toast.info(newNoti.title, {
+                description: newNoti.content,
+                duration: 8000,
+                action: newNoti.metadata?.path ? {
+                  label: 'Xem ngay',
+                  onClick: () => {
+                    window.location.href = newNoti.metadata.path;
+                  }
+                } : undefined
+              });
+
+              // Pull latest notifications
+              void fetchData();
+            }
+          }
+        )
+        .subscribe();
+
+      return () => {
+        void supabase.removeChannel(channel);
+      };
+    }
+  }, [tenantId, shopId, fetchData]);
+
+  const markAsRead = async (id: string) => {
+    // 1. Optimistically update local React state
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, status: 'read' as const } : n))
     );
+
+    // 2. If it is a persistent in-app notification, save to Postgres reads
+    if (id.startsWith('in_app_')) {
+      try {
+        const rawId = id.replace('in_app_', '');
+        await fetch(`/api/notifications/${rawId}/read`, {
+          method: 'POST',
+        });
+      } catch (err) {
+        console.error('Failed to mark notification as read on database:', err);
+      }
+    }
   };
 
-  const markAllAsRead = () => {
+  const markAllAsRead = async () => {
+    // 1. Optimistically update local React state
     setNotifications((prev) =>
       prev.map((n) => ({ ...n, status: 'read' as const }))
     );
+
+    // 2. Save read-all status on Postgres
+    if (tenantId) {
+      try {
+        await fetch('/api/notifications/read-all', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tenantId, shopId }),
+        });
+      } catch (err) {
+        console.error('Failed to mark all notifications as read on database:', err);
+      }
+    }
   };
 
   // QR Drawer handlers
