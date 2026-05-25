@@ -36,6 +36,7 @@ interface DashboardShellProps {
   hidePlanBadge?: boolean;
   /** Industry type of the tenant for vertical-aware nav filtering */
   industryType?: string;
+  hasP2pAccess?: boolean;
 }
 
 export function DashboardShell({
@@ -66,6 +67,7 @@ export function DashboardShell({
   currentBranchAddress,
   hidePlanBadge,
   industryType,
+  hasP2pAccess,
 }: DashboardShellProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
@@ -134,6 +136,7 @@ export function DashboardShell({
               mobileOpen={mobileNavOpen}
               onMobileClose={() => setMobileNavOpen(false)}
               collapsed={collapsed}
+              hasP2pAccess={hasP2pAccess}
             />
             <main className="flex-1 min-w-0 p-4 md:p-6">
               {children}

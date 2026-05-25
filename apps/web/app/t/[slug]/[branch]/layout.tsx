@@ -4,6 +4,7 @@ import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
 import { getUserPermissions } from '@/lib/server/permissions';
 import { DashboardShell } from '@/app/components/layout/DashboardShell';
 import type { Metadata } from 'next';
+import { checkFeatureAccess } from '@/lib/server/features';
 import { NotificationProvider } from '@/app/components/notifications/NotificationContext';
 import QRNotificationCenter from './channels/pos/components/QRNotificationCenter';
 
@@ -152,10 +153,13 @@ export default async function BranchLayout({ params, children }: Props) {
     (authData.user.user_metadata?.full_name as string | undefined) ??
     '';
 
+  const hasP2pAccess = await checkFeatureAccess(tenant.id, 'warehouse_p2p');
+
   return (
     <NotificationProvider shopId={shop.id}>
       <DashboardShell
         tenantId={tenant.id}
+        hasP2pAccess={hasP2pAccess}
         tenantName={tenant.name}
         shopName={shop.name}
         userEmail={authData.user.email}
