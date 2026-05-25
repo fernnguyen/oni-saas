@@ -38,7 +38,14 @@ export async function POST(
 ) {
   try {
     const { shopId } = await params
-    const { connector, user } = await requireShopAccess(shopId, 'cashbook.manage')
+    const { connector, user, permissions } = await requireShopAccess(shopId)
+
+    if (!permissions.includes('cashbook.manage') && !permissions.includes('pos.use')) {
+      return NextResponse.json(
+        { error: 'Bạn không có quyền thực hiện tính năng này. Vui lòng liên hệ người quản trị.' },
+        { status: 403 }
+      )
+    }
 
     const body = await req.json()
     const payload = shiftOpenSchema.parse(body)

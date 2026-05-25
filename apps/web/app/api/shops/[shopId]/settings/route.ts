@@ -87,7 +87,16 @@ async function resolveAuth(req: NextRequest, shopId: string) {
 
   const tenant = await getTenantForUser(auth.user.id);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const tenantId = (tenant as any)?.id as string | undefined;
+  let tenantId = (tenant as any)?.id as string | undefined;
+  if (!tenantId) {
+    const admin = getSupabaseAdminClient();
+    const { data: shop } = await admin
+      .from('shops')
+      .select('tenant_id')
+      .eq('id', shopId)
+      .maybeSingle();
+    tenantId = shop?.tenant_id;
+  }
   if (!tenantId) return null;
 
   const permissions = await getUserPermissions(auth.user.id, tenantId, shopId);
