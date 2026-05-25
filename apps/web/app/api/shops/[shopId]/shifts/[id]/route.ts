@@ -30,8 +30,21 @@ export async function PUT(
       )
     }
 
-    const openedTime = new Date(shift.opened_at).getTime()
+    // Hàm chuẩn hóa thời gian: hỗ trợ chuỗi UTC (có Z hoặc múi giờ) và chuỗi GMT+7 không có Z (được sinh ra bởi getGMT7Time() của adapter)
+    const parseTime = (timeStr: string | Date | undefined): number => {
+      if (!timeStr) return 0
+      const str = typeof timeStr === 'string' ? timeStr : timeStr.toISOString()
+      if (str.includes('Z') || /[\+\-]\d{2}:?\d{2}$/.test(str)) {
+        return new Date(str).getTime()
+      }
+      const formatted = str.replace(' ', 'T')
+      return new Date(formatted + '+07:00').getTime()
+    }
+
+    const openedTime = parseTime(shift.opened_at)
     const closedTime = Date.now()
+
+    console.log(`[Shift Close] ID: ${id}, Branch: ${shift.branch_id}, Opened: ${shift.opened_at} (${new Date(openedTime).toISOString()}), Closed: ${new Date(closedTime).toISOString()}`)
 
     // 2. Tính toán chính xác expected_closing_cash & non_cash_revenue phát sinh trong ca
     // Quét cashbook (Nguồn dữ liệu duy nhất ghi nhận toàn bộ dòng tiền: bán hàng, hoàn tiền, thu chi khác)
@@ -40,9 +53,11 @@ export async function PUT(
       limit: 100000 // Lấy tối đa 100k dòng lịch sử
     })
     const cashbook = (cbRes.data as Record<string, string>[]).filter(cb => {
-      const t = new Date(cb.created_at || '').getTime()
+      const t = parseTime(cb.created_at)
       return t >= openedTime && t <= closedTime
     })
+
+    console.log(`[Shift Close] Total cashbook records in DB: ${cbRes.data.length}, Filtered in shift: ${cashbook.length}`)
 
     let cash_in = 0
     let cash_out = 0
@@ -52,31 +67,40 @@ export async function PUT(
 
     for (const cb of cashbook) {
       const amount = parseFloat(cb.amount || '0')
-      const method = cb.method || 'cash'
+      const rawMethod = (cb.method || 'cash').toLowerCase()
       const type = cb.type // 'receipt' | 'payment' | 'expense'
 
+      const isCash = rawMethod === 'cash'
+      const isBank = ['bank_transfer', 'bank', 'banking'].includes(rawMethod)
+      const isCard = ['card', 'card_pos', 'credit', 'debit'].includes(rawMethod)
+      const isMomo = ['momo', 'zalopay', 'vnpay', 'wallet', 'moca', 'shopeepay'].includes(rawMethod)
+
+      console.log(`[Shift Close] Cashbook item: ID=${cb.id || cb.transaction_id}, Type=${type}, Method=${rawMethod}, Amount=${amount}`)
+
       if (type === 'receipt') {
-        if (method === 'cash') {
+        if (isCash) {
           cash_in += amount
-        } else if (method === 'bank_transfer') {
+        } else if (isBank) {
           bank_transfer += amount
-        } else if (method === 'card') {
+        } else if (isCard) {
           card += amount
-        } else if (['momo', 'zalopay', 'vnpay', 'wallet'].includes(method)) {
+        } else if (isMomo) {
           momo += amount
         }
       } else if (type === 'payment' || type === 'expense') {
-        if (method === 'cash') {
+        if (isCash) {
           cash_out += amount
-        } else if (method === 'bank_transfer') {
+        } else if (isBank) {
           bank_transfer -= amount
-        } else if (method === 'card') {
+        } else if (isCard) {
           card -= amount
-        } else if (['momo', 'zalopay', 'vnpay', 'wallet'].includes(method)) {
+        } else if (isMomo) {
           momo -= amount
         }
       }
     }
+
+    console.log(`[Shift Close] Calculated Revenue: Cash In=${cash_in}, Cash Out=${cash_out}, Bank=${bank_transfer}, Card=${card}, Momo/Wallet=${momo}`)
 
     const openingCash = parseFloat(shift.opening_cash || '0')
     const expectedClosingCash = openingCash + cash_in - cash_out
