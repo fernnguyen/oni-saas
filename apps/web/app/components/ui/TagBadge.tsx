@@ -2,7 +2,7 @@
 
 import React from 'react'
 
-export type TagColor = 'green' | 'red' | 'blue' | 'yellow' | 'gray' | 'purple' | 'orange'
+export type TagColor = 'green' | 'red' | 'blue' | 'yellow' | 'gray' | 'purple' | 'orange' | 'indigo'
 
 export interface TagBadgeProps {
   label: string
@@ -18,6 +18,7 @@ const colorClasses: Record<TagColor, string> = {
   gray: 'bg-slate-100 text-slate-600',
   purple: 'bg-purple-100 text-purple-700',
   orange: 'bg-orange-100 text-orange-700',
+  indigo: 'bg-purple-100 text-purple-600',
 }
 
 const sizeClasses = {

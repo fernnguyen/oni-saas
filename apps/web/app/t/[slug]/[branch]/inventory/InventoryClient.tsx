@@ -14,6 +14,7 @@ import { TagBadge, TagColor } from '@/app/components/ui/TagBadge'
 import { PaymentStatusLabel, PaymentStatus } from '@/app/components/ui/PaymentStatusLabel'
 import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog'
 import { CopyableId } from '@/app/components/ui/CopyableId'
+import { usePermissions } from '@/app/components/ui/PermissionGate'
 import { localDb } from '@/lib/localDb/schema'
 import { hydrateAll } from '@/lib/localDb/hydration'
 
@@ -32,7 +33,7 @@ type Tab = 'stock' | 'history'
 
 const MOVEMENT_TYPES = [
   { value: 'purchase_in', label: 'Nhập hàng', color: 'blue' as TagColor, sign: '+', hint: 'Hàng về từ NCC → tăng tồn kho, cập nhật giá vốn' },
-  { value: 'p2p_purchase_in', label: 'Nhập hàng P2P', color: 'purple' as TagColor, sign: '+', hint: 'Hàng về từ NCC qua đối chiếu mua sắm P2P' },
+  { value: 'p2p_purchase_in', label: 'Nhập hàng P2P', color: 'indigo' as TagColor, sign: '+', hint: 'Hàng về từ NCC qua đối chiếu mua sắm P2P' },
   { value: 'sale_out', label: 'Bán hàng', color: 'green' as TagColor, sign: '-', hint: 'Xuất kho khi bán hàng' },
   { value: 'return_in', label: 'Hàng trả về', color: 'red' as TagColor, sign: '+', hint: 'Khách hoàn trả → tăng tồn kho' },
   { value: 'transfer_out', label: 'Xuất chuyển kho', color: 'orange' as TagColor, sign: '-', hint: 'Chuyển hàng sang chi nhánh khác' },
@@ -358,6 +359,7 @@ function CategorySelect({
 
 export function InventoryClient({ shopId, shopName }: Props) {
   const queryClient = useQueryClient()
+  const { hasPermission } = usePermissions()
 
   // Fetch user details / role inside tenant
   const { data: permissionsData } = useQuery({
@@ -369,10 +371,8 @@ export function InventoryClient({ shopId, shopName }: Props) {
   })
 
   const hasPricingPermission = useMemo(() => {
-    return permissionsData?.permissions?.some((p: string) =>
-      ['admin', 'owner', 'purchaser', 'purchasing.manage', 'chief_accountant'].includes(p)
-    ) || false
-  }, [permissionsData])
+    return hasPermission(['admin', 'owner', 'purchaser', 'purchasing.manage', 'chief_accountant', 'settings.manage'])
+  }, [hasPermission])
   const params = useParams()
   const pathname = usePathname()
   const [activeTab, setActiveTab] = useState<Tab>('history')
@@ -1228,7 +1228,7 @@ export function InventoryClient({ shopId, shopName }: Props) {
         </button>
       ),
     },
-  ], [productMap])
+  ], [productMap, hasPricingPermission])
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
