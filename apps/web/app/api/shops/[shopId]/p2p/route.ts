@@ -161,11 +161,11 @@ export async function POST(
         const data = body.data;
         if (!data) return NextResponse.json({ error: 'Missing row payload' }, { status: 400 });
 
-        const { note, items } = data;
+        const { note, items, status } = data;
 
         // 1. Tạo PR Header
         const prHeader = await connector.create('purchase-requisitions', {
-          status: 'DRAFT',
+          status: status || 'DRAFT',
           created_by: ctx.user.id,
           estimated_total: '0',
           note: note || '',

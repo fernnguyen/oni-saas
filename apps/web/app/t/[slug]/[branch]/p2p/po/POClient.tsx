@@ -11,6 +11,7 @@ import { SearchBar } from '@/app/components/ui/SearchBar';
 import { TagBadge } from '@/app/components/ui/TagBadge';
 import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog';
 import { usePathname, useRouter } from 'next/navigation';
+import { CopyableId } from '@/app/components/ui/CopyableId';
 interface Props {
   shopId: string;
   shopName: string;
@@ -148,7 +149,7 @@ export function POClient({ shopId, userId }: Props) {
   }
 
   const columns = useMemo<Column<Record<string, string>>[]>(() => [
-    { key: 'id', label: 'Mã PO', render: (row) => <span className="font-mono text-xs">{row.id}</span> },
+    { key: 'id', label: 'Mã PO', render: (row) => <CopyableId id={row.id} className="text-sm font-semibold text-slate-800" /> },
     { key: 'supplier_name', label: 'Nhà cung cấp', render: (row) => <span className="font-semibold text-slate-800">{row.supplier_name}</span> },
     {
       key: 'total_amount',
@@ -237,6 +238,7 @@ export function POClient({ shopId, userId }: Props) {
         columns={columns}
         data={data?.data ?? []}
         loading={isLoading}
+        onRowClick={(row) => openDetail(row)}
         pagination={{
           page,
           total: data?.total ?? 0,
@@ -300,11 +302,9 @@ export function POClient({ shopId, userId }: Props) {
               <span className="font-bold flex items-center gap-1">
                 ⚠️ Đơn đặt hàng đã lập phiếu đối chiếu GRN
               </span>
-              <span>
+              <span className="flex items-center gap-1.5 flex-wrap">
                 Đơn đặt hàng PO này đã được khởi tạo Phiếu nhập kho đối chiếu (GRN) từ trước:{' '}
-                <span className="font-mono font-bold text-amber-950 bg-amber-100 px-1.5 py-0.5 rounded">
-                  {existingGrnsData.data[0].id}
-                </span>
+                <CopyableId id={existingGrnsData.data[0].id} className="text-xs font-semibold text-amber-950 bg-amber-100 px-1.5 py-0.5 rounded" />
                 {' '}({
                   existingGrnsData.data[0].status === 'COMPLETED' ? 'Đã hoàn tất nhập kho' : 'Bản nháp chờ đối chiếu'
                 }).
@@ -324,6 +324,13 @@ export function POClient({ shopId, userId }: Props) {
 
           <div className="rounded-xl bg-slate-50 p-4 border border-slate-100">
             <div className="grid grid-cols-2 gap-y-2 text-sm">
+              <span className="text-slate-500">Mã đơn PO:</span>
+              <span className="font-semibold text-slate-800">
+                {detailPo?.id ? (
+                  <CopyableId id={detailPo.id} className="text-sm font-semibold text-slate-800" />
+                ) : '---'}
+              </span>
+
               <span className="text-slate-500">Nhà cung cấp:</span>
               <span className="font-semibold text-slate-800">{detailPo?.supplier_name}</span>
 
@@ -340,7 +347,26 @@ export function POClient({ shopId, userId }: Props) {
 
               <span className="text-slate-500">Trạng thái:</span>
               <span>
-                <TagBadge label={detailPo?.status || ''} color="yellow" />
+                <TagBadge
+                  label={
+                    detailPo?.status === 'APPROVED' 
+                      ? 'Chờ giao hàng' 
+                      : detailPo?.status === 'RECEIVED' 
+                        ? 'Đã hoàn tất' 
+                        : detailPo?.status === 'CANCELLED' 
+                          ? 'Đã hủy' 
+                          : detailPo?.status || ''
+                  }
+                  color={
+                    detailPo?.status === 'APPROVED' 
+                      ? 'yellow' 
+                      : detailPo?.status === 'RECEIVED' 
+                        ? 'green' 
+                        : detailPo?.status === 'CANCELLED' 
+                          ? 'red' 
+                          : 'gray'
+                  }
+                />
               </span>
             </div>
           </div>
