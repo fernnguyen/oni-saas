@@ -406,3 +406,85 @@ export const qr_order_requests = pgTable('qr_order_requests', {
   reject_reason: text('reject_reason'),
 });
 
+// ── Procure-to-Pay (P2P) Enterprise Add-on Tables ────────────────────────
+export const purchase_requisitions = pgTable('purchase_requisitions', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  requisition_no: varchar('requisition_no', { length: 255 }),
+  status: varchar('status', { length: 50 }), // DRAFT | PENDING_KTT | PENDING_GD | APPROVED | REJECTED | CONVERTED_TO_PO
+  created_by: varchar('created_by', { length: 255 }),
+  estimated_total: varchar('estimated_total', { length: 50 }),
+  note: text('note'),
+  branch_id: varchar('branch_id', { length: 255 }),
+});
+
+export const purchase_requisition_items = pgTable('purchase_requisition_items', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  requisition_id: varchar('requisition_id', { length: 255 }),
+  product_id: varchar('product_id', { length: 255 }),
+  product_name: varchar('product_name', { length: 255 }),
+  qty: varchar('qty', { length: 50 }),
+  estimated_unit_price: varchar('estimated_unit_price', { length: 50 }),
+  line_total: varchar('line_total', { length: 50 }),
+});
+
+export const purchase_orders = pgTable('purchase_orders', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  purchase_order_no: varchar('purchase_order_no', { length: 255 }),
+  requisition_id: varchar('requisition_id', { length: 255 }),
+  supplier_id: varchar('supplier_id', { length: 255 }),
+  supplier_name: varchar('supplier_name', { length: 255 }),
+  purchaser_id: varchar('purchaser_id', { length: 255 }),
+  total_amount: varchar('total_amount', { length: 50 }),
+  status: varchar('status', { length: 50 }), // DRAFT | PENDING_APPROVAL | APPROVED | REJECTED | PARTIALLY_RECEIVED | RECEIVED | CANCELLED
+  branch_id: varchar('branch_id', { length: 255 }),
+  note: text('note'),
+});
+
+export const purchase_order_items = pgTable('purchase_order_items', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  purchase_order_id: varchar('purchase_order_id', { length: 255 }),
+  product_id: varchar('product_id', { length: 255 }),
+  product_name: varchar('product_name', { length: 255 }),
+  qty: varchar('qty', { length: 50 }),
+  actual_unit_price: varchar('actual_unit_price', { length: 50 }),
+  line_total: varchar('line_total', { length: 50 }),
+});
+
+export const goods_receipt_notes = pgTable('goods_receipt_notes', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  grn_no: varchar('grn_no', { length: 255 }),
+  purchase_order_id: varchar('purchase_order_id', { length: 255 }),
+  received_by: varchar('received_by', { length: 255 }),
+  warehouse_id: varchar('warehouse_id', { length: 255 }),
+  status: varchar('status', { length: 50 }), // DRAFT | COMPLETED
+  branch_id: varchar('branch_id', { length: 255 }),
+  note: text('note'),
+});
+
+export const goods_receipt_note_items = pgTable('goods_receipt_note_items', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  grn_id: varchar('grn_id', { length: 255 }),
+  product_id: varchar('product_id', { length: 255 }),
+  product_name: varchar('product_name', { length: 255 }),
+  qty_ordered: varchar('qty_ordered', { length: 50 }),
+  qty_received: varchar('qty_received', { length: 50 }),
+  unit_cost: varchar('unit_cost', { length: 50 }),
+  line_total: varchar('line_total', { length: 50 }),
+});
+
+export const product_purchase_history = pgTable('product_purchase_history', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  product_id: varchar('product_id', { length: 255 }),
+  supplier_id: varchar('supplier_id', { length: 255 }),
+  supplier_name: varchar('supplier_name', { length: 255 }),
+  unit_price: varchar('unit_price', { length: 50 }),
+  purchased_at: varchar('purchased_at', { length: 50 }),
+});
+

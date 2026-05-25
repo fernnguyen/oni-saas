@@ -32,6 +32,13 @@ const ENTITY_PREFIXES: Record<string, string> = {
   'payment-funds':      'PF',
   'shop-shifts':        'SHF',
   'fund-audits':        'FA',
+  'purchase-requisitions':      'PR',
+  'purchase-requisition-items':  'PRI',
+  'purchase-orders':            'PO',
+  'purchase-order-items':       'POI',
+  'goods-receipt-notes':        'GRN',
+  'goods-receipt-note-items':   'GRI',
+  'product-purchase-history':   'PPH',
 }
 
 // Shared pool cache to avoid creating a new pool per request
@@ -95,6 +102,10 @@ export class PostgresConnector implements IDataConnector {
     'suppliers',
     'product-bom',
     'product-units',
+    'product-purchase-history',
+    'purchase-requisition-items',
+    'purchase-order-items',
+    'goods-receipt-note-items',
   ]
 
   private readonly LEGACY_ID_MAP: Record<string, string> = {
@@ -121,6 +132,13 @@ export class PostgresConnector implements IDataConnector {
     'payment-funds': 'fund_id',
     'shop-shifts': 'shift_id',
     'fund-audits': 'audit_id',
+    'purchase-requisitions':      'requisition_id',
+    'purchase-requisition-items':  'item_id',
+    'purchase-orders':            'purchase_order_id',
+    'purchase-order-items':       'item_id',
+    'goods-receipt-notes':        'grn_id',
+    'goods-receipt-note-items':   'item_id',
+    'product-purchase-history':   'history_id',
   }
 
   private async generateSequentialId(entity: string): Promise<string> {

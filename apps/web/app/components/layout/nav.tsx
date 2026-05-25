@@ -37,6 +37,8 @@ interface BuildNavOptions {
   context?: 'control' | 'shop' | 'super';
   /** Industry type of the tenant — controls which nav items are visible */
   industryType?: string;
+  /** Whether the advanced P2P warehouse add-on is unlocked for the tenant */
+  hasP2pAccess?: boolean;
 }
 
 /**
@@ -130,6 +132,16 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
         { href: joinPath(base, '/customers'), label: 'Khách hàng',   icon: IconUsers,     permission: 'customers.view' },
       ],
     },
+    ...(options.hasP2pAccess ? [
+      {
+        label: 'Mua sắm & Phê duyệt',
+        items: [
+          { href: joinPath(base, '/p2p/pr'), label: 'Đề xuất mua (PR)', icon: IconClipboard, permission: 'dashboard.view' },
+          { href: joinPath(base, '/p2p/po'), label: 'Đơn đặt hàng (PO)', icon: IconClipboard, permission: 'inventory.view' },
+          { href: joinPath(base, '/p2p/grn'), label: 'Nhập kho đối chiếu', icon: IconWarehouse, permission: 'inventory.view' },
+        ],
+      }
+    ] : []),
     {
       label: 'Danh mục',
       items: [
