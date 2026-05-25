@@ -48,13 +48,16 @@ export async function PUT(
 
     // 2. Tính toán chính xác expected_closing_cash & non_cash_revenue phát sinh trong ca
     // Quét cashbook (Nguồn dữ liệu duy nhất ghi nhận toàn bộ dòng tiền: bán hàng, hoàn tiền, thu chi khác)
+    // Chỉ tính toán các giao dịch do chính nhân viên chủ ca thực hiện (cb.employee_id === shift.user_id)
     const cbRes = await connector.list('cashbook', {
       filters: { branch_id: shift.branch_id },
       limit: 100000 // Lấy tối đa 100k dòng lịch sử
     })
     const cashbook = (cbRes.data as Record<string, string>[]).filter(cb => {
       const t = parseTime(cb.created_at)
-      return t >= openedTime && t <= closedTime
+      const isWithinTime = t >= openedTime && t <= closedTime
+      const isSameEmployee = cb.employee_id === shift.user_id
+      return isWithinTime && isSameEmployee
     })
 
     console.log(`[Shift Close] Total cashbook records in DB: ${cbRes.data.length}, Filtered in shift: ${cashbook.length}`)
