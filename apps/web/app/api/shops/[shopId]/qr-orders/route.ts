@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
 import { checkFeatureAccess } from '@/lib/server/features'
 import { requireShopAccess } from '@/lib/server/shopAccess'
+import { getConnectorForShop } from '@/lib/server/connectorFactory'
+import { NotificationDispatcher } from '@/lib/server/notificationDispatcher'
 import crypto from 'crypto'
 
 export async function GET(
@@ -134,6 +136,33 @@ export async function POST(
       .single()
 
     if (createError) throw createError
+
+    // Bắn thông báo gọi món QR mới
+    try {
+      const { data: shopInfo } = await admin
+        .from('shops')
+        .select('name, slug')
+        .eq('id', shopId)
+        .maybeSingle()
+
+      if (shopInfo) {
+        const connector = await getConnectorForShop(shopId, tenantId)
+        const table = await connector.findById('location-resources', session.resource_id)
+
+        await NotificationDispatcher.sendQrOrderCreated(tenantId, {
+          id: shopId,
+          name: shopInfo.name,
+          slug: shopInfo.slug
+        }, {
+          id: orderRequest.id,
+          resource_id: session.resource_id,
+          table_name: table?.name,
+          item_count: items.length
+        })
+      }
+    } catch (err) {
+      console.error('Failed to dispatch QR order notification:', err);
+    }
 
     return NextResponse.json(orderRequest, { status: 201 })
   } catch (e) {

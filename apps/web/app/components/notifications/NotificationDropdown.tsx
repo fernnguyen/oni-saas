@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useNotificationCenter, AppNotification } from './NotificationContext';
 
 interface Props {
@@ -10,6 +11,7 @@ interface Props {
 export function NotificationDropdown({ shopId }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'all' | 'qr' | 'other'>('all');
+  const router = useRouter();
   
   const {
     notifications,
@@ -36,11 +38,66 @@ export function NotificationDropdown({ shopId }: Props) {
     markAsRead(n.id);
     setIsOpen(false);
     
-    // Redirect to specialized global drawer depending on type
+    // Redirect or trigger action depending on the type
     if (n.type === 'qr_order') {
       openQRDrawer('orders', n.metadata?.orderId);
     } else if (n.type === 'qr_session') {
       openQRDrawer('sessions', n.metadata?.sessionId);
+    } else if (n.metadata?.path) {
+      // Direct navigation path
+      router.push(n.metadata.path);
+    }
+  };
+
+  // Maps the type to its corresponding visual markers (Premium Colors & Rich Emojis)
+  const getVisualsForType = (type: string) => {
+    switch (type) {
+      case 'qr_session':
+        return {
+          icon: '🚪',
+          classes: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400'
+        };
+      case 'qr_order':
+        return {
+          icon: '🛎️',
+          classes: 'bg-orange-50 dark:bg-orange-950/40 text-orange-600 dark:text-orange-400'
+        };
+      case 'order_expiring':
+        return {
+          icon: '⏳',
+          classes: 'bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400'
+        };
+      case 'debt_alert':
+        return {
+          icon: '💸',
+          classes: 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400'
+        };
+      case 'return_approval':
+        return {
+          icon: '🔄',
+          classes: 'bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400'
+        };
+      case 'purchase_approval':
+        return {
+          icon: '🛒',
+          classes: 'bg-cyan-50 dark:bg-cyan-950/40 text-cyan-600 dark:text-cyan-400'
+        };
+      case 'low_stock':
+        return {
+          icon: '⚠️',
+          classes: 'bg-yellow-50 dark:bg-yellow-950/40 text-yellow-600 dark:text-yellow-400'
+        };
+      case 'system_broadcast':
+      case 'system':
+        return {
+          icon: '📢',
+          classes: 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400'
+        };
+      default:
+        return {
+          icon: '🔔',
+          classes: 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400'
+        };
     }
   };
 
@@ -114,7 +171,7 @@ export function NotificationDropdown({ shopId }: Props) {
                 >
                   {isMuted ? (
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 text-red-500">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 9.75 19.5 12m0 0 2.25 2.25M19.5 12l2.25-2.25M19.5 12l-2.25 2.25m-10.5-6 4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 9.75 19.5 12m0 0 2.25 2.25M19.5 12l2.25-2.25M19.5 12l2.25-2.25M19.5 12l-2.25 2.25m-10.5-6 4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z" />
                     </svg>
                   ) : (
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 text-slate-400 dark:text-slate-500">
@@ -189,6 +246,7 @@ export function NotificationDropdown({ shopId }: Props) {
               ) : (
                 filteredNotifications.map((n) => {
                   const isUnread = n.status === 'unread';
+                  const visuals = getVisualsForType(n.type);
                   
                   return (
                     <div
@@ -203,14 +261,8 @@ export function NotificationDropdown({ shopId }: Props) {
                         {isUnread && (
                           <span className="w-1.5 h-1.5 bg-orange-500 rounded-full shrink-0" />
                         )}
-                        <span className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs shrink-0 font-bold ${
-                          n.type === 'qr_session'
-                            ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400'
-                            : n.type === 'qr_order'
-                            ? 'bg-orange-50 dark:bg-orange-950/40 text-orange-600 dark:text-orange-400'
-                            : 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400'
-                        }`}>
-                          {n.type === 'qr_session' ? '🚪' : n.type === 'qr_order' ? '🛎️' : '🔔'}
+                        <span className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs shrink-0 font-bold ${visuals.classes}`}>
+                          {visuals.icon}
                         </span>
                       </div>
 
@@ -227,8 +279,6 @@ export function NotificationDropdown({ shopId }: Props) {
                         <p className={`text-[10px] mt-1 leading-normal ${isUnread ? 'text-slate-600 dark:text-slate-300 font-medium' : 'text-slate-400 dark:text-slate-500'}`}>
                           {n.description}
                         </p>
-                        
-
                       </div>
                     </div>
                   );

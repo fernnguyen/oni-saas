@@ -9,6 +9,7 @@ import { getConnectorForShop } from '../../../../../lib/server/connectorFactory'
 import { checkFeatureAccess } from '../../../../../lib/server/features';
 import { invalidate } from '../../../../../lib/server/cache';
 import { P2PEngine, type PRAction } from '@oni/core';
+import { NotificationDispatcher } from '../../../../../lib/server/notificationDispatcher';
 
 export const dynamic = 'force-dynamic';
 
@@ -194,6 +195,28 @@ export async function POST(
           }
         }
 
+        // Bắn thông báo đề xuất mua sắm mới
+        if (prHeader.status !== 'DRAFT') {
+          try {
+            const admin = getSupabaseAdminClient();
+            const { data: shopInfo } = await admin
+              .from('shops')
+              .select('name, slug')
+              .eq('id', shopId)
+              .maybeSingle();
+
+            if (shopInfo) {
+              await NotificationDispatcher.sendPrCreated(
+                { tenantId: ctx.tenantId, userId: ctx.user.id },
+                { id: shopId, name: shopInfo.name, slug: shopInfo.slug },
+                prHeader as { id: string; status: string }
+              );
+            }
+          } catch (err) {
+            console.error('Failed to dispatch PR created notification:', err);
+          }
+        }
+
         return NextResponse.json(prHeader);
       }
 
@@ -253,6 +276,37 @@ export async function POST(
               line_total: String(lineTotal),
             });
           }
+        }
+
+        // Bắn thông báo tạo đối chiếu nhập kho GRN mới
+        try {
+          const admin = getSupabaseAdminClient();
+          const { data: shopInfo } = await admin
+            .from('shops')
+            .select('name, slug')
+            .eq('id', shopId)
+            .maybeSingle();
+
+          if (shopInfo) {
+            // Tìm thông tin người tạo PR ban đầu để báo đã lập đối chiếu nhập kho
+            let prCreatorId: string | undefined = undefined;
+            if (po.requisition_id) {
+              const pr = await connector.findById('purchase-requisitions', po.requisition_id);
+              if (pr && pr.created_by) {
+                prCreatorId = pr.created_by;
+              }
+            }
+
+            await NotificationDispatcher.sendGrnCreated(
+              { tenantId: ctx.tenantId, userId: ctx.user.id },
+              { id: shopId, name: shopInfo.name, slug: shopInfo.slug },
+              po as { id: string; purchaser_id: string },
+              grnHeader as { id: string },
+              prCreatorId
+            );
+          }
+        } catch (err) {
+          console.error('Failed to dispatch GRN created notification:', err);
         }
 
         return NextResponse.json(grnHeader);
@@ -334,6 +388,32 @@ export async function POST(
         }
 
         const updatedPr = await P2PEngine.transitionPR(connector, prId, prAction as PRAction, ctx.user.id, payload);
+
+        // Bắn thông báo chuyển đổi trạng thái PR
+        try {
+          const admin = getSupabaseAdminClient();
+          const { data: shopInfo } = await admin
+            .from('shops')
+            .select('name, slug')
+            .eq('id', shopId)
+            .maybeSingle();
+
+          if (shopInfo) {
+            // Đảm bảo lấy đầy đủ thông tin PR (bao gồm created_by) từ DB để tránh mất dữ liệu người tạo
+            const fullPr = await connector.findById('purchase-requisitions', updatedPr.id);
+            const prData = fullPr || updatedPr;
+
+            await NotificationDispatcher.sendPrTransition(
+              { tenantId: ctx.tenantId, userId: ctx.user.id },
+              { id: shopId, name: shopInfo.name, slug: shopInfo.slug },
+              prData as { id: string; created_by: string },
+              prAction as any
+            );
+          }
+        } catch (err) {
+          console.error('Failed to dispatch PR transition notification:', err);
+        }
+
         return NextResponse.json(updatedPr);
       }
 
@@ -343,7 +423,32 @@ export async function POST(
           return NextResponse.json({ error: 'Missing conversion params (prId, supplierId, supplierName)' }, { status: 400 });
         }
 
+        const pr = await connector.findById('purchase-requisitions', prId);
+        if (!pr) return NextResponse.json({ error: 'PR không tồn tại.' }, { status: 404 });
+
         const po = await P2PEngine.createPOFromPR(connector, prId, ctx.user.id, supplierId, supplierName);
+
+        // Bắn thông báo tạo đơn mua hàng PO thành công từ đề xuất PR
+        try {
+          const admin = getSupabaseAdminClient();
+          const { data: shopInfo } = await admin
+            .from('shops')
+            .select('name, slug')
+            .eq('id', shopId)
+            .maybeSingle();
+
+          if (shopInfo) {
+            await NotificationDispatcher.sendPoCreatedFromPr(
+              { tenantId: ctx.tenantId, userId: ctx.user.id },
+              { id: shopId, name: shopInfo.name, slug: shopInfo.slug },
+              pr as { id: string; created_by: string },
+              po as { id: string }
+            );
+          }
+        } catch (err) {
+          console.error('Failed to dispatch PO created notification:', err);
+        }
+
         return NextResponse.json(po);
       }
 
@@ -357,7 +462,47 @@ export async function POST(
           return NextResponse.json({ error: 'Bạn không có quyền Phê duyệt nhập kho đối chiếu.' }, { status: 403 });
         }
 
+        // Fetch GRN & PO to get details for notification before finalizing
+        const grn = await connector.findById('goods-receipt-notes', grnId);
+        if (!grn) return NextResponse.json({ error: 'Phiếu đối chiếu GRN không tồn tại.' }, { status: 404 });
+        
+        const po = grn.purchase_order_id ? await connector.findById('purchase-orders', grn.purchase_order_id) : null;
+
         const completedGrn = await P2PEngine.approveGRN(connector, grnId, ctx.user.id);
+
+        // Bắn thông báo phê duyệt nhập kho thành công
+        if (po) {
+          try {
+            const admin = getSupabaseAdminClient();
+            const { data: shopInfo } = await admin
+              .from('shops')
+              .select('name, slug')
+              .eq('id', shopId)
+              .maybeSingle();
+
+            if (shopInfo) {
+              // Tìm thông tin người tạo PR ban đầu để báo hàng đã về kho
+              let prCreatorId: string | undefined = undefined;
+              if (po.requisition_id) {
+                const pr = await connector.findById('purchase-requisitions', po.requisition_id);
+                if (pr && pr.created_by) {
+                  prCreatorId = pr.created_by;
+                }
+              }
+
+              await NotificationDispatcher.sendGrnApproved(
+                { tenantId: ctx.tenantId, userId: ctx.user.id },
+                { id: shopId, name: shopInfo.name, slug: shopInfo.slug },
+                po as { id: string; purchaser_id: string; supplier_name?: string },
+                { id: grnId },
+                prCreatorId
+              );
+            }
+          } catch (err) {
+            console.error('Failed to dispatch GRN approved notification:', err);
+          }
+        }
+
         return NextResponse.json(completedGrn);
       }
 

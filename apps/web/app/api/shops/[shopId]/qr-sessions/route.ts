@@ -4,6 +4,7 @@ import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
 import { checkFeatureAccess } from '@/lib/server/features'
 import { getConnectorForShop } from '@/lib/server/connectorFactory'
 import { requireShopAccess } from '@/lib/server/shopAccess'
+import { NotificationDispatcher } from '@/lib/server/notificationDispatcher'
 import crypto from 'crypto'
 
 export async function GET(
@@ -165,7 +166,7 @@ export async function POST(
     // 1. Get tenant_id and verify shop existence
     const { data: shop, error: shopError } = await admin
       .from('shops')
-      .select('tenant_id')
+      .select('tenant_id, name, slug')
       .eq('id', shopId)
       .single()
 
@@ -297,6 +298,21 @@ export async function POST(
       .single()
 
     if (createError) throw createError
+
+    // Bắn thông báo QR session mới
+    try {
+      await NotificationDispatcher.sendQrSessionCreated(tenantId, {
+        id: shopId,
+        name: shop.name,
+        slug: shop.slug
+      }, {
+        id: pendingSession.id,
+        resource_id,
+        table_name: table?.name
+      });
+    } catch (err) {
+      console.error('Failed to dispatch QR session notification:', err);
+    }
 
     return NextResponse.json({ session: pendingSession, table })
   } catch (e) {
