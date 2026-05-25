@@ -67,7 +67,7 @@ export async function GET(
     const search = sp.get('search') || undefined;
     const limit = parseInt(sp.get('limit') || '50', 10);
     const page = parseInt(sp.get('page') || '1', 10);
-    const sortDesc = sp.get('sortDesc') === 'true';
+    const sortDesc = sp.get('sortDesc') !== 'false';
 
     let filters: Record<string, string> = {};
     const filtersRaw = sp.get('filters');

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useDebounce } from 'use-debounce';
@@ -11,6 +11,7 @@ import { SearchBar } from '@/app/components/ui/SearchBar';
 import { TagBadge } from '@/app/components/ui/TagBadge';
 import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog';
 import { CopyableId } from '@/app/components/ui/CopyableId';
+import { useSearchParams } from 'next/navigation';
 
 interface Props {
   shopId: string;
@@ -26,6 +27,8 @@ const STATUS_OPTIONS = [
 
 export function GRNClient({ shopId, userId, shopName }: Props) {
   const queryClient = useQueryClient();
+  const searchParams = useSearchParams();
+  const initialSearchId = searchParams.get('search');
 
   // Fetch user details / role inside tenant
   const { data: permissionsData } = useQuery({
@@ -167,6 +170,27 @@ export function GRNClient({ shopId, userId, shopName }: Props) {
       setLoadingItems(false);
     }
   }
+
+  // Automatically fetch and open detail if a search ID is provided in URL query string without filtering the main table
+  useEffect(() => {
+    if (initialSearchId && initialSearchId.startsWith('GRN-')) {
+      const fetchGrnAndOpenDetail = async () => {
+        try {
+          const res = await fetch(`/api/shops/${shopId}/p2p?entity=goods-receipt-notes&search=${initialSearchId}`);
+          if (res.ok) {
+            const json = await res.json();
+            const foundGrn = json?.data?.find((r: any) => r.id === initialSearchId);
+            if (foundGrn) {
+              openDetail(foundGrn);
+            }
+          }
+        } catch (e) {
+          console.error('Error fetching initial GRN from URL:', e);
+        }
+      };
+      fetchGrnAndOpenDetail();
+    }
+  }, [initialSearchId, shopId]);
 
   const columns = useMemo<Column<Record<string, string>>[]>(() => [
     { key: 'id', label: 'Mã Phiếu', render: (row) => <CopyableId id={row.id} className="text-sm font-semibold text-slate-800" /> },
@@ -311,6 +335,20 @@ export function GRNClient({ shopId, userId, shopName }: Props) {
               <span className="font-semibold text-slate-800">
                 {detailGrn?.id ? (
                   <CopyableId id={detailGrn.id} className="text-sm font-semibold text-slate-800" />
+                ) : '---'}
+              </span>
+
+              <span className="text-slate-500">Ngày tạo:</span>
+              <span className="font-semibold text-slate-800">
+                {detailGrn?.created_at ? (
+                  new Date(detailGrn.created_at).toLocaleString('vi-VN', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric'
+                  })
                 ) : '---'}
               </span>
 
