@@ -75,6 +75,14 @@ export async function GET(
       try { filters = JSON.parse(filtersRaw); } catch {}
     }
 
+    // Enforce role-based data filtering: non-management/non-purchasing users should only see their own PRs
+    const isPurchasingOrAdmin = ctx.permissions.some(p =>
+      ['admin', 'owner', 'purchaser', 'purchasing.manage', 'chief_accountant'].includes(p)
+    );
+    if (!isPurchasingOrAdmin && entity === 'purchase-requisitions') {
+      filters.created_by = ctx.user.id;
+    }
+
     // 1. Run Feature Gating check and the extremely fast local PG queries IN PARALLEL!
     // This shaves off 330ms+ of sequential cloud latency on every listing request.
     const [hasAddon, result] = await Promise.all([

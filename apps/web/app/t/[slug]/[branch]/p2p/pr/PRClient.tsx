@@ -249,6 +249,24 @@ export function PRClient({ shopId, userId }: Props) {
     },
   });
 
+  const hasPricingPermission = useMemo(() => {
+    return permissionsData?.permissions?.some((p: string) =>
+      ['admin', 'owner', 'purchaser', 'purchasing.manage'].includes(p)
+    ) || false;
+  }, [permissionsData]);
+
+  const hasKttPermission = useMemo(() => {
+    return permissionsData?.permissions?.some((p: string) =>
+      ['admin', 'owner', 'chief_accountant'].includes(p)
+    ) || false;
+  }, [permissionsData]);
+
+  const hasGdPermission = useMemo(() => {
+    return permissionsData?.permissions?.some((p: string) =>
+      ['admin', 'owner'].includes(p)
+    ) || false;
+  }, [permissionsData]);
+
   // Actions Mutations
   const createPRMutation = useMutation({
     mutationFn: async (payload: { note: string; items: PRItem[]; status?: string }) => {
@@ -823,7 +841,7 @@ export function PRClient({ shopId, userId }: Props) {
               </button>
             )}
 
-            {detailPr?.status === 'PENDING_PRICING' && (
+            {detailPr?.status === 'PENDING_PRICING' && hasPricingPermission && (
               <>
                 <button
                   onClick={() => {
@@ -865,7 +883,7 @@ export function PRClient({ shopId, userId }: Props) {
               </>
             )}
 
-            {detailPr?.status === 'PENDING_KTT' && (
+            {detailPr?.status === 'PENDING_KTT' && hasKttPermission && (
               <>
                 <button
                   onClick={() => {
@@ -900,7 +918,7 @@ export function PRClient({ shopId, userId }: Props) {
               </>
             )}
 
-            {detailPr?.status === 'PENDING_GD' && (
+            {detailPr?.status === 'PENDING_GD' && hasGdPermission && (
               <>
                 <button
                   onClick={() => {
@@ -1021,7 +1039,7 @@ export function PRClient({ shopId, userId }: Props) {
             ) : (
               <>
                 {/* If state is PENDING_PRICING, we allow writing prices & choosing a Supplier */}
-                {detailPr?.status === 'PENDING_PRICING' ? (
+                {detailPr?.status === 'PENDING_PRICING' && hasPricingPermission ? (
                   <div className="space-y-4">
                     <div className="rounded-xl border border-slate-200 p-3 bg-slate-50 space-y-2">
                       <div className="flex justify-between items-center">
@@ -1112,7 +1130,7 @@ export function PRClient({ shopId, userId }: Props) {
             )}
           </div>
 
-          {detailPr?.status === 'APPROVED' && (
+          {detailPr?.status === 'APPROVED' && hasPricingPermission && (
             <div className="rounded-xl bg-primary-50/50 p-4 border border-primary-100 mt-4 space-y-3">
               <label className="block text-sm font-bold text-slate-800">
                 Chọn Nhà Cung Cấp chính thức để lập Đơn đặt hàng (PO) *
