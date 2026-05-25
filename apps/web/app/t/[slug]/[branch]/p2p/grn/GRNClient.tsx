@@ -11,7 +11,8 @@ import { SearchBar } from '@/app/components/ui/SearchBar';
 import { TagBadge } from '@/app/components/ui/TagBadge';
 import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog';
 import { CopyableId } from '@/app/components/ui/CopyableId';
-import { useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { DocumentFlowMap } from '@/app/components/p2p/DocumentFlowMap';
 
 interface Props {
   shopId: string;
@@ -27,6 +28,8 @@ const STATUS_OPTIONS = [
 
 export function GRNClient({ shopId, userId, shopName }: Props) {
   const queryClient = useQueryClient();
+  const pathname = usePathname();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const initialSearchId = searchParams.get('search');
 
@@ -49,12 +52,58 @@ export function GRNClient({ shopId, userId, shopName }: Props) {
   const [debouncedSearch] = useDebounce(search, 300);
   const [statusFilter, setStatusFilter] = useState('ALL');
 
-  // Detail / Verification state
   const [detailGrn, setDetailGrn] = useState<Record<string, string> | null>(null);
   const [detailItems, setDetailItems] = useState<Record<string, string>[]>([]);
   const [receivedEdits, setReceivedEdits] = useState<Record<string, string>>({}); // itemId -> qty_received
   const [slideOpen, setSlideOpen] = useState(false);
   const [loadingItems, setLoadingItems] = useState(false);
+
+  // Fetch related PO for this GRN
+  const { data: relatedPoData } = useQuery({
+    queryKey: ['related-po-for-grn', shopId, detailGrn?.purchase_order_id],
+    queryFn: async () => {
+      if (!detailGrn?.purchase_order_id) return null;
+      const sp = new URLSearchParams({
+        entity: 'purchase-orders',
+        limit: '1',
+        filters: JSON.stringify({ id: detailGrn.purchase_order_id }),
+      });
+      const res = await fetch(`/api/shops/${shopId}/p2p?${sp}`);
+      if (!res.ok) return null;
+      const json = await res.json();
+      return json.data?.[0] || null;
+    },
+    enabled: !!detailGrn?.purchase_order_id && slideOpen,
+  });
+
+  // Fetch related PR for the related PO
+  const { data: relatedPrData } = useQuery({
+    queryKey: ['related-pr-for-grn-po', shopId, relatedPoData?.requisition_id],
+    queryFn: async () => {
+      if (!relatedPoData?.requisition_id) return null;
+      const sp = new URLSearchParams({
+        entity: 'purchase-requisitions',
+        limit: '1',
+        filters: JSON.stringify({ id: relatedPoData.requisition_id }),
+      });
+      const res = await fetch(`/api/shops/${shopId}/p2p?${sp}`);
+      if (!res.ok) return null;
+      const json = await res.json();
+      return json.data?.[0] || null;
+    },
+    enabled: !!relatedPoData?.requisition_id && slideOpen,
+  });
+
+  const handleFlowNavigate = (type: 'PR' | 'PO' | 'GRN', id: string) => {
+    if (type === 'GRN') {
+      const found = data?.data?.find(r => r.id === id);
+      if (found) openDetail(found);
+    } else {
+      const targetPath = pathname.replace('/grn', `/${type.toLowerCase()}`) + `?search=${id}`;
+      router.push(targetPath);
+      setSlideOpen(false);
+    }
+  };
 
   // Confirm dialog state
   const [confirmState, setConfirmState] = useState<{
@@ -136,6 +185,8 @@ export function GRNClient({ shopId, userId, shopName }: Props) {
       setSlideOpen(false);
       setConfirmState(prev => ({ ...prev, open: false }));
       queryClient.invalidateQueries({ queryKey: ['goods-receipt-notes', shopId] });
+      queryClient.invalidateQueries({ queryKey: ['purchase-orders', shopId] });
+      queryClient.invalidateQueries({ queryKey: ['related-po-for-grn', shopId] });
     },
     onError: (err) => {
       toast.error(err.message);
@@ -296,13 +347,14 @@ export function GRNClient({ shopId, userId, shopName }: Props) {
         open={slideOpen}
         onClose={() => setSlideOpen(false)}
         title={detailGrn?.status === 'DRAFT' ? 'Đối chiếu số lượng Nhập kho (3-Way Match)' : `Chi tiết Phiếu GRN #${detailGrn?.id}`}
+        width={640}
         footer={
           <div className="flex justify-end gap-2 w-full">
             <button
               onClick={() => setSlideOpen(false)}
               className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 transition-colors"
             >
-              Hủy / Đóng
+              Đóng
             </button>
 
             {detailGrn?.status === 'DRAFT' && hasGrnApprovePermission && (
@@ -322,13 +374,14 @@ export function GRNClient({ shopId, userId, shopName }: Props) {
                 disabled={approveGRNMutation.isPending}
                 className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-dark shadow-sm transition-colors disabled:opacity-50"
               >
-                Duyệt Hoàn Tất Nhập Kho
+                Xác nhận nhập kho
               </button>
             )}
           </div>
         }
       >
         <div className="space-y-5">
+
           <div className="rounded-xl bg-slate-50 p-4 border border-slate-100 text-sm">
             <div className="grid grid-cols-2 gap-y-2">
               <span className="text-slate-500">Mã phiếu GRN:</span>
@@ -436,6 +489,32 @@ export function GRNClient({ shopId, userId, shopName }: Props) {
               })}
             </div>
           )}
+
+          <div className="border-t border-slate-100 pt-4">
+            <DocumentFlowMap
+              currentType="GRN"
+              pr={relatedPrData ? {
+                id: relatedPrData.id,
+                status: relatedPrData.status,
+                createdAt: relatedPrData.created_at,
+                creatorName: relatedPrData.creator_name,
+                amount: relatedPrData.estimated_total
+              } : null}
+              po={relatedPoData ? {
+                id: relatedPoData.id,
+                status: relatedPoData.status,
+                createdAt: relatedPoData.created_at,
+                supplierName: relatedPoData.supplier_name,
+                amount: relatedPoData.total_amount
+              } : null}
+              grn={detailGrn ? {
+                id: detailGrn.id,
+                status: detailGrn.status,
+                createdAt: detailGrn.created_at
+              } : null}
+              onNavigate={handleFlowNavigate}
+            />
+          </div>
         </div>
       </SlideOver>
 

@@ -11,6 +11,8 @@ import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog';
 import { SearchBar } from '@/app/components/ui/SearchBar';
 import { TagBadge } from '@/app/components/ui/TagBadge';
 import { CopyableId } from '@/app/components/ui/CopyableId';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { DocumentFlowMap } from '@/app/components/p2p/DocumentFlowMap';
 
 interface Props {
   shopId: string;
@@ -149,6 +151,11 @@ const STATUS_OPTIONS = [
 
 export function PRClient({ shopId, userId }: Props) {
   const queryClient = useQueryClient();
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialSearchId = searchParams.get('search');
+
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [debouncedSearch] = useDebounce(search, 300);
@@ -166,6 +173,74 @@ export function PRClient({ shopId, userId }: Props) {
   const [detailItems, setDetailItems] = useState<Record<string, string>[]>([]);
   const [detailSlideOpen, setDetailSlideOpen] = useState(false);
   const [loadingItems, setLoadingItems] = useState(false);
+
+  // Automatically fetch and open detail if a search ID is provided in URL query string without filtering the main table
+  useEffect(() => {
+    if (initialSearchId && initialSearchId.startsWith('PR-')) {
+      const fetchPrAndOpenDetail = async () => {
+        try {
+          const res = await fetch(`/api/shops/${shopId}/p2p?entity=purchase-requisitions&search=${initialSearchId}`);
+          if (res.ok) {
+            const json = await res.json();
+            const foundPr = json?.data?.find((r: any) => r.id === initialSearchId);
+            if (foundPr) {
+              openDetail(foundPr);
+            }
+          }
+        } catch (e) {
+          console.error('Error fetching initial PR from URL:', e);
+        }
+      };
+      fetchPrAndOpenDetail();
+    }
+  }, [initialSearchId, shopId]);
+
+  // Fetch related PO for this PR
+  const { data: relatedPoData } = useQuery({
+    queryKey: ['related-po', shopId, detailPr?.id],
+    queryFn: async () => {
+      if (!detailPr?.id) return null;
+      const sp = new URLSearchParams({
+        entity: 'purchase-orders',
+        limit: '1',
+        filters: JSON.stringify({ requisition_id: detailPr.id }),
+      });
+      const res = await fetch(`/api/shops/${shopId}/p2p?${sp}`);
+      if (!res.ok) return null;
+      const json = await res.json();
+      return json.data?.[0] || null;
+    },
+    enabled: !!detailPr?.id && detailSlideOpen,
+  });
+
+  // Fetch related GRN for the related PO
+  const { data: relatedGrnData } = useQuery({
+    queryKey: ['related-grn-for-po', shopId, relatedPoData?.id],
+    queryFn: async () => {
+      if (!relatedPoData?.id) return null;
+      const sp = new URLSearchParams({
+        entity: 'goods-receipt-notes',
+        limit: '1',
+        filters: JSON.stringify({ purchase_order_id: relatedPoData.id }),
+      });
+      const res = await fetch(`/api/shops/${shopId}/p2p?${sp}`);
+      if (!res.ok) return null;
+      const json = await res.json();
+      return json.data?.[0] || null;
+    },
+    enabled: !!relatedPoData?.id && detailSlideOpen,
+  });
+
+  const handleFlowNavigate = (type: 'PR' | 'PO' | 'GRN', id: string) => {
+    if (type === 'PR') {
+      const found = data?.data?.find(r => r.id === id);
+      if (found) openDetail(found);
+    } else {
+      const targetPath = pathname.replace('/pr', `/${type.toLowerCase()}`) + `?search=${id}`;
+      router.push(targetPath);
+      setDetailSlideOpen(false);
+    }
+  };
 
   // Price assignment form
   const [priceEdits, setPriceEdits] = useState<Record<string, string>>({}); // itemId -> estimated_unit_price
@@ -371,6 +446,7 @@ export function PRClient({ shopId, userId }: Props) {
       setDetailSlideOpen(false);
       setConfirmState(prev => ({ ...prev, open: false }));
       queryClient.invalidateQueries({ queryKey: ['purchase-requisitions', shopId] });
+      queryClient.invalidateQueries({ queryKey: ['purchase-orders', shopId] });
     },
     onError: (err) => {
       toast.error(err.message);
@@ -510,7 +586,7 @@ export function PRClient({ shopId, userId }: Props) {
       key: 'creator_name',
       label: 'Người đề xuất',
       render: (row) => (
-        <span className="text-xs font-semibold text-slate-700">
+        <span className="text-sm font-semibold text-slate-700">
           {row.creator_name || row.created_by || '---'}
         </span>
       ),
@@ -585,7 +661,7 @@ export function PRClient({ shopId, userId }: Props) {
         </button>
       ),
     },
-  ], []);
+  ], [canViewPricing, openDetail]);
 
   // Extract rejection reason from the note field if present
   const parsedNote = useMemo(() => {
@@ -677,7 +753,8 @@ export function PRClient({ shopId, userId }: Props) {
       <SlideOver
         open={slideOpen}
         onClose={() => setSlideOpen(false)}
-        title="Lập Yêu Cầu Mua Sắm (PR)"
+        title="Lập yêu cầu mua sắm (PR)"
+        width={640}
         footer={
           <div className="flex justify-end gap-2 w-full flex-wrap">
             <button
@@ -791,6 +868,7 @@ export function PRClient({ shopId, userId }: Props) {
         open={detailSlideOpen}
         onClose={() => setDetailSlideOpen(false)}
         title={`Chi tiết Đề xuất PR #${detailPr?.id}`}
+        width={640}
         footer={
           <div className="flex justify-end gap-2 w-full flex-wrap">
             <button
@@ -808,7 +886,7 @@ export function PRClient({ shopId, userId }: Props) {
                     setConfirmState({
                       open: true,
                       title: 'Xóa đề xuất mua sắm?',
-                      description: 'Bạn có chắc chắn muốn xóa vĩnh viễn phiếu đề xuất PR bản nháp này? Hành động này không thể hoàn tác.',
+                      description: 'Bạn có chắc chắn muốn xóa vĩnh viễn phiếu đề xuất PR (bản nháp) này? Hành động này không thể hoàn tác.',
                       variant: 'danger',
                       onConfirm: () => {
                         deletePRMutation.mutate(detailPr.id);
@@ -853,7 +931,7 @@ export function PRClient({ shopId, userId }: Props) {
                     setConfirmState({
                       open: true,
                       title: 'Thu hồi Đề xuất PR?',
-                      description: 'Bạn có chắc chắn muốn thu hồi phiếu đề xuất PR này về trạng thái Bản nháp để chỉnh sửa? Bộ phận thu mua sẽ không thể xem hoặc gán giá cho phiếu này cho đến khi bạn gửi lại.',
+                      description: 'Bạn có chắc chắn muốn thu hồi phiếu đề xuất PR này về trạng thái (bản nháp) để chỉnh sửa? Bộ phận thu mua sẽ không thể xem hoặc gán giá cho phiếu này cho đến khi bạn gửi lại.',
                       onConfirm: () => {
                         transitionPRMutation.mutate({ prId: detailPr.id, prAction: 'RECALL' });
                       }
@@ -983,6 +1061,7 @@ export function PRClient({ shopId, userId }: Props) {
         }
       >
         <div className="space-y-4">
+
           <div className="rounded-xl bg-slate-50 p-4 border border-slate-100">
             <div className="grid grid-cols-2 gap-y-2 text-sm">
               <span className="text-slate-500">Mã đề xuất PR:</span>
@@ -1239,6 +1318,32 @@ export function PRClient({ shopId, userId }: Props) {
               </div>
             </div>
           )}
+
+          <div className="border-t border-slate-100 pt-4">
+            <DocumentFlowMap
+              currentType="PR"
+              pr={detailPr ? {
+                id: detailPr.id,
+                status: detailPr.status,
+                createdAt: detailPr.created_at,
+                creatorName: detailPr.creator_name,
+                amount: detailPr.estimated_total
+              } : null}
+              po={relatedPoData ? {
+                id: relatedPoData.id,
+                status: relatedPoData.status,
+                createdAt: relatedPoData.created_at,
+                supplierName: relatedPoData.supplier_name,
+                amount: relatedPoData.total_amount
+              } : null}
+              grn={relatedGrnData ? {
+                id: relatedGrnData.id,
+                status: relatedGrnData.status,
+                createdAt: relatedGrnData.created_at
+              } : null}
+              onNavigate={handleFlowNavigate}
+            />
+          </div>
         </div>
       </SlideOver>
 
