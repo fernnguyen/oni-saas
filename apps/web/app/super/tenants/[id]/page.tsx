@@ -4,6 +4,7 @@ import { getSupabaseAdminClient } from '../../../../lib/server/supabaseAdmin';
 import { TenantActions } from './TenantActions';
 import { AddDomainForm } from './AddDomainForm';
 import { EditPlanDialog } from './EditPlanDialog';
+import { EditFeaturesDialog } from './EditFeaturesDialog';
 import { ConnectorSwitchAdmin } from './ConnectorSwitchAdmin';
 import { getVerticalConfig } from '@oni/core';
 
@@ -18,6 +19,7 @@ const FEATURE_LABELS: Record<string, string> = {
   multi_branch: 'Đa chi nhánh',
   google_sheets: 'Google Sheets',
   custom_domain: 'Custom domain',
+  warehouse_p2p: 'Mua sắm & Phê duyệt (P2P)',
 };
 
 type StatusKey = 'active' | 'past_due' | 'canceled';
@@ -42,7 +44,7 @@ export default async function SuperTenantDetail({
   const { id } = await params;
   const admin = getSupabaseAdminClient();
 
-  const [tenantRes, subsRes, shopsRes, membersRes, plansRes, featureRes, auditRes, ordersRes] = await Promise.all([
+  const [tenantRes, subsRes, shopsRes, membersRes, plansRes, featureRes, auditRes, ordersRes, modulesRes] = await Promise.all([
     admin.from('tenants').select('*').eq('id', id).single(),
     admin.from('subscriptions').select('*, plans(id, code, name, metadata)').eq('tenant_id', id).maybeSingle(),
     admin.from('shops').select('id, name, slug, created_at').eq('tenant_id', id).order('created_at'),
@@ -57,6 +59,7 @@ export default async function SuperTenantDetail({
       .eq('tenant_id', id)
       .order('created_at', { ascending: false })
       .limit(20),
+    admin.from('system_modules').select('code, name, description').order('code'),
   ]);
 
   if (tenantRes.error || !tenantRes.data) notFound();
@@ -71,6 +74,7 @@ export default async function SuperTenantDetail({
   const features = (featureRes.data ?? []) as Array<{ key: string; enabled: boolean }>;
   const auditLogs = (auditRes.data ?? []) as Array<{ id: string; action: string; user_id: string | null; metadata: Record<string, unknown>; created_at: string }>;
   const orders = (ordersRes.data ?? []) as Array<{ id: string; plan_code: string; billing_interval: string; amount_vnd: number; reference_code: string; status: string; fulfilled_at: string | null; created_at: string }>;
+  const modules = (modulesRes.data ?? []) as Array<{ code: string; name: string; description: string | null }>;
 
   // Usage stats
   const shopIds = shops.map((s: any) => s.id);
@@ -250,9 +254,16 @@ export default async function SuperTenantDetail({
                 </div>
               </div>
 
-              {enabledFeatures.length > 0 && (
-                <div>
-                  <p className="text-[10px] font-bold tracking-widest text-slate-400 uppercase mb-3">Feature Access</p>
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-[10px] font-bold tracking-widest text-slate-400 uppercase">Feature Access</p>
+                  <EditFeaturesDialog
+                    tenantId={tenant.id}
+                    currentFeatures={features}
+                    availableModules={modules}
+                  />
+                </div>
+                {enabledFeatures.length > 0 ? (
                   <div className="flex flex-wrap gap-2">
                     {enabledFeatures.map(({ key }) => (
                       <span
@@ -266,14 +277,12 @@ export default async function SuperTenantDetail({
                       </span>
                     ))}
                   </div>
-                </div>
-              )}
-
-              {enabledFeatures.length === 0 && (
-                <div className="rounded-xl bg-slate-50 px-4 py-3 text-xs text-slate-400">
-                  Chưa có feature flags nào được bật. Thêm qua Supabase Dashboard hoặc API.
-                </div>
-              )}
+                ) : (
+                  <div className="rounded-xl bg-slate-50 px-4 py-3 text-xs text-slate-400">
+                    Chưa có feature flags nào được bật. Nhấp "Cấu hình Features" ở trên để quản lý.
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 

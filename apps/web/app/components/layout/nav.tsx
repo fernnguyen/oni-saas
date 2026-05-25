@@ -37,6 +37,8 @@ interface BuildNavOptions {
   context?: 'control' | 'shop' | 'super';
   /** Industry type of the tenant — controls which nav items are visible */
   industryType?: string;
+  /** Whether the advanced P2P warehouse add-on is unlocked for the tenant */
+  hasP2pAccess?: boolean;
 }
 
 /**
@@ -130,6 +132,16 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
         { href: joinPath(base, '/customers'), label: 'Khách hàng',   icon: IconUsers,     permission: 'customers.view' },
       ],
     },
+    ...(options.hasP2pAccess ? [
+      {
+        label: 'Mua sắm & Phê duyệt',
+        items: [
+          { href: joinPath(base, '/p2p/pr'), label: 'Đề xuất mua (PR)', icon: IconClipboard, permission: 'dashboard.view' },
+          { href: joinPath(base, '/p2p/po'), label: 'Đơn đặt hàng (PO)', icon: IconClipboard, permission: 'inventory.view' },
+          { href: joinPath(base, '/p2p/grn'), label: 'Nhập kho đối chiếu', icon: IconWarehouse, permission: 'inventory.view' },
+        ],
+      }
+    ] : []),
     {
       label: 'Danh mục',
       items: [
@@ -162,6 +174,9 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
       items: [
         { href: joinPath(base, '/reports/overview'),    label: 'Tổng quan',    icon: IconBarChart, permission: 'reports.view_shop' },
         { href: joinPath(base, '/reports/inventory'),   label: 'Báo cáo kho',  icon: IconWarehouse,permission: 'inventory.view' },
+        ...(options.hasP2pAccess ? [
+          { href: joinPath(base, '/p2p/reports'),       label: 'Báo cáo mua sắm', icon: IconBarChart, permission: 'reports.view_shop' },
+        ] : []),
         { href: joinPath(base, '/reports/accounting'),  label: 'Kế toán',      icon: IconChart,    permission: 'accounting.view' },
         { href: joinPath(base, '/reports/tax'),        label: 'Báo cáo thuế', icon: IconReceipt,  permission: 'accounting.view' },
         { href: joinPath(base, '/reports/cod'),        label: 'Đối soát COD', icon: IconMoney,    permission: 'cod.view', hidden: true },

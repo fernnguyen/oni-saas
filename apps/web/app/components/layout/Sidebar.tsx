@@ -34,6 +34,7 @@ interface SidebarProps {
   periodStart?: string;
   periodEnd?: string;
   hidePlanBadge?: boolean;
+  hasP2pAccess?: boolean;
 }
 
 /** Fixed-position tooltip that escapes any overflow container */
@@ -91,9 +92,11 @@ function SidebarContent({
   periodStart,
   periodEnd,
   hidePlanBadge,
+  hasP2pAccess,
   onToggleCollapsed,
   onClose,
 }: {
+  hasP2pAccess?: boolean;
   collapsed: boolean;
   basePath: string;
   supportHref: string;
@@ -121,7 +124,7 @@ function SidebarContent({
 }) {
   const pathname = usePathname();
   const navGroups = buildNavGroups(
-    { basePath, supportHref, tenantHref, connectorsHref, settingsHref, tenantBillingHref, tenantSettingsHref, tenantTeamHref, tenantRolesHref, context, industryType },
+    { basePath, supportHref, tenantHref, connectorsHref, settingsHref, tenantBillingHref, tenantSettingsHref, tenantTeamHref, tenantRolesHref, context, industryType, hasP2pAccess },
     permissions,
   );
 
@@ -292,6 +295,7 @@ export function Sidebar({
   periodEnd,
   hidePlanBadge,
   collapsed = false,
+  hasP2pAccess,
 }: SidebarProps) {
   const sharedProps = {
     basePath,
@@ -315,6 +319,7 @@ export function Sidebar({
     periodStart,
     periodEnd,
     hidePlanBadge,
+    hasP2pAccess,
   };
 
   return (

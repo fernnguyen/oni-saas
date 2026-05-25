@@ -189,3 +189,21 @@ export function OrderDetailActions({ orderId }: { orderId: string }) {
 > Luôn luôn thực thi song song 2 lớp kiểm tra:
 > 1.  **Lớp 1 (UI/UX Gating):** Dùng `<HasPermission>` và `usePermissions()` ở Client để ẩn/khóa các phần tử giao diện.
 > 2.  **Lớp 2 (API & Database Protection):** Dùng `hasPermission()` ở API endpoint để xác thực yêu cầu, kết hợp Row Level Security (RLS) ở database.
+
+---
+
+## 7. Danh mục Phân Quyền Phân hệ Mua sắm Nâng cao (P2P Module Permissions)
+
+Dưới đây là bảng tra cứu mã quyền hạn và vai trò tương ứng để thực hiện các thao tác trong chuỗi cung ứng **Procure-to-Pay (P2P)** bao gồm: Đề xuất mua sắm (PR), Đơn đặt hàng (PO), và Nhập kho đối chiếu (GRN).
+
+| Phân hệ | Thao tác Nghiệp vụ | Mã Quyền hạn / Vai trò Cho phép | Ghi chú & Tác động |
+| :--- | :--- | :--- | :--- |
+| **PR** | Lập phiếu Đề xuất mua hàng mới | Mọi vai trò có quyền truy cập | Tạo phiếu dạng bản nháp `DRAFT`. |
+| **PR** | Sourcing: Gán giá NCC & Chọn Supplier | `admin`, `owner`, `purchaser`, `purchasing.manage` | Được phép điền giá vốn NCC khi PR ở trạng thái `PENDING_PRICING`. |
+| **PR** | Phê duyệt cấp 1 (Duyệt Kế toán) | `chief_accountant`, `admin`, `owner` | Phê duyệt hạn mức tài chính cấp 1 khi PR ở trạng thái `PENDING_KTT`. |
+| **PR** | Phê duyệt chính thức (Duyệt Ban Giám Đốc) | `admin`, `owner` (hoặc vai trò CEO tương đương) | Phê duyệt tối cao để chuẩn bị chuyển dịch PR thành đơn đặt hàng PO (`APPROVED`). |
+| **PO** | Tạo đơn đặt hàng chính thức (PO) từ PR | `admin`, `owner`, `purchaser`, `purchasing.manage` | Tự động chuyển đổi PR `APPROVED` sang PO Chờ giao hàng. |
+| **PO** | Xem Đơn giá NCC & Tổng chi trả PO | `admin`, `owner`, `purchaser`, `purchasing.manage`, `chief_accountant`, `settings.manage` | Ẩn hoàn toàn với Thu ngân/nhân viên quầy bằng mặt nạ `🔒 ***.***`. |
+| **GRN** | **Khởi tạo phiếu đối chiếu nhập kho (GRN) từ PO** | `admin`, `owner`, `purchaser`, `purchasing.manage`, `chief_accountant`, `settings.manage`, `warehouse.manage` | Nhân bản thông tin PO thành bản nháp đối chiếu GRN. **Thu ngân bị chặn tuyệt đối.** |
+| **GRN** | **Phê duyệt Hoàn tất nhập kho đối chiếu GRN** | `admin`, `owner`, `chief_accountant`, `warehouse.manage` | Thực thi tăng tồn kho chi nhánh, tính toán lại giá vốn di động BOM và hạch toán công nợ NCC. |
+

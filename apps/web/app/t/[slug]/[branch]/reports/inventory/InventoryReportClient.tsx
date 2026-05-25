@@ -19,6 +19,7 @@ interface OverviewData {
 
 const MOVEMENT_TYPES = [
   { value: 'purchase_in',  label: 'Nhập hàng',      color: 'blue'   as TagColor },
+  { value: 'p2p_purchase_in', label: 'Nhập hàng P2P', color: 'indigo' as TagColor },
   { value: 'sale_out',     label: 'Bán hàng',       color: 'green'  as TagColor },
   { value: 'return_in',    label: 'Hàng trả về',    color: 'red'    as TagColor },
   { value: 'transfer_out', label: 'Xuất chuyển kho',color: 'orange' as TagColor },
