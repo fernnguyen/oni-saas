@@ -10,6 +10,7 @@ import { EmptyState } from '@/app/components/ui/EmptyState';
 import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog';
 import { SearchBar } from '@/app/components/ui/SearchBar';
 import { TagBadge } from '@/app/components/ui/TagBadge';
+import { CopyableId } from '@/app/components/ui/CopyableId';
 
 interface Props {
   shopId: string;
@@ -250,7 +251,7 @@ export function PRClient({ shopId, userId }: Props) {
 
   // Actions Mutations
   const createPRMutation = useMutation({
-    mutationFn: async (payload: { note: string; items: PRItem[] }) => {
+    mutationFn: async (payload: { note: string; items: PRItem[]; status?: string }) => {
       const headerRes = await fetch(`/api/shops/${shopId}/p2p`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -258,6 +259,7 @@ export function PRClient({ shopId, userId }: Props) {
           action: 'CREATE_PR',
           data: {
             note: payload.note,
+            status: payload.status || 'DRAFT',
             items: payload.items.map(item => ({
               product_id: item.product_id,
               product_name: item.product_name,
@@ -272,8 +274,12 @@ export function PRClient({ shopId, userId }: Props) {
       }
       return headerRes.json();
     },
-    onSuccess: () => {
-      toast.success('Đã tạo đề xuất PR bản nháp thành công');
+    onSuccess: (data) => {
+      toast.success(
+        data.status === 'PENDING_PRICING'
+          ? 'Đã tạo và gửi phê duyệt đề xuất PR thành công'
+          : 'Đã tạo đề xuất PR bản nháp thành công'
+      );
       setSlideOpen(false);
       setNote('');
       setSelectedItems([]);
@@ -471,7 +477,7 @@ export function PRClient({ shopId, userId }: Props) {
 
   // Table Columns config
   const columns = useMemo<Column<Record<string, string>>[]>(() => [
-    { key: 'id', label: 'Mã PR', render: (row) => <span className="font-mono text-xs">{row.id}</span> },
+    { key: 'id', label: 'Mã PR', render: (row) => <CopyableId id={row.id} className="text-sm font-semibold text-slate-800" /> },
     {
       key: 'creator_name',
       label: 'Người đề xuất',
@@ -544,6 +550,16 @@ export function PRClient({ shopId, userId }: Props) {
     },
   ], []);
 
+  // Extract rejection reason from the note field if present
+  const parsedNote = useMemo(() => {
+    if (!detailPr?.note) return { mainReason: '---', rejectReason: null };
+    const parts = detailPr.note.split(' | Lý do từ chối: ');
+    return {
+      mainReason: parts[0] || '---',
+      rejectReason: parts[1] || null,
+    };
+  }, [detailPr]);
+
   // Compute estimated total for assignment
   const computedAssignmentTotal = useMemo(() => {
     let sum = 0;
@@ -604,6 +620,7 @@ export function PRClient({ shopId, userId }: Props) {
         columns={columns}
         data={data?.data ?? []}
         loading={isLoading}
+        onRowClick={(row) => openDetail(row)}
         pagination={{
           page,
           total: data?.total ?? 0,
@@ -625,7 +642,7 @@ export function PRClient({ shopId, userId }: Props) {
         onClose={() => setSlideOpen(false)}
         title="Lập Yêu Cầu Mua Sắm (PR)"
         footer={
-          <div className="flex justify-end gap-2 w-full">
+          <div className="flex justify-end gap-2 w-full flex-wrap">
             <button
               onClick={() => setSlideOpen(false)}
               className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 transition-colors"
@@ -638,12 +655,25 @@ export function PRClient({ shopId, userId }: Props) {
                   toast.error('Vui lòng chọn ít nhất một sản phẩm cần mua.');
                   return;
                 }
-                createPRMutation.mutate({ note, items: selectedItems });
+                createPRMutation.mutate({ note, items: selectedItems, status: 'DRAFT' });
+              }}
+              disabled={createPRMutation.isPending}
+              className="rounded-xl bg-slate-100 border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-200 shadow-sm transition-colors disabled:opacity-50"
+            >
+              Lưu bản nháp
+            </button>
+            <button
+              onClick={() => {
+                if (selectedItems.length === 0) {
+                  toast.error('Vui lòng chọn ít nhất một sản phẩm cần mua.');
+                  return;
+                }
+                createPRMutation.mutate({ note, items: selectedItems, status: 'PENDING_PRICING' });
               }}
               disabled={createPRMutation.isPending}
               className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-dark shadow-sm transition-colors disabled:opacity-50"
             >
-              {createPRMutation.isPending ? 'Đang tạo...' : 'Lưu bản nháp'}
+              {createPRMutation.isPending ? 'Đang gửi...' : 'Gửi phê duyệt luôn'}
             </button>
           </div>
         }
@@ -911,11 +941,18 @@ export function PRClient({ shopId, userId }: Props) {
         <div className="space-y-4">
           <div className="rounded-xl bg-slate-50 p-4 border border-slate-100">
             <div className="grid grid-cols-2 gap-y-2 text-sm">
+              <span className="text-slate-500">Mã đề xuất PR:</span>
+              <span className="font-semibold text-slate-800">
+                {detailPr?.id ? (
+                  <CopyableId id={detailPr.id} className="text-sm font-semibold text-slate-800" />
+                ) : '---'}
+              </span>
+
               <span className="text-slate-500">Người tạo:</span>
               <span className="font-semibold text-slate-800">{detailPr?.creator_name || detailPr?.created_by || 'N/A'}</span>
               
               <span className="text-slate-500">Mô tả lý do:</span>
-              <span className="font-semibold text-slate-800">{detailPr?.note || '---'}</span>
+              <span className="font-semibold text-slate-800">{parsedNote.mainReason}</span>
               
               <span className="text-slate-500">Hạn mức dự kiến:</span>
               <span className="font-semibold text-slate-800 text-primary">
@@ -926,9 +963,47 @@ export function PRClient({ shopId, userId }: Props) {
 
               <span className="text-slate-500">Trạng thái:</span>
               <span>
-                <TagBadge label={detailPr?.status || ''} color="orange" />
+                {(() => {
+                  const s = detailPr?.status || 'DRAFT';
+                  let color: 'gray' | 'yellow' | 'orange' | 'green' | 'blue' | 'red' = 'gray';
+                  let text = s;
+                  if (s === 'DRAFT') {
+                    color = 'gray';
+                    text = 'Bản nháp';
+                  } else if (s === 'PENDING_PRICING') {
+                    color = 'yellow';
+                    text = 'Chờ báo giá';
+                  } else if (s === 'PENDING_KTT') {
+                    color = 'orange';
+                    text = 'Chờ KTT duyệt';
+                  } else if (s === 'PENDING_GD') {
+                    color = 'yellow';
+                    text = 'Chờ GĐ duyệt';
+                  } else if (s === 'APPROVED') {
+                    color = 'green';
+                    text = 'Đã duyệt';
+                  } else if (s === 'CONVERTED_TO_PO') {
+                    color = 'blue';
+                    text = 'Đã lập PO';
+                  } else if (s === 'REJECTED') {
+                    color = 'red';
+                    text = 'Từ chối';
+                  }
+                  return <TagBadge label={text} color={color} />;
+                })()}
               </span>
             </div>
+
+            {parsedNote.rejectReason && (
+              <div className="mt-3 rounded-xl bg-red-50 p-3 border border-red-200 text-xs text-red-800 flex flex-col gap-1 shadow-sm animate-pulse">
+                <span className="font-bold flex items-center gap-1 text-red-900">
+                  🚫 Đề xuất bị Từ chối
+                </span>
+                <span>
+                  Lý do từ chối: <span className="font-semibold italic text-red-950">"{parsedNote.rejectReason}"</span>
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="border-t border-slate-100 pt-4">

@@ -10,6 +10,7 @@ import { EmptyState } from '@/app/components/ui/EmptyState';
 import { SearchBar } from '@/app/components/ui/SearchBar';
 import { TagBadge } from '@/app/components/ui/TagBadge';
 import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog';
+import { CopyableId } from '@/app/components/ui/CopyableId';
 
 interface Props {
   shopId: string;
@@ -153,8 +154,8 @@ export function GRNClient({ shopId }: Props) {
   }
 
   const columns = useMemo<Column<Record<string, string>>[]>(() => [
-    { key: 'id', label: 'Mã Phiếu', render: (row) => <span className="font-mono text-xs">{row.id}</span> },
-    { key: 'purchase_order_id', label: 'Đơn PO', render: (row) => <span className="font-mono text-xs text-slate-500">{row.purchase_order_id}</span> },
+    { key: 'id', label: 'Mã Phiếu', render: (row) => <CopyableId id={row.id} className="text-sm font-semibold text-slate-800" /> },
+    { key: 'purchase_order_id', label: 'Đơn PO', render: (row) => <CopyableId id={row.purchase_order_id} className="text-sm font-semibold text-slate-650" /> },
     { key: 'received_by', label: 'Kế toán nhận', render: (row) => <span className="text-slate-700 font-semibold">{row.receiver_name || row.received_by || '---'}</span> },
     {
       key: 'status',
@@ -235,6 +236,7 @@ export function GRNClient({ shopId }: Props) {
         columns={columns}
         data={data?.data ?? []}
         loading={isLoading}
+        onRowClick={(row) => openDetail(row)}
         pagination={{
           page,
           total: data?.total ?? 0,
@@ -290,14 +292,33 @@ export function GRNClient({ shopId }: Props) {
         <div className="space-y-5">
           <div className="rounded-xl bg-slate-50 p-4 border border-slate-100 text-sm">
             <div className="grid grid-cols-2 gap-y-2">
+              <span className="text-slate-500">Mã phiếu GRN:</span>
+              <span className="font-semibold text-slate-800">
+                {detailGrn?.id ? (
+                  <CopyableId id={detailGrn.id} className="text-sm font-semibold text-slate-800" />
+                ) : '---'}
+              </span>
+
               <span className="text-slate-500">Kế toán nhận:</span>
               <span className="font-semibold text-slate-800">{detailGrn?.receiver_name || detailGrn?.received_by || 'N/A'}</span>
 
               <span className="text-slate-500">Đơn đặt hàng PO:</span>
-              <span className="font-mono font-semibold text-slate-850">{detailGrn?.purchase_order_id}</span>
+              <span className="font-semibold text-slate-800">
+                {detailGrn?.purchase_order_id ? (
+                  <CopyableId id={detailGrn.purchase_order_id} className="text-sm font-semibold text-slate-800" />
+                ) : '---'}
+              </span>
 
               <span className="text-slate-500">Mô tả ghi chú:</span>
               <span className="font-semibold text-slate-800">{detailGrn?.note || '---'}</span>
+
+              <span className="text-slate-500">Trạng thái:</span>
+              <span>
+                <TagBadge
+                  label={detailGrn?.status === 'COMPLETED' ? 'Đã nhập kho' : 'Chờ kiểm kho'}
+                  color={detailGrn?.status === 'COMPLETED' ? 'green' : 'gray'}
+                />
+              </span>
             </div>
           </div>
 
