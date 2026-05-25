@@ -7,7 +7,7 @@ import { handleApiError } from '../../../_helpers'
 // Returns the signed delta needed to REVERSE a movement (undo its inventory impact)
 function calcReverseDelta(type: string, qty: number): number {
   if (type === 'sale_out' || type === 'transfer_out') return Math.abs(qty)   // undo outbound → restore
-  if (type === 'purchase_in' || type === 'return_in' || type === 'transfer_in') return -Math.abs(qty) // undo inbound → reduce
+  if (type === 'purchase_in' || type === 'p2p_purchase_in' || type === 'return_in' || type === 'transfer_in') return -Math.abs(qty) // undo inbound → reduce
   return 0 // adjustment: don't auto-reverse
 }
 

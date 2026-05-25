@@ -9,11 +9,12 @@ import type { IDataConnector } from '@oni/adapters'
 import { RollbackContext } from '@oni/adapters'
 import crypto from 'crypto'
 
-const INBOUND_TYPES = ['purchase_in', 'return_in', 'transfer_in']
+const INBOUND_TYPES = ['purchase_in', 'p2p_purchase_in', 'return_in', 'transfer_in']
 const OUTBOUND_TYPES = ['sale_out', 'transfer_out']
 
 const MOVEMENT_NO_PREFIX: Record<string, string> = {
   purchase_in:  'PN',   // Phiếu Nhập
+  p2p_purchase_in: 'PNP2P', // Phiếu Nhập Kho P2P
   sale_out:     'PX',   // Phiếu Xuất
   return_in:    'PTH',  // Phiếu Trả Hàng
   transfer_in:  'CKV',  // Chuyển Kho Vào
@@ -48,7 +49,7 @@ export async function GET(
 ) {
   try {
     const { shopId } = await params
-    const { connector } = await requireShopAccess(shopId)
+    const { connector, permissions } = await requireShopAccess(shopId)
 
     const sp = req.nextUrl.searchParams
     const page = Math.max(1, parseInt(sp.get('page') ?? '1'))
@@ -65,6 +66,27 @@ export async function GET(
     if (movement_no) filters.movement_no = movement_no
 
     const result = await connector.list('stock-movements', { page, limit, search: search || undefined, filters, sortDesc: true })
+
+    const isPurchasingOrAdmin = permissions.some(p =>
+      ['admin', 'owner', 'purchaser', 'purchasing.manage', 'chief_accountant', 'settings.manage'].includes(p)
+    )
+
+    if (!isPurchasingOrAdmin && result && Array.isArray(result.data)) {
+      result.data = result.data.map((r: any) => {
+        const isCorporateP2P = r.type === 'p2p_purchase_in' || (r.type === 'purchase_in' && r.reason?.includes('GRN'));
+        if (isCorporateP2P) {
+          return {
+            ...r,
+            unit_cost: '0',
+            paid_amount: '0',
+            payments: '[]',
+            discount: '0',
+            reason: r.reason ? r.reason.replace(/Giảm giá:.*đ/, 'Giảm giá: ***đ') : r.reason,
+          }
+        }
+        return r
+      })
+    }
 
     return NextResponse.json(result)
   } catch (e) {
@@ -197,7 +219,7 @@ export async function POST(
     }
 
     // 4. Log cashbook payment and update supplier debt
-    if (data.type === 'purchase_in') {
+    if (data.type === 'purchase_in' || data.type === 'p2p_purchase_in') {
       const totalCost = parseFloat(data.unit_cost || '0') * Math.abs(parseFloat(data.qty || '0'))
       const discountAmt = parseFloat(data.discount || '0')
       const debtAmt = Math.max(0, totalCost - discountAmt - totalPaidAmt)

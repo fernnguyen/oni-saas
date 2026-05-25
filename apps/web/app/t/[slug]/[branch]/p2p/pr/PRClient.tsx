@@ -267,6 +267,12 @@ export function PRClient({ shopId, userId }: Props) {
     ) || false;
   }, [permissionsData]);
 
+  const canViewPricing = useMemo(() => {
+    return permissionsData?.permissions?.some((p: string) =>
+      ['admin', 'owner', 'purchaser', 'purchasing.manage', 'chief_accountant', 'settings.manage'].includes(p)
+    ) || false;
+  }, [permissionsData]);
+
   // Actions Mutations
   const createPRMutation = useMutation({
     mutationFn: async (payload: { note: string; items: PRItem[]; status?: string }) => {
@@ -301,9 +307,13 @@ export function PRClient({ shopId, userId }: Props) {
       setSlideOpen(false);
       setNote('');
       setSelectedItems([]);
+      setConfirmState(prev => ({ ...prev, open: false }));
       queryClient.invalidateQueries({ queryKey: ['purchase-requisitions', shopId] });
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => {
+      toast.error(err.message);
+      setConfirmState(prev => ({ ...prev, open: false }));
+    },
   });
 
   const transitionPRMutation = useMutation({
@@ -509,13 +519,22 @@ export function PRClient({ shopId, userId }: Props) {
     {
       key: 'estimated_total',
       label: 'Tổng tiền (Dự kiến)',
-      render: (row) => (
-        <span className="font-semibold text-slate-900">
-          {row.estimated_total && parseFloat(row.estimated_total) > 0
-            ? parseFloat(row.estimated_total).toLocaleString('vi-VN') + ' đ'
-            : 'Chưa gán giá'}
-        </span>
-      ),
+      render: (row) => {
+        const hasEstimated = row.estimated_total && parseFloat(row.estimated_total) > 0;
+        if (!hasEstimated) return <span className="text-slate-500 italic">Chưa gán giá</span>;
+        
+        return (
+          <span className="font-semibold text-slate-900">
+            {canViewPricing ? (
+              parseFloat(row.estimated_total).toLocaleString('vi-VN') + ' đ'
+            ) : (
+              <span className="text-slate-400 italic inline-flex items-center gap-0.5">
+                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="inline text-slate-400"><rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg> ***.***
+              </span>
+            )}
+          </span>
+        );
+      },
     },
     {
       key: 'status',
@@ -686,12 +705,19 @@ export function PRClient({ shopId, userId }: Props) {
                   toast.error('Vui lòng chọn ít nhất một sản phẩm cần mua.');
                   return;
                 }
-                createPRMutation.mutate({ note, items: selectedItems, status: 'PENDING_PRICING' });
+                setConfirmState({
+                  open: true,
+                  title: 'Gửi phê duyệt Đề xuất?',
+                  description: 'Bạn có chắc chắn muốn lập phiếu và gửi đề xuất mua hàng PR này tới phòng mua sắm để gán giá?',
+                  onConfirm: () => {
+                    createPRMutation.mutate({ note, items: selectedItems, status: 'PENDING_PRICING' });
+                  }
+                });
               }}
               disabled={createPRMutation.isPending}
               className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-dark shadow-sm transition-colors disabled:opacity-50"
             >
-              {createPRMutation.isPending ? 'Đang gửi...' : 'Gửi phê duyệt luôn'}
+              {createPRMutation.isPending ? 'Đang gửi...' : 'Gửi phê duyệt'}
             </button>
           </div>
         }
@@ -974,9 +1000,17 @@ export function PRClient({ shopId, userId }: Props) {
               
               <span className="text-slate-500">Hạn mức dự kiến:</span>
               <span className="font-semibold text-slate-800 text-primary">
-                {detailPr?.estimated_total && parseFloat(detailPr?.estimated_total) > 0
-                  ? parseFloat(detailPr?.estimated_total).toLocaleString('vi-VN') + ' đ'
-                  : 'Chưa có báo giá'}
+                {detailPr?.estimated_total && parseFloat(detailPr?.estimated_total) > 0 ? (
+                  canViewPricing ? (
+                    parseFloat(detailPr?.estimated_total).toLocaleString('vi-VN') + ' đ'
+                  ) : (
+                    <span className="text-slate-400 italic inline-flex items-center gap-0.5">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="inline text-slate-400"><rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg> ***.*** đ
+                    </span>
+                  )
+                ) : (
+                  'Chưa có báo giá'
+                )}
               </span>
 
               <span className="text-slate-500">Trạng thái:</span>
@@ -1113,10 +1147,22 @@ export function PRClient({ shopId, userId }: Props) {
                         {item.estimated_unit_price && parseFloat(item.estimated_unit_price) > 0 ? (
                           <div className="text-right">
                             <div className="text-sm font-semibold text-slate-800">
-                              {parseFloat(item.estimated_unit_price).toLocaleString('vi-VN')} đ
+                              {canViewPricing ? (
+                                <>{parseFloat(item.estimated_unit_price).toLocaleString('vi-VN')} đ</>
+                              ) : (
+                                <span className="text-slate-400 italic inline-flex items-center gap-0.5">
+                                  <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="inline text-slate-400"><rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg> ***.***
+                                </span>
+                              )}
                             </div>
-                            <div className="text-xs text-slate-500">
-                              Tổng: { (parseFloat(item.estimated_unit_price) * parseFloat(item.qty || '0')).toLocaleString('vi-VN') } đ
+                            <div className="text-xs text-slate-500 mt-0.5">
+                              {canViewPricing ? (
+                                <>Tổng: { (parseFloat(item.estimated_unit_price) * parseFloat(item.qty || '0')).toLocaleString('vi-VN') } đ</>
+                              ) : (
+                                <span className="text-slate-400 italic inline-flex items-center gap-0.5">
+                                  Tổng: <svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="inline text-slate-400"><rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg> ***.*** đ
+                                </span>
+                              )}
                             </div>
                           </div>
                         ) : (
@@ -1131,15 +1177,15 @@ export function PRClient({ shopId, userId }: Props) {
           </div>
 
           {detailPr?.status === 'APPROVED' && hasPricingPermission && (
-            <div className="rounded-xl bg-primary-50/50 p-4 border border-primary-100 mt-4 space-y-3">
+            <div className="rounded-xl bg-primary-50/20 p-4 border border-primary/30 mt-4 space-y-3 shadow-sm">
               <label className="block text-sm font-bold text-slate-800">
                 Chọn Nhà Cung Cấp chính thức để lập Đơn đặt hàng (PO) *
               </label>
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-3">
                 <select
                   value={selectedSupplierId}
                   onChange={(e) => setSelectedSupplierId(e.target.value)}
-                  className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white shadow-sm"
+                  className="w-full rounded-xl border border-primary/30 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none bg-white shadow-sm transition-all"
                 >
                   <option value="">-- Chọn Nhà cung cấp --</option>
                   {suppliersData?.data.map((s) => (
@@ -1165,15 +1211,16 @@ export function PRClient({ shopId, userId }: Props) {
                             prId: detailPr.id,
                             supplierId: sup.id,
                             supplierName: sup.name,
-                            });
+                          });
                         }
                       });
                     }
                   }}
                   disabled={convertToPOMutation.isPending}
-                  className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-dark shadow-sm transition-colors disabled:opacity-50"
+                  className="w-full rounded-xl bg-primary py-2.5 px-4 text-sm font-semibold text-white hover:bg-primary-dark shadow-md hover:shadow transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
                 >
-                  Lập Đơn Đặt Hàng (PO)
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="inline text-white"><path d="M12 5v14M5 12h14" /></svg>
+                  Lập Đơn đặt hàng (PO)
                 </button>
               </div>
             </div>

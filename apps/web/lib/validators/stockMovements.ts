@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 const MOVEMENT_TYPES = [
   'purchase_in',
+  'p2p_purchase_in',
   'sale_out',
   'transfer_in',
   'transfer_out',

@@ -1,7 +1,7 @@
 import { localDb, type SyncQueueItem } from '@/lib/localDb/schema'
 import { broadcastOrderSynced } from '@/lib/localDb/tabSync'
 
-const INBOUND_TYPES = ['purchase_in', 'return_in', 'transfer_in']
+const INBOUND_TYPES = ['purchase_in', 'p2p_purchase_in', 'return_in', 'transfer_in']
 const OUTBOUND_TYPES = ['sale_out', 'transfer_out']
 
 function calcMovementDelta(type: string, qty: number): number {

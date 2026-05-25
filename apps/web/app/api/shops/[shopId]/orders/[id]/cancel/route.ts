@@ -6,7 +6,7 @@ import { dispatchNotification } from '@/lib/server/notifications'
 import { RollbackContext } from '@oni/adapters'
 import crypto from 'crypto'
 
-const INBOUND_TYPES = ['purchase_in', 'return_in', 'transfer_in']
+const INBOUND_TYPES = ['purchase_in', 'p2p_purchase_in', 'return_in', 'transfer_in']
 const OUTBOUND_TYPES = ['sale_out', 'transfer_out']
 
 function calcReverseDelta(type: string, qty: number): number {

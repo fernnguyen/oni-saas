@@ -34,7 +34,27 @@ export function POClient({ shopId, userId }: Props) {
   const [debouncedSearch] = useDebounce(search, 300);
   const [statusFilter, setStatusFilter] = useState('ALL');
 
-  // Detail SlideOpen state
+  // Fetch user details / role inside tenant
+  const { data: permissionsData } = useQuery({
+    queryKey: ['user-permissions', shopId],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/settings`); // Contains current shop metadata
+      return res.json();
+    },
+  });
+
+  const canViewPricing = useMemo(() => {
+    return permissionsData?.permissions?.some((p: string) =>
+      ['admin', 'owner', 'purchaser', 'purchasing.manage', 'chief_accountant', 'settings.manage'].includes(p)
+    ) || false;
+  }, [permissionsData]);
+
+  const canCreateGrn = useMemo(() => {
+    return permissionsData?.permissions?.some((p: string) =>
+      ['admin', 'owner', 'purchaser', 'purchasing.manage', 'chief_accountant', 'settings.manage', 'warehouse.manage'].includes(p)
+    ) || false;
+  }, [permissionsData]);
+
   const [detailPo, setDetailPo] = useState<Record<string, string> | null>(null);
   const [detailItems, setDetailItems] = useState<Record<string, string>[]>([]);
   const [detailSlideOpen, setDetailSlideOpen] = useState(false);
@@ -46,7 +66,7 @@ export function POClient({ shopId, userId }: Props) {
     queryFn: async () => {
       if (!detailPo?.id) return { data: [] };
       const sp = new URLSearchParams({
-        entity: 'goods_receipt_notes',
+        entity: 'goods-receipt-notes',
         limit: '10',
         filters: JSON.stringify({ purchase_order_id: detailPo.id }),
       });
@@ -118,6 +138,7 @@ export function POClient({ shopId, userId }: Props) {
       setDetailSlideOpen(false);
       setConfirmState(prev => ({ ...prev, open: false }));
       queryClient.invalidateQueries({ queryKey: ['purchase-orders', shopId] });
+      queryClient.invalidateQueries({ queryKey: ['existing-grns', shopId] });
     },
     onError: (err) => {
       toast.error(err.message);
@@ -156,7 +177,13 @@ export function POClient({ shopId, userId }: Props) {
       label: 'Tổng tiền',
       render: (row) => (
         <span className="font-semibold text-slate-900">
-          {row.total_amount ? parseFloat(row.total_amount).toLocaleString('vi-VN') + ' đ' : '0 đ'}
+          {canViewPricing ? (
+            row.total_amount ? parseFloat(row.total_amount).toLocaleString('vi-VN') + ' đ' : '0 đ'
+          ) : (
+            <span className="text-slate-400 italic inline-flex items-center gap-0.5">
+              <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="inline text-slate-400"><rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg> ***.***
+            </span>
+          )}
         </span>
       ),
     },
@@ -268,7 +295,7 @@ export function POClient({ shopId, userId }: Props) {
               Đóng
             </button>
 
-            {detailPo?.status === 'APPROVED' && (
+            {detailPo?.status === 'APPROVED' && canCreateGrn && (
               <button
                 onClick={() => {
                   if (detailPo) {
@@ -339,7 +366,13 @@ export function POClient({ shopId, userId }: Props) {
 
               <span className="text-slate-500">Tổng giá trị:</span>
               <span className="font-semibold text-primary">
-                {detailPo?.total_amount ? parseFloat(detailPo?.total_amount).toLocaleString('vi-VN') + ' đ' : '0 đ'}
+                {canViewPricing ? (
+                  detailPo?.total_amount ? parseFloat(detailPo?.total_amount).toLocaleString('vi-VN') + ' đ' : '0 đ'
+                ) : (
+                  <span className="text-slate-400 italic inline-flex items-center gap-0.5">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="inline text-slate-400"><rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg> ***.*** đ
+                  </span>
+                )}
               </span>
 
               <span className="text-slate-500">Mô tả:</span>
@@ -393,10 +426,22 @@ export function POClient({ shopId, userId }: Props) {
                     </div>
                     <div className="text-right">
                       <div className="text-sm font-semibold text-slate-800">
-                        {item.actual_unit_price ? parseFloat(item.actual_unit_price).toLocaleString('vi-VN') + ' đ' : '0 đ'}
+                        {canViewPricing ? (
+                          item.actual_unit_price ? parseFloat(item.actual_unit_price).toLocaleString('vi-VN') + ' đ' : '0 đ'
+                        ) : (
+                          <span className="text-slate-400 italic inline-flex items-center gap-0.5">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="inline text-slate-400"><rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg> ***.***
+                          </span>
+                        )}
                       </div>
-                      <div className="text-xs text-slate-500">
-                        Tổng: { (parseFloat(item.actual_unit_price || '0') * parseFloat(item.qty || '0')).toLocaleString('vi-VN') } đ
+                      <div className="text-xs text-slate-500 mt-0.5">
+                        {canViewPricing ? (
+                          <>Tổng: { (parseFloat(item.actual_unit_price || '0') * parseFloat(item.qty || '0')).toLocaleString('vi-VN') } đ</>
+                        ) : (
+                          <span className="text-slate-400 italic inline-flex items-center gap-0.5">
+                            Tổng: <svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="inline text-slate-400"><rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg> ***.*** đ
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
