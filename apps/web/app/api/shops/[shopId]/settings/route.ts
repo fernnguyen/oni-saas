@@ -132,6 +132,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ shop
   // Inject CRM access flag
   const { checkFeatureAccess } = await import('@/lib/server/features');
   settings.has_crm_access = ctx.tenantId ? await checkFeatureAccess(ctx.tenantId, 'crm') : false;
+  settings.permissions = ctx.permissions;
   
   return NextResponse.json(settings);
 }

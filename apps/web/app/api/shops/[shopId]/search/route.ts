@@ -84,7 +84,7 @@ export async function GET(
             type: 'inventory',
             title: item.movement_no || item.id,
             subtitle: `Tham chiếu: ${item.reference_no || 'N/A'}`,
-            status: item.type === 'purchase_in' || item.type === 'transfer_in' || item.type === 'return_in' ? 'Nhập kho' : 'Xuất kho',
+            status: item.type === 'purchase_in' || item.type === 'p2p_purchase_in' || item.type === 'transfer_in' || item.type === 'return_in' ? 'Nhập kho' : 'Xuất kho',
             url: `inventory?search=${item.movement_id || item.id}`
           });
         }
