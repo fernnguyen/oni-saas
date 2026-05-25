@@ -174,6 +174,9 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
       items: [
         { href: joinPath(base, '/reports/overview'),    label: 'Tổng quan',    icon: IconBarChart, permission: 'reports.view_shop' },
         { href: joinPath(base, '/reports/inventory'),   label: 'Báo cáo kho',  icon: IconWarehouse,permission: 'inventory.view' },
+        ...(options.hasP2pAccess ? [
+          { href: joinPath(base, '/p2p/reports'),       label: 'Báo cáo mua sắm', icon: IconBarChart, permission: 'reports.view_shop' },
+        ] : []),
         { href: joinPath(base, '/reports/accounting'),  label: 'Kế toán',      icon: IconChart,    permission: 'accounting.view' },
         { href: joinPath(base, '/reports/tax'),        label: 'Báo cáo thuế', icon: IconReceipt,  permission: 'accounting.view' },
         { href: joinPath(base, '/reports/cod'),        label: 'Đối soát COD', icon: IconMoney,    permission: 'cod.view', hidden: true },
