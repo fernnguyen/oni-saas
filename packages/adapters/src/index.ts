@@ -5,3 +5,4 @@ export * from './mysqlAdapter';
 export * from './postgresAdapter';
 export * from './factory';
 export * from './transaction';
+export * from './cache';
