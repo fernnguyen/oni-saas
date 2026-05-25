@@ -23,7 +23,7 @@ export interface IDataConnector {
 }
 
 // Let's define the types locally for safety and simplicity
-export type PRAction = 'SUBMIT' | 'ASSIGN_PRICE' | 'APPROVE_KTT' | 'APPROVE_GD' | 'REJECT';
+export type PRAction = 'SUBMIT' | 'ASSIGN_PRICE' | 'APPROVE_KTT' | 'APPROVE_GD' | 'REJECT' | 'RECALL';
 
 export interface PRPayload {
   estimated_total?: string;
@@ -97,6 +97,13 @@ export class P2PEngine {
           throw new Error(`Cannot reject PR in status: ${currentStatus}`);
         }
         nextStatus = 'REJECTED';
+        break;
+
+      case 'RECALL':
+        if (currentStatus !== 'PENDING_PRICING') {
+          throw new Error(`Cannot recall PR in status: ${currentStatus}`);
+        }
+        nextStatus = 'DRAFT';
         break;
 
       default:
@@ -211,7 +218,7 @@ export class P2PEngine {
 
       // 1. Write the clean standard stock_movement record (Zero-friction with legacy warehouse)
       const stockMovementData = {
-        type: 'in',
+        type: 'purchase_in',
         product_id: productId,
         qty: String(qtyReceived),
         unit_cost: String(unitCost),

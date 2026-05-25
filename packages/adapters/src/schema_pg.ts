@@ -1,4 +1,4 @@
-import { pgTable, varchar, text, timestamp, jsonb } from 'drizzle-orm/pg-core';
+import { pgTable, varchar, text, timestamp, jsonb, index } from 'drizzle-orm/pg-core';
 
 // Base columns for all tables
 const getBaseColumns = () => ({
@@ -416,7 +416,9 @@ export const purchase_requisitions = pgTable('purchase_requisitions', {
   estimated_total: varchar('estimated_total', { length: 50 }),
   note: text('note'),
   branch_id: varchar('branch_id', { length: 255 }),
-});
+}, (table) => ({
+  tenantBranchIdx: index('idx_pr_tenant_branch').on(table.tenant_id, table.branch_id),
+}));
 
 export const purchase_requisition_items = pgTable('purchase_requisition_items', {
   ...getBaseColumns(),
@@ -427,7 +429,9 @@ export const purchase_requisition_items = pgTable('purchase_requisition_items', 
   qty: varchar('qty', { length: 50 }),
   estimated_unit_price: varchar('estimated_unit_price', { length: 50 }),
   line_total: varchar('line_total', { length: 50 }),
-});
+}, (table) => ({
+  reqIdTenantIdx: index('idx_pri_req_tenant').on(table.requisition_id, table.tenant_id),
+}));
 
 export const purchase_orders = pgTable('purchase_orders', {
   ...getBaseColumns(),
@@ -441,7 +445,9 @@ export const purchase_orders = pgTable('purchase_orders', {
   status: varchar('status', { length: 50 }), // DRAFT | PENDING_APPROVAL | APPROVED | REJECTED | PARTIALLY_RECEIVED | RECEIVED | CANCELLED
   branch_id: varchar('branch_id', { length: 255 }),
   note: text('note'),
-});
+}, (table) => ({
+  tenantBranchIdx: index('idx_po_tenant_branch').on(table.tenant_id, table.branch_id),
+}));
 
 export const purchase_order_items = pgTable('purchase_order_items', {
   ...getBaseColumns(),
@@ -452,7 +458,9 @@ export const purchase_order_items = pgTable('purchase_order_items', {
   qty: varchar('qty', { length: 50 }),
   actual_unit_price: varchar('actual_unit_price', { length: 50 }),
   line_total: varchar('line_total', { length: 50 }),
-});
+}, (table) => ({
+  poIdTenantIdx: index('idx_poi_po_tenant').on(table.purchase_order_id, table.tenant_id),
+}));
 
 export const goods_receipt_notes = pgTable('goods_receipt_notes', {
   ...getBaseColumns(),
@@ -464,7 +472,9 @@ export const goods_receipt_notes = pgTable('goods_receipt_notes', {
   status: varchar('status', { length: 50 }), // DRAFT | COMPLETED
   branch_id: varchar('branch_id', { length: 255 }),
   note: text('note'),
-});
+}, (table) => ({
+  tenantBranchIdx: index('idx_grn_tenant_branch').on(table.tenant_id, table.branch_id),
+}));
 
 export const goods_receipt_note_items = pgTable('goods_receipt_note_items', {
   ...getBaseColumns(),
@@ -476,7 +486,9 @@ export const goods_receipt_note_items = pgTable('goods_receipt_note_items', {
   qty_received: varchar('qty_received', { length: 50 }),
   unit_cost: varchar('unit_cost', { length: 50 }),
   line_total: varchar('line_total', { length: 50 }),
-});
+}, (table) => ({
+  grnIdTenantIdx: index('idx_gri_grn_tenant').on(table.grn_id, table.tenant_id),
+}));
 
 export const product_purchase_history = pgTable('product_purchase_history', {
   ...getBaseColumns(),
@@ -486,5 +498,7 @@ export const product_purchase_history = pgTable('product_purchase_history', {
   supplier_name: varchar('supplier_name', { length: 255 }),
   unit_price: varchar('unit_price', { length: 50 }),
   purchased_at: varchar('purchased_at', { length: 50 }),
-});
+}, (table) => ({
+  prodTenantIdx: index('idx_pph_prod_tenant').on(table.product_id, table.tenant_id),
+}));
 

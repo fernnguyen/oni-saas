@@ -9,6 +9,7 @@ import { SlideOver } from '@/app/components/ui/SlideOver';
 import { EmptyState } from '@/app/components/ui/EmptyState';
 import { SearchBar } from '@/app/components/ui/SearchBar';
 import { TagBadge } from '@/app/components/ui/TagBadge';
+import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog';
 
 interface Props {
   shopId: string;
@@ -34,6 +35,21 @@ export function POClient({ shopId, userId }: Props) {
   const [detailPo, setDetailPo] = useState<Record<string, string> | null>(null);
   const [detailItems, setDetailItems] = useState<Record<string, string>[]>([]);
   const [detailSlideOpen, setDetailSlideOpen] = useState(false);
+  const [loadingItems, setLoadingItems] = useState(false);
+
+  // Confirm dialog state
+  const [confirmState, setConfirmState] = useState<{
+    open: boolean;
+    title: string;
+    description: string;
+    onConfirm: () => void | Promise<void>;
+    variant?: 'danger' | 'default';
+  }>({
+    open: false,
+    title: '',
+    description: '',
+    onConfirm: () => {},
+  });
 
   // Fetch POs
   const { data, isLoading, isFetching } = useQuery({
@@ -63,80 +79,53 @@ export function POClient({ shopId, userId }: Props) {
   // Action Mutation to generate GRN
   const createGRNMutation = useMutation({
     mutationFn: async (po: Record<string, string>) => {
-      // 1. Create Goods Receipt Note Draft Header
-      const headerRes = await fetch(`/api/shops/${shopId}/p2p`, {
+      const res = await fetch(`/api/shops/${shopId}/p2p`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'CREATE',
-          entity: 'goods-receipt-notes',
-          data: {
-            purchase_order_id: po.id,
-            received_by: userId,
-            warehouse_id: 'DEFAULT',
-            status: 'DRAFT',
-            branch_id: shopId,
-            note: `Tự động tạo đối chiếu theo đơn đặt hàng PO #${po.id}`,
-          },
+          action: 'CREATE_GRN_FROM_PO',
+          purchase_order_id: po.id,
         }),
       });
-      if (!headerRes.ok) throw new Error('Tạo phiếu đối chiếu GRN thất bại');
-      const grn = await headerRes.json();
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error ?? 'Tạo phiếu đối chiếu GRN thất bại');
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast.success('Đã tạo bản nháp Phiếu nhập đối chiếu (GRN). Hãy chuyển sang mục Nhập kho đối chiếu để xác nhận.');
+      setDetailSlideOpen(false);
+      setConfirmState(prev => ({ ...prev, open: false }));
+      queryClient.invalidateQueries({ queryKey: ['purchase-orders', shopId] });
+    },
+    onError: (err) => {
+      toast.error(err.message);
+      setConfirmState(prev => ({ ...prev, open: false }));
+    },
+  });
 
-      // 2. Fetch PO Items
+  async function openDetail(po: Record<string, string>) {
+    setDetailPo(po);
+    setDetailSlideOpen(true);
+    setLoadingItems(true);
+    try {
       const sp = new URLSearchParams({
         entity: 'purchase-order-items',
         limit: '100',
         filters: JSON.stringify({ purchase_order_id: po.id }),
       });
-      const itemsRes = await fetch(`/api/shops/${shopId}/p2p?${sp}`);
-      if (!itemsRes.ok) throw new Error('Không tải được chi tiết đơn PO');
-      const itemsData = await itemsRes.json();
-
-      // 3. Copy items into GRN Items
-      for (const poItem of itemsData.data) {
-        const lineTotal = parseFloat(poItem.qty || '0') * parseFloat(poItem.actual_unit_price || '0');
-        await fetch(`/api/shops/${shopId}/p2p`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'CREATE',
-            entity: 'goods-receipt-note-items',
-            data: {
-              grn_id: grn.id,
-              product_id: poItem.product_id || '',
-              product_name: poItem.product_name || '',
-              qty_ordered: poItem.qty || '0',
-              qty_received: poItem.qty || '0', // Default to ordered quantity, to be checked on receipt
-              unit_cost: poItem.actual_unit_price || '0',
-              line_total: String(lineTotal),
-            },
-          }),
-        });
+      const res = await fetch(`/api/shops/${shopId}/p2p?${sp}`);
+      if (res.ok) {
+        const json = await res.json();
+        setDetailItems(json.data);
       }
-      return grn;
-    },
-    onSuccess: () => {
-      toast.success('Đã tạo bản nháp Phiếu nhập đối chiếu (GRN). Hãy chuyển sang mục Nhập kho đối chiếu để xác nhận.');
-      setDetailSlideOpen(false);
-      queryClient.invalidateQueries({ queryKey: ['purchase-orders', shopId] });
-    },
-    onError: (err) => toast.error(err.message),
-  });
-
-  async function openDetail(po: Record<string, string>) {
-    setDetailPo(po);
-    const sp = new URLSearchParams({
-      entity: 'purchase-order-items',
-      limit: '100',
-      filters: JSON.stringify({ purchase_order_id: po.id }),
-    });
-    const res = await fetch(`/api/shops/${shopId}/p2p?${sp}`);
-    if (res.ok) {
-      const json = await res.json();
-      setDetailItems(json.data);
+    } catch (err) {
+      console.error(err);
+      toast.error('Lỗi tải chi tiết đơn hàng PO');
+    } finally {
+      setLoadingItems(false);
     }
-    setDetailSlideOpen(true);
   }
 
   const columns = useMemo<Column<Record<string, string>>[]>(() => [
@@ -262,13 +251,20 @@ export function POClient({ shopId, userId }: Props) {
               <button
                 onClick={() => {
                   if (detailPo) {
-                    createGRNMutation.mutate(detailPo);
+                    setConfirmState({
+                      open: true,
+                      title: 'Lập phiếu đối chiếu GRN?',
+                      description: 'Bạn có chắc chắn muốn lập phiếu đối chiếu nhập kho GRN dựa trên đơn đặt hàng PO này?',
+                      onConfirm: () => {
+                        createGRNMutation.mutate(detailPo);
+                      }
+                    });
                   }
                 }}
                 disabled={createGRNMutation.isPending}
                 className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-dark shadow-sm transition-colors disabled:opacity-50"
               >
-                {createGRNMutation.isPending ? 'Đang khởi tạo...' : 'Lập phiếu Nhập kho đối chiếu (GRN)'}
+                Lập phiếu Nhập kho đối chiếu (GRN)
               </button>
             )}
           </div>
@@ -281,7 +277,7 @@ export function POClient({ shopId, userId }: Props) {
               <span className="font-semibold text-slate-800">{detailPo?.supplier_name}</span>
 
               <span className="text-slate-500">Nhân viên mua sắm:</span>
-              <span className="font-semibold text-slate-800">{detailPo?.purchaser_id}</span>
+              <span className="font-semibold text-slate-800">{detailPo?.purchaser_name || detailPo?.purchaser_id || 'N/A'}</span>
 
               <span className="text-slate-500">Tổng giá trị:</span>
               <span className="font-semibold text-primary">
@@ -300,27 +296,52 @@ export function POClient({ shopId, userId }: Props) {
 
           <div className="border-t border-slate-100 pt-4">
             <h3 className="text-sm font-bold text-slate-800 mb-3">Danh sách hàng hóa đặt mua</h3>
-            <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden bg-white">
-              {detailItems.map((item) => (
-                <div key={item.id} className="p-3 flex items-center justify-between">
-                  <div>
-                    <div className="text-sm font-semibold text-slate-800">{item.product_name}</div>
-                    <div className="text-xs text-slate-500">Số lượng đặt: <span className="font-bold text-slate-700">{item.qty}</span></div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-sm font-semibold text-slate-800">
-                      {item.actual_unit_price ? parseFloat(item.actual_unit_price).toLocaleString('vi-VN') + ' đ' : '0 đ'}
-                    </div>
-                    <div className="text-xs text-slate-500">
-                      Tổng: { (parseFloat(item.actual_unit_price || '0') * parseFloat(item.qty || '0')).toLocaleString('vi-VN') } đ
-                    </div>
-                  </div>
+            
+            {loadingItems ? (
+              <div className="animate-pulse space-y-4 py-4">
+                <div className="h-4 bg-slate-200 rounded w-1/3 animate-bounce"></div>
+                <div className="space-y-3">
+                  <div className="h-12 bg-slate-200 rounded-xl"></div>
+                  <div className="h-12 bg-slate-200 rounded-xl"></div>
+                  <div className="h-12 bg-slate-200 rounded-xl"></div>
                 </div>
-              ))}
-            </div>
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden bg-white">
+                {detailItems.map((item) => (
+                  <div key={item.id} className="p-3 flex items-center justify-between">
+                    <div>
+                      <div className="text-sm font-semibold text-slate-800">{item.product_name}</div>
+                      <div className="text-xs text-slate-500">Số lượng đặt: <span className="font-bold text-slate-700">{item.qty}</span></div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-sm font-semibold text-slate-800">
+                        {item.actual_unit_price ? parseFloat(item.actual_unit_price).toLocaleString('vi-VN') + ' đ' : '0 đ'}
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        Tổng: { (parseFloat(item.actual_unit_price || '0') * parseFloat(item.qty || '0')).toLocaleString('vi-VN') } đ
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </SlideOver>
+
+      {/* Global Action Confirm Dialog */}
+      <ConfirmDialog
+        open={confirmState.open}
+        onClose={() => setConfirmState(prev => ({ ...prev, open: false }))}
+        onConfirm={confirmState.onConfirm}
+        title={confirmState.title}
+        description={confirmState.description}
+        variant={confirmState.variant}
+        confirmLabel="Xác nhận"
+        cancelLabel="Hủy"
+        loading={createGRNMutation.isPending}
+      />
     </div>
   );
 }
