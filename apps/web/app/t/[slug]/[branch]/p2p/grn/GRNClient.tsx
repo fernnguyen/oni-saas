@@ -9,6 +9,7 @@ import { SlideOver } from '@/app/components/ui/SlideOver';
 import { EmptyState } from '@/app/components/ui/EmptyState';
 import { SearchBar } from '@/app/components/ui/SearchBar';
 import { TagBadge } from '@/app/components/ui/TagBadge';
+import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog';
 
 interface Props {
   shopId: string;
@@ -34,6 +35,21 @@ export function GRNClient({ shopId }: Props) {
   const [detailItems, setDetailItems] = useState<Record<string, string>[]>([]);
   const [receivedEdits, setReceivedEdits] = useState<Record<string, string>>({}); // itemId -> qty_received
   const [slideOpen, setSlideOpen] = useState(false);
+  const [loadingItems, setLoadingItems] = useState(false);
+
+  // Confirm dialog state
+  const [confirmState, setConfirmState] = useState<{
+    open: boolean;
+    title: string;
+    description: string;
+    onConfirm: () => void | Promise<void>;
+    variant?: 'danger' | 'default';
+  }>({
+    open: false,
+    title: '',
+    description: '',
+    onConfirm: () => {},
+  });
 
   // Fetch GRNs
   const { data, isLoading, isFetching } = useQuery({
@@ -99,35 +115,47 @@ export function GRNClient({ shopId }: Props) {
     onSuccess: () => {
       toast.success('Đã đối chiếu và nhập kho thành công! Giá vốn BOM & Công nợ NCC đã tự động cập nhật.');
       setSlideOpen(false);
+      setConfirmState(prev => ({ ...prev, open: false }));
       queryClient.invalidateQueries({ queryKey: ['goods-receipt-notes', shopId] });
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => {
+      toast.error(err.message);
+      setConfirmState(prev => ({ ...prev, open: false }));
+    },
   });
 
   async function openDetail(grn: Record<string, string>) {
     setDetailGrn(grn);
-    const sp = new URLSearchParams({
-      entity: 'goods-receipt-note-items',
-      limit: '100',
-      filters: JSON.stringify({ grn_id: grn.id }),
-    });
-    const res = await fetch(`/api/shops/${shopId}/p2p?${sp}`);
-    if (res.ok) {
-      const json = await res.json();
-      setDetailItems(json.data);
-      const edits: Record<string, string> = {};
-      json.data.forEach((item: any) => {
-        edits[item.id] = item.qty_received || '0';
-      });
-      setReceivedEdits(edits);
-    }
     setSlideOpen(true);
+    setLoadingItems(true);
+    try {
+      const sp = new URLSearchParams({
+        entity: 'goods-receipt-note-items',
+        limit: '100',
+        filters: JSON.stringify({ grn_id: grn.id }),
+      });
+      const res = await fetch(`/api/shops/${shopId}/p2p?${sp}`);
+      if (res.ok) {
+        const json = await res.json();
+        setDetailItems(json.data);
+        const edits: Record<string, string> = {};
+        json.data.forEach((item: any) => {
+          edits[item.id] = item.qty_received || '0';
+        });
+        setReceivedEdits(edits);
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('Lỗi tải chi tiết mặt hàng đối chiếu');
+    } finally {
+      setLoadingItems(false);
+    }
   }
 
   const columns = useMemo<Column<Record<string, string>>[]>(() => [
     { key: 'id', label: 'Mã Phiếu', render: (row) => <span className="font-mono text-xs">{row.id}</span> },
     { key: 'purchase_order_id', label: 'Đơn PO', render: (row) => <span className="font-mono text-xs text-slate-500">{row.purchase_order_id}</span> },
-    { key: 'received_by', label: 'Kế toán nhận', render: (row) => <span className="text-slate-700">{row.received_by}</span> },
+    { key: 'received_by', label: 'Kế toán nhận', render: (row) => <span className="text-slate-700 font-semibold">{row.receiver_name || row.received_by || '---'}</span> },
     {
       key: 'status',
       label: 'Trạng thái',
@@ -240,71 +268,115 @@ export function GRNClient({ shopId }: Props) {
               <button
                 onClick={() => {
                   if (detailGrn?.id) {
-                    approveGRNMutation.mutate(detailGrn.id);
+                    setConfirmState({
+                      open: true,
+                      title: 'Hoàn tất Nhập kho đối chiếu?',
+                      description: 'Hệ thống sẽ thực hiện tăng tồn kho vật lý chi nhánh, tự động tính toán lại Giá vốn trung bình di động và hạch toán công nợ phải trả. Bạn có chắc chắn muốn hoàn tất?',
+                      onConfirm: () => {
+                        approveGRNMutation.mutate(detailGrn.id);
+                      }
+                    });
                   }
                 }}
                 disabled={approveGRNMutation.isPending}
                 className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-dark shadow-sm transition-colors disabled:opacity-50"
               >
-                {approveGRNMutation.isPending ? 'Đang hạch toán...' : 'Duyệt Hoàn Tất Nhập Kho'}
+                Duyệt Hoàn Tất Nhập Kho
               </button>
             )}
           </div>
         }
       >
         <div className="space-y-5">
+          <div className="rounded-xl bg-slate-50 p-4 border border-slate-100 text-sm">
+            <div className="grid grid-cols-2 gap-y-2">
+              <span className="text-slate-500">Kế toán nhận:</span>
+              <span className="font-semibold text-slate-800">{detailGrn?.receiver_name || detailGrn?.received_by || 'N/A'}</span>
+
+              <span className="text-slate-500">Đơn đặt hàng PO:</span>
+              <span className="font-mono font-semibold text-slate-850">{detailGrn?.purchase_order_id}</span>
+
+              <span className="text-slate-500">Mô tả ghi chú:</span>
+              <span className="font-semibold text-slate-800">{detailGrn?.note || '---'}</span>
+            </div>
+          </div>
+
           {detailGrn?.status === 'DRAFT' && (
             <div className="rounded-xl border border-amber-100 bg-amber-50 p-4 text-xs text-amber-700 leading-relaxed">
               <strong>💡 Hướng dẫn đối chiếu 3 chiều (3-Way Matching):</strong>
               <p className="mt-1">
-                Hãy kiểm đếm số lượng thực tế nhận được từ nhà cung cấp và điền vào cột <strong>Thực nhận</strong>. Nếu số lượng thực nhận lệch so với số lượng đặt trên PO, hệ thống sẽ cảnh báo màu đỏ. Khi bạn phê duyệt, ONI sẽ tự động tăng số lượng tồn kho theo đúng số thực nhận và ghi nhận giá vốn di động mới.
+                Hãy kiểm đếm số lượng thực tế nhận được từ nhà cung cấp và điền vào cột <strong>Thực nhận</strong>. Nếu số lượng thực nhận lệch so với số lượng đặt trên PO, hệ thống sẽ cảnh báo màu đỏ. Khi bạn phê duyệt, hệ thống sẽ tự động tăng số lượng tồn kho theo đúng số thực nhận và ghi nhận giá vốn di động mới.
               </p>
             </div>
           )}
 
-          <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden bg-white">
-            {detailItems.map((item) => {
-              const qtyOrdered = parseFloat(item.qty_ordered || '0');
-              const qtyReceived = parseFloat(receivedEdits[item.id] ?? item.qty_received ?? '0');
-              const hasDiscrepancy = qtyReceived !== qtyOrdered;
+          {loadingItems ? (
+            <div className="animate-pulse space-y-4 py-4">
+              <div className="h-4 bg-slate-200 rounded w-1/3 animate-bounce"></div>
+              <div className="space-y-3">
+                <div className="h-14 bg-slate-200 rounded-xl"></div>
+                <div className="h-14 bg-slate-200 rounded-xl"></div>
+                <div className="h-14 bg-slate-200 rounded-xl"></div>
+              </div>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden bg-white">
+              {detailItems.map((item) => {
+                const qtyOrdered = parseFloat(item.qty_ordered || '0');
+                const qtyReceived = parseFloat(receivedEdits[item.id] ?? item.qty_received ?? '0');
+                const hasDiscrepancy = qtyReceived !== qtyOrdered;
 
-              return (
-                <div key={item.id} className="p-3 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-semibold text-slate-800">{item.product_name}</span>
-                    {hasDiscrepancy && (
-                      <span className="rounded-full bg-red-50 border border-red-100 px-2.5 py-0.5 text-[10px] font-bold text-red-600 animate-pulse">
-                        ⚠️ Lệch số lượng
-                      </span>
-                    )}
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-4 items-center bg-slate-50 p-2.5 rounded-lg border border-slate-100">
-                    <div className="text-xs text-slate-500">
-                      Số lượng đặt trên PO: <span className="font-bold text-slate-700">{item.qty_ordered}</span>
-                    </div>
-
-                    <div className="flex items-center justify-end gap-2">
-                      <span className="text-xs text-slate-500">Thực nhận:</span>
-                      {detailGrn?.status === 'DRAFT' ? (
-                        <input
-                          type="number"
-                          value={receivedEdits[item.id] ?? ''}
-                          onChange={(e) => setReceivedEdits((prev) => ({ ...prev, [item.id]: e.target.value }))}
-                          className="w-20 rounded-lg border border-slate-200 px-2 py-1 text-xs text-center focus:border-primary focus:outline-none bg-white shadow-inner font-bold"
-                          min="0"
-                        />
-                      ) : (
-                        <span className="text-sm font-bold text-green-600">{item.qty_received}</span>
+                return (
+                  <div key={item.id} className="p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-semibold text-slate-800">{item.product_name}</span>
+                      {hasDiscrepancy && (
+                        <span className="rounded-full bg-red-50 border border-red-100 px-2.5 py-0.5 text-[10px] font-bold text-red-600 animate-pulse">
+                          ⚠️ Lệch số lượng
+                        </span>
                       )}
                     </div>
+                    
+                    <div className="grid grid-cols-2 gap-4 items-center bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                      <div className="text-xs text-slate-500">
+                        Số lượng đặt trên PO: <span className="font-bold text-slate-700">{item.qty_ordered}</span>
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2">
+                        <span className="text-xs text-slate-500">Thực nhận:</span>
+                        {detailGrn?.status === 'DRAFT' ? (
+                          <input
+                            type="number"
+                            value={receivedEdits[item.id] ?? ''}
+                            onChange={(e) => setReceivedEdits((prev) => ({ ...prev, [item.id]: e.target.value }))}
+                            className="w-20 rounded-lg border border-slate-200 px-2 py-1 text-xs text-center focus:border-primary focus:outline-none bg-white shadow-inner font-bold"
+                            min="0"
+                          />
+                        ) : (
+                          <span className="text-sm font-bold text-green-600">{item.qty_received}</span>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </SlideOver>
+
+      {/* Action Confirm Dialog */}
+      <ConfirmDialog
+        open={confirmState.open}
+        onClose={() => setConfirmState(prev => ({ ...prev, open: false }))}
+        onConfirm={confirmState.onConfirm}
+        title={confirmState.title}
+        description={confirmState.description}
+        variant={confirmState.variant}
+        confirmLabel="Xác nhận"
+        cancelLabel="Hủy"
+        loading={approveGRNMutation.isPending}
+      />
     </div>
   );
 }
