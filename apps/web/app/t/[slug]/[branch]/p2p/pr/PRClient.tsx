@@ -141,7 +141,7 @@ interface PRItem {
 const STATUS_OPTIONS = [
   { value: 'ALL', label: 'Tất cả trạng thái' },
   { value: 'DRAFT', label: 'Bản nháp' },
-  { value: 'PENDING_PRICING', label: 'Chờ gán giá & NCC' },
+  { value: 'PENDING_PRICING', label: 'Chờ báo giá & NCC' },
   { value: 'PENDING_KTT', label: 'Chờ KTT duyệt' },
   { value: 'PENDING_GD', label: 'Chờ Giám đốc duyệt' },
   { value: 'APPROVED', label: 'Đã duyệt (Chờ tạo PO)' },
@@ -597,7 +597,7 @@ export function PRClient({ shopId, userId }: Props) {
       label: 'Tổng tiền (Dự kiến)',
       render: (row) => {
         const hasEstimated = row.estimated_total && parseFloat(row.estimated_total) > 0;
-        if (!hasEstimated) return <span className="text-slate-500 italic">Chưa gán giá</span>;
+        if (!hasEstimated) return <span className="text-slate-500 italic">Chưa báo giá</span>;
         
         return (
           <span className="font-semibold text-slate-900">
@@ -785,7 +785,7 @@ export function PRClient({ shopId, userId }: Props) {
                 setConfirmState({
                   open: true,
                   title: 'Gửi phê duyệt Đề xuất?',
-                  description: 'Bạn có chắc chắn muốn lập phiếu và gửi đề xuất mua hàng PR này tới phòng mua sắm để gán giá?',
+                  description: 'Bạn có chắc chắn muốn lập phiếu và gửi đề xuất mua hàng PR này tới phòng mua sắm để báo giá?',
                   onConfirm: () => {
                     createPRMutation.mutate({ note, items: selectedItems, status: 'PENDING_PRICING' });
                   }
@@ -909,7 +909,7 @@ export function PRClient({ shopId, userId }: Props) {
                     setConfirmState({
                       open: true,
                       title: 'Gửi phê duyệt Đề xuất?',
-                      description: 'Bạn có chắc chắn muốn gửi đề xuất PR này tới phòng mua sắm để gán giá và tìm kiếm nhà cung cấp?',
+                      description: 'Bạn có chắc chắn muốn gửi đề xuất PR này tới phòng mua sắm để báo giá và tìm kiếm nhà cung cấp?',
                       onConfirm: () => {
                         transitionPRMutation.mutate({ prId: detailPr.id, prAction: 'SUBMIT' });
                       }
@@ -931,7 +931,7 @@ export function PRClient({ shopId, userId }: Props) {
                     setConfirmState({
                       open: true,
                       title: 'Thu hồi Đề xuất PR?',
-                      description: 'Bạn có chắc chắn muốn thu hồi phiếu đề xuất PR này về trạng thái (bản nháp) để chỉnh sửa? Bộ phận thu mua sẽ không thể xem hoặc gán giá cho phiếu này cho đến khi bạn gửi lại.',
+                      description: 'Bạn có chắc chắn muốn thu hồi phiếu đề xuất PR này về trạng thái (bản nháp) để chỉnh sửa? Bộ phận thu mua sẽ không thể xem hoặc báo giá cho phiếu này cho đến khi bạn gửi lại.',
                       onConfirm: () => {
                         transitionPRMutation.mutate({ prId: detailPr.id, prAction: 'RECALL' });
                       }
@@ -950,7 +950,7 @@ export function PRClient({ shopId, userId }: Props) {
                 <button
                   onClick={() => {
                     if (!selectedSupplierId) {
-                      toast.error('Vui lòng chọn một Nhà cung cấp để gán giá.');
+                      toast.error('Vui lòng chọn một Nhà cung cấp để báo giá.');
                       return;
                     }
                     const payloadItems = detailItems.map((item) => {
@@ -965,8 +965,8 @@ export function PRClient({ shopId, userId }: Props) {
 
                     setConfirmState({
                       open: true,
-                      title: 'Gán giá & Trình duyệt?',
-                      description: 'Bạn có chắc chắn muốn gán đơn giá đã chọn và chuyển tiếp đề xuất PR này cho Kế toán trưởng duyệt cấp 1?',
+                      title: 'Báo giá & Trình duyệt?',
+                      description: 'Bạn có chắc chắn muốn báo giá và chuyển tiếp đề xuất PR này cho Kế toán trưởng duyệt cấp 1?',
                       onConfirm: () => {
                         transitionPRMutation.mutate({
                           prId: detailPr.id,
@@ -982,7 +982,7 @@ export function PRClient({ shopId, userId }: Props) {
                   disabled={transitionPRMutation.isPending}
                   className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-dark shadow-sm transition-colors"
                 >
-                  Gán giá & Chuyển KTT Duyệt
+                  Báo giá & Chuyển KTT Duyệt
                 </button>
               </>
             )}
@@ -1273,7 +1273,7 @@ export function PRClient({ shopId, userId }: Props) {
                             </div>
                           </div>
                         ) : (
-                          <span className="text-xs italic text-slate-400">Chưa gán giá</span>
+                          <span className="text-xs italic text-slate-400">Chưa báo giá</span>
                         )}
                       </div>
                     ))}

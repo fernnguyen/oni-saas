@@ -7,6 +7,7 @@ import { getUserPermissions } from '../../../../../lib/server/permissions';
 import { getTenantForUser } from '../../../../../lib/server/tenants';
 import { getConnectorForShop } from '../../../../../lib/server/connectorFactory';
 import { checkFeatureAccess } from '../../../../../lib/server/features';
+import { invalidate } from '../../../../../lib/server/cache';
 import { P2PEngine, type PRAction } from '@oni/core';
 
 export const dynamic = 'force-dynamic';
@@ -272,6 +273,7 @@ export async function POST(
         if (!data) return NextResponse.json({ error: 'Missing row payload' }, { status: 400 });
 
         const inserted = await connector.create(entity, data);
+        invalidate(shopId, entity); // Thu hồi Next.js server-side cache của thực thể này
         return NextResponse.json(inserted);
       }
 
@@ -287,6 +289,7 @@ export async function POST(
         }
 
         const updated = await connector.update(entity, body.id, body.data);
+        invalidate(shopId, entity); // Thu hồi Next.js server-side cache của thực thể này
         return NextResponse.json(updated);
       }
 
@@ -302,6 +305,7 @@ export async function POST(
         }
 
         await connector.delete(entity, body.id);
+        invalidate(shopId, entity); // Thu hồi Next.js server-side cache của thực thể này
         return NextResponse.json({ ok: true });
       }
 
@@ -312,7 +316,7 @@ export async function POST(
         // Enforce granular transition permissions
         if (prAction === 'ASSIGN_PRICE') {
           const allowed = ctx.permissions.includes('purchasing.manage') || ctx.permissions.includes('purchaser') || ctx.permissions.includes('admin');
-          if (!allowed) return NextResponse.json({ error: 'Bạn không có vai trò Gán giá mua.' }, { status: 403 });
+          if (!allowed) return NextResponse.json({ error: 'Bạn không có vai trò Báo giá.' }, { status: 403 });
         } else if (prAction === 'APPROVE_KTT') {
           const allowed = ctx.permissions.includes('chief_accountant') || ctx.permissions.includes('admin') || ctx.permissions.includes('owner');
           if (!allowed) return NextResponse.json({ error: 'Bạn không có vai trò Kế toán trưởng duyệt.' }, { status: 403 });
