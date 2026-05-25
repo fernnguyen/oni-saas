@@ -406,6 +406,8 @@ export function TableMapPOS({
 
   // Redirect to first zone when in map mode and selectedZone is null or invalid
   useEffect(() => {
+    if (loading) return // Wait until resources are loaded to avoid initial empty state races
+
     if (viewMode === 'map') {
       const visibleZones = sortedZones
       if (!selectedZone || !visibleZones.includes(selectedZone)) {
@@ -415,8 +417,13 @@ export function TableMapPOS({
           setSelectedZone('Chưa phân vùng')
         }
       }
+    } else {
+      // In grid/list mode: if selectedZone is invalid (e.g. "Chưa phân vùng" set by map mode before loading finished), reset to null
+      if (selectedZone !== null && !sortedZones.includes(selectedZone)) {
+        setSelectedZone(null)
+      }
     }
-  }, [viewMode, selectedZone, sortedZones])
+  }, [viewMode, selectedZone, sortedZones, loading])
 
   function handleResourceClick(r: Resource) {
     if (r.status === 'available' || r.status === 'occupied') {

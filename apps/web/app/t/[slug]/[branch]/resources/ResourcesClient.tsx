@@ -94,11 +94,24 @@ function RowActions({ r, onEdit, onDuplicate, onSuspend, onRestore, onStatusChan
   }, [open])
 
   return (
-    <div className="flex items-center justify-end gap-1.5">
-      <button onClick={onEdit} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:bg-slate-50 transition-colors whitespace-nowrap">
+    <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
+      <button
+        onClick={(e) => {
+          e.stopPropagation()
+          onEdit()
+        }}
+        className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:bg-slate-50 transition-colors whitespace-nowrap"
+      >
         Sửa
       </button>
-      <button ref={buttonRef} onClick={handleToggle} className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:bg-slate-50 transition-colors whitespace-nowrap">
+      <button
+        ref={buttonRef}
+        onClick={(e) => {
+          e.stopPropagation()
+          handleToggle()
+        }}
+        className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:bg-slate-50 transition-colors whitespace-nowrap"
+      >
         Thao tác
         <svg className="w-3 h-3 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
       </button>
