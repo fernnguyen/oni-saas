@@ -156,7 +156,7 @@ export default async function BranchLayout({ params, children }: Props) {
   const hasP2pAccess = await checkFeatureAccess(tenant.id, 'warehouse_p2p');
 
   return (
-    <NotificationProvider shopId={shop.id}>
+    <NotificationProvider shopId={shop.id} tenantId={tenant.id}>
       <DashboardShell
         tenantId={tenant.id}
         hasP2pAccess={hasP2pAccess}

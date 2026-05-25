@@ -99,6 +99,9 @@ importers:
       '@aws-sdk/s3-request-presigner':
         specifier: ^3.1046.0
         version: 3.1046.0
+      ioredis:
+        specifier: ^5.10.1
+        version: 5.10.1
       xlsx:
         specifier: ^0.18.5
         version: 0.18.5
