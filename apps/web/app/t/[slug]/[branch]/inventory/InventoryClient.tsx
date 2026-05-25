@@ -32,6 +32,7 @@ type Tab = 'stock' | 'history'
 
 const MOVEMENT_TYPES = [
   { value: 'purchase_in', label: 'Nhập hàng', color: 'blue' as TagColor, sign: '+', hint: 'Hàng về từ NCC → tăng tồn kho, cập nhật giá vốn' },
+  { value: 'p2p_purchase_in', label: 'Nhập hàng P2P', color: 'indigo' as TagColor, sign: '+', hint: 'Hàng về từ NCC qua đối chiếu mua sắm P2P' },
   { value: 'sale_out', label: 'Bán hàng', color: 'green' as TagColor, sign: '-', hint: 'Xuất kho khi bán hàng' },
   { value: 'return_in', label: 'Hàng trả về', color: 'red' as TagColor, sign: '+', hint: 'Khách hoàn trả → tăng tồn kho' },
   { value: 'transfer_out', label: 'Xuất chuyển kho', color: 'orange' as TagColor, sign: '-', hint: 'Chuyển hàng sang chi nhánh khác' },
@@ -357,6 +358,21 @@ function CategorySelect({
 
 export function InventoryClient({ shopId, shopName }: Props) {
   const queryClient = useQueryClient()
+
+  // Fetch user details / role inside tenant
+  const { data: permissionsData } = useQuery({
+    queryKey: ['user-permissions', shopId],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/settings`)
+      return res.json()
+    },
+  })
+
+  const hasPricingPermission = useMemo(() => {
+    return permissionsData?.permissions?.some((p: string) =>
+      ['admin', 'owner', 'purchaser', 'purchasing.manage', 'chief_accountant'].includes(p)
+    ) || false
+  }, [permissionsData])
   const params = useParams()
   const pathname = usePathname()
   const [activeTab, setActiveTab] = useState<Tab>('history')
@@ -1103,9 +1119,15 @@ export function InventoryClient({ shopId, shopName }: Props) {
             <span className={`font-semibold tabular-nums ${color}`}>
               {prefix}{Math.abs(qty).toLocaleString('vi-VN')}
             </span>
-            {row.type === 'purchase_in' && row.unit_cost && Number(row.unit_cost) > 0 && (
+            {(row.type === 'purchase_in' || row.type === 'p2p_purchase_in') && row.unit_cost && Number(row.unit_cost) > 0 && (
               <span className="text-[11px] text-slate-500 mt-0.5">
-                x {fmtVND(row.unit_cost)}
+                {hasPricingPermission || (row.type === 'purchase_in' && !row.reason?.includes('GRN')) ? (
+                  <>x {fmtVND(row.unit_cost)}</>
+                ) : (
+                  <span className="text-slate-400 italic inline-flex items-center gap-0.5">
+                    x <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="inline text-slate-400"><rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg> ***.***
+                  </span>
+                )}
               </span>
             )}
           </div>
@@ -1116,7 +1138,16 @@ export function InventoryClient({ shopId, shopName }: Props) {
       key: 'payment_status',
       label: 'Thanh toán',
       render: (row) => {
-        if (row.type !== 'purchase_in') return <span className="text-slate-300 text-xs">—</span>
+        if (row.type !== 'purchase_in' && row.type !== 'p2p_purchase_in') return <span className="text-slate-300 text-xs">—</span>
+        if (!hasPricingPermission && (row.type === 'p2p_purchase_in' || (row.type === 'purchase_in' && row.reason?.includes('GRN')))) {
+          return (
+            <div className="flex flex-col gap-1">
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-50 text-slate-400 border border-slate-200 tabular-nums">
+                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="inline text-slate-400"><rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg> ***.*** đ
+              </span>
+            </div>
+          )
+        }
         let parsedPayments: any[] = []
         try {
           if (typeof row.payments === 'string' && row.payments.trim()) {
@@ -1934,10 +1965,16 @@ export function InventoryClient({ shopId, shopName }: Props) {
               </div>
               <div>
                 <p className="text-slate-500 mb-1">Đơn giá</p>
-                <p className="font-medium text-slate-900">{fmtVND(viewMovement.unit_cost)}</p>
+                {hasPricingPermission || (viewMovement.type !== 'p2p_purchase_in' && !(viewMovement.type === 'purchase_in' && viewMovement.reason?.includes('GRN'))) ? (
+                  <p className="font-medium text-slate-900">{fmtVND(viewMovement.unit_cost)}</p>
+                ) : (
+                  <p className="font-medium text-slate-400 italic flex items-center gap-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="inline text-slate-400"><rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg> ***.***
+                  </p>
+                )}
               </div>
 
-              {['purchase_in'].includes(viewMovement.type) && (viewMovement.batch_no || viewMovement.shipment_no) && (
+              {['purchase_in', 'p2p_purchase_in'].includes(viewMovement.type) && (viewMovement.batch_no || viewMovement.shipment_no) && (
                 <>
                   {viewMovement.batch_no && (
                     <div>
@@ -1954,7 +1991,10 @@ export function InventoryClient({ shopId, shopName }: Props) {
                 </>
               )}
 
-              {viewMovement.type === 'purchase_in' && (() => {
+              {(viewMovement.type === 'purchase_in' || viewMovement.type === 'p2p_purchase_in') && (() => {
+                const isP2PMovement = viewMovement.type === 'p2p_purchase_in' || (viewMovement.type === 'purchase_in' && viewMovement.reason?.includes('GRN'));
+                const showMask = !hasPricingPermission && isP2PMovement;
+
                 const totalCost = Number(viewMovement.unit_cost || 0) * Math.abs(Number(viewMovement.qty || 0));
                 const discount = Number(viewMovement.discount || 0);
                 const afterDiscount = Math.max(0, totalCost - discount);
@@ -1974,13 +2014,20 @@ export function InventoryClient({ shopId, shopName }: Props) {
                   <div className="col-span-2 mt-2 pt-2 border-t border-slate-100">
                     <p className="text-slate-500 mb-2">Thông tin thanh toán</p>
                     <div className="flex items-center justify-between mb-3">
-                      <PaymentStatusLabel
-                        status={(viewMovement.payment_status as PaymentStatus) || 'paid'}
-                        amount={displayAmount}
-                      />
+                      {showMask ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-50 text-slate-400 border border-slate-200 tabular-nums">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="inline text-slate-400"><rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg> ***.*** đ
+                        </span>
+                      ) : (
+                        <PaymentStatusLabel
+                          status={(viewMovement.payment_status as PaymentStatus) || 'paid'}
+                          amount={displayAmount}
+                        />
+                      )}
                     </div>
 
                     {(() => {
+                      if (showMask) return null;
                       let parsedPayments: any[] = []
                       try {
                         if (typeof viewMovement.payments === 'string' && viewMovement.payments.trim()) {
@@ -2015,30 +2062,47 @@ export function InventoryClient({ shopId, shopName }: Props) {
                       return null
                     })()}
 
-                    <div className="space-y-1.5 text-sm bg-slate-50 p-3 rounded-xl border border-slate-100">
-                      <div className="flex justify-between">
-                        <span className="text-slate-500">Tổng tiền hàng:</span>
-                        <span className="font-medium text-slate-900">{fmtVND(totalCost)}</span>
-                      </div>
-                      {discount > 0 && (
+                    {showMask ? (
+                      <div className="space-y-1.5 text-sm bg-slate-50 p-3 rounded-xl border border-slate-100">
                         <div className="flex justify-between">
-                          <span className="text-slate-500">Giảm giá:</span>
-                          <span className="font-medium text-orange-600">-{fmtVND(discount)}</span>
+                          <span className="text-slate-500">Tổng tiền hàng:</span>
+                          <span className="font-medium text-slate-400 italic flex items-center gap-1">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="inline text-slate-400"><rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg> ***.*** đ
+                          </span>
                         </div>
-                      )}
-                      <div className="flex justify-between">
-                        <span className="text-slate-500">Đã thanh toán:</span>
-                        <span className="font-medium text-green-600">{fmtVND(paid)}</span>
-                      </div>
-                      {debt > 0 && (
                         <div className="flex justify-between">
-                          <span className="text-slate-500">Còn nợ:</span>
-                          <span className="font-medium text-orange-600">{fmtVND(debt)}</span>
+                          <span className="text-slate-500">Đã thanh toán:</span>
+                          <span className="font-medium text-slate-400 italic flex items-center gap-1">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="inline text-slate-400"><rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg> ***.*** đ
+                          </span>
                         </div>
-                      )}
-                    </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5 text-sm bg-slate-50 p-3 rounded-xl border border-slate-100">
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Tổng tiền hàng:</span>
+                          <span className="font-medium text-slate-900">{fmtVND(totalCost)}</span>
+                        </div>
+                        {discount > 0 && (
+                          <div className="flex justify-between">
+                            <span className="text-slate-500">Giảm giá:</span>
+                            <span className="font-medium text-orange-600">-{fmtVND(discount)}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Đã thanh toán:</span>
+                          <span className="font-medium text-green-600">{fmtVND(paid)}</span>
+                        </div>
+                        {debt > 0 && (
+                          <div className="flex justify-between">
+                            <span className="text-slate-500">Còn nợ:</span>
+                            <span className="font-medium text-orange-600">{fmtVND(debt)}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
-                    {debt > 0 && viewMovement.supplier_id && (
+                    {!showMask && debt > 0 && viewMovement.supplier_id && (
                       <div className="mt-4 p-3 bg-blue-50/50 rounded-xl text-sm border border-blue-100">
                         <p className="text-slate-600 mb-2">Công nợ đã được ghi nhận vào hệ thống.</p>
                         <Link

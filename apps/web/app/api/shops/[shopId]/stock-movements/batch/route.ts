@@ -6,11 +6,12 @@ import { handleApiError } from '../../../_helpers'
 import { RollbackContext, type IDataConnector } from '@oni/adapters'
 import crypto from 'crypto'
 
-const INBOUND_TYPES = ['purchase_in', 'return_in', 'transfer_in']
+const INBOUND_TYPES = ['purchase_in', 'p2p_purchase_in', 'return_in', 'transfer_in']
 const OUTBOUND_TYPES = ['sale_out', 'transfer_out']
 
 const MOVEMENT_NO_PREFIX: Record<string, string> = {
   purchase_in:  'PN',
+  p2p_purchase_in: 'PNP2P',
   sale_out:     'PX',
   return_in:    'PTH',
   transfer_in:  'CKV',
@@ -356,7 +357,7 @@ export async function POST(
     }
 
     // 4. Financial tracking: Sổ quỹ (Cashbook) & Công nợ Nhà cung cấp (Supplier Debt)
-    if (type === 'purchase_in') {
+    if (type === 'purchase_in' || type === 'p2p_purchase_in') {
       let totalCost = 0
       for (const pItem of processedItems) {
         totalCost += parseFloat(pItem.unitCost) * Math.abs(pItem.qty)
@@ -416,7 +417,7 @@ export async function POST(
     invalidate(shopId, 'inventory')
     invalidate(shopId, 'inventory-batches')
     invalidate(shopId, 'stock-movements')
-    if (type === 'purchase_in' && supplier_id) {
+    if ((type === 'purchase_in' || type === 'p2p_purchase_in') && supplier_id) {
       invalidate(shopId, 'suppliers')
     }
 

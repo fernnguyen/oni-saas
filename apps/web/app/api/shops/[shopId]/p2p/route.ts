@@ -77,7 +77,7 @@ export async function GET(
 
     // Enforce role-based data filtering: non-management/non-purchasing users should only see their own PRs
     const isPurchasingOrAdmin = ctx.permissions.some(p =>
-      ['admin', 'owner', 'purchaser', 'purchasing.manage', 'chief_accountant'].includes(p)
+      ['admin', 'owner', 'purchaser', 'purchasing.manage', 'chief_accountant', 'settings.manage'].includes(p)
     );
     if (!isPurchasingOrAdmin && entity === 'purchase-requisitions') {
       filters.created_by = ctx.user.id;
@@ -197,6 +197,13 @@ export async function POST(
       }
 
       case 'CREATE_GRN_FROM_PO': {
+        const canCreate = ctx.permissions.some(p =>
+          ['admin', 'owner', 'purchaser', 'purchasing.manage', 'chief_accountant', 'settings.manage', 'warehouse.manage'].includes(p)
+        );
+        if (!canCreate) {
+          return NextResponse.json({ error: '🔒 Bạn không có quyền khởi tạo phiếu đối chiếu GRN.' }, { status: 403 });
+        }
+
         const { purchase_order_id } = body;
         if (!purchase_order_id) return NextResponse.json({ error: 'Missing purchase_order_id' }, { status: 400 });
 

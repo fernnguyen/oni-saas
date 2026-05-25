@@ -218,7 +218,7 @@ export class P2PEngine {
 
       // 1. Write the clean standard stock_movement record (Zero-friction with legacy warehouse)
       const stockMovementData = {
-        type: 'purchase_in',
+        type: 'p2p_purchase_in',
         product_id: productId,
         qty: String(qtyReceived),
         unit_cost: String(unitCost),

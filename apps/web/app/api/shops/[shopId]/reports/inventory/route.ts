@@ -11,7 +11,7 @@ function dayKey(isoDate: string) {
   try { return isoDate.slice(0, 10) } catch { return '' }
 }
 
-const INBOUND_TYPES = ['purchase_in', 'return_in', 'transfer_in']
+const INBOUND_TYPES = ['purchase_in', 'p2p_purchase_in', 'return_in', 'transfer_in']
 const OUTBOUND_TYPES = ['sale_out', 'transfer_out']
 
 function buildInventoryReport(inventory: Row[], movements: Row[], products: Row[]) {
