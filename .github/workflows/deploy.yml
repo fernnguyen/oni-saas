@@ -39,5 +39,6 @@ jobs:
             # Push database schema mới
             cd /var/www/oni/app/packages/adapters && pnpm db:push:pg
             
-            # Khởi động lại pm2
-            pm2 restart oni-web
+            # Quay lại thư mục gốc và reload PM2 không gây downtime (Zero-Downtime Reload)
+            cd /var/www/oni/app
+            pm2 startOrReload ecosystem.config.js --update-env
