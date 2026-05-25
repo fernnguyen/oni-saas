@@ -1085,6 +1085,20 @@ export function PRClient({ shopId, userId }: Props) {
                 ) : '---'}
               </span>
 
+              <span className="text-slate-500">Cập nhật cuối:</span>
+              <span className="font-semibold text-slate-800">
+                {detailPr?.updated_at ? (
+                  new Date(detailPr.updated_at).toLocaleString('vi-VN', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric'
+                  })
+                ) : '---'}
+              </span>
+
               <span className="text-slate-500">Người tạo:</span>
               <span className="font-semibold text-slate-800">{detailPr?.creator_name || detailPr?.created_by || 'N/A'}</span>
               
