@@ -367,7 +367,66 @@ R2_BUCKET=...
 R2_PUBLIC_BASE_URL=...
 ```
 
-## 17. Bật backup tối thiểu cho PostgreSQL
+## 17. Cấu hình hạ tầng Realtime (Supabase Cloud vs Self-hosted Socket.IO)
+
+Hệ thống ONI hỗ trợ cả hai giải pháp truyền tin Realtime để đẩy thông báo lập tức xuống trình duyệt của khách hàng và Noti Center của nhân viên. Cấu hình được điều phối thông qua file `.env.production` bằng biến `REALTIME_PROVIDER`.
+
+### Lựa chọn 1: Supabase Realtime (Mặc định cho MVP/Start-up)
+Tận dụng cơ sở dữ liệu Supabase Cloud có sẵn để tự động phát hiện thay đổi và push dữ liệu qua WebSockets mà không cần dựng thêm server phụ. Bảo mật cực tốt nhờ tích hợp sẵn Row Level Security (RLS).
+
+* **Biến môi trường cần thêm:**
+  ```env
+  REALTIME_PROVIDER=supabase
+  ```
+* **Kích hoạt Realtime trên database:** Bạn bắt buộc phải chạy lệnh SQL này trong trang quản trị Database của Supabase để cho phép lắng nghe sự kiện bảng `in_app_notifications`:
+  ```sql
+  alter publication supabase_realtime add table public.in_app_notifications;
+  ```
+
+### Lựa chọn 2: Self-hosted Redis + Socket.IO (Khuyên dùng khi scale lớn)
+Tự chủ hoàn toàn về công nghệ, không giới hạn dung lượng/kết nối từ bên thứ ba và giảm thiểu tối đa độ trễ truyền tin (chỉ còn 10ms - 20ms).
+
+* **Cài đặt Redis trên VPS Ubuntu:**
+  ```bash
+  sudo apt install -y redis-server
+  sudo systemctl enable redis-server
+  sudo systemctl start redis-server
+  ```
+* **Biến môi trường cần thêm:**
+  ```env
+  REALTIME_PROVIDER=socketio
+  REDIS_URL=redis://127.0.0.1:6379
+  NEXT_PUBLIC_REALTIME_PROVIDER=socketio
+  ```
+* **Deploy WebSocket Adapter Microservice:**
+  Microservice này (nằm trong `apps/websocket-adapter` hoặc viết riêng bằng Node.js) có vai trò kết nối Redis Pub/Sub và push tin nhắn đến Client qua WebSocket. 
+  Chạy service này bằng PM2 ở cổng `3001`:
+  ```bash
+  cd /var/www/oni/app/apps/websocket-adapter
+  pm2 start npm --name "oni-ws-adapter" -- start
+  pm2 save
+  ```
+* **Cấu hình Nginx reverse proxy cho WebSocket subpath `/socket`:**
+  Mở file `/etc/nginx/sites-available/oni.conf` và thêm block sau để Nginx nhận diện và nâng cấp giao thức HTTP sang WebSocket:
+  ```nginx
+  location /socket {
+      proxy_pass http://127.0.0.1:3001;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  }
+  ```
+  Sau đó reload Nginx:
+  ```bash
+  sudo systemctl reload nginx
+  ```
+
+---
+
+## 18. Bật backup tối thiểu cho PostgreSQL
 
 Dù VPS có backup tuần, vẫn nên có backup logic riêng bằng `pg_dump`.[cite:337]
 
@@ -386,7 +445,7 @@ PGPASSWORD='mat_khau_app' pg_dump -U oni_app -h 127.0.0.1 -d oni_prod -Fc -f /va
 
 Thiết lập cron để chạy hàng ngày và giữ vòng đời file backup.[cite:333][cite:341]
 
-## 18. Log, monitor và quan sát ban đầu
+## 19. Log, monitor và quan sát ban đầu
 
 Cài tối thiểu:
 
@@ -407,7 +466,7 @@ df -h
 
 Các bước này giúp phát hiện sớm memory pressure, disk đầy, hoặc lỗi query/app.[cite:337][cite:341]
 
-## 19. Kiểm tra sau khi dựng xong
+## 20. Kiểm tra sau khi dựng xong
 
 Checklist test bắt buộc:
 
@@ -422,7 +481,7 @@ Checklist test bắt buộc:
 - Upload media lên R2 thành công.[cite:110]
 - Backup DB chạy thành công và restore test được ít nhất 1 lần.[cite:333]
 
-## 20. Việc nên làm ngay sau khi online
+## 21. Việc nên làm ngay sau khi online
 
 - Cài version cố định cho Node và PostgreSQL trong tài liệu nội bộ để tránh lệch môi trường.[cite:357][cite:352]
 - Thiết lập CI/CD tối thiểu hoặc script deploy có thể lặp lại.[cite:338][cite:342]
@@ -430,7 +489,7 @@ Checklist test bắt buộc:
 - Tạo môi trường staging nếu có thể, dù chỉ là subdomain + DB riêng nhẹ.[cite:342][cite:338]
 - Chuẩn bị `oni_app` cho runtime và chỉ dùng `oni_admin` cho migration/quản trị DB.[cite:260][cite:277]
 
-## 21. Checklist ngắn dạng chạy việc
+## 22. Checklist ngắn dạng chạy việc
 
 ### Hạ tầng
 - [ ] SSH vào server mới.
@@ -465,8 +524,11 @@ Checklist test bắt buộc:
 - [ ] Xin cấp SSL Wildcard qua DNS Challenge.
 - [ ] Cài SSL vào Nginx (`certbot install`).
 
-### Vận hành
+### Vận hành & Realtime
 - [ ] Tạo env production.
+- [ ] Cấu hình biến realtime (`REALTIME_PROVIDER`).
+- [ ] (Nếu dùng Supabase) Đã add `in_app_notifications` vào publication.
+- [ ] (Nếu dùng Socket.io) Đã cài Redis, bật service `oni-ws-adapter` trên PM2 và reverse proxy `/socket` trong Nginx.
 - [ ] Cấu hình R2.
 - [ ] Tạo backup DB hằng ngày.
 - [ ] Kiểm tra restore backup.
