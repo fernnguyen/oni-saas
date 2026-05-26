@@ -406,7 +406,7 @@ export default function OrdersScreen() {
                 <View className="h-[75%] rounded-t-[32px] p-6 justify-between bg-white">
                   
                   {/* Header Modal */}
-                  <View className="flex-row justify-between items-center border-b border-slate-150 pb-4">
+                  <View className="flex-row justify-between items-center border-b border-slate-200 pb-4">
                     <View>
                       <View className="flex-row items-center">
                         <Text className="text-base font-black text-slate-800">
