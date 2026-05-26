@@ -1,11 +1,18 @@
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
 import { env } from '../env';
 
 export async function getSupabaseServerClient() {
   const cookieStore = await cookies();
+  const headerStore = await headers();
+  const authHeader = headerStore.get('Authorization');
 
-  return createServerClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY, {
+  const supabase = createServerClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY, {
+    global: {
+      headers: {
+        ...(authHeader ? { 'Authorization': authHeader } : {}),
+      },
+    },
     cookies: {
       get(name: string) {
         return cookieStore.get(name)?.value;
@@ -18,4 +25,6 @@ export async function getSupabaseServerClient() {
       },
     },
   });
+
+  return supabase;
 }
