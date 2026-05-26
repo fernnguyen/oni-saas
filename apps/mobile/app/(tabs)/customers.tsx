@@ -152,7 +152,7 @@ export default function CustomersScreen() {
       </View>
 
       {/* 2. SEARCH BAR & FILTER TABS */}
-      <View className="p-4 bg-white border-b border-slate-150">
+      <View className="p-4 bg-white border-b border-slate-200">
         <View className="flex-row items-center bg-slate-100 border border-slate-200 px-3.5 py-2.5 rounded-2xl mb-3">
           <Ionicons name="search-outline" size={16} color="#94a3b8" className="mr-2" />
           <TextInput

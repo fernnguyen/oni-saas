@@ -175,13 +175,13 @@ export class SyncManager {
               customer_name: order.customer_name || 'Khách lẻ',
               branch_id: shopId,
               employee_id: 'mobile-app', // Đánh dấu nguồn gốc di động
-              subtotal: order.total_amount,
-              discount_amount: 0,
+              subtotal: order.total_amount + (order.discount_amount || 0),
+              discount_amount: order.discount_amount || 0,
               tax_amount: 0,
               total_amount: order.total_amount,
               paid_amount: order.paid_amount,
               debt_amount: order.total_amount - order.paid_amount,
-              note: `Hóa đơn offline từ di động. Tạo lúc ${order.created_at}`,
+              note: order.note || `Hóa đơn offline từ di động. Tạo lúc ${order.created_at}`,
             },
             items: items.map((it: any) => ({
               product_id: it.product_id,
@@ -191,12 +191,29 @@ export class SyncManager {
               discount_amount: 0,
               line_total: it.line_total,
             })),
-            payments: [
-              {
-                method: order.payment_method === 'Chuyển khoản' ? 'bank_transfer' : 'cash',
-                amount: order.paid_amount,
-              }
-            ],
+            payments: (() => {
+              try {
+                const parsed = JSON.parse(order.payment_method);
+                if (Array.isArray(parsed)) {
+                  return parsed.map((p: any) => ({
+                    method: p.method === 'Chuyển khoản' ? 'bank_transfer' :
+                            p.method === 'Thẻ ATM' ? 'card' :
+                            p.method === 'Ví MoMo' ? 'momo' :
+                            p.method === 'Ghi nợ' ? 'debt' : 'cash',
+                    amount: p.amount,
+                  }));
+                }
+              } catch (e) {}
+              return [
+                {
+                  method: order.payment_method === 'Chuyển khoản' ? 'bank_transfer' :
+                          order.payment_method === 'Thẻ ATM' ? 'card' :
+                          order.payment_method === 'Ví MoMo' ? 'momo' :
+                          order.payment_method === 'Ghi nợ' ? 'debt' : 'cash',
+                  amount: order.paid_amount,
+                }
+              ];
+            })(),
             stock_movements: items.map((it: any) => ({
               type: 'sale_out',
               product_id: it.product_id,

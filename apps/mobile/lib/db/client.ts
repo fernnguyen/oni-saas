@@ -142,7 +142,9 @@ export function initializeLocalDatabase() {
         payment_method TEXT NOT NULL DEFAULT 'Tiền mặt',
         created_at TEXT NOT NULL,
         shift_id TEXT,
-        sync_status TEXT NOT NULL DEFAULT 'synced'
+        sync_status TEXT NOT NULL DEFAULT 'synced',
+        note TEXT,
+        discount_amount INTEGER DEFAULT 0
       );
 
       CREATE TABLE IF NOT EXISTS order_items (
@@ -166,6 +168,11 @@ export function initializeLocalDatabase() {
         sync_status TEXT NOT NULL DEFAULT 'synced'
       );
     `);
+    
+    // Nâng cấp bổ sung cột cho các DB đã chạy trước đó để không bị mất dữ liệu
+    try { expoDb.execSync(`ALTER TABLE orders ADD COLUMN note TEXT;`); } catch (e) {}
+    try { expoDb.execSync(`ALTER TABLE orders ADD COLUMN discount_amount INTEGER DEFAULT 0;`); } catch (e) {}
+    
     console.log('ONI SQLite Database: Khởi tạo các bảng offline-first thành công!');
   } catch (error) {
     console.error('Lỗi nghiêm trọng khi tạo bảng SQLite nội địa:', error);

@@ -61,6 +61,8 @@ export const orders = sqliteTable('orders', {
   created_at: text('created_at').notNull(), // Lưu ISO string dạng GMT+7
   shift_id: text('shift_id'), // ID ca làm việc gắn liền
   sync_status: text('sync_status').notNull().default('synced'), // synced | pending (đóng offline chờ mạng)
+  note: text('note'),
+  discount_amount: integer('discount_amount').default(0),
 });
 
 // 6. CHI TIẾT DÒNG HÓA ĐƠN (Order Items)
