@@ -13,14 +13,20 @@
     "lint": "eslint apps/web --ext .ts,.tsx",
     "db:push": "pnpm -C packages/adapters run db:push",
     "db:push:pg": "pnpm -C packages/adapters run db:push:pg",
-    "db:generate": "pnpm -C packages/adapters run db:generate"
+    "db:generate": "pnpm -C packages/adapters run db:generate",
+    "mobile:start": "pnpm --filter @oni/mobile start",
+    "mobile:ios": "pnpm --filter @oni/mobile ios",
+    "mobile:android": "pnpm --filter @oni/mobile android"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
-    "@types/react": "19.2.14",
-    "@types/react-dom": "19.2.3",
+    "@types/react": "19.1.10",
+    "@types/react-dom": "19.1.10",
     "eslint": "^9.0.0",
     "eslint-config-next": "16.2.6",
+    "metro": "^0.80.12",
+    "metro-config": "^0.80.12",
+    "metro-runtime": "^0.84.4",
     "tsx": "^4.22.0",
     "typescript": "^5.6.0"
   },
@@ -38,8 +44,8 @@
     "konva": "^10.3.0",
     "next": "16.2.6",
     "postcss": "^8.5.14",
-    "react": "19.2.6",
-    "react-dom": "19.2.6",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
     "react-konva": "^19.2.4",
     "sonner": "^2.0.7",
     "tailwindcss": "^4.2.4",
@@ -48,8 +54,11 @@
   },
   "pnpm": {
     "overrides": {
-      "@types/react": "19.2.14",
-      "@types/react-dom": "19.2.3"
+      "react": "19.1.0",
+      "react-dom": "19.1.0",
+      "@types/react": "19.1.10",
+      "@types/react-dom": "19.1.10",
+      "@expo/metro-runtime": "6.1.2"
     }
   }
 }
