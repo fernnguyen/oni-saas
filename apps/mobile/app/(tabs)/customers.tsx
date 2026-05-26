@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { Text, View, ScrollView, TouchableOpacity, TextInput, Modal, Alert, ActivityIndicator } from 'react-native';
+import { Text, View, ScrollView, TouchableOpacity, TextInput, Modal, Alert, ActivityIndicator, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
@@ -23,15 +23,27 @@ export default function CustomersScreen() {
   const [newCustType, setNewCustType] = useState('Thành viên'); // VIP, Thân thiết, Thành viên
   const [isSaving, setIsSaving] = useState(false);
 
-  // Tải dữ liệu khách hàng từ SQLite
+  // Tải dữ liệu khách hàng từ SQLite (Native) hoặc REST API trực tiếp (Web)
   const loadCustomersData = async () => {
     try {
       setIsLoading(true);
-      const data = await db.select().from(schema.customers);
+      let data = [];
+      if (Platform.OS === 'web') {
+        const headers = await getApiHeaders();
+        const url = getApiBaseUrl();
+        const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+        const res = await fetch(`${url}/api/shops/${shopId}/customers?limit=2000`, { headers });
+        if (res.ok) {
+          const resJson = await res.json();
+          data = resJson.data || [];
+        }
+      } else {
+        data = await db.select().from(schema.customers);
+      }
       setCustomersList(data);
       setIsLoading(false);
     } catch (err) {
-      console.error('Lỗi tải danh sách khách hàng SQLite:', err);
+      console.error('Lỗi tải danh sách khách hàng:', err);
       setIsLoading(false);
     }
   };

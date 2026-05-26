@@ -183,7 +183,7 @@ export class SyncManager {
               debt_amount: order.total_amount - order.paid_amount,
               note: `Hóa đơn offline từ di động. Tạo lúc ${order.created_at}`,
             },
-            items: items.map(it => ({
+            items: items.map((it: any) => ({
               product_id: it.product_id,
               product_name: it.product_name,
               qty: it.qty,
@@ -197,7 +197,7 @@ export class SyncManager {
                 amount: order.paid_amount,
               }
             ],
-            stock_movements: items.map(it => ({
+            stock_movements: items.map((it: any) => ({
               type: 'sale_out',
               product_id: it.product_id,
               qty: -it.qty,

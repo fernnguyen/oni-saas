@@ -8,7 +8,7 @@ import { initializeLocalDatabase } from '../lib/db/client';
 import '../global.css';
 
 try {
-  StyleSheet.setFlag('darkMode', 'class');
+  (StyleSheet as any).setFlag?.('darkMode', 'class');
 } catch (e) {
   console.warn('Không thể setFlag darkMode class ở top-level:', e);
 }

@@ -1,11 +1,12 @@
 import React, { useState, useCallback } from 'react';
-import { Text, View, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { Text, View, ScrollView, TouchableOpacity, ActivityIndicator, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { db } from '../../lib/db/client';
 import * as schema from '../../lib/db/schema';
+import { getApiBaseUrl, getApiHeaders } from '../../lib/api/config';
 
 export default function DashboardScreen() {
   const router = useRouter();
@@ -39,9 +40,42 @@ export default function DashboardScreen() {
             setBranchName(activeShopName);
           }
 
-          // 1. Lấy tất cả đơn hàng đã tạo trong SQLite nội địa
-          const allOrders = await db.select().from(schema.orders);
-          const allOrderItems = await db.select().from(schema.order_items);
+          // 1. Lấy tất cả đơn hàng đã tạo trong SQLite nội địa (Native) hoặc Cloud (Web)
+          let allOrders: any[] = [];
+          let allOrderItems: any[] = [];
+
+          if (Platform.OS === 'web') {
+            const headers = await getApiHeaders();
+            const url = getApiBaseUrl();
+            const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+            const res = await fetch(`${url}/api/shops/${shopId}/orders?limit=1000`, { headers });
+            if (res.ok) {
+              const resJson = await res.json();
+              const cloudOrders = resJson.data || [];
+              
+              allOrders = cloudOrders.map((o: any) => ({
+                id: o.id || o.order_id,
+                total_amount: parseInt(o.total_amount || '0', 10),
+                created_at: o.created_at || new Date().toISOString(),
+                shift_id: o.shift_id || 'default-shift',
+              }));
+
+              allOrderItems = [];
+              cloudOrders.forEach((o: any) => {
+                const items = o.items || [];
+                items.forEach((it: any) => {
+                  allOrderItems.push({
+                    product_id: it.product_id || 'prod',
+                    product_name: it.product_name || it.name || 'Sản phẩm',
+                    qty: parseInt(it.qty || it.quantity || '0', 10),
+                  });
+                });
+              });
+            }
+          } else {
+            allOrders = await db.select().from(schema.orders);
+            allOrderItems = await db.select().from(schema.order_items);
+          }
 
           // 2. Lấy đơn hàng trong ca hiện tại (Hôm nay)
           const todayOrdersList = activeShiftId 

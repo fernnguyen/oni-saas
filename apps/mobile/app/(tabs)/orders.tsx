@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { Text, View, ScrollView, TouchableOpacity, TextInput, Modal, Alert, ActivityIndicator } from 'react-native';
+import { Text, View, ScrollView, TouchableOpacity, TextInput, Modal, Alert, ActivityIndicator, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
@@ -8,6 +8,7 @@ import { db } from '../../lib/db/client';
 import * as schema from '../../lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { SyncManager } from '../../lib/sync/SyncManager';
+import { getApiBaseUrl, getApiHeaders } from '../../lib/api/config';
 
 export default function OrdersScreen() {
   const [ordersList, setOrdersList] = useState<any[]>([]);
@@ -27,13 +28,51 @@ export default function OrdersScreen() {
   const loadOrdersData = async () => {
     try {
       setIsLoading(true);
-      const ordersData = await db.select().from(schema.orders);
-      const shiftsData = await db.select().from(schema.shop_shifts);
+      let ordersData = [];
+      let shiftsData = [];
+
+      if (Platform.OS === 'web') {
+        const headers = await getApiHeaders();
+        const url = getApiBaseUrl();
+        const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+        
+        const res = await fetch(`${url}/api/shops/${shopId}/orders?limit=1000`, { headers });
+        if (res.ok) {
+          const resJson = await res.json();
+          const cloudOrders = resJson.data || [];
+          ordersData = cloudOrders.map((o: any) => ({
+            id: o.id || o.order_id,
+            order_no: o.order_no || 'HD',
+            status: o.status || 'completed',
+            customer_name: o.customer_name || 'Khách lẻ',
+            total_amount: parseInt(o.total_amount || '0', 10),
+            paid_amount: parseInt(o.paid_amount || '0', 10),
+            payment_method: o.payment_method || 'Tiền mặt',
+            created_at: o.created_at || new Date().toISOString(),
+            shift_id: o.shift_id || 'default-shift',
+            sync_status: 'synced',
+          }));
+        }
+
+        const shiftRes = await fetch(`${url}/api/shops/${shopId}/shifts?limit=50`, { headers });
+        if (shiftRes.ok) {
+          const shiftJson = await shiftRes.json();
+          shiftsData = (shiftJson.shifts || []).map((s: any) => ({
+            id: s.id,
+            employee_name: s.employee_name || 'Thu ngân',
+            opened_at: s.opened_at || new Date().toISOString(),
+            closed_at: s.closed_at,
+          }));
+        }
+      } else {
+        ordersData = await db.select().from(schema.orders);
+        shiftsData = await db.select().from(schema.shop_shifts);
+      }
 
       // Cập nhật danh sách ca chọn lọc
       const mappedShifts = [
         { id: 'all', label: 'Tất cả ca' },
-        ...shiftsData.map((s) => ({
+        ...shiftsData.map((s: any) => ({
           id: s.id,
           label: `Ca ${s.employee_name || 'Thu ngân'} (${s.opened_at.substring(11, 16)} - ${s.closed_at ? s.closed_at.substring(11, 16) : 'Đang mở'})`
         }))
@@ -57,10 +96,29 @@ export default function OrdersScreen() {
   // Xử lý xem chi tiết hóa đơn
   const handleViewOrderDetails = async (order: any) => {
     try {
-      const items = await db
-        .select()
-        .from(schema.order_items)
-        .where(eq(schema.order_items.order_id, order.id));
+      let items = [];
+      if (Platform.OS === 'web') {
+        const headers = await getApiHeaders();
+        const url = getApiBaseUrl();
+        const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+        const res = await fetch(`${url}/api/shops/${shopId}/orders/${order.id}`, { headers });
+        if (res.ok) {
+          const resJson = await res.json();
+          const rawItems = resJson.data?.items || resJson.items || [];
+          items = rawItems.map((it: any) => ({
+            id: it.id || it.product_id,
+            product_name: it.product_name || it.name || 'Sản phẩm',
+            qty: parseInt(it.qty || it.quantity || '1', 10),
+            unit_price: parseInt(it.unit_price || it.price || '0', 10),
+            line_total: parseInt(it.line_total || (it.unit_price * it.qty) || '0', 10),
+          }));
+        }
+      } else {
+        items = await db
+          .select()
+          .from(schema.order_items)
+          .where(eq(schema.order_items.order_id, order.id));
+      }
       
       setSelectedOrderItems(items);
       setSelectedOrder(order);
