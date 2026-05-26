@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Text, View, ScrollView, TouchableOpacity, Modal, Alert, ActivityIndicator } from 'react-native';
+import { Text, View, ScrollView, TouchableOpacity, Modal, Alert, ActivityIndicator, Platform, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
@@ -8,6 +8,7 @@ import { db } from '../../lib/db/client';
 import * as schema from '../../lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { SyncManager } from '../../lib/sync/SyncManager';
+import { getApiBaseUrl, getApiHeaders } from '../../lib/api/config';
 
 export default function PosScreen() {
   // State quản trị POS từ SQLite
@@ -22,6 +23,10 @@ export default function PosScreen() {
   const [activeTable, setActiveTable] = useState<any>(null);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'synced' | 'pending'>('synced');
+
+  // Hỗ trợ Tìm kiếm Nhanh & Phân trang Lazy Load cho 800+ sản phẩm
+  const [productSearchQuery, setProductSearchQuery] = useState('');
+  const [displayLimit, setDisplayLimit] = useState(20);
   
   // Ticker đếm giờ cho các bàn Bi-a đang hoạt động
   const [timeTicker, setTimeTicker] = useState(0);
@@ -39,25 +44,45 @@ export default function PosScreen() {
       const loadPosData = async () => {
         try {
           if (isMounted) setIsLoading(true);
-          const prods = await db.select().from(schema.products);
-          const cats = await db.select().from(schema.categories);
-          const resources = await db.select().from(schema.location_resources);
+          let prods = [];
+          let cats = [];
+          let resources = [];
+          let hasPending = false;
 
-          // Kiểm tra xem có đơn hàng nào chờ sync không để đổi badge trạng thái đồng bộ
-          const pendingOrdersCount = await db
-            .select()
-            .from(schema.orders)
-            .where(eq(schema.orders.sync_status, 'pending'));
+          if (Platform.OS === 'web') {
+            const headers = await getApiHeaders();
+            const url = getApiBaseUrl();
+            const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+            
+            const prodRes = await fetch(`${url}/api/shops/${shopId}/products?limit=2000&nocache=true`, { headers });
+            const catRes = await fetch(`${url}/api/shops/${shopId}/categories?limit=500`, { headers });
+            const tableRes = await fetch(`${url}/api/shops/${shopId}/location-resources?limit=500`, { headers });
+            
+            if (prodRes.ok) prods = (await prodRes.json()).data || [];
+            if (catRes.ok) cats = (await catRes.json()).data || [];
+            if (tableRes.ok) resources = (await tableRes.json()).data || [];
+          } else {
+            prods = await db.select().from(schema.products);
+            cats = await db.select().from(schema.categories);
+            resources = await db.select().from(schema.location_resources);
+
+            // Kiểm tra xem có đơn hàng nào chờ sync không để đổi badge trạng thái đồng bộ
+            const pendingOrdersCount = await db
+              .select()
+              .from(schema.orders)
+              .where(eq(schema.orders.sync_status, 'pending'));
+            hasPending = pendingOrdersCount.length > 0;
+          }
 
           if (isMounted) {
             setProductsList(prods);
             setCategoriesList(cats);
             setTables(resources);
-            setSyncStatus(pendingOrdersCount.length > 0 ? 'pending' : 'synced');
+            setSyncStatus(hasPending ? 'pending' : 'synced');
             setIsLoading(false);
           }
         } catch (error) {
-          console.error('Lỗi khi tải dữ liệu SQLite POS:', error);
+          console.error('Lỗi khi tải dữ liệu POS:', error);
           if (isMounted) setIsLoading(false);
         }
       };
@@ -293,10 +318,18 @@ export default function PosScreen() {
     setIsScannerOpen(false);
   };
 
-  // Lọc sản phẩm theo danh mục đang chọn
-  const filteredProducts = selectedCategoryId === 'all'
-    ? productsList
-    : productsList.filter(p => p.category_id === selectedCategoryId);
+  // Lọc sản phẩm theo danh mục và từ khóa tìm kiếm nhanh
+  const filteredProducts = productsList.filter(p => {
+    const matchesCategory = selectedCategoryId === 'all' || p.category_id === selectedCategoryId;
+    const matchesSearch = !productSearchQuery.trim() || 
+      p.name.toLowerCase().includes(productSearchQuery.toLowerCase()) ||
+      (p.sku && p.sku.toLowerCase().includes(productSearchQuery.toLowerCase())) ||
+      (p.barcode && p.barcode.toLowerCase().includes(productSearchQuery.toLowerCase()));
+    return matchesCategory && matchesSearch;
+  });
+
+  // Sản phẩm hiển thị thực tế (Lazy-load phân trang)
+  const displayedProducts = filteredProducts.slice(0, displayLimit);
 
   return (
     <SafeAreaView edges={['top', 'left', 'right']} className="flex-1 bg-slate-50">
@@ -378,16 +411,40 @@ export default function PosScreen() {
         // 🛒 GIAO DIỆN BÁN LẺ VỚI LỌC DANH MỤC DYN
         <View className="flex-1 px-4">
           
+          {/* Tìm kiếm nhanh */}
+          <View className="mb-3.5 flex-row items-center bg-white border border-slate-200 rounded-2xl px-3.5 py-1 shadow-sm">
+            <Ionicons name="search-outline" size={16} color="#94a3b8" />
+            <TextInput
+              className="flex-1 ml-2 text-xs text-slate-850 py-2"
+              placeholder="Tìm theo tên, SKU hoặc mã vạch..."
+              placeholderTextColor="#94a3b8"
+              value={productSearchQuery}
+              onChangeText={(text) => {
+                setProductSearchQuery(text);
+                setDisplayLimit(20);
+              }}
+              style={Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : undefined}
+            />
+            {productSearchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => { setProductSearchQuery(''); setDisplayLimit(20); }}>
+                <Ionicons name="close-circle" size={18} color="#cbd5e1" />
+              </TouchableOpacity>
+            )}
+          </View>
+
           {/* Lọc danh mục sản phẩm */}
           <View className="mb-4">
             <ScrollView horizontal showsHorizontalScrollIndicator={false} className="flex-row">
               <TouchableOpacity
                 className={`mr-2.5 px-3.5 py-2 rounded-xl border ${
                   selectedCategoryId === 'all'
-                    ? 'bg-orange-50 border-orange-500 text-orange-600'
-                    : 'bg-white border-slate-200 text-slate-500'
+                    ? 'bg-orange-50 border-orange-500'
+                    : 'bg-white border-slate-200'
                 }`}
-                onPress={() => setSelectedCategoryId('all')}
+                onPress={() => {
+                  setSelectedCategoryId('all');
+                  setDisplayLimit(20);
+                }}
               >
                 <Text className={`text-[10px] font-black uppercase ${selectedCategoryId === 'all' ? 'text-orange-500' : 'text-slate-500'}`}>
                   Tất cả ({productsList.length})
@@ -402,7 +459,10 @@ export default function PosScreen() {
                       ? 'bg-orange-50 border-orange-500'
                       : 'bg-white border-slate-200'
                   }`}
-                  onPress={() => setSelectedCategoryId(cat.id)}
+                  onPress={() => {
+                    setSelectedCategoryId(cat.id);
+                    setDisplayLimit(20);
+                  }}
                 >
                   <Text className={`text-[10px] font-black uppercase ${selectedCategoryId === cat.id ? 'text-orange-500' : 'text-slate-500'}`}>
                     {cat.name}
@@ -412,8 +472,20 @@ export default function PosScreen() {
             </ScrollView>
           </View>
 
-          {/* Grid sản phẩm */}
-          <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
+          {/* Grid sản phẩm với Infinite Scroll */}
+          <ScrollView 
+            className="flex-1" 
+            showsVerticalScrollIndicator={false}
+            onScroll={({ nativeEvent }) => {
+              const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+              // Kích hoạt load tiếp khi cuộn cách đáy 250px
+              const isCloseToBottom = layoutMeasurement.height + contentOffset.y >= contentSize.height - 250;
+              if (isCloseToBottom && displayLimit < filteredProducts.length) {
+                setDisplayLimit(prev => prev + 20);
+              }
+            }}
+            scrollEventThrottle={400}
+          >
             {filteredProducts.length === 0 ? (
               <View className="items-center justify-center py-16 bg-white border border-slate-200 rounded-3xl mt-2">
                 <Ionicons name="basket-outline" size={40} color="#cbd5e1" />
@@ -421,7 +493,7 @@ export default function PosScreen() {
               </View>
             ) : (
               <View className="flex-row flex-wrap justify-between pb-28">
-                {filteredProducts.map(p => (
+                {displayedProducts.map(p => (
                   <View 
                     key={p.id} 
                     className="w-[48%] mb-4 p-3 rounded-[24px] border bg-white border-slate-200 shadow-sm justify-between"
@@ -456,6 +528,14 @@ export default function PosScreen() {
                     </View>
                   </View>
                 ))}
+                
+                {/* Hiển thị spinner khi có thêm sản phẩm đang tải */}
+                {displayLimit < filteredProducts.length && (
+                  <View className="w-full py-4 items-center justify-center flex-row">
+                    <ActivityIndicator size="small" color="#fa5908" />
+                    <Text className="text-[10px] text-slate-400 font-bold ml-2">Đang tải thêm sản phẩm...</Text>
+                  </View>
+                )}
               </View>
             )}
           </ScrollView>
