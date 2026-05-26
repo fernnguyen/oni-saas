@@ -1,0 +1,20 @@
+{
+  "expo": {
+    "name": "ONI Mobile",
+    "slug": "oni-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "vn.oni.mobile"
+    },
+    "android": {
+      "package": "vn.oni.mobile"
+    },
+    "plugins": [
+      "expo-router"
+    ],
+    "scheme": "oni-mobile"
+  }
+}
