@@ -13,7 +13,8 @@
       "package": "vn.oni.mobile"
     },
     "plugins": [
-      "expo-router"
+      "expo-router",
+      "expo-sqlite"
     ],
     "scheme": "oni-mobile"
   }
