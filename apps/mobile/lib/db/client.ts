@@ -1,12 +1,85 @@
 import { drizzle } from 'drizzle-orm/expo-sqlite';
 import { openDatabaseSync } from 'expo-sqlite';
 import * as schema from './schema';
+import { Platform } from 'react-native';
 
-// 1. Khởi tạo / Mở file cơ sở dữ liệu SQLite nội địa đồng bộ
-export const expoDb = openDatabaseSync('oni_mobile_offline.db');
+let internalExpoDb: any = null;
+let internalDb: any = null;
 
-// 2. Khởi tạo Drizzle ORM wrapper trên SQLite di động
-export const db = drizzle(expoDb, { schema });
+function getExpoDb() {
+  if (!internalExpoDb) {
+    if (Platform.OS === 'web') {
+      try {
+        internalExpoDb = openDatabaseSync('oni_mobile_offline.db');
+      } catch (err) {
+        console.warn(
+          '⚠️ Cảnh báo: expo-sqlite không thể khởi tạo đồng bộ trên trình duyệt Web do thiếu cấu hình SharedArrayBuffer/WASM. Đang tự động chuyển sang cơ chế giả lập (Mock DB) để tránh crash giao diện.',
+          err
+        );
+        // Mock SQLite database interface tối giản để tránh crash
+        internalExpoDb = {
+          execSync: () => {},
+          runSync: () => ({ lastInsertRowId: 0, changes: 0 }),
+          getFirstSync: () => null,
+          getAllSync: () => [],
+        };
+      }
+    } else {
+      internalExpoDb = openDatabaseSync('oni_mobile_offline.db');
+    }
+  }
+  return internalExpoDb;
+}
+
+function getDb() {
+  if (!internalDb) {
+    const database = getExpoDb();
+    // Nếu là Web và đang dùng Mock database, tạo Proxy để chặn crash các hàm Drizzle
+    if (Platform.OS === 'web' && (!database.execSync || database.execSync.toString().includes('() => {}'))) {
+      internalDb = new Proxy({}, {
+        get(target, prop) {
+          // Các hàm query của Drizzle như select, insert, update...
+          return () => {
+            console.warn(`[SQLite Web Mock] Truy cập tính năng offline "${String(prop)}" đã được chặn trên trình duyệt.`);
+            
+            // Trả về cấu trúc chain query giả lập tối giản để tránh crash
+            const queryChain = {
+              from: () => queryChain,
+              select: () => queryChain,
+              where: () => queryChain,
+              values: () => queryChain,
+              set: () => queryChain,
+              onConflictDoNothing: () => queryChain,
+              then: (resolve: any) => resolve([]),
+            };
+            return queryChain;
+          };
+        }
+      });
+    } else {
+      internalDb = drizzle(database, { schema });
+    }
+  }
+  return internalDb;
+}
+
+// 1. Khởi tạo / Mở file cơ sở dữ liệu SQLite dưới dạng Proxy động (Lazy-loaded)
+export const expoDb = new Proxy({}, {
+  get(target, prop) {
+    const dbInstance = getExpoDb();
+    const val = dbInstance[prop];
+    return typeof val === 'function' ? val.bind(dbInstance) : val;
+  }
+}) as any;
+
+// 2. Khởi tạo Drizzle ORM wrapper dưới dạng Proxy động (Lazy-loaded)
+export const db = new Proxy({}, {
+  get(target, prop) {
+    const drizzleInstance = getDb();
+    const val = drizzleInstance[prop];
+    return typeof val === 'function' ? val.bind(drizzleInstance) : val;
+  }
+}) as any;
 
 // 3. Hàm khởi chạy tạo bảng (CREATE TABLE IF NOT EXISTS) đầu phiên
 // Chạy SQL thô trực tiếp qua execSync đảm bảo hoạt động 100% ổn định trên Expo Go

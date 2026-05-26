@@ -16,8 +16,9 @@ config.resolver.nodeModulesPaths = [
   path.resolve(workspaceRoot, "node_modules"),
 ];
 
-// 3. Kích hoạt tính năng đọc Symlink cho pnpm
+// 3. Kích hoạt tính năng đọc Symlink cho pnpm và hỗ trợ file WebAssembly (.wasm) cho expo-sqlite trên Web
 config.resolver.unstable_enableSymlinks = true;
+config.resolver.assetExts.push("wasm");
 
 // 4. Bọc với cấu hình NativeWind để biên dịch Tailwind CSS
 module.exports = withNativeWind(config, { input: "./global.css" });

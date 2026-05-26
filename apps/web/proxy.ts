@@ -18,12 +18,28 @@ function isMainPublic(pathname: string) {
 
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
+
+  // Xử lý CORS Preflight cho môi trường phát triển (VD: chạy Expo Web trên cổng 8081) - Chỉ cho phép ở môi trường Local/Development
+  if (pathname.startsWith('/api/') && req.method === 'OPTIONS' && process.env.NODE_ENV === 'development') {
+    const response = new NextResponse(null, { status: 204 });
+    response.headers.set('Access-Control-Allow-Origin', req.headers.get('origin') || '*');
+    response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-tenant-slug');
+    response.headers.set('Access-Control-Allow-Credentials', 'true');
+    return response;
+  }
+
   const xForwardedHost = req.headers.get('x-forwarded-host');
   const xForwardedProto = req.headers.get('x-forwarded-proto');
   const host = xForwardedHost || req.headers.get('host') || '';
 
   const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
-  const subdomain = extractSubdomain(host, rootDomain);
+  let subdomain = extractSubdomain(host, rootDomain);
+
+  // Fallback cho môi trường Mobile / API qua IP LAN (không dùng được subdomain DNS trực tiếp) - Chỉ cho phép ở môi trường Local/Development
+  if (!subdomain && process.env.NODE_ENV === 'development') {
+    subdomain = req.headers.get('x-tenant-slug');
+  }
 
   // ── SUBDOMAIN (tenant workspace) ─────────────────────────────
   // Must be checked FIRST — subdomain /auth/signin must serve the
@@ -185,6 +201,16 @@ async function withSupabaseSession(req: NextRequest, res: NextResponse): Promise
     },
   );
   await supabase.auth.getUser();
+
+  // Bổ sung CORS headers cho các API response trong môi trường local/testing - Chỉ cho phép ở môi trường Local/Development
+  const { pathname } = req.nextUrl;
+  if (pathname.startsWith('/api/') && process.env.NODE_ENV === 'development') {
+    res.headers.set('Access-Control-Allow-Origin', req.headers.get('origin') || '*');
+    res.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-tenant-slug');
+    res.headers.set('Access-Control-Allow-Credentials', 'true');
+  }
+
   return res;
 }
 
