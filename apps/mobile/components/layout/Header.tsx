@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Text, View, TouchableOpacity, Platform, Modal, ScrollView, TouchableWithoutFeedback } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { router } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getApiBaseUrl, getApiHeaders, loadApiBaseUrl } from '../../lib/api/config';
 import { SyncManager } from '../../lib/sync/SyncManager';
@@ -19,7 +19,6 @@ export interface HeaderProps {
 }
 
 export function Header({ onPressMenu, syncStatus }: HeaderProps) {
-  const router = useRouter();
   const [activeBranchName, setActiveBranchName] = useState('Tạp hóa Linh Ka');
   const [activeBranchId, setActiveBranchId] = useState('');
   const [tenantId, setTenantId] = useState('');

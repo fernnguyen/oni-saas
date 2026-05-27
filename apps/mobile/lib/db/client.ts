@@ -2,18 +2,60 @@ import { drizzle } from 'drizzle-orm/expo-sqlite';
 import { openDatabaseSync } from 'expo-sqlite';
 import * as schema from './schema';
 import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 let internalExpoDb: any = null;
 let internalDb: any = null;
+let activeDbName = 'oni_mobile_offline.db';
+
+export function switchDatabaseScope(tenantId: string | null) {
+  const newDbName = tenantId ? `oni_offline_${tenantId}.db` : 'oni_mobile_offline.db';
+  if (activeDbName !== newDbName) {
+    console.log(`[CSDL SQLite] Đang chuyển vùng dữ liệu sang file: ${newDbName}`);
+    if (internalExpoDb) {
+      try {
+        if (typeof internalExpoDb.closeSync === 'function') {
+          internalExpoDb.closeSync();
+        }
+      } catch (err) {
+        console.warn('Lỗi khi đóng kết nối CSDL cũ:', err);
+      }
+    }
+    activeDbName = newDbName;
+    internalExpoDb = null;
+    internalDb = null;
+    
+    // Tự động chạy tạo bảng cho cơ sở dữ liệu mới vừa mở
+    initializeLocalDatabase();
+  }
+}
+
+// Khởi chạy ngầm tải Tenant ID đã lưu khi nạp module để chuyển đổi database sớm
+async function loadActiveTenantDatabase() {
+  try {
+    const tenantId = await AsyncStorage.getItem('active_tenant_id');
+    if (tenantId) {
+      switchDatabaseScope(tenantId);
+    } else {
+      initializeLocalDatabase();
+    }
+  } catch (err) {
+    console.error('Lỗi khi nạp tenant database khởi động:', err);
+    initializeLocalDatabase();
+  }
+}
+
+// Gọi khởi động ngầm
+loadActiveTenantDatabase();
 
 function getExpoDb() {
   if (!internalExpoDb) {
     if (Platform.OS === 'web') {
       try {
-        internalExpoDb = openDatabaseSync('oni_mobile_offline.db');
+        internalExpoDb = openDatabaseSync(activeDbName);
       } catch (err) {
         console.warn(
-          '⚠️ Cảnh báo: expo-sqlite không thể khởi tạo đồng bộ trên trình duyệt Web do thiếu cấu hình SharedArrayBuffer/WASM. Đang tự động chuyển sang cơ chế giả lập (Mock DB) để tránh crash giao diện.',
+          `⚠️ Cảnh báo: expo-sqlite không thể khởi tạo đồng bộ database ${activeDbName} trên trình duyệt Web do thiếu cấu hình SharedArrayBuffer/WASM. Đang tự động chuyển sang cơ chế giả lập (Mock DB) để tránh crash giao diện.`,
           err
         );
         // Mock SQLite database interface tối giản để tránh crash
@@ -25,7 +67,7 @@ function getExpoDb() {
         };
       }
     } else {
-      internalExpoDb = openDatabaseSync('oni_mobile_offline.db');
+      internalExpoDb = openDatabaseSync(activeDbName);
     }
   }
   return internalExpoDb;

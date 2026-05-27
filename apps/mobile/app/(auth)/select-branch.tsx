@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getApiBaseUrl, saveApiBaseUrl, getApiHeaders, loadApiBaseUrl } from '../../lib/api/config';
 import { SyncManager } from '../../lib/sync/SyncManager';
-import { db } from '../../lib/db/client';
+import { db, switchDatabaseScope } from '../../lib/db/client';
 import * as schema from '../../lib/db/schema';
 
 interface Branch {
@@ -54,6 +54,7 @@ export default function SelectBranchScreen() {
         }
         setTenantId(tId);
         await AsyncStorage.setItem('active_tenant_id', tId);
+        switchDatabaseScope(tId);
 
         // B. Lấy danh sách shops hoạt động của Tenant qua API
         const shopsRes = await fetch(`${currentUrl}/api/shops?tenant_id=${tId}`, { headers });
@@ -118,6 +119,18 @@ export default function SelectBranchScreen() {
     setSyncProgress(0.1);
 
     try {
+      // Đảm bảo CSDL được chuyển đúng vùng tenant trước khi pull và ghi dữ liệu
+      switchDatabaseScope(tenantId);
+
+      // Nếu thay đổi sang chi nhánh khác, hãy xóa sạch giỏ hàng tạm của chi nhánh cũ để tránh lệch dữ liệu
+      const oldShopId = await AsyncStorage.getItem('active_shop_id');
+      if (oldShopId !== branch.id) {
+        await AsyncStorage.removeItem('temp_cart');
+        await AsyncStorage.removeItem('temp_discount');
+        await AsyncStorage.removeItem('temp_note');
+        await AsyncStorage.removeItem('temp_customer');
+      }
+
       // Lưu lại thông tin chi nhánh vào AsyncStorage
       await AsyncStorage.setItem('active_shop_id', branch.id);
       await AsyncStorage.setItem('active_shop_name', branch.name);
