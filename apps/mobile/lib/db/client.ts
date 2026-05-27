@@ -92,6 +92,7 @@ function getDb() {
               values: () => queryChain,
               set: () => queryChain,
               onConflictDoNothing: () => queryChain,
+              onConflictDoUpdate: () => queryChain,
               then: (resolve: any) => resolve([]),
             };
             return queryChain;

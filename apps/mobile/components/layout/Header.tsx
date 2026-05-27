@@ -16,9 +16,11 @@ import { Dialog } from '../ui/Dialog';
 export interface HeaderProps {
   onPressMenu: () => void;
   syncStatus?: 'synced' | 'pending';
+  onPressSync?: () => void;
+  isSyncing?: boolean;
 }
 
-export function Header({ onPressMenu, syncStatus }: HeaderProps) {
+export function Header({ onPressMenu, syncStatus, onPressSync, isSyncing = false }: HeaderProps) {
   const [activeBranchName, setActiveBranchName] = useState('Tạp hóa Linh Ka');
   const [activeBranchId, setActiveBranchId] = useState('');
   const [tenantId, setTenantId] = useState('');
@@ -225,7 +227,7 @@ export function Header({ onPressMenu, syncStatus }: HeaderProps) {
 
       {/* SyncStatusBar và Chuông thông báo Right */}
       <View className="flex-row items-center gap-2">
-        <SyncBanner forceStatus={syncStatus} onPressSync={() => {}} />
+        <SyncBanner forceStatus={syncStatus} onPressSync={onPressSync} isSyncing={isSyncing} />
         
         <TouchableOpacity 
           activeOpacity={0.7}

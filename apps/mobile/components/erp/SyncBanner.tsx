@@ -10,9 +10,10 @@ export interface SyncBannerProps {
   shopId?: string;
   forceStatus?: 'synced' | 'pending' | 'offline' | 'error';
   onPressSync?: () => void;
+  isSyncing?: boolean;
 }
 
-export function SyncBanner({ shopId, forceStatus, onPressSync }: SyncBannerProps) {
+export function SyncBanner({ shopId, forceStatus, onPressSync, isSyncing = false }: SyncBannerProps) {
   const [pendingCount, setPendingCount] = useState(0);
   const [isOnline, setIsOnline] = useState(true);
 
@@ -54,6 +55,18 @@ export function SyncBanner({ shopId, forceStatus, onPressSync }: SyncBannerProps
     return () => clearInterval(interval);
   }, [forceStatus]);
 
+  // Nếu đang đồng bộ chạy ngầm, hiển thị chỉ báo đang tải
+  if (isSyncing) {
+    return (
+      <View className="flex-row items-center bg-orange-50 border border-orange-200 px-2.5 py-1 rounded-xl">
+        <Ionicons name="sync-outline" size={11} color="#fa5908" className="animate-spin" />
+        <Text className="text-[8px] font-black text-orange-600 uppercase tracking-wider ml-1">
+          Đang tải...
+        </Text>
+      </View>
+    );
+  }
+
   // Xác định trạng thái cuối cùng
   let status: 'synced' | 'pending' | 'offline' | 'error' = 'synced';
   if (forceStatus) {
@@ -67,9 +80,13 @@ export function SyncBanner({ shopId, forceStatus, onPressSync }: SyncBannerProps
   // Nếu đã đồng bộ hoàn toàn và không có gì cản trở, hiển thị huy hiệu lục bảo nhỏ xinh hoặc ẩn đi
   if (status === 'synced') {
     return (
-      <View className="flex-row items-center">
+      <TouchableOpacity 
+        activeOpacity={0.8}
+        onPress={onPressSync}
+        className="flex-row items-center"
+      >
         <Badge variant="success" label="Đã đồng bộ" showDot={true} size="sm" />
-      </View>
+      </TouchableOpacity>
     );
   }
 

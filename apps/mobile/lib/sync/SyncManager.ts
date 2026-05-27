@@ -157,7 +157,20 @@ export class SyncManager {
             zone: table.zone || null,
             startTime: resolvedStartTime,
             metadata: mergedMetadata,
-          }).onConflictDoNothing();
+          })
+          .onConflictDoUpdate({
+            target: schema.location_resources.id,
+            set: {
+              name: table.name || '',
+              type: table.type || 'table',
+              status: isOccupied ? 'occupied' : 'available',
+              current_order_id: table.current_order_id || (activeOrderSession ? activeOrderSession.order.id : null),
+              hourly_rate: isNaN(rate) ? 0 : rate,
+              zone: table.zone || null,
+              startTime: resolvedStartTime,
+              metadata: mergedMetadata,
+            }
+          });
         }
       }
 
