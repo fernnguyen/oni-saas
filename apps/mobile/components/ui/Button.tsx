@@ -112,7 +112,7 @@ export function Button({
           />
           {title || children ? (
             <Text className={`${textStyles} ml-2 ${textClassName}`}>
-              Đang xử lý...
+              Đang tải...
             </Text>
           ) : null}
         </View>

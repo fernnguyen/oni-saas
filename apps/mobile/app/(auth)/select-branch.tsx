@@ -307,18 +307,19 @@ export default function SelectBranchScreen() {
       )}
 
       {/* 4. FOOTER ACTIONS & SYNC PROGRESS BAR */}
-      <View>
+      <View className="w-full" style={{ alignSelf: 'stretch' }}>
         {isSyncing ? (
-          <View className="bg-white p-4.5 rounded-2xl border border-slate-250 shadow-sm mb-2 items-center" style={{ alignSelf: 'stretch' }}>
+          <View className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm mb-2 items-center w-full" style={{ alignSelf: 'stretch' }}>
             <ActivityIndicator size="small" color="#fa5908" className="mb-2" />
             <Text className="text-slate-700 font-bold text-xs">Đang nạp dữ liệu SQLite: {Math.round(syncProgress * 100)}%</Text>
-            <View className="h-1.5 bg-slate-100 rounded-full overflow-hidden mt-2" style={{ alignSelf: 'stretch' }}>
-              <View className="h-full bg-orange-500" style={{ width: `${Math.min(100, Math.max(0, syncProgress * 100))}%` }} />
+            <View style={{ alignSelf: 'stretch', height: 6, backgroundColor: '#f1f5f9', borderRadius: 3, overflow: 'hidden', marginTop: 8 }}>
+              <View style={{ height: '100%', backgroundColor: '#fa5908', width: `${Math.min(100, Math.max(0, syncProgress * 100))}%` }} />
             </View>
           </View>
         ) : (
           <TouchableOpacity 
-            className="bg-orange-500 active:bg-orange-600 py-4 rounded-2xl items-center shadow-lg shadow-orange-500/20 flex-row justify-center"
+            className="bg-orange-500 active:bg-orange-600 py-4 rounded-2xl items-center shadow-lg shadow-orange-500/20 flex-row justify-center w-full"
+            style={{ alignSelf: 'stretch' }}
             onPress={handleStartSession}
             disabled={isLoading || branches.length === 0}
           >
