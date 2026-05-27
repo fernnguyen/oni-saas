@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Text, View, ScrollView, TouchableOpacity, Modal, TextInput, Image, Platform } from 'react-native';
+import { Text, View, ScrollView, TouchableOpacity, Modal, TextInput, Image, Platform, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -20,6 +20,25 @@ import { Skeleton } from '../../components/ui/Skeleton';
 import { DrawerMenu } from '../../components/erp/DrawerMenu';
 
 export default function PosScreen() {
+
+  // Premium Toast Notification state
+  const [toastMsg, setToastMsg] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const toastOpacity = React.useRef(new Animated.Value(0)).current;
+
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+    setToastMsg({ message, type });
+    Haptics.notificationAsync(
+      type === 'success' ? Haptics.NotificationFeedbackType.Success :
+      type === 'error' ? Haptics.NotificationFeedbackType.Error :
+      Haptics.NotificationFeedbackType.Warning
+    ).catch(() => {});
+    
+    Animated.sequence([
+      Animated.timing(toastOpacity, { toValue: 1, duration: 250, useNativeDriver: true }),
+      Animated.delay(2000),
+      Animated.timing(toastOpacity, { toValue: 0, duration: 250, useNativeDriver: true })
+    ]).start(() => setToastMsg(null));
+  };
 
   // State quản lý POS
   const [productsList, setProductsList] = useState<any[]>([]);
@@ -114,6 +133,34 @@ export default function PosScreen() {
       }
     };
     loadTableCustomers();
+  }, [isNavReady]);
+
+  // Tự động lưu và khôi phục giỏ hàng gọi thêm của từng phòng bàn
+  useEffect(() => {
+    if (!isNavReady) return;
+    const saveTableCarts = async () => {
+      try {
+        await AsyncStorage.setItem('temp_table_carts', JSON.stringify(tableCarts));
+      } catch (err) {
+        console.error('Không thể lưu giỏ hàng phòng bàn:', err);
+      }
+    };
+    saveTableCarts();
+  }, [tableCarts, isNavReady]);
+
+  useEffect(() => {
+    if (!isNavReady) return;
+    const loadTableCarts = async () => {
+      try {
+        const saved = await AsyncStorage.getItem('temp_table_carts');
+        if (saved) {
+          setTableCarts(JSON.parse(saved));
+        }
+      } catch (err) {
+        console.error('Không thể nạp giỏ hàng phòng bàn:', err);
+      }
+    };
+    loadTableCarts();
   }, [isNavReady]);
   
   // Ticker đếm giờ cho bi-a
@@ -466,13 +513,78 @@ export default function PosScreen() {
     if (!selectedTableForOpen) return;
     try {
       const nowTime = Date.now();
-      
+      let syncSucceeded = false;
+      let orderId = `ORD-T-INPROG-${Date.now()}`;
+
+      // 1. Đồng bộ trực tuyến lên Server Next.js nếu đang có mạng (cho cả Web lẫn Native SQLite)
+      try {
+        const currentUrl = getApiBaseUrl();
+        const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+        const headers = await getApiHeaders();
+        
+        // A. Tạo order in_progress trên Next.js Server
+        const orderRes = await fetch(`${currentUrl}/api/shops/${shopId}/orders`, {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            status: 'in_progress',
+            customer_id: selectedCustomer?.id || '',
+            customer_name: selectedCustomer?.name || 'Khách lẻ',
+            branch_id: shopId,
+            employee_id: 'mobile-cashier',
+            subtotal: '0',
+            total_amount: '0',
+            paid_amount: '0',
+            resource_id: selectedTableForOpen.id,
+            metadata: JSON.stringify({
+              resource_id: selectedTableForOpen.id,
+              resource_name: selectedTableForOpen.name,
+              check_in: new Date(nowTime).toISOString(),
+              num_guests: roomGuestCount,
+              rental_type: roomRentalType,
+            })
+          }),
+        });
+
+        if (orderRes.ok) {
+          const createdOrder = await orderRes.json();
+          orderId = createdOrder.id || createdOrder.order_id;
+
+          // B. Cập nhật vị trí sang occupied
+          const patchRes = await fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${selectedTableForOpen.id}`, {
+            method: 'PATCH',
+            headers: { ...headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              status: 'occupied',
+              current_order_id: orderId,
+              startTime: nowTime
+            }),
+          });
+          if (patchRes.ok) {
+            syncSucceeded = true;
+          } else {
+            const errBody = await patchRes.text().catch(() => '');
+            console.warn(`[Open Table PATCH Failed] Status ${patchRes.status}:`, errBody);
+          }
+        } else {
+          const errBody = await orderRes.text().catch(() => '');
+          console.warn(`[Open Table POST Failed] Status ${orderRes.status}:`, errBody);
+        }
+      } catch (syncErr) {
+        console.log('Mất mạng hoặc lỗi server, bỏ qua sync check-in trực tiếp:', syncErr);
+      }
+
+      // 2. Ghi đè vào DB Cục bộ hoặc State cục bộ
       if (Platform.OS === 'web') {
-        setTables(prev => prev.map(t => t.id === selectedTableForOpen.id ? { ...t, status: 'occupied', startTime: nowTime } : t));
+        setTables(prev => prev.map(t => t.id === selectedTableForOpen.id ? { ...t, status: 'occupied', current_order_id: orderId, startTime: nowTime } : t));
       } else {
         await db
           .update(schema.location_resources)
-          .set({ status: 'occupied', startTime: nowTime })
+          .set({ 
+            status: 'occupied', 
+            current_order_id: orderId,
+            startTime: nowTime 
+          })
           .where(eq(schema.location_resources.id, selectedTableForOpen.id));
         
         const updated = await db.select().from(schema.location_resources);
@@ -491,8 +603,16 @@ export default function PosScreen() {
       setSelectedTableForOpen(null);
       // Reset các tab check-in
       setCheckInTab('info');
+
+      // Hiển thị Toast thông báo thành công sang trọng giống WebUI
+      if (syncSucceeded) {
+        showToast(`Đã nhận ${shopVertical === 'room' ? 'Phòng' : shopVertical === 'court' ? 'Sân' : 'Bàn'} & Đồng bộ thành công!`, 'success');
+      } else {
+        showToast(`Nhận ${shopVertical === 'room' ? 'Phòng' : shopVertical === 'court' ? 'Sân' : 'Bàn'} ngoại tuyến thành công!`, 'info');
+      }
     } catch (err) {
       console.error('Không thể mở bàn bi-a:', err);
+      showToast('Có lỗi xảy ra khi nhận phòng!', 'error');
     }
   };
 
@@ -518,7 +638,9 @@ export default function PosScreen() {
       const shiftId = await AsyncStorage.getItem('active_shift_id') || 'default-shift';
       const orderId = `ORD-T-${Date.now()}`;
       const nowStr = new Date().toISOString();
+      let syncSucceeded = false;
 
+      // A. Lưu vào cơ sở dữ liệu SQLite cục bộ (Offline-First)
       if (Platform.OS === 'web') {
         setTables(prev => prev.map(t => t.id === selectedTableForPay.id ? { ...t, status: 'available', startTime: null } : t));
       } else {
@@ -567,8 +689,111 @@ export default function PosScreen() {
         const updated = await db.select().from(schema.location_resources);
         setTables(updated);
         setSyncStatus('pending');
+      }
 
-        SyncManager.pushOfflineOrders(shopId);
+      // B. Đồng bộ trực tiếp lên Cloud Next.js Server nếu đang có mạng
+      try {
+        const currentUrl = getApiBaseUrl();
+        const headers = await getApiHeaders();
+
+        const payload = {
+          local_order_id: orderId,
+          server_order_id: selectedTableForPay.current_order_id || '', // Cập nhật trực tiếp order in_progress hiện tại
+          order: {
+            status: 'completed',
+            customer_id: tableCustomers[selectedTableForPay.id]?.id || selectedCustomer?.id || '',
+            customer_name: tableCustomers[selectedTableForPay.id]?.name || selectedCustomer?.name || 'Khách lẻ',
+            branch_id: shopId,
+            employee_id: 'mobile-app',
+            subtotal: totalAmount,
+            discount_amount: 0,
+            tax_amount: 0,
+            total_amount: totalAmount,
+            paid_amount: totalAmount,
+            debt_amount: 0,
+            note: `Thanh toán phòng/bàn từ di động.`,
+            metadata: JSON.stringify({
+              resource_id: selectedTableForPay.id,
+              resource_name: selectedTableForPay.name,
+              billing_cost: billing.cost,
+              billing_duration: `${billing.hours}h ${billing.minutes}m`,
+            })
+          },
+          items: [
+            {
+              product_id: 'billiard-time',
+              product_name: `Tiền giờ - ${selectedTableForPay.name}`,
+              qty: 1,
+              unit_price: billing.cost,
+              discount_amount: 0,
+              line_total: billing.cost,
+            },
+            ...Object.entries(tableCartItems).map(([prodId, item]: [string, any]) => ({
+              product_id: prodId,
+              product_name: item.name,
+              qty: item.quantity,
+              unit_price: item.price,
+              discount_amount: 0,
+              line_total: item.price * item.quantity,
+            }))
+          ],
+          payments: [
+            {
+              method: tablePayMethod === 'Chuyển khoản' ? 'bank_transfer' : 'cash',
+              amount: totalAmount,
+            }
+          ],
+          stock_movements: Object.entries(tableCartItems).map(([prodId, item]: [string, any]) => ({
+            type: 'sale_out',
+            product_id: prodId,
+            qty: -item.quantity,
+            branch_id: shopId,
+          }))
+        };
+
+        const syncRes = await fetch(`${currentUrl}/api/shops/${shopId}/orders/sync-batch`, {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+        if (syncRes.ok) {
+          // B. Cập nhật vị trí sang available trên Server Cloud
+          const patchRes = await fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${selectedTableForPay.id}`, {
+            method: 'PATCH',
+            headers: { ...headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              status: 'available',
+              current_order_id: '',
+              startTime: null
+            }),
+          });
+
+          if (patchRes.ok) {
+            syncSucceeded = true;
+            // Cập nhật lại sync_status = synced trong SQLite cục bộ vì đã sync thành công ngay lập tức
+            if (Platform.OS !== 'web') {
+              await db
+                .update(schema.orders)
+                .set({ sync_status: 'synced' })
+                .where(eq(schema.orders.id, orderId));
+              
+              const pendingOrdersCount = await db
+                .select()
+                .from(schema.orders)
+                .where(eq(schema.orders.sync_status, 'pending'));
+              setSyncStatus(pendingOrdersCount.length > 0 ? 'pending' : 'synced');
+            }
+          } else {
+            const errBody = await patchRes.text().catch(() => '');
+            console.warn(`[Pay Table PATCH Failed] Status ${patchRes.status}:`, errBody);
+          }
+        } else {
+          const errBody = await syncRes.text().catch(() => '');
+          console.warn(`[Pay Table Sync Failed] Status ${syncRes.status}:`, errBody);
+        }
+      } catch (syncErr) {
+        console.log('Mất mạng hoặc lỗi server, bỏ qua sync checkout trực tiếp (sẽ sync sau):', syncErr);
       }
 
       // Xóa giỏ hàng của bàn và khách hàng phòng bàn sau khi thanh toán
@@ -589,9 +814,22 @@ export default function PosScreen() {
       setIsTablePayDialogVisible(false);
       setSelectedTableForPay(null);
       setActiveTable(null);
+
+      // Hiển thị Toast thông báo kết quả sang trọng giống WebUI
+      if (syncSucceeded) {
+        showToast("Thanh toán & Giải phóng thành công!", "success");
+      } else {
+        showToast("Thanh toán ngoại tuyến thành công! Sẽ sync sau.", "info");
+      }
+
+      // Kích hoạt đồng bộ ngầm các hóa đơn cũ khác
+      if (Platform.OS !== 'web') {
+        SyncManager.pushOfflineOrders(shopId);
+      }
     } catch (err) {
       console.error('Lỗi thanh toán bàn chơi:', err);
       setIsPayingTableLoading(false);
+      showToast("Lỗi khi xử lý thanh toán!", "error");
     }
   };
 
@@ -857,7 +1095,7 @@ export default function PosScreen() {
                   <Text className="text-[9px] font-black text-slate-600 uppercase">Hủy</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity 
+                 <TouchableOpacity 
                   activeOpacity={0.7}
                   className="bg-orange-500 border border-orange-600 px-3 py-1 rounded-lg active:scale-95"
                   onPress={() => {
@@ -870,6 +1108,7 @@ export default function PosScreen() {
                     setCartOwnerTable(null);
                     setActiveVertical(shopVertical);
                     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+                    showToast("Đã lưu món vào phòng/bàn thành công!", "success");
                   }}
                 >
                   <Text className="text-[9px] font-black text-white uppercase">Lưu món</Text>
@@ -904,8 +1143,8 @@ export default function PosScreen() {
           </View>
 
           {/* Lọc danh mục sản phẩm */}
-          <View className="mb-3">
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} className="flex-row">
+          <View className="mb-3 flex-row items-center">
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} className="flex-row flex-1">
               <TouchableOpacity
                 activeOpacity={0.8}
                 className={`mr-2 px-3 py-1.5 rounded-xl border ${
@@ -943,6 +1182,16 @@ export default function PosScreen() {
                 </TouchableOpacity>
               ))}
             </ScrollView>
+            
+            {/* Nút đồng bộ tải dữ liệu từ Next.js Cloud trực tiếp trên tab bán lẻ */}
+            <TouchableOpacity 
+              activeOpacity={0.8}
+              onPress={handleRefresh}
+              className="bg-white border border-slate-200 p-2 rounded-xl active:bg-slate-100 ml-2"
+              style={{ shadowColor: '#000000', shadowOffset: { width: 0, height: 1.5 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2 }}
+            >
+              <Ionicons name="sync" size={14} color="#fa5908" />
+            </TouchableOpacity>
           </View>
 
           {/* Grid sản phẩm */}
@@ -1054,16 +1303,22 @@ export default function PosScreen() {
                           activeOpacity={0.85}
                           className={`w-[48%] mb-4 rounded-2xl border ${
                             isActive 
-                              ? 'border-rose-350 ' 
+                              ? '' 
                               : 'bg-white border-slate-200'
                           } justify-between overflow-hidden`}
-                          style={{
-                            shadowColor: '#000000',
-                            shadowOffset: { width: 0, height: 1.5 },
-                            shadowOpacity: 0.06,
-                            shadowRadius: 2.5,
-                            elevation: 2,
-                          }}
+                          style={[
+                            {
+                              shadowColor: '#000000',
+                              shadowOffset: { width: 0, height: 1.5 },
+                              shadowOpacity: 0.06,
+                              shadowRadius: 2.5,
+                              elevation: 2,
+                            },
+                            isActive ? {
+                              borderColor: 'rgba(244, 63, 94, 0.25)', // border-rose-300 mờ sang trọng
+                              backgroundColor: 'rgba(255, 241, 242, 0.65)', // bg-rose-50 mờ cực dịu mắt
+                            } : {}
+                          ]}
                           onPress={() => handleTablePress(t)}
                         >
                           {/* Stripe màu trên cùng */}
@@ -1116,7 +1371,13 @@ export default function PosScreen() {
 
                             {/* Chi tiết tạm tính nếu đang hoạt động */}
                             {isActive && (
-                              <View className=" border  p-2 rounded-lg mb-2">
+                              <View 
+                                className="border p-2 rounded-lg mb-2"
+                                style={{
+                                  backgroundColor: 'rgba(244, 63, 94, 0.05)', // bg-rose-50 mờ nhạt
+                                  borderColor: 'rgba(244, 63, 94, 0.15)', // border-rose-200 mờ nhạt
+                                }}
+                              >
                                 <Text className="text-[8.5px] text-rose-700 font-black">
                                   ⏱️ Đã dùng: {billing.hours}h {billing.minutes}m
                                 </Text>
@@ -1124,7 +1385,10 @@ export default function PosScreen() {
                                   💵 Tiền giờ: {formatCurrency(billing.cost)}
                                 </Text>
                                 {cartItemsCount > 0 && (
-                                  <Text className="text-[8px] text-slate-550 font-black mt-0.5 pt-0.5 border-t ">
+                                  <Text 
+                                    className="text-[8px] text-slate-550 font-black mt-0.5 pt-0.5 border-t"
+                                    style={{ borderTopColor: 'rgba(244, 63, 94, 0.15)' }}
+                                  >
                                     🍴 Đã gọi: {cartItemsCount} món
                                   </Text>
                                 )}
@@ -1133,7 +1397,7 @@ export default function PosScreen() {
 
                             {/* Nút Trạng thái ở đáy card */}
                             <View className={`w-full py-2 rounded-lg items-center justify-center border ${
-                              isActive ? 'bg-rose-100/30 border-rose-200' : 'bg-slate-50 border-slate-150'
+                              isActive ? 'bg-rose-100/30 border-rose-200' : 'bg-slate-50 border-slate-200'
                             }`}>
                               <Text className={`text-[10px] font-black ${
                                 isActive ? 'text-rose-600' : 'text-emerald-600'
@@ -1184,7 +1448,7 @@ export default function PosScreen() {
           <Button 
             variant="primary"
             size="md"
-            onPress={() => {
+             onPress={() => {
               if (cartOwnerTable) {
                 // Lưu vào bàn/phòng và quay lại sơ đồ
                 setTableCarts(prev => ({
@@ -1195,6 +1459,7 @@ export default function PosScreen() {
                 setCartOwnerTable(null);
                 setActiveVertical(shopVertical);
                 Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+                showToast("Đã lưu món vào phòng/bàn thành công!", "success");
               } else {
                 setIsCartModalOpen(true);
               }
@@ -1215,7 +1480,7 @@ export default function PosScreen() {
         transparent={true}
         onRequestClose={() => setIsTableOpenDialogVisible(false)}
       >
-        <View className="flex-1 justify-end ">
+        <View className="flex-1 justify-end" style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)' }}>
           <View className="h-[75%] rounded-t-2xl p-6 bg-white justify-between" style={{ shadowColor: '#000000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 12 }}>
             {/* Header */}
             <View className="flex-row justify-between items-center border-b border-slate-100 pb-4">
@@ -1387,7 +1652,7 @@ export default function PosScreen() {
                   )}
                 </View>
               ) : (
-                <View className="bg-slate-50 border border-slate-150 p-4 rounded-xl">
+                <View className="bg-slate-50 border border-slate-200 p-4 rounded-xl">
                   {/* TAB KHÁCH LƯU TRÚ (Danh sách khách ở cùng phòng) */}
                   <View className="flex-row justify-between items-center mb-3">
                     <Text className="text-xs font-black text-slate-800">
@@ -1499,7 +1764,7 @@ export default function PosScreen() {
         transparent={true}
         onRequestClose={() => setIsScannerOpen(false)}
       >
-        <View className="flex-1 justify-end ">
+        <View className="flex-1 justify-end" style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)' }}>
           <View className="h-[45%] rounded-t-2xl p-6 justify-between bg-white">
             <View className="flex-row justify-between items-center">
               <View className="flex-row items-center">
@@ -1532,13 +1797,13 @@ export default function PosScreen() {
       {/* 6. MODAL XEM CHI TIẾT PHÒNG/BÀN ĐANG HOẠT ĐỘNG */}
       <Modal
         visible={!!activeTable}
-        animationType="fade"
+        animationType="slide"
         transparent={true}
         onRequestClose={() => setActiveTable(null)}
       >
-        <View className="flex-1 justify-center items-center  px-6">
+        <View className="flex-1 justify-end" style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)' }}>
           {activeTable && (
-            <View className="w-full max-w-md p-6 rounded-2xl bg-white border border-slate-100" style={{ shadowColor: '#000000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 12 }}>
+            <View className="h-[75%] rounded-t-2xl p-6 justify-between bg-white shadow-2xl">
               {/* Modal Header */}
               <View className="flex-row justify-between items-center mb-4">
                 <View className="flex-row items-center">
@@ -1634,36 +1899,79 @@ export default function PosScreen() {
                   <Text className="text-[10px] font-black text-slate-700 ml-2">Gộp {shopVertical === 'room' ? 'Phòng' : shopVertical === 'court' ? 'Sân' : shopVertical === 'cafe' ? 'Bàn' : 'Bàn'}</Text>
                 </TouchableOpacity>
 
-                {/* 4. Hủy đơn / Trả phòng trống */}
-                <TouchableOpacity 
-                  activeOpacity={0.8}
-                  className="w-[47%] bg-rose-50 border border-rose-100 p-2.5 rounded-xl flex-row items-center active:bg-rose-100"
-                  onPress={async () => {
-                    try {
-                      if (Platform.OS === 'web') {
-                        setTables(prev => prev.map(t => t.id === activeTable.id ? { ...t, status: 'available', startTime: null } : t));
-                      } else {
-                        await db
-                          .update(schema.location_resources)
-                          .set({ status: 'available', startTime: null })
-                          .where(eq(schema.location_resources.id, activeTable.id));
-                        const updated = await db.select().from(schema.location_resources);
-                        setTables(updated);
-                      }
-                      
-                      // Dọn dẹp tableCart
-                      setTableCarts(prev => {
-                        const copy = { ...prev };
-                        delete copy[activeTable.id];
-                        return copy;
-                      });
-                      
-                      setActiveTable(null);
-                    } catch (err) {
-                      console.error('Không thể hủy ca hoạt động:', err);
-                    }
-                  }}
-                >
+                 {/* 4. Hủy đơn / Trả phòng trống */}
+                 <TouchableOpacity 
+                   activeOpacity={0.8}
+                   className="w-[47%] bg-rose-50 border border-rose-100 p-2.5 rounded-xl flex-row items-center active:bg-rose-100"
+                   onPress={async () => {
+                     try {
+                       const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+                       let syncSucceeded = false;
+
+                       // 1. Đồng bộ cục bộ (Offline-First)
+                       if (Platform.OS === 'web') {
+                         setTables(prev => prev.map(t => t.id === activeTable.id ? { ...t, status: 'available', startTime: null } : t));
+                       } else {
+                         await db
+                           .update(schema.location_resources)
+                           .set({ status: 'available', startTime: null })
+                           .where(eq(schema.location_resources.id, activeTable.id));
+                         const updated = await db.select().from(schema.location_resources);
+                         setTables(updated);
+                       }
+
+                       // 2. Đồng bộ trực tuyến lên Server Next.js nếu đang có mạng
+                       try {
+                         const currentUrl = getApiBaseUrl();
+                         const headers = await getApiHeaders();
+
+                         // A. Hủy order in_progress trên Next.js Server
+                         if (activeTable.current_order_id) {
+                           await fetch(`${currentUrl}/api/shops/${shopId}/orders/${activeTable.current_order_id}/cancel`, {
+                             method: 'POST',
+                             headers: { ...headers, 'Content-Type': 'application/json' },
+                             body: JSON.stringify({ reason: 'Hủy từ di động' })
+                           });
+                         }
+
+                         // B. Patch trạng thái bàn về available
+                         const patchRes = await fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${activeTable.id}`, {
+                           method: 'PATCH',
+                           headers: { ...headers, 'Content-Type': 'application/json' },
+                           body: JSON.stringify({
+                             status: 'available',
+                             current_order_id: '',
+                             startTime: null
+                           }),
+                         });
+                         if (patchRes.ok) {
+                           syncSucceeded = true;
+                         }
+                       } catch (syncErr) {
+                         console.log('Mất mạng hoặc lỗi server, bỏ qua hủy trực tiếp:', syncErr);
+                       }
+
+                       // Dọn dẹp tableCart
+                       setTableCarts(prev => {
+                         const copy = { ...prev };
+                         delete copy[activeTable.id];
+                         return copy;
+                       });
+
+                       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+                       setActiveTable(null);
+
+                       if (syncSucceeded) {
+                         showToast("Hủy đơn & Giải phóng phòng/bàn thành công!", "success");
+                       } else {
+                         showToast("Giải phóng phòng/bàn ngoại tuyến thành công!", "info");
+                       }
+                     } catch (err) {
+                       console.error('Không thể hủy ca hoạt động:', err);
+                       showToast("Có lỗi xảy ra khi hủy ca!", "error");
+                     }
+                   }}
+                 >
                   <Ionicons name="close-circle-outline" size={16} color="#e11d48" />
                   <Text className="text-[10px] font-black text-rose-700 ml-2">Hủy / Trả trống</Text>
                 </TouchableOpacity>
@@ -1697,7 +2005,7 @@ export default function PosScreen() {
         transparent={true}
         onRequestClose={() => setIsCartModalOpen(false)}
       >
-        <View className="flex-1 justify-end ">
+        <View className="flex-1 justify-end" style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)' }}>
           <View className="h-[90%] rounded-t-2xl p-6 bg-white justify-between" style={{ shadowColor: '#000000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 12 }}>
             {/* Header */}
             <View className="flex-row justify-between items-center border-b border-slate-100 pb-4">
@@ -1907,14 +2215,14 @@ export default function PosScreen() {
                         {/* Dropdown list absolute overlay (ẩn các phương thức đã được chọn) */}
                         {openDropdownRowId === row.id && (
                           <View 
-                            className="absolute left-0 right-0 bg-white border border-slate-200 rounded-xl mt-1.5 py-1 z-50" style={{ shadowColor: '#000000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.1, shadowRadius: 10, elevation: 7 }}
+                            className="absolute left-0 right-0 bg-white border border-slate-200 rounded-xl mt-1.5 py-1 z-50"
                             style={{ 
                               top: '100%', 
                               elevation: 10,
                               shadowColor: '#000000',
-                              shadowOffset: { width: 0, height: 4 },
+                              shadowOffset: { width: 0, height: 6 },
                               shadowOpacity: 0.1,
-                              shadowRadius: 5,
+                              shadowRadius: 10,
                             }}
                           >
                             {['Tiền mặt', 'Chuyển khoản', 'Thẻ ATM', 'Ví MoMo', 'Ghi nợ']
@@ -2057,7 +2365,7 @@ export default function PosScreen() {
         transparent={true}
         onRequestClose={() => setIsQrModalOpen(false)}
       >
-        <View className="flex-1 justify-center items-center  px-6">
+        <View className="flex-1 justify-center items-center px-6" style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)' }}>
           {qrPayload && (
             <View className="w-full max-w-sm p-6 rounded-2xl bg-white border border-slate-100 items-center" style={{ shadowColor: '#000000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 12 }}>
               
