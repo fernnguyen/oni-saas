@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { db } from '../../lib/db/client';
+import { db, switchDatabaseScope } from '../../lib/db/client';
 import * as schema from '../../lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { SyncManager } from '../../lib/sync/SyncManager';
@@ -212,6 +212,15 @@ export default function SettingsScreen() {
       await AsyncStorage.removeItem('active_shop_id');
       await AsyncStorage.removeItem('active_shop_name');
       await AsyncStorage.removeItem('active_tenant_id');
+
+      // Xóa sạch giỏ hàng tạm và thông tin CRM của ca làm việc cũ
+      await AsyncStorage.removeItem('temp_cart');
+      await AsyncStorage.removeItem('temp_discount');
+      await AsyncStorage.removeItem('temp_note');
+      await AsyncStorage.removeItem('temp_customer');
+
+      // Trả lại kết nối CSDL về file mặc định sau khi đăng xuất
+      switchDatabaseScope(null);
 
       await supabase.auth.signOut();
       

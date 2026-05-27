@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, Dimensions, Modal, Text, TouchableOpacity, View, TouchableWithoutFeedback, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 
 export interface DrawerMenuProps {
@@ -14,7 +14,6 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const DRAWER_WIDTH = SCREEN_WIDTH * 0.78;
 
 export function DrawerMenu({ visible, onClose, branchName = 'Chi nhánh chính' }: DrawerMenuProps) {
-  const router = useRouter();
   
   // Hoạt ảnh trượt ngang từ trái sang phải
   const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;

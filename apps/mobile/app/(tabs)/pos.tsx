@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Text, View, ScrollView, TouchableOpacity, Modal, TextInput, Image, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { db } from '../../lib/db/client';
 import * as schema from '../../lib/db/schema';
@@ -149,191 +148,190 @@ export default function PosScreen() {
     saveCheckoutStates();
   }, [discountAmount, orderNote, selectedCustomer]);
 
-  // Tải dữ liệu thực tế SQLite/Cloud mỗi lần màn hình được Focus
-  useFocusEffect(
-    useCallback(() => {
-      let isMounted = true;
-      const loadPosData = async () => {
-        try {
-          if (isMounted) setIsLoading(true);
+  // Tải dữ liệu thực tế SQLite/Cloud khi màn hình được Mount
+  useEffect(() => {
+    let isMounted = true;
+    const loadPosData = async () => {
+      try {
+        if (isMounted) setIsLoading(true);
 
-          const activeShopName = await AsyncStorage.getItem('active_shop_name') || 'Tạp hóa Linh Ka';
-          const nameLower = activeShopName.toLowerCase();
-          
-          let vertical: 'retail' | 'billiards' | 'cafe' | 'court' | 'room' = 'retail';
-          if (nameLower.includes('bida') || nameLower.includes('billiard') || nameLower.includes('bi-a')) {
-            vertical = 'billiards';
-          } else if (nameLower.includes('cafe') || nameLower.includes('cà phê') || nameLower.includes('trà') || nameLower.includes('nhà hàng') || nameLower.includes('restaurant')) {
-            vertical = 'cafe';
-          } else if (nameLower.includes('sân') || nameLower.includes('court') || nameLower.includes('bóng') || nameLower.includes('cầu lông') || nameLower.includes('sport')) {
-            vertical = 'court';
-          } else if (nameLower.includes('phòng') || nameLower.includes('room') || nameLower.includes('hotel') || nameLower.includes('homestay') || nameLower.includes('motel') || nameLower.includes('karaoke')) {
-            vertical = 'room';
-          }
-          
-          if (isMounted) {
-            setShopVertical(vertical);
-            if (vertical !== 'retail') {
-              setActiveVertical(vertical);
-            } else {
-              setActiveVertical('retail');
-            }
-          }
-
-          let prods = [];
-          let cats = [];
-          let resources = [];
-          let customers = [];
-          let hasPending = false;
-
-          if (Platform.OS === 'web') {
-            // Tải dữ liệu thực tế từ REST API (Next.js) trên môi trường Web để tránh placeholder mock
-            try {
-              const currentUrl = getApiBaseUrl();
-              const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
-              const headers = await getApiHeaders();
-
-              // A. Tải danh mục sản phẩm
-              const catRes = await fetch(`${currentUrl}/api/shops/${shopId}/categories?limit=500`, { headers });
-              if (catRes.ok) {
-                const catData = await catRes.json();
-                cats = (catData.data || []).map((cat: any) => ({
-                  id: cat.id || cat.category_id,
-                  name: cat.name || '',
-                  parent_id: cat.parent_id || null,
-                  description: cat.description || null,
-                }));
-              }
-
-              // B. Tải sản phẩm thực tế
-              const prodRes = await fetch(`${currentUrl}/api/shops/${shopId}/products?limit=2000&nocache=true`, { headers });
-              if (prodRes.ok) {
-                const prodData = await prodRes.json();
-                prods = (prodData.data || []).map((prod: any) => {
-                  const sellPrice = parseInt(prod.sell_price || '0', 10);
-                  const stockQty = parseInt(prod.stock_qty || '0', 10);
-                  return {
-                    id: prod.id || prod.product_id,
-                    name: prod.name || '',
-                    sku: prod.sku || '',
-                    barcode: prod.barcode || '',
-                    category_id: prod.category_id || null,
-                    unit: prod.unit || '',
-                    sell_price: isNaN(sellPrice) ? 0 : sellPrice,
-                    stock_qty: isNaN(stockQty) ? 0 : stockQty,
-                    image_url: prod.image_url || null,
-                    description: prod.description || null,
-                  };
-                });
-              }
-
-              // C. Tải sơ đồ phòng bàn
-              const tableRes = await fetch(`${currentUrl}/api/shops/${shopId}/location-resources?limit=500`, { headers });
-              if (tableRes.ok) {
-                const tableData = await tableRes.json();
-                resources = (tableData.data || []).map((table: any) => {
-                  const rate = parseInt(table.hourly_rate || '0', 10);
-                  return {
-                    id: table.id || table.resource_id,
-                    name: table.name || '',
-                    type: table.type || 'table',
-                    status: table.status || 'idle',
-                    current_order_id: table.current_order_id || null,
-                    hourly_rate: isNaN(rate) ? 0 : rate,
-                    zone: table.zone || null,
-                    startTime: table.status === 'playing' ? Date.now() - 3600000 : null,
-                  };
-                });
-              }
-
-              // D. Tải danh sách khách hàng
-              const custRes = await fetch(`${currentUrl}/api/shops/${shopId}/customers?limit=2000`, { headers });
-              if (custRes.ok) {
-                const custData = await custRes.json();
-                customers = (custData.data || []).map((cust: any) => {
-                  const spent = parseInt(cust.total_spent || cust.prepaid_balance || '0', 10);
-                  const oCount = parseInt(cust.orders_count || '0', 10);
-                  return {
-                    id: cust.id || cust.customer_id,
-                    name: cust.name || '',
-                    phone: cust.phone || '',
-                    email: cust.email || null,
-                    address: cust.address || null,
-                    customer_code: cust.customer_code || null,
-                    customer_type: cust.customer_type || 'Thành viên',
-                    total_spent: isNaN(spent) ? 0 : spent,
-                    orders_count: isNaN(oCount) ? 0 : oCount,
-                    sync_status: 'synced',
-                  };
-                });
-              }
-            } catch (fetchError) {
-              console.warn('Lỗi khi tải dữ liệu thực tế từ REST API trên Web, sử dụng Mock làm dự phòng:', fetchError);
-            }
-
-            // Fallback sang Mock Data nếu không tải được gì
-            if (prods.length === 0) {
-              prods = [
-                { id: 'p1', name: 'Cà phê Phin Sữa Đá', sell_price: 29000, stock_qty: 99, category_id: 'c1', unit: 'ly' },
-                { id: 'p2', name: 'Trà Đào Cam Sả', sell_price: 39000, stock_qty: 45, category_id: 'c1', unit: 'ly' },
-                { id: 'p3', name: 'Bánh Mì Pate Xá Xíu', sell_price: 25000, stock_qty: 20, category_id: 'c2', unit: 'cái' },
-                { id: 'p4', name: 'Nước suối Aquafina', sell_price: 15000, stock_qty: 150, category_id: 'c3', unit: 'chai' }
-              ];
-            }
-            if (cats.length === 0) {
-              cats = [
-                { id: 'c1', name: 'Đồ uống' },
-                { id: 'c2', name: 'Thức ăn' },
-                { id: 'c3', name: 'Tiện ích' }
-              ];
-            }
-            if (resources.length === 0) {
-              resources = [
-                { id: 't1', name: 'Bàn Bi-a 01', type: 'table', status: 'idle', hourly_rate: 60000, zone: 'Khu A' },
-                { id: 't2', name: 'Bàn Bi-a 02', type: 'table', status: 'playing', hourly_rate: 60000, zone: 'Khu A', startTime: Date.now() - 45 * 60000 },
-                { id: 't3', name: 'Bàn VIP 01', type: 'table', status: 'idle', hourly_rate: 90000, zone: 'Phòng VIP' }
-              ];
-            }
-            if (customers.length === 0) {
-              customers = [
-                { id: 'cust1', name: 'Nguyễn Văn Minh', phone: '0901234567', customer_type: 'VIP' },
-                { id: 'cust2', name: 'Trần Thị Hằng', phone: '0987654321', customer_type: 'Thân thiết' }
-              ];
-            }
-          } else {
-            // SQLite Native
-            prods = await db.select().from(schema.products);
-            cats = await db.select().from(schema.categories);
-            resources = await db.select().from(schema.location_resources);
-            customers = await db.select().from(schema.customers);
-
-            const pendingOrdersCount = await db
-              .select()
-              .from(schema.orders)
-              .where(eq(schema.orders.sync_status, 'pending'));
-            hasPending = pendingOrdersCount.length > 0;
-          }
-
-          if (isMounted) {
-            setProductsList(prods);
-            setCategoriesList(cats);
-            setTables(resources);
-            setCustomersList(customers);
-            setSyncStatus(hasPending ? 'pending' : 'synced');
-            setIsLoading(false);
-          }
-        } catch (error) {
-          console.error('Lỗi khi tải dữ liệu POS:', error);
-          if (isMounted) setIsLoading(false);
+        const activeShopName = await AsyncStorage.getItem('active_shop_name') || 'Tạp hóa Linh Ka';
+        const nameLower = activeShopName.toLowerCase();
+        
+        let vertical: 'retail' | 'billiards' | 'cafe' | 'court' | 'room' = 'retail';
+        if (nameLower.includes('bida') || nameLower.includes('billiard') || nameLower.includes('bi-a')) {
+          vertical = 'billiards';
+        } else if (nameLower.includes('cafe') || nameLower.includes('cà phê') || nameLower.includes('trà') || nameLower.includes('nhà hàng') || nameLower.includes('restaurant')) {
+          vertical = 'cafe';
+        } else if (nameLower.includes('sân') || nameLower.includes('court') || nameLower.includes('bóng') || nameLower.includes('cầu lông') || nameLower.includes('sport')) {
+          vertical = 'court';
+        } else if (nameLower.includes('phòng') || nameLower.includes('room') || nameLower.includes('hotel') || nameLower.includes('homestay') || nameLower.includes('motel') || nameLower.includes('karaoke')) {
+          vertical = 'room';
         }
-      };
+        
+        if (isMounted) {
+          // Tránh cập nhật state phân hệ ngay lập tức trong chu kỳ focus đầu tiên để không làm mất navigation context
+          setTimeout(() => {
+            if (isMounted) {
+              setShopVertical(vertical);
+              setActiveVertical(vertical);
+            }
+          }, 60);
+        }
 
-      loadPosData();
-      return () => {
-        isMounted = false;
-      };
-    }, [])
-  );
+        let prods = [];
+        let cats = [];
+        let resources = [];
+        let customers = [];
+        let hasPending = false;
+
+        if (Platform.OS === 'web') {
+          // Tải dữ liệu thực tế từ REST API (Next.js) trên môi trường Web để tránh placeholder mock
+          try {
+            const currentUrl = getApiBaseUrl();
+            const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+            const headers = await getApiHeaders();
+
+            // A. Tải danh mục sản phẩm
+            const catRes = await fetch(`${currentUrl}/api/shops/${shopId}/categories?limit=500`, { headers });
+            if (catRes.ok) {
+              const catData = await catRes.json();
+              cats = (catData.data || []).map((cat: any) => ({
+                id: cat.id || cat.category_id,
+                name: cat.name || '',
+                parent_id: cat.parent_id || null,
+                description: cat.description || null,
+              }));
+            }
+
+            // B. Tải sản phẩm thực tế
+            const prodRes = await fetch(`${currentUrl}/api/shops/${shopId}/products?limit=2000&nocache=true`, { headers });
+            if (prodRes.ok) {
+              const prodData = await prodRes.json();
+              prods = (prodData.data || []).map((prod: any) => {
+                const sellPrice = parseInt(prod.sell_price || '0', 10);
+                const stockQty = parseInt(prod.stock_qty || '0', 10);
+                return {
+                  id: prod.id || prod.product_id,
+                  name: prod.name || '',
+                  sku: prod.sku || '',
+                  barcode: prod.barcode || '',
+                  category_id: prod.category_id || null,
+                  unit: prod.unit || '',
+                  sell_price: isNaN(sellPrice) ? 0 : sellPrice,
+                  stock_qty: isNaN(stockQty) ? 0 : stockQty,
+                  image_url: prod.image_url || null,
+                  description: prod.description || null,
+                };
+              });
+            }
+
+            // C. Tải sơ đồ phòng bàn
+            const tableRes = await fetch(`${currentUrl}/api/shops/${shopId}/location-resources?limit=500`, { headers });
+            if (tableRes.ok) {
+              const tableData = await tableRes.json();
+              resources = (tableData.data || []).map((table: any) => {
+                const rate = parseInt(table.hourly_rate || '0', 10);
+                return {
+                  id: table.id || table.resource_id,
+                  name: table.name || '',
+                  type: table.type || 'table',
+                  status: table.status || 'idle',
+                  current_order_id: table.current_order_id || null,
+                  hourly_rate: isNaN(rate) ? 0 : rate,
+                  zone: table.zone || null,
+                  startTime: table.status === 'playing' ? Date.now() - 3600000 : null,
+                };
+              });
+            }
+
+            // D. Tải danh sách khách hàng
+            const custRes = await fetch(`${currentUrl}/api/shops/${shopId}/customers?limit=2000`, { headers });
+            if (custRes.ok) {
+              const custData = await custRes.json();
+              customers = (custData.data || []).map((cust: any) => {
+                const spent = parseInt(cust.total_spent || cust.prepaid_balance || '0', 10);
+                const oCount = parseInt(cust.orders_count || '0', 10);
+                return {
+                  id: cust.id || cust.customer_id,
+                  name: cust.name || '',
+                  phone: cust.phone || '',
+                  email: cust.email || null,
+                  address: cust.address || null,
+                  customer_code: cust.customer_code || null,
+                  customer_type: cust.customer_type || 'Thành viên',
+                  total_spent: isNaN(spent) ? 0 : spent,
+                  orders_count: isNaN(oCount) ? 0 : oCount,
+                  sync_status: 'synced',
+                };
+              });
+            }
+          } catch (fetchError) {
+            console.warn('Lỗi khi tải dữ liệu thực tế từ REST API trên Web, sử dụng Mock làm dự phòng:', fetchError);
+          }
+
+          // Fallback sang Mock Data nếu không tải được gì
+          if (prods.length === 0) {
+            prods = [
+              { id: 'p1', name: 'Cà phê Phin Sữa Đá', sell_price: 29000, stock_qty: 99, category_id: 'c1', unit: 'ly' },
+              { id: 'p2', name: 'Trà Đào Cam Sả', sell_price: 39000, stock_qty: 45, category_id: 'c1', unit: 'ly' },
+              { id: 'p3', name: 'Bánh Mì Pate Xá Xíu', sell_price: 25000, stock_qty: 20, category_id: 'c2', unit: 'cái' },
+              { id: 'p4', name: 'Nước suối Aquafina', sell_price: 15000, stock_qty: 150, category_id: 'c3', unit: 'chai' }
+            ];
+          }
+          if (cats.length === 0) {
+            cats = [
+              { id: 'c1', name: 'Đồ uống' },
+              { id: 'c2', name: 'Thức ăn' },
+              { id: 'c3', name: 'Tiện ích' }
+            ];
+          }
+          if (resources.length === 0) {
+            resources = [
+              { id: 't1', name: 'Bàn Bi-a 01', type: 'table', status: 'idle', hourly_rate: 60000, zone: 'Khu A' },
+              { id: 't2', name: 'Bàn Bi-a 02', type: 'table', status: 'playing', hourly_rate: 60000, zone: 'Khu A', startTime: Date.now() - 45 * 60000 },
+              { id: 't3', name: 'Bàn VIP 01', type: 'table', status: 'idle', hourly_rate: 90000, zone: 'Phòng VIP' }
+            ];
+          }
+          if (customers.length === 0) {
+            customers = [
+              { id: 'cust1', name: 'Nguyễn Văn Minh', phone: '0901234567', customer_type: 'VIP' },
+              { id: 'cust2', name: 'Trần Thị Hằng', phone: '0987654321', customer_type: 'Thân thiết' }
+            ];
+          }
+        } else {
+          // SQLite Native
+          prods = await db.select().from(schema.products);
+          cats = await db.select().from(schema.categories);
+          resources = await db.select().from(schema.location_resources);
+          customers = await db.select().from(schema.customers);
+
+          const pendingOrdersCount = await db
+            .select()
+            .from(schema.orders)
+            .where(eq(schema.orders.sync_status, 'pending'));
+          hasPending = pendingOrdersCount.length > 0;
+        }
+
+        if (isMounted) {
+          setProductsList(prods);
+          setCategoriesList(cats);
+          setTables(resources);
+          setCustomersList(customers);
+          setSyncStatus(hasPending ? 'pending' : 'synced');
+          setIsLoading(false);
+        }
+      } catch (error) {
+        console.error('Lỗi khi tải dữ liệu POS:', error);
+        if (isMounted) setIsLoading(false);
+      }
+    };
+
+    loadPosData();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Tính tiền giờ bàn bi-a
   const calculateBilling = (table: any) => {
@@ -612,9 +610,16 @@ export default function PosScreen() {
             activeOpacity={0.8}
             className={`mr-3 px-4 py-2 rounded-xl flex-row items-center border ${
               activeVertical === 'retail' 
-                ? 'bg-orange-500 border-orange-500 shadow-sm' 
+                ? 'bg-orange-500 border-orange-500' 
                 : 'bg-white border-slate-200'
             }`}
+            style={activeVertical === 'retail' ? {
+              shadowColor: '#fa5908',
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.12,
+              shadowRadius: 3,
+              elevation: 2,
+            } : undefined}
             onPress={() => setActiveVertical('retail')}
           >
             <Ionicons name="cart-outline" size={14} color={activeVertical === 'retail' ? 'white' : '#fa5908'} className="mr-1.5" />
@@ -627,9 +632,16 @@ export default function PosScreen() {
             activeOpacity={0.8}
             className={`px-4 py-2 rounded-xl flex-row items-center border ${
               activeVertical !== 'retail' 
-                ? 'bg-orange-500 border-orange-500 shadow-sm' 
+                ? 'bg-orange-500 border-orange-500' 
                 : 'bg-white border-slate-200'
             }`}
+            style={activeVertical !== 'retail' ? {
+              shadowColor: '#fa5908',
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.12,
+              shadowRadius: 3,
+              elevation: 2,
+            } : undefined}
             onPress={() => setActiveVertical(shopVertical !== 'retail' ? shopVertical : 'billiards')}
           >
             <Ionicons 
@@ -829,9 +841,16 @@ export default function PosScreen() {
                     activeOpacity={0.85}
                     className={`w-[48%] mb-4 p-4 rounded-2xl border-2 ${
                       isActive 
-                        ? 'border-orange-500 bg-orange-50/70 shadow-sm' 
+                        ? 'border-orange-500 bg-orange-50' 
                         : 'bg-white border-slate-200'
-                    } shadow-sm justify-between`}
+                    } justify-between`}
+                    style={{
+                      shadowColor: '#000000',
+                      shadowOffset: { width: 0, height: 1.5 },
+                      shadowOpacity: 0.06,
+                      shadowRadius: 2.5,
+                      elevation: 2,
+                    }}
                     onPress={() => handleTablePress(t)}
                   >
                     <View className="flex-row justify-between items-center mb-3">
@@ -861,7 +880,7 @@ export default function PosScreen() {
                     </Text>
                     
                     {isActive ? (
-                      <View className="mt-2.5 bg-orange-100/60 border border-orange-200/80 p-2 rounded-lg">
+                      <View className="mt-2.5 bg-orange-100 border border-orange-200 p-2 rounded-lg">
                         <Text className="text-[10px] text-orange-700 font-black">
                           ⏱️ {billing.hours}h {billing.minutes}m
                         </Text>
