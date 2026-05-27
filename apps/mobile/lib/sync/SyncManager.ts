@@ -94,15 +94,16 @@ export class SyncManager {
       if (rawTables.length > 0) {
         for (const table of rawTables) {
           const rate = parseInt(table.hourly_rate || '0', 10);
+          const isOccupied = table.status === 'occupied' || table.status === 'playing';
           await db.insert(schema.location_resources).values({
             id: table.id || table.resource_id,
             name: table.name || '',
             type: table.type || 'table',
-            status: table.status || 'idle',
+            status: isOccupied ? 'occupied' : 'available',
             current_order_id: table.current_order_id || null,
             hourly_rate: isNaN(rate) ? 0 : rate,
             zone: table.zone || null,
-            startTime: table.status === 'playing' ? Date.now() - 3600000 : null, // Mặc định chơi được 1 tiếng nếu đang chơi
+            startTime: isOccupied ? Date.now() - 3600000 : null,
           }).onConflictDoNothing();
         }
       }

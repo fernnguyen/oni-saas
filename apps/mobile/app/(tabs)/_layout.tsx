@@ -57,7 +57,7 @@ export default function TabLayout() {
         options={{
           title: 'Bán hàng',
           tabBarButton: (props) => {
-            const { delayLongPress, ...restProps } = props as any;
+            const { delayLongPress, children, ...restProps } = props as any;
             return (
               <TouchableOpacity
                 {...restProps}
