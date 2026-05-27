@@ -157,7 +157,8 @@ export function initializeLocalDatabase() {
         current_order_id TEXT,
         hourly_rate INTEGER NOT NULL DEFAULT 0,
         zone TEXT,
-        start_time INTEGER
+        start_time INTEGER,
+        metadata TEXT
       );
 
       CREATE TABLE IF NOT EXISTS customers (
@@ -214,6 +215,7 @@ export function initializeLocalDatabase() {
     // Nâng cấp bổ sung cột cho các DB đã chạy trước đó để không bị mất dữ liệu
     try { expoDb.execSync(`ALTER TABLE orders ADD COLUMN note TEXT;`); } catch (e) {}
     try { expoDb.execSync(`ALTER TABLE orders ADD COLUMN discount_amount INTEGER DEFAULT 0;`); } catch (e) {}
+    try { expoDb.execSync(`ALTER TABLE location_resources ADD COLUMN metadata TEXT;`); } catch (e) {}
     
     console.log('ONI SQLite Database: Khởi tạo các bảng offline-first thành công!');
   } catch (error) {

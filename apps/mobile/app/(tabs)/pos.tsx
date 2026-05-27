@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Text, View, ScrollView, TouchableOpacity, Modal, TextInput, Image, Platform, Animated } from 'react-native';
+import { Text, View, ScrollView, TouchableOpacity, Modal, TextInput, Image, Platform, Animated, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -10,6 +10,7 @@ import { SyncManager } from '../../lib/sync/SyncManager';
 import { getApiBaseUrl, getApiHeaders } from '../../lib/api/config';
 import * as Haptics from 'expo-haptics';
 import { formatCurrency, maskCurrencyInput, parseCurrencyToNumber } from '../../lib/utils/format';
+import { calculateHourlyBilling } from '@oni/core';
 
 // Import hệ thống component dùng chung
 import { Header } from '../../components/layout/Header';
@@ -62,6 +63,7 @@ export default function PosScreen() {
   const [activeTable, setActiveTable] = useState<any>(null);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'synced' | 'pending'>('synced');
+  const [isSavingCart, setIsSavingCart] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   // Tìm kiếm Nhanh & Phân trang Lazy Load
@@ -450,14 +452,53 @@ export default function PosScreen() {
   };
 
   // Tính tiền giờ bàn bi-a
-  const calculateBilling = (table: any) => {
-    if (!table.startTime) return { hours: 0, minutes: 0, cost: 0 };
-    const diffMs = Date.now() - table.startTime;
-    const totalMinutes = Math.max(1, Math.floor(diffMs / 60000));
+  const calculateBilling = (table: any, customCheckoutTime?: Date) => {
+    if (!table.startTime) return { hours: 0, minutes: 0, cost: 0, label: '0h 0p', details: '' };
+    
+    // Phân tích cấu hình metadata nâng cao
+    let rmd: any = {};
+    try {
+      rmd = typeof table.metadata === 'string' ? JSON.parse(table.metadata) : (table.metadata || {});
+    } catch (e) {
+      console.warn('Không thể parse metadata của phòng bàn:', e);
+    }
+    
+    const rentalType = rmd.rental_type || 'hourly';
+    
+    if (rentalType === 'overnight') {
+      const overnightRate = Number(rmd.overnight_rate) || Number(table.hourly_rate) || 0;
+      return {
+        hours: 0,
+        minutes: 0,
+        cost: overnightRate,
+        label: 'Qua đêm',
+        details: 'Trọn gói qua đêm'
+      };
+    }
+    
+    const hourlyRate = Number(table.hourly_rate) || 0;
+    const checkInDate = new Date(table.startTime);
+    const checkOutDate = customCheckoutTime || new Date();
+    
+    const pricingResult = calculateHourlyBilling({
+      checkIn: checkInDate,
+      checkOut: checkOutDate,
+      standardRate: hourlyRate,
+      config: rmd.advanced_pricing
+    });
+
+    const diffMs = Math.max(0, checkOutDate.getTime() - checkInDate.getTime());
+    const totalMinutes = Math.ceil(diffMs / 60000);
     const hours = Math.floor(totalMinutes / 60);
     const minutes = totalMinutes % 60;
-    const cost = Math.floor((totalMinutes / 60) * table.hourly_rate);
-    return { hours, minutes, cost };
+    
+    return {
+      hours,
+      minutes,
+      cost: pricingResult.totalAmount,
+      label: pricingResult.durationLabel,
+      details: pricingResult.detailsLabel
+    };
   };
 
   // Gom nhóm phòng bàn theo khu vực/tầng
@@ -497,10 +538,204 @@ export default function PosScreen() {
     return Object.values(cart).reduce((sum, item) => sum + item.quantity, 0);
   };
 
+  // Các hàm tiện ích đồng bộ hóa thời gian thực trực tuyến cho phòng/bàn
+  const fetchActiveTableSessionOnline = async (tableId: string, orderId: string | null) => {
+    try {
+      const currentUrl = getApiBaseUrl();
+      const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+      const headers = await getApiHeaders();
+      
+      let resolvedOrderId = orderId;
+      let orderData: any = null;
+      
+      // TỰ ĐỘNG CHỮA LÀNH (Self-heal): Nếu không có orderId cục bộ nhưng trạng thái là đang ở/chơi
+      // thì truy vấn danh sách order in_progress trên server để đối chiếu resource_id.
+      if (!resolvedOrderId) {
+        const ordersRes = await fetch(`${currentUrl}/api/shops/${shopId}/orders?status=in_progress&limit=100`, { headers });
+        if (ordersRes.ok) {
+          const ordersData = await ordersRes.json();
+          const list = ordersData.data || [];
+          const matched = list.find((o: any) => {
+            try {
+              const meta = typeof o.metadata === 'string' ? JSON.parse(o.metadata) : (o.metadata || {});
+              return meta.resource_id === tableId;
+            } catch (e) {
+              return false;
+            }
+          });
+          if (matched) {
+            resolvedOrderId = matched.id;
+            orderData = matched;
+          }
+        }
+      }
+      
+      if (!resolvedOrderId) return null;
+      
+      if (!orderData) {
+        const orderRes = await fetch(`${currentUrl}/api/shops/${shopId}/orders/${resolvedOrderId}`, { headers });
+        if (!orderRes.ok) return null;
+        orderData = await orderRes.json();
+      }
+      
+      // 2. Tải chi tiết các Món ăn/Dịch vụ gọi kèm của đơn hàng
+      const itemsRes = await fetch(`${currentUrl}/api/shops/${shopId}/order-items?order_id=${resolvedOrderId}&limit=200`, { headers });
+      if (!itemsRes.ok) return null;
+      const itemsData = await itemsRes.json();
+      const rawItems = itemsData.data || [];
+      
+      return { order: orderData, items: rawItems };
+    } catch (err) {
+      console.warn('Lỗi khi tải chi tiết phòng/bàn từ server:', err);
+      return null;
+    }
+  };
+
+  const syncOrderItemsOnline = async (orderId: string, cartItems: any) => {
+    try {
+      const currentUrl = getApiBaseUrl();
+      const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+      const headers = await getApiHeaders();
+      
+      // Tải món hiện tại trên server
+      const serverItemsRes = await fetch(`${currentUrl}/api/shops/${shopId}/order-items?order_id=${orderId}&limit=200`, { headers });
+      if (!serverItemsRes.ok) return false;
+      const serverItemsData = await serverItemsRes.json();
+      const serverItems = serverItemsData.data || [];
+      
+      const serverItemsMap = new Map<string, any>();
+      for (const item of serverItems) {
+        serverItemsMap.set(item.product_id, item);
+      }
+      
+      // Đồng bộ hóa vi sai (Differential Sync)
+      let index = 1;
+      for (const [prodId, cartItem] of Object.entries(cartItems) as [string, any][]) {
+        if (prodId === 'TIME_CHARGE') continue; // Tiền giờ ảo không đồng bộ lên mục gọi món
+        const existing = serverItemsMap.get(prodId);
+        const lineTotal = cartItem.price * cartItem.quantity;
+        const lineNo = String(index++);
+        
+        if (existing) {
+          // Nếu đã tồn tại nhưng sai số lượng, cập nhật lên server
+          if (parseInt(existing.qty, 10) !== cartItem.quantity || parseInt(existing.unit_price, 10) !== cartItem.price) {
+            await fetch(`${currentUrl}/api/shops/${shopId}/order-items/${existing.id}`, {
+              method: 'PUT',
+              headers: { ...headers, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                qty: String(cartItem.quantity),
+                line_total: String(lineTotal),
+                unit_price: String(cartItem.price)
+              })
+            });
+          }
+          serverItemsMap.delete(prodId);
+        } else {
+          // Chưa tồn tại thì thêm mới lên server (line_no là chuỗi bắt buộc của Zod Schema)
+          await fetch(`${currentUrl}/api/shops/${shopId}/order-items`, {
+            method: 'POST',
+            headers: { ...headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              order_id: orderId,
+              line_no: lineNo,
+              product_id: prodId,
+              product_name: cartItem.name,
+              qty: String(cartItem.quantity),
+              unit_price: String(cartItem.price),
+              line_total: String(lineTotal),
+              line_discount: '0'
+            })
+          });
+        }
+      }
+      
+      // Xóa món đã bị bỏ ra khỏi giỏ
+      for (const [prodId, serverItem] of serverItemsMap.entries()) {
+        await fetch(`${currentUrl}/api/shops/${shopId}/order-items/${serverItem.id}`, {
+          method: 'DELETE',
+          headers
+        });
+      }
+      
+      return true;
+    } catch (err) {
+      console.warn('Lỗi khi đồng bộ món lên server:', err);
+      return false;
+    }
+  };
+
   // Mở bàn
-  const handleTablePress = (table: any) => {
+  const handleTablePress = async (table: any) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     if (table.status === 'playing' || table.status === 'occupied') {
+      setIsLoading(true);
+      const onlineSession = await fetchActiveTableSessionOnline(table.id, table.current_order_id || null);
+      setIsLoading(false);
+      
+      if (onlineSession) {
+        const { order, items } = onlineSession;
+        let parsedMeta: any = {};
+        try {
+          parsedMeta = typeof order.metadata === 'string' ? JSON.parse(order.metadata) : (order.metadata || {});
+        } catch (e) {}
+
+        const checkInTime = parsedMeta.check_in ? new Date(parsedMeta.check_in).getTime() : table.startTime;
+        
+        let tableMetaObj: any = {};
+        try {
+          tableMetaObj = typeof table.metadata === 'string' ? JSON.parse(table.metadata) : (table.metadata || {});
+        } catch (e) {}
+
+        const updatedTable = {
+          ...table,
+          current_order_id: order.id, // Tự động chữa lành ID đơn hàng nếu thiếu
+          startTime: checkInTime,
+          metadata: JSON.stringify({
+            ...tableMetaObj,
+            rental_type: parsedMeta.rental_type || 'hourly',
+            num_guests: parsedMeta.num_guests || 1,
+            check_in: parsedMeta.check_in
+          })
+        };
+
+        // Gán khách hàng cho phòng bàn cục bộ
+        if (order.customer_id) {
+          setTableCustomers(prev => ({
+            ...prev,
+            [table.id]: { id: order.customer_id, name: order.customer_name || 'Khách lẻ' }
+          }));
+        }
+
+        // Cập nhật tables list state cục bộ và ghi SQLite ngoại tuyến để tự chữa lành
+        setTables(prev => prev.map(t => t.id === table.id ? updatedTable : t));
+        if (Platform.OS !== 'web') {
+          try {
+            await db
+              .update(schema.location_resources)
+              .set({ current_order_id: order.id, startTime: checkInTime })
+              .where(eq(schema.location_resources.id, table.id));
+          } catch (e) {}
+        }
+        
+        // Đồng bộ món ăn của bàn về state cục bộ
+        const mappedCart: any = {};
+        for (const item of items) {
+          mappedCart[item.product_id] = {
+            name: item.product_name,
+            price: parseInt(item.unit_price || '0', 10),
+            quantity: parseInt(item.qty || '1', 10)
+          };
+        }
+        
+        setTableCarts(prev => ({
+          ...prev,
+          [table.id]: mappedCart
+        }));
+        
+        setActiveTable(updatedTable);
+        showToast("Đã đồng bộ thông tin & món ăn từ Cloud!", "success");
+        return;
+      }
       setActiveTable(table);
     } else {
       setSelectedTableForOpen(table);
@@ -536,13 +771,24 @@ export default function PosScreen() {
             total_amount: '0',
             paid_amount: '0',
             resource_id: selectedTableForOpen.id,
-            metadata: JSON.stringify({
-              resource_id: selectedTableForOpen.id,
-              resource_name: selectedTableForOpen.name,
-              check_in: new Date(nowTime).toISOString(),
-              num_guests: roomGuestCount,
-              rental_type: roomRentalType,
-            })
+            metadata: (() => {
+              let tMeta: any = {};
+              try {
+                tMeta = selectedTableForOpen.metadata ? JSON.parse(selectedTableForOpen.metadata) : {};
+              } catch (e) {}
+              return JSON.stringify({
+                resource_id: selectedTableForOpen.id,
+                resource_name: selectedTableForOpen.name,
+                check_in: new Date(nowTime).toISOString(),
+                num_guests: roomGuestCount,
+                rental_type: roomRentalType,
+                advanced_pricing: tMeta.advanced_pricing,
+                overnight_rate: tMeta.overnight_rate,
+                weekend_rate: tMeta.weekend_rate,
+                room_class: tMeta.room_class,
+                bed_type: tMeta.bed_type,
+              });
+            })()
           }),
         });
 
@@ -616,29 +862,71 @@ export default function PosScreen() {
     }
   };
 
-  // Bấm thanh toán
-  const triggerPayTable = (method: 'Tiền mặt' | 'Chuyển khoản') => {
-    if (!activeTable) return;
-    setTablePayMethod(method);
-    setSelectedTableForPay(activeTable);
-    setIsTablePayDialogVisible(true);
+  // Bấm thanh toán phòng/bàn
+  const triggerPayTable = (table: any) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    
+    // 1. Tính toán tiền giờ/qua đêm lưu trú nâng cao sử dụng @oni/core
+    const billing = calculateBilling(table);
+    
+    // 2. Chuyển tiền giờ thành sản phẩm TIME_CHARGE ảo đặc biệt
+    const billingName = table.type === 'room' 
+      ? `Tiền phòng - ${table.name} (${billing.label})` 
+      : `Tiền giờ - ${table.name} (${billing.label})`;
+      
+    const tableCartItems = tableCarts[table.id] || {};
+    const newCart: any = { ...tableCartItems };
+    
+    if (billing.cost > 0) {
+      newCart['TIME_CHARGE'] = {
+        name: billingName,
+        price: billing.cost,
+        quantity: 1
+      };
+    }
+    
+    // 3. Thiết lập giỏ hàng bán lẻ dùng chung
+    setCart(newCart);
+    setCartOwnerTable(table);
+    setSelectedCustomer(tableCustomers[table.id] || null);
+    setDiscountAmount(0);
+    setOrderNote('');
+    
+    // 4. Thiết lập phương thức thanh toán mặc định tương đương tổng tiền giỏ hàng
+    const totalCartValue = Math.max(0, Object.values(newCart).reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0));
+    setPaymentRows([{ id: 'pay-cash', method: 'Tiền mặt', amount: totalCartValue }]);
+    
+    // 5. Mở modal giỏ hàng chính để thanh toán hệ thống
+    setIsCartModalOpen(true);
+    setActiveTable(null); // Đóng modal sơ đồ phòng bàn hiện tại
   };
 
-  // Xác nhận Thanh toán bàn bi-a
-  const handlePayTableConfirm = async () => {
-    if (!selectedTableForPay) return;
+  // Xác nhận Thanh toán bàn chơi / phòng lưu trú (Unified Flow)
+  const handlePayTableConfirmUnified = async (
+    customer: any,
+    discount: number,
+    note: string,
+    payments: { id: string; method: 'Tiền mặt' | 'Chuyển khoản' | 'Thẻ ATM' | 'Ví MoMo' | 'Ghi nợ'; amount: number }[]
+  ) => {
+    if (!cartOwnerTable) return;
     setIsPayingTableLoading(true);
     try {
+      const selectedTableForPay = cartOwnerTable;
       const billing = calculateBilling(selectedTableForPay);
       const tableCartItems = tableCarts[selectedTableForPay.id] || {};
+      
       const itemsCost = Object.values(tableCartItems).reduce((sum, item) => sum + (item.price * item.quantity), 0);
-      const totalAmount = billing.cost + itemsCost;
+      const subtotal = billing.cost + itemsCost;
+      const totalAmount = Math.max(0, subtotal - discount);
+      const paidSum = payments.reduce((sum, p) => sum + p.amount, 0);
 
       const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
       const shiftId = await AsyncStorage.getItem('active_shift_id') || 'default-shift';
       const orderId = `ORD-T-${Date.now()}`;
       const nowStr = new Date().toISOString();
       let syncSucceeded = false;
+
+      const paymentMethodString = JSON.stringify(payments.map(p => ({ method: p.method, amount: p.amount })));
 
       // A. Lưu vào cơ sở dữ liệu SQLite cục bộ (Offline-First)
       if (Platform.OS === 'web') {
@@ -648,25 +936,31 @@ export default function PosScreen() {
           id: orderId,
           order_no: `HD-${shopVertical === 'room' ? '🏩' : '🎱'}-${Date.now().toString().substring(9)}`,
           status: 'completed',
-          customer_name: tableCustomers[selectedTableForPay.id]?.name || selectedCustomer?.name || 'Khách vãng lai',
-          customer_id: tableCustomers[selectedTableForPay.id]?.id || selectedCustomer?.id || null,
+          customer_name: customer?.name || 'Khách lẻ',
+          customer_id: customer?.id || null,
           total_amount: totalAmount,
-          paid_amount: totalAmount,
-          payment_method: tablePayMethod,
+          paid_amount: paidSum,
+          payment_method: paymentMethodString,
           created_at: nowStr,
           shift_id: shiftId,
           sync_status: 'pending',
+          note: note,
+          discount_amount: discount,
         });
 
-        await db.insert(schema.order_items).values({
-          id: `ORDI-${orderId}-time`,
-          order_id: orderId,
-          product_id: 'billiard-time',
-          product_name: `Tiền giờ - ${selectedTableForPay.name}`,
-          qty: 1,
-          unit_price: billing.cost,
-          line_total: billing.cost,
-        });
+        if (billing.cost > 0) {
+          await db.insert(schema.order_items).values({
+            id: `ORDI-${orderId}-time`,
+            order_id: orderId,
+            product_id: 'billiard-time',
+            product_name: selectedTableForPay.type === 'room' 
+              ? `Tiền phòng - ${selectedTableForPay.name} (${billing.label})` 
+              : `Tiền giờ - ${selectedTableForPay.name} (${billing.label})`,
+            qty: 1,
+            unit_price: billing.cost,
+            line_total: billing.cost,
+          });
+        }
 
         // Thêm các món ăn/dịch vụ gọi kèm vào SQLite order_items
         for (const [prodId, item] of Object.entries(tableCartItems)) {
@@ -683,7 +977,7 @@ export default function PosScreen() {
 
         await db
           .update(schema.location_resources)
-          .set({ status: 'available', startTime: null })
+          .set({ status: 'available', startTime: null, current_order_id: null })
           .where(eq(schema.location_resources.id, selectedTableForPay.id));
 
         const updated = await db.select().from(schema.location_resources);
@@ -698,36 +992,40 @@ export default function PosScreen() {
 
         const payload = {
           local_order_id: orderId,
-          server_order_id: selectedTableForPay.current_order_id || '', // Cập nhật trực tiếp order in_progress hiện tại
+          server_order_id: selectedTableForPay.current_order_id || '', 
           order: {
             status: 'completed',
-            customer_id: tableCustomers[selectedTableForPay.id]?.id || selectedCustomer?.id || '',
-            customer_name: tableCustomers[selectedTableForPay.id]?.name || selectedCustomer?.name || 'Khách lẻ',
+            customer_id: customer?.id || '',
+            customer_name: customer?.name || 'Khách lẻ',
             branch_id: shopId,
             employee_id: 'mobile-app',
-            subtotal: totalAmount,
-            discount_amount: 0,
+            subtotal: subtotal,
+            discount_amount: discount,
             tax_amount: 0,
             total_amount: totalAmount,
-            paid_amount: totalAmount,
-            debt_amount: 0,
-            note: `Thanh toán phòng/bàn từ di động.`,
+            paid_amount: paidSum,
+            debt_amount: Math.max(0, totalAmount - paidSum),
+            note: note || `Thanh toán phòng/bàn từ di động.`,
             metadata: JSON.stringify({
               resource_id: selectedTableForPay.id,
               resource_name: selectedTableForPay.name,
               billing_cost: billing.cost,
-              billing_duration: `${billing.hours}h ${billing.minutes}m`,
+              billing_duration: billing.label,
+              check_out: nowStr,
+              rental_type: selectedTableForPay.metadata ? JSON.parse(selectedTableForPay.metadata).rental_type : 'hourly'
             })
           },
           items: [
-            {
+            ...(billing.cost > 0 ? [{
               product_id: 'billiard-time',
-              product_name: `Tiền giờ - ${selectedTableForPay.name}`,
+              product_name: selectedTableForPay.type === 'room' 
+                ? `Tiền phòng - ${selectedTableForPay.name} (${billing.label})` 
+                : `Tiền giờ - ${selectedTableForPay.name} (${billing.label})`,
               qty: 1,
               unit_price: billing.cost,
               discount_amount: 0,
               line_total: billing.cost,
-            },
+            }] : []),
             ...Object.entries(tableCartItems).map(([prodId, item]: [string, any]) => ({
               product_id: prodId,
               product_name: item.name,
@@ -737,12 +1035,13 @@ export default function PosScreen() {
               line_total: item.price * item.quantity,
             }))
           ],
-          payments: [
-            {
-              method: tablePayMethod === 'Chuyển khoản' ? 'bank_transfer' : 'cash',
-              amount: totalAmount,
-            }
-          ],
+          payments: payments.map(p => ({
+            method: p.method === 'Chuyển khoản' ? 'bank_transfer' :
+                    p.method === 'Thẻ ATM' ? 'card' :
+                    p.method === 'Ví MoMo' ? 'momo' :
+                    p.method === 'Ghi nợ' ? 'debt' : 'cash',
+            amount: p.amount,
+          })),
           stock_movements: Object.entries(tableCartItems).map(([prodId, item]: [string, any]) => ({
             type: 'sale_out',
             product_id: prodId,
@@ -758,7 +1057,7 @@ export default function PosScreen() {
         });
 
         if (syncRes.ok) {
-          // B. Cập nhật vị trí sang available trên Server Cloud
+          // Cập nhật vị trí sang available trên Server Cloud
           const patchRes = await fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${selectedTableForPay.id}`, {
             method: 'PATCH',
             headers: { ...headers, 'Content-Type': 'application/json' },
@@ -771,7 +1070,6 @@ export default function PosScreen() {
 
           if (patchRes.ok) {
             syncSucceeded = true;
-            // Cập nhật lại sync_status = synced trong SQLite cục bộ vì đã sync thành công ngay lập tức
             if (Platform.OS !== 'web') {
               await db
                 .update(schema.orders)
@@ -784,16 +1082,10 @@ export default function PosScreen() {
                 .where(eq(schema.orders.sync_status, 'pending'));
               setSyncStatus(pendingOrdersCount.length > 0 ? 'pending' : 'synced');
             }
-          } else {
-            const errBody = await patchRes.text().catch(() => '');
-            console.warn(`[Pay Table PATCH Failed] Status ${patchRes.status}:`, errBody);
           }
-        } else {
-          const errBody = await syncRes.text().catch(() => '');
-          console.warn(`[Pay Table Sync Failed] Status ${syncRes.status}:`, errBody);
         }
       } catch (syncErr) {
-        console.log('Mất mạng hoặc lỗi server, bỏ qua sync checkout trực tiếp (sẽ sync sau):', syncErr);
+        console.log('Bỏ qua sync checkout trực tiếp (sẽ sync sau):', syncErr);
       }
 
       // Xóa giỏ hàng của bàn và khách hàng phòng bàn sau khi thanh toán
@@ -807,13 +1099,18 @@ export default function PosScreen() {
         delete copy[selectedTableForPay.id];
         return copy;
       });
+
+      setCart({});
+      setDiscountAmount(0);
+      setOrderNote('');
       setSelectedCustomer(null);
+      setCartOwnerTable(null);
+
+      setIsCartModalOpen(false);
+      setIsPayingTableLoading(false);
+      setIsCheckoutConfirmVisible(false);
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      setIsPayingTableLoading(false);
-      setIsTablePayDialogVisible(false);
-      setSelectedTableForPay(null);
-      setActiveTable(null);
 
       // Hiển thị Toast thông báo kết quả sang trọng giống WebUI
       if (syncSucceeded) {
@@ -822,13 +1119,13 @@ export default function PosScreen() {
         showToast("Thanh toán ngoại tuyến thành công! Sẽ sync sau.", "info");
       }
 
-      // Kích hoạt đồng bộ ngầm các hóa đơn cũ khác
       if (Platform.OS !== 'web') {
         SyncManager.pushOfflineOrders(shopId);
       }
     } catch (err) {
-      console.error('Lỗi thanh toán bàn chơi:', err);
+      console.error('Lỗi thanh toán phòng bàn:', err);
       setIsPayingTableLoading(false);
+      setIsCheckoutConfirmVisible(false);
       showToast("Lỗi khi xử lý thanh toán!", "error");
     }
   };
@@ -840,6 +1137,10 @@ export default function PosScreen() {
     note: string,
     payments: { id: string; method: 'Tiền mặt' | 'Chuyển khoản' | 'Thẻ ATM' | 'Ví MoMo' | 'Ghi nợ'; amount: number }[]
   ) => {
+    if (cartOwnerTable) {
+      await handlePayTableConfirmUnified(customer, discount, note, payments);
+      return;
+    }
     setIsPayingCartLoading(true);
     try {
       const originalTotal = getCartTotal();
@@ -1096,23 +1397,32 @@ export default function PosScreen() {
                 </TouchableOpacity>
 
                  <TouchableOpacity 
-                  activeOpacity={0.7}
-                  className="bg-orange-500 border border-orange-600 px-3 py-1 rounded-lg active:scale-95"
-                  onPress={() => {
-                    // Lưu món vào phòng/bàn
-                    setTableCarts(prev => ({
-                      ...prev,
-                      [cartOwnerTable.id]: cart
-                    }));
-                    setCart({});
-                    setCartOwnerTable(null);
-                    setActiveVertical(shopVertical);
-                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-                    showToast("Đã lưu món vào phòng/bàn thành công!", "success");
-                  }}
-                >
-                  <Text className="text-[9px] font-black text-white uppercase">Lưu món</Text>
-                </TouchableOpacity>
+                   activeOpacity={0.7}
+                   className="bg-orange-500 border border-orange-600 px-3 py-1 rounded-lg active:scale-95"
+                   onPress={async () => {
+                     if (!cartOwnerTable) return;
+                     setIsSavingCart(true);
+                     // 1. Lưu món vào phòng/bàn cục bộ
+                     setTableCarts(prev => ({
+                       ...prev,
+                       [cartOwnerTable.id]: cart
+                     }));
+
+                     // 2. Đồng bộ trực tuyến lên server nếu có mạng
+                     if (cartOwnerTable.current_order_id) {
+                       await syncOrderItemsOnline(cartOwnerTable.current_order_id, cart);
+                     }
+                     
+                     setCart({});
+                     setCartOwnerTable(null);
+                     setActiveVertical(shopVertical);
+                     setIsSavingCart(false);
+                     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+                     showToast("Đã lưu và đồng bộ món thành công!", "success");
+                   }}
+                 >
+                   <Text className="text-[9px] font-black text-white uppercase">Lưu món</Text>
+                 </TouchableOpacity>
               </View>
             </View>
           )}
@@ -1448,18 +1758,26 @@ export default function PosScreen() {
           <Button 
             variant="primary"
             size="md"
-             onPress={() => {
+            onPress={async () => {
               if (cartOwnerTable) {
-                // Lưu vào bàn/phòng và quay lại sơ đồ
+                setIsSavingCart(true);
+                // 1. Lưu vào bàn/phòng cục bộ
                 setTableCarts(prev => ({
                   ...prev,
                   [cartOwnerTable.id]: cart
                 }));
+
+                // 2. Đồng bộ trực tuyến lên server nếu có mạng
+                if (cartOwnerTable.current_order_id) {
+                  await syncOrderItemsOnline(cartOwnerTable.current_order_id, cart);
+                }
+                
                 setCart({});
                 setCartOwnerTable(null);
                 setActiveVertical(shopVertical);
+                setIsSavingCart(false);
                 Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-                showToast("Đã lưu món vào phòng/bàn thành công!", "success");
+                showToast("Đã lưu và đồng bộ món thành công!", "success");
               } else {
                 setIsCartModalOpen(true);
               }
@@ -1708,41 +2026,7 @@ export default function PosScreen() {
         </View>
       </Modal>
 
-      <Dialog
-        visible={isTablePayDialogVisible}
-        onClose={() => setIsTablePayDialogVisible(false)}
-        onConfirm={handlePayTableConfirm}
-        loading={isPayingTableLoading}
-        title={
-          shopVertical === 'cafe' ? 'Trả bàn & Thanh toán' :
-          shopVertical === 'court' ? 'Thanh toán tiền sân' :
-          shopVertical === 'room' ? 'Trả phòng Homestay' :
-          'Thanh toán bàn chơi'
-        }
-        description={
-          selectedTableForPay 
-            ? (() => {
-                const billing = calculateBilling(selectedTableForPay);
-                const tableCartItems = tableCarts[selectedTableForPay.id] || {};
-                const itemsCost = Object.values(tableCartItems).reduce((sum, item) => sum + (item.price * item.quantity), 0);
-                const total = billing.cost + itemsCost;
-                
-                let desc = `Xác nhận hoàn tất phiên cho "${selectedTableForPay.name}" với hình thức [${tablePayMethod}]?\n\n`;
-                if (itemsCost > 0) {
-                  desc += `• Tiền giờ sử dụng: ${formatCurrency(billing.cost)}\n`;
-                  desc += `• Tiền món ăn/dịch vụ: ${formatCurrency(itemsCost)}\n`;
-                  desc += `👉 Tổng cộng thanh toán: ${formatCurrency(total)}`;
-                } else {
-                  desc += `👉 Tổng cộng thanh toán: ${formatCurrency(total)}`;
-                }
-                return desc;
-              })()
-            : ''
-        }
-        confirmLabel="Hoàn tất & In Bill"
-        cancelLabel="Quay lại"
-        variant="success"
-      />
+      {/* Unused isTablePayDialogVisible Dialog removed since we use POS unified checkout modal */}
 
       <Dialog
         visible={isScanSuccessDialogVisible}
@@ -1980,17 +2264,11 @@ export default function PosScreen() {
               {/* Hàng nút thanh toán chính */}
               <View className="flex-row justify-between gap-3 border-t border-slate-100 pt-4">
                 <Button 
-                  variant="outline"
-                  title="Thanh toán CK"
-                  onPress={() => triggerPayTable('Chuyển khoản')}
-                  className="flex-1 py-3 rounded-xl"
-                />
-
-                <Button 
                   variant="primary"
-                  title="Thanh toán TM"
-                  onPress={() => triggerPayTable('Tiền mặt')}
-                  className="flex-1 py-3 rounded-xl"
+                  title="Thanh toán & Trả phòng"
+                  icon={<Ionicons name="card-outline" size={16} color="white" />}
+                  onPress={() => triggerPayTable(activeTable)}
+                  className="flex-1 py-3.5 rounded-xl"
                 />
               </View>
             </View>
@@ -2426,6 +2704,61 @@ export default function PosScreen() {
           )}
         </View>
       </Modal>
+
+      {/* Premium Toast Notification Overlay */}
+      {toastMsg && (
+        <Animated.View 
+          style={{
+            position: 'absolute',
+            top: 75,
+            left: 20,
+            right: 20,
+            zIndex: 9999,
+            opacity: toastOpacity,
+            transform: [
+              {
+                translateY: toastOpacity.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [-20, 0]
+                })
+              }
+            ],
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.15,
+            shadowRadius: 8,
+            elevation: 10
+          }}
+          className={`flex-row items-center px-4 py-3.5 rounded-2xl border ${
+            toastMsg.type === 'success' ? 'bg-emerald-500 border-emerald-600' :
+            toastMsg.type === 'error' ? 'bg-rose-500 border-rose-600' :
+            'bg-blue-600 border-blue-700'
+          }`}
+        >
+          <Ionicons 
+            name={
+              toastMsg.type === 'success' ? 'checkmark-circle' :
+              toastMsg.type === 'error' ? 'alert-circle' :
+              'information-circle'
+            } 
+            size={18} 
+            color="white" 
+          />
+          <Text className="flex-1 ml-2.5 text-white font-extrabold text-xs">
+            {toastMsg.message}
+          </Text>
+        </Animated.View>
+      )}
+
+      {/* Premium Saving & Cloud Syncing Glass Overlay */}
+      {isSavingCart && (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255, 255, 255, 0.65)', zIndex: 99999, justifyContent: 'center', alignItems: 'center' }}>
+          <View className="bg-slate-900 border border-slate-800 px-6 py-4 rounded-2xl flex-row items-center shadow-2xl">
+            <ActivityIndicator size="small" color="#f97316" />
+            <Text className="text-white text-xs font-black ml-3">Đang đồng bộ món ăn lên Cloud...</Text>
+          </View>
+        </View>
+      )}
 
       {/* Drawer Hamburger Sidebar */}
       <DrawerMenu 

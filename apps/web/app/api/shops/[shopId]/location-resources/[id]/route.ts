@@ -4,6 +4,22 @@ import { resourceUpdateSchema } from '@/lib/validators/resources'
 import { invalidate } from '@/lib/server/cache'
 import { handleApiError } from '../../../_helpers'
 
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ shopId: string; id: string }> }
+) {
+  try {
+    const { shopId, id } = await params
+    const { connector } = await requireShopAccess(shopId, 'pos.use')
+
+    const row = await connector.findById('location-resources', id)
+    if (!row) return NextResponse.json({ error: 'Resource not found' }, { status: 404 })
+    return NextResponse.json(row)
+  } catch (e) {
+    return handleApiError(e, 'GET location-resource')
+  }
+}
+
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ shopId: string; id: string }> }
