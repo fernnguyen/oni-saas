@@ -188,7 +188,7 @@ export function Header({ onPressMenu, syncStatus }: HeaderProps) {
   };
 
   return (
-    <View className="px-4 py-2.5 bg-white border-b border-slate-100 flex-row justify-between items-center shadow-sm relative z-50">
+    <View className="px-4 py-2.5 bg-white border-b border-slate-100 flex-row justify-between items-center relative z-50" style={{ shadowColor: '#000000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2 }}>
       
       {/* Nút Hamburger và Bộ Chọn Chi Nhánh Dropdown */}
       <View className="flex-row items-center flex-1 mr-4">
@@ -252,7 +252,7 @@ export function Header({ onPressMenu, syncStatus }: HeaderProps) {
         <TouchableWithoutFeedback onPress={() => setIsDropdownOpen(false)}>
           <View className="flex-1 bg-black/15 pt-20 px-6">
             <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
-              <View className="bg-white rounded-2xl border border-slate-150 shadow-2xl p-4 w-[85%] max-w-sm mt-1 z-50">
+              <View className="bg-white rounded-2xl border border-slate-150 p-4 w-[85%] max-w-sm mt-1 z-50" style={{ shadowColor: '#000000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 12 }}>
                 
                 {/* Header Dropdown */}
                 <View className="flex-row justify-between items-center mb-3">
@@ -272,8 +272,8 @@ export function Header({ onPressMenu, syncStatus }: HeaderProps) {
                         activeOpacity={0.8}
                         className={`p-3 my-1 rounded-xl flex-row justify-between items-center border ${
                           isSelected 
-                            ? 'bg-orange-50/45 border-orange-200' 
-                            : 'bg-slate-50/50 border-slate-100 active:bg-slate-50'
+                            ? ' border-orange-200' 
+                            : ' border-slate-100 active:bg-slate-50'
                         }`}
                         onPress={() => handleBranchSelect(branch)}
                       >
@@ -320,7 +320,7 @@ export function Header({ onPressMenu, syncStatus }: HeaderProps) {
         <TouchableWithoutFeedback onPress={() => setIsNotificationOpen(false)}>
           <View className="flex-1 bg-black/10 pt-20 px-6 items-end">
             <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
-              <View className="bg-white rounded-2xl border border-slate-150 shadow-2xl p-4 w-[90%] max-w-sm mt-1 z-50">
+              <View className="bg-white rounded-2xl border border-slate-150 p-4 w-[90%] max-w-sm mt-1 z-50" style={{ shadowColor: '#000000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 12 }}>
                 
                 {/* Header */}
                 <View className="flex-row justify-between items-center mb-3">
@@ -417,8 +417,8 @@ export function Header({ onPressMenu, syncStatus }: HeaderProps) {
                           }}
                           className={`p-3 my-1 rounded-xl flex-row items-start border ${
                             isUnread 
-                              ? 'bg-orange-50/20 border-orange-100' 
-                              : 'bg-slate-50/30 border-slate-100'
+                              ? ' border-orange-100' 
+                              : ' border-slate-100'
                           }`}
                         >
                           <View className="flex-row items-center mr-2.5 mt-0.5">
