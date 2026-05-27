@@ -2883,7 +2883,17 @@ export default function PosScreen() {
         confirmLabel="Thêm vào giỏ"
         cancelLabel="Hủy bỏ"
         variant="success"
-      />
+      >
+        {scannedProductInfo?.image_url && (
+          <View className="items-center justify-center mt-2.5 mb-1 bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
+            <Image
+              source={{ uri: scannedProductInfo.image_url }}
+              style={{ width: 110, height: 110, borderRadius: 16 }}
+              resizeMode="cover"
+            />
+          </View>
+        )}
+      </Dialog>
 
       {/* Hộp thoại xác nhận thanh toán đã được di chuyển vào bên trong Checkout Modal để xử lý z-index */}
 
