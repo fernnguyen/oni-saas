@@ -306,11 +306,11 @@ export function TableMapPOS({
         
         virtualResources = takeawayOrders.map((o: any, idx: number) => ({
           id: `takeaway-${o.id}`, // pseudo id
-          name: o.order_no ? `Takeaway #${o.order_no}` : `Đơn Takeaway ${idx + 1}`,
+          name: o.order_no ? `Bán lẻ #${o.order_no}` : `Đơn Bán lẻ ${idx + 1}`,
           type: 'takeaway',
           status: 'occupied',
           current_order_id: o.id,
-          zone: 'Takeaway',
+          zone: 'Bán lẻ',
           capacity: '0',
           hourly_rate: '0',
           sort_order: '0'
@@ -481,8 +481,8 @@ export function TableMapPOS({
           paid_amount: '0',
           metadata: JSON.stringify({
             resource_id: 'takeaway',
-            resource_name: 'Takeaway',
-            note: 'Takeaway'
+            resource_name: 'Bán lẻ',
+            note: 'Bán lẻ'
           })
         })
       })
@@ -491,11 +491,11 @@ export function TableMapPOS({
       
       const newTakeawayResource: Resource = {
          id: `takeaway-${createdOrder.id}`,
-         name: `Đơn Takeaway mới`,
+         name: createdOrder.order_no ? `Bán lẻ #${createdOrder.order_no}` : `Đơn bán lẻ mới`,
          type: 'takeaway',
          status: 'occupied',
          current_order_id: createdOrder.id,
-         zone: 'Takeaway',
+         zone: 'Bán lẻ',
          capacity: '0',
          hourly_rate: '0',
          sort_order: '0'
@@ -504,7 +504,7 @@ export function TableMapPOS({
       setResources(prev => [...prev, newTakeawayResource])
       setActiveSlideResource(newTakeawayResource)
     } catch {
-       toast.error('Lỗi tạo đơn Takeaway')
+       toast.error('Lỗi tạo đơn bán lẻ')
     } finally {
        setLoadingTakeaway(false)
     }
@@ -587,7 +587,7 @@ export function TableMapPOS({
                 <path strokeLinecap="round" strokeLinejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
               </svg>
             )}
-            <span className="hidden sm:inline">Takeaway</span>
+            <span className="hidden sm:inline">Bán lẻ</span>
           </button>
 
           {isShiftEnabled && hasActiveShift && (
@@ -655,7 +655,7 @@ export function TableMapPOS({
               </svg>
             )}
             <span className="hidden sm:inline">{hydrationStatus === 'loading' ? 'Đang đồng bộ...' : 'Đồng bộ'}</span>
-            <span className={['h-2 w-2 rounded-full shrink-0 ml-0.5', isOnline ? 'bg-green-500 animate-pulse' : 'bg-red-500'].join(' ')} title={isOnline ? 'Online' : 'Offline'} />
+            <span className={['h-2 w-2 rounded-full shrink-0 ml-0.5', mounted && isOnline ? 'bg-green-500 animate-pulse' : 'bg-red-500'].join(' ')} title={mounted && isOnline ? 'Online' : 'Offline'} />
           </button>
 
           <SyncStatusBar
