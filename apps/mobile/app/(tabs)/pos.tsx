@@ -337,6 +337,9 @@ export default function PosScreen() {
       // Đẩy đơn hàng offline ngầm lên server
       SyncManager.pushOfflineOrders(shopId);
 
+      // Ẩn màn hình POS giỏ hàng sau khi lưu thành công
+      setIsCartModalOpen(false);
+
       // 4. Nếu có phương thức thanh toán Chuyển khoản, kích hoạt hiển thị QR Code
       const hasTransfer = payments.some(p => p.method === 'Chuyển khoản' && p.amount > 0);
       if (hasTransfer) {
@@ -1048,8 +1051,20 @@ export default function PosScreen() {
                     Alert.alert('Cảnh báo', `Tổng tiền nhận (${paidSum.toLocaleString()}đ) chưa đủ thanh toán cho hóa đơn (${finalTotal.toLocaleString()}đ). Vui lòng điều chỉnh lại!`);
                     return;
                   }
-                  setIsCartModalOpen(false);
-                  handlePayCart(selectedCustomer, discountAmount, orderNote, paymentRows);
+                  
+                  Alert.alert(
+                    'Xác nhận thanh toán',
+                    `Bạn có chắc chắn muốn hoàn tất thanh toán hóa đơn với tổng tiền là ${finalTotal.toLocaleString()}đ?`,
+                    [
+                      { text: 'Quay lại', style: 'cancel' },
+                      {
+                        text: 'Xác nhận & Gửi',
+                        onPress: async () => {
+                          await handlePayCart(selectedCustomer, discountAmount, orderNote, paymentRows);
+                        }
+                      }
+                    ]
+                  );
                 }}
               >
                 <Text className="text-white font-bold text-xs uppercase tracking-wider mr-1.5">Hoàn tất thanh toán</Text>

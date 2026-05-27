@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useColorScheme } from 'nativewind';
 import { StyleSheet } from 'react-native-css-interop';
+import { Text, TextInput } from 'react-native';
 import { initializeLocalDatabase } from '../lib/db/client';
 import { 
   useFonts, 
@@ -25,6 +26,35 @@ try {
   (StyleSheet as any).setFlag?.('darkMode', 'class');
 } catch (e) {
   console.warn('Không thể setFlag darkMode class ở top-level:', e);
+}
+
+// Thiết lập default font family Inter-Regular cho mọi phần tử Text và TextInput trong React Native
+try {
+  if (!(Text as any).defaultProps) {
+    (Text as any).defaultProps = {};
+  }
+  if (!(Text as any).defaultProps.style) {
+    (Text as any).defaultProps.style = {};
+  }
+  const existingTextStyle = (Text as any).defaultProps.style;
+  (Text as any).defaultProps.style = {
+    ...existingTextStyle,
+    fontFamily: 'Inter-Regular',
+  };
+
+  if (!(TextInput as any).defaultProps) {
+    (TextInput as any).defaultProps = {};
+  }
+  if (!(TextInput as any).defaultProps.style) {
+    (TextInput as any).defaultProps.style = {};
+  }
+  const existingTextInputStyle = (TextInput as any).defaultProps.style;
+  (TextInput as any).defaultProps.style = {
+    ...existingTextInputStyle,
+    fontFamily: 'Inter-Regular',
+  };
+} catch (e) {
+  console.warn('Không thể thiết lập default font family:', e);
 }
 
 export default function RootLayout() {
