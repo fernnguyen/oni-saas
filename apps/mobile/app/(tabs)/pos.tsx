@@ -38,6 +38,7 @@ interface LodgingGuestsFormProps {
   onChangeGuests: (guests: LodgingGuest[]) => void;
   guestCount: number;
   onChangeGuestCount: (count: number) => void;
+  onPressDateInput: (index: number, field: 'dob' | 'expiry_date', currentValue: string) => void;
 }
 
 export function LodgingGuestsForm({
@@ -45,6 +46,7 @@ export function LodgingGuestsForm({
   onChangeGuests,
   guestCount,
   onChangeGuestCount,
+  onPressDateInput,
 }: LodgingGuestsFormProps) {
   const updateGuestField = (index: number, field: keyof LodgingGuest, value: any) => {
     const updated = [...guests];
@@ -62,69 +64,48 @@ export function LodgingGuestsForm({
   };
 
   const idTypes = ['CCCD', 'CMND', 'Hộ chiếu'];
-  const genders = [
-    { key: 'Nam', label: 'Nam' },
-    { key: 'Nữ', label: 'Nữ' },
-    { key: 'Khác', label: 'Không xác định' }
-  ];
+  
+  const handleGenderPress = (index: number) => {
+    if (Platform.OS === 'web') return;
+    Alert.alert(
+      "Chọn giới tính",
+      "Vui lòng chọn giới tính khách lưu trú:",
+      [
+        { text: "Nam", onPress: () => updateGuestField(index, 'gender', 'Nam') },
+        { text: "Nữ", onPress: () => updateGuestField(index, 'gender', 'Nữ') },
+        { text: "Không xác định", onPress: () => updateGuestField(index, 'gender', 'Khác') },
+        { text: "Hủy bỏ", style: "cancel" }
+      ]
+    );
+  };
 
   return (
-    <View className="bg-slate-50 border border-slate-200 p-4 rounded-xl">
-      {/* 1. Guest Count Selector */}
-      <View className="flex-row justify-between items-center bg-white border border-slate-200 p-3 rounded-xl mb-4">
-        <Text className="text-xs font-black text-slate-700">Số lượng khách lưu trú:</Text>
-        <View className="flex-row items-center bg-slate-50 border border-slate-200 rounded-lg px-1 py-0.5">
-          <TouchableOpacity 
-            activeOpacity={0.7} 
-            onPress={() => onChangeGuestCount(Math.max(1, guestCount - 1))}
-            className="w-7 h-7 bg-white border border-slate-200 items-center justify-center rounded-md active:bg-slate-100"
-          >
-            <Ionicons name="remove" size={14} color="#64748b" />
-          </TouchableOpacity>
-          <TextInput
-            className="w-10 text-center text-xs font-black text-slate-805 py-0.5"
-            keyboardType="numeric"
-            value={guestCount.toString()}
-            onChangeText={(val) => onChangeGuestCount(Math.max(1, parseInt(val) || 1))}
-            style={Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : undefined}
-          />
-          <TouchableOpacity 
-            activeOpacity={0.7} 
-            onPress={() => onChangeGuestCount(guestCount + 1)}
-            className="w-7 h-7 bg-white border border-slate-200 items-center justify-center rounded-md active:bg-slate-100"
-          >
-            <Ionicons name="add" size={14} color="#64748b" />
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      <Text className="text-[9.5px] text-slate-500 font-bold leading-relaxed mb-4">
-        Thêm thông tin CMND/CCCD hoặc hộ chiếu của khách lưu trú để đồng bộ dữ liệu khai báo tạm trú lên cơ quan chức năng.
-      </Text>
-
-      {/* 2. List of guest forms */}
-      {Array.from({ length: guestCount }).map((_, index) => {
-        const guest = guests[index] || {
-          name: '',
-          id_type: 'CCCD',
-          id_number: '',
-          idCard: '',
-          expiry_date: '',
-          nationality: 'Việt Nam',
-          dob: '',
-          gender: '',
-          note: ''
-        };
-
+    <View className="px-1 py-2">
+      {guests.map((guest, index) => {
         return (
-          <View key={index} className="bg-white border border-slate-200 p-4 rounded-xl mb-4 shadow-sm">
-            <Text className="text-[10px] font-black text-orange-600 mb-2">Khách lưu trú #{index + 1}:</Text>
+          <View key={index} className="mb-6 pb-6 border-b border-slate-100 last:border-b-0 animate-fade-in">
+            <View className="flex-row justify-between items-center mb-3">
+              <Text className="text-[15px] font-black text-orange-600">Khách lưu trú #{index + 1}:</Text>
+              {index > 0 && (
+                <TouchableOpacity 
+                  activeOpacity={0.7}
+                  onPress={() => {
+                    const updated = guests.filter((_, i) => i !== index);
+                    onChangeGuests(updated);
+                    onChangeGuestCount(updated.length);
+                  }}
+                  className="p-2 bg-rose-50 rounded-xl border border-rose-100 items-center justify-center active:scale-95"
+                >
+                  <Ionicons name="trash-outline" size={15} color="#f43f5e" />
+                </TouchableOpacity>
+              )}
+            </View>
 
             {/* Field 1: Họ và tên */}
-            <View className="mt-2">
-              <Text className="text-[10px] text-slate-400 font-extrabold uppercase mb-1">Họ và tên:</Text>
+            <View className="mt-3">
+              <Text className="text-[12px] text-slate-500 font-extrabold uppercase mb-1.5">Họ và tên:</Text>
               <TextInput
-                className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[10px] text-slate-800 font-semibold"
+                className="bg-white border border-slate-200 rounded-xl px-4 py-3 text-[13px] text-slate-800 font-semibold h-[44px]"
                 placeholder="Nhập họ và tên..."
                 placeholderTextColor="#cbd5e1"
                 value={guest.name || ''}
@@ -134,9 +115,9 @@ export function LodgingGuestsForm({
             </View>
 
             {/* Field 2: Loại giấy tờ */}
-            <View className="mt-2.5">
-              <Text className="text-[10px] text-slate-400 font-extrabold uppercase mb-1">Loại giấy tờ:</Text>
-              <View className="flex-row gap-2 mt-1">
+            <View className="mt-3">
+              <Text className="text-[12px] text-slate-500 font-extrabold uppercase mb-1.5">Loại giấy tờ:</Text>
+              <View className="flex-row bg-slate-100 p-1 rounded-xl border border-slate-200 mt-1 h-[44px] items-center">
                 {idTypes.map(type => {
                   const isSelected = (guest.id_type || 'CCCD') === type;
                   return (
@@ -144,11 +125,12 @@ export function LodgingGuestsForm({
                       key={type}
                       activeOpacity={0.8}
                       onPress={() => updateGuestField(index, 'id_type', type)}
-                      className={`flex-1 py-2 items-center justify-center rounded-lg border ${
-                        isSelected ? 'bg-orange-50 border-orange-200' : 'bg-slate-50 border-slate-200'
+                      className={`flex-1 h-[36px] items-center justify-center rounded-lg ${
+                        isSelected ? 'bg-white' : 'bg-transparent'
                       }`}
+                      style={isSelected ? { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 1, elevation: 1 } : undefined}
                     >
-                      <Text className={`text-[10px] font-black ${isSelected ? 'text-orange-700' : 'text-slate-600'}`}>
+                      <Text className={`text-[12px] font-black ${isSelected ? 'text-slate-850' : 'text-slate-500'}`}>
                         {type}
                       </Text>
                     </TouchableOpacity>
@@ -158,10 +140,10 @@ export function LodgingGuestsForm({
             </View>
 
             {/* Field 3: Số giấy tờ */}
-            <View className="mt-2.5">
-              <Text className="text-[10px] text-slate-400 font-extrabold uppercase mb-1">Số giấy tờ (CCCD/CMND/Hộ chiếu):</Text>
+            <View className="mt-3">
+              <Text className="text-[12px] text-slate-500 font-extrabold uppercase mb-1.5">Số giấy tờ (CCCD/CMND/Hộ chiếu):</Text>
               <TextInput
-                className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[10px] text-slate-800 font-semibold"
+                className="bg-white border border-slate-200 rounded-xl px-4 py-3 text-[13px] text-slate-800 font-semibold h-[44px]"
                 placeholder="Nhập số giấy tờ..."
                 placeholderTextColor="#cbd5e1"
                 value={guest.id_number || guest.idCard || ''}
@@ -171,22 +153,51 @@ export function LodgingGuestsForm({
             </View>
 
             {/* Field 4 & 5 Row: Ngày hết hạn & Quốc tịch */}
-            <View className="flex-row gap-2.5 mt-2.5">
+            <View className="flex-row gap-3 mt-3">
               <View className="flex-1">
-                <Text className="text-[10px] text-slate-400 font-extrabold uppercase mb-1">Ngày hết hạn:</Text>
-                <TextInput
-                  className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[10px] text-slate-800 font-semibold"
-                  placeholder="DD/MM/YYYY"
-                  placeholderTextColor="#cbd5e1"
-                  value={guest.expiry_date || ''}
-                  onChangeText={(val) => updateGuestField(index, 'expiry_date', val)}
-                  style={Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : undefined}
-                />
+                <Text className="text-[12px] text-slate-500 font-extrabold uppercase mb-1.5">Ngày hết hạn:</Text>
+                {Platform.OS === 'web' ? (
+                  <View className="bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 flex-row justify-between items-center h-[44px] relative">
+                    <input
+                      type="date"
+                      value={(() => {
+                        const val = guest.expiry_date || '';
+                        if (val.includes('/')) {
+                          const parts = val.split('/');
+                          if (parts.length === 3) return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+                        }
+                        return val;
+                      })()}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val.includes('-')) {
+                          const parts = val.split('-');
+                          updateGuestField(index, 'expiry_date', `${parts[2]}/${parts[1]}/${parts[0]}`);
+                        } else {
+                          updateGuestField(index, 'expiry_date', val);
+                        }
+                      }}
+                      className="w-full bg-transparent text-[13px] text-slate-800 font-semibold"
+                      style={{ border: 'none', outline: 'none' }}
+                    />
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() => onPressDateInput(index, 'expiry_date', guest.expiry_date || '')}
+                    className="bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 flex-row justify-between items-center h-[44px]"
+                  >
+                    <Text className="text-[13px] text-slate-800 font-semibold">
+                      {guest.expiry_date || 'Chọn ngày...'}
+                    </Text>
+                    <Ionicons name="calendar-outline" size={15} color="#fa5908" />
+                  </TouchableOpacity>
+                )}
               </View>
               <View className="flex-1">
-                <Text className="text-[10px] text-slate-400 font-extrabold uppercase mb-1">Quốc tịch:</Text>
+                <Text className="text-[12px] text-slate-500 font-extrabold uppercase mb-1.5">Quốc tịch:</Text>
                 <TextInput
-                  className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[10px] text-slate-800 font-semibold"
+                  className="bg-white border border-slate-200 rounded-xl px-4 py-3 text-[13px] text-slate-800 font-semibold h-[44px]"
                   placeholder="Quốc tịch..."
                   placeholderTextColor="#cbd5e1"
                   value={guest.nationality || 'Việt Nam'}
@@ -197,47 +208,84 @@ export function LodgingGuestsForm({
             </View>
 
             {/* Field 6 & 7 Row: Ngày sinh & Giới tính */}
-            <View className="flex-row gap-2.5 mt-2.5">
+            <View className="flex-row gap-3 mt-3">
               <View className="flex-1">
-                <Text className="text-[10px] text-slate-400 font-extrabold uppercase mb-1">Ngày sinh:</Text>
-                <TextInput
-                  className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[10px] text-slate-800 font-semibold"
-                  placeholder="DD/MM/YYYY"
-                  placeholderTextColor="#cbd5e1"
-                  value={guest.dob || ''}
-                  onChangeText={(val) => updateGuestField(index, 'dob', val)}
-                  style={Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : undefined}
-                />
+                <Text className="text-[12px] text-slate-500 font-extrabold uppercase mb-1.5">Ngày sinh:</Text>
+                {Platform.OS === 'web' ? (
+                  <View className="bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 flex-row justify-between items-center h-[44px] relative">
+                    <input
+                      type="date"
+                      value={(() => {
+                        const val = guest.dob || '';
+                        if (val.includes('/')) {
+                          const parts = val.split('/');
+                          if (parts.length === 3) return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+                        }
+                        return val;
+                      })()}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val.includes('-')) {
+                          const parts = val.split('-');
+                          updateGuestField(index, 'dob', `${parts[2]}/${parts[1]}/${parts[0]}`);
+                        } else {
+                          updateGuestField(index, 'dob', val);
+                        }
+                      }}
+                      className="w-full bg-transparent text-[13px] text-slate-800 font-semibold"
+                      style={{ border: 'none', outline: 'none' }}
+                    />
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() => onPressDateInput(index, 'dob', guest.dob || '')}
+                    className="bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 flex-row justify-between items-center h-[44px]"
+                  >
+                    <Text className="text-[13px] text-slate-800 font-semibold">
+                      {guest.dob || 'Chọn ngày...'}
+                    </Text>
+                    <Ionicons name="calendar-outline" size={15} color="#fa5908" />
+                  </TouchableOpacity>
+                )}
               </View>
               <View className="flex-1">
-                <Text className="text-[10px] text-slate-400 font-extrabold uppercase mb-1">Giới tính:</Text>
-                <View className="flex-row gap-1 mt-1">
-                  {genders.map(g => {
-                    const isSelected = guest.gender === g.key;
-                    return (
-                      <TouchableOpacity
-                        key={g.key}
-                        activeOpacity={0.8}
-                        onPress={() => updateGuestField(index, 'gender', g.key)}
-                        className={`flex-1 py-1.5 items-center justify-center rounded-lg border ${
-                          isSelected ? 'bg-orange-50 border-orange-200' : 'bg-slate-50 border-slate-200'
-                        }`}
-                      >
-                        <Text className={`text-[8.5px] font-black ${isSelected ? 'text-orange-700' : 'text-slate-600'}`}>
-                          {g.label}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
+                <Text className="text-[12px] text-slate-500 font-extrabold uppercase mb-1.5">Giới tính:</Text>
+                {Platform.OS === 'web' ? (
+                  <View className="bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 flex-row justify-between items-center h-[44px] relative">
+                    <select
+                      value={guest.gender || ''}
+                      onChange={(e) => updateGuestField(index, 'gender', e.target.value)}
+                      className="w-full bg-transparent text-[13px] text-slate-800 font-semibold pr-6"
+                      style={{ border: 'none', outline: 'none', height: '100%', cursor: 'pointer', appearance: 'none', WebkitAppearance: 'none' }}
+                    >
+                      <option value="">Chọn...</option>
+                      <option value="Nam">Nam</option>
+                      <option value="Nữ">Nữ</option>
+                      <option value="Khác">Không xác định</option>
+                    </select>
+                    <Ionicons name="chevron-down" size={12} color="#64748b" style={{ position: 'absolute', right: 12, pointerEvents: 'none' }} />
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() => handleGenderPress(index)}
+                    className="bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 flex-row justify-between items-center h-[44px]"
+                  >
+                    <Text className="text-[13px] text-slate-800 font-semibold">
+                      {guest.gender === 'Nam' ? 'Nam' : guest.gender === 'Nữ' ? 'Nữ' : guest.gender === 'Khác' ? 'Không xác định' : 'Chọn...'}
+                    </Text>
+                    <Ionicons name="chevron-down" size={14} color="#64748b" />
+                  </TouchableOpacity>
+                )}
               </View>
             </View>
 
             {/* Field 8: Ghi chú */}
-            <View className="mt-2.5">
-              <Text className="text-[10px] text-slate-400 font-extrabold uppercase mb-1">Ghi chú:</Text>
+            <View className="mt-3">
+              <Text className="text-[12px] text-slate-500 font-extrabold uppercase mb-1.5">Ghi chú:</Text>
               <TextInput
-                className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[10px] text-slate-800 font-semibold"
+                className="bg-white border border-slate-200 rounded-xl px-4 py-3 text-[13px] text-slate-800 font-semibold h-[44px]"
                 placeholder="Ghi chú thêm..."
                 placeholderTextColor="#cbd5e1"
                 value={guest.note || ''}
@@ -249,14 +297,18 @@ export function LodgingGuestsForm({
         );
       })}
 
-      {/* 3. Add Guest Button */}
+      {/* Add Guest Button */}
       <TouchableOpacity 
         activeOpacity={0.8}
-        onPress={() => onChangeGuestCount(guestCount + 1)}
-        className="flex-row items-center justify-center bg-orange-50 border border-orange-100 py-3 rounded-xl mt-2 active:bg-orange-100"
+        onPress={() => {
+          const updated = [...guests, { name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', note: '' }];
+          onChangeGuests(updated);
+          onChangeGuestCount(updated.length);
+        }}
+        className="flex-row items-center justify-center bg-orange-50 border border-orange-100 py-3.5 rounded-xl mt-2 active:bg-orange-100"
       >
-        <Ionicons name="add-circle" size={16} color="#fa5908" />
-        <Text className="text-xs font-black text-orange-600 ml-2">Thêm khách lưu trú</Text>
+        <Ionicons name="add-circle" size={18} color="#fa5908" />
+        <Text className="text-[13px] font-black text-orange-600 ml-2">Thêm khách lưu trú</Text>
       </TouchableOpacity>
     </View>
   );
@@ -281,6 +333,53 @@ export default function PosScreen() {
       Animated.delay(2000),
       Animated.timing(toastOpacity, { toValue: 0, duration: 250, useNativeDriver: true })
     ]).start(() => setToastMsg(null));
+  };
+
+  const renderToast = () => {
+    if (!toastMsg) return null;
+    return (
+      <Animated.View 
+        style={{
+          position: 'absolute',
+          top: Platform.OS === 'ios' ? 60 : 30,
+          left: 20,
+          right: 20,
+          zIndex: 999999,
+          opacity: toastOpacity,
+          transform: [
+            {
+              translateY: toastOpacity.interpolate({
+                inputRange: [0, 1],
+                outputRange: [-20, 0]
+              })
+            }
+          ],
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.15,
+          shadowRadius: 8,
+          elevation: 999
+        }}
+        className={`flex-row items-center px-4 py-3.5 rounded-2xl border ${
+          toastMsg.type === 'success' ? 'bg-emerald-500 border-emerald-600' :
+          toastMsg.type === 'error' ? 'bg-rose-500 border-rose-600' :
+          'bg-blue-600 border-blue-700'
+        }`}
+      >
+        <Ionicons 
+          name={
+            toastMsg.type === 'success' ? 'checkmark-circle' :
+            toastMsg.type === 'error' ? 'alert-circle' :
+            'information-circle'
+          } 
+          size={18} 
+          color="white" 
+        />
+        <Text className="flex-1 ml-2.5 text-white font-extrabold text-xs">
+          {toastMsg.message}
+        </Text>
+      </Animated.View>
+    );
   };
 
   // State quản lý POS
@@ -339,6 +438,16 @@ export default function PosScreen() {
 
   const [isCheckoutConfirmVisible, setIsCheckoutConfirmVisible] = useState(false);
   const [isPayingCartLoading, setIsPayingCartLoading] = useState(false);
+  const [isUpdatingGuestsLoading, setIsUpdatingGuestsLoading] = useState(false);
+
+  // Custom Date Picker Modal States
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+  const [pickerTargetIndex, setPickerTargetIndex] = useState<number>(0);
+  const [pickerTargetField, setPickerTargetField] = useState<'dob' | 'expiry_date'>('dob');
+  const [pickerDay, setPickerDay] = useState<number>(27);
+  const [pickerMonth, setPickerMonth] = useState<number>(5);
+  const [pickerYear, setPickerYear] = useState<number>(2026);
+  const [datePickerView, setDatePickerView] = useState<'calendar' | 'year'>('calendar');
 
   const [isScanSuccessDialogVisible, setIsScanSuccessDialogVisible] = useState(false);
   const [scannedProductInfo, setScannedProductInfo] = useState<any>(null);
@@ -1093,7 +1202,25 @@ export default function PosScreen() {
   // Cập nhật thông tin khách lưu trú của phòng đang ở
   const handleUpdateActiveRoomGuests = async () => {
     if (!activeTable) return;
+    
+    // Dialog xác nhận an toàn trước khi cập nhật
+    const confirmUpdate = Platform.OS === 'web'
+      ? window.confirm("Bạn có chắc chắn muốn cập nhật thông tin khách lưu trú này?")
+      : await new Promise<boolean>((resolve) => {
+          Alert.alert(
+            "Xác nhận Cập nhật",
+            "Bạn có muốn cập nhật danh sách khách lưu trú này lên hệ thống?",
+            [
+              { text: "Hủy bỏ", onPress: () => resolve(false), style: "cancel" },
+              { text: "Đồng ý", onPress: () => resolve(true) }
+            ]
+          );
+        });
+
+    if (!confirmUpdate) return;
+
     try {
+      setIsUpdatingGuestsLoading(true);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
       const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
       let syncSucceeded = false;
@@ -1186,7 +1313,38 @@ export default function PosScreen() {
     } catch (err) {
       console.error('Không thể cập nhật khách lưu trú:', err);
       showToast("Có lỗi xảy ra khi cập nhật khách!", "error");
+    } finally {
+      setIsUpdatingGuestsLoading(false);
     }
+  };
+
+  // Trình mở DatePicker cho thiết bị di động
+  const handleDatePickerOpen = (index: number, field: 'dob' | 'expiry_date', currentValue: string) => {
+    if (Platform.OS === 'web') return; // Web sử dụng calendar native
+    setPickerTargetIndex(index);
+    setPickerTargetField(field);
+
+    let d = 27, m = 5, y = 2026;
+    if (currentValue && currentValue.includes('/')) {
+      const parts = currentValue.split('/');
+      if (parts.length === 3) {
+        d = parseInt(parts[0]) || 27;
+        m = parseInt(parts[1]) || 5;
+        y = parseInt(parts[2]) || 2026;
+      }
+    } else {
+      if (field === 'expiry_date') {
+        y = 2031; // Hạn giấy tờ mặc định +5 năm
+      } else {
+        y = 1995; // Ngày sinh mặc định 1995
+      }
+    }
+
+    setPickerDay(d);
+    setPickerMonth(m);
+    setPickerYear(y);
+    setDatePickerView('calendar');
+    setIsDatePickerOpen(true);
   };
 
   // Mở bàn
@@ -2286,6 +2444,7 @@ export default function PosScreen() {
       >
         <View className="flex-1 justify-end" style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)' }}>
           <View className="h-[75%] rounded-t-2xl p-6 bg-white justify-between" style={{ shadowColor: '#000000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 12 }}>
+            {renderToast()}
             {/* Header */}
             <View className="flex-row justify-between items-center border-b border-slate-100 pb-4">
               <View className="flex-row items-center">
@@ -2419,38 +2578,23 @@ export default function PosScreen() {
                     )}
                   </View>
 
-                  {/* THÔNG TIN LOẠI THUÊ & SỐ KHÁCH (Dành riêng cho khách sạn) */}
+                  {/* THÔNG TIN LOẠI THUÊ (Dành riêng cho khách sạn) */}
                   {shopVertical === 'room' && (
-                    <View className="flex-row gap-4 mt-2">
-                      <View className="flex-1">
-                        <Text className="text-[10px] text-slate-400 font-extrabold uppercase mb-1.5">Hình thức thuê:</Text>
-                        <View className="flex-row bg-slate-100 p-0.5 rounded-lg border border-slate-200">
-                          <TouchableOpacity 
-                            onPress={() => setRoomRentalType('hourly')}
-                            className={`flex-1 py-1.5 items-center justify-center rounded-md ${roomRentalType === 'hourly' ? 'bg-white' : ''}`}
-                          >
-                            <Text className="text-[10px] font-black text-slate-700">Theo giờ</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity 
-                            onPress={() => setRoomRentalType('daily')}
-                            className={`flex-1 py-1.5 items-center justify-center rounded-md ${roomRentalType === 'daily' ? 'bg-white' : ''}`}
-                          >
-                            <Text className="text-[10px] font-black text-slate-700">Theo ngày</Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-
-                      <View className="flex-1">
-                        <Text className="text-[10px] text-slate-400 font-extrabold uppercase mb-1.5">Số khách:</Text>
-                        <View className="flex-row bg-white border border-slate-200 rounded-lg px-2 items-center">
-                          <TextInput
-                            className="flex-1 text-center text-xs font-bold text-slate-800 py-1.5"
-                            keyboardType="numeric"
-                            value={roomGuestCount.toString()}
-                            onChangeText={(val) => setRoomGuestCount(parseInt(val) || 1)}
-                            style={Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : undefined}
-                          />
-                        </View>
+                    <View className="mt-2">
+                      <Text className="text-[10px] text-slate-400 font-extrabold uppercase mb-1.5">Hình thức thuê:</Text>
+                      <View className="flex-row bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                        <TouchableOpacity 
+                          onPress={() => setRoomRentalType('hourly')}
+                          className={`flex-1 py-1.5 items-center justify-center rounded-md ${roomRentalType === 'hourly' ? 'bg-white' : ''}`}
+                        >
+                          <Text className="text-[10px] font-black text-slate-700">Theo giờ</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity 
+                          onPress={() => setRoomRentalType('daily')}
+                          className={`flex-1 py-1.5 items-center justify-center rounded-md ${roomRentalType === 'daily' ? 'bg-white' : ''}`}
+                        >
+                          <Text className="text-[10px] font-black text-slate-700">Theo ngày</Text>
+                        </TouchableOpacity>
                       </View>
                     </View>
                   )}
@@ -2461,6 +2605,7 @@ export default function PosScreen() {
                   onChangeGuests={setLodgingGuests}
                   guestCount={roomGuestCount}
                   onChangeGuestCount={setRoomGuestCount}
+                  onPressDateInput={handleDatePickerOpen}
                 />
               )}
             </ScrollView>
@@ -2547,6 +2692,7 @@ export default function PosScreen() {
         <View className="flex-1 justify-end" style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)' }}>
           {activeTable && (
             <View className="h-[75%] rounded-t-2xl p-6 justify-between bg-white shadow-2xl">
+              {renderToast()}
               {/* Modal Header */}
               <View className="flex-row justify-between items-center mb-4 border-b border-slate-100 pb-2">
                 <View className="flex-row items-center">
@@ -2774,28 +2920,32 @@ export default function PosScreen() {
                       onChangeGuests={setLodgingGuests}
                       guestCount={roomGuestCount}
                       onChangeGuestCount={setRoomGuestCount}
+                      onPressDateInput={handleDatePickerOpen}
                     />
-
-                    <TouchableOpacity
-                      activeOpacity={0.8}
-                      onPress={handleUpdateActiveRoomGuests}
-                      className="bg-orange-500 py-3 rounded-xl mt-4 items-center justify-center active:bg-orange-600 shadow-sm"
-                    >
-                      <Text className="text-white text-xs font-black">Cập nhật khách lưu trú</Text>
-                    </TouchableOpacity>
                   </View>
                 )}
               </ScrollView>
 
               {/* Hàng nút thanh toán chính */}
               <View className="flex-row justify-between gap-3 border-t border-slate-100 pt-4 bg-white">
-                <Button 
-                  variant="primary"
-                  title="Thanh toán & Trả phòng"
-                  icon={<Ionicons name="card-outline" size={16} color="white" />}
-                  onPress={() => triggerPayTable(activeTable)}
-                  className="flex-1 py-3.5 rounded-xl"
-                />
+                {activeTableTab === 'billing' || shopVertical !== 'room' ? (
+                  <Button 
+                    variant="primary"
+                    title="Thanh toán & Trả phòng"
+                    icon={<Ionicons name="card-outline" size={16} color="white" />}
+                    onPress={() => triggerPayTable(activeTable)}
+                    className="flex-1 py-3.5 rounded-xl"
+                  />
+                ) : (
+                  <Button 
+                    variant="primary"
+                    title="Cập nhật khách lưu trú"
+                    icon={<Ionicons name="save-outline" size={16} color="white" />}
+                    onPress={handleUpdateActiveRoomGuests}
+                    className="flex-1 py-3.5 rounded-xl"
+                    loading={isUpdatingGuestsLoading}
+                  />
+                )}
               </View>
             </View>
           )}
@@ -2811,6 +2961,7 @@ export default function PosScreen() {
       >
         <View className="flex-1 justify-end" style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)' }}>
           <View className="h-[90%] rounded-t-2xl p-6 bg-white justify-between" style={{ shadowColor: '#000000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 12 }}>
+            {renderToast()}
             {/* Header */}
             <View className="flex-row justify-between items-center border-b border-slate-100 pb-4">
               <View className="flex-row items-center">
@@ -3231,50 +3382,222 @@ export default function PosScreen() {
         </View>
       </Modal>
 
-      {/* Premium Toast Notification Overlay */}
-      {toastMsg && (
-        <Animated.View 
-          style={{
-            position: 'absolute',
-            top: 75,
-            left: 20,
-            right: 20,
-            zIndex: 9999,
-            opacity: toastOpacity,
-            transform: [
-              {
-                translateY: toastOpacity.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [-20, 0]
-                })
-              }
-            ],
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.15,
-            shadowRadius: 8,
-            elevation: 10
-          }}
-          className={`flex-row items-center px-4 py-3.5 rounded-2xl border ${
-            toastMsg.type === 'success' ? 'bg-emerald-500 border-emerald-600' :
-            toastMsg.type === 'error' ? 'bg-rose-500 border-rose-600' :
-            'bg-blue-600 border-blue-700'
-          }`}
-        >
-          <Ionicons 
-            name={
-              toastMsg.type === 'success' ? 'checkmark-circle' :
-              toastMsg.type === 'error' ? 'alert-circle' :
-              'information-circle'
-            } 
-            size={18} 
-            color="white" 
-          />
-          <Text className="flex-1 ml-2.5 text-white font-extrabold text-xs">
-            {toastMsg.message}
-          </Text>
-        </Animated.View>
-      )}
+      {/* Toast Notification Overlay */}
+      {renderToast()}
+
+      {/* ========================================================== */}
+      {/* 9. MODAL CUSTOM CALENDAR DATE PICKER (For Mobile iOS/Android) */}
+      {/* ========================================================== */}
+      <Modal
+        visible={isDatePickerOpen}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setIsDatePickerOpen(false)}
+      >
+        <View className="flex-1 justify-center items-center px-5" style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}>
+          <View className="w-full max-w-[340px] bg-white rounded-3xl p-5 shadow-2xl items-center border border-slate-100 overflow-hidden">
+            {/* Modal Title */}
+            <Text className="text-[12px] font-black text-slate-400 uppercase tracking-widest mb-3">
+              {pickerTargetField === 'dob' ? 'Chọn ngày sinh' : 'Chọn ngày hết hạn'}
+            </Text>
+
+            {/* Premium Header Display */}
+            <View className="flex-row items-center justify-center bg-orange-50/50 rounded-2xl w-full py-3 mb-4 border border-orange-100/50">
+              <Text className="text-orange-500 text-2xl font-black">
+                {pickerDay.toString().padStart(2, '0')}
+              </Text>
+              <Text className="text-slate-300 text-xl font-bold mx-2">/</Text>
+              <Text className="text-orange-500 text-2xl font-black">
+                {pickerMonth.toString().padStart(2, '0')}
+              </Text>
+              <Text className="text-slate-300 text-xl font-bold mx-2">/</Text>
+              <TouchableOpacity 
+                activeOpacity={0.7}
+                onPress={() => setDatePickerView(prev => prev === 'calendar' ? 'year' : 'calendar')}
+                className="bg-orange-100 px-2 py-0.5 rounded-lg border border-orange-200"
+              >
+                <Text className="text-orange-600 text-xl font-black">
+                  {pickerYear} ⚙️
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {datePickerView === 'calendar' ? (
+              <View className="w-full">
+                {/* Month Navigation */}
+                <View className="flex-row justify-between items-center mb-3 w-full px-2">
+                  <TouchableOpacity 
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      if (pickerMonth === 1) {
+                        setPickerMonth(12);
+                        setPickerYear(y => y - 1);
+                      } else {
+                        setPickerMonth(m => m - 1);
+                      }
+                    }}
+                    className="p-1.5 bg-slate-50 border border-slate-100 rounded-lg"
+                  >
+                    <Ionicons name="chevron-back" size={16} color="#475569" />
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity 
+                    activeOpacity={0.7}
+                    onPress={() => setDatePickerView('year')}
+                  >
+                    <Text className="text-[13px] font-black text-slate-700">
+                      Tháng {pickerMonth.toString().padStart(2, '0')}, {pickerYear}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity 
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      if (pickerMonth === 12) {
+                        setPickerMonth(1);
+                        setPickerYear(y => y + 1);
+                      } else {
+                        setPickerMonth(m => m + 1);
+                      }
+                    }}
+                    className="p-1.5 bg-slate-50 border border-slate-100 rounded-lg"
+                  >
+                    <Ionicons name="chevron-forward" size={16} color="#475569" />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Week Day Labels */}
+                <View className="flex-row justify-start w-full mb-1">
+                  {['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'].map((w, wi) => (
+                    <View key={wi} className="w-[14.28%] items-center justify-center py-1">
+                      <Text className="text-[10px] text-slate-400 font-extrabold uppercase">{w}</Text>
+                    </View>
+                  ))}
+                </View>
+
+                {/* Days Grid */}
+                <View className="flex-row flex-wrap justify-start w-full">
+                  {(() => {
+                    const firstDayIndex = new Date(pickerYear, pickerMonth - 1, 1).getDay();
+                    // Map Sunday (0) -> index 6, Monday (1) -> index 0, etc.
+                    const firstDayOffset = firstDayIndex === 0 ? 6 : firstDayIndex - 1;
+                    const daysInMonth = new Date(pickerYear, pickerMonth, 0).getDate();
+                    
+                    const cells = [];
+                    // Render Empty offsets
+                    for (let i = 0; i < firstDayOffset; i++) {
+                      cells.push(
+                        <View key={`empty-${i}`} className="w-[14.28%] aspect-square items-center justify-center p-0.5" />
+                      );
+                    }
+                    // Render Day numbers
+                    for (let d = 1; d <= daysInMonth; d++) {
+                      const isSelected = pickerDay === d;
+                      cells.push(
+                        <TouchableOpacity
+                          key={`day-${d}`}
+                          activeOpacity={0.8}
+                          onPress={() => setPickerDay(d)}
+                          className="w-[14.28%] aspect-square items-center justify-center p-0.5"
+                        >
+                          <View className={`w-full h-full items-center justify-center rounded-full ${
+                            isSelected ? 'bg-orange-500' : 'bg-transparent active:bg-slate-100'
+                          }`}>
+                            <Text className={`text-xs font-bold ${
+                              isSelected ? 'text-white font-black' : 'text-slate-700'
+                            }`}>
+                              {d}
+                            </Text>
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    }
+                    return cells;
+                  })()}
+                </View>
+              </View>
+            ) : (
+              <View className="w-full">
+                {/* Header for Year Picker */}
+                <View className="flex-row justify-between items-center mb-3.5 px-2">
+                  <Text className="text-[13px] font-black text-slate-700">Chọn năm sinh/hạn giấy tờ:</Text>
+                  <TouchableOpacity 
+                    activeOpacity={0.7}
+                    onPress={() => setDatePickerView('calendar')}
+                    className="bg-orange-50 border border-orange-100 px-2 py-1 rounded-lg"
+                  >
+                    <Text className="text-orange-600 text-[11px] font-black">← Lịch</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Years Grid */}
+                <View className="max-h-56 bg-slate-50 rounded-2xl border border-slate-100 p-2">
+                  <ScrollView nestedScrollEnabled={true} showsVerticalScrollIndicator={true}>
+                    <View className="flex-row flex-wrap justify-start">
+                      {(() => {
+                        const years = [];
+                        const currentYear = new Date().getFullYear();
+                        for (let y = currentYear + 15; y >= 1930; y--) {
+                          const isSelected = pickerYear === y;
+                          years.push(
+                            <TouchableOpacity
+                              key={y}
+                              activeOpacity={0.8}
+                              onPress={() => {
+                                setPickerYear(y);
+                                setDatePickerView('calendar');
+                              }}
+                              className="w-[33.3%] p-1.5"
+                            >
+                              <View className={`py-2 rounded-xl items-center justify-center ${
+                                isSelected ? 'bg-orange-500' : 'bg-white border border-slate-200 active:bg-orange-50'
+                              }`}>
+                                <Text className={`text-xs font-bold ${
+                                  isSelected ? 'text-white font-black' : 'text-slate-700'
+                                }`}>
+                                  {y}
+                                </Text>
+                              </View>
+                            </TouchableOpacity>
+                          );
+                        }
+                        return years;
+                      })()}
+                    </View>
+                  </ScrollView>
+                </View>
+              </View>
+            )}
+
+            {/* Modal Actions */}
+            <View className="flex-row gap-3 mt-4 border-t border-slate-100 pt-4 w-full">
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => setIsDatePickerOpen(false)}
+                className="flex-1 py-3 bg-slate-100 rounded-xl items-center justify-center border border-slate-200"
+              >
+                <Text className="text-slate-600 text-xs font-black">Hủy bỏ</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => {
+                  const formattedDate = `${pickerDay.toString().padStart(2, '0')}/${pickerMonth.toString().padStart(2, '0')}/${pickerYear}`;
+                  const updated = [...lodgingGuests];
+                  if (!updated[pickerTargetIndex]) {
+                    updated[pickerTargetIndex] = { name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', note: '' };
+                  }
+                  updated[pickerTargetIndex] = { ...updated[pickerTargetIndex], [pickerTargetField]: formattedDate };
+                  setLodgingGuests(updated);
+                  setIsDatePickerOpen(false);
+                }}
+                className="flex-1 py-3 bg-orange-500 rounded-xl items-center justify-center shadow-lg shadow-orange-500/20"
+              >
+                <Text className="text-white text-xs font-black">Xác nhận</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Premium Saving & Cloud Syncing Glass Overlay */}
       {isSavingCart && (
