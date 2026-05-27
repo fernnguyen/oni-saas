@@ -83,6 +83,10 @@ export function TableMapPOS({
   permissions = [],
 }: Props) {
   const [resources, setResources] = useState<Resource[]>([])
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => {
+    setMounted(true)
+  }, [])
   const [loading, setLoading] = useState(true)
   const [loadingTakeaway, setLoadingTakeaway] = useState(false)
   const [, setTick] = useState(0)

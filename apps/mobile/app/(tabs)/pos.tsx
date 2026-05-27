@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Text, View, ScrollView, TouchableOpacity, Modal, TextInput, Image, Platform, Animated, ActivityIndicator } from 'react-native';
+import { Text, View, ScrollView, TouchableOpacity, Modal, TextInput, Image, Platform, Animated, ActivityIndicator, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -19,6 +19,248 @@ import { Dialog } from '../../components/ui/Dialog';
 import { Badge } from '../../components/ui/Badge';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { DrawerMenu } from '../../components/erp/DrawerMenu';
+
+export interface LodgingGuest {
+  id?: string | number;
+  name: string;
+  id_type: string;
+  id_number: string;
+  idCard?: string;
+  expiry_date?: string;
+  nationality?: string;
+  dob?: string;
+  gender?: string;
+  note?: string;
+}
+
+interface LodgingGuestsFormProps {
+  guests: LodgingGuest[];
+  onChangeGuests: (guests: LodgingGuest[]) => void;
+  guestCount: number;
+  onChangeGuestCount: (count: number) => void;
+}
+
+export function LodgingGuestsForm({
+  guests,
+  onChangeGuests,
+  guestCount,
+  onChangeGuestCount,
+}: LodgingGuestsFormProps) {
+  const updateGuestField = (index: number, field: keyof LodgingGuest, value: any) => {
+    const updated = [...guests];
+    if (!updated[index]) {
+      updated[index] = { name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', note: '' };
+    }
+    updated[index] = { ...updated[index], [field]: value };
+    // Maintain idCard and id_number sync
+    if (field === 'id_number') {
+      updated[index].idCard = value;
+    } else if (field === 'idCard') {
+      updated[index].id_number = value;
+    }
+    onChangeGuests(updated);
+  };
+
+  const idTypes = ['CCCD', 'CMND', 'Hộ chiếu'];
+  const genders = [
+    { key: 'Nam', label: 'Nam' },
+    { key: 'Nữ', label: 'Nữ' },
+    { key: 'Khác', label: 'Không xác định' }
+  ];
+
+  return (
+    <View className="bg-slate-50 border border-slate-200 p-4 rounded-xl">
+      {/* 1. Guest Count Selector */}
+      <View className="flex-row justify-between items-center bg-white border border-slate-200 p-3 rounded-xl mb-4">
+        <Text className="text-xs font-black text-slate-700">Số lượng khách lưu trú:</Text>
+        <View className="flex-row items-center bg-slate-50 border border-slate-200 rounded-lg px-1 py-0.5">
+          <TouchableOpacity 
+            activeOpacity={0.7} 
+            onPress={() => onChangeGuestCount(Math.max(1, guestCount - 1))}
+            className="w-7 h-7 bg-white border border-slate-200 items-center justify-center rounded-md active:bg-slate-100"
+          >
+            <Ionicons name="remove" size={14} color="#64748b" />
+          </TouchableOpacity>
+          <TextInput
+            className="w-10 text-center text-xs font-black text-slate-805 py-0.5"
+            keyboardType="numeric"
+            value={guestCount.toString()}
+            onChangeText={(val) => onChangeGuestCount(Math.max(1, parseInt(val) || 1))}
+            style={Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : undefined}
+          />
+          <TouchableOpacity 
+            activeOpacity={0.7} 
+            onPress={() => onChangeGuestCount(guestCount + 1)}
+            className="w-7 h-7 bg-white border border-slate-200 items-center justify-center rounded-md active:bg-slate-100"
+          >
+            <Ionicons name="add" size={14} color="#64748b" />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <Text className="text-[9.5px] text-slate-500 font-bold leading-relaxed mb-4">
+        Thêm thông tin CMND/CCCD hoặc hộ chiếu của khách lưu trú để đồng bộ dữ liệu khai báo tạm trú lên cơ quan chức năng.
+      </Text>
+
+      {/* 2. List of guest forms */}
+      {Array.from({ length: guestCount }).map((_, index) => {
+        const guest = guests[index] || {
+          name: '',
+          id_type: 'CCCD',
+          id_number: '',
+          idCard: '',
+          expiry_date: '',
+          nationality: 'Việt Nam',
+          dob: '',
+          gender: '',
+          note: ''
+        };
+
+        return (
+          <View key={index} className="bg-white border border-slate-200 p-4 rounded-xl mb-4 shadow-sm">
+            <Text className="text-[10px] font-black text-orange-600 mb-2">Khách lưu trú #{index + 1}:</Text>
+
+            {/* Field 1: Họ và tên */}
+            <View className="mt-2">
+              <Text className="text-[10px] text-slate-400 font-extrabold uppercase mb-1">Họ và tên:</Text>
+              <TextInput
+                className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[10px] text-slate-800 font-semibold"
+                placeholder="Nhập họ và tên..."
+                placeholderTextColor="#cbd5e1"
+                value={guest.name || ''}
+                onChangeText={(val) => updateGuestField(index, 'name', val)}
+                style={Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : undefined}
+              />
+            </View>
+
+            {/* Field 2: Loại giấy tờ */}
+            <View className="mt-2.5">
+              <Text className="text-[10px] text-slate-400 font-extrabold uppercase mb-1">Loại giấy tờ:</Text>
+              <View className="flex-row gap-2 mt-1">
+                {idTypes.map(type => {
+                  const isSelected = (guest.id_type || 'CCCD') === type;
+                  return (
+                    <TouchableOpacity
+                      key={type}
+                      activeOpacity={0.8}
+                      onPress={() => updateGuestField(index, 'id_type', type)}
+                      className={`flex-1 py-2 items-center justify-center rounded-lg border ${
+                        isSelected ? 'bg-orange-50 border-orange-200' : 'bg-slate-50 border-slate-200'
+                      }`}
+                    >
+                      <Text className={`text-[10px] font-black ${isSelected ? 'text-orange-700' : 'text-slate-600'}`}>
+                        {type}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* Field 3: Số giấy tờ */}
+            <View className="mt-2.5">
+              <Text className="text-[10px] text-slate-400 font-extrabold uppercase mb-1">Số giấy tờ (CCCD/CMND/Hộ chiếu):</Text>
+              <TextInput
+                className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[10px] text-slate-800 font-semibold"
+                placeholder="Nhập số giấy tờ..."
+                placeholderTextColor="#cbd5e1"
+                value={guest.id_number || guest.idCard || ''}
+                onChangeText={(val) => updateGuestField(index, 'id_number', val)}
+                style={Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : undefined}
+              />
+            </View>
+
+            {/* Field 4 & 5 Row: Ngày hết hạn & Quốc tịch */}
+            <View className="flex-row gap-2.5 mt-2.5">
+              <View className="flex-1">
+                <Text className="text-[10px] text-slate-400 font-extrabold uppercase mb-1">Ngày hết hạn:</Text>
+                <TextInput
+                  className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[10px] text-slate-800 font-semibold"
+                  placeholder="DD/MM/YYYY"
+                  placeholderTextColor="#cbd5e1"
+                  value={guest.expiry_date || ''}
+                  onChangeText={(val) => updateGuestField(index, 'expiry_date', val)}
+                  style={Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : undefined}
+                />
+              </View>
+              <View className="flex-1">
+                <Text className="text-[10px] text-slate-400 font-extrabold uppercase mb-1">Quốc tịch:</Text>
+                <TextInput
+                  className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[10px] text-slate-800 font-semibold"
+                  placeholder="Quốc tịch..."
+                  placeholderTextColor="#cbd5e1"
+                  value={guest.nationality || 'Việt Nam'}
+                  onChangeText={(val) => updateGuestField(index, 'nationality', val)}
+                  style={Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : undefined}
+                />
+              </View>
+            </View>
+
+            {/* Field 6 & 7 Row: Ngày sinh & Giới tính */}
+            <View className="flex-row gap-2.5 mt-2.5">
+              <View className="flex-1">
+                <Text className="text-[10px] text-slate-400 font-extrabold uppercase mb-1">Ngày sinh:</Text>
+                <TextInput
+                  className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[10px] text-slate-800 font-semibold"
+                  placeholder="DD/MM/YYYY"
+                  placeholderTextColor="#cbd5e1"
+                  value={guest.dob || ''}
+                  onChangeText={(val) => updateGuestField(index, 'dob', val)}
+                  style={Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : undefined}
+                />
+              </View>
+              <View className="flex-1">
+                <Text className="text-[10px] text-slate-400 font-extrabold uppercase mb-1">Giới tính:</Text>
+                <View className="flex-row gap-1 mt-1">
+                  {genders.map(g => {
+                    const isSelected = guest.gender === g.key;
+                    return (
+                      <TouchableOpacity
+                        key={g.key}
+                        activeOpacity={0.8}
+                        onPress={() => updateGuestField(index, 'gender', g.key)}
+                        className={`flex-1 py-1.5 items-center justify-center rounded-lg border ${
+                          isSelected ? 'bg-orange-50 border-orange-200' : 'bg-slate-50 border-slate-200'
+                        }`}
+                      >
+                        <Text className={`text-[8.5px] font-black ${isSelected ? 'text-orange-700' : 'text-slate-600'}`}>
+                          {g.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            </View>
+
+            {/* Field 8: Ghi chú */}
+            <View className="mt-2.5">
+              <Text className="text-[10px] text-slate-400 font-extrabold uppercase mb-1">Ghi chú:</Text>
+              <TextInput
+                className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[10px] text-slate-800 font-semibold"
+                placeholder="Ghi chú thêm..."
+                placeholderTextColor="#cbd5e1"
+                value={guest.note || ''}
+                onChangeText={(val) => updateGuestField(index, 'note', val)}
+                style={Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : undefined}
+              />
+            </View>
+          </View>
+        );
+      })}
+
+      {/* 3. Add Guest Button */}
+      <TouchableOpacity 
+        activeOpacity={0.8}
+        onPress={() => onChangeGuestCount(guestCount + 1)}
+        className="flex-row items-center justify-center bg-orange-50 border border-orange-100 py-3 rounded-xl mt-2 active:bg-orange-100"
+      >
+        <Ionicons name="add-circle" size={16} color="#fa5908" />
+        <Text className="text-xs font-black text-orange-600 ml-2">Thêm khách lưu trú</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
 
 export default function PosScreen() {
 
@@ -108,6 +350,36 @@ export default function PosScreen() {
   const [tableCarts, setTableCarts] = useState<{ [tableId: string]: { [prodId: string]: { name: string; price: number; quantity: number } } }>({});
   const [cartOwnerTable, setCartOwnerTable] = useState<any | null>(null);
   const [tableCustomers, setTableCustomers] = useState<{ [tableId: string]: any }>({});
+
+  const [activeTableTab, setActiveTableTab] = useState<'billing' | 'guests'>('billing');
+  const [lodgingGuests, setLodgingGuests] = useState<LodgingGuest[]>([{ name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', note: '' }]);
+  const [isSyncingTableSession, setIsSyncingTableSession] = useState<boolean>(false);
+  const [isOpeningTable, setIsOpeningTable] = useState<boolean>(false);
+
+  // Tự động thay đổi kích thước danh sách khách lưu trú khi thay đổi số khách
+  useEffect(() => {
+    setLodgingGuests(prev => {
+      const current = [...prev];
+      if (current.length < roomGuestCount) {
+        while (current.length < roomGuestCount) {
+          current.push({ 
+            name: '', 
+            id_type: 'CCCD', 
+            id_number: '', 
+            idCard: '',
+            expiry_date: '', 
+            nationality: 'Việt Nam', 
+            dob: '', 
+            gender: '', 
+            note: '' 
+          });
+        }
+      } else if (current.length > roomGuestCount) {
+        return current.slice(0, roomGuestCount);
+      }
+      return current;
+    });
+  }, [roomGuestCount]);
   
   // Tự động lưu và khôi phục khách hàng được gán cho từng phòng bàn
   useEffect(() => {
@@ -665,81 +937,255 @@ export default function PosScreen() {
   };
 
   // Mở bàn
+  // Mở bàn
   const handleTablePress = async (table: any) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     if (table.status === 'playing' || table.status === 'occupied') {
-      setIsLoading(true);
-      const onlineSession = await fetchActiveTableSessionOnline(table.id, table.current_order_id || null);
-      setIsLoading(false);
-      
-      if (onlineSession) {
-        const { order, items } = onlineSession;
-        let parsedMeta: any = {};
-        try {
-          parsedMeta = typeof order.metadata === 'string' ? JSON.parse(order.metadata) : (order.metadata || {});
-        } catch (e) {}
-
-        const checkInTime = parsedMeta.check_in ? new Date(parsedMeta.check_in).getTime() : table.startTime;
-        
-        let tableMetaObj: any = {};
-        try {
-          tableMetaObj = typeof table.metadata === 'string' ? JSON.parse(table.metadata) : (table.metadata || {});
-        } catch (e) {}
-
-        const updatedTable = {
-          ...table,
-          current_order_id: order.id, // Tự động chữa lành ID đơn hàng nếu thiếu
-          startTime: checkInTime,
-          metadata: JSON.stringify({
-            ...tableMetaObj,
-            rental_type: parsedMeta.rental_type || 'hourly',
-            num_guests: parsedMeta.num_guests || 1,
-            check_in: parsedMeta.check_in
-          })
-        };
-
-        // Gán khách hàng cho phòng bàn cục bộ
-        if (order.customer_id) {
-          setTableCustomers(prev => ({
-            ...prev,
-            [table.id]: { id: order.customer_id, name: order.customer_name || 'Khách lẻ' }
-          }));
-        }
-
-        // Cập nhật tables list state cục bộ và ghi SQLite ngoại tuyến để tự chữa lành
-        setTables(prev => prev.map(t => t.id === table.id ? updatedTable : t));
-        if (Platform.OS !== 'web') {
-          try {
-            await db
-              .update(schema.location_resources)
-              .set({ current_order_id: order.id, startTime: checkInTime })
-              .where(eq(schema.location_resources.id, table.id));
-          } catch (e) {}
-        }
-        
-        // Đồng bộ món ăn của bàn về state cục bộ
-        const mappedCart: any = {};
-        for (const item of items) {
-          mappedCart[item.product_id] = {
-            name: item.product_name,
-            price: parseInt(item.unit_price || '0', 10),
-            quantity: parseInt(item.qty || '1', 10)
-          };
-        }
-        
-        setTableCarts(prev => ({
-          ...prev,
-          [table.id]: mappedCart
-        }));
-        
-        setActiveTable(updatedTable);
-        showToast("Đã đồng bộ thông tin & món ăn từ Cloud!", "success");
-        return;
-      }
+      // 1. Mở modal ngay lập tức với dữ liệu cục bộ hiện có để mang lại trải nghiệm tức thì (Zero-Lag)
       setActiveTable(table);
+      setIsSyncingTableSession(true);
+      setActiveTableTab('billing'); // Reset tab về billing mặc định khi mở phòng bàn
+      
+      // Khôi phục thông tin khách lưu trú từ cache SQLite cục bộ trước khi sync
+      let localMeta: any = {};
+      try {
+        localMeta = typeof table.metadata === 'string' ? JSON.parse(table.metadata) : (table.metadata || {});
+      } catch (e) {}
+      const cachedGuests = localMeta.guests_list || [];
+      setRoomGuestCount(localMeta.num_guests || Math.max(1, cachedGuests.length));
+      setLodgingGuests(cachedGuests.length > 0 
+        ? cachedGuests.map((g: any) => ({
+            id: g.id || undefined,
+            name: g.name || '',
+            id_type: g.id_type || g.idType || 'CCCD',
+            id_number: g.id_number || g.idNumber || g.idCard || g.id_card || '',
+            idCard: g.id_number || g.idNumber || g.idCard || g.id_card || '',
+            expiry_date: g.expiry_date || g.expiryDate || '',
+            nationality: g.nationality || 'Việt Nam',
+            dob: g.dob || '',
+            gender: g.gender || '',
+            note: g.note || ''
+          })) 
+        : [{ name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', note: '' }]);
+      
+      // 2. Gọi đồng bộ chạy ngầm chỉ cho duy nhất phòng/bàn này để lấy món ăn & đơn hàng mới nhất từ Cloud
+      try {
+        const onlineSession = await fetchActiveTableSessionOnline(table.id, table.current_order_id || null);
+        setIsSyncingTableSession(false);
+        
+        if (onlineSession) {
+          // Bắt trạng thái đơn hàng/phòng đã thanh toán và giải phóng trên Cloud -> Tự động chữa lành cục bộ!
+          if ('isFinished' in onlineSession && onlineSession.isFinished) {
+            setIsSyncingTableSession(false);
+            setActiveTable(null); // Đóng modal ngay lập tức
+            
+            // A. Cập nhật SQLite nội địa sang trống
+            if (Platform.OS !== 'web') {
+               try {
+                 await db
+                   .update(schema.location_resources)
+                   .set({ status: 'available', current_order_id: null, startTime: null })
+                   .where(eq(schema.location_resources.id, table.id));
+               } catch (e) {}
+            }
+            
+            // B. Cập nhật state cục bộ sang trống
+            setTables(prev => prev.map(t => t.id === table.id ? { ...t, status: 'available', current_order_id: null, startTime: null } : t));
+            setTableCarts(prev => {
+              const copy = { ...prev };
+              delete copy[table.id];
+              return copy;
+            });
+            
+            showToast("Phòng đã được thanh toán và trả trên hệ thống!", "info");
+            return;
+          }
+
+          const { order, items } = onlineSession;
+          let parsedMeta: any = {};
+          try {
+            parsedMeta = typeof order.metadata === 'string' ? JSON.parse(order.metadata) : (order.metadata || {});
+          } catch (e) {}
+
+          const checkInTime = parsedMeta.check_in ? new Date(parsedMeta.check_in).getTime() : table.startTime;
+          
+          let tableMetaObj: any = {};
+          try {
+            tableMetaObj = typeof table.metadata === 'string' ? JSON.parse(table.metadata) : (table.metadata || {});
+          } catch (e) {}
+
+          const updatedTable = {
+            ...table,
+            current_order_id: order.id, // Tự động chữa lành ID đơn hàng nếu thiếu
+            startTime: checkInTime,
+            metadata: JSON.stringify({
+              ...tableMetaObj,
+              rental_type: parsedMeta.rental_type || 'hourly',
+              num_guests: parsedMeta.num_guests || 1,
+              check_in: parsedMeta.check_in,
+              guests_list: parsedMeta.guests_list || []
+            })
+          };
+
+          // Gán khách hàng cho phòng bàn cục bộ
+          if (order.customer_id) {
+            setTableCustomers(prev => ({
+              ...prev,
+              [table.id]: { id: order.customer_id, name: order.customer_name || 'Khách lẻ' }
+            }));
+          }
+
+          // Cập nhật tables list state cục bộ và ghi SQLite ngoại tuyến để tự chữa lành
+          setTables(prev => prev.map(t => t.id === table.id ? updatedTable : t));
+          if (Platform.OS !== 'web') {
+            try {
+              await db
+                .update(schema.location_resources)
+                .set({ current_order_id: order.id, startTime: checkInTime, metadata: updatedTable.metadata })
+                .where(eq(schema.location_resources.id, table.id));
+            } catch (e) {}
+          }
+          
+          // Đồng bộ món ăn của bàn về state cục bộ
+          const mappedCart: any = {};
+          for (const item of items) {
+            mappedCart[item.product_id] = {
+              name: item.product_name,
+              price: parseInt(item.unit_price || '0', 10),
+              quantity: parseInt(item.qty || '1', 10)
+            };
+          }
+          
+          setTableCarts(prev => ({
+            ...prev,
+            [table.id]: mappedCart
+          }));
+          
+          // Khôi phục thông tin khách lưu trú từ Cloud
+          const onlineGuests = parsedMeta.guests_list || [];
+          setRoomGuestCount(parsedMeta.num_guests || Math.max(1, onlineGuests.length));
+          setLodgingGuests(onlineGuests.length > 0 
+            ? onlineGuests.map((g: any) => ({
+                id: g.id || undefined,
+                name: g.name || '',
+                id_type: g.id_type || g.idType || 'CCCD',
+                id_number: g.id_number || g.idNumber || g.idCard || g.id_card || '',
+                idCard: g.id_number || g.idNumber || g.idCard || g.id_card || '',
+                expiry_date: g.expiry_date || g.expiryDate || '',
+                nationality: g.nationality || 'Việt Nam',
+                dob: g.dob || '',
+                gender: g.gender || '',
+                note: g.note || ''
+              })) 
+            : [{ name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', note: '' }]);
+          
+          setActiveTable(updatedTable);
+        }
+      } catch (err) {
+        console.warn('Lỗi khi đồng bộ nền phiên hoạt động:', err);
+      }
     } else {
       setSelectedTableForOpen(table);
       setIsTableOpenDialogVisible(true);
+    }
+  };
+
+  // Cập nhật thông tin khách lưu trú của phòng đang ở
+  const handleUpdateActiveRoomGuests = async () => {
+    if (!activeTable) return;
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+      const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+      let syncSucceeded = false;
+
+      // 1. Chuẩn hóa metadata khách lưu trú
+      const updatedGuests = lodgingGuests
+        .filter(g => g.name || g.id_number || g.idCard)
+        .map(g => ({
+          id: g.id || undefined,
+          name: g.name || '',
+          id_type: g.id_type || 'CCCD',
+          id_number: g.id_number || g.idCard || '',
+          idCard: g.id_number || g.idCard || '',
+          expiry_date: g.expiry_date || '',
+          nationality: g.nationality || 'Việt Nam',
+          dob: g.dob || '',
+          gender: g.gender || '',
+          note: g.note || ''
+        }));
+
+      // Đọc metadata hiện tại và ghi đè
+      let currentMeta: any = {};
+      try {
+        currentMeta = typeof activeTable.metadata === 'string' ? JSON.parse(activeTable.metadata) : (activeTable.metadata || {});
+      } catch (e) {}
+
+      const updatedMeta = JSON.stringify({
+        ...currentMeta,
+        resource_id: activeTable.id,
+        resource_name: activeTable.name,
+        check_in: activeTable.startTime || new Date().toISOString(),
+        num_guests: roomGuestCount,
+        rental_type: roomRentalType,
+        guests_list: updatedGuests
+      });
+
+      // 2. Offline-First: Cập nhật SQLite nội địa và State
+      if (Platform.OS === 'web') {
+        setTables(prev => prev.map(t => t.id === activeTable.id ? { ...t, metadata: updatedMeta } : t));
+      } else {
+        await db
+          .update(schema.location_resources)
+          .set({ metadata: updatedMeta })
+          .where(eq(schema.location_resources.id, activeTable.id));
+        const updated = await db.select().from(schema.location_resources);
+        setTables(updated);
+      }
+
+      // Cập nhật thông tin phòng đang mở để đồng bộ trực quan tức thì
+      setActiveTable((prev: any) => prev ? { ...prev, metadata: updatedMeta } : null);
+
+      // 3. Online Sync lên Cloud Next.js nếu đang có mạng
+      try {
+        const currentUrl = getApiBaseUrl();
+        const headers = await getApiHeaders();
+
+        // A. PATCH location-resources metadata
+        const patchRes = await fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${activeTable.id}`, {
+          method: 'PATCH',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            metadata: updatedMeta
+          }),
+        });
+
+        // B. PATCH active order metadata nếu tồn tại current_order_id
+        if (activeTable.current_order_id) {
+          await fetch(`${currentUrl}/api/shops/${shopId}/orders/${activeTable.current_order_id}`, {
+            method: 'PATCH',
+            headers: { ...headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              metadata: updatedMeta
+            })
+          });
+        }
+
+        if (patchRes.ok) {
+          syncSucceeded = true;
+        }
+      } catch (syncErr) {
+        console.log('Mất mạng hoặc lỗi server, bỏ qua đồng bộ metadata khách trực tuyến:', syncErr);
+      }
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      if (syncSucceeded) {
+        showToast("Cập nhật thông tin khách lưu trú thành công!", "success");
+      } else {
+        showToast("Đã cập nhật thông tin khách ngoại tuyến!", "info");
+      }
+    } catch (err) {
+      console.error('Không thể cập nhật khách lưu trú:', err);
+      showToast("Có lỗi xảy ra khi cập nhật khách!", "error");
     }
   };
 
@@ -787,6 +1233,20 @@ export default function PosScreen() {
                 weekend_rate: tMeta.weekend_rate,
                 room_class: tMeta.room_class,
                 bed_type: tMeta.bed_type,
+                guests_list: lodgingGuests
+                  .filter(g => g.name || g.id_number || g.idCard)
+                  .map(g => ({
+                    id: g.id || undefined,
+                    name: g.name || '',
+                    id_type: g.id_type || 'CCCD',
+                    id_number: g.id_number || g.idCard || '',
+                    idCard: g.id_number || g.idCard || '',
+                    expiry_date: g.expiry_date || '',
+                    nationality: g.nationality || 'Việt Nam',
+                    dob: g.dob || '',
+                    gender: g.gender || '',
+                    note: g.note || ''
+                  })),
               });
             })()
           }),
@@ -821,15 +1281,41 @@ export default function PosScreen() {
       }
 
       // 2. Ghi đè vào DB Cục bộ hoặc State cục bộ
+      const openTableMeta = JSON.stringify({
+        guests_list: lodgingGuests
+          .filter(g => g.name || g.id_number || g.idCard)
+          .map(g => ({
+            id: g.id || undefined,
+            name: g.name || '',
+            id_type: g.id_type || 'CCCD',
+            id_number: g.id_number || g.idCard || '',
+            idCard: g.id_number || g.idCard || '',
+            expiry_date: g.expiry_date || '',
+            nationality: g.nationality || 'Việt Nam',
+            dob: g.dob || '',
+            gender: g.gender || '',
+            note: g.note || ''
+          })),
+        num_guests: roomGuestCount,
+        rental_type: roomRentalType,
+      });
+
       if (Platform.OS === 'web') {
-        setTables(prev => prev.map(t => t.id === selectedTableForOpen.id ? { ...t, status: 'occupied', current_order_id: orderId, startTime: nowTime } : t));
+        setTables(prev => prev.map(t => t.id === selectedTableForOpen.id ? { 
+          ...t, 
+          status: 'occupied', 
+          current_order_id: orderId, 
+          startTime: nowTime,
+          metadata: openTableMeta
+        } : t));
       } else {
         await db
           .update(schema.location_resources)
           .set({ 
             status: 'occupied', 
             current_order_id: orderId,
-            startTime: nowTime 
+            startTime: nowTime,
+            metadata: openTableMeta
           })
           .where(eq(schema.location_resources.id, selectedTableForOpen.id));
         
@@ -1970,39 +2456,12 @@ export default function PosScreen() {
                   )}
                 </View>
               ) : (
-                <View className="bg-slate-50 border border-slate-200 p-4 rounded-xl">
-                  {/* TAB KHÁCH LƯU TRÚ (Danh sách khách ở cùng phòng) */}
-                  <View className="flex-row justify-between items-center mb-3">
-                    <Text className="text-xs font-black text-slate-800">
-                      👥 Thành viên lưu trú ({roomGuestCount} khách)
-                    </Text>
-                  </View>
-
-                  <Text className="text-[9.5px] text-slate-455 font-bold leading-relaxed mb-4">
-                    Thêm thông tin CMND/CCCD hoặc hộ chiếu của khách lưu trú để đồng bộ dữ liệu khai báo tạm trú lên cơ quan chức năng.
-                  </Text>
-
-                  {/* Mẫu danh sách khách */}
-                  {Array.from({ length: Math.min(5, roomGuestCount) }).map((_, index) => (
-                    <View key={index} className="bg-white border border-slate-200 p-3 rounded-lg mb-3">
-                      <Text className="text-[9px] font-extrabold text-orange-600 mb-2">Khách lưu trú #{index + 1}:</Text>
-                      <View className="flex-row gap-2">
-                        <TextInput
-                          className="flex-1 bg-slate-50 border border-slate-200 rounded px-2 py-1 text-[10px] text-slate-700 font-semibold"
-                          placeholder="Họ và tên..."
-                          placeholderTextColor="#cbd5e1"
-                          style={Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : undefined}
-                        />
-                        <TextInput
-                          className="flex-1 bg-slate-50 border border-slate-200 rounded px-2 py-1 text-[10px] text-slate-700 font-semibold"
-                          placeholder="Số CMND/CCCD..."
-                          placeholderTextColor="#cbd5e1"
-                          style={Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : undefined}
-                        />
-                      </View>
-                    </View>
-                  ))}
-                </View>
+                <LodgingGuestsForm
+                  guests={lodgingGuests}
+                  onChangeGuests={setLodgingGuests}
+                  guestCount={roomGuestCount}
+                  onChangeGuestCount={setRoomGuestCount}
+                />
               )}
             </ScrollView>
 
@@ -2089,7 +2548,7 @@ export default function PosScreen() {
           {activeTable && (
             <View className="h-[75%] rounded-t-2xl p-6 justify-between bg-white shadow-2xl">
               {/* Modal Header */}
-              <View className="flex-row justify-between items-center mb-4">
+              <View className="flex-row justify-between items-center mb-4 border-b border-slate-100 pb-2">
                 <View className="flex-row items-center">
                   <Ionicons name="time" size={18} color="#fa5908" />
                   <Text className="text-base font-black text-slate-800 ml-2">
@@ -2106,163 +2565,230 @@ export default function PosScreen() {
                 </TouchableOpacity>
               </View>
 
-              {/* Tình trạng tiền giờ */}
-              <View className="bg-orange-50 border  p-4 rounded-xl mb-4">
-                <View className="flex-row justify-between items-center">
-                  <Text className="text-[9px] text-slate-455 uppercase tracking-widest font-black">Phí dịch vụ giờ lẻ:</Text>
-                  <Badge variant="primary" label={formatCurrency(activeTable.hourly_rate) + '/' + (shopVertical === 'room' ? 'ngày' : 'giờ')} size="sm" />
+              {/* TAB SELECTOR FOR ACTIVE ROOM */}
+              {shopVertical === 'room' && (
+                <View className="flex-row bg-slate-100 p-1 rounded-xl mb-4">
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() => setActiveTableTab('billing')}
+                    className={`flex-1 py-2 items-center justify-center rounded-lg ${
+                      activeTableTab === 'billing' ? 'bg-white border border-slate-200' : 'bg-transparent'
+                    }`}
+                  >
+                    <Text className={`text-xs font-black ${activeTableTab === 'billing' ? 'text-slate-800' : 'text-slate-500'}`}>
+                      Dịch vụ phòng
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() => setActiveTableTab('guests')}
+                    className={`flex-1 py-2 items-center justify-center rounded-lg ${
+                      activeTableTab === 'guests' ? 'bg-white border border-slate-200' : 'bg-transparent'
+                    }`}
+                  >
+                    <Text className={`text-xs font-black ${activeTableTab === 'guests' ? 'text-slate-800' : 'text-slate-500'}`}>
+                      Khách lưu trú
+                    </Text>
+                  </TouchableOpacity>
                 </View>
-                <Text className="text-orange-500 text-3xl font-black mt-1.5">
-                  {formatCurrency(calculateBilling(activeTable).cost)}
-                </Text>
-                <Text className="text-[9.5px] text-slate-500 mt-3 font-semibold leading-relaxed">
-                  ⏱️ Nhận lúc: {new Date(activeTable.startTime).toLocaleTimeString()} ({calculateBilling(activeTable).hours}h {calculateBilling(activeTable).minutes}m)
-                </Text>
-              </View>
+              )}
 
-              {/* CHI TIẾT MÓN / DỊCH VỤ ĐÃ GỌI KÈM */}
-              {tableCarts[activeTable.id] && Object.keys(tableCarts[activeTable.id]).length > 0 ? (
-                <View className="mb-4">
-                  <Text className="text-[10px] text-slate-400 font-extrabold uppercase mb-2">Món ăn / Dịch vụ đã gọi:</Text>
-                  <View className="bg-slate-50 border border-slate-200 rounded-xl p-3 max-h-32 overflow-hidden">
-                    <ScrollView nestedScrollEnabled={true}>
-                      {Object.entries(tableCarts[activeTable.id]).map(([pId, item]) => (
-                        <View key={pId} className="flex-row justify-between items-center py-1.5 border-b border-slate-100 last:border-0">
-                          <Text className="text-xs font-semibold text-slate-700 flex-1 mr-2" numberOfLines={1}>{item.name}</Text>
-                          <Text className="text-[10px] text-slate-500 font-bold mr-3">x{item.quantity}</Text>
-                          <Text className="text-xs font-black text-slate-800">{formatCurrency(item.price * item.quantity)}</Text>
+              <ScrollView className="flex-1 my-2" nestedScrollEnabled={true} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+                {activeTableTab === 'billing' || shopVertical !== 'room' ? (
+                  <View>
+                    {/* Tình trạng tiền giờ */}
+                    <View className="bg-orange-50 border border-orange-100 p-4 rounded-xl mb-4">
+                      <View className="flex-row justify-between items-center">
+                        <Text className="text-[9px] text-slate-455 uppercase tracking-widest font-black">Phí dịch vụ giờ lẻ:</Text>
+                        <Badge variant="primary" label={formatCurrency(activeTable.hourly_rate) + '/' + (shopVertical === 'room' ? 'ngày' : 'giờ')} size="sm" />
+                      </View>
+                      <Text className="text-orange-500 text-3xl font-black mt-1.5">
+                        {formatCurrency(calculateBilling(activeTable).cost)}
+                      </Text>
+                      <Text className="text-[9.5px] text-slate-500 mt-3 font-semibold leading-relaxed">
+                        ⏱️ Nhận lúc: {new Date(activeTable.startTime).toLocaleTimeString()} ({calculateBilling(activeTable).hours}h {calculateBilling(activeTable).minutes}m)
+                      </Text>
+                    </View>
+
+                    {/* CHI TIẾT MÓN / DỊCH VỤ ĐÃ GỌI KÈM */}
+                    {tableCarts[activeTable.id] && Object.keys(tableCarts[activeTable.id]).length > 0 ? (
+                      <View className="mb-4">
+                        <Text className="text-[10px] text-slate-400 font-extrabold uppercase mb-2">Món ăn / Dịch vụ đã gọi:</Text>
+                        <View className="bg-slate-50 border border-slate-200 rounded-xl p-3 max-h-32 overflow-hidden">
+                          <ScrollView nestedScrollEnabled={true}>
+                            {Object.entries(tableCarts[activeTable.id]).map(([pId, item]) => (
+                              <View key={pId} className="flex-row justify-between items-center py-1.5 border-b border-slate-100 last:border-0">
+                                <Text className="text-xs font-semibold text-slate-700 flex-1 mr-2" numberOfLines={1}>{item.name}</Text>
+                                <Text className="text-[10px] text-slate-500 font-bold mr-3">x{item.quantity}</Text>
+                                <Text className="text-xs font-black text-slate-800">{formatCurrency(item.price * item.quantity)}</Text>
+                              </View>
+                            ))}
+                          </ScrollView>
                         </View>
-                      ))}
-                    </ScrollView>
+                      </View>
+                    ) : null}
+
+                    {/* MENU CHỨC NĂNG PHỤ TRỢ (Như Web) */}
+                    <Text className="text-[10px] text-slate-400 font-extrabold uppercase mb-2">Thao tác nghiệp vụ:</Text>
+                    <View className="flex-row flex-wrap gap-2.5 mb-5 justify-between">
+                      {/* 1. Gọi món / dịch vụ */}
+                      <TouchableOpacity 
+                        activeOpacity={0.8}
+                        className="w-[47%] bg-slate-50 border border-slate-200 p-2.5 rounded-xl flex-row items-center active:bg-slate-100"
+                        onPress={() => {
+                          // Đồng bộ giỏ hàng và khóa bàn
+                          setCart(tableCarts[activeTable.id] || {});
+                          setCartOwnerTable(activeTable);
+                          setActiveVertical('retail'); // Switch to product catalog
+                          setActiveTable(null); // Close this modal
+                        }}
+                      >
+                        <Ionicons name="fast-food-outline" size={16} color="#fa5908" />
+                        <Text className="text-[10px] font-black text-slate-700 ml-2">Gọi món / Dịch vụ</Text>
+                      </TouchableOpacity>
+
+                      {/* 2. Đổi phòng/bàn */}
+                      <TouchableOpacity 
+                        activeOpacity={0.8}
+                        className="w-[47%] bg-slate-50 border border-slate-200 p-2.5 rounded-xl flex-row items-center active:bg-slate-100"
+                        onPress={() => {
+                          const label = shopVertical === 'room' ? 'Phòng' : shopVertical === 'court' ? 'Sân' : shopVertical === 'cafe' ? 'Bàn' : 'Bàn';
+                          alert(`Chức năng Đổi ${label} đang đồng bộ với Cloud.`);
+                        }}
+                      >
+                        <Ionicons name="swap-horizontal" size={16} color="#0284c7" />
+                        <Text className="text-[10px] font-black text-slate-700 ml-2">Đổi {shopVertical === 'room' ? 'Phòng' : shopVertical === 'court' ? 'Sân' : shopVertical === 'cafe' ? 'Bàn' : 'Bàn'}</Text>
+                      </TouchableOpacity>
+
+                      {/* 3. Gộp phòng/bàn */}
+                      <TouchableOpacity 
+                        activeOpacity={0.8}
+                        className="w-[47%] bg-slate-50 border border-slate-200 p-2.5 rounded-xl flex-row items-center active:bg-slate-100"
+                        onPress={() => {
+                          const label = shopVertical === 'room' ? 'Phòng' : shopVertical === 'court' ? 'Sân' : shopVertical === 'cafe' ? 'Bàn' : 'Bàn';
+                          alert(`Chức năng Gộp ${label} đang đồng bộ với Cloud.`);
+                        }}
+                      >
+                        <Ionicons name="git-merge-outline" size={16} color="#059669" />
+                        <Text className="text-[10px] font-black text-slate-700 ml-2">Gộp {shopVertical === 'room' ? 'Phòng' : shopVertical === 'court' ? 'Sân' : shopVertical === 'cafe' ? 'Bàn' : 'Bàn'}</Text>
+                      </TouchableOpacity>
+
+                       {/* 4. Hủy đơn / Trả phòng trống */}
+                       <TouchableOpacity 
+                         activeOpacity={0.8}
+                         className="w-[47%] bg-rose-50 border border-rose-100 p-2.5 rounded-xl flex-row items-center active:bg-rose-100"
+                         onPress={async () => {
+                           // Hộp thoại xác nhận hủy an toàn
+                           const confirmCancel = Platform.OS === 'web'
+                             ? window.confirm("Bạn có chắc chắn muốn Hủy và giải phóng phòng này?")
+                             : await new Promise<boolean>((resolve) => {
+                                 Alert.alert(
+                                   "Xác nhận Hủy phòng",
+                                   "Tất cả thông tin sử dụng và dịch vụ hiện tại sẽ bị xóa sạch. Bạn có chắc chắn muốn giải phóng phòng trống?",
+                                   [
+                                     { text: "Không", onPress: () => resolve(false), style: "cancel" },
+                                     { text: "Đồng ý", onPress: () => resolve(true), style: "destructive" }
+                                   ]
+                                 );
+                               });
+
+                           if (!confirmCancel) return;
+
+                           try {
+                             const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+                             let syncSucceeded = false;
+
+                             // 1. Đồng bộ cục bộ (Offline-First)
+                             if (Platform.OS === 'web') {
+                               setTables(prev => prev.map(t => t.id === activeTable.id ? { ...t, status: 'available', startTime: null } : t));
+                             } else {
+                               await db
+                                 .update(schema.location_resources)
+                                 .set({ status: 'available', startTime: null })
+                                 .where(eq(schema.location_resources.id, activeTable.id));
+                               const updated = await db.select().from(schema.location_resources);
+                               setTables(updated);
+                             }
+
+                             // 2. Đồng bộ trực tuyến lên Server Next.js nếu đang có mạng
+                             try {
+                               const currentUrl = getApiBaseUrl();
+                               const headers = await getApiHeaders();
+
+                               // A. Hủy order in_progress trên Next.js Server
+                               if (activeTable.current_order_id) {
+                                 await fetch(`${currentUrl}/api/shops/${shopId}/orders/${activeTable.current_order_id}/cancel`, {
+                                   method: 'POST',
+                                   headers: { ...headers, 'Content-Type': 'application/json' },
+                                   body: JSON.stringify({ reason: 'Hủy từ di động' })
+                                 });
+                               }
+
+                               // B. Patch trạng thái bàn về available
+                               const patchRes = await fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${activeTable.id}`, {
+                                 method: 'PATCH',
+                                 headers: { ...headers, 'Content-Type': 'application/json' },
+                                 body: JSON.stringify({
+                                   status: 'available',
+                                   current_order_id: '',
+                                   startTime: null
+                                 }),
+                               });
+                               if (patchRes.ok) {
+                                 syncSucceeded = true;
+                               }
+                             } catch (syncErr) {
+                               console.log('Mất mạng hoặc lỗi server, bỏ qua hủy trực tiếp:', syncErr);
+                             }
+
+                             // Dọn dẹp tableCart
+                             setTableCarts(prev => {
+                               const copy = { ...prev };
+                               delete copy[activeTable.id];
+                               return copy;
+                             });
+
+                             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+                             setActiveTable(null);
+
+                             if (syncSucceeded) {
+                               showToast("Hủy đơn & Giải phóng phòng/bàn thành công!", "success");
+                             } else {
+                               showToast("Giải phóng phòng/bàn ngoại tuyến thành công!", "info");
+                             }
+                           } catch (err) {
+                             console.error('Không thể hủy ca hoạt động:', err);
+                             showToast("Có lỗi xảy ra khi hủy ca!", "error");
+                           }
+                         }}
+                       >
+                        <Ionicons name="close-circle-outline" size={16} color="#e11d48" />
+                        <Text className="text-[10px] font-black text-rose-700 ml-2">Hủy / Trả trống</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
-                </View>
-              ) : null}
+                ) : (
+                  <View>
+                    <LodgingGuestsForm
+                      guests={lodgingGuests}
+                      onChangeGuests={setLodgingGuests}
+                      guestCount={roomGuestCount}
+                      onChangeGuestCount={setRoomGuestCount}
+                    />
 
-              {/* MENU CHỨC NĂNG PHỤ TRỢ (Như Web) */}
-              <Text className="text-[10px] text-slate-400 font-extrabold uppercase mb-2">Thao tác nghiệp vụ:</Text>
-              <View className="flex-row flex-wrap gap-2.5 mb-5 justify-between">
-                {/* 1. Gọi món / dịch vụ */}
-                <TouchableOpacity 
-                  activeOpacity={0.8}
-                  className="w-[47%] bg-slate-50 border border-slate-200 p-2.5 rounded-xl flex-row items-center active:bg-slate-100"
-                  onPress={() => {
-                    // Đồng bộ giỏ hàng và khóa bàn
-                    setCart(tableCarts[activeTable.id] || {});
-                    setCartOwnerTable(activeTable);
-                    setActiveVertical('retail'); // Switch to product catalog
-                    setActiveTable(null); // Close this modal
-                  }}
-                >
-                  <Ionicons name="fast-food-outline" size={16} color="#fa5908" />
-                  <Text className="text-[10px] font-black text-slate-700 ml-2">Gọi món / Dịch vụ</Text>
-                </TouchableOpacity>
-
-                {/* 2. Đổi phòng/bàn */}
-                <TouchableOpacity 
-                  activeOpacity={0.8}
-                  className="w-[47%] bg-slate-50 border border-slate-200 p-2.5 rounded-xl flex-row items-center active:bg-slate-100"
-                  onPress={() => {
-                    const label = shopVertical === 'room' ? 'Phòng' : shopVertical === 'court' ? 'Sân' : shopVertical === 'cafe' ? 'Bàn' : 'Bàn';
-                    alert(`Chức năng Đổi ${label} đang đồng bộ với Cloud.`);
-                  }}
-                >
-                  <Ionicons name="swap-horizontal" size={16} color="#0284c7" />
-                  <Text className="text-[10px] font-black text-slate-700 ml-2">Đổi {shopVertical === 'room' ? 'Phòng' : shopVertical === 'court' ? 'Sân' : shopVertical === 'cafe' ? 'Bàn' : 'Bàn'}</Text>
-                </TouchableOpacity>
-
-                {/* 3. Gộp phòng/bàn */}
-                <TouchableOpacity 
-                  activeOpacity={0.8}
-                  className="w-[47%] bg-slate-50 border border-slate-200 p-2.5 rounded-xl flex-row items-center active:bg-slate-100"
-                  onPress={() => {
-                    const label = shopVertical === 'room' ? 'Phòng' : shopVertical === 'court' ? 'Sân' : shopVertical === 'cafe' ? 'Bàn' : 'Bàn';
-                    alert(`Chức năng Gộp ${label} đang đồng bộ với Cloud.`);
-                  }}
-                >
-                  <Ionicons name="git-merge-outline" size={16} color="#059669" />
-                  <Text className="text-[10px] font-black text-slate-700 ml-2">Gộp {shopVertical === 'room' ? 'Phòng' : shopVertical === 'court' ? 'Sân' : shopVertical === 'cafe' ? 'Bàn' : 'Bàn'}</Text>
-                </TouchableOpacity>
-
-                 {/* 4. Hủy đơn / Trả phòng trống */}
-                 <TouchableOpacity 
-                   activeOpacity={0.8}
-                   className="w-[47%] bg-rose-50 border border-rose-100 p-2.5 rounded-xl flex-row items-center active:bg-rose-100"
-                   onPress={async () => {
-                     try {
-                       const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
-                       let syncSucceeded = false;
-
-                       // 1. Đồng bộ cục bộ (Offline-First)
-                       if (Platform.OS === 'web') {
-                         setTables(prev => prev.map(t => t.id === activeTable.id ? { ...t, status: 'available', startTime: null } : t));
-                       } else {
-                         await db
-                           .update(schema.location_resources)
-                           .set({ status: 'available', startTime: null })
-                           .where(eq(schema.location_resources.id, activeTable.id));
-                         const updated = await db.select().from(schema.location_resources);
-                         setTables(updated);
-                       }
-
-                       // 2. Đồng bộ trực tuyến lên Server Next.js nếu đang có mạng
-                       try {
-                         const currentUrl = getApiBaseUrl();
-                         const headers = await getApiHeaders();
-
-                         // A. Hủy order in_progress trên Next.js Server
-                         if (activeTable.current_order_id) {
-                           await fetch(`${currentUrl}/api/shops/${shopId}/orders/${activeTable.current_order_id}/cancel`, {
-                             method: 'POST',
-                             headers: { ...headers, 'Content-Type': 'application/json' },
-                             body: JSON.stringify({ reason: 'Hủy từ di động' })
-                           });
-                         }
-
-                         // B. Patch trạng thái bàn về available
-                         const patchRes = await fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${activeTable.id}`, {
-                           method: 'PATCH',
-                           headers: { ...headers, 'Content-Type': 'application/json' },
-                           body: JSON.stringify({
-                             status: 'available',
-                             current_order_id: '',
-                             startTime: null
-                           }),
-                         });
-                         if (patchRes.ok) {
-                           syncSucceeded = true;
-                         }
-                       } catch (syncErr) {
-                         console.log('Mất mạng hoặc lỗi server, bỏ qua hủy trực tiếp:', syncErr);
-                       }
-
-                       // Dọn dẹp tableCart
-                       setTableCarts(prev => {
-                         const copy = { ...prev };
-                         delete copy[activeTable.id];
-                         return copy;
-                       });
-
-                       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-                       setActiveTable(null);
-
-                       if (syncSucceeded) {
-                         showToast("Hủy đơn & Giải phóng phòng/bàn thành công!", "success");
-                       } else {
-                         showToast("Giải phóng phòng/bàn ngoại tuyến thành công!", "info");
-                       }
-                     } catch (err) {
-                       console.error('Không thể hủy ca hoạt động:', err);
-                       showToast("Có lỗi xảy ra khi hủy ca!", "error");
-                     }
-                   }}
-                 >
-                  <Ionicons name="close-circle-outline" size={16} color="#e11d48" />
-                  <Text className="text-[10px] font-black text-rose-700 ml-2">Hủy / Trả trống</Text>
-                </TouchableOpacity>
-              </View>
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={handleUpdateActiveRoomGuests}
+                      className="bg-orange-500 py-3 rounded-xl mt-4 items-center justify-center active:bg-orange-600 shadow-sm"
+                    >
+                      <Text className="text-white text-xs font-black">Cập nhật khách lưu trú</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </ScrollView>
 
               {/* Hàng nút thanh toán chính */}
-              <View className="flex-row justify-between gap-3 border-t border-slate-100 pt-4">
+              <View className="flex-row justify-between gap-3 border-t border-slate-100 pt-4 bg-white">
                 <Button 
                   variant="primary"
                   title="Thanh toán & Trả phòng"
