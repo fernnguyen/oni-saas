@@ -10,6 +10,7 @@ import { eq } from 'drizzle-orm';
 import { getApiBaseUrl, getApiHeaders } from '../../lib/api/config';
 import { Header } from '../../components/layout/Header';
 import { DrawerMenu } from '../../components/erp/DrawerMenu';
+import { formatCurrency } from '../../lib/utils/format';
 
 export default function CustomersScreen() {
   const [customersList, setCustomersList] = useState<any[]>([]);
@@ -245,7 +246,7 @@ export default function CustomersScreen() {
                   <View className="items-end">
                     <Text className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Tích lũy</Text>
                     <Text className="text-slate-800 font-bold text-xs mt-0.5">
-                      {(customer.total_spent || 0).toLocaleString()} đ
+                      {formatCurrency(customer.total_spent || 0)}
                     </Text>
                     
                     <View className="flex-row items-center mt-2.5">
