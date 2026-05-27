@@ -8,12 +8,16 @@ import { db } from '../../lib/db/client';
 import * as schema from '../../lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { getApiBaseUrl, getApiHeaders } from '../../lib/api/config';
+import { Header } from '../../components/layout/Header';
+import { DrawerMenu } from '../../components/erp/DrawerMenu';
 
 export default function CustomersScreen() {
   const [customersList, setCustomersList] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [branchName, setBranchName] = useState('Tạp hóa Linh Ka');
   const [selectedFilter, setSelectedFilter] = useState('all'); // all, VIP, Thân thiết, Thành viên
 
   // State thêm khách hàng mới
@@ -27,6 +31,9 @@ export default function CustomersScreen() {
   const loadCustomersData = async () => {
     try {
       setIsLoading(true);
+      const activeShopName = await AsyncStorage.getItem('active_shop_name') || 'Tạp hóa Linh Ka';
+      setBranchName(activeShopName);
+      
       let data = [];
       if (Platform.OS === 'web') {
         const headers = await getApiHeaders();
@@ -133,23 +140,8 @@ export default function CustomersScreen() {
   return (
     <SafeAreaView edges={['top', 'left', 'right']} className="flex-1 bg-slate-50">
       
-      {/* 1. HEADER SECTION */}
-      <View className="px-4 py-3 flex-row justify-between items-center border-b bg-white border-slate-200 shadow-sm">
-        <View>
-          <Text className="text-lg font-bold text-slate-800">Khách hàng</Text>
-          <Text className="text-[10px] text-slate-400 font-semibold mt-0.5">
-            Danh sách đối tác tích điểm offline-first
-          </Text>
-        </View>
-        
-        {/* Nút làm tươi */}
-        <TouchableOpacity 
-          className="bg-slate-100 p-2.5 rounded-xl border border-slate-200"
-          onPress={loadCustomersData}
-        >
-          <Ionicons name="refresh" size={16} color="#475569" />
-        </TouchableOpacity>
-      </View>
+      {/* 1. SHARED HEADER - Thống nhất 100% */}
+      <Header onPressMenu={() => setIsDrawerOpen(true)} syncStatus="synced" />
 
       {/* 2. SEARCH BAR & FILTER TABS */}
       <View className="p-4 bg-white border-b border-slate-200">
@@ -367,6 +359,12 @@ export default function CustomersScreen() {
         </View>
       </Modal>
 
+      {/* Drawer Hamburger Sidebar */}
+      <DrawerMenu 
+        visible={isDrawerOpen} 
+        onClose={() => setIsDrawerOpen(false)} 
+        branchName={branchName}
+      />
     </SafeAreaView>
   );
 }

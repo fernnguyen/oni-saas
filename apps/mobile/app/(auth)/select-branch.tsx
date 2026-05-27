@@ -309,11 +309,11 @@ export default function SelectBranchScreen() {
       {/* 4. FOOTER ACTIONS & SYNC PROGRESS BAR */}
       <View>
         {isSyncing ? (
-          <View className="bg-white p-4.5 rounded-2xl border border-slate-250 shadow-sm mb-2 items-center">
+          <View className="bg-white p-4.5 rounded-2xl border border-slate-250 shadow-sm mb-2 items-center" style={{ alignSelf: 'stretch' }}>
             <ActivityIndicator size="small" color="#fa5908" className="mb-2" />
             <Text className="text-slate-700 font-bold text-xs">Đang nạp dữ liệu SQLite: {Math.round(syncProgress * 100)}%</Text>
-            <View className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden mt-2">
-              <View className="h-full bg-orange-500" style={{ width: `${syncProgress * 100}%` }} />
+            <View className="h-1.5 bg-slate-100 rounded-full overflow-hidden mt-2" style={{ alignSelf: 'stretch' }}>
+              <View className="h-full bg-orange-500" style={{ width: `${Math.min(100, Math.max(0, syncProgress * 100))}%` }} />
             </View>
           </View>
         ) : (
