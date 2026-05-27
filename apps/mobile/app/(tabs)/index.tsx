@@ -12,6 +12,7 @@ import { Header } from '../../components/layout/Header';
 import { Badge } from '../../components/ui/Badge';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { DrawerMenu } from '../../components/erp/DrawerMenu';
+import { formatCurrency } from '../../lib/utils/format';
 
 export default function DashboardScreen() {
   const router = useRouter();
@@ -246,16 +247,16 @@ export default function DashboardScreen() {
               {/* Card 1: Doanh thu ca/ngày */}
               <View className="w-[48%] mb-4 p-4 rounded-2xl bg-white border border-slate-100 shadow-sm justify-between">
                 <View className="flex-row justify-between items-center">
-                  <Text className="text-[8px] font-black text-slate-450 uppercase tracking-wider">Báo cáo ngày</Text>
+                  <Text className="text-[8px] font-black text-slate-455 uppercase tracking-wider">Báo cáo ngày</Text>
                   <View className="bg-orange-50 p-1.5 rounded-lg border border-orange-100">
                     <Ionicons name="card-outline" size={11} color="#fa5908" />
                   </View>
                 </View>
                 <View className="mt-4">
                   <Text className="text-[9px] font-bold text-slate-400">Doanh thu hôm nay</Text>
-                  <Text className="text-slate-800 font-extrabold text-sm mt-1">{stats.todayRevenue.toLocaleString()} đ</Text>
+                  <Text className="text-slate-800 font-extrabold text-sm mt-1">{formatCurrency(stats.todayRevenue)}</Text>
                   <View className="flex-row justify-between items-center mt-2.5">
-                    <Text className="text-[8px] text-slate-450 font-bold">{stats.todayOrders} hóa đơn</Text>
+                    <Text className="text-[8px] text-slate-455 font-bold">{stats.todayOrders} hóa đơn</Text>
                     <Badge variant="success" label="LIVE" size="sm" />
                   </View>
                 </View>
@@ -264,16 +265,16 @@ export default function DashboardScreen() {
               {/* Card 2: Lũy kế ca SQLite */}
               <View className="w-[48%] mb-4 p-4 rounded-2xl bg-white border border-slate-100 shadow-sm justify-between">
                 <View className="flex-row justify-between items-center">
-                  <Text className="text-[8px] font-black text-slate-450 uppercase tracking-wider">Doanh thu ca</Text>
+                  <Text className="text-[8px] font-black text-slate-455 uppercase tracking-wider">Doanh thu ca</Text>
                   <View className="bg-emerald-50 p-1.5 rounded-lg border border-emerald-100">
                     <Ionicons name="analytics-outline" size={11} color="#10b981" />
                   </View>
                 </View>
                 <View className="mt-4">
                   <Text className="text-[9px] font-bold text-slate-400">Tích lũy offline</Text>
-                  <Text className="text-slate-800 font-extrabold text-sm mt-1">{stats.monthRevenue.toLocaleString()} đ</Text>
+                  <Text className="text-slate-800 font-extrabold text-sm mt-1">{formatCurrency(stats.monthRevenue)}</Text>
                   <View className="flex-row justify-between items-center mt-2.5">
-                    <Text className="text-[8px] text-slate-450 font-bold">{stats.monthOrders} đơn</Text>
+                    <Text className="text-[8px] text-slate-455 font-bold">{stats.monthOrders} đơn</Text>
                     <Badge variant="info" label="SQLITE" size="sm" />
                   </View>
                 </View>
@@ -282,14 +283,14 @@ export default function DashboardScreen() {
               {/* Card 3: AOV */}
               <View className="w-[48%] mb-4 p-4 rounded-2xl bg-white border border-slate-100 shadow-sm justify-between">
                 <View className="flex-row justify-between items-center">
-                  <Text className="text-[8px] font-black text-slate-450 uppercase tracking-wider">Giao dịch AOV</Text>
+                  <Text className="text-[8px] font-black text-slate-455 uppercase tracking-wider">Giao dịch AOV</Text>
                   <View className="bg-blue-50 p-1.5 rounded-lg border border-blue-100">
                     <Ionicons name="receipt-outline" size={11} color="#3b82f6" />
                   </View>
                 </View>
                 <View className="mt-4">
                   <Text className="text-[9px] font-bold text-slate-400">Đơn trung bình</Text>
-                  <Text className="text-slate-800 font-extrabold text-sm mt-1">{stats.aov.toLocaleString()} đ</Text>
+                  <Text className="text-slate-800 font-extrabold text-sm mt-1">{formatCurrency(stats.aov)}</Text>
                   <View className="flex-row justify-between items-center mt-2.5">
                     <Text className="text-[8px] text-slate-455 font-bold">Bình quân ca</Text>
                     <Badge variant="secondary" label="INFO" size="sm" />
@@ -307,7 +308,7 @@ export default function DashboardScreen() {
                 </View>
                 <View className="mt-4">
                   <Text className="text-[9px] font-bold text-slate-400">Hủy & hoàn tiền</Text>
-                  <Text className="text-slate-800 font-extrabold text-sm mt-1">0 đ</Text>
+                  <Text className="text-slate-800 font-extrabold text-sm mt-1">{formatCurrency(0)}</Text>
                   <View className="flex-row justify-between items-center mt-2.5">
                     <Text className="text-[8px] text-slate-455 font-bold">0 phiếu lỗi</Text>
                     <Badge variant="danger" label="0.0%" size="sm" />

@@ -1,5 +1,5 @@
 import { Tabs } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Platform, TouchableOpacity, View } from 'react-native';
 
 export default function TabLayout() {
@@ -89,7 +89,7 @@ export default function TabLayout() {
                     borderColor: '#ffffff', // Viền trắng phân cách sang trọng
                   }}
                 >
-                  <Ionicons name="calculator" size={26} color="white" />
+                  <MaterialCommunityIcons name="cash-register" size={26} color="white" />
                 </View>
               </TouchableOpacity>
             );

@@ -10,6 +10,7 @@ import { eq } from 'drizzle-orm';
 import { SyncManager } from '../../lib/sync/SyncManager';
 import { getApiBaseUrl, getApiHeaders } from '../../lib/api/config';
 import * as Haptics from 'expo-haptics';
+import { formatCurrency, formatDateTime } from '../../lib/utils/format';
 
 // Import hệ thống UI dùng chung cao cấp
 import { Header } from '../../components/layout/Header';
@@ -192,7 +193,7 @@ export default function OrdersScreen() {
           <View className="p-4 flex-row justify-between">
             <View className="flex-1 mr-2 p-3 rounded-2xl border bg-white border-slate-100 shadow-sm justify-between">
               <Text className="text-[8px] font-black text-slate-400 uppercase tracking-wider">Tổng doanh số ca</Text>
-              <Text className="text-orange-500 font-black text-[13px] mt-1.5">{totalRevenue.toLocaleString()}đ</Text>
+              <Text className="text-orange-500 font-black text-[13px] mt-1.5">{formatCurrency(totalRevenue)}</Text>
               <Text className="text-[8px] text-slate-455 font-bold mt-0.5">{filteredOrders.length} hóa đơn</Text>
             </View>
 
@@ -330,7 +331,7 @@ export default function OrdersScreen() {
                       </View>
 
                       <Text className="text-[8px] text-slate-400 font-semibold mt-1">
-                        ⏱️ {order.created_at ? new Date(order.created_at).toLocaleString() : 'Ngoại tuyến'}
+                        ⏱️ {order.created_at ? formatDateTime(order.created_at) : 'Ngoại tuyến'}
                       </Text>
 
                       <View className="flex-row items-center mt-3">
@@ -348,7 +349,7 @@ export default function OrdersScreen() {
 
                     <View className="items-end">
                       <Text className="text-orange-500 font-black text-xs">
-                        {order.total_amount.toLocaleString()}đ
+                        {formatCurrency(order.total_amount)}
                       </Text>
                       
                       {isPending ? (
@@ -423,7 +424,7 @@ export default function OrdersScreen() {
                       <View className="flex-row justify-between py-1">
                         <Text className="text-[11px] text-slate-500 font-bold">Mốc thời gian:</Text>
                         <Text className="text-[11px] font-black text-slate-800">
-                          {selectedOrder.created_at ? new Date(selectedOrder.created_at).toLocaleString() : 'Offline'}
+                          {selectedOrder.created_at ? formatDateTime(selectedOrder.created_at) : 'Offline'}
                         </Text>
                       </View>
                       <View className="flex-row justify-between py-1">
@@ -453,18 +454,18 @@ export default function OrdersScreen() {
                         <View className="flex-1 mr-3">
                           <Text className="text-xs font-extrabold text-slate-800">{item.product_name}</Text>
                           <Text className="text-[10px] text-slate-500 font-bold mt-0.5">
-                            {item.qty} cái x {item.unit_price.toLocaleString()}đ
+                            {item.qty} cái x {formatCurrency(item.unit_price)}
                           </Text>
                         </View>
                         <Text className="text-xs font-black text-slate-800">
-                          {item.line_total.toLocaleString()}đ
+                          {formatCurrency(item.line_total)}
                         </Text>
                       </View>
                     ))}
 
                     <View className="flex-row justify-between py-4 border-t border-slate-200 mt-4 items-center">
                       <Text className="text-xs font-black text-slate-800">TỔNG THANH TOÁN</Text>
-                      <Text className="text-orange-500 text-base font-black">{selectedOrder.total_amount.toLocaleString()}đ</Text>
+                      <Text className="text-orange-500 text-base font-black">{formatCurrency(selectedOrder.total_amount)}</Text>
                     </View>
                   </ScrollView>
 
