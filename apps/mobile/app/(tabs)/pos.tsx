@@ -19,6 +19,7 @@ import { Dialog } from '../../components/ui/Dialog';
 import { Badge } from '../../components/ui/Badge';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { DrawerMenu } from '../../components/erp/DrawerMenu';
+import { BarcodeScannerModal } from '../../components/ui/BarcodeScannerModal';
 
 export interface LodgingGuest {
   id?: string | number;
@@ -867,6 +868,18 @@ export default function PosScreen() {
             resources = (tableData.data || []).map((table: any) => {
               const rate = parseInt(table.hourly_rate || '0', 10);
               const isOccupied = table.status === 'occupied' || table.status === 'playing';
+              
+              let checkInTime = null;
+              if (isOccupied) {
+                try {
+                  const metaObj = typeof table.metadata === 'string' ? JSON.parse(table.metadata) : (table.metadata || {});
+                  if (metaObj.check_in) {
+                    checkInTime = new Date(metaObj.check_in).getTime();
+                  }
+                } catch (e) {}
+                if (!checkInTime) checkInTime = Date.now() - 3600000;
+              }
+
               return {
                 id: table.id || table.resource_id,
                 name: table.name || '',
@@ -875,7 +888,8 @@ export default function PosScreen() {
                 current_order_id: table.current_order_id || null,
                 hourly_rate: isNaN(rate) ? 0 : rate,
                 zone: table.zone || null,
-                startTime: isOccupied ? Date.now() - 3600000 : null,
+                startTime: checkInTime,
+                metadata: typeof table.metadata === 'object' ? JSON.stringify(table.metadata) : (table.metadata || '{}'),
               };
             });
           }
@@ -1303,10 +1317,14 @@ export default function PosScreen() {
             tableMetaObj = typeof table.metadata === 'string' ? JSON.parse(table.metadata) : (table.metadata || {});
           } catch (e) {}
 
-          // Combine guest lists from order metadata, resource metadata, and local cached table metadata
-          const onlineGuests = parsedMeta.guests_list || resourceMeta.guests_list || tableMetaObj.guests_list || [];
+          // Find the first metadata source that contains a non-empty guests list
+          const onlineGuests = 
+            (parsedMeta.guests_list && parsedMeta.guests_list.length > 0) ? parsedMeta.guests_list :
+            (resourceMeta.guests_list && resourceMeta.guests_list.length > 0) ? resourceMeta.guests_list :
+            (tableMetaObj.guests_list && tableMetaObj.guests_list.length > 0) ? tableMetaObj.guests_list : [];
+
           const rentalType = parsedMeta.rental_type || resourceMeta.rental_type || tableMetaObj.rental_type || 'hourly';
-          const numGuests = parsedMeta.num_guests || resourceMeta.num_guests || tableMetaObj.num_guests || Math.max(1, onlineGuests.length);
+          const numGuests = (onlineGuests.length > 0) ? onlineGuests.length : (parsedMeta.num_guests || resourceMeta.num_guests || tableMetaObj.num_guests || 1);
           const checkInVal = parsedMeta.check_in || resourceMeta.check_in || tableMetaObj.check_in;
           const checkInTime = checkInVal ? new Date(checkInVal).getTime() : (table.startTime || Date.now());
 
@@ -2069,6 +2087,42 @@ export default function PosScreen() {
     
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     setIsScanSuccessDialogVisible(true);
+  };
+
+  // Quét mã vạch thực tế từ component BarcodeScannerModal
+  const handleBarcodeScannedReal = (barcodeData: string) => {
+    if (productsList.length === 0) {
+      showToast('Không có sản phẩm nào trong SQLite để quét.', 'error');
+      setIsScannerOpen(false);
+      return;
+    }
+
+    const query = barcodeData.trim().toLowerCase();
+    // Tra cứu mã vạch chính xác, SKU, hoặc khớp tên
+    const foundProduct = productsList.find(p => 
+      (p.barcode && p.barcode.toLowerCase() === query) ||
+      (p.sku && p.sku.toLowerCase() === query) ||
+      (p.name && p.name.toLowerCase() === query)
+    );
+
+    if (foundProduct) {
+      setScannedProductInfo(foundProduct);
+      setIsScannerOpen(false);
+      
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      setIsScanSuccessDialogVisible(true);
+    } else {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+      if (Platform.OS === 'web') {
+        alert(`Không tìm thấy sản phẩm có mã vạch hoặc SKU: "${barcodeData}"`);
+      } else {
+        Alert.alert(
+          'Không tìm thấy sản phẩm',
+          `Không tìm thấy sản phẩm nào khớp với mã vạch hoặc SKU: "${barcodeData}"`,
+          [{ text: 'Đóng' }]
+        );
+      }
+    }
   };
 
   const handleConfirmAddScanned = () => {
@@ -2834,41 +2888,13 @@ export default function PosScreen() {
       {/* Hộp thoại xác nhận thanh toán đã được di chuyển vào bên trong Checkout Modal để xử lý z-index */}
 
       {/* 5. CAMERA SCAN BARCODE POPUP */}
-      <Modal
+      <BarcodeScannerModal
         visible={isScannerOpen}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setIsScannerOpen(false)}
-      >
-        <View className="flex-1 justify-end" style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)' }}>
-          <View className="h-[45%] rounded-t-2xl p-6 justify-between bg-white">
-            <View className="flex-row justify-between items-center">
-              <View className="flex-row items-center">
-                <Ionicons name="scan-outline" size={20} color="#fa5908" />
-                <Text className="text-base font-black text-slate-800 ml-2">
-                  Quét mã vạch sản phẩm
-                </Text>
-              </View>
-              <TouchableOpacity onPress={() => setIsScannerOpen(false)} className="p-1">
-                <Ionicons name="close" size={24} color="#64748b" />
-              </TouchableOpacity>
-            </View>
-
-            <View className="flex-1 bg-slate-50 border-2 border-dashed border-orange-400 rounded-xl my-4 items-center justify-center relative overflow-hidden">
-              <View className="w-[80%] h-0.5 bg-orange-500 absolute" />
-              <Ionicons name="camera" size={32} color="#cbd5e1" />
-              <Text className="text-[9px] text-slate-455 mt-2 font-black uppercase tracking-wider">Đang quét mã...</Text>
-            </View>
-
-            <Button
-              variant="primary"
-              title="Giả lập quét mã vạch"
-              onPress={handleSimulateScan}
-              className="py-3.5 rounded-xl"
-            />
-          </View>
-        </View>
-      </Modal>
+        onClose={() => setIsScannerOpen(false)}
+        onScan={handleBarcodeScannedReal}
+        title="Quét mã sản phẩm"
+        placeholder="Nhập mã sản phẩm hoặc SKU..."
+      />
 
       {/* 6. MODAL XEM CHI TIẾT PHÒNG/BÀN ĐANG HOẠT ĐỘNG */}
       <Modal

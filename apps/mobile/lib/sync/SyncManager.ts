@@ -131,14 +131,16 @@ export class SyncManager {
             if (checkInStr) {
               resolvedStartTime = new Date(checkInStr).getTime();
             }
-            // Hợp nhất các tham số check-in vào metadata cục bộ
+            // Hợp nhất các tham số check-in và khách lưu trú vào metadata cục bộ
             try {
               const tableMetaObj = JSON.parse(mergedMetadata);
+              const cloudGuests = activeOrderSession.meta.guests_list || tableMetaObj.guests_list || [];
               mergedMetadata = JSON.stringify({
                 ...tableMetaObj,
-                rental_type: activeOrderSession.meta.rental_type || 'hourly',
-                num_guests: activeOrderSession.meta.num_guests || 1,
-                check_in: checkInStr
+                rental_type: activeOrderSession.meta.rental_type || tableMetaObj.rental_type || 'hourly',
+                num_guests: cloudGuests.length > 0 ? cloudGuests.length : (activeOrderSession.meta.num_guests || tableMetaObj.num_guests || 1),
+                check_in: checkInStr || tableMetaObj.check_in,
+                guests_list: cloudGuests
               });
             } catch (e) {}
           }
