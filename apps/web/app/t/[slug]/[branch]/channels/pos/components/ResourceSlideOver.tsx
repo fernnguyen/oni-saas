@@ -197,7 +197,7 @@ export function ResourceSlideOver({
   const meta = safeParse(resource.metadata)
   const isRoom = resource.type === 'room'
   const isOccupied = resource.status === 'occupied'
-  const showGuests = sec.guestRegistration
+  const showGuests = sec.guestRegistration && !resource.id.startsWith('takeaway')
 
   const fetchingRef = useRef('')
 
@@ -1208,7 +1208,7 @@ export function ResourceSlideOver({
         <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between shrink-0 bg-white">
           <div className="flex items-center gap-3">
             <div className={`h-10 w-10 rounded-xl flex items-center justify-center text-lg ${isOccupied ? 'bg-red-50 text-red-500' : 'bg-primary/10 text-primary'}`}>
-              {tpl.icon}
+              {resource.id.startsWith('takeaway') ? '🛍' : tpl.icon}
             </div>
             <div>
               <h2 className="text-base font-bold text-slate-900">{resource.name}</h2>
@@ -1498,22 +1498,22 @@ export function ResourceSlideOver({
             /* --- OCCUPIED STATE (MANAGE) --- */
             <div className="flex h-full flex-col">
               {/* Header Tabs */}
-              <div className="flex items-center gap-6 border-b border-slate-100 px-5 pt-2 mb-4 shrink-0">
-                <button
-                  onClick={() => setActiveTab('general')}
-                  className={`border-b-2 py-3 text-sm font-medium transition-colors ${activeTab === 'general' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                >
-                  {tpl.metaLabels.tabServices}
-                </button>
-                {showGuests && (
+              {showGuests && (
+                <div className="flex items-center gap-6 border-b border-slate-100 px-5 pt-2 mb-4 shrink-0">
+                  <button
+                    onClick={() => setActiveTab('general')}
+                    className={`border-b-2 py-3 text-sm font-medium transition-colors ${activeTab === 'general' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                  >
+                    {tpl.metaLabels.tabServices}
+                  </button>
                   <button
                     onClick={() => setActiveTab('guests')}
                     className={`border-b-2 py-3 text-sm font-medium transition-colors ${activeTab === 'guests' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                   >
                     Khách lưu trú {guests.length > 0 ? `(${guests.length})` : ''}
                   </button>
-                )}
-              </div>
+                </div>
+              )}
 
               <div className="flex-1 overflow-y-auto px-5 pb-5">
                 <div className="space-y-6">
@@ -1524,7 +1524,7 @@ export function ResourceSlideOver({
                         {/* TOP SECTION: Grid 2 columns */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           {/* Khách hàng */}
-                          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col justify-center">
+                          <div className={['rounded-2xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col justify-center', resource.id.startsWith('takeaway') ? 'col-span-2' : ''].join(' ')}>
                             <div className="flex items-center justify-between">
                               <div>
                                 <div className="flex items-center gap-2 mb-0.5">
@@ -1552,52 +1552,56 @@ export function ResourceSlideOver({
                                   </p>
                                 )}
                               </div>
-                              <div className="text-right">
-                                <p className="text-xs text-slate-500 mb-0.5">Đã sử dụng</p>
-                                {loadingOrder ? (
-                                  <div className="h-5 w-16 bg-slate-200 rounded animate-pulse ml-auto" />
-                                ) : (
-                                  <p className="text-sm font-bold text-slate-900">{fmtDuration(elapsed)}</p>
-                                )}
-                              </div>
+                              {!resource.id.startsWith('takeaway') && (
+                                <div className="text-right">
+                                  <p className="text-xs text-slate-500 mb-0.5">Đã sử dụng</p>
+                                  {loadingOrder ? (
+                                    <div className="h-5 w-16 bg-slate-200 rounded animate-pulse ml-auto" />
+                                  ) : (
+                                    <p className="text-sm font-bold text-slate-900">{fmtDuration(elapsed)}</p>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </div>
                           {/* Giờ vào ra */}
-                          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col justify-center">
-                            <div className="space-y-1">
-                              <div className="flex items-center justify-between text-xs text-slate-600">
-                                <span>Giờ vào:</span>
-                                <span className="font-medium">{orderMeta?.check_in ? fmtDateTimeVN(new Date(orderMeta.check_in)) : '—'}</span>
+                          {!resource.id.startsWith('takeaway') && (
+                            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col justify-center">
+                              <div className="space-y-1">
+                                <div className="flex items-center justify-between text-xs text-slate-600">
+                                  <span>Giờ vào:</span>
+                                  <span className="font-medium">{orderMeta?.check_in ? fmtDateTimeVN(new Date(orderMeta.check_in)) : '—'}</span>
+                                </div>
+                                <div className="flex items-center justify-between text-xs text-slate-600">
+                                  <span>{customCheckoutTime ? 'Giờ ra:' : 'Giờ ra (Hiện tại):'}</span>
+                                  {isEditingCheckout ? (
+                                    <div className="flex items-center gap-2">
+                                      <input
+                                        type="datetime-local"
+                                        value={checkoutInput}
+                                        onChange={e => setCheckoutInput(e.target.value)}
+                                        className="text-xs border border-slate-300 rounded px-1 py-0.5 outline-none"
+                                      />
+                                      <button onClick={() => { setCustomCheckoutTime(checkoutInput); setIsEditingCheckout(false); }} className="text-primary font-bold">OK</button>
+                                    </div>
+                                  ) : (
+                                    <button onClick={() => {
+                                      setCheckoutInput(customCheckoutTime || new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16));
+                                      setIsEditingCheckout(true);
+                                    }} className="font-medium border-b border-dotted border-slate-400 hover:text-primary transition-colors cursor-pointer">
+                                      {customCheckoutTime ? fmtDateTimeVN(new Date(customCheckoutTime)) : fmtDateTimeVN(new Date())}
+                                    </button>
+                                  )}
+                                </div>
                               </div>
-                              <div className="flex items-center justify-between text-xs text-slate-600">
-                                <span>{customCheckoutTime ? 'Giờ ra:' : 'Giờ ra (Hiện tại):'}</span>
-                                {isEditingCheckout ? (
-                                  <div className="flex items-center gap-2">
-                                    <input
-                                      type="datetime-local"
-                                      value={checkoutInput}
-                                      onChange={e => setCheckoutInput(e.target.value)}
-                                      className="text-xs border border-slate-300 rounded px-1 py-0.5 outline-none"
-                                    />
-                                    <button onClick={() => { setCustomCheckoutTime(checkoutInput); setIsEditingCheckout(false); }} className="text-primary font-bold">OK</button>
-                                  </div>
-                                ) : (
-                                  <button onClick={() => {
-                                    setCheckoutInput(customCheckoutTime || new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16));
-                                    setIsEditingCheckout(true);
-                                  }} className="font-medium border-b border-dotted border-slate-400 hover:text-primary transition-colors cursor-pointer">
-                                    {customCheckoutTime ? fmtDateTimeVN(new Date(customCheckoutTime)) : fmtDateTimeVN(new Date())}
-                                  </button>
-                                )}
-                              </div>
+                              {timeCharge > 0 && (
+                                <div className="mt-3 pt-3 border-t border-dashed border-slate-200 flex items-center justify-between">
+                                  <span className="text-xs font-medium text-slate-600">Tiền giờ ({detailsLabel || `${billableHours}h`})</span>
+                                  <span className="text-sm font-bold text-slate-900">{fmtVND(timeCharge)}</span>
+                                </div>
+                              )}
                             </div>
-                            {timeCharge > 0 && (
-                              <div className="mt-3 pt-3 border-t border-dashed border-slate-200 flex items-center justify-between">
-                                <span className="text-xs font-medium text-slate-600">Tiền giờ ({detailsLabel || `${billableHours}h`})</span>
-                                <span className="text-sm font-bold text-slate-900">{fmtVND(timeCharge)}</span>
-                              </div>
-                            )}
-                          </div>
+                          )}
                         </div>
 
                         {/* RIGHT COLUMN: Order Items */}
@@ -1905,7 +1909,7 @@ export function ResourceSlideOver({
                     onClick={handlePayAndCloseClick}
                     className="flex-1 rounded-xl bg-slate-900 py-3.5 text-sm font-bold text-white shadow-sm hover:bg-slate-800 transition-all"
                   >
-                    {tpl.actions.payAndClose}
+                    {resource.id.startsWith('takeaway') ? 'Thanh toán' : tpl.actions.payAndClose}
                   </button>
                   {permissions.includes('orders.delete') && (
                     <button
