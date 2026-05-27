@@ -32,6 +32,7 @@ export const location_resources = sqliteTable('location_resources', {
   hourly_rate: integer('hourly_rate').notNull().default(0),
   zone: text('zone'),
   startTime: integer('start_time'), // Lưu timestamp bắt đầu chơi để tính giờ lẻ
+  metadata: text('metadata'), // Lưu JSON cấu hình nâng cao (overnight_rate, advanced_pricing,...) ngoại tuyến
 });
 
 // 4. DANH SÁCH KHÁCH HÀNG (Customers)

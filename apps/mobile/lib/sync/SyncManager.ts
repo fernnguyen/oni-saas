@@ -33,12 +33,37 @@ export class SyncManager {
       const prodData = await prodRes.json();
       const rawProducts = prodData.data || [];
 
-      // --- BƯỚC C: TẢI DANH SÁCH BÀN CHƠI BI-A / PHÒNG BAN ---
-      onProgress(0.6);
+      // --- BƯỚC C: TẢI DANH MỤC PHÒNG BAN & BÀN CHƠI BI-A ---
+      onProgress(0.55);
       const tableRes = await fetch(`${getApiBaseUrl()}/api/shops/${shopId}/location-resources?limit=500`, { headers });
       if (!tableRes.ok) throw new Error('Không thể tải Sơ đồ phòng bàn từ Cloud');
       const tableData = await tableRes.json();
       const rawTables = tableData.data || [];
+
+      // --- BƯỚC C2: TẢI DANH SÁCH ĐƠN HÀNG IN PROGRESS (ĐỂ LẤY GIỜ CHECK-IN THỰC TẾ) ---
+      onProgress(0.65);
+      let activeOrders: any[] = [];
+      try {
+        const activeOrdersRes = await fetch(`${getApiBaseUrl()}/api/shops/${shopId}/orders?status=in_progress&limit=100`, { headers });
+        if (activeOrdersRes.ok) {
+          const activeOrdersData = await activeOrdersRes.json();
+          activeOrders = activeOrdersData.data || [];
+        }
+      } catch (err) {
+        console.warn('Bỏ qua tải active orders (sẽ dùng thời gian mặc định):', err);
+      }
+
+      // Bản đồ hóa các active order theo resource_id để tra cứu nhanh
+      const activeOrdersMap = new Map<string, any>();
+      for (const order of activeOrders) {
+        try {
+          const meta = typeof order.metadata === 'string' ? JSON.parse(order.metadata) : (order.metadata || {});
+          const rId = meta.resource_id;
+          if (rId) {
+            activeOrdersMap.set(rId, { order, meta });
+          }
+        } catch (e) {}
+      }
 
       // --- BƯỚC D: TẢI DANH SÁCH KHÁCH HÀNG ---
       onProgress(0.8);
@@ -95,15 +120,43 @@ export class SyncManager {
         for (const table of rawTables) {
           const rate = parseInt(table.hourly_rate || '0', 10);
           const isOccupied = table.status === 'occupied' || table.status === 'playing';
+          const tId = table.id || table.resource_id;
+          const activeOrderSession = activeOrdersMap.get(tId);
+          
+          let resolvedStartTime: number | null = null;
+          let mergedMetadata = typeof table.metadata === 'object' ? JSON.stringify(table.metadata) : (table.metadata || '{}');
+          
+          if (isOccupied && activeOrderSession) {
+            const checkInStr = activeOrderSession.meta.check_in;
+            if (checkInStr) {
+              resolvedStartTime = new Date(checkInStr).getTime();
+            }
+            // Hợp nhất các tham số check-in vào metadata cục bộ
+            try {
+              const tableMetaObj = JSON.parse(mergedMetadata);
+              mergedMetadata = JSON.stringify({
+                ...tableMetaObj,
+                rental_type: activeOrderSession.meta.rental_type || 'hourly',
+                num_guests: activeOrderSession.meta.num_guests || 1,
+                check_in: checkInStr
+              });
+            } catch (e) {}
+          }
+          
+          if (isOccupied && !resolvedStartTime) {
+            resolvedStartTime = Date.now() - 3600000; // fallback 1 giờ trước
+          }
+
           await db.insert(schema.location_resources).values({
-            id: table.id || table.resource_id,
+            id: tId,
             name: table.name || '',
             type: table.type || 'table',
             status: isOccupied ? 'occupied' : 'available',
-            current_order_id: table.current_order_id || null,
+            current_order_id: table.current_order_id || (activeOrderSession ? activeOrderSession.order.id : null),
             hourly_rate: isNaN(rate) ? 0 : rate,
             zone: table.zone || null,
-            startTime: isOccupied ? Date.now() - 3600000 : null,
+            startTime: resolvedStartTime,
+            metadata: mergedMetadata,
           }).onConflictDoNothing();
         }
       }
