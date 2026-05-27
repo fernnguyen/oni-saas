@@ -90,7 +90,7 @@ export function Dialog({
               )}
 
               <View className="flex-row justify-between w-full mt-2 gap-3">
-                {cancelLabel && (
+                {cancelLabel && !loading && (
                   <Button
                     variant="outline"
                     size="md"
@@ -107,7 +107,7 @@ export function Dialog({
                   title={confirmLabel}
                   loading={loading}
                   onPress={onConfirm}
-                  className="flex-1 rounded-2xl"
+                  className={`${loading ? 'w-full' : 'flex-1'} rounded-2xl`}
                 />
               </View>
               

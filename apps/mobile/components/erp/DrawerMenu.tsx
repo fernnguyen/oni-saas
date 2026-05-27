@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { Animated, Dimensions, Modal, Text, TouchableOpacity, View, TouchableWithoutFeedback } from 'react-native';
+import { Animated, Dimensions, Modal, Text, TouchableOpacity, View, TouchableWithoutFeedback, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
@@ -116,9 +116,10 @@ export function DrawerMenu({ visible, onClose, branchName = 'Chi nhánh chính' 
           <View>
             {/* Header Drawer */}
             <View className="flex-row items-center mb-6 px-1.5">
-              <View className="bg-orange-500 w-10 h-10 rounded-xl items-center justify-center shadow-md mr-2.5 border border-orange-400" style={{ backgroundColor: '#fa5908' }}>
-                <Text className="text-white font-black text-xl italic lowercase">o</Text>
-              </View>
+              <Image 
+                source={require('../../assets/logo.png')} 
+                style={{ width: 38, height: 38, resizeMode: 'contain', marginRight: 10 }} 
+              />
               <View>
                 <Text className="text-[13px] font-black text-slate-800 tracking-widest uppercase">ONI miniERP</Text>
                 <Text className="text-[8px] font-bold text-slate-400 mt-0.5 uppercase tracking-wider" numberOfLines={1}>
