@@ -17,6 +17,7 @@ import {
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { Audio } from 'expo-av';
 
 interface BarcodeScannerModalProps {
   visible: boolean;
@@ -37,7 +38,16 @@ export function BarcodeScannerModal({
   const [manualBarcode, setManualBarcode] = useState('');
   const [scanned, setScanned] = useState(false);
   const [isFlashOn, setIsFlashOn] = useState(false);
+  const [zoom, setZoom] = useState(0);
   const [showManualInput, setShowManualInput] = useState(false);
+
+  const toggleZoom = () => {
+    setZoom(prev => {
+      if (prev === 0) return 0.08; // 1.5x zoom
+      if (prev === 0.08) return 0.16; // 2x zoom
+      return 0; // reset to 1x
+    });
+  };
 
   // Laser line animation
   const laserAnim = useRef(new Animated.Value(0)).current;
@@ -85,12 +95,32 @@ export function BarcodeScannerModal({
     outputRange: [10, 210],
   });
 
+  const playBeep = async () => {
+    try {
+      const { sound } = await Audio.Sound.createAsync(
+        require('../../assets/beep.wav')
+      );
+      await sound.playAsync();
+      // Tự động giải phóng tài nguyên sau khi phát xong
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if (status.isLoaded && status.didJustFinish) {
+          sound.unloadAsync();
+        }
+      });
+    } catch (error) {
+      console.log('Không thể phát tiếng bíp:', error);
+    }
+  };
+
   const handleBarcodeScanned = ({ data, type }: { data: string; type: string }) => {
     if (scanned) return;
     
     setScanned(true);
     // Haptic feedback
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    
+    // Phát âm thanh beep tít
+    playBeep();
     
     // Call user-provided scan callback
     onScan(data, type);
@@ -195,12 +225,13 @@ export function BarcodeScannerModal({
                       style={StyleSheet.absoluteFillObject}
                       facing="back"
                       enableTorch={isFlashOn}
+                      zoom={zoom}
                       barcodeScannerSettings={{
                         barcodeTypes: [
-                          'qr',
                           'ean13',
-                          'ean8',
                           'code128',
+                          'ean8',
+                          'qr',
                           'code39',
                           'upc_a',
                           'upc_e'
@@ -210,16 +241,23 @@ export function BarcodeScannerModal({
                     />
 
                     {/* DYNAMIC SEMI-TRANSPARENT MASK OVERLAY */}
-                    <View style={StyleSheet.absoluteFillObject} className="justify-between items-center pointer-events-none">
+                    <View 
+                      style={StyleSheet.absoluteFillObject} 
+                      pointerEvents="box-none" 
+                      className="justify-between items-center"
+                    >
                       {/* Top Mask */}
-                      <View className="w-full flex-1 bg-black/60 justify-center items-center">
-                        <Text className="text-[10px] text-white/80 font-extrabold uppercase tracking-widest bg-black/40 px-3.5 py-1.5 rounded-full mb-2">
+                      <View pointerEvents="none" className="w-full flex-1 bg-black/60 justify-center items-center px-4">
+                        <Text className="text-[10px] text-white/90 font-extrabold uppercase tracking-widest bg-orange-600 px-3.5 py-1.5 rounded-full mb-1">
                           Đặt mã vạch vào khung ngắm
+                        </Text>
+                        <Text className="text-[8.5px] text-slate-300 font-semibold text-center mt-1">
+                          Giữ camera ổn định. Nhấn nút zoom để hỗ trợ quét mã vạch nhỏ.
                         </Text>
                       </View>
                       
                       {/* Middle Mask row (Viewfinder Row) */}
-                      <View className="w-full h-[220px] flex-row">
+                      <View pointerEvents="none" className="w-full h-[220px] flex-row">
                         <View className="flex-1 bg-black/60" />
                         
                         {/* KÍNH NGẮM VIEWFINDER */}
@@ -247,23 +285,37 @@ export function BarcodeScannerModal({
                       </View>
 
                       {/* Bottom Mask */}
-                      <View className="w-full flex-1 bg-black/60 items-center justify-between py-6">
-                        {/* Flashlight toggle */}
-                        <TouchableOpacity
-                          activeOpacity={0.8}
-                          onPress={() => setIsFlashOn(!isFlashOn)}
-                          className={`w-12 h-12 rounded-full items-center justify-center border ${
-                            isFlashOn 
-                              ? 'bg-orange-500 border-orange-600' 
-                              : 'bg-black/45 border-white/20'
-                          }`}
-                        >
-                          <Ionicons 
-                            name={isFlashOn ? "flash" : "flash-off"} 
-                            size={20} 
-                            color="white" 
-                          />
-                        </TouchableOpacity>
+                      <View pointerEvents="box-none" className="w-full flex-1 bg-black/60 items-center justify-between py-6">
+                        {/* Camera controls row */}
+                        <View className="flex-row items-center justify-center gap-6 mt-2">
+                          {/* Flashlight toggle */}
+                          <TouchableOpacity
+                            activeOpacity={0.8}
+                            onPress={() => setIsFlashOn(!isFlashOn)}
+                            className={`w-12 h-12 rounded-full items-center justify-center border ${
+                              isFlashOn 
+                                ? 'bg-orange-500 border-orange-600' 
+                                : 'bg-black/45 border-white/20'
+                            }`}
+                          >
+                            <Ionicons 
+                              name={isFlashOn ? "flash" : "flash-off"} 
+                              size={20} 
+                              color="white" 
+                            />
+                          </TouchableOpacity>
+
+                          {/* Zoom toggle button */}
+                          <TouchableOpacity
+                            activeOpacity={0.8}
+                            onPress={toggleZoom}
+                            className={`w-12 h-12 rounded-full items-center justify-center border bg-black/45 border-white/20 active:scale-95`}
+                          >
+                            <Text className="text-white text-xs font-black">
+                              {zoom === 0 ? '1x' : zoom === 0.08 ? '1.5x' : '2x'}
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
 
                         {/* Collapsible toggle manual input button */}
                         <TouchableOpacity
