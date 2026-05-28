@@ -21,6 +21,8 @@ export async function GET(
     const product_id = sp.get('product_id') ?? ''
     let warehouse_id = sp.get('warehouse_id') ?? ''
 
+    let isPrimarySalesWarehouse = true
+
     // Auto-fallback: if warehouse_id is not specified, resolve the branch's primary sales warehouse ID (code: 'sale')
     if (!warehouse_id) {
       const whRes = await connector.list('warehouses', {
@@ -29,6 +31,18 @@ export async function GET(
       });
       if (whRes.total > 0) {
         warehouse_id = whRes.data[0].id;
+        isPrimarySalesWarehouse = true;
+      }
+    } else {
+      // Verify if the specified warehouse is the primary sales warehouse
+      const whRes = await connector.list('warehouses', {
+        filters: { id: warehouse_id },
+        limit: 1
+      });
+      if (whRes.total > 0) {
+        isPrimarySalesWarehouse = whRes.data[0].code === 'sale';
+      } else {
+        isPrimarySalesWarehouse = false;
       }
     }
 
@@ -82,27 +96,29 @@ export async function GET(
           unit: product.unit,
         })
       } else {
-        // Create virtualized default 0-stock row
-        mergedData.push({
-          id: `inv-virtual-${pId}`,
-          inventory_id: `inv-virtual-${pId}`,
-          product_id: pId,
-          sku: product.sku,
-          barcode: product.barcode,
-          variant_id: product.variant_id || '',
-          branch_id: product.branch_id || branch_id,
-          warehouse_id: warehouse_id,
-          stock_qty: '0',
-          min_stock: '0',
-          unit_cost: product.cost_price || '0',
-          last_received_at: null,
-          last_updated: null,
-          product_name: product.name,
-          product_code: product.barcode || product.sku,
-          sell_price: product.sell_price,
-          cost_price: product.cost_price,
-          unit: product.unit,
-        })
+        if (isPrimarySalesWarehouse) {
+          // Create virtualized default 0-stock row
+          mergedData.push({
+            id: `inv-virtual-${pId}`,
+            inventory_id: `inv-virtual-${pId}`,
+            product_id: pId,
+            sku: product.sku,
+            barcode: product.barcode,
+            variant_id: product.variant_id || '',
+            branch_id: product.branch_id || branch_id,
+            warehouse_id: warehouse_id,
+            stock_qty: '0',
+            min_stock: '0',
+            unit_cost: product.cost_price || '0',
+            last_received_at: null,
+            last_updated: null,
+            product_name: product.name,
+            product_code: product.barcode || product.sku,
+            sell_price: product.sell_price,
+            cost_price: product.cost_price,
+            unit: product.unit,
+          })
+        }
       }
     }
 
