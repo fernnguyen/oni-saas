@@ -18,6 +18,7 @@ interface Props {
   shopId: string
   branchId: string
   onCopyToNewTab: (customer: LocalCustomer | null, items: CartItem[], discountAmount: number, note: string) => void
+  onResumeCheckout: (order: LocalOrder) => Promise<void> | void
   onCancelAndEdit: (order: LocalOrder) => Promise<boolean>
 }
 
@@ -69,10 +70,11 @@ export function OrderHistoryPanel({
   shopId,
   branchId,
   onCopyToNewTab,
+  onResumeCheckout,
   onCancelAndEdit,
 }: Props) {
   const confirm = useConfirm()
-  const [todayOrders, setTodayOrders] = useState<LocalOrder[]>([])
+  const [todayOrders, setTodayOrders] = useState<(LocalOrder & { payment_methods?: string[] })[]>([])
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [expandedItems, setExpandedItems] = useState<LocalOrderItem[]>([])
   const [expandedPayments, setExpandedPayments] = useState<LocalPayment[]>([])
@@ -111,13 +113,29 @@ export function OrderHistoryPanel({
 
   useEffect(() => {
     const prefix = todayPrefix()
-    const sub = liveQuery(() =>
-      localDb.orders
+    const sub = liveQuery(async () => {
+      const orders = await localDb.orders
         .where('created_at').startsWith(prefix)
         .reverse()
         .toArray()
-    ).subscribe({
-      next: setTodayOrders,
+
+      const enriched = await Promise.all(
+        orders.map(async (order) => {
+          const payments = await localDb.payments
+            .where('order_local_id')
+            .equals(order.local_id)
+            .toArray()
+          return {
+            ...order,
+            payment_methods: Array.from(new Set(payments.map(p => p.method)))
+          }
+        })
+      )
+      return enriched
+    }).subscribe({
+      next: (enriched) => {
+        setTodayOrders(enriched as any)
+      },
       error: () => {},
     })
     return () => sub.unsubscribe()
@@ -353,6 +371,14 @@ export function OrderHistoryPanel({
                         <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-500 flex-wrap">
                           <span>{fmtTime(order.created_at)}</span>
                           {order.customer_name && <span>· {order.customer_name}</span>}
+                          {order.payment_methods && order.payment_methods.length > 0 && (
+                            <>
+                              <span>·</span>
+                              <span className="font-medium text-slate-600">
+                                {order.payment_methods.map((m) => METHOD_LABEL[m] || m).join(', ')}
+                              </span>
+                            </>
+                          )}
                           <span>·</span>
                           <span className={['inline-flex items-center gap-0.5 text-[10px]', sync.cls].join(' ')}>
                             {order.status !== 'cancelled' && order.sync_status === 'done' && (
@@ -506,21 +532,35 @@ export function OrderHistoryPanel({
                         <div className="my-3 border-t border-slate-200/60" />
 
                         {order.status === 'pending' && (
-                          <button
-                            onClick={async () => {
-                              const ok = await onCancelAndEdit(order)
-                              if (ok) {
+                          <div className="flex flex-col gap-1.5 mb-2">
+                            <button
+                              onClick={async () => {
+                                await onResumeCheckout(order)
                                 onClose()
-                              }
-                            }}
-                            className="w-full mb-2 flex items-center justify-center gap-1.5 rounded-lg bg-primary hover:bg-primary-dark text-white py-2 text-xs font-bold transition-colors cursor-pointer"
-                          >
-                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-                            </svg>
-                            Thanh toán tiếp / Đổi phương thức
-                          </button>
-                        )}
+                              }}
+                              className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-primary hover:bg-primary-dark text-white py-2 text-xs font-bold transition-colors cursor-pointer"
+                            >
+                              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                              Thanh toán tiếp / Đổi phương thức
+                            </button>
+                            <button
+                              onClick={async () => {
+                                const ok = await onCancelAndEdit(order)
+                                if (ok) {
+                                  onClose()
+                                }
+                              }}
+                              className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-650 py-2 text-xs font-bold transition-colors cursor-pointer"
+                            >
+                              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                              </svg>
+                              Điều chỉnh mặt hàng (Hủy & Sửa)
+                            </button>
+                          </div>
+                        ) }
                         <div className="mt-3 flex gap-2">
                           <button
                             onClick={() => {

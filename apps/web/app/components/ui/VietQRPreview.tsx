@@ -8,6 +8,7 @@ interface VietQRPreviewProps {
   amount?: number
   addInfo?: string
   template?: 'compact' | 'compact2' | 'qr_only'
+  hideFooter?: boolean
   className?: string
 }
 
@@ -18,6 +19,7 @@ export function VietQRPreview({
   amount = 0,
   addInfo = '',
   template = 'compact2',
+  hideFooter = false,
   className = '',
 }: VietQRPreviewProps) {
   const [loading, setLoading] = useState(true)
@@ -82,13 +84,15 @@ export function VietQRPreview({
           />
         )}
       </div>
-      <div className="mt-3 text-center w-full min-w-0">
-        <p className="text-[10px] font-bold text-slate-400 tracking-wider uppercase truncate">Ngân hàng: {bankCode}</p>
-        <p className="text-xs font-semibold text-slate-700 mt-0.5 truncate">STK: {accountNumber}</p>
-        {accountName && (
-          <p className="text-[10px] text-slate-500 font-medium truncate mt-0.5 max-w-full px-1">{accountName}</p>
-        )}
-      </div>
+      {!hideFooter && (
+        <div className="mt-3 text-center w-full min-w-0">
+          <p className="text-[10px] font-bold text-slate-400 tracking-wider uppercase truncate">Ngân hàng: {bankCode}</p>
+          <p className="text-xs font-semibold text-slate-700 mt-0.5 truncate">STK: {accountNumber}</p>
+          {accountName && (
+            <p className="text-[10px] text-slate-500 font-medium truncate mt-0.5 max-w-full px-1">{accountName}</p>
+          )}
+        </div>
+      )}
     </div>
   )
 }

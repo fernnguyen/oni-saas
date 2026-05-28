@@ -113,6 +113,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
     toast.success(`Đã cập nhật cấu hình cận date: ${days} ngày`)
   }
   const [customer, setCustomer] = useState<LocalCustomer | null>(null)
+  const [resumingOrder, setResumingOrder] = useState<LocalOrder | null>(null)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [activeCartItemId, setActiveCartItemId] = useState<string | null>(null)
 
@@ -477,6 +478,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
 
   function handleCheckoutClose() {
     setCheckoutOpen(false)
+    setResumingOrder(null)
     cart.clear()
     setCustomer(null)
 
@@ -509,6 +511,73 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
     }
   }
 
+  function handleCheckoutCancel() {
+    if (resumingOrder) {
+      handleCheckoutClose()
+    } else {
+      setCheckoutOpen(false)
+    }
+  }
+
+  async function handleResumeCheckout(order: LocalOrder) {
+    try {
+      const items = await localDb.orderItems.where('order_local_id').equals(order.local_id).toArray()
+      const cartItems: CartItem[] = items.map(it => ({
+        product_id: it.product_id,
+        product_name: it.product_name,
+        qty: it.qty,
+        unit_price: it.unit_price,
+        cost_price: it.cost_price,
+        discount_amount: it.discount_amount,
+        line_total: it.line_total,
+        variant_label: it.variant_label,
+        modifiers: it.modifiers ? JSON.parse(it.modifiers) : undefined,
+        modifier_total: it.modifier_total,
+        unit_id: it.unit_id,
+        unit_name: it.unit_name,
+        conversion_rate: it.conversion_rate
+      }))
+
+      let orderCustomer: LocalCustomer | null = null
+      if (order.customer_id) {
+        orderCustomer = await localDb.customers.get(order.customer_id) || null
+      }
+
+      const tempTabId = crypto.randomUUID()
+      const orderNo = order.order_no || order.local_id.slice(0, 8).toUpperCase()
+      const label = `Thanh toán ${orderNo}`
+      
+      const newTab: OrderTab = {
+        id: tempTabId,
+        label,
+        items: cartItems,
+        customer: orderCustomer,
+        discount_amount: order.discount_amount,
+        note: order.note || '',
+      }
+
+      setTabs((prev) => [...prev, newTab])
+      isSwitchingTabRef.current = true
+      setActiveTabId(tempTabId)
+      setCustomer(orderCustomer)
+      cart.restore({
+        items: cartItems,
+        discount_amount: order.discount_amount,
+        note: order.note || '',
+      })
+      setResumingOrder(order)
+      
+      setTimeout(() => {
+        isSwitchingTabRef.current = false
+        setCheckoutOpen(true)
+      }, 50)
+
+    } catch (e) {
+      console.error('Failed to resume checkout:', e)
+      toast.error('Lỗi khi tải thông tin đơn hàng để thanh toán tiếp')
+    }
+  }
+
   async function cancelAndEditOrder(order: LocalOrder): Promise<boolean> {
     if (!permissions.includes('orders.delete')) {
       toast.error('Bạn không có quyền hủy đơn hàng này')
@@ -516,7 +585,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
     }
     const isOk = await confirm({
       title: 'Xác nhận điều chỉnh đơn hàng',
-      description: 'Hệ thống sẽ hủy đơn hàng và tạo lại đơn hàng này trong giỏ hàng như một đơn hàng mới. Bạn có chắc chắn muốn tiếp tục?',
+      description: 'Hệ thống sẽ hủy đơn hàng hiện tại (hoàn lại tồn kho) và tạo một giỏ hàng mới để bạn thay đổi mặt hàng. Bạn có chắc chắn muốn tiếp tục?',
       confirmLabel: 'Đồng ý',
       cancelLabel: 'Bỏ qua'
     })
@@ -1229,12 +1298,13 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
         shopId={shopId}
         branchId={branchId}
         onCopyToNewTab={copyToNewTab}
+        onResumeCheckout={handleResumeCheckout}
         onCancelAndEdit={cancelAndEditOrder}
       />
 
       <CheckoutModal
         open={checkoutOpen}
-        onClose={() => setCheckoutOpen(false)}
+        onClose={handleCheckoutCancel}
         onSuccess={handleCheckoutClose}
         onMinimize={handleCheckoutClose}
         items={cart.items}
@@ -1250,6 +1320,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
         employeeId={userEmail}
         isOnline={isOnline}
         autoPrintReceipt={autoPrintReceipt}
+        existingOrder={resumingOrder}
       />
 
       <ConfirmDialog
