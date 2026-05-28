@@ -11,7 +11,7 @@ import { EmptyState } from '@/app/components/ui/EmptyState';
 import { SearchBar } from '@/app/components/ui/SearchBar';
 import { useConfirm } from '@/app/components/ui/ConfirmProvider';
 import { createPortal } from 'react-dom';
-import { MoreVertical, Move, Coins, Pencil, Barcode, Trash2, Zap, FileText, X, Building2, ClipboardList, Loader2 } from 'lucide-react';
+import { MoreVertical, Move, Coins, Pencil, Barcode, Trash2, Zap, FileText, X, Building2, ClipboardList, Loader2, History, Landmark } from 'lucide-react';
 
 interface Props {
   shopId: string;
@@ -245,6 +245,7 @@ function AssetRowActions({
 export function AssetsClient({ shopId, shopName, canManage }: Props) {
   const queryClient = useQueryClient();
   const confirm = useConfirm();
+  const txNameRef = useRef('');
   const [activeTab, setActiveTab] = useState<'all' | 'ccdc' | 'tscd'>('all');
   const [search, setSearch] = useState('');
   const [debouncedSearch] = useDebounce(search, 300);
@@ -359,6 +360,17 @@ export function AssetsClient({ shopId, shopName, canManage }: Props) {
     },
   });
 
+  // 4.5. Fetch asset depreciations history
+  const { data: depreciationsData, isLoading: deprecLoading } = useQuery({
+    queryKey: ['asset-depreciations-history', shopId, selectedAssetId],
+    enabled: !!selectedAssetId,
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/assets/${selectedAssetId}/depreciations`);
+      if (!res.ok) throw new Error('Không tải được lịch sử khấu hao tài sản');
+      return res.json() as Promise<{ data: Record<string, string>[]; total: number }>;
+    },
+  });
+
   const supplierMap = useMemo(() => {
     const map = new Map<string, string>();
     if (supplierData?.data) {
@@ -433,15 +445,18 @@ export function AssetsClient({ shopId, shopName, canManage }: Props) {
         `Trích khấu hao thành công: +${formatCurrency(data.depreciationAmount)} vào Sổ quỹ!`
       );
       queryClient.invalidateQueries({ queryKey: ['assets', shopId] });
+      queryClient.invalidateQueries({ queryKey: ['asset-depreciations-history', shopId, selectedAssetId] });
     },
     onError: (err: Error) => toast.error(err.message),
   });
 
   // Batch depreciate mutation
   const batchDepreciateMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (payload: { transaction_name: string }) => {
       const res = await fetch(`/api/shops/${shopId}/assets/batch-depreciate`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
       });
       if (!res.ok) {
         const json = await res.json().catch(() => ({}));
@@ -454,6 +469,7 @@ export function AssetsClient({ shopId, shopName, canManage }: Props) {
         `⚡️ Trích khấu hao hàng loạt thành công! Đã trích ${data.count} tài sản hoạt động, tổng chi phí: ${formatCurrency(data.totalAmount)}!`
       );
       queryClient.invalidateQueries({ queryKey: ['assets', shopId] });
+      queryClient.invalidateQueries({ queryKey: ['asset-depreciations-history', shopId, selectedAssetId] });
     },
     onError: (err: Error) => toast.error(err.message),
   });
@@ -672,30 +688,30 @@ export function AssetsClient({ shopId, shopName, canManage }: Props) {
             isDepreciated={isDepreciated}
             depreciatePending={depreciateMutation.isPending}
             onDepreciate={async () => {
-              const confirmed = await confirm({
+              await confirm({
                 title: 'Trích khấu hao tài sản',
                 description: `Bạn có chắc chắn muốn thực hiện trích khấu hao tháng này cho tài sản "${row.name}"? Hệ thống sẽ tự động tăng giá trị hao mòn lũy kế của tài sản và lập phiếu ghi nhận chi phí khấu hao gán riêng cho từng bộ phận Cost Center thụ hưởng trong Sổ quỹ (Cashbook).`,
                 confirmLabel: 'Trích khấu hao',
                 cancelLabel: 'Hủy',
                 variant: 'default',
+                onConfirm: async () => {
+                  await depreciateMutation.mutateAsync(row.id);
+                },
               });
-              if (confirmed) {
-                depreciateMutation.mutate(row.id);
-              }
             }}
             onOpenAllocations={() => openAllocations(row)}
             onOpenEdit={() => openEdit(row)}
             onDelete={async () => {
-              const confirmed = await confirm({
+              await confirm({
                 title: 'Xóa thẻ tài sản',
                 description: `Bạn có chắc chắn muốn xóa tài sản "${row.name}"? Sau khi xóa, thẻ tài sản này sẽ được chuyển sang trạng thái lưu trữ ẩn (soft-delete), nhưng lịch sử trích khấu hao và dòng tiền đã hạch toán trong Sổ quỹ (Cashbook) vẫn sẽ được lưu trữ toàn vẹn để đối chiếu tài chính.`,
                 confirmLabel: 'Xóa tài sản',
                 cancelLabel: 'Hủy',
                 variant: 'danger',
+                onConfirm: async () => {
+                  await deleteAssetMutation.mutateAsync(row.id);
+                },
               });
-              if (confirmed) {
-                deleteAssetMutation.mutate(row.id);
-              }
             }}
           />
         );
@@ -720,16 +736,42 @@ export function AssetsClient({ shopId, shopName, canManage }: Props) {
             <button
               onClick={async () => {
                 const activeCount = filteredAssets.filter(a => a.status === 'active').length;
-                const confirmed = await confirm({
+                const now = new Date();
+                const currentMonthStr = String(now.getMonth() + 1).padStart(2, '0');
+                const currentYearStr = String(now.getFullYear());
+                const periodStr = `${currentMonthStr}/${currentYearStr}`;
+                const defaultTxName = `Hao mòn Kỳ ${periodStr}`;
+                txNameRef.current = defaultTxName;
+
+                await confirm({
                   title: 'Trích khấu hao định kỳ hàng tháng',
-                  description: `Hệ thống sẽ thực hiện quét và tự động trích khấu hao tháng này cho toàn bộ ${activeCount} tài sản đang ở trạng thái Hoạt động. \n\nChi phí khấu hao sẽ được tự động tính toán, phân bổ riêng biệt theo tỷ lệ bàn giao cho từng phòng ban (Cost Center) thụ hưởng và lập các phiếu chi chi phí tương ứng ghi nhận vào Sổ quỹ (Cashbook) để phục vụ báo cáo P&L nội bộ. Bạn có chắc chắn muốn thực hiện ngay?`,
+                  description: `Hệ thống sẽ thực hiện quét và tự động trích khấu hao tháng này cho toàn bộ ${activeCount} tài sản đang ở trạng thái Hoạt động. \n\nChi phí khấu hao sẽ được tự động tính toán, phân bổ riêng biệt theo tỷ lệ bàn giao cho từng phòng ban (Cost Center) thụ hưởng và lập các phiếu chi chi phí tương ứng ghi nhận vào Sổ quỹ (Cashbook) để phục vụ báo cáo P&L nội bộ.`,
                   confirmLabel: '⚡️ Bắt đầu trích hàng loạt',
                   cancelLabel: 'Hủy',
                   variant: 'default',
+                  onConfirm: async () => {
+                    await batchDepreciateMutation.mutateAsync({
+                      transaction_name: txNameRef.current || defaultTxName,
+                    });
+                  },
+                  children: (
+                    <div className="mt-4 space-y-2 border-t border-slate-100 pt-4">
+                      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                        Tên giao dịch Sổ quỹ
+                      </label>
+                      <input
+                        type="text"
+                        defaultValue={defaultTxName}
+                        onChange={(e) => { txNameRef.current = e.target.value; }}
+                        placeholder="Ví dụ: Hao mòn Kỳ 05/2026"
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder-slate-400 focus:border-primary focus:outline-none shadow-sm focus:ring-1 focus:ring-primary/20 transition-all font-medium"
+                      />
+                      <p className="text-[11px] text-slate-400 leading-normal">
+                        Tên giao dịch này sẽ được gán làm tên phiếu chi của từng bộ phận trong Sổ quỹ (ví dụ: <span className="font-semibold text-slate-500 font-mono">Hao mòn Kỳ 05/2026 - BP Hành chính</span>).
+                      </p>
+                    </div>
+                  )
                 });
-                if (confirmed) {
-                  batchDepreciateMutation.mutate();
-                }
               }}
               disabled={batchDepreciateMutation.isPending}
               className="rounded-xl border border-primary/20 bg-primary/5 hover:bg-primary/10 px-4 py-2 text-sm font-bold text-primary transition-all cursor-pointer active:scale-95 shadow-sm flex items-center gap-1.5 disabled:opacity-40"
@@ -1022,17 +1064,17 @@ export function AssetsClient({ shopId, shopName, canManage }: Props) {
             {canManage && detailAsset && (
               <button
                 onClick={async () => {
-                  const confirmed = await confirm({
+                  await confirm({
                     title: 'Xóa thẻ tài sản',
                     description: `Bạn có chắc chắn muốn xóa tài sản "${detailAsset.name}"? Sau khi xóa, thẻ tài sản này sẽ được chuyển sang trạng thái lưu trữ ẩn (soft-delete), nhưng lịch sử trích khấu hao và dòng tiền đã hạch toán trong Sổ quỹ (Cashbook) vẫn sẽ được lưu trữ toàn vẹn để đối chiếu tài chính.`,
                     confirmLabel: 'Xóa tài sản',
                     cancelLabel: 'Hủy',
                     variant: 'danger',
+                    onConfirm: async () => {
+                      await deleteAssetMutation.mutateAsync(detailAsset.id);
+                      setDetailAsset(null);
+                    },
                   });
-                  if (confirmed) {
-                    deleteAssetMutation.mutate(detailAsset.id);
-                    setDetailAsset(null);
-                  }
                 }}
                 className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-100 transition-all cursor-pointer active:scale-95 flex items-center gap-1.5 animate-all duration-150"
               >
@@ -1258,6 +1300,70 @@ export function AssetsClient({ shopId, shopName, canManage }: Props) {
                   </div>
                 )}
               </div>
+
+              {/* Lịch sử Khấu hao Tài sản */}
+              <div className="border border-slate-100 bg-white rounded-2xl p-4 space-y-4">
+                <div className="flex items-center gap-2">
+                  <History size={16} className="text-slate-500" />
+                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Lịch sử trích khấu hao hàng tháng</h4>
+                </div>
+
+                {deprecLoading ? (
+                  <div className="space-y-2 animate-pulse">
+                    <div className="h-12 bg-slate-100 rounded-xl"></div>
+                    <div className="h-12 bg-slate-100 rounded-xl"></div>
+                  </div>
+                ) : !depreciationsData?.data || depreciationsData.data.length === 0 ? (
+                  <div className="text-center py-6 text-slate-400 italic text-xs border border-dashed border-slate-200 rounded-xl bg-slate-50">
+                    Tài sản này chưa thực hiện kỳ trích khấu hao nào.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-100 border border-slate-200/80 rounded-xl overflow-hidden bg-white">
+                    {depreciationsData.data.map((deprec, index, arr) => {
+                      const deptName = deprec.department_code === 'general_management' 
+                        ? 'Chi phí quản lý chung' 
+                        : (departmentMap.get(deprec.department_code) || deprec.department_code);
+                      const periodIndex = arr.length - index;
+                      return (
+                        <div key={deprec.id} className="p-3 hover:bg-slate-50 transition-colors text-xs space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1.5 font-bold text-slate-800">
+                              <span className="text-xs px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded-md border border-indigo-100 font-mono">
+                                Kỳ {periodIndex}
+                              </span>
+                              <span className="text-sm font-semibold">{deptName}</span>
+                            </div>
+                            <span className="text-emerald-600 font-bold font-mono text-sm">
+                              -{formatCurrency(deprec.amount)}
+                            </span>
+                          </div>
+                          
+                          <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-slate-400">
+                            <div>
+                              Ngày trích: <strong className="text-slate-600">{formatDate(deprec.depreciation_date)}</strong>
+                            </div>
+                            <div className="bg-slate-50 px-2 py-0.5 rounded border border-slate-100 text-slate-500 font-mono text-[9px]">
+                              Lũy kế: {formatCurrency(deprec.depreciated_value_before)} ➔ {formatCurrency(deprec.depreciated_value_after)}
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap items-center justify-between gap-1 text-[9.5px] text-slate-400 bg-slate-50/50 px-2.5 py-1.5 rounded-lg border border-slate-100 font-mono">
+                            <div>
+                              Ghi nhận bởi: <span className="font-semibold text-slate-600">{deprec.created_by || "Hệ thống"}</span> lúc {formatDateTime(deprec.created_at)}
+                            </div>
+                            {deprec.cashbook_id && (
+                              <div className="mt-0.5 border-t border-slate-100/60 pt-0.5 w-full flex items-center gap-1 text-slate-500">
+                                <Landmark size={11} className="text-slate-400 shrink-0" />
+                                <span>Liên kết Sổ quỹ: <strong className="text-slate-600 font-semibold">{deprec.cashbook_id}</strong></span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           );
         })()}
@@ -1414,16 +1520,16 @@ export function AssetsClient({ shopId, shopName, canManage }: Props) {
                       {canManage && (
                         <button
                           onClick={async () => {
-                            const confirmed = await confirm({
+                            await confirm({
                               title: 'Thu hồi điều chuyển',
                               description: `Bạn có chắc chắn muốn thu hồi tài sản điều chuyển khỏi bộ phận "${deptName}"? Thao tác này sẽ xóa bản ghi điều chuyển hiện tại.`,
                               confirmLabel: 'Thu hồi',
                               cancelLabel: 'Hủy',
                               variant: 'danger',
+                              onConfirm: async () => {
+                                await removeAllocMutation.mutateAsync(alloc.id);
+                              },
                             });
-                            if (confirmed) {
-                              removeAllocMutation.mutate(alloc.id);
-                            }
                           }}
                           className="p-1.5 rounded-lg border border-slate-200 text-rose-500 hover:bg-rose-50 hover:border-rose-100 transition-all cursor-pointer mt-0.5 flex items-center justify-center animate-all duration-150 active:scale-95"
                           title="Thu hồi di chuyển"

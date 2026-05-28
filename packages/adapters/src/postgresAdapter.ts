@@ -43,6 +43,7 @@ const ENTITY_PREFIXES: Record<string, string> = {
   'user-departments':           'USD',
   'assets':                     'AST',
   'asset-allocations':          'ATA',
+  'asset-depreciations':        'ASD',
   'cost-allocation-templates':  'CAT',
   'warehouses':                  'WH',
   'sepay-webhook-logs':          'SWL',
@@ -117,6 +118,8 @@ export class PostgresConnector implements IDataConnector {
     'assets',
     'asset-allocations',
     'asset_allocations',
+    'asset-depreciations',
+    'asset_depreciations',
   ]
 
   private readonly LEGACY_ID_MAP: Record<string, string> = {
@@ -154,6 +157,7 @@ export class PostgresConnector implements IDataConnector {
     'user-departments':           'user_department_id',
     'assets':                     'asset_id',
     'asset-allocations':          'allocation_id',
+    'asset-depreciations':        'depreciation_id',
     'cost-allocation-templates':  'template_id',
     'warehouses':                 'warehouse_id',
   }

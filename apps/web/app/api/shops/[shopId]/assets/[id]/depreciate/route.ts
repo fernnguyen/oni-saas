@@ -48,6 +48,10 @@ export async function POST(
     // 2. Thực hiện trích khấu hao thông qua AssetEngine
     const result = await AssetEngine.processAssetDepreciation(connector, asset, userId);
 
+    if (!result.success) {
+      return NextResponse.json({ error: result.message || 'Trích khấu hao thất bại' }, { status: 400 });
+    }
+
     // 3. Khởi chạy dọn dẹp cache
     invalidate(shopId, 'assets');
     invalidate(shopId, 'cashbook');

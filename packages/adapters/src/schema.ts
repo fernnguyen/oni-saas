@@ -530,6 +530,22 @@ export const asset_allocations = mysqlTable('asset_allocations', {
   updated_by: varchar('updated_by', { length: 255 }),
 });
 
+// ── Bảng Lịch sử Khấu hao Tài sản (Asset Depreciations) ─────────────────────
+export const asset_depreciations = mysqlTable('asset_depreciations', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  branch_id: varchar('branch_id', { length: 255 }),
+  asset_id: varchar('asset_id', { length: 255 }).notNull(),
+  depreciation_date: varchar('depreciation_date', { length: 50 }).notNull(), // Ngày trích khấu hao (YYYY-MM-DD)
+  amount: varchar('amount', { length: 50 }).notNull(), // Số tiền trích khấu hao kỳ này
+  depreciated_value_before: varchar('depreciated_value_before', { length: 50 }).default('0'), // Giá trị lũy kế trước khi trích
+  depreciated_value_after: varchar('depreciated_value_after', { length: 50 }).default('0'), // Giá trị lũy kế sau khi trích
+  department_code: varchar('department_code', { length: 50 }).notNull(), // Bộ phận gán chi phí (Cost Center), hoặc 'general_management'
+  cashbook_id: varchar('cashbook_id', { length: 255 }), // Mã phiếu chi trong Sổ quỹ liên kết
+  created_by: varchar('created_by', { length: 255 }),
+  updated_by: varchar('updated_by', { length: 255 }),
+});
+
 // ── Bảng Mẫu Phân bổ Chi phí (Cost Allocation Templates) ──────────────────
 export const cost_allocation_templates = mysqlTable('cost_allocation_templates', {
   ...getBaseColumns(),

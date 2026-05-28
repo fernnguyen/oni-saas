@@ -186,3 +186,25 @@ export const assetCommissionSchema = z.object({
   return result;
 });
 
+export const assetDepreciationCreateSchema = z.object({
+  asset_id: z.string().min(1, 'ID tài sản không được để trống'),
+  branch_id: z.string().optional().nullable(),
+  depreciation_date: z.string().min(1, 'Ngày trích khấu hao không được để trống'),
+  amount: z.string().min(1, 'Số tiền trích khấu hao không được để trống'),
+  depreciated_value_before: z.string().optional().default('0'),
+  depreciated_value_after: z.string().optional().default('0'),
+  department_code: z.string().min(1, 'Mã bộ phận Cost Center không được để trống'),
+  cashbook_id: z.string().optional().nullable(),
+  created_by: z.string().optional().nullable(),
+  updated_by: z.string().optional().nullable(),
+}).transform((data) => {
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (value !== undefined && value !== null) {
+      result[key] = String(value);
+    }
+  }
+  return result;
+});
+
+

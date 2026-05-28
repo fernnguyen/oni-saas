@@ -97,13 +97,43 @@ export class AssetEngine {
     postedAmount: number;
     assetStatus: string;
     cashbookId?: string;
+    message?: string;
   }> {
     if (asset.status !== 'active') {
       return { success: false, postedAmount: 0, assetStatus: asset.status };
     }
 
+    const todayStr = new Date().toISOString().split('T')[0];
+    const currentMonthPrefix = todayStr.substring(0, 7); // "YYYY-MM"
+    const periodStr = `${todayStr.substring(5, 7)}/${todayStr.substring(0, 4)}`; // "MM/YYYY"
+
+    // Kiểm tra xem tài sản đã được trích khấu hao trong tháng này chưa
+    try {
+      const existingLogsResult = await connector.list('asset-depreciations', {
+        filters: { asset_id: asset.id },
+        limit: 100,
+      });
+      const existingLogs = existingLogsResult.data || existingLogsResult.items || [];
+      const alreadyDepreciatedThisMonth = existingLogs.some((log: any) => 
+        log.depreciation_date && log.depreciation_date.startsWith(currentMonthPrefix)
+      );
+
+      if (alreadyDepreciatedThisMonth) {
+        return { 
+          success: false, 
+          postedAmount: 0, 
+          assetStatus: asset.status,
+          message: `Tài sản này đã được trích khấu hao trong Kỳ ${periodStr}. Không thể thực hiện lại.`
+        };
+      }
+    } catch (err) {
+      console.error('Failed to pre-check existing depreciation logs:', err);
+    }
+
     const { depreciationAmount, isLastPeriod, nextDepreciatedValue } =
       this.calculateMonthlyDepreciation(asset);
+    
+    const currentDepreciated = Number(asset.depreciated_value) || 0;
 
     if (depreciationAmount <= 0) {
       // Đã khấu hao hết nhưng chưa đổi status
@@ -122,7 +152,6 @@ export class AssetEngine {
     const allocations: AssetAllocation[] = allocationsResult.data || allocationsResult.items || [];
     const totalAllocatedQty = allocations.reduce((sum, item) => sum + (Number(item.qty) || 0), 0);
 
-    const todayStr = new Date().toISOString().split('T')[0];
     const assetTypeName = asset.type === 'ccdc' ? 'CCDC' : 'TSCĐ';
     const cashbookIds: string[] = [];
 
@@ -139,7 +168,7 @@ export class AssetEngine {
         if (allocatedAmount <= 0) continue;
 
         const cashbookId = `CSB-DEP-${asset.id}-${allocation.department_code}-${Date.now().toString().slice(-6)}`;
-        const note = `[Khấu hao ${assetTypeName}] Phân bổ tài sản "${asset.name}" cho Bộ phận ${allocation.department_code.toUpperCase()} (SL bàn giao: ${allocQty}/${totalAllocatedQty} chiếc)`;
+        const note = `[Khấu hao ${assetTypeName} - Kỳ ${periodStr}] Phân bổ tài sản "${asset.name}" cho Bộ phận ${allocation.department_code.toUpperCase()} (SL bàn giao: ${allocQty}/${totalAllocatedQty} chiếc)`;
 
         const cashbookEntry: CashbookEntryInput = {
           id: cashbookId,
@@ -150,7 +179,7 @@ export class AssetEngine {
           method: 'cash',
           category: 'depreciation_expense',
           reference_id: asset.id,
-          reference_name: asset.name,
+          reference_name: `Hao mòn Kỳ ${periodStr} - ${asset.name}`,
           note,
           date: todayStr,
           fund_id: 'SYSTEM',
@@ -160,11 +189,27 @@ export class AssetEngine {
         // Ghi nhận trực tiếp vào cơ sở dữ liệu qua connector
         await connector.create('cashbook', cashbookEntry);
         cashbookIds.push(cashbookId);
+
+        // Ghi lịch sử khấu hao chi tiết
+        await connector.create('asset-depreciations', {
+          id: `DEP-LOG-${asset.id}-${allocation.department_code}-${Date.now().toString().slice(-6)}`,
+          tenant_id: asset.tenant_id,
+          branch_id: asset.branch_id,
+          asset_id: asset.id,
+          depreciation_date: todayStr,
+          amount: String(allocatedAmount),
+          depreciated_value_before: String(currentDepreciated),
+          depreciated_value_after: String(nextDepreciatedValue),
+          department_code: allocation.department_code,
+          cashbook_id: cashbookId,
+          created_by: executingEmployeeId,
+          updated_by: executingEmployeeId,
+        });
       }
     } else {
       // Trường hợp tài sản chưa bàn giao sử dụng, khấu hao mặc định tính vào chi phí quản lý chi nhánh
       const cashbookId = `CSB-DEP-${asset.id}-${Date.now().toString().slice(-6)}`;
-      const note = `[Khấu hao ${assetTypeName}] Tài sản "${asset.name}" chưa phân bổ sử dụng (tính vào chi phí quản lý chung)`;
+      const note = `[Khấu hao ${assetTypeName} - Kỳ ${periodStr}] Tài sản "${asset.name}" chưa phân bổ sử dụng (tính vào chi phí quản lý chung)`;
 
       const cashbookEntry: CashbookEntryInput = {
         id: cashbookId,
@@ -175,7 +220,7 @@ export class AssetEngine {
         method: 'cash',
         category: 'depreciation_expense',
         reference_id: asset.id,
-        reference_name: asset.name,
+        reference_name: `Hao mòn Kỳ ${periodStr} - ${asset.name}`,
         note,
         date: todayStr,
         fund_id: 'SYSTEM',
@@ -184,6 +229,22 @@ export class AssetEngine {
 
       await connector.create('cashbook', cashbookEntry);
       cashbookIds.push(cashbookId);
+
+      // Ghi lịch sử khấu hao chi tiết cho quản lý chung
+      await connector.create('asset-depreciations', {
+        id: `DEP-LOG-${asset.id}-GEN-${Date.now().toString().slice(-6)}`,
+        tenant_id: asset.tenant_id,
+        branch_id: asset.branch_id,
+        asset_id: asset.id,
+        depreciation_date: todayStr,
+        amount: String(depreciationAmount),
+        depreciated_value_before: String(currentDepreciated),
+        depreciated_value_after: String(nextDepreciatedValue),
+        department_code: 'general_management',
+        cashbook_id: cashbookId,
+        created_by: executingEmployeeId,
+        updated_by: executingEmployeeId,
+      });
     }
 
     // 3. Cập nhật lại giá trị đã khấu hao và trạng thái của Tài sản

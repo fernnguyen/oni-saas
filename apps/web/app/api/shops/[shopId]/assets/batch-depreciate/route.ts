@@ -13,21 +13,41 @@ export async function POST(
     const { shopId } = await params;
     const { connector, userId, permissions } = await requireShopAccess(shopId);
 
+    const body = await req.json().catch(() => ({}));
+    const { transaction_name } = body;
+
     const hasManageAccess = permissions.includes('assets.manage') || permissions.includes('settings.manage') || permissions.includes('owner') || permissions.includes('admin');
     if (!hasManageAccess) {
       return NextResponse.json({ error: 'Forbidden: no permission to manage assets' }, { status: 403 });
     }
 
-    // 1. Fetch all active assets
+    const todayStr = new Date().toISOString().split('T')[0];
+    const currentMonthPrefix = todayStr.substring(0, 7); // "YYYY-MM"
+    const periodStr = `${todayStr.substring(5, 7)}/${todayStr.substring(0, 4)}`; // "MM/YYYY"
+
+    // Fetch existing logs for the current month
+    const existingLogsRes = await connector.list('asset-depreciations', { limit: 10000 });
+    const existingLogs = existingLogsRes.data || [];
+    const depreciatedAssetIdsThisMonth = new Set(
+      existingLogs
+        .filter((log: any) => log.depreciation_date && log.depreciation_date.startsWith(currentMonthPrefix))
+        .map((log: any) => log.asset_id)
+    );
+
+    // 1. Fetch all active assets and exclude those already depreciated in the current month
     const assetsRes = await connector.list('assets', { limit: 1000 });
     const activeAssets = (assetsRes.data || []).filter(
-      (a: any) => a.status === 'active'
+      (a: any) => a.status === 'active' && !depreciatedAssetIdsThisMonth.has(a.id)
     );
 
     if (activeAssets.length === 0) {
+      const allActiveCount = (assetsRes.data || []).filter((a: any) => a.status === 'active').length;
+      const msg = allActiveCount > 0 
+        ? `Tất cả tài sản hoạt động (${allActiveCount} tài sản) đã được trích khấu hao cho Kỳ ${periodStr}. Không cần thực hiện lại.`
+        : 'Không có tài sản nào ở trạng thái hoạt động cần trích khấu hao.';
       return NextResponse.json({
         success: true,
-        message: 'Không có tài sản nào ở trạng thái hoạt động cần trích khấu hao.',
+        message: msg,
         count: 0,
         totalAmount: 0,
       });
@@ -50,6 +70,7 @@ export async function POST(
 
     let processedCount = 0;
     let totalBatchAmount = 0;
+    const logsToCreate: any[] = [];
 
     // 3. Process each asset (calculate depreciation and update asset DB, but accumulate cashbook entries)
     for (const assetRow of activeAssets) {
@@ -114,6 +135,21 @@ export async function POST(
             serial: asset.serial_no || 'Không có S/N',
             amount: allocatedAmount,
           });
+
+          // Accumulate logs in memory to save with the cashbook ID later
+          logsToCreate.push({
+            id: `DEP-LOG-${asset.id}-${deptCode}-${Date.now().toString().slice(-6)}-${Math.random().toString(36).slice(-3)}`,
+            tenant_id: asset.tenant_id,
+            branch_id: asset.branch_id,
+            asset_id: asset.id,
+            depreciation_date: todayStr,
+            amount: String(allocatedAmount),
+            depreciated_value_before: String(asset.depreciated_value || '0'),
+            depreciated_value_after: String(nextDepreciatedValue),
+            department_code: deptCode,
+            created_by: userId,
+            updated_by: userId,
+          });
         });
       } else {
         // Put in general management
@@ -128,6 +164,21 @@ export async function POST(
           serial: asset.serial_no || 'Không có S/N',
           amount: depreciationAmount,
         });
+
+        // Accumulate logs in memory to save with the cashbook ID later
+        logsToCreate.push({
+          id: `DEP-LOG-${asset.id}-GEN-${Date.now().toString().slice(-6)}-${Math.random().toString(36).slice(-3)}`,
+          tenant_id: asset.tenant_id,
+          branch_id: asset.branch_id,
+          asset_id: asset.id,
+          depreciation_date: todayStr,
+          amount: String(depreciationAmount),
+          depreciated_value_before: String(asset.depreciated_value || '0'),
+          depreciated_value_after: String(nextDepreciatedValue),
+          department_code: deptCode,
+          created_by: userId,
+          updated_by: userId,
+        });
       }
 
       // Update asset depreciated value and status in the DB
@@ -139,24 +190,27 @@ export async function POST(
     }
 
     // 4. Create summarized Cashbook entries for each department
-    const todayStr = new Date().toISOString().split('T')[0];
     const tenantId = activeAssets[0]?.tenant_id || '';
     const branchId = activeAssets[0]?.branch_id || '';
+
+    // Keep track of department cashbook IDs
+    const departmentCashbookIds = new Map<string, string>();
 
     for (const [deptCode, group] of departmentGroup.entries()) {
       if (group.totalAmount <= 0) continue;
 
       const deptName = departmentNameMap.get(deptCode) || (deptCode === 'general_management' ? 'Quản lý chung' : deptCode);
       const cashbookId = `CSB-DEP-BATCH-${deptCode.toUpperCase()}-${Date.now().toString().slice(-6)}`;
+      departmentCashbookIds.set(deptCode, cashbookId);
 
       // Build a beautiful, high-fidelity list of equipment
-      let note = `[Khấu hao hàng loạt] Chi phí hao mòn tài sản phân bổ cho Bộ phận: ${deptName.toUpperCase()}.\n\n`;
+      let note = `[Khấu hao hàng loạt - Kỳ ${periodStr}] Chi phí hao mòn tài sản phân bổ cho Bộ phận: ${deptName.toUpperCase()}.\n\n`;
       note += `Danh sách thiết bị đóng góp chi tiết:\n`;
       group.items.forEach((item, index) => {
         note += `${index + 1}. ${item.name} (${item.serial}) - Số tiền trích: ${item.amount.toLocaleString('vi-VN')} đ\n`;
       });
       note += `\n--------------------------------------------------\n`;
-      note += `Tổng chi phí trích khấu hao: ${group.totalAmount.toLocaleString('vi-VN')} đ`;
+      note += `Tổng chi phí trích khấu hao Kỳ ${periodStr}: ${group.totalAmount.toLocaleString('vi-VN')} đ`;
 
       const cashbookEntry = {
         id: cashbookId,
@@ -167,21 +221,31 @@ export async function POST(
         method: 'cash',
         category: 'depreciation_expense',
         reference_id: 'BATCH-DEPRECIATION',
-        reference_name: `Hao mòn BP ${deptName}`,
+        reference_name: `${transaction_name || 'Hao mòn Kỳ ' + periodStr} - BP ${deptName}`,
         note,
         date: todayStr,
         fund_id: 'SYSTEM',
         employee_id: userId,
         department_code: deptCode,
-        is_virtual: 'TRUE',
+        is_virtual: 'FALSE', // Set to FALSE so it is visible in Sổ quỹ (Cashbook) by default!
       };
 
       await connector.create('cashbook', cashbookEntry);
     }
 
+    // 4.5. Write the individual asset depreciation log records linked to their respective Cashbook ID
+    if (logsToCreate.length > 0) {
+      const logsWithCashbook = logsToCreate.map(log => ({
+        ...log,
+        cashbook_id: departmentCashbookIds.get(log.department_code) || null,
+      }));
+      await connector.batchCreate('asset-depreciations', logsWithCashbook);
+    }
+
     // 5. Clear cache
     invalidate(shopId, 'assets');
     invalidate(shopId, 'cashbook');
+    invalidate(shopId, 'asset-depreciations');
 
     return NextResponse.json({
       success: true,

@@ -10,6 +10,7 @@ interface ConfirmOptions {
   cancelLabel?: string
   variant?: 'danger' | 'default'
   onConfirm?: () => Promise<any>
+  children?: React.ReactNode
 }
 
 type ConfirmFn = (options: ConfirmOptions) => Promise<boolean>
@@ -69,6 +70,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
           variant={state.options.variant}
           loading={loading}
           disableOutsideClick={loading}
+          children={state.options.children}
         />
       )}
     </ConfirmContext.Provider>
