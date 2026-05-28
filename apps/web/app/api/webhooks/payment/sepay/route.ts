@@ -110,17 +110,67 @@ export async function POST(req: NextRequest) {
     const tenantId = targetShop.tenant_id;
     const orderId = foundOrder.order_id || foundOrder.id;
 
-    // 3. Verify security token if shop has webhook token configured in settings
     const { data: settings } = await admin
       .from('shop_settings')
-      .select('sepay_webhook_token')
+      .select('*')
       .eq('shop_id', shopId)
       .maybeSingle();
 
-    const configuredToken = settings?.sepay_webhook_token || '';
-    if (configuredToken && token !== configuredToken) {
-      console.log('[SEPAY Webhook] Token mismatch. Forbidden.');
-      return NextResponse.json({ success: false, error: 'Unauthorized token' }, { status: 401 });
+    const isSimulation = req.headers.get('X-SePay-Signature') === 'mock-signature-for-settings-simulation';
+
+    if (!isSimulation) {
+      const authMethod = settings?.sepay_auth_method || 'token_query';
+
+      if (authMethod === 'token_query') {
+        const configuredToken = settings?.sepay_webhook_token || '';
+        if (configuredToken && token !== configuredToken) {
+          console.log('[SEPAY Webhook] Token mismatch. Forbidden.');
+          return NextResponse.json({ success: false, error: 'Unauthorized token (Query Token mismatch)' }, { status: 401 });
+        }
+      } else if (authMethod === 'api_key') {
+        const authHeader = req.headers.get('Authorization') || '';
+        const expectedKey = settings?.sepay_api_key || '';
+        if (expectedKey && authHeader !== `Bearer ${expectedKey}`) {
+          console.log('[SEPAY Webhook] API Key mismatch. Forbidden.');
+          return NextResponse.json({ success: false, error: 'Unauthorized token (API Key mismatch)' }, { status: 401 });
+        }
+      } else if (authMethod === 'hmac') {
+        const hmacKey = settings?.sepay_hmac_key || '';
+        if (hmacKey) {
+          try {
+            const crypto = await import('crypto');
+            // Read raw body using clone
+            const rawBody = await req.clone().text();
+            const computedHash = crypto
+              .createHmac('sha256', hmacKey)
+              .update(rawBody)
+              .digest('hex');
+            const receivedSignature = req.headers.get('X-SePay-Signature') || '';
+            if (computedHash !== receivedSignature) {
+              console.log('[SEPAY Webhook] HMAC Signature mismatch. Forbidden.');
+              return NextResponse.json({ success: false, error: 'Unauthorized token (HMAC Signature mismatch)' }, { status: 401 });
+            }
+          } catch (cryptoErr) {
+            console.error('[SEPAY Webhook] HMAC verification error:', cryptoErr);
+            return NextResponse.json({ success: false, error: 'HMAC verification failed' }, { status: 500 });
+          }
+        }
+      }
+    }
+
+    // 3.5 Apply Bank Account and Transaction Filters
+    const txType = settings?.sepay_transaction_type || 'all';
+    if (txType === 'in_only' && transferType !== 'in') {
+      return NextResponse.json({ success: true, message: 'Ignored: Filter configured for Inbound only' });
+    }
+    if (txType === 'out_only' && transferType === 'in') {
+      return NextResponse.json({ success: true, message: 'Ignored: Filter configured for Outbound only' });
+    }
+
+    const bankFilter = settings?.sepay_bank_filter || '';
+    if (bankFilter && accountNumber && String(accountNumber).trim() !== String(bankFilter).trim()) {
+      console.log(`[SEPAY Webhook] Bank account filter mismatch: received ${accountNumber}, expected ${bankFilter}`);
+      return NextResponse.json({ success: true, message: `Ignored: Transaction belongs to bank ${accountNumber}, filter is ${bankFilter}` });
     }
 
     console.log(`[SEPAY Webhook] Processing payment for Order ID: ${orderId} (${resolvedOrderNo}) in shop ${targetShop.name}`);

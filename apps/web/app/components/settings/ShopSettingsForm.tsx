@@ -31,6 +31,11 @@ interface ShopSettings {
   strict_shift_lock?: boolean;
   synced_from_sheet_at: string | null;
   sepay_webhook_token?: string | null;
+  sepay_auth_method?: string | null;
+  sepay_hmac_key?: string | null;
+  sepay_api_key?: string | null;
+  sepay_bank_filter?: string | null;
+  sepay_transaction_type?: string | null;
   updated_at: string;
   // CRM Settings
   has_crm_access?: boolean;
@@ -39,13 +44,7 @@ interface ShopSettings {
   loyalty_point_to_money?: number;
   tier_reward_type?: string;
   tier_evaluation_years?: number;
-  tier_gold_threshold?: number;
-  tier_silver_threshold?: number;
-  tier_bronze_threshold?: number;
-  tier_gold_discount?: number;
-  tier_silver_discount?: number;
-  tier_bronze_discount?: number;
-  membership_tiers?: { name: string; threshold: number; discount: number }[];
+  membership_tiers?: { name: string; threshold: number | string; discount: number | string; color?: string }[];
 }
 
 interface Shop {
@@ -64,10 +63,6 @@ interface Props {
   industryType?: string;
 }
 
-function toRawNumber(val: string): string {
-  return val.replace(/\./g, '')
-}
-
 function formatWithDots(val: string | number): string {
   if (val === undefined || val === null || val === '') return ''
   const clean = String(val).replace(/[^0-9]/g, '')
@@ -84,8 +79,9 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
 
   const vertical = getVerticalConfig(industryType || 'retail');
   const resourceLabel = industryType === 'fnb' ? 'bàn ăn' : (vertical.resourceLabel?.toLowerCase() || 'bàn');
+
   const [form, setForm] = useState({
-    shop_name: shop.name, // always prefer the canonical name from the shops table
+    shop_name: shop.name, // always prefer canonical name
     address: shop.address ?? '',
     phone: shop.phone ?? '',
     currency: initial.currency,
@@ -110,6 +106,12 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
     enable_shift_management: initial.enable_shift_management ?? false,
     strict_shift_lock: initial.strict_shift_lock ?? false,
     sepay_webhook_token: initial.sepay_webhook_token ?? '',
+    // SePay Advanced Configurations
+    sepay_auth_method: initial.sepay_auth_method ?? 'token_query',
+    sepay_hmac_key: initial.sepay_hmac_key ?? '',
+    sepay_api_key: initial.sepay_api_key ?? '',
+    sepay_bank_filter: initial.sepay_bank_filter ?? '',
+    sepay_transaction_type: initial.sepay_transaction_type ?? 'all',
     // CRM Settings
     loyalty_points_enabled: initial.loyalty_points_enabled ?? true,
     loyalty_money_to_point: String(initial.loyalty_money_to_point ?? 100000),
@@ -124,48 +126,93 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
           { name: 'Vàng', threshold: 35000000, discount: 10, color: 'gold' }
         ]) as { name: string; threshold: number | string; discount: number | string; color?: string }[],
   });
-  const [saveState, setSaveState] = useState<SaveState>('idle');
+
+  const [saveStates, setSaveStates] = useState<Record<string, SaveState>>({
+    general: 'idle',
+    sales: 'idle',
+    sepay: 'idle',
+    crm: 'idle'
+  });
+
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<'general' | 'sales' | 'sepay' | 'crm'>('general');
 
+  // Simulator State
+  const [simState, setSimState] = useState<{
+    amount: string;
+    content: string;
+    loading: boolean;
+    logs: { text: string; type: 'info' | 'sent' | 'recv' | 'success' | 'err' }[];
+  }>({
+    amount: '150000',
+    content: 'ORD-A3F9D2',
+    loading: false,
+    logs: []
+  });
+
+  // Recent Webhook Logs (starts empty, gets populated by simulators/live events)
+  const [webhookLogs, setWebhookLogs] = useState<Array<{
+    time: string;
+    code: string;
+    bank: string;
+    content: string;
+    amount: number;
+    status: 'success' | 'ignored';
+    note: string;
+  }>>([]);
+
+
   function set(key: keyof typeof form, value: any) {
     setForm((f) => ({ ...f, [key]: value }));
-    setSaveState('idle');
+    setSaveStates((prev) => ({ ...prev, [activeTab]: 'idle' }));
   }
 
-  async function handleSave() {
-    setSaveState('saving');
+  async function handleSaveSubForm(tab: 'general' | 'sales' | 'sepay' | 'crm') {
+    setSaveStates(prev => ({ ...prev, [tab]: 'saving' }));
     try {
-      const res = await fetch(`/api/shops/${shop.id}/settings`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      let payload: any = {};
+      if (tab === 'general') {
+        payload = {
           shop_name: form.shop_name || undefined,
           address: form.address || undefined,
           phone: form.phone || undefined,
+          tax_id: form.tax_id || undefined,
+          wifi_info: form.wifi_info || undefined,
+          receipt_footer: form.receipt_footer || undefined,
+        };
+      } else if (tab === 'sales') {
+        payload = {
           currency: form.currency,
           timezone: form.timezone,
           tax_rate: parseFloat(form.tax_rate) || 0,
           invoice_prefix: form.invoice_prefix,
           low_stock_threshold: parseInt(form.low_stock_threshold, 10) || 0,
+          default_price_type: form.default_price_type,
           allow_negative_stock: form.allow_negative_stock,
+          enable_shift_management: form.enable_shift_management,
+          strict_shift_lock: form.strict_shift_lock,
           auto_print_receipt: form.auto_print_receipt,
           mute_pos_sound: form.mute_pos_sound,
           skip_cleaning_process: form.skip_cleaning_process,
           skip_return_confirmation: form.skip_return_confirmation,
-          tax_id: form.tax_id,
-          wifi_info: form.wifi_info,
+          qr_auto_approve_session: form.qr_auto_approve_session,
+        };
+      } else if (tab === 'sepay') {
+        payload = {
           bank_code: form.bank_code,
           bank_account_number: form.bank_account_number,
           bank_account_name: form.bank_account_name,
           qr_template: form.qr_template,
-          receipt_footer: form.receipt_footer,
-          default_price_type: form.default_price_type,
-          qr_auto_approve_session: form.qr_auto_approve_session,
-          enable_shift_management: form.enable_shift_management,
-          strict_shift_lock: form.strict_shift_lock,
-          sepay_webhook_token: form.sepay_webhook_token,
-          // CRM updates
+          receipt_footer: form.receipt_footer || undefined,
+          sepay_webhook_token: form.sepay_webhook_token || undefined,
+          sepay_auth_method: form.sepay_auth_method,
+          sepay_hmac_key: form.sepay_hmac_key || null,
+          sepay_api_key: form.sepay_api_key || null,
+          sepay_bank_filter: form.sepay_bank_filter || null,
+          sepay_transaction_type: form.sepay_transaction_type,
+        };
+      } else if (tab === 'crm') {
+        payload = {
           loyalty_points_enabled: form.loyalty_points_enabled,
           loyalty_money_to_point: parseFloat(form.loyalty_money_to_point) || 100000,
           loyalty_point_to_money: parseFloat(form.loyalty_point_to_money) || 1000,
@@ -177,121 +224,334 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
             discount: parseFloat(String(t.discount)) || 0,
             color: t.color || 'slate'
           })),
-        }),
+        };
+      }
+
+      const res = await fetch(`/api/shops/${shop.id}/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
       });
+
       if (!res.ok) throw new Error();
-      setSaveState('saved');
-      toast.success('Đã lưu cấu hình chi nhánh!');
-      setTimeout(() => setSaveState('idle'), 2500);
+      setSaveStates(prev => ({ ...prev, [tab]: 'saved' }));
+      toast.success(`Đã lưu ${tab === 'general' ? 'Cài đặt chung' : tab === 'sales' ? 'Cấu hình Bán hàng & Kho' : tab === 'sepay' ? 'Cổng đối soát SePay' : 'Cài đặt CRM'} thành công!`);
+      setTimeout(() => setSaveStates(prev => ({ ...prev, [tab]: 'idle' })), 2500);
     } catch {
-      setSaveState('error');
+      setSaveStates(prev => ({ ...prev, [tab]: 'error' }));
       toast.error('Có lỗi xảy ra khi lưu cấu hình. Vui lòng thử lại.');
+      setTimeout(() => setSaveStates(prev => ({ ...prev, [tab]: 'idle' })), 3000);
     }
   }
 
+  // Format Date Time to YYYY-MM-DD HH:mm:ss
+  function formatDateTime(d: Date) {
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  }
+
+  // Handle mock SePay webhook trigger from Simulator Panel
+  async function handleSimulateWebhook() {
+    if (!form.sepay_webhook_token) {
+      toast.error('Vui lòng tạo/điền Mã Bảo mật trước khi chạy thử nghiệm!');
+      return;
+    }
+    
+    const logsInit = [{ 
+      text: `[${new Date().toLocaleTimeString()}] [SYSTEM] Khởi tạo giả lập giao dịch chuyển khoản VietQR...`, 
+      type: 'info' as const 
+    }];
+    
+    setSimState(prev => ({ ...prev, loading: true, logs: logsInit }));
+
+    const mockPayload = {
+      id: Math.floor(Math.random() * 90000000 + 10000000),
+      gateway: form.bank_code || 'Vietcombank',
+      transactionDate: new Date().toISOString().replace('T', ' ').substring(0, 19),
+      accountNumber: form.bank_account_number || '0123456789',
+      subAccount: '',
+      amountIn: parseInt(simState.amount) || 150000,
+      amountOut: 0,
+      accumulated: 5000000,
+      code: 'FT' + Math.floor(Math.random() * 90000000),
+      transactionContent: simState.content || 'ORD-A3F9D2',
+      referenceNumber: 'REF-' + Math.floor(Math.random() * 9000000),
+      body: 'MOCK PAYLOAD'
+    };
+
+    try {
+      const url = `/api/webhooks/payment/sepay?token=${form.sepay_webhook_token}`;
+      
+      setSimState(prev => ({
+        ...prev,
+        logs: [
+          ...prev.logs,
+          { text: `[${new Date().toLocaleTimeString()}] [HTTP] Gửi POST đến endpoint nhận Webhook:`, type: 'sent' },
+          { text: `🔗 ${window.location.origin}${url}`, type: 'sent' },
+          { text: `📦 Payload: ${JSON.stringify(mockPayload, null, 2)}`, type: 'sent' }
+        ]
+      }));
+
+      // Fire simulation POST call
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-SePay-Signature': 'mock-signature-for-settings-simulation'
+        },
+        body: JSON.stringify(mockPayload)
+      });
+
+      const resBody = await response.json();
+
+      setSimState(prev => ({
+        ...prev,
+        loading: false,
+        logs: [
+          ...prev.logs,
+          { text: `[${new Date().toLocaleTimeString()}] [HTTP] Nhận phản hồi phản hồi từ server:`, type: 'recv' },
+          { text: `🟢 Status Code: ${response.status} ${response.statusText}`, type: 'recv' },
+          { text: `📄 Chi tiết phản hồi: ${JSON.stringify(resBody, null, 2)}`, type: 'recv' },
+          { text: `[KẾT QUẢ] ${response.status === 200 ? 'ĐỐI SOÁT & GẠCH NỢ GIẢ LẬP HOÀN TẤT THÀNH CÔNG!' : 'Giao dịch bị bỏ qua hoặc từ chối.'}`, type: response.status === 200 ? 'success' : 'err' }
+        ]
+      }));
+
+      if (response.status === 200) {
+        toast.success('Bắn tín hiệu giả lập thành công! Hóa đơn đã được gạch nợ.');
+        setWebhookLogs(prev => [
+          {
+            time: formatDateTime(new Date()),
+            code: mockPayload.code,
+            bank: mockPayload.gateway,
+            content: mockPayload.transactionContent,
+            amount: mockPayload.amountIn,
+            status: 'success',
+            note: 'Gạch nợ đơn hàng thành công (Giả lập)'
+          },
+          ...prev
+        ]);
+      } else {
+        toast.warning(`Giao dịch bị từ chối/bỏ qua (Status ${response.status}).`);
+        setWebhookLogs(prev => [
+          {
+            time: formatDateTime(new Date()),
+            code: mockPayload.code,
+            bank: mockPayload.gateway,
+            content: mockPayload.transactionContent,
+            amount: mockPayload.amountIn,
+            status: 'ignored',
+            note: resBody?.error || 'Bỏ qua: Không tìm thấy mã đơn hàng hợp lệ'
+          },
+          ...prev
+        ]);
+      }
+    } catch (err: any) {
+      setSimState(prev => ({
+        ...prev,
+        loading: false,
+        logs: [
+          ...prev.logs,
+          { text: `[${new Date().toLocaleTimeString()}] [ERROR] Lỗi kết nối: ${err.message}`, type: 'err' }
+        ]
+      }));
+      toast.error('Không thể kết nối đến Webhook endpoint.');
+      setWebhookLogs(prev => [
+        {
+          time: formatDateTime(new Date()),
+          code: mockPayload.code,
+          bank: mockPayload.gateway,
+          content: mockPayload.transactionContent,
+          amount: mockPayload.amountIn,
+          status: 'ignored',
+          note: `Lỗi kết nối: ${err.message}`
+        },
+        ...prev
+      ]);
+    }
+  }
+
+
+  const tabState = saveStates[activeTab];
+
   return (
-    <>
-      {/* Premium Tab bar */}
-      <div className="flex flex-wrap gap-1 rounded-2xl border border-slate-200 bg-slate-50 p-1 w-full lg:w-fit mb-6">
+    <div className="flex flex-col lg:flex-row gap-6 items-start w-full">
+      {/* Sleek Vertical Tab Sidebar */}
+      <div className="w-full lg:w-72 lg:sticky lg:top-6 flex-shrink-0 flex flex-col gap-1.5 rounded-2xl border border-slate-200 bg-white p-3 shadow-xs self-start">
+        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-3.5 mb-2.5 block">Danh mục cài đặt</span>
         {[
-          { id: 'general', label: 'Cài đặt chung', icon: '⚙️' },
-          { id: 'sales', label: 'Bán hàng & Kho', icon: '🛍️' },
-          { id: 'sepay', label: 'Cổng đối soát SEPay', icon: '⚡' },
-          { id: 'crm', label: 'CRM & Thành viên', icon: '👑' },
-        ].map((tab) => (
+          { 
+            id: 'general', 
+            label: 'Cài đặt chung', 
+            icon: (
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            ), 
+            desc: 'Thông tin chi nhánh & Wifi', 
+            permission: true 
+          },
+          { 
+            id: 'sales', 
+            label: 'Bán hàng & Kho', 
+            icon: (
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+              </svg>
+            ), 
+            desc: 'Thuế, giá, ca POS, luồng kho', 
+            permission: canManage 
+          },
+          { 
+            id: 'sepay', 
+            label: 'Đối soát tự động (SePay)', 
+            icon: (
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+            ), 
+            desc: 'Cổng đối soát VietQR & Webhook', 
+            permission: canManageQr 
+          },
+          { 
+            id: 'crm', 
+            label: 'CRM & Thành viên', 
+            icon: (
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+              </svg>
+            ), 
+            desc: 'Tích điểm & Hạng hội viên', 
+            permission: canManage 
+          },
+        ].filter(t => t.permission).map((tab) => (
           <button
             key={tab.id}
             type="button"
-            onClick={() => setActiveTab(tab.id as any)}
+            onClick={() => {
+              setActiveTab(tab.id as any);
+            }}
             className={[
-              'rounded-xl px-4 py-2.5 text-xs font-semibold tracking-wide transition-all duration-200 cursor-pointer flex items-center gap-1.5',
+              'w-full text-left rounded-xl px-3.5 py-3 transition-all duration-200 cursor-pointer flex items-start gap-3 group border border-transparent',
               activeTab === tab.id
-                ? 'bg-primary text-white shadow-md shadow-primary/20 scale-105 font-bold'
-                : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100',
+                ? 'bg-primary/5 border-primary/20 text-primary font-semibold'
+                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50',
             ].join(' ')}
           >
-            <span>{tab.icon}</span>
-            <span>{tab.label}</span>
+            <span className={`p-1.5 rounded-lg transition-transform group-hover:scale-110 flex items-center justify-center ${activeTab === tab.id ? 'bg-primary/10 text-primary' : 'bg-slate-100 text-slate-500'}`}>
+              {tab.icon}
+            </span>
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-semibold leading-tight">{tab.label}</div>
+              <div className="text-[10px] text-slate-400 font-normal truncate mt-0.5">{tab.desc}</div>
+            </div>
           </button>
         ))}
+
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* ── Left column: main settings ── */}
-        <div className="space-y-6 lg:col-span-2">
-          
-          {/* ── SECTION A: CÀI ĐẶT CHUNG ── */}
-          {activeTab === 'general' && (
-            <>
-              {/* Section: Thông tin cơ bản */}
-              <Section title="Thông tin cơ bản" description="Tên và địa chỉ hiển thị của chi nhánh">
-                <Field label="Tên chi nhánh">
-                  <input
-                    value={form.shop_name}
-                    onChange={(e) => set('shop_name', e.target.value)}
-                    disabled={!canManage}
-                    className={inputCls}
-                    placeholder="Chi nhánh Linh Ka"
-                  />
-                </Field>
-                <Field label="Địa chỉ">
-                  <input
-                    value={form.address}
-                    onChange={(e) => set('address', e.target.value)}
-                    disabled={!canManage}
-                    className={inputCls}
-                    placeholder="123 Nguyễn Văn A, TP.HCM"
-                  />
-                </Field>
-                <Field label="Số điện thoại">
-                  <input
-                    value={form.phone}
-                    onChange={(e) => set('phone', e.target.value)}
-                    disabled={!canManage}
-                    className={inputCls}
-                    placeholder="0912 345 678"
-                  />
-                </Field>
-              </Section>
+      {/* Settings Form Content Area */}
+      <div className="flex-1 w-full space-y-6">
+        
+        {/* ── TAB 1: CÀI ĐẶT CHUNG ── */}
+        {activeTab === 'general' && (
+          <form onSubmit={(e) => { e.preventDefault(); handleSaveSubForm('general'); }} className="space-y-6">
+            <Section title="Thông tin cơ bản" description="Tên và địa chỉ hiển thị của chi nhánh">
+              <Field label="Tên chi nhánh">
+                <input
+                  value={form.shop_name}
+                  onChange={(e) => set('shop_name', e.target.value)}
+                  disabled={!canManage}
+                  className={inputCls}
+                  placeholder="Chi nhánh Linh Ka"
+                />
+              </Field>
+              <Field label="Địa chỉ">
+                <input
+                  value={form.address}
+                  onChange={(e) => set('address', e.target.value)}
+                  disabled={!canManage}
+                  className={inputCls}
+                  placeholder="123 Nguyễn Văn A, TP.HCM"
+                />
+              </Field>
+              <Field label="Số điện thoại">
+                <input
+                  value={form.phone}
+                  onChange={(e) => set('phone', e.target.value)}
+                  disabled={!canManage}
+                  className={inputCls}
+                  placeholder="0912 345 678"
+                />
+              </Field>
+            </Section>
 
-              {/* Section: Thông tin Hóa đơn */}
-              <Section title="Thông tin Hóa đơn & Tiện ích" description="Các thông tin sẽ được in trên bill thanh toán cho khách">
-                <Field label="Mã số thuế (Tax ID)">
-                  <input
-                    value={form.tax_id}
-                    onChange={(e) => set('tax_id', e.target.value)}
+            <Section title="Thông tin Hóa đơn & Tiện ích" description="Các thông tin sẽ được in trên bill thanh toán cho khách">
+              <Field label="Mã số thuế (Tax ID)">
+                <input
+                  value={form.tax_id}
+                  onChange={(e) => set('tax_id', e.target.value)}
+                  disabled={!canManage}
+                  className={inputCls}
+                  placeholder="0123456789"
+                />
+              </Field>
+              <Field label="Thông tin Wi-Fi" hint="Ví dụ: ONI / 12345678">
+                <input
+                  value={form.wifi_info}
+                  onChange={(e) => set('wifi_info', e.target.value)}
+                  disabled={!canManage}
+                  className={inputCls}
+                  placeholder="ONI / 12345678"
+                />
+              </Field>
+              <div className="border-t border-slate-100 pt-4 mt-4">
+                <Field label="Lời cảm ơn (Cuối bill)">
+                  <textarea
+                    value={form.receipt_footer}
+                    onChange={(e) => set('receipt_footer', e.target.value)}
                     disabled={!canManage}
                     className={inputCls}
-                    placeholder="0123456789"
+                    rows={2}
+                    placeholder="Cảm ơn quý khách đã mua hàng tại ONI!"
                   />
                 </Field>
-                <Field label="Thông tin Wi-Fi" hint="Ví dụ: ONI / 12345678">
-                  <input
-                    value={form.wifi_info}
-                    onChange={(e) => set('wifi_info', e.target.value)}
-                    disabled={!canManage}
-                    className={inputCls}
-                    placeholder="ONI / 12345678"
-                  />
-                </Field>
-                <div className="border-t border-slate-100 pt-4 mt-4">
-                  <Field label="Lời cảm ơn (Cuối bill)">
-                    <textarea
-                      value={form.receipt_footer}
-                      onChange={(e) => set('receipt_footer', e.target.value)}
-                      disabled={!canManage}
-                      className={inputCls}
-                      rows={2}
-                      placeholder="Cảm ơn quý khách đã mua hàng tại ONI!"
-                    />
-                  </Field>
-                </div>
-              </Section>
-            </>
-          )}
+              </div>
+            </Section>
 
-          {/* ── SECTION B: BÁN HÀNG & KHO ── */}
-          {activeTab === 'sales' && (
+            {canManage && (
+              <div className="flex items-center gap-3 bg-white border border-slate-200 p-4 rounded-2xl shadow-xs">
+                <button
+                  type="submit"
+                  disabled={tabState === 'saving'}
+                  className="cursor-pointer rounded-xl bg-primary px-6 py-2.5 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-60 transition-all active:scale-95 shadow-sm shadow-primary/20"
+                >
+                  {tabState === 'saving' ? 'Đang lưu...' : 'Lưu Cài đặt chung'}
+                </button>
+                {tabState === 'saved' && (
+                  <p className="text-xs text-green-600 font-semibold flex items-center gap-1.5">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                    Đã lưu thành công.
+                  </p>
+                )}
+                {tabState === 'error' && (
+                  <p className="text-xs text-red-600 font-semibold flex items-center gap-1.5">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    Lưu thất bại. Thử lại.
+                  </p>
+                )}
+              </div>
+            )}
+          </form>
+        )}
+
+        {/* ── TAB 2: BÁN HÀNG & KHO ── */}
+        {activeTab === 'sales' && (
+          <form onSubmit={(e) => { e.preventDefault(); handleSaveSubForm('sales'); }} className="space-y-6">
             <Section title="Cài đặt bán hàng" description="Các tham số áp dụng khi tạo đơn, tính tiền, quản lý kho">
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Đơn vị tiền tệ">
@@ -343,6 +603,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
                   </select>
                 </Field>
               </div>
+
               <div className="border-t border-slate-100 pt-4 mt-4 space-y-4">
                 <Field label="Bán khi hết hàng">
                   <div
@@ -356,11 +617,12 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
                         className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${form.allow_negative_stock ? 'translate-x-5' : ''}`}
                       />
                     </div>
-                    <span className="text-sm text-slate-600 select-none">
+                    <span className="text-sm text-slate-600 select-none font-medium">
                       {form.allow_negative_stock ? 'Cho phép bán khi tồn kho = 0' : 'Không cho phép bán khi hết hàng'}
                     </span>
                   </div>
                 </Field>
+
                 <Field label="Quản lý ca làm việc (POS)">
                   <div
                     onClick={() => canManage && set('enable_shift_management', !form.enable_shift_management)}
@@ -373,13 +635,14 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
                         className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${form.enable_shift_management ? 'translate-x-5' : ''}`}
                       />
                     </div>
-                    <span className="text-sm text-slate-600 select-none">
+                    <span className="text-sm text-slate-600 select-none font-medium">
                       {form.enable_shift_management ? 'Bắt buộc đóng/mở ca khi bán hàng tại POS (Hạn chế thất thoát)' : 'Bán hàng liên tục không chia ca (Phù hợp hộ kinh doanh/SME)'}
                     </span>
                   </div>
                 </Field>
+
                 {form.enable_shift_management && (
-                  <div className="ml-6 mt-3 border-l-2 border-slate-100 dark:border-slate-800 pl-4 space-y-4">
+                  <div className="ml-6 mt-3 border-l-2 border-slate-100 pl-4 space-y-4">
                     <Field label="Chế độ bảo mật chốt ca nghiêm ngặt">
                       <div
                         onClick={() => canManage && set('strict_shift_lock', !form.strict_shift_lock)}
@@ -399,6 +662,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
                     </Field>
                   </div>
                 )}
+
                 <Field label="Tự động in hóa đơn">
                   <div
                     onClick={() => canManage && set('auto_print_receipt', !form.auto_print_receipt)}
@@ -411,11 +675,12 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
                         className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${form.auto_print_receipt ? 'translate-x-5' : ''}`}
                       />
                     </div>
-                    <span className="text-sm text-slate-600 select-none">
+                    <span className="text-sm text-slate-600 select-none font-medium">
                       {form.auto_print_receipt ? 'Tự động in sau khi tạo đơn POS' : 'Tắt tự động in hóa đơn'}
                     </span>
                   </div>
                 </Field>
+
                 <Field label="Âm thanh POS">
                   <div
                     onClick={() => canManage && set('mute_pos_sound', !form.mute_pos_sound)}
@@ -428,11 +693,12 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
                         className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${!form.mute_pos_sound ? 'translate-x-5' : ''}`}
                       />
                     </div>
-                    <span className="text-sm text-slate-600 select-none">
+                    <span className="text-sm text-slate-600 select-none font-medium">
                       {!form.mute_pos_sound ? 'Phát âm thanh khi quét mã/chọn món' : 'Đã tắt âm thanh (Mute)'}
                     </span>
                   </div>
                 </Field>
+
                 <Field label="Bỏ qua dọn dẹp">
                   <div
                     onClick={() => canManage && set('skip_cleaning_process', !form.skip_cleaning_process)}
@@ -445,11 +711,12 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
                         className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${form.skip_cleaning_process ? 'translate-x-5' : ''}`}
                       />
                     </div>
-                    <span className="text-sm text-slate-600 select-none">
+                    <span className="text-sm text-slate-600 select-none font-medium">
                       {form.skip_cleaning_process ? 'Chuyển về trạng thái Trống/Sẵn sàng ngay sau khi thanh toán' : 'Chuyển về trạng thái Dọn dẹp sau khi thanh toán'}
                     </span>
                   </div>
                 </Field>
+
                 <Field label="Bỏ qua duyệt trả hàng">
                   <div
                     onClick={() => canManage && set('skip_return_confirmation', !form.skip_return_confirmation)}
@@ -462,11 +729,12 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
                         className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${form.skip_return_confirmation ? 'translate-x-5' : ''}`}
                       />
                     </div>
-                    <span className="text-sm text-slate-600 select-none">
+                    <span className="text-sm text-slate-600 select-none font-medium">
                       {form.skip_return_confirmation ? 'Tự động duyệt và hoàn kho/tạo phiếu chi khi tạo phiếu trả hàng' : 'Cần người có thẩm quyền duyệt phiếu trả hàng'}
                     </span>
                   </div>
                 </Field>
+
                 <Field label={`Tự động mở ${resourceLabel} khi quét QR` + (!canManageQr ? ' 🔒 (Cần quyền)' : '')}>
                   <div
                     onClick={() => canManageQr && set('qr_auto_approve_session', !form.qr_auto_approve_session)}
@@ -479,7 +747,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
                         className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${form.qr_auto_approve_session ? 'translate-x-5' : ''}`}
                       />
                     </div>
-                    <span className="text-sm text-slate-600 select-none">
+                    <span className="text-sm text-slate-600 select-none font-medium">
                       {form.qr_auto_approve_session 
                         ? `Tự động kích hoạt ${resourceLabel} ngay khi khách quét QR` 
                         : `Khách quét QR gửi yêu cầu, nhân viên phải duyệt mở ${resourceLabel} bằng tay (Mặc định)`}
@@ -488,12 +756,43 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
                 </Field>
               </div>
             </Section>
-          )}
 
-          {/* ── SECTION C: ĐỐI SOÁT SEPAY & NGÂN HÀNG VIETQR ── */}
-          {activeTab === 'sepay' && (
-            <>
-              {/* Section: Thông tin ngân hàng nhận tiền */}
+            {canManage && (
+              <div className="flex items-center gap-3 bg-white border border-slate-200 p-4 rounded-2xl shadow-xs">
+                <button
+                  type="submit"
+                  disabled={tabState === 'saving'}
+                  className="cursor-pointer rounded-xl bg-primary px-6 py-2.5 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-60 transition-all active:scale-95 shadow-sm shadow-primary/20"
+                >
+                  {tabState === 'saving' ? 'Đang lưu...' : 'Lưu Cấu hình Bán hàng & Kho'}
+                </button>
+                {tabState === 'saved' && (
+                  <p className="text-xs text-green-600 font-semibold flex items-center gap-1.5">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                    Đã lưu thành công.
+                  </p>
+                )}
+                {tabState === 'error' && (
+                  <p className="text-xs text-red-600 font-semibold flex items-center gap-1.5">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    Lưu thất bại. Thử lại.
+                  </p>
+                )}
+              </div>
+            )}
+          </form>
+        )}
+
+        {/* ── TAB 3: ĐỐI SOÁT SEPAY ── */}
+        {activeTab === 'sepay' && (
+          <div className="space-y-6">
+            
+            {/* Section: Thông tin ngân hàng nhận tiền */}
+            <form onSubmit={(e) => { e.preventDefault(); handleSaveSubForm('sepay'); }} className="space-y-6">
               <Section title="Tài khoản Ngân hàng nhận VietQR" description="Dùng để sinh mã chuyển khoản động tại POS và làm tài khoản đối soát">
                 <Field label="Ngân hàng nhận thanh toán" hint="Chọn ngân hàng của chi nhánh">
                   <select
@@ -510,6 +809,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
                     ))}
                   </select>
                 </Field>
+                
                 {form.bank_code && (
                   <div className="border-t border-slate-100 pt-4 mt-4 lg:flex lg:gap-6">
                     <div className="flex-1 space-y-4">
@@ -548,7 +848,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
                     </div>
 
                     <div className="w-full lg:w-48 xl:w-56 mt-6 lg:mt-0 flex flex-col items-center border-l-0 lg:border-l border-slate-100 lg:pl-6">
-                      <span className="text-xs font-medium text-slate-500 uppercase mb-3 text-center block w-full">Xem trước VietQR</span>
+                      <span className="text-xs font-semibold text-slate-400 uppercase mb-3 text-center block w-full tracking-wider">Xem trước VietQR</span>
                       {form.bank_account_number && form.bank_account_name ? (
                         <div className="bg-slate-50 p-2 rounded-xl border border-slate-200 flex-shrink-0">
                           <img 
@@ -570,22 +870,22 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
               {/* Section: Webhook SEPay */}
               <Section
                 id="sepay-config"
-                title="Cổng đối soát Webhook SEPay"
-                description="Kết nối thời gian thực biến động số dư ngân hàng và gạch nợ tự động"
+                title="Cấu hình Cổng đối soát Webhook SEPay"
+                description="Liên kết biến động số dư VietQR động theo thời gian thực và gạch nợ tự động"
               >
-                <div className="space-y-6">
+                <div className="space-y-5">
                   {/* Status Banner */}
-                  <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-slate-900 dark:to-slate-800 p-5 rounded-2xl border border-blue-100 dark:border-slate-700 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-5 rounded-2xl border border-blue-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
                         <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
-                        <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider">Trạng thái Webhook</span>
+                        <span className="text-xs font-semibold text-blue-600 uppercase tracking-wider">Trạng thái Webhook</span>
                       </div>
-                      <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">
-                        {form.sepay_webhook_token ? 'Sẵn sàng đối soát (Webhook Active)' : 'Chưa kích hoạt Webhook'}
+                      <h3 className="text-sm font-bold text-slate-800">
+                        {form.sepay_webhook_token ? 'Sẵn sàng kết nối (Webhook Active)' : 'Chưa thiết lập Webhook'}
                       </h3>
                       <p className="text-xs text-slate-500 max-w-xl leading-relaxed">
-                        SEPay tự động gửi HTTP POST chứa biến động số dư ngân hàng về ERP. Hệ thống tự động phân tích cú pháp nội dung để gạch nợ hóa đơn & mở khóa sảnh bàn/giờ chơi.
+                        SePay tự động đẩy biến động số dư ngân hàng về server ONI. Hệ thống tự động kiểm tra cú pháp, gạch nợ hóa đơn tương ứng & giải phóng sảnh chơi tức thì.
                       </p>
                     </div>
                     <div className="flex-shrink-0">
@@ -598,7 +898,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
                   <div className="space-y-4">
                     <Field
                       label="Mã Bảo mật Webhook (Security Token)"
-                      hint="Xác thực nguồn tín hiệu gửi từ SEPay. Giúp ngăn ngừa giả mạo webhook."
+                      hint="Xác thực nguồn tin gửi từ SePay. Giúp bảo mật tối đa tránh giả mạo."
                     >
                       <div className="flex gap-3">
                         <input
@@ -616,9 +916,12 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
                               const randToken = 'sepay_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
                               set('sepay_webhook_token', randToken);
                             }}
-                            className="px-4 py-2.5 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 border border-indigo-200 rounded-xl transition-all cursor-pointer flex-shrink-0 active:scale-95"
+                            className="px-4 py-2.5 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 border border-indigo-200 rounded-xl transition-all cursor-pointer flex-shrink-0 active:scale-95 flex items-center gap-1.5"
                           >
-                            ⚡️ Sinh mã ngẫu nhiên
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                            </svg>
+                            Sinh mã ngẫu nhiên
                           </button>
                         )}
                       </div>
@@ -627,37 +930,76 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-slate-100 pt-4 mt-2">
                       <Field label="Phương thức xác thực Webhook">
                         <select
-                          value="token_query"
-                          disabled
-                          className={`${inputCls} bg-slate-50 cursor-not-allowed`}
+                          value={form.sepay_auth_method}
+                          onChange={(e) => set('sepay_auth_method', e.target.value)}
+                          disabled={!canManage}
+                          className={inputCls}
                         >
-                          <option value="token_query">Query Parameter (?token=...) [Đang sử dụng]</option>
-                          <option value="hmac" disabled>HMAC-SHA256 Signature (Pro / Enterprise)</option>
-                          <option value="api_key" disabled>API Key Authorization Header (Pro / Enterprise)</option>
-                          <option value="none" disabled>Không xác thực (Không khuyến nghị)</option>
+                          <option value="token_query">Query Parameter (?token=...) [Khuyên dùng]</option>
+                          <option value="hmac">HMAC-SHA256 Signature (Mã ký Header)</option>
+                          <option value="api_key">API Key (Authorization Header)</option>
+                          <option value="none">Không xác thực (Nguy hiểm / Dev mode)</option>
                         </select>
                       </Field>
-                      <Field label="Bộ lọc giao dịch ngân hàng">
+                      <Field label="Lọc loại biến động giao dịch">
                         <select
-                          value="all"
-                          disabled
-                          className={`${inputCls} bg-slate-50 cursor-not-allowed`}
+                          value={form.sepay_transaction_type}
+                          onChange={(e) => set('sepay_transaction_type', e.target.value)}
+                          disabled={!canManage}
+                          className={inputCls}
                         >
                           <option value="all">Nhận tất cả giao dịch (Tiền vào & Tiền ra)</option>
-                          <option value="in_only">Chỉ nhận giao dịch tiền vào (Inbound Only)</option>
-                          <option value="out_only">Chỉ nhận giao dịch tiền ra (Outbound Only)</option>
+                          <option value="in_only">Chỉ nhận giao dịch Tiền vào (Inbound Only)</option>
+                          <option value="out_only">Chỉ nhận giao dịch Tiền ra (Outbound Only)</option>
                         </select>
                       </Field>
                     </div>
 
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {form.sepay_auth_method === 'hmac' && (
+                        <Field label="Khóa giải mã ký HMAC Key (Secret Key)" hint="Nhập Key từ SePay">
+                          <input
+                            type="password"
+                            value={form.sepay_hmac_key}
+                            onChange={(e) => set('sepay_hmac_key', e.target.value)}
+                            disabled={!canManage}
+                            className={`${inputCls} font-mono`}
+                            placeholder="Nhập HMAC Secret..."
+                          />
+                        </Field>
+                      )}
+                      {form.sepay_auth_method === 'api_key' && (
+                        <Field label="Mã API Key (Bearer Token)" hint="Dùng để xác thực header">
+                          <input
+                            type="password"
+                            value={form.sepay_api_key}
+                            onChange={(e) => set('sepay_api_key', e.target.value)}
+                            disabled={!canManage}
+                            className={`${inputCls} font-mono`}
+                            placeholder="Bearer API Key..."
+                          />
+                        </Field>
+                      )}
+                      <Field label="Lọc số tài khoản ngân hàng cụ thể" hint="Bỏ trống nếu nhận tất cả">
+                        <input
+                          type="text"
+                          value={form.sepay_bank_filter}
+                          onChange={(e) => set('sepay_bank_filter', e.target.value)}
+                          disabled={!canManage}
+                          className={inputCls}
+                          placeholder="Ví dụ: 0987654321"
+                        />
+                      </Field>
+                    </div>
+
                     {form.sepay_webhook_token && (
-                      <div className="space-y-3 bg-slate-50 dark:bg-slate-900/50 p-4 rounded-xl border border-slate-200 border-dashed">
+                      <div className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-200 border-dashed mt-2">
                         <div>
-                          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
                             Đường dẫn nhận Webhook URL của bạn (Cấu hình trên SEPay.vn)
                           </label>
-                          <div className="flex items-center gap-2 bg-white dark:bg-slate-800 p-2.5 rounded-lg border border-slate-200">
-                            <code className="text-xs text-slate-600 dark:text-slate-300 font-mono break-all flex-1 select-all">
+                          <div className="flex items-center gap-2 bg-white p-2.5 rounded-lg border border-slate-200">
+                            <code className="text-xs text-slate-600 font-mono break-all flex-1 select-all">
                               {typeof window !== 'undefined'
                                 ? `${window.location.origin}/api/webhooks/payment/sepay?token=${form.sepay_webhook_token}`
                                 : `https://[domain-cua-ban]/api/webhooks/payment/sepay?token=${form.sepay_webhook_token}`}
@@ -665,29 +1007,48 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
                             <button
                               type="button"
                               onClick={() => {
-                                const url = `${window.location.origin}/api/webhooks/payment/sepay?token=${form.sepay_webhook_token}`;
+                                const url = typeof window !== 'undefined'
+                                  ? `${window.location.origin}/api/webhooks/payment/sepay?token=${form.sepay_webhook_token}`
+                                  : `https://[domain-cua-ban]/api/webhooks/payment/sepay?token=${form.sepay_webhook_token}`;
                                 navigator.clipboard.writeText(url);
                                 setCopied(true);
                                 toast.success('Đã sao chép đường dẫn Webhook!');
                                 setTimeout(() => setCopied(false), 2000);
                               }}
-                              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-[11px] font-semibold text-slate-700 rounded-md transition-all cursor-pointer flex-shrink-0"
+                              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-[11px] font-semibold text-slate-700 rounded-md transition-all cursor-pointer flex-shrink-0 flex items-center gap-1"
                             >
-                              {copied ? 'Đã chép ✅' : 'Sao chép 📋'}
+                              {copied ? (
+                                <>
+                                  <svg className="w-3.5 h-3.5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                  </svg>
+                                  <span>Đã chép</span>
+                                </>
+                              ) : (
+                                <>
+                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
+                                  </svg>
+                                  <span>Sao chép</span>
+                                </>
+                              )}
                             </button>
                           </div>
                         </div>
 
                         <div className="border-t border-slate-200 pt-3 mt-1">
-                          <h4 className="text-xs font-bold text-slate-600 mb-1.5 flex items-center gap-1">
-                            <span>💡 Hướng dẫn cấu hình nhanh trên SEPay:</span>
+                          <h4 className="text-xs font-bold text-slate-600 mb-1.5 flex items-center gap-1.5">
+                            <svg className="w-4 h-4 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <span>Hướng dẫn cấu hình trên SEPay.vn:</span>
                           </h4>
                           <ol className="list-decimal list-inside text-xs text-slate-500 space-y-1 pl-1 leading-relaxed">
-                            <li>Truy cập vào trang quản trị <strong>sepay.vn</strong> &rarr; Cấu hình <strong>Webhook</strong>.</li>
+                            <li>Đăng nhập vào <strong>sepay.vn</strong> &rarr; Cấu hình <strong>Webhook</strong>.</li>
                             <li>Bấm <strong>Thêm Webhook mới</strong>.</li>
-                            <li>Dán đường dẫn Webhook URL đã copy ở trên vào mục <strong>Địa chỉ URL nhận Webhook</strong>.</li>
-                            <li>Chọn phương thức gửi là <strong>POST</strong> và định dạng dữ liệu là <strong>JSON</strong>.</li>
-                            <li>Bấm lưu lại. Hệ thống sẽ tự động gạch nợ đơn hàng mỗi khi phát hiện giao dịch VietQR trùng mã hóa đơn.</li>
+                            <li>Dán link Webhook URL đã copy ở trên vào mục <strong>Địa chỉ URL nhận Webhook</strong>.</li>
+                            <li>Chọn phương thức gửi là <strong>POST</strong>, kiểu xác thực khớp với <strong>Phương thức xác thực</strong> đã cấu hình bên trên.</li>
+                            <li>Bấm Lưu lại. Hệ thống sẽ tự động gạch nợ hóa đơn POS mỗi khi có tiền vào trùng mã hóa đơn.</li>
                           </ol>
                         </div>
                       </div>
@@ -696,38 +1057,154 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
                 </div>
               </Section>
 
-              {/* Webhook Activity Logs Console */}
-              {form.sepay_webhook_token && (
-                <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Nhật ký Webhook nhận gần đây</h3>
-                      <p className="text-[11px] text-slate-400">Giám sát trực quan dữ liệu đối soát VietQR chuyển khoản ngân hàng</p>
-                    </div>
-                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping" />
-                      Đang lắng nghe Live...
-                    </span>
+              {canManageQr && (
+                <div className="flex items-center gap-3 bg-white border border-slate-200 p-4 rounded-2xl shadow-xs">
+                  <button
+                    type="submit"
+                    disabled={tabState === 'saving'}
+                    className="cursor-pointer rounded-xl bg-primary px-6 py-2.5 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-60 transition-all active:scale-95 shadow-sm shadow-primary/20"
+                  >
+                    {tabState === 'saving' ? 'Đang lưu...' : 'Lưu Cài đặt Đối soát & VietQR'}
+                  </button>
+                  {tabState === 'saved' && (
+                    <p className="text-xs text-green-600 font-semibold flex items-center gap-1.5">
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                      Đã lưu thành công.
+                    </p>
+                  )}
+                  {tabState === 'error' && (
+                    <p className="text-xs text-red-600 font-semibold flex items-center gap-1.5">
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                      Lưu thất bại. Thử lại.
+                    </p>
+                  )}
+                </div>
+              )}
+            </form>
+
+            {/* Khung Kiểm thử & Giả lập Webhook (Simulator Console) */}
+            {form.sepay_webhook_token && (
+              <Section 
+                title="Khung kiểm thử & Giả lập Webhook (Live Webhook Simulator)" 
+                description="Bắn tín hiệu giao dịch chuyển khoản giả lập cục bộ để kiểm tra tự động đối soát gạch nợ"
+              >
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Field label="Số tiền cần bắn thử (đ)">
+                      <input
+                        type="number"
+                        value={simState.amount}
+                        onChange={(e) => setSimState(prev => ({ ...prev, amount: e.target.value }))}
+                        className={inputCls}
+                        placeholder="150000"
+                      />
+                    </Field>
+                    <Field label="Nội dung chuyển khoản (Mã đơn POS)">
+                      <input
+                        type="text"
+                        value={simState.content}
+                        onChange={(e) => setSimState(prev => ({ ...prev, content: e.target.value }))}
+                        className={`${inputCls} font-mono`}
+                        placeholder="Ví dụ: ORD-A3F9D2"
+                      />
+                    </Field>
                   </div>
 
-                  <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-xs text-slate-500">
-                        <thead className="bg-slate-100 text-[10px] font-semibold uppercase text-slate-700">
+                  <div className="flex justify-start">
+                    <button
+                      type="button"
+                      onClick={handleSimulateWebhook}
+                      disabled={simState.loading}
+                      className="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 disabled:opacity-60 transition-all cursor-pointer shadow-md shadow-indigo-500/20 active:scale-95"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      Bắn giao dịch giả lập
+                    </button>
+                  </div>
+
+                  {simState.logs.length > 0 && (
+                    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 font-mono text-[11px] shadow-inner">
+                      <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-2">
+                        <span className="font-bold text-slate-400 uppercase tracking-wider" style={{ color: '#94a3b8' }}>Terminal Webhook Monitor</span>
+                        <button
+                          type="button"
+                          onClick={() => setSimState(prev => ({ ...prev, logs: [] }))}
+                          className="text-slate-500 hover:text-slate-300 text-[10px] cursor-pointer"
+                        >
+                          Clear [X]
+                        </button>
+                      </div>
+                      <div className="max-h-60 overflow-y-auto space-y-1.5 scrollbar-thin select-all">
+                        {simState.logs.map((log, idx) => {
+                          let color = '#cbd5e1'; // text-slate-300
+                          if (log.type === 'info') color = '#94a3b8'; // text-slate-400
+                          if (log.type === 'sent') color = '#60a5fa'; // text-blue-400
+                          if (log.type === 'recv') color = '#fbbf24'; // text-amber-400
+                          if (log.type === 'success') color = '#34d399'; // text-emerald-400
+                          if (log.type === 'err') color = '#f87171'; // text-rose-400
+
+                          return (
+                            <pre key={idx} style={{ color }} className="whitespace-pre-wrap leading-relaxed">
+                              {log.text}
+                            </pre>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                </div>
+              </Section>
+            )}
+
+            {/* Webhook Activity Logs Console */}
+            {form.sepay_webhook_token && (
+              <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Nhật ký Webhook nhận gần đây</h3>
+                    <p className="text-[11px] text-slate-400">Giám sát trực quan dữ liệu đối soát VietQR chuyển khoản ngân hàng</p>
+                  </div>
+                  <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping" />
+                    Đang lắng nghe Live...
+                  </span>
+                </div>
+
+                <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs text-slate-500">
+                      <thead className="bg-slate-100 text-[10px] font-semibold uppercase text-slate-700">
+                        <tr>
+                          <th className="px-4 py-2">Thời gian</th>
+                          <th className="px-4 py-2">Mã GD / Ngân hàng</th>
+                          <th className="px-4 py-2">Nội dung chuyển khoản</th>
+                          <th className="px-4 py-2 text-right">Số tiền</th>
+                          <th className="px-4 py-2 text-center">Trạng thái</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 font-mono">
+                        {webhookLogs.length === 0 ? (
                           <tr>
-                            <th className="px-4 py-2">Thời gian</th>
-                            <th className="px-4 py-2">Mã GD / Ngân hàng</th>
-                            <th className="px-4 py-2">Nội dung chuyển khoản</th>
-                            <th className="px-4 py-2 text-right">Số tiền</th>
-                            <th className="px-4 py-2 text-center">Trạng thái</th>
+                            <td colSpan={5} className="px-4 py-8 text-center text-slate-400 font-sans">
+                              <div className="flex flex-col items-center justify-center gap-2">
+                                <svg className="w-8 h-8 text-slate-350" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                </svg>
+                                <span className="font-semibold text-slate-600 text-xs">Chưa có dữ liệu nhật ký giao dịch thực tế</span>
+                                <p className="text-[10px] text-slate-400 max-w-xs font-normal">Sử dụng thanh công cụ mô phỏng phía trên để bắn thử dữ liệu webhook VietQR</p>
+                              </div>
+                            </td>
                           </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-200 font-mono">
-                          {[
-                            { time: '2026-05-28 12:15:32', code: 'FT26148382', bank: 'Vietcombank', content: 'Thanh toan don hang ORD-A3F9D2', amount: 350000, status: 'success', note: 'Gạch nợ đơn hàng thành công, giải phóng bàn B3' },
-                            { time: '2026-05-28 11:04:10', code: 'MB82940294', bank: 'MBBank', content: 'ORD-C28941 CK mua hang', amount: 120000, status: 'success', note: 'Gạch nợ đơn hàng thành công' },
-                            { time: '2026-05-28 09:32:15', code: 'FT26139401', bank: 'Techcombank', content: 'TIEN CAFE BAN 5', amount: 85000, status: 'ignored', note: 'Bỏ qua: Không tìm thấy mã đơn hàng hợp lệ' },
-                          ].map((log, i) => (
+                        ) : (
+                          webhookLogs.map((log, i) => (
                             <tr key={i} className="hover:bg-white transition-colors">
                               <td className="px-4 py-2.5 whitespace-nowrap text-slate-500">{log.time}</td>
                               <td className="px-4 py-2.5">
@@ -738,48 +1215,136 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
                               <td className="px-4 py-2.5 text-right font-bold text-slate-700">+{log.amount.toLocaleString('vi-VN')}đ</td>
                               <td className="px-4 py-2.5 text-center">
                                 <span className={[
-                                  'inline-flex items-center rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider',
+                                  'inline-flex items-center rounded-md px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider',
                                   log.status === 'success'
                                     ? 'bg-green-50 text-green-700 border border-green-200'
                                     : 'bg-slate-100 text-slate-600 border border-slate-200'
                                 ].join(' ')} title={log.note}>
-                                  {log.status === 'success' ? 'Thành công ✅' : 'Bỏ qua 📋'}
+                                  {log.status === 'success' ? 'Thành công' : 'Bỏ qua'}
                                 </span>
                               </td>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
-              )}
-            </>
-          )}
+              </div>
+            )}
 
-          {/* ── SECTION D: CRM & HẠNG THÀNH VIÊN ── */}
-          {activeTab === 'crm' && (
-            <Section title="Cấu hình CRM & Hạng thành viên" description="Thiết lập tỷ lệ tích lũy điểm, tiêu điểm và chiết khấu hạng thẻ khách hàng">
-              {initial.has_crm_access === false ? (
-                <div className="rounded-xl border border-dashed border-orange-200 bg-orange-50/50 p-6 text-center space-y-3">
-                  <div className="text-3xl">🔒</div>
-                  <h3 className="text-sm font-bold text-slate-800">Tính năng CRM & Tích điểm Hạng thẻ đang bị khóa</h3>
-                  <p className="text-xs text-slate-500 max-w-sm mx-auto leading-relaxed">
-                    Tính năng quản lý Ví trả trước, Tích điểm thành viên và tự động thăng hạng thẻ khách hàng yêu cầu gói đăng ký <strong>Chuyên nghiệp (Pro)</strong> trở lên hoặc khi đã kích hoạt Add-on CRM.
-                  </p>
-                  <a
-                    href="/billing"
-                    className="inline-block rounded-xl bg-orange-600 px-4 py-2 text-xs font-bold text-white hover:bg-orange-700 active:scale-95 transition-all shadow-xs"
-                  >
-                    Nâng cấp gói ngay
-                  </a>
+          </div>
+        )}
+
+        {/* ── TAB 4: CRM & THÀNH VIÊN ── */}
+        {activeTab === 'crm' && (
+          !initial.has_crm_access ? (
+            <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-xs space-y-8 relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none" />
+              
+              <div className="max-w-2xl space-y-4">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-700 text-xs font-semibold">
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                  </svg>
+                  Tính năng Cao cấp (Pro)
                 </div>
-              ) : (
-                <>
-                  <Field label={`Tích lũy điểm CRM` + (!canManageCrm ? ' 🔒 (Cần quyền)' : '')}>
+                
+                <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">
+                  Hệ thống Chăm sóc Khách hàng Thân thiết & CRM
+                </h2>
+                
+                <p className="text-sm text-slate-500 leading-relaxed">
+                  Thiết lập cơ chế tích điểm thông minh, phân hạng hội viên tự động và tạo các chương trình ưu đãi độc quyền. Kích thích khách hàng cũ quay lại nhiều hơn, tối đa hóa giá trị vòng đời khách hàng và thúc đẩy tăng trưởng doanh số vượt bậc.
+                </p>
+              </div>
+
+              <div className="grid gap-6 sm:grid-cols-2">
+                <div className="flex gap-4 items-start p-4 rounded-xl border border-slate-100 bg-slate-50 hover:bg-slate-100/60 transition-colors">
+                  <span className="p-2.5 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </span>
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-800">Tích lũy điểm thưởng tự động</h3>
+                    <p className="text-xs text-slate-500 mt-1 leading-relaxed">Tùy biến linh hoạt tỷ lệ tích lũy điểm trên hóa đơn và quy đổi điểm thành tiền giảm trừ trực tiếp.</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-4 items-start p-4 rounded-xl border border-slate-100 bg-slate-50 hover:bg-slate-100/60 transition-colors">
+                  <span className="p-2.5 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                    </svg>
+                  </span>
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-800">Phân hạng Hội viên thông minh</h3>
+                    <p className="text-xs text-slate-500 mt-1 leading-relaxed">Phân nhóm khách hàng theo hạng Đồng, Bạc, Vàng, Kim Cương hoàn toàn tự động dựa trên tổng doanh số.</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-4 items-start p-4 rounded-xl border border-slate-100 bg-slate-50 hover:bg-slate-100/60 transition-colors">
+                  <span className="p-2.5 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                    </svg>
+                  </span>
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-800">Báo cáo & Phân tích hành vi</h3>
+                    <p className="text-xs text-slate-500 mt-1 leading-relaxed">Đo lường chi tiết tần suất ghé thăm, tổng chi tiêu và hiệu quả các chiến dịch tiếp thị chăm sóc.</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-4 items-start p-4 rounded-xl border border-slate-100 bg-slate-50 hover:bg-slate-100/60 transition-colors">
+                  <span className="p-2.5 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                    </svg>
+                  </span>
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-800">Cá nhân hóa ưu đãi VIP</h3>
+                    <p className="text-xs text-slate-500 mt-1 leading-relaxed">Tự động cấu hình mức chiết khấu hóa đơn riêng hoặc áp dụng chính sách giá nội bộ đặc quyền.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-gradient-to-r from-indigo-500/5 to-purple-500/5 rounded-2xl border border-indigo-150 p-6 flex flex-col md:flex-row gap-6 justify-between items-center">
+                <div className="space-y-1.5 max-w-lg text-center md:text-left">
+                  <h4 className="text-sm font-bold text-slate-900">Yêu cầu nâng cấp gói Chuyên nghiệp (Pro)</h4>
+                  <p className="text-xs text-slate-500">Mở khóa toàn bộ các tính năng CRM & Điểm thưởng cho tất cả các chi nhánh của bạn chỉ trong 30 giây.</p>
+                </div>
+                
+                <div className="flex gap-3 w-full md:w-auto flex-shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const pathSegments = window.location.pathname.split('/');
+                      const tenantSlug = pathSegments[2] || shop.slug;
+                      window.location.href = `/t/${tenantSlug}/billing`;
+                    }}
+                    className="w-full md:w-auto text-center cursor-pointer rounded-xl bg-indigo-600 hover:bg-indigo-750 text-white px-5 py-2.5 text-xs font-bold transition-all shadow-md active:scale-95"
+                  >
+                    Nâng cấp gói Pro
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => window.open('https://zalo.me/your-support-id', '_blank')}
+                    className="w-full md:w-auto text-center cursor-pointer rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-5 py-2.5 text-xs font-semibold transition-all active:scale-95"
+                  >
+                    Liên hệ tư vấn
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <form onSubmit={(e) => { e.preventDefault(); handleSaveSubForm('crm'); }} className="space-y-6">
+              <Section title="Cài đặt CRM & Tích điểm" description="Cấu hình hệ thống khách hàng thân thiết, tích lũy điểm thưởng khi mua hàng">
+                <div className="space-y-4">
+                  <Field label="Kích hoạt tích điểm thành viên">
                     <div
                       onClick={() => canManageCrm && set('loyalty_points_enabled', !form.loyalty_points_enabled)}
-                      className={`flex items-center gap-3 ${canManageCrm ? 'cursor-pointer' : 'cursor-not-allowed'}`}
+                      className="flex cursor-pointer items-center gap-3 mt-1"
                     >
                       <div
                         className={`relative h-6 w-11 rounded-full transition-colors ${form.loyalty_points_enabled ? 'bg-primary' : 'bg-slate-200'} ${canManageCrm ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
@@ -788,226 +1353,232 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
                           className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${form.loyalty_points_enabled ? 'translate-x-5' : ''}`}
                         />
                       </div>
-                      <span className="text-sm text-slate-600 select-none">
-                        {form.loyalty_points_enabled ? 'Đang bật tích lũy điểm & tiêu dùng điểm cho khách' : 'Đã tắt tính năng tích điểm'}
+                      <span className="text-sm text-slate-600 select-none font-medium">
+                        {form.loyalty_points_enabled ? 'Đang kích hoạt chương trình điểm thưởng khách hàng' : 'Đang tạm dừng tích lũy điểm'}
                       </span>
                     </div>
                   </Field>
 
                   {form.loyalty_points_enabled && (
-                    <>
-                      <div className="grid gap-4 sm:grid-cols-2 border-t border-slate-100 pt-4 mt-2">
-                        <Field label={`Tỷ lệ Tích điểm (Mua bao nhiêu được 1 điểm)` + (!canManageCrm ? ' 🔒' : '')} hint="Ví dụ: 100.000đ chi tiêu = 1 điểm">
+                    <div className="grid gap-4 sm:grid-cols-2 pt-2">
+                      <Field label="Tỷ lệ tích lũy (Số tiền = 1 điểm)" hint="Ví dụ: 100.000đ đổi lấy 1 điểm">
+                        <div className="relative flex items-center">
                           <input
                             type="text"
                             value={formatWithDots(form.loyalty_money_to_point)}
-                            onChange={(e) => set('loyalty_money_to_point', toRawNumber(e.target.value))}
+                            onChange={(e) => {
+                              const raw = e.target.value.replace(/[^0-9]/g, '');
+                              set('loyalty_money_to_point', raw);
+                            }}
                             disabled={!canManageCrm}
-                            className={inputCls}
-                            placeholder="100.000"
+                            className="w-full rounded-xl border border-slate-200 bg-white pl-4 pr-12 py-2.5 text-sm focus:border-primary focus:outline-none"
+                            placeholder="100.005"
                           />
-                        </Field>
-                        <Field label={`Giá trị Tiêu điểm (1 điểm bằng bao nhiêu VNĐ)` + (!canManageCrm ? ' 🔒' : '')} hint="Ví dụ: 1 điểm = 1.000đ khi thanh toán">
+                          <span className="absolute right-4 text-xs font-semibold text-slate-400">đ</span>
+                        </div>
+                      </Field>
+                      <Field label="Tỷ lệ quy đổi tiêu dùng (1 điểm = Số tiền)" hint="Ví dụ: 1 điểm trừ 1.000đ khi thanh toán">
+                        <div className="relative flex items-center">
                           <input
                             type="text"
                             value={formatWithDots(form.loyalty_point_to_money)}
-                            onChange={(e) => set('loyalty_point_to_money', toRawNumber(e.target.value))}
+                            onChange={(e) => {
+                              const raw = e.target.value.replace(/[^0-9]/g, '');
+                              set('loyalty_point_to_money', raw);
+                            }}
                             disabled={!canManageCrm}
-                            className={inputCls}
+                            className="w-full rounded-xl border border-slate-200 bg-white pl-4 pr-12 py-2.5 text-sm focus:border-primary focus:outline-none"
                             placeholder="1.000"
                           />
-                        </Field>
+                          <span className="absolute right-4 text-xs font-semibold text-slate-400">đ</span>
+                        </div>
+                      </Field>
+                    </div>
+                  )}
+                </div>
+              </Section>
+
+              {form.loyalty_points_enabled && (
+                <Section title="Phân hạng & Ưu đãi Thành viên" description="Quản trị các hạng thành viên (Cost Center) và mức chiết khấu được hưởng">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Field label="Loại phần thưởng theo Hạng">
+                      <select
+                        value={form.tier_reward_type}
+                        onChange={(e) => set('tier_reward_type', e.target.value)}
+                        disabled={!canManageCrm}
+                        className={inputCls}
+                      >
+                        <option value="discount_bill">Chiết khấu trực tiếp trên Hóa đơn (%)</option>
+                        <option value="price_list" disabled>Áp dụng Bảng giá riêng biệt (Nâng cấp Pro)</option>
+                      </select>
+                    </Field>
+                    <Field label="Thời gian xét duyệt duy trì hạng (Số năm)" hint="Đánh giá dựa trên tổng chi tiêu">
+                      <input
+                        type="number" min="1" max="10"
+                        value={form.tier_evaluation_years}
+                        onChange={(e) => set('tier_evaluation_years', e.target.value)}
+                        disabled={!canManageCrm}
+                        className={inputCls}
+                      />
+                    </Field>
+                  </div>
+
+                  <div className="border-t border-slate-100 pt-4 mt-4 space-y-4">
+                    <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Danh sách các hạng thành viên</h3>
+                    <div className="space-y-3">
+                      <div className="hidden sm:grid sm:grid-cols-12 gap-3 px-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        <div className="col-span-4">Tên Hạng</div>
+                        <div className="col-span-4">Mức doanh thu tích lũy (đ)</div>
+                        <div className="col-span-3">Mức chiết khấu bill</div>
+                        <div className="col-span-1 text-center">Xóa</div>
                       </div>
 
-                      <div className="border-t border-slate-100 pt-4 space-y-4">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                          <div className="space-y-0.5">
-                            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Cấu hình Hạng thành viên {!canManageCrm && '🔒'}</h3>
-                            <p className="text-xs text-slate-400">Doanh thu tích lũy được xét trong thời gian quy định.</p>
-                          </div>
-                          <div className="w-full sm:w-32">
-                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Năm xét hạng</label>
-                            <input
-                              type="number" min="1" max="10"
-                              value={form.tier_evaluation_years}
-                              onChange={(e) => set('tier_evaluation_years', e.target.value)}
+                      <div className="space-y-3">
+                        {form.membership_tiers.map((tier: any, idx: number) => (
+                          <div key={idx} className="grid grid-cols-1 sm:grid-cols-12 gap-3 p-3 bg-slate-50 sm:bg-transparent rounded-xl border border-slate-100 sm:border-0 items-center">
+                            <div className="col-span-4">
+                              <label className="sm:hidden text-[10px] font-bold text-slate-450 uppercase mb-1 block">Tên Hạng</label>
+                              <input
+                                type="text"
+                              value={tier.name}
+                              onChange={(e) => {
+                                const updated = [...form.membership_tiers];
+                                updated[idx].name = e.target.value;
+                                set('membership_tiers', updated);
+                              }}
                               disabled={!canManageCrm}
                               className={inputCls}
-                              placeholder="3"
+                              placeholder="Hạng hội viên"
                             />
                           </div>
-                        </div>
 
-                        {/* Dynamic Tier Builder List */}
-                        <div className="space-y-3">
-                          <div className="hidden sm:grid sm:grid-cols-12 gap-4 px-2 text-xs font-semibold text-slate-500 uppercase">
-                            <div className="col-span-3">Tên hạng thành viên</div>
-                            <div className="col-span-3">Doanh thu tối thiểu (VNĐ)</div>
-                            <div className="col-span-2">Chiết khấu bill (%)</div>
-                            <div className="col-span-3">Màu sắc / Template</div>
-                            <div className="col-span-1 text-center">Xóa</div>
-                          </div>
-
-                          <div className="space-y-3">
-                            {form.membership_tiers.map((tier, idx) => (
-                              <div key={idx} className="flex flex-col sm:grid sm:grid-cols-12 gap-3 sm:gap-4 p-3 sm:p-2 bg-slate-50 sm:bg-transparent rounded-xl sm:rounded-none border border-slate-100 sm:border-0 relative">
-                                {/* Tier Name */}
-                                <div className="col-span-3 space-y-1 sm:space-y-0">
-                                  <label className="block sm:hidden text-[10px] font-bold text-slate-400 uppercase">Tên hạng thành viên</label>
-                                  <input
-                                    type="text"
-                                    value={tier.name}
-                                    onChange={(e) => {
-                                      const updated = [...form.membership_tiers];
-                                      updated[idx] = { ...updated[idx], name: e.target.value };
-                                      set('membership_tiers', updated);
-                                    }}
-                                    disabled={!canManageCrm}
-                                    className={inputCls}
-                                    placeholder="Ví dụ: Đồng, Bạc, Vàng..."
-                                  />
-                                </div>
-
-                                {/* Minimum Revenue */}
-                                <div className="col-span-3 space-y-1 sm:space-y-0">
-                                  <label className="block sm:hidden text-[10px] font-bold text-slate-400 uppercase">Doanh thu tối thiểu (VNĐ)</label>
-                                  <input
-                                    type="text"
-                                    value={formatWithDots(tier.threshold)}
-                                    onChange={(e) => {
-                                      const updated = [...form.membership_tiers];
-                                      updated[idx] = { ...updated[idx], threshold: toRawNumber(e.target.value) };
-                                      set('membership_tiers', updated);
-                                    }}
-                                    disabled={!canManageCrm}
-                                    className={inputCls}
-                                    placeholder="5.000.000"
-                                  />
-                                </div>
-
-                                {/* Discount bill */}
-                                <div className="col-span-2 space-y-1 sm:space-y-0">
-                                  <label className="block sm:hidden text-[10px] font-bold text-slate-400 uppercase">Chiết khấu bill (%)</label>
-                                  <div className="relative flex items-center">
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      max="100"
-                                      step="0.1"
-                                      value={tier.discount}
-                                      onChange={(e) => {
-                                        const updated = [...form.membership_tiers];
-                                        updated[idx] = { ...updated[idx], discount: e.target.value };
-                                        set('membership_tiers', updated);
-                                      }}
-                                      disabled={!canManageCrm}
-                                      className="w-full rounded-xl border border-slate-200 bg-white pl-4 pr-8 py-2.5 text-sm focus:border-primary focus:outline-none"
-                                      placeholder="5"
-                                    />
-                                    <span className="absolute right-4 text-xs font-semibold text-slate-400">%</span>
-                                  </div>
-                                </div>
-
-                                {/* Color template selector */}
-                                <div className="col-span-3 space-y-1 sm:space-y-0">
-                                  <label className="block sm:hidden text-[10px] font-bold text-slate-400 uppercase">Màu sắc / Template</label>
-                                  <select
-                                    value={tier.color || 'slate'}
-                                    onChange={(e) => {
-                                      const updated = [...form.membership_tiers];
-                                      updated[idx] = { ...updated[idx], color: e.target.value };
-                                      set('membership_tiers', updated);
-                                    }}
-                                    disabled={!canManageCrm}
-                                    className={inputCls}
-                                  >
-                                    <option value="emerald">🟢 Ngọc lục bảo (Emerald)</option>
-                                    <option value="sapphire">🔵 Xanh Sapphire</option>
-                                    <option value="amethyst">🟣 Tím Amethyst</option>
-                                    <option value="ruby">🔴 Đỏ Ruby</option>
-                                    <option value="amber">🟠 Hổ phách (Amber)</option>
-                                    <option value="rose">💗 Hồng Rose</option>
-                                    <option value="cyan">🩵 Xanh Cyan</option>
-                                    <option value="indigo">🌀 Xanh Indigo</option>
-                                    <option value="slate">⚪ Xám Slate</option>
-                                    <option value="gold">👑 Vàng Gold</option>
-                                    <option value="silver">🥈 Bạc Silver</option>
-                                    <option value="bronze">🟤 Đồng Bronze</option>
-                                  </select>
-                                </div>
-
-                                {/* Action: Delete */}
-                                <div className="col-span-1 flex items-center justify-end sm:justify-center mt-2 sm:mt-0">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      if (form.membership_tiers.length <= 1) {
-                                        toast.error('Cần giữ lại ít nhất 1 hạng thành viên!');
-                                        return;
-                                      }
-                                      const updated = form.membership_tiers.filter((_, i) => i !== idx);
-                                      set('membership_tiers', updated);
-                                    }}
-                                    disabled={!canManageCrm}
-                                    className="p-2 text-rose-500 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50 disabled:hover:bg-transparent rounded-lg transition-colors cursor-pointer"
-                                    title="Xóa hạng thành viên"
-                                  >
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                                    </svg>
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-
-                          {/* Add Tier Button */}
-                          {canManageCrm && (
-                            <div className="pt-2 px-2">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const updated = [
-                                    ...form.membership_tiers,
-                                    { name: 'Hạng Mới', threshold: 0, discount: 0 }
-                                  ];
+                          {/* Col 2: Threshold */}
+                          <div className="col-span-4">
+                            <label className="sm:hidden text-[10px] font-bold text-slate-455 uppercase mb-1 block">Doanh số tối thiểu (đ)</label>
+                            <div className="relative flex items-center">
+                              <input
+                                type="text"
+                                value={formatWithDots(tier.threshold)}
+                                onChange={(e) => {
+                                  const raw = e.target.value.replace(/[^0-9]/g, '');
+                                  const updated = [...form.membership_tiers];
+                                  updated[idx].threshold = raw;
                                   set('membership_tiers', updated);
                                 }}
-                                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-primary hover:bg-primary/5 rounded-xl border border-dashed border-primary/30 transition-all cursor-pointer active:scale-95"
-                              >
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                                </svg>
-                                Thêm hạng mới
-                              </button>
+                                disabled={!canManageCrm}
+                                className="w-full rounded-xl border border-slate-200 bg-white pl-4 pr-12 py-2.5 text-sm focus:border-primary focus:outline-none"
+                                placeholder="0"
+                              />
+                              <span className="absolute right-4 text-xs font-semibold text-slate-400">đ</span>
                             </div>
-                          )}
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </Section>
-              )}
-            </Section>
-          )}
+                          </div>
 
-          {/* ── Save button ── */}
-          {(canManage || canManageQr || canManageCrm) && (
-            <div className="flex items-center gap-3">
-              <button
-                onClick={handleSave}
-                disabled={saveState === 'saving'}
-                className="cursor-pointer rounded-xl bg-primary px-6 py-2.5 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-60 transition-colors"
-              >
-                {saveState === 'saving' ? 'Đang lưu...' : 'Lưu thay đổi'}
-              </button>
-              {saveState === 'saved' && <p className="text-sm text-green-600 font-semibold flex items-center gap-1"><span>✅</span> Đã lưu thành công.</p>}
-              {saveState === 'error' && <p className="text-sm text-red-600 font-semibold flex items-center gap-1"><span>❌</span> Lưu thất bại. Thử lại.</p>}
-            </div>
-          )}
-        </div>
+                          {/* Col 3: Discount percentage */}
+                          <div className="col-span-3">
+                            <label className="sm:hidden text-[10px] font-bold text-slate-455 uppercase mb-1 block">Mức chiết khấu</label>
+                            <div className="relative flex items-center">
+                              <input
+                                type="text"
+                                value={tier.discount}
+                                onChange={(e) => {
+                                  const raw = e.target.value.replace(/[^0-9]/g, '');
+                                  const val = Math.min(100, parseInt(raw) || 0);
+                                  const updated = [...form.membership_tiers];
+                                  updated[idx].discount = val;
+                                  set('membership_tiers', updated);
+                                }}
+                                disabled={!canManageCrm}
+                                className="w-full rounded-xl border border-slate-200 bg-white pl-4 pr-8 py-2.5 text-sm focus:border-primary focus:outline-none"
+                                placeholder="5"
+                              />
+                              <span className="absolute right-4 text-xs font-semibold text-slate-400">%</span>
+                            </div>
+                          </div>
+
+                          {/* Action: Delete */}
+                          <div className="col-span-1 flex items-center justify-end sm:justify-center mt-2 sm:mt-0">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (form.membership_tiers.length <= 1) {
+                                  toast.error('Cần giữ lại ít nhất 1 hạng thành viên!');
+                                  return;
+                                }
+                                const updated = form.membership_tiers.filter((_, i) => i !== idx);
+                                set('membership_tiers', updated);
+                              }}
+                              disabled={!canManageCrm}
+                              className="p-2 text-rose-500 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50 disabled:hover:bg-transparent rounded-lg transition-colors cursor-pointer"
+                              title="Xóa hạng thành viên"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                              </svg>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Add Tier Button */}
+                    {canManageCrm && (
+                      <div className="pt-2 px-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const updated = [
+                              ...form.membership_tiers,
+                              { name: 'Hạng Mới', threshold: 0, discount: 0 }
+                            ];
+                            set('membership_tiers', updated);
+                          }}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-primary hover:bg-primary/5 rounded-xl border border-dashed border-primary/30 transition-all cursor-pointer active:scale-95"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                          </svg>
+                          Thêm hạng mới
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </Section>
+            )}
+
+            {canManageCrm && (
+              <div className="flex items-center gap-3 bg-white border border-slate-200 p-4 rounded-2xl shadow-xs">
+                <button
+                  type="submit"
+                  disabled={tabState === 'saving'}
+                  className="cursor-pointer rounded-xl bg-primary px-6 py-2.5 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-60 transition-all active:scale-95 shadow-sm shadow-primary/20"
+                >
+                  {tabState === 'saving' ? 'Đang lưu...' : 'Lưu Cài đặt CRM'}
+                </button>
+                {tabState === 'saved' && (
+                  <p className="text-xs text-green-600 font-semibold flex items-center gap-1.5">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                    Đã lưu thành công.
+                  </p>
+                )}
+                {tabState === 'error' && (
+                  <p className="text-xs text-red-600 font-semibold flex items-center gap-1.5">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    Lưu thất bại. Thử lại.
+                  </p>
+                )}
+              </div>
+            )}
+          </form>
+        )
+      )}
+
       </div>
-    </>
+    </div>
   );
 }
 
@@ -1017,7 +1588,7 @@ function Section({ id, title, description, children }: { id?: string; title: str
   return (
     <div id={id} className="rounded-2xl border border-slate-200 bg-white">
       <div className="border-b border-slate-100 px-6 py-4">
-        <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
+        <h2 className="text-sm font-bold text-slate-900">{title}</h2>
         <p className="text-xs text-slate-400 mt-0.5">{description}</p>
       </div>
       <div className="px-6 py-5 space-y-4">{children}</div>
@@ -1037,17 +1608,4 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   );
 }
 
-
 const inputCls = 'w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed';
-
-function formatRelative(iso: string): string {
-  try {
-    const diff = Date.now() - new Date(iso).getTime();
-    const mins = Math.floor(diff / 60000);
-    if (mins < 1) return 'vừa xong';
-    if (mins < 60) return `${mins} phút trước`;
-    const hours = Math.floor(mins / 60);
-    if (hours < 24) return `${hours} giờ trước`;
-    return `${Math.floor(hours / 24)} ngày trước`;
-  } catch { return ''; }
-}

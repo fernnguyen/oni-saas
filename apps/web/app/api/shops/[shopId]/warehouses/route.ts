@@ -5,6 +5,123 @@ import { warehouseCreateSchema } from '@/lib/validators/assets';
 import { invalidate } from '@/lib/server/cache';
 import { handleApiError } from '../../_helpers';
 
+async function unifyLegacyWarehouses(connector: any, shopId: string) {
+  try {
+    // 1. Fetch all warehouses in this branch
+    const whRes = await connector.list('warehouses', { limit: 200 });
+    const whs = whRes.data as any[];
+
+    // 2. Find WH-SALE (Kho Kinh doanh)
+    let saleWh = whs.find((w: any) => w.code === 'sale');
+    
+    // If not found by code, look by type
+    if (!saleWh) {
+      saleWh = whs.find((w: any) => w.type === 'sale');
+    }
+
+    // If still not found, create standard WH-SALE
+    if (!saleWh) {
+      console.log(`[SELF-HEALING] WH-SALE not found for shop ${shopId}. Creating...`);
+      saleWh = await connector.create('warehouses', {
+        branch_id: shopId,
+        name: 'Kho Kinh doanh (Bán lẻ)',
+        code: 'sale',
+        type: 'sale',
+        active: 'TRUE'
+      });
+    }
+
+    const saleWhId = saleWh.id;
+
+    // 3. Find any legacy/duplicate warehouses (code 'default', 'Default', or name containing 'mặc định' or 'default')
+    const legacyWarehouses = whs.filter((w: any) => {
+      if (w.id === saleWhId || w.code === 'sale') return false;
+      const codeLower = (w.code || '').toLowerCase();
+      const nameLower = (w.name || '').toLowerCase();
+      return (
+        codeLower === 'default' ||
+        codeLower === 'default_warehouse' ||
+        nameLower.includes('mặc định') ||
+        nameLower.includes('default')
+      );
+    });
+
+    if (legacyWarehouses.length === 0) return;
+
+    console.log(`[SELF-HEALING] Found ${legacyWarehouses.length} legacy/duplicate warehouses to merge for shop ${shopId}.`);
+
+    for (const legacyWh of legacyWarehouses) {
+      const legacyWhId = legacyWh.id;
+      console.log(`[SELF-HEALING] Merging legacy warehouse ${legacyWh.name} (ID: ${legacyWhId}) into WH-SALE (ID: ${saleWhId})`);
+
+      // A. Migrate inventory rows
+      const invRes = await connector.list('inventory', {
+        filters: { warehouse_id: legacyWhId },
+        limit: 10000
+      });
+      const invs = invRes.data as any[];
+      for (const inv of invs) {
+        const invId = inv.id || inv.inventory_id;
+        const prodId = inv.product_id;
+
+        // Check if there is already an inventory record in WH-SALE for this product
+        const saleInvRes = await connector.list('inventory', {
+          filters: { product_id: prodId, warehouse_id: saleWhId },
+          limit: 1
+        });
+
+        if (saleInvRes.total > 0) {
+          const saleInv = saleInvRes.data[0];
+          const mergedQty = (parseFloat(saleInv.stock_qty || '0') + parseFloat(inv.stock_qty || '0')).toString();
+          
+          await connector.update('inventory', saleInv.id, {
+            stock_qty: mergedQty
+          });
+          
+          // Delete duplicate legacy row
+          await connector.delete('inventory', invId);
+        } else {
+          // Point to WH-SALE
+          await connector.update('inventory', invId, {
+            warehouse_id: saleWhId
+          });
+        }
+      }
+
+      // B. Migrate stock_movements
+      const movementsFromRes = await connector.list('stock-movements', {
+        filters: { warehouse_id: legacyWhId },
+        limit: 10000
+      });
+      for (const mov of (movementsFromRes.data as any[])) {
+        await connector.update('stock-movements', mov.id, {
+          warehouse_id: saleWhId
+        });
+      }
+
+      const movementsToRes = await connector.list('stock-movements', {
+        filters: { to_warehouse_id: legacyWhId },
+        limit: 10000
+      });
+      for (const mov of (movementsToRes.data as any[])) {
+        await connector.update('stock-movements', mov.id, {
+          to_warehouse_id: saleWhId
+        });
+      }
+
+      // C. Delete the legacy warehouse row
+      await connector.delete('warehouses', legacyWhId);
+      console.log(`[SELF-HEALING] Deleted legacy warehouse ${legacyWhId} successfully.`);
+    }
+
+    // Invalidate caches
+    invalidate(shopId, 'warehouses');
+    invalidate(shopId, 'inventory');
+  } catch (err) {
+    console.error('[SELF-HEALING] Error during warehouse unification:', err);
+  }
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ shopId: string }> }
@@ -12,6 +129,9 @@ export async function GET(
   try {
     const { shopId } = await params;
     const { connector } = await requireShopAccess(shopId);
+
+    // Run self-healing to merge legacy warehouses into WH-SALE
+    await unifyLegacyWarehouses(connector, shopId);
 
     const sp = req.nextUrl.searchParams;
     const page = Math.max(1, parseInt(sp.get('page') ?? '1'));
