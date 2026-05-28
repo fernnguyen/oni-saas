@@ -11,7 +11,7 @@ import { EmptyState } from '@/app/components/ui/EmptyState';
 import { SearchBar } from '@/app/components/ui/SearchBar';
 import { useConfirm } from '@/app/components/ui/ConfirmProvider';
 import { createPortal } from 'react-dom';
-import { MoreVertical, Move, Coins, Pencil, Barcode, Trash2, Zap, FileText, X, Building2, ClipboardList } from 'lucide-react';
+import { MoreVertical, Move, Coins, Pencil, Barcode, Trash2, Zap, FileText, X, Building2, ClipboardList, Loader2 } from 'lucide-react';
 
 interface Props {
   shopId: string;
@@ -185,8 +185,12 @@ function AssetRowActions({
                 disabled={isDepreciated || depreciatePending}
                 className="w-full text-left px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white disabled:cursor-not-allowed transition-colors flex items-center gap-2 cursor-pointer text-slate-800"
               >
-                <Coins size={14} strokeWidth={1.75} className="text-amber-500" />
-                {depreciatePending ? 'Đang trích...' : 'Trích khấu hao'}
+                {depreciatePending ? (
+                  <Loader2 size={14} className="animate-spin text-amber-500 shrink-0" />
+                ) : (
+                  <Coins size={14} strokeWidth={1.75} className="text-amber-500 shrink-0" />
+                )}
+                <span>{depreciatePending ? 'Đang trích...' : 'Trích khấu hao'}</span>
               </button>
             )}
           </div>
@@ -730,8 +734,12 @@ export function AssetsClient({ shopId, shopName, canManage }: Props) {
               disabled={batchDepreciateMutation.isPending}
               className="rounded-xl border border-primary/20 bg-primary/5 hover:bg-primary/10 px-4 py-2 text-sm font-bold text-primary transition-all cursor-pointer active:scale-95 shadow-sm flex items-center gap-1.5 disabled:opacity-40"
             >
-              <Coins size={15} strokeWidth={1.75} />
-              {batchDepreciateMutation.isPending ? 'Đang trích...' : 'Trích khấu hao hàng loạt'}
+              {batchDepreciateMutation.isPending ? (
+                <Loader2 size={15} className="animate-spin text-primary shrink-0" />
+              ) : (
+                <Coins size={15} strokeWidth={1.75} className="text-primary shrink-0" />
+              )}
+              <span>{batchDepreciateMutation.isPending ? 'Đang trích...' : 'Trích khấu hao hàng loạt'}</span>
             </button>
             <button
               onClick={() => {

@@ -116,10 +116,10 @@ export class AssetEngine {
 
     // 1. Truy xuất phân bổ tài sản để phân tách chi phí cho các phòng ban (Cost Center)
     const allocationsResult = await connector.list('asset-allocations', {
-      filter: { asset_id: asset.id },
+      filters: { asset_id: asset.id },
       limit: 100,
     });
-    const allocations: AssetAllocation[] = allocationsResult.items || [];
+    const allocations: AssetAllocation[] = allocationsResult.data || allocationsResult.items || [];
     const totalAllocatedQty = allocations.reduce((sum, item) => sum + (Number(item.qty) || 0), 0);
 
     const todayStr = new Date().toISOString().split('T')[0];
