@@ -541,3 +541,19 @@ export const warehouses = mysqlTable('warehouses', {
   type: varchar('type', { length: 50 }).default('custom'), // 'sale' | 'supply' | 'asset' | 'custom'
   active: varchar('active', { length: 10 }).default('TRUE'),
 });
+
+// ── Bảng Nhật ký Đối soát Webhook SePay (SePay Webhook Logs) ─────────────
+export const sepayWebhookLogs = mysqlTable('sepay_webhook_logs', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  branch_id: varchar('branch_id', { length: 255 }),
+  transaction_id: varchar('transaction_id', { length: 255 }),
+  bank_account: varchar('bank_account', { length: 255 }),
+  transfer_amount: varchar('transfer_amount', { length: 50 }),
+  transfer_type: varchar('transfer_type', { length: 50 }),
+  content: text('content'),
+  gateway: varchar('gateway', { length: 255 }),
+  reference_code: varchar('reference_code', { length: 255 }),
+  status: varchar('status', { length: 50 }), // success, ignored, failed, disabled
+  error_message: text('error_message'),
+});

@@ -45,6 +45,7 @@ const ENTITY_PREFIXES: Record<string, string> = {
   'asset-allocations':          'ATA',
   'cost-allocation-templates':  'CAT',
   'warehouses':                  'WH',
+  'sepay-webhook-logs':          'SWL',
 }
 
 export class MysqlConnector implements IDataConnector {
