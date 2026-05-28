@@ -6,11 +6,10 @@ async function test() {
   });
 
   try {
-    const employees = await pool.query('SELECT * FROM employees');
-    console.log('Employees in DB:', employees.rows);
-
-    const departments = await pool.query('SELECT * FROM departments');
-    console.log('Departments in DB:', departments.rows);
+    const res = await pool.query(
+      "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
+    );
+    console.log('Tables in DB:', res.rows.map(r => r.table_name));
   } catch (e) {
     console.error('Error querying:', e);
   } finally {

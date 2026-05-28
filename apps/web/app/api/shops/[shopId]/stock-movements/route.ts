@@ -158,25 +158,45 @@ export async function POST(
     })
 
     if (data.workflow_status === 'completed') {
-      // 2. Upsert inventory stock_qty
+      // 2. Upsert inventory stock_qty per warehouse
       const delta = calcDelta(data.type, parseFloat(data.qty))
       const branchId = data.branch_id ?? ''
+      let resolvedWarehouseId = data.warehouse_id || ''
+
+      // Resolve the branch's default warehouse if none is specified (backward-compatibility fallback)
+      if (!resolvedWarehouseId) {
+        const whRes = await connector.list('warehouses', {
+          filters: { code: 'sale' },
+          limit: 1
+        });
+        if (whRes.total > 0) {
+          resolvedWarehouseId = whRes.data[0].id;
+        } else {
+          resolvedWarehouseId = 'sale';
+        }
+      }
 
       let invResult = await connector.list('inventory', {
         page: 1, limit: 1,
-        filters: { product_id: data.product_id, branch_id: branchId },
+        filters: { product_id: data.product_id, warehouse_id: resolvedWarehouseId },
       })
-      if (invResult.data.length === 0 && branchId !== '') {
-        invResult = await connector.list('inventory', {
-          page: 1, limit: 1,
-          filters: { product_id: data.product_id, branch_id: '' },
-        })
-      }
+
+      // Self-healing fallback: if no row is found for this warehouse, check for any legacy row with empty/default warehouse_id
       if (invResult.data.length === 0) {
-        invResult = await connector.list('inventory', {
-          page: 1, limit: 1,
-          filters: { product_id: data.product_id },
+        const fallbackRes = await connector.list('inventory', {
+          page: 1, limit: 100,
+          filters: { product_id: data.product_id }
         })
+        const matched = (fallbackRes.data as any[]).find(
+          i => !i.warehouse_id || i.warehouse_id === '' || i.warehouse_id === 'default'
+        )
+        if (matched) {
+          // Upgrade legacy row to use the resolved warehouse ID
+          await connector.update('inventory', matched.inventory_id as string, {
+            warehouse_id: resolvedWarehouseId
+          })
+          invResult = { data: [ { ...matched, warehouse_id: resolvedWarehouseId } ], total: 1, page: 1, limit: 1 }
+        }
       }
 
       if (invResult.data.length > 0) {
@@ -184,8 +204,6 @@ export async function POST(
         const oldQty = parseFloat(inv.stock_qty || '0')
         const newQty = Math.max(0, oldQty + delta)
         
-        // Note: In a high-concurrency environment, this read-modify-write could cause a race condition.
-        // A future enhancement would be to add an `increment` method to the IDataConnector.
         await connector.update('inventory', inv.inventory_id as string, {
           stock_qty: String(newQty),
         })
@@ -196,7 +214,8 @@ export async function POST(
         // Create inventory row only for inbound movements.
         const createdInv = await connector.create('inventory', {
           product_id: data.product_id,
-          branch_id: '',
+          branch_id: branchId,
+          warehouse_id: resolvedWarehouseId,
           stock_qty: String(delta),
           min_stock: '0',
           sku: data.sku || '',
@@ -204,6 +223,58 @@ export async function POST(
         tx.add(async () => {
           await connector.delete('inventory', (createdInv as any).inventory_id).catch(() => {})
         })
+      }
+
+      // Double-sided adjustment for Warehouse Transfers (transfer_out triggers destination increment)
+      if (data.type === 'transfer_out' && data.to_warehouse_id) {
+        const toWhId = data.to_warehouse_id;
+        const transferQty = parseFloat(data.qty);
+
+        let destInvRes = await connector.list('inventory', {
+          page: 1, limit: 1,
+          filters: { product_id: data.product_id, warehouse_id: toWhId }
+        });
+
+        if (destInvRes.data.length === 0) {
+          const fallbackRes = await connector.list('inventory', {
+            page: 1, limit: 100,
+            filters: { product_id: data.product_id }
+          });
+          const matched = (fallbackRes.data as any[]).find(
+            i => !i.warehouse_id || i.warehouse_id === '' || i.warehouse_id === 'default'
+          );
+          if (matched) {
+            await connector.update('inventory', matched.inventory_id as string, {
+              warehouse_id: toWhId
+            });
+            destInvRes = { data: [ { ...matched, warehouse_id: toWhId } ], total: 1, page: 1, limit: 1 };
+          }
+        }
+
+        if (destInvRes.data.length > 0) {
+          const destInv = destInvRes.data[0] as any;
+          const oldDestQty = parseFloat(destInv.stock_qty || '0');
+          const newDestQty = oldDestQty + transferQty;
+          
+          await connector.update('inventory', destInv.inventory_id as string, {
+            stock_qty: String(newDestQty),
+          });
+          tx.add(async () => {
+            await connector.update('inventory', destInv.inventory_id as string, { stock_qty: String(oldDestQty) }).catch(() => {});
+          });
+        } else {
+          const createdDestInv = await connector.create('inventory', {
+            product_id: data.product_id,
+            branch_id: branchId,
+            warehouse_id: toWhId,
+            stock_qty: String(transferQty),
+            min_stock: '0',
+            sku: data.sku || '',
+          } as Record<string, string>);
+          tx.add(async () => {
+            await connector.delete('inventory', (createdDestInv as any).inventory_id).catch(() => {});
+          });
+        }
       }
 
       // 3. Update product cost_price

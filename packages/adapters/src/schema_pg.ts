@@ -101,6 +101,7 @@ export const products = pgTable('products', {
   stock_qty: varchar('stock_qty', { length: 50 }),
   metadata: jsonb('metadata'),
   has_bom: varchar('has_bom', { length: 10 }).default('FALSE'),
+  item_class: varchar('item_class', { length: 50 }).default('commercial'),
   // ── Variant / Modifier System (Sprint 1) ──────────────────────────────────
   product_type: varchar('product_type', { length: 20 }).default('simple'),
   parent_id: varchar('parent_id', { length: 255 }),
@@ -225,6 +226,7 @@ export const inventory = pgTable('inventory', {
   sku: varchar('sku', { length: 255 }),
   variant_id: varchar('variant_id', { length: 255 }),
   branch_id: varchar('branch_id', { length: 255 }),
+  warehouse_id: varchar('warehouse_id', { length: 255 }),
   stock_qty: varchar('stock_qty', { length: 50 }),
   min_stock: varchar('min_stock', { length: 50 }),
   unit_cost: varchar('unit_cost', { length: 50 }),
@@ -243,6 +245,8 @@ export const stock_movements = pgTable('stock_movements', {
   qty: varchar('qty', { length: 50 }),
   unit_cost: varchar('unit_cost', { length: 50 }),
   branch_id: varchar('branch_id', { length: 255 }),
+  warehouse_id: varchar('warehouse_id', { length: 255 }),
+  to_warehouse_id: varchar('to_warehouse_id', { length: 255 }),
   supplier_id: varchar('supplier_id', { length: 255 }),
   reference_no: varchar('reference_no', { length: 255 }),
   employee_id: varchar('employee_id', { length: 255 }),
@@ -572,6 +576,19 @@ export const cost_allocation_templates = pgTable('cost_allocation_templates', {
   rules: jsonb('rules').notNull(), // Mảng JSON chứa [{ department_code: string, percentage: number }]
 }, (table) => ({
   catTenantBranchIdx: index('idx_cat_tenant_branch').on(table.tenant_id, table.branch_id),
+}));
+
+// ── Bảng Kho hàng (Warehouses) ──────────────────────────────────────────
+export const warehouses = pgTable('warehouses', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  branch_id: varchar('branch_id', { length: 255 }).notNull(),
+  name: varchar('name', { length: 255 }).notNull(),
+  code: varchar('code', { length: 50 }).notNull(),
+  type: varchar('type', { length: 50 }).default('custom'), // 'sale' | 'supply' | 'asset' | 'custom'
+  active: varchar('active', { length: 10 }).default('TRUE'),
+}, (table) => ({
+  whTenantBranchIdx: index('idx_wh_tenant_branch').on(table.tenant_id, table.branch_id),
 }));
 
 
