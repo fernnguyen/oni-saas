@@ -186,6 +186,8 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
       label: 'Quản lý chi nhánh',
       items: [
         { href: options.settingsHref ?? '#',   label: 'Cài đặt',         icon: IconSettings, permission: 'settings.view' },
+        { href: joinPath(base, '/settings/departments'), label: 'Phòng ban', icon: IconUsers, permission: 'departments.view' },
+        { href: joinPath(base, '/settings/assets'), label: 'Tài sản', icon: IconWarehouse, permission: 'assets.view' },
       ],
     },
     {
