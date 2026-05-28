@@ -15,10 +15,15 @@ export async function GET(
 
     const { searchParams } = new URL(req.url)
     const branch_id = searchParams.get('branch_id')
+    const active = searchParams.get('active')
 
     const filters: Record<string, string> = {}
     if (branch_id) filters.branch_id = branch_id
-    filters.active = 'ALL'
+    if (active) {
+      filters.active = active.toUpperCase()
+    } else {
+      filters.active = 'ALL'
+    }
 
     let result = await connector.list('payment-funds', { page: 1, limit: 100, filters })
 

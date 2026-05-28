@@ -164,6 +164,7 @@ export const payment_funds = mysqlTable('payment_funds', {
   name: varchar('name', { length: 255 }).notNull(),
   type: varchar('type', { length: 50 }).notNull(), // 'cash' | 'bank' | 'wallet'
   account_number: varchar('account_number', { length: 100 }),
+  account_name: varchar('account_name', { length: 255 }),
   bank_name: varchar('bank_name', { length: 255 }),
   initial_balance: varchar('initial_balance', { length: 50 }).default('0'),
   current_balance: varchar('current_balance', { length: 50 }).default('0'),

@@ -14,6 +14,8 @@ import { useSearchParams } from 'next/navigation'
 import { useDebounce } from 'use-debounce'
 import { HasPermission, PermissionsProvider } from '@/app/components/ui/PermissionGate'
 import { useConfirm } from '@/app/components/ui/ConfirmProvider'
+import { BANKS } from '@/lib/constants/banks'
+import { VietQRPreview } from '@/app/components/ui/VietQRPreview'
 
 const Clock = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
 const Wallet = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect x="2" y="4" width="20" height="16" rx="2" ry="2"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
@@ -49,6 +51,7 @@ const EMPTY_FUND_FORM = {
   name: '',
   type: 'cash',
   account_number: '',
+  account_name: '',
   bank_name: '',
   initial_balance: 0,
   is_default: false,
@@ -97,7 +100,7 @@ const getPresetDates = (type: string) => {
   return { from, to }
 }
 
-export function CashbookClient({ shopId, permissions }: Props) {
+export function CashbookClient({ shopId, shopName, permissions }: Props) {
   const confirm = useConfirm()
   const queryClient = useQueryClient()
   const searchParams = useSearchParams()
@@ -179,6 +182,7 @@ export function CashbookClient({ shopId, permissions }: Props) {
 
   const [fundFormData, setFundFormData] = useState(EMPTY_FUND_FORM)
   const [fundSlideOpen, setFundSlideOpen] = useState(false)
+  const [qrPreviewTemplate, setQrPreviewTemplate] = useState<'compact' | 'compact2' | 'qr_only'>('compact2')
 
   // --- SHIFT MANAGEMENT & RECONCILIATION STATES ---
   const [auditSlideOpen, setAuditSlideOpen] = useState(false)
@@ -444,6 +448,7 @@ export function CashbookClient({ shopId, permissions }: Props) {
       name: fund.name || '',
       type: (fund.type as any) || 'cash',
       account_number: fund.account_number || '',
+      account_name: fund.account_name || '',
       bank_name: fund.bank_name || '',
       initial_balance: Number(fund.initial_balance || 0),
       is_default: fund.is_default === 'TRUE',
@@ -1477,13 +1482,18 @@ export function CashbookClient({ shopId, permissions }: Props) {
             <>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Tên ngân hàng *</label>
-                <input
-                  type="text"
+                <select
                   value={fundFormData.bank_name}
                   onChange={(e) => setFundFormData(prev => ({ ...prev, bank_name: e.target.value }))}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-orange-500 focus:outline-none shadow-sm bg-white"
-                  placeholder="VD: Vietcombank, Techcombank..."
-                />
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-orange-500 focus:outline-none shadow-sm bg-white cursor-pointer"
+                >
+                  <option value="">-- Chọn ngân hàng --</option>
+                  {BANKS.map((b) => (
+                    <option key={b.code} value={b.code}>
+                      {b.shortName} - {b.name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>
@@ -1495,6 +1505,47 @@ export function CashbookClient({ shopId, permissions }: Props) {
                   className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-orange-500 focus:outline-none shadow-sm bg-white"
                   placeholder="VD: 1029384756..."
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Tên chủ tài khoản *</label>
+                <input
+                  type="text"
+                  value={fundFormData.account_name}
+                  onChange={(e) => setFundFormData(prev => ({ ...prev, account_name: e.target.value.toUpperCase() }))}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-orange-500 focus:outline-none shadow-sm bg-white uppercase font-semibold"
+                  placeholder="VD: NGUYEN VAN A..."
+                />
+              </div>
+
+              {/* VietQR Live Preview Card */}
+              <div className="mt-4 p-4 rounded-2xl bg-slate-50 border border-slate-200/60 space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Xem trước hóa đơn QR (VietQR Card)</span>
+                  <select
+                    value={qrPreviewTemplate}
+                    onChange={(e) => setQrPreviewTemplate(e.target.value as any)}
+                    className="rounded-lg border border-slate-250 bg-white px-2 py-1 text-[10px] text-slate-650 focus:outline-none cursor-pointer"
+                  >
+                    <option value="compact2">Rút gọn (compact2)</option>
+                    <option value="compact">Cổ điển (compact)</option>
+                    <option value="qr_only">Chỉ mã QR (qr_only)</option>
+                  </select>
+                </div>
+                
+                <VietQRPreview
+                  bankCode={fundFormData.bank_name}
+                  accountNumber={fundFormData.account_number}
+                  accountName={fundFormData.account_name || shopName}
+                  template={qrPreviewTemplate}
+                  amount={50000}
+                  addInfo="DEMO123456"
+                  className="border border-slate-200/80 bg-white shadow-3xs"
+                />
+                
+                <p className="text-[10px] text-slate-450 text-center leading-normal">
+                  Mã QR động sẽ tự hiển thị tại quầy POS và được in ra hóa đơn khi khách chọn chuyển khoản tương ứng với Quỹ này.
+                </p>
               </div>
             </>
           )}
