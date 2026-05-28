@@ -160,6 +160,9 @@ export const cashbook = pgTable('cashbook', {
   date: varchar('date', { length: 50 }),
   fund_id: varchar('fund_id', { length: 255 }),
   balance_after_transaction: varchar('balance_after_transaction', { length: 50 }),
+  department_code: varchar('department_code', { length: 50 }),
+  parent_transaction_id: varchar('parent_transaction_id', { length: 255 }),
+  is_virtual: varchar('is_virtual', { length: 10 }).default('FALSE'),
 });
 
 export const payment_funds = pgTable('payment_funds', {
@@ -558,6 +561,17 @@ export const asset_allocations = pgTable('asset_allocations', {
   allocated_at: varchar('allocated_at', { length: 50 }).notNull(),
 }, (table) => ({
   allocTenantIdx: index('idx_alloc_tenant').on(table.tenant_id),
+}));
+
+// ── Bảng Mẫu Phân bổ Chi phí (Cost Allocation Templates) ──────────────────
+export const cost_allocation_templates = pgTable('cost_allocation_templates', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  branch_id: varchar('branch_id', { length: 255 }).notNull(),
+  name: varchar('name', { length: 255 }).notNull(), // Tên mẫu (ví dụ: "Phân bổ Điện nước")
+  rules: jsonb('rules').notNull(), // Mảng JSON chứa [{ department_code: string, percentage: number }]
+}, (table) => ({
+  catTenantBranchIdx: index('idx_cat_tenant_branch').on(table.tenant_id, table.branch_id),
 }));
 
 

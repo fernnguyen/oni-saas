@@ -25,6 +25,8 @@ export async function GET(
     const from_date = searchParams.get('from_date')
     const to_date = searchParams.get('to_date')
     const search = searchParams.get('search')
+    const is_virtual_query = searchParams.get('is_virtual') // 'TRUE' | 'FALSE' | 'all'
+    const department_code = searchParams.get('department_code')
 
     // --- TÍNH TOÁN SỐ DƯ ĐỘNG (Đầu kỳ, phát sinh, cuối kỳ) ---
     // 1. Lấy tất cả tài khoản quỹ để tính tổng initial_balance
@@ -53,6 +55,7 @@ export async function GET(
     const toTime = to_date ? new Date(to_date + 'T23:59:59.999').getTime() : Infinity
 
     for (const tx of filteredTransactions) {
+      if (tx.is_virtual === 'TRUE') continue;
       const txTime = new Date(tx.created_at || '').getTime()
       const amount = parseFloat(tx.amount || '0')
 
@@ -87,7 +90,18 @@ export async function GET(
         (tx.note || '').toLowerCase().includes(searchLower) ||
         (tx.reference_name || '').toLowerCase().includes(searchLower)
         
-      return inDateRange && matchesType && matchesReference && matchesSearch
+      let matchesVirtual = true;
+      if (is_virtual_query === 'TRUE') {
+        matchesVirtual = tx.is_virtual === 'TRUE';
+      } else if (is_virtual_query === 'all') {
+        matchesVirtual = true;
+      } else {
+        matchesVirtual = tx.is_virtual !== 'TRUE';
+      }
+
+      const matchesDept = !department_code || tx.department_code === department_code;
+
+      return inDateRange && matchesType && matchesReference && matchesSearch && matchesVirtual && matchesDept
     })
 
     // Sắp xếp các giao dịch theo thời gian giảm dần (mới nhất lên đầu)
@@ -223,10 +237,60 @@ export async function POST(
       employee_id: payload.employee_id ?? user.email ?? '',
       fund_id: selectedFundId!,
       balance_after_transaction: String(newFundBalance),
+      department_code: payload.department_code ?? '',
+      is_virtual: 'FALSE',
     })
     tx.add(async () => {
-      await connector.delete('cashbook', (createdCb as any).transaction_id).catch(() => {})
+      await connector.delete('cashbook', (createdCb as any).transaction_id || (createdCb as any).id).catch(() => {})
     })
+
+    const parentId = (createdCb as any).transaction_id || (createdCb as any).id;
+
+    // --- XỬ LÝ PHÂN BỔ CHI PHÍ DÙNG CHUNG ---
+    if (payload.apply_allocation) {
+      let rules: Array<{ department_code: string; percentage: number }> = [];
+
+      if (payload.custom_rules && payload.custom_rules.length > 0) {
+        rules = payload.custom_rules;
+      } else if (payload.allocation_template_id) {
+        const template = await connector.findById('cost-allocation-templates', payload.allocation_template_id);
+        if (template) {
+          const rawRules = template.rules;
+          if (typeof rawRules === 'string') {
+            try { rules = JSON.parse(rawRules); } catch (e) { console.error('Failed to parse rules:', e); }
+          } else if (Array.isArray(rawRules)) {
+            rules = rawRules as any;
+          }
+        }
+      }
+
+      if (rules.length > 0) {
+        for (const rule of rules) {
+          const allocatedAmount = Math.round((payload.amount * rule.percentage) / 100);
+          if (allocatedAmount > 0) {
+            const virtualCb = await connector.create('cashbook', {
+              type: payload.type,
+              amount: String(allocatedAmount),
+              method: payload.method,
+              category: payload.category,
+              reference_id: payload.reference_id ?? '',
+              reference_name: payload.reference_name ?? '',
+              note: `${payload.note ?? ''} (Phân bổ ${rule.percentage}% cho ${rule.department_code})`,
+              branch_id: branchId,
+              employee_id: payload.employee_id ?? user.email ?? '',
+              fund_id: selectedFundId!,
+              balance_after_transaction: String(newFundBalance),
+              department_code: rule.department_code,
+              parent_transaction_id: parentId,
+              is_virtual: 'TRUE',
+            });
+            tx.add(async () => {
+              await connector.delete('cashbook', (virtualCb as any).transaction_id || (virtualCb as any).id).catch(() => {});
+            });
+          }
+        }
+      }
+    }
 
     // Cập nhật expected_closing_cash của ca nếu giao dịch bằng tiền mặt
     if (isShiftEnabled && activeShift && payload.method === 'cash') {

@@ -11,6 +11,14 @@ export const cashbookCreateSchema = z.object({
   branch_id: z.string().optional(), // usually injected by server
   employee_id: z.string().optional(), // usually injected by server
   fund_id: z.string().optional(),
+  // Cost allocation fields
+  department_code: z.string().optional(),
+  apply_allocation: z.boolean().optional(),
+  allocation_template_id: z.string().optional(),
+  custom_rules: z.array(z.object({
+    department_code: z.string(),
+    percentage: z.number()
+  })).optional(),
 })
 
 export type CashbookCreateInput = z.infer<typeof cashbookCreateSchema>

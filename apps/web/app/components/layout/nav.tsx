@@ -187,6 +187,7 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
         { href: options.settingsHref ?? '#',   label: 'Cài đặt',         icon: IconSettings, permission: 'settings.view', exact: true },
         { href: joinPath(base, '/settings/departments'), label: 'Phòng ban', icon: IconUsers, permission: 'departments.view' },
         { href: joinPath(base, '/settings/employees'),  label: 'Nhân viên',   icon: IconUsers,     permission: 'dashboard.view' },
+        { href: joinPath(base, '/settings/cost-allocation'), label: 'Phân bổ chi phí', icon: IconChart, permission: 'settings.view' },
         { href: joinPath(base, '/settings/assets'), label: 'Tài sản', icon: IconWarehouse, permission: 'assets.view' },
       ],
     },

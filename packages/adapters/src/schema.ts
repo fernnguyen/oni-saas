@@ -151,6 +151,9 @@ export const cashbook = mysqlTable('cashbook', {
   date: varchar('date', { length: 50 }),
   fund_id: varchar('fund_id', { length: 255 }),
   balance_after_transaction: varchar('balance_after_transaction', { length: 50 }),
+  department_code: varchar('department_code', { length: 50 }),
+  parent_transaction_id: varchar('parent_transaction_id', { length: 255 }),
+  is_virtual: varchar('is_virtual', { length: 10 }).default('FALSE'),
 });
 
 export const payment_funds = mysqlTable('payment_funds', {
@@ -513,4 +516,13 @@ export const asset_allocations = mysqlTable('asset_allocations', {
   department_code: varchar('department_code', { length: 50 }).notNull(), // Map trực tiếp sang departments.code (Cost Center)
   qty: varchar('qty', { length: 50 }).notNull(),
   allocated_at: varchar('allocated_at', { length: 50 }).notNull(),
+});
+
+// ── Bảng Mẫu Phân bổ Chi phí (Cost Allocation Templates) ──────────────────
+export const cost_allocation_templates = mysqlTable('cost_allocation_templates', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  branch_id: varchar('branch_id', { length: 255 }).notNull(),
+  name: varchar('name', { length: 255 }).notNull(), // Tên mẫu (ví dụ: "Phân bổ Điện nước")
+  rules: text('rules').notNull(), // Mảng JSON chứa stringified [{ department_code: string, percentage: number }]
 });

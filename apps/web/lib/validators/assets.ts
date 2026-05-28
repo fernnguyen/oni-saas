@@ -89,3 +89,38 @@ export const assetAllocationCreateSchema = z.object({
   }
   return result;
 });
+
+export const costAllocationTemplateCreateSchema = z.object({
+  name: z.string().min(1, 'Tên mẫu phân bổ không được để trống').max(255),
+  rules: z.union([
+    z.string(),
+    z.array(z.object({
+      department_code: z.string().min(1),
+      percentage: z.number().min(0).max(100)
+    }))
+  ])
+}).transform((data) => {
+  const result: Record<string, any> = {
+    name: data.name,
+    rules: typeof data.rules === 'string' ? data.rules : JSON.stringify(data.rules)
+  };
+  return result;
+});
+
+export const costAllocationTemplateUpdateSchema = z.object({
+  name: z.string().min(1).max(255).optional(),
+  rules: z.union([
+    z.string(),
+    z.array(z.object({
+      department_code: z.string().min(1),
+      percentage: z.number().min(0).max(100)
+    }))
+  ]).optional()
+}).transform((data) => {
+  const result: Record<string, any> = {};
+  if (data.name !== undefined) result.name = data.name;
+  if (data.rules !== undefined) {
+    result.rules = typeof data.rules === 'string' ? data.rules : JSON.stringify(data.rules);
+  }
+  return result;
+});

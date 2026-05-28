@@ -43,6 +43,7 @@ const ENTITY_PREFIXES: Record<string, string> = {
   'user-departments':           'USD',
   'assets':                     'AST',
   'asset-allocations':          'ATA',
+  'cost-allocation-templates':  'CAT',
 }
 
 // Shared pool cache to avoid creating a new pool per request
@@ -75,7 +76,7 @@ export class PostgresConnector implements IDataConnector {
   }
 
   /** Columns that are JSONB type — empty strings must be null or valid JSON */
-  private readonly JSONB_COLUMNS = new Set(['metadata'])
+  private readonly JSONB_COLUMNS = new Set(['metadata', 'rules'])
 
   /** Sanitize a value before inserting/updating: handle JSONB columns */
   private sanitizeValue(column: string, value: unknown): unknown {
@@ -150,6 +151,7 @@ export class PostgresConnector implements IDataConnector {
     'user-departments':           'user_department_id',
     'assets':                     'asset_id',
     'asset-allocations':          'allocation_id',
+    'cost-allocation-templates':  'template_id',
   }
 
   private async generateSequentialId(entity: string): Promise<string> {
