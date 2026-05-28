@@ -48,7 +48,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 
   const industryName = INDUSTRY_MAP[tenant.industry_type] || 'Cửa hàng';
-  const title = `${shop.name} | ${tenant.name} – Hệ thống quản lý bán hàng ONI.vn`;
+  const title = `${shop.name} | ${tenant.name} – Nền tảng quản trị doanh nghiệp SME ONI.vn`;
   const description = `Hệ thống POS, quản lý kho hàng và báo cáo doanh thu cho chi nhánh ${shop.name} thuộc chuỗi ${tenant.name} (${industryName}) trên nền tảng ONI.vn.`;
 
   return {

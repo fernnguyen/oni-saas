@@ -16,7 +16,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const admin = getSupabaseAdminClient();
   const { data: shop } = await admin.from('shops_view').select('name').eq('slug', slug).maybeSingle();
   if (!shop) return { title: 'ONI.vn' };
-  return { title: `${shop.name} | ONI.vn - Nền tảng quản lý bán hàng` };
+  return { title: `${shop.name} | ONI.vn - Nền tảng quản trị doanh nghiệp SME` };
 }
 
 // Each shop has its own subdomain: co-so-1.oni.vn → /s/co-so-1

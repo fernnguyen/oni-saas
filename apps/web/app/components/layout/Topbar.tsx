@@ -89,20 +89,27 @@ export function Topbar({
           {collapsed ? (
              <Image src="/logo.png" alt="ONI Logo" width={32} height={32} className="shrink-0 rounded-lg shadow-sm" />
           ) : (
-             <div className="flex items-center gap-2 overflow-hidden">
+             <div className="flex items-center gap-2.5 overflow-hidden">
                 <Image src="/logo.png" alt="ONI Logo" width={32} height={32} className="shrink-0 rounded-lg shadow-sm" />
-                <span className="font-bold text-slate-900 text-base tracking-wide truncate">
-                  ONI.vn
-                </span>
-                {context === 'super' ? (
-                  <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-medium shrink-0">
-                    SUPER
+                <div className="flex flex-col justify-center min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-extrabold text-slate-900 text-sm tracking-wide truncate">
+                      ONI.vn
+                    </span>
+                    {context === 'super' ? (
+                      <span className="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-medium shrink-0">
+                        SUPER
+                      </span>
+                    ) : (
+                      <span className="text-[9px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-medium shrink-0">
+                        BETA
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[8px] font-black tracking-[0.25em] bg-gradient-to-r from-red-600 via-rose-600 to-orange-500 bg-clip-text text-transparent uppercase leading-none mt-0.5 shrink-0">
+                    MINI ERP
                   </span>
-                ) : (
-                  <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-medium shrink-0">
-                    BETA
-                  </span>
-                )}
+                </div>
              </div>
           )}
           {/* Absolute toggle button on the border */}

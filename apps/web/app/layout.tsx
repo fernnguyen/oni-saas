@@ -9,7 +9,7 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://oni.vn';
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: 'ONI.vn – Nền tảng quản lý bán hàng SaaS',
+    default: 'ONI.vn – Nền tảng quản trị doanh nghiệp SME',
     template: '%s | ONI.vn',
   },
   description:
@@ -19,13 +19,13 @@ export const metadata: Metadata = {
     locale: 'vi_VN',
     url: siteUrl,
     siteName: 'ONI.vn',
-    title: 'ONI.vn – Nền tảng quản lý bán hàng SaaS',
+    title: 'ONI.vn – Nền tảng quản trị doanh nghiệp SME',
     description:
       'Hệ thống POS & quản lý kho đa chi nhánh. Dữ liệu thuộc về bạn — BYOD (Bring Your Own Database). AI, Zalo, Telegram tích hợp sẵn.',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'ONI.vn – Nền tảng quản lý bán hàng SaaS',
+    title: 'ONI.vn – Nền tảng quản trị doanh nghiệp SME',
     description:
       'Hệ thống POS & quản lý kho đa chi nhánh. Dữ liệu thuộc về bạn — BYOD (Bring Your Own Database). AI, Zalo, Telegram tích hợp sẵn.',
   },

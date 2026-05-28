@@ -453,7 +453,7 @@ export default async function Image({ params }: Props) {
                     marginTop: '1px',
                   }}
                 >
-                  Nền tảng quản lý bán hàng đa chi nhánh chuyên nghiệp
+                  Nền tảng quản trị doanh nghiệp SME chuyên nghiệp
                 </span>
               </div>
             </div>
