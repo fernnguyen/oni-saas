@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireShopAccess } from '@/lib/server/shopAccess';
 import { invalidate } from '@/lib/server/cache';
-import { handleApiError } from '../../../_helpers';
+import { handleApiError } from '@/app/api/shops/_helpers';
 
 export async function DELETE(
   req: NextRequest,

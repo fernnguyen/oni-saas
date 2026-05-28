@@ -123,7 +123,7 @@ const shopModules = [
   { href: '/products', label: 'Sản phẩm', description: 'Quản lý giá, kho và SKU.', icon: IconProducts },
   { href: '/categories', label: 'Danh mục', description: 'Sắp xếp phân nhóm hàng hóa.', icon: IconCategories },
   { href: '/suppliers', label: 'Nhà cung cấp', description: 'Quản lý đầu mối nhập hàng.', icon: IconSuppliers },
-  { href: '/employees', label: 'Nhân viên', description: 'Quản lý hồ sơ doanh số.', icon: IconEmployees },
+  { href: '/settings/employees', label: 'Nhân viên', description: 'Quản lý hồ sơ doanh số.', icon: IconEmployees },
   { href: '/inventory', label: 'Kho', description: 'Quản lý tồn và nhập xuất kho.', icon: IconInventory },
   { href: '/reports/overview', label: 'Báo cáo', description: 'Xem chi tiết doanh số & đối soát.', icon: IconReports },
 ];

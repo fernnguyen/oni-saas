@@ -16,6 +16,16 @@ export async function PATCH(
     const body = await req.json();
     const data = departmentUpdateSchema.parse(body);
 
+    if (data.code) {
+      const existing = await connector.list('departments', {
+        filters: { code: data.code }
+      });
+      const other = existing.data?.find((d: any) => d.id !== id);
+      if (other) {
+        return NextResponse.json({ error: 'Mã bộ phận đã tồn tại trong chi nhánh này. Vui lòng chọn mã khác.' }, { status: 400 });
+      }
+    }
+
     const updated = await connector.update('departments', id, data);
     invalidate(shopId, 'departments');
 
