@@ -33,6 +33,8 @@ export const stockMovementCreateSchema = z.object({
     amount: z.string(),
     method: z.string()
   })).optional().default([]),
+  warehouse_id: z.string().optional().default(''),
+  to_warehouse_id: z.string().optional().default(''),
 })
 
 export const stockMovementUpdateSchema = stockMovementCreateSchema.partial()

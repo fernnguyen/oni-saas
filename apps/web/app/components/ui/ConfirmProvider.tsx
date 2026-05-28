@@ -9,6 +9,7 @@ interface ConfirmOptions {
   confirmLabel?: string
   cancelLabel?: string
   variant?: 'danger' | 'default'
+  onConfirm?: () => Promise<any>
 }
 
 type ConfirmFn = (options: ConfirmOptions) => Promise<boolean>
@@ -21,6 +22,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
     options: ConfirmOptions
     resolve: (v: boolean) => void
   } | null>(null)
+  const [loading, setLoading] = useState(false)
 
   const confirm: ConfirmFn = useCallback((options) => {
     return new Promise((resolve) => {
@@ -31,11 +33,25 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
   function handleClose() {
     state?.resolve(false)
     setState(null)
+    setLoading(false)
   }
 
-  function handleConfirm() {
-    state?.resolve(true)
-    setState(null)
+  async function handleConfirm() {
+    if (state?.options.onConfirm) {
+      setLoading(true)
+      try {
+        await state.options.onConfirm()
+        state.resolve(true)
+        setState(null)
+      } catch (e) {
+        console.error('Error inside confirm callback:', e)
+      } finally {
+        setLoading(false)
+      }
+    } else {
+      state?.resolve(true)
+      setState(null)
+    }
   }
 
   return (
@@ -51,6 +67,8 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
           confirmLabel={state.options.confirmLabel}
           cancelLabel={state.options.cancelLabel}
           variant={state.options.variant}
+          loading={loading}
+          disableOutsideClick={loading}
         />
       )}
     </ConfirmContext.Provider>

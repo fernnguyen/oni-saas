@@ -101,6 +101,7 @@ export const products = pgTable('products', {
   stock_qty: varchar('stock_qty', { length: 50 }),
   metadata: jsonb('metadata'),
   has_bom: varchar('has_bom', { length: 10 }).default('FALSE'),
+  item_class: varchar('item_class', { length: 50 }).default('commercial'),
   // ── Variant / Modifier System (Sprint 1) ──────────────────────────────────
   product_type: varchar('product_type', { length: 20 }).default('simple'),
   parent_id: varchar('parent_id', { length: 255 }),
@@ -160,6 +161,9 @@ export const cashbook = pgTable('cashbook', {
   date: varchar('date', { length: 50 }),
   fund_id: varchar('fund_id', { length: 255 }),
   balance_after_transaction: varchar('balance_after_transaction', { length: 50 }),
+  department_code: varchar('department_code', { length: 50 }),
+  parent_transaction_id: varchar('parent_transaction_id', { length: 255 }),
+  is_virtual: varchar('is_virtual', { length: 10 }).default('FALSE'),
 });
 
 export const payment_funds = pgTable('payment_funds', {
@@ -173,6 +177,8 @@ export const payment_funds = pgTable('payment_funds', {
   initial_balance: varchar('initial_balance', { length: 50 }).default('0'),
   current_balance: varchar('current_balance', { length: 50 }).default('0'),
   is_default: varchar('is_default', { length: 10 }).default('FALSE'),
+  account_name: varchar('account_name', { length: 255 }),
+  qr_template: varchar('qr_template', { length: 50 }).default('compact2'),
 });
 
 export const shop_shifts = pgTable('shop_shifts', {
@@ -222,6 +228,7 @@ export const inventory = pgTable('inventory', {
   sku: varchar('sku', { length: 255 }),
   variant_id: varchar('variant_id', { length: 255 }),
   branch_id: varchar('branch_id', { length: 255 }),
+  warehouse_id: varchar('warehouse_id', { length: 255 }),
   stock_qty: varchar('stock_qty', { length: 50 }),
   min_stock: varchar('min_stock', { length: 50 }),
   unit_cost: varchar('unit_cost', { length: 50 }),
@@ -240,6 +247,8 @@ export const stock_movements = pgTable('stock_movements', {
   qty: varchar('qty', { length: 50 }),
   unit_cost: varchar('unit_cost', { length: 50 }),
   branch_id: varchar('branch_id', { length: 255 }),
+  warehouse_id: varchar('warehouse_id', { length: 255 }),
+  to_warehouse_id: varchar('to_warehouse_id', { length: 255 }),
   supplier_id: varchar('supplier_id', { length: 255 }),
   reference_no: varchar('reference_no', { length: 255 }),
   employee_id: varchar('employee_id', { length: 255 }),
@@ -501,4 +510,105 @@ export const product_purchase_history = pgTable('product_purchase_history', {
 }, (table) => ({
   prodTenantIdx: index('idx_pph_prod_tenant').on(table.product_id, table.tenant_id),
 }));
+
+// ── Bảng Phòng ban toàn hệ thống (Departments) ───────────────────────────
+export const departments = pgTable('departments', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  branch_id: varchar('branch_id', { length: 255 }).notNull(),
+  name: varchar('name', { length: 255 }).notNull(), // Lễ tân, Buồng phòng, Bếp...
+  code: varchar('code', { length: 50 }).notNull(), // lodging_hskp, fnb_kitchen...
+  manager_id: varchar('manager_id', { length: 255 }), // Trưởng bộ phận (user_id)
+}, (table) => ({
+  deptTenantBranchIdx: index('idx_dept_tenant_branch').on(table.tenant_id, table.branch_id),
+}));
+
+// ── Bảng Liên kết Nhân sự - Phòng ban (User Departments) ──────────────────
+export const user_departments = pgTable('user_departments', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  user_id: varchar('user_id', { length: 255 }).notNull(),
+  department_id: varchar('department_id', { length: 255 }).notNull(),
+  is_manager: varchar('is_manager', { length: 10 }).default('FALSE'),
+}, (table) => ({
+  userDeptTenantIdx: index('idx_ud_tenant_user').on(table.tenant_id, table.user_id),
+}));
+
+// ── Bảng Quản lý Tài sản dùng chung (Assets) ─────────────────────────────
+export const assets = pgTable('assets', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  branch_id: varchar('branch_id', { length: 255 }),
+  name: varchar('name', { length: 255 }).notNull(), // Máy siêu âm, ga trải giường...
+  unit: varchar('unit', { length: 50 }).notNull(), // chiếc, cái, bộ...
+  type: varchar('type', { length: 50 }).notNull(), // 'ccdc' | 'tscd'
+  original_value: varchar('original_value', { length: 50 }).notNull(), // Nguyên giá
+  salvage_value: varchar('salvage_value', { length: 50 }).default('0'), // Giá trị thanh lý
+  purchase_date: varchar('purchase_date', { length: 50 }).notNull(),
+  depreciation_months: varchar('depreciation_months', { length: 50 }).notNull(), // Số tháng khấu hao
+  depreciated_value: varchar('depreciated_value', { length: 50 }).default('0'), // Lũy kế đã khấu hao
+  status: varchar('status', { length: 50 }).default('active'), // active | depreciated | disposed
+  // ── Mở rộng nghiệp vụ đa ngành ──────────────────────────────────────────
+  serial_no: varchar('serial_no', { length: 255 }), // Sê-ri máy
+  manufacturer: varchar('manufacturer', { length: 255 }),
+  warranty_expiry: varchar('warranty_expiry', { length: 50 }),
+  supplier_id: varchar('supplier_id', { length: 255 }), // Link sang bảng suppliers
+}, (table) => ({
+  assetTenantBranchIdx: index('idx_asset_tenant_branch').on(table.tenant_id, table.branch_id),
+}));
+
+// ── Bảng Bàn giao Tài sản (Asset Allocations) ────────────────────────────
+export const asset_allocations = pgTable('asset_allocations', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  asset_id: varchar('asset_id', { length: 255 }).notNull(),
+  department_code: varchar('department_code', { length: 50 }).notNull(), // Map trực tiếp sang departments.code (Cost Center)
+  qty: varchar('qty', { length: 50 }).notNull(),
+  allocated_at: varchar('allocated_at', { length: 50 }).notNull(),
+}, (table) => ({
+  allocTenantIdx: index('idx_alloc_tenant').on(table.tenant_id),
+}));
+
+// ── Bảng Mẫu Phân bổ Chi phí (Cost Allocation Templates) ──────────────────
+export const cost_allocation_templates = pgTable('cost_allocation_templates', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  branch_id: varchar('branch_id', { length: 255 }).notNull(),
+  name: varchar('name', { length: 255 }).notNull(), // Tên mẫu (ví dụ: "Phân bổ Điện nước")
+  rules: jsonb('rules').notNull(), // Mảng JSON chứa [{ department_code: string, percentage: number }]
+}, (table) => ({
+  catTenantBranchIdx: index('idx_cat_tenant_branch').on(table.tenant_id, table.branch_id),
+}));
+
+// ── Bảng Kho hàng (Warehouses) ──────────────────────────────────────────
+export const warehouses = pgTable('warehouses', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  branch_id: varchar('branch_id', { length: 255 }).notNull(),
+  name: varchar('name', { length: 255 }).notNull(),
+  code: varchar('code', { length: 50 }).notNull(),
+  type: varchar('type', { length: 50 }).default('custom'), // 'sale' | 'supply' | 'asset' | 'custom'
+  active: varchar('active', { length: 10 }).default('TRUE'),
+}, (table) => ({
+  whTenantBranchIdx: index('idx_wh_tenant_branch').on(table.tenant_id, table.branch_id),
+}));
+
+// ── Bảng Nhật ký Đối soát Webhook SePay (SePay Webhook Logs) ─────────────
+export const sepayWebhookLogs = pgTable('sepay_webhook_logs', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  branch_id: varchar('branch_id', { length: 255 }),
+  transaction_id: varchar('transaction_id', { length: 255 }),
+  bank_account: varchar('bank_account', { length: 255 }),
+  transfer_amount: varchar('transfer_amount', { length: 50 }),
+  transfer_type: varchar('transfer_type', { length: 50 }),
+  content: text('content'),
+  gateway: varchar('gateway', { length: 255 }),
+  reference_code: varchar('reference_code', { length: 255 }),
+  status: varchar('status', { length: 50 }), // success, ignored, failed, disabled
+  error_message: text('error_message'),
+}, (table) => ({
+  whSepayLogIdx: index('idx_sepay_log_tenant_branch').on(table.tenant_id, table.branch_id),
+}));
+
 

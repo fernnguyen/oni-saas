@@ -39,6 +39,13 @@ const ENTITY_PREFIXES: Record<string, string> = {
   'goods-receipt-notes':        'GRN',
   'goods-receipt-note-items':   'GRI',
   'product-purchase-history':   'PPH',
+  'departments':                'DEP',
+  'user-departments':           'USD',
+  'assets':                     'AST',
+  'asset-allocations':          'ATA',
+  'cost-allocation-templates':  'CAT',
+  'warehouses':                  'WH',
+  'sepay-webhook-logs':          'SWL',
 }
 
 export class MysqlConnector implements IDataConnector {
@@ -71,6 +78,9 @@ export class MysqlConnector implements IDataConnector {
     'purchase-requisition-items',
     'purchase-order-items',
     'goods-receipt-note-items',
+    'user-departments',
+    'assets',
+    'asset-allocations',
   ]
 
   private async generateSequentialId(entity: string): Promise<string> {
@@ -145,6 +155,12 @@ export class MysqlConnector implements IDataConnector {
     'goods-receipt-notes':        'grn_id',
     'goods-receipt-note-items':   'item_id',
     'product-purchase-history':   'history_id',
+    'departments':                'department_id',
+    'user-departments':           'user_department_id',
+    'assets':                     'asset_id',
+    'asset-allocations':          'allocation_id',
+    'cost-allocation-templates':  'template_id',
+    'warehouses':                 'warehouse_id',
   }
 
   private formatRow(entity: string, row: any): Record<string, string> {
@@ -301,6 +317,12 @@ export class MysqlConnector implements IDataConnector {
       insertData.sku = insertData.id
     }
 
+    if (entity === 'employees' && (!insertData.employee_code || insertData.employee_code.trim() === '')) {
+      const match = insertData.id.match(/-(\d+)$/)
+      const seq = match ? match[1] : '10001'
+      insertData.employee_code = `NV${seq}`
+    }
+
     const columns = Object.keys(insertData).map(k => `\`${k}\``).join(', ')
     const placeholders = Object.keys(insertData).map(() => '?').join(', ')
     const values = Object.values(insertData)
@@ -414,6 +436,11 @@ export class MysqlConnector implements IDataConnector {
       }
       
       if (entity === 'products' && !insertData.sku) insertData.sku = insertData.id
+      if (entity === 'employees' && (!insertData.employee_code || insertData.employee_code.trim() === '')) {
+        const match = insertData.id.match(/-(\d+)$/)
+        const seq = match ? match[1] : '10001'
+        insertData.employee_code = `NV${seq}`
+      }
       insertRows.push(insertData)
     }
 

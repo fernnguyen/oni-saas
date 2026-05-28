@@ -222,6 +222,21 @@ export async function POST(
 
     // 3. Create stock movements and update inventory quantities
     const totalPaidAmt = payments.reduce((sum: number, p: { amount: string }) => sum + parseFloat(p.amount || '0'), 0)
+    let resolvedWarehouseId = body.warehouse_id || ''
+    const toWarehouseId = body.to_warehouse_id || ''
+
+    // Resolve the branch's default warehouse if none is specified (backward-compatibility fallback)
+    if (!resolvedWarehouseId) {
+      const whRes = await connector.list('warehouses', {
+        filters: { code: 'sale' },
+        limit: 1
+      });
+      if (whRes.total > 0) {
+        resolvedWarehouseId = whRes.data[0].id;
+      } else {
+        resolvedWarehouseId = 'sale';
+      }
+    }
     
     // Save movements
     const createdMovements: Record<string, string>[] = []
@@ -240,6 +255,8 @@ export async function POST(
         qty: String(pItem.qty),
         unit_cost: pItem.unitCost,
         branch_id: branch_id,
+        warehouse_id: resolvedWarehouseId,
+        to_warehouse_id: toWarehouseId,
         supplier_id: supplier_id,
         reference_no: reference_no,
         reason: reason,
@@ -259,22 +276,34 @@ export async function POST(
         await connector.delete('stock-movements', (createdSM as any).movement_id || createdSM.id).catch(() => {})
       })
 
-      // If completed, update inventory stock_qty and cost_price
+      // If completed, update inventory stock_qty and cost_price per warehouse
       if (workflow_status === 'completed') {
         const delta = calcDelta(type, pItem.qty)
 
         let invListResult = await connector.list('inventory', {
-          page: 1, limit: 10,
-          filters: { product_id: pItem.productId }
+          page: 1, limit: 1,
+          filters: { product_id: pItem.productId, warehouse_id: resolvedWarehouseId }
         })
-        const allInv = invListResult.data as Record<string, string>[]
-        let invRow = allInv.find(i => i.branch_id === branch_id)
-        if (!invRow && branch_id !== '') {
-          invRow = allInv.find(i => i.branch_id === '')
+
+        // Self-healing fallback: if no row is found for this warehouse, check for any legacy row with empty/default warehouse_id
+        if (invListResult.data.length === 0) {
+          const fallbackRes = await connector.list('inventory', {
+            page: 1, limit: 100,
+            filters: { product_id: pItem.productId }
+          })
+          const matched = (fallbackRes.data as any[]).find(
+            i => !i.warehouse_id || i.warehouse_id === '' || i.warehouse_id === 'default'
+          )
+          if (matched) {
+            // Upgrade legacy row to use the resolved warehouse ID
+            await connector.update('inventory', matched.inventory_id as string, {
+              warehouse_id: resolvedWarehouseId
+            })
+            invListResult = { data: [ { ...matched, warehouse_id: resolvedWarehouseId } ], total: 1, page: 1, limit: 1 }
+          }
         }
-        if (!invRow) {
-          invRow = allInv[0]
-        }
+
+        const invRow = invListResult.data[0] as any
 
         if (invRow) {
           const oldQty = parseFloat(invRow.stock_qty || '0')
@@ -290,6 +319,7 @@ export async function POST(
           const createdInv = await connector.create('inventory', {
             product_id: pItem.productId,
             branch_id: branch_id || '',
+            warehouse_id: resolvedWarehouseId,
             stock_qty: String(delta),
             min_stock: '0',
             sku: sku || ''
@@ -297,6 +327,57 @@ export async function POST(
           tx.add(async () => {
             await connector.delete('inventory', (createdInv as any).inventory_id).catch(() => {})
           })
+        }
+
+        // Double-sided adjustment for Warehouse Transfers (transfer_out triggers destination increment)
+        if (type === 'transfer_out' && toWarehouseId) {
+          const transferQty = Math.abs(pItem.qty)
+
+          let destInvRes = await connector.list('inventory', {
+            page: 1, limit: 1,
+            filters: { product_id: pItem.productId, warehouse_id: toWarehouseId }
+          })
+
+          if (destInvRes.data.length === 0) {
+            const fallbackRes = await connector.list('inventory', {
+              page: 1, limit: 100,
+              filters: { product_id: pItem.productId }
+            })
+            const matched = (fallbackRes.data as any[]).find(
+              i => !i.warehouse_id || i.warehouse_id === '' || i.warehouse_id === 'default'
+            )
+            if (matched) {
+              await connector.update('inventory', matched.inventory_id as string, {
+                warehouse_id: toWarehouseId
+              })
+              destInvRes = { data: [ { ...matched, warehouse_id: toWarehouseId } ], total: 1, page: 1, limit: 1 }
+            }
+          }
+
+          if (destInvRes.data.length > 0) {
+            const destInv = destInvRes.data[0] as any
+            const oldDestQty = parseFloat(destInv.stock_qty || '0')
+            const newDestQty = oldDestQty + transferQty
+
+            await connector.update('inventory', destInv.inventory_id as string, {
+              stock_qty: String(newDestQty),
+            })
+            tx.add(async () => {
+              await connector.update('inventory', destInv.inventory_id as string, { stock_qty: String(oldDestQty) }).catch(() => {})
+            })
+          } else {
+            const createdDestInv = await connector.create('inventory', {
+              product_id: pItem.productId,
+              branch_id: branch_id || '',
+              warehouse_id: toWarehouseId,
+              stock_qty: String(transferQty),
+              min_stock: '0',
+              sku: sku || '',
+            } as Record<string, string>)
+            tx.add(async () => {
+              await connector.delete('inventory', (createdDestInv as any).inventory_id).catch(() => {})
+            })
+          }
         }
 
         // Update inventory batches if batch targeted

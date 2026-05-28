@@ -134,6 +134,23 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
   const [showConfirmReturn, setShowConfirmReturn] = useState(false)
   const [printTarget, setPrintTarget] = useState<Row | null>(null)
 
+  const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null)
+  const [selectedFundIdForCorrection, setSelectedFundIdForCorrection] = useState('')
+  const [initialFundId, setInitialFundId] = useState<string | null>(null)
+  const [savingPaymentCorrection, setSavingPaymentCorrection] = useState(false)
+
+  const { data: fundsData } = useQuery({
+    queryKey: ['payment-funds', shopId],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/payment-funds?active=TRUE`)
+      if (!res.ok) return []
+      const json = await res.json()
+      return (json.data || []) as Record<string, any>[]
+    },
+    enabled: !!shopId && !!selectedOrder,
+  })
+  const fundsList = fundsData || []
+
   const { data: settings } = useQuery({
     queryKey: ['settings', shopId],
     queryFn: async () => {
@@ -520,6 +537,72 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
     } catch (err) {
       console.error(err)
       toast.error('Có lỗi xảy ra khi in hóa đơn')
+    }
+  }
+
+  async function handleConfirmPaymentCorrection(p: Record<string, any>) {
+    console.log('[Payment Correction ERP] Triggered handleConfirmPaymentCorrection with:', p)
+    try {
+      const selectedFund = fundsList.find(f => f.id === selectedFundIdForCorrection)
+      if (!selectedFund) {
+        console.warn('[Payment Correction ERP] Fund not found for ID:', selectedFundIdForCorrection)
+        toast.error('Vui lòng chọn quỹ thanh toán hợp lệ')
+        return
+      }
+
+      let newMethod = 'bank_transfer'
+      if (selectedFund.type === 'cash') newMethod = 'cash'
+      else if (selectedFund.type === 'wallet') newMethod = 'wallet'
+
+      console.log('[Payment Correction ERP] Old Method:', p.method, '-> New Method:', newMethod)
+      console.log('[Payment Correction ERP] Old Fund ID:', p.fund_id, '-> New Fund ID:', selectedFund.id)
+
+      if (p.method === newMethod && (initialFundId === selectedFund.id || p.fund_id === selectedFund.id)) {
+        console.log('[Payment Correction ERP] No method or fund change detected. Exiting edit.')
+        toast.info('Phương thức thanh toán và quỹ nhận không thay đổi so với hiện tại')
+        setEditingPaymentId(null)
+        return
+      }
+
+      console.log('[Payment Correction ERP] Opening confirm dialog...')
+      await confirm({
+        title: 'Xác nhận đổi phương thức thanh toán',
+        description: 'Hệ thống sẽ cập nhật lại phương thức thanh toán của giao dịch này và đồng bộ về Sổ quỹ. Bạn có chắc chắn muốn tiếp tục?',
+        confirmLabel: 'Đồng ý',
+        cancelLabel: 'Bỏ qua',
+        onConfirm: async () => {
+          setSavingPaymentCorrection(true)
+          try {
+            const res = await fetch(`/api/shops/${shopId}/payments/${p.payment_id || p.id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ method: newMethod, fund_id: selectedFund.id })
+            })
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({}))
+              throw new Error(err.error || 'Cập nhật dòng tiền thất bại')
+            }
+
+            toast.success('Đã đổi phương thức thanh toán thành công!')
+            setEditingPaymentId(null)
+            
+            queryClient.invalidateQueries({ queryKey: ['payments', shopId, selectedOrder?.order_id] })
+            queryClient.invalidateQueries({ queryKey: ['cashbook', shopId, selectedOrder?.order_id] })
+            queryClient.invalidateQueries({ queryKey: ['orders', shopId] })
+          } catch (err: any) {
+            console.error('[Payment Correction ERP] Error inside confirm callback:', err)
+            toast.error(err.message || 'Lỗi khi cập nhật thanh toán')
+            throw err
+          } finally {
+            setSavingPaymentCorrection(false)
+          }
+        }
+      })
+    } catch (err: any) {
+      console.error('[Payment Correction ERP] Error occurred:', err)
+      toast.error(err.message || 'Lỗi khi cập nhật thanh toán')
+    } finally {
+      setSavingPaymentCorrection(false)
     }
   }
 
@@ -928,26 +1011,108 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
                 <div className="space-y-2">
                   {(paymentsData?.data ?? []).map((p) => {
                     const cbId = paymentCbMap.get(p.payment_id || p.id)
+                    const isEditing = editingPaymentId === (p.payment_id || p.id)
                     return (
-                      <div key={p.payment_id || p.id} className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2 text-sm">
-                        <div>
-                          <span className="font-medium text-slate-900">{METHOD_LABEL[p.method] ?? p.method}</span>
-                          {cbId && (
-                            <span 
-                              className="ml-2 cursor-pointer text-xs font-mono text-slate-500 hover:text-slate-700" 
-                              title="Nhấn để sao chép mã" 
-                              onClick={() => { 
-                                navigator.clipboard.writeText(cbId)
-                                toast.success('Đã copy mã: ' + cbId) 
-                              }}
-                            >
-                              (#{cbId.split('-')[0] + '-' + (cbId.split('-')[1] || '')})
-                            </span>
-                          )}
-                          {p.reference_no && <span className="ml-2 text-slate-500">#{p.reference_no}</span>}
-                          {p.note && <span className="ml-2 text-slate-400">— {p.note}</span>}
+                      <div key={p.payment_id || p.id} className="flex flex-col gap-2 rounded-lg border border-slate-100 px-3 py-2 text-sm bg-white shadow-3xs">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <span className="font-semibold text-slate-800">{METHOD_LABEL[p.method] ?? p.method}</span>
+                            {cbId && (
+                              <span 
+                                className="ml-2 cursor-pointer text-[10px] font-mono text-slate-400 hover:text-slate-600" 
+                                title="Nhấn để sao chép mã" 
+                                onClick={() => { 
+                                  navigator.clipboard.writeText(cbId)
+                                  toast.success('Đã copy mã: ' + cbId) 
+                                }}
+                              >
+                                (#{cbId.split('-')[0] + '-' + (cbId.split('-')[1] || '')})
+                              </span>
+                            )}
+                            {p.reference_no && <span className="ml-2 text-slate-500 text-xs">#{p.reference_no}</span>}
+                            {p.note && <span className="ml-2 text-slate-400 text-xs">— {p.note}</span>}
+
+                            {selectedOrder.status !== 'cancelled' && !isEditing && permissions.includes('orders.edit') && (
+                              <button
+                                onClick={async () => {
+                                  setEditingPaymentId(p.payment_id || p.id)
+                                  let currentFundId = ''
+                                  // Find the fund_id from the corresponding cashbook entry
+                                  const matchingCb = (cashbookData?.data ?? []).find(cb => cb.id === cbId || cb.transaction_id === cbId)
+                                  currentFundId = matchingCb?.fund_id || ''
+
+                                  // Fresh cashbook reload from server
+                                  try {
+                                    const cbRes = await fetch(`/api/shops/${shopId}/cashbook?reference_id=${selectedOrder.order_id}&limit=100`)
+                                    if (cbRes.ok) {
+                                      const cbData = await cbRes.json()
+                                      const cbList = cbData.data || []
+                                      const freshCb = cbList.find((cb: any) => cb.id === cbId || cb.transaction_id === cbId)
+                                      if (freshCb?.fund_id) {
+                                        currentFundId = freshCb.fund_id
+                                      }
+                                    }
+                                  } catch (e) {
+                                    console.error('Failed to load fresh cashbook entry:', e)
+                                  }
+
+                                  setSelectedFundIdForCorrection(currentFundId)
+                                  setInitialFundId(currentFundId)
+                                }}
+                                className="ml-3 text-primary hover:underline text-[11px] font-bold"
+                              >
+                                đổi
+                              </button>
+                            )}
+                          </div>
+                          <span className={`font-bold ${Number(p.amount) < 0 ? 'text-red-600' : 'text-green-700'}`}>{fmtVND(p.amount)}</span>
                         </div>
-                        <span className={`font-semibold ${Number(p.amount) < 0 ? 'text-red-600' : 'text-green-700'}`}>{fmtVND(p.amount)}</span>
+
+                        {isEditing && (
+                          <div className="mt-1 flex flex-col gap-2.5 p-2.5 rounded-lg bg-slate-50 border border-slate-200/60 bg-slate-50/50">
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Chọn Quỹ / Sổ Quỹ mới</label>
+                              <select
+                                value={selectedFundIdForCorrection}
+                                onChange={(e) => setSelectedFundIdForCorrection(e.target.value)}
+                                className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-750 focus:border-primary focus:outline-none"
+                              >
+                                <option value="">-- Chọn quỹ nhận --</option>
+                                {fundsList.map((fund) => (
+                                  <option key={fund.id} value={fund.id}>
+                                    {fund.name} {fund.bank_name ? `(${fund.bank_name})` : ''} {fund.id === initialFundId ? ' (Hiện tại)' : ''}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="flex justify-end gap-2">
+                              <button
+                                onClick={() => setEditingPaymentId(null)}
+                                disabled={savingPaymentCorrection}
+                                className="rounded-md border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-650 hover:bg-slate-50 transition-colors"
+                              >
+                                Hủy
+                              </button>
+                              <button
+                                onClick={() => handleConfirmPaymentCorrection(p)}
+                                disabled={savingPaymentCorrection || !selectedFundIdForCorrection || selectedFundIdForCorrection === initialFundId}
+                                className="rounded-md bg-primary hover:bg-primary-dark px-3 py-1 text-xs font-bold text-white shadow-3xs disabled:opacity-50 transition-all flex items-center gap-1.5"
+                              >
+                                {savingPaymentCorrection ? (
+                                  <>
+                                    <svg className="animate-spin h-3.5 w-3.5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                                    </svg>
+                                    <span>Đang lưu...</span>
+                                  </>
+                                ) : (
+                                  'Lưu'
+                                )}
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )
                   })}

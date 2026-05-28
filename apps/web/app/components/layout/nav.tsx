@@ -148,7 +148,6 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
         { href: joinPath(base, '/resources'),  label: `Quản lý ${vertical.resourceLabel || 'vị trí'}`, icon: IconTable, permission: 'products.view', featureGate: 'location_resource' },
         { href: joinPath(base, '/products'),   label: 'Sản phẩm',    icon: IconBox,       permission: 'products.view' },
         { href: joinPath(base, '/categories'), label: 'Danh mục',    icon: IconGrid,      permission: 'products.view' },
-        { href: joinPath(base, '/employees'),  label: 'Nhân viên',   icon: IconUsers,     permission: 'dashboard.view' },
       ],
     },
     {
@@ -185,7 +184,11 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
     {
       label: 'Quản lý chi nhánh',
       items: [
-        { href: options.settingsHref ?? '#',   label: 'Cài đặt',         icon: IconSettings, permission: 'settings.view' },
+        { href: options.settingsHref ?? '#',   label: 'Cài đặt',         icon: IconSettings, permission: 'settings.view', exact: true },
+        { href: joinPath(base, '/settings/departments'), label: 'Phòng ban', icon: IconUsers, permission: 'departments.view' },
+        { href: joinPath(base, '/settings/employees'),  label: 'Nhân viên',   icon: IconUsers,     permission: 'dashboard.view' },
+        { href: joinPath(base, '/settings/cost-allocation'), label: 'Phân bổ chi phí', icon: IconChart, permission: 'settings.view' },
+        { href: joinPath(base, '/settings/assets'), label: 'Tài sản', icon: IconWarehouse, permission: 'assets.view' },
       ],
     },
     {
@@ -194,7 +197,7 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
         { href: options.tenantBillingHref ?? '#', label: 'Gói dịch vụ', icon: IconMoney,    permission: 'settings.view' },
         { href: options.tenantTeamHref ?? '#',    label: 'Thành viên',      icon: IconUsers,    permission: 'users.view' },
         { href: options.tenantRolesHref ?? '#',   label: 'Phân quyền',      icon: IconShield,   permission: 'roles.view' },
-        { href: options.tenantSettingsHref ?? '#', label: 'Cài đặt tổ chức', icon: IconSettings, permission: 'settings.view' },
+        { href: options.tenantSettingsHref ?? '#', label: 'Cài đặt tổ chức', icon: IconSettings, permission: 'settings.view', exact: true },
       ],
     },
   ]);

@@ -15,10 +15,15 @@ export async function GET(
 
     const { searchParams } = new URL(req.url)
     const branch_id = searchParams.get('branch_id')
+    const active = searchParams.get('active')
 
     const filters: Record<string, string> = {}
     if (branch_id) filters.branch_id = branch_id
-    filters.active = 'ALL'
+    if (active) {
+      filters.active = active.toUpperCase()
+    } else {
+      filters.active = 'ALL'
+    }
 
     let result = await connector.list('payment-funds', { page: 1, limit: 100, filters })
 
@@ -101,11 +106,13 @@ export async function POST(
       name: payload.name,
       type: payload.type,
       account_number: payload.account_number ?? '',
+      account_name: payload.account_name ?? '',
       bank_name: payload.bank_name ?? '',
       initial_balance: String(payload.initial_balance),
       current_balance: String(payload.initial_balance),
       is_default: payload.is_default ? 'TRUE' : 'FALSE',
       active: 'TRUE',
+      qr_template: payload.qr_template ?? 'compact2',
     })
 
     invalidate(shopId, 'payment-funds')

@@ -14,6 +14,8 @@ import { useSearchParams } from 'next/navigation'
 import { useDebounce } from 'use-debounce'
 import { HasPermission, PermissionsProvider } from '@/app/components/ui/PermissionGate'
 import { useConfirm } from '@/app/components/ui/ConfirmProvider'
+import { BANKS } from '@/lib/constants/banks'
+import { VietQRPreview } from '@/app/components/ui/VietQRPreview'
 
 const Clock = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
 const Wallet = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect x="2" y="4" width="20" height="16" rx="2" ry="2"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
@@ -40,15 +42,20 @@ const EMPTY_FORM = {
   reference_name: '',
   note: '',
   fund_id: '',
+  apply_allocation: false,
+  allocation_template_id: '',
+  department_code: '',
 }
 
 const EMPTY_FUND_FORM = {
   name: '',
   type: 'cash',
   account_number: '',
+  account_name: '',
   bank_name: '',
   initial_balance: 0,
   is_default: false,
+  qr_template: 'compact2',
 }
 
 const DENOMINATIONS = [500000, 200000, 100000, 50000, 20000, 10000, 5000, 2000, 1000]
@@ -94,7 +101,7 @@ const getPresetDates = (type: string) => {
   return { from, to }
 }
 
-export function CashbookClient({ shopId, permissions }: Props) {
+export function CashbookClient({ shopId, shopName, permissions }: Props) {
   const confirm = useConfirm()
   const queryClient = useQueryClient()
   const searchParams = useSearchParams()
@@ -176,6 +183,7 @@ export function CashbookClient({ shopId, permissions }: Props) {
 
   const [fundFormData, setFundFormData] = useState(EMPTY_FUND_FORM)
   const [fundSlideOpen, setFundSlideOpen] = useState(false)
+  const [qrPreviewTemplate, setQrPreviewTemplate] = useState<'compact' | 'compact2' | 'qr_only'>('compact2')
 
   // --- SHIFT MANAGEMENT & RECONCILIATION STATES ---
   const [auditSlideOpen, setAuditSlideOpen] = useState(false)
@@ -195,6 +203,28 @@ export function CashbookClient({ shopId, permissions }: Props) {
     },
   })
   const fundsList = fundsData?.data || []
+
+  // --- QUERY: LẤY DANH SÁCH MẪU PHÂN BỔ (CHO CASHBOOK FORM) ---
+  const { data: templatesRes } = useQuery({
+    queryKey: ['cost-allocation-templates', shopId],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/cost-allocations?limit=100`)
+      if (!res.ok) return { data: [], total: 0 }
+      return res.json() as Promise<{ data: Record<string, any>[]; total: number }>
+    },
+  })
+  const templatesList = templatesRes?.data || []
+
+  // --- QUERY: LẤY DANH SÁCH PHÒNG BAN (COST CENTERS) ---
+  const { data: deptsRes } = useQuery({
+    queryKey: ['departments', shopId],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/departments?limit=100`)
+      if (!res.ok) return { data: [], total: 0 }
+      return res.json() as Promise<{ data: Record<string, any>[]; total: number }>
+    },
+  })
+  const deptsList = deptsRes?.data || []
 
   // --- QUERY: LẤY DANH SÁCH GIAO DỊCH CASHBOOK + SỐ DƯ ĐỘNG ---
   const { data, isLoading, isFetching, refetch: refetchCashbook } = useQuery({
@@ -419,10 +449,13 @@ export function CashbookClient({ shopId, permissions }: Props) {
       name: fund.name || '',
       type: (fund.type as any) || 'cash',
       account_number: fund.account_number || '',
+      account_name: fund.account_name || '',
       bank_name: fund.bank_name || '',
       initial_balance: Number(fund.initial_balance || 0),
       is_default: fund.is_default === 'TRUE',
+      qr_template: fund.qr_template || 'compact2',
     })
+    setQrPreviewTemplate((fund.qr_template as any) || 'compact2')
     setFundSlideOpen(true)
   }
 
@@ -1215,7 +1248,7 @@ export function CashbookClient({ shopId, permissions }: Props) {
             </button>
             <button
               onClick={() => saveMutation.mutate(formData)}
-              disabled={saveMutation.isPending || formData.amount <= 0 || !formData.fund_id}
+              disabled={saveMutation.isPending || formData.amount <= 0 || !formData.fund_id || (!!(formData as any).apply_allocation && !(formData as any).allocation_template_id)}
               className={`rounded-xl px-4 py-2 text-sm font-medium text-white disabled:opacity-50 ${formData.type === 'receipt' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'}`}
             >
               {saveMutation.isPending ? 'Đang lưu...' : 'Lưu phiếu'}
@@ -1307,6 +1340,93 @@ export function CashbookClient({ shopId, permissions }: Props) {
               placeholder="Lý do thu chi..."
             />
           </div>
+
+          {/* COST ALLOCATION SECTION */}
+          {formData.type === 'payment' && (
+            <div className="pt-4 border-t border-slate-100 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="block text-sm font-semibold text-slate-700">Phân bổ chi phí bộ phận</span>
+                  <span className="block text-[11px] text-slate-400">Tự động bóc tách chi phí ảo cho các phòng ban (Cost Center)</span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={!!(formData as any).apply_allocation}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setFormData(prev => ({
+                      ...prev,
+                      apply_allocation: checked,
+                      department_code: checked ? '' : (prev as any).department_code,
+                      allocation_template_id: checked ? (templatesList[0]?.id || '') : '',
+                    }));
+                  }}
+                  className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
+                />
+              </div>
+
+              {!!(formData as any).apply_allocation ? (
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 mb-1">Mẫu phân bổ chi phí</label>
+                    <select
+                      value={(formData as any).allocation_template_id || ''}
+                      onChange={(e) => setFormData(prev => ({ ...prev, allocation_template_id: e.target.value }))}
+                      className="w-full rounded-lg border border-slate-200 px-2.5 py-2 text-xs focus:border-indigo-500 focus:outline-none bg-white"
+                    >
+                      <option value="">-- Chọn mẫu phân bổ --</option>
+                      {templatesList.map(t => (
+                        <option key={t.id} value={t.id}>{t.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Preview percentages */}
+                  {(() => {
+                    const tId = (formData as any).allocation_template_id;
+                    const selectedTemplate = templatesList.find(t => t.id === tId);
+                    if (!selectedTemplate) return null;
+                    let rules: Array<{ department_code: string; percentage: number }> = [];
+                    if (typeof selectedTemplate.rules === 'string') {
+                      try { rules = JSON.parse(selectedTemplate.rules); } catch {}
+                    } else if (Array.isArray(selectedTemplate.rules)) {
+                      rules = selectedTemplate.rules;
+                    }
+                    if (rules.length === 0) return null;
+                    return (
+                      <div className="space-y-1.5 pt-1 border-t border-slate-100">
+                        <span className="block text-[10px] font-bold text-slate-400 uppercase">Xem trước phân bổ ({Number(formData.amount).toLocaleString('vi-VN')}đ):</span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {rules.map(r => {
+                            const amt = Math.round((formData.amount * r.percentage) / 100);
+                            return (
+                              <span key={r.department_code} className="inline-flex text-[10px] bg-white border border-slate-200 px-2 py-0.5 rounded text-slate-600">
+                                <strong>{r.department_code}:</strong> {r.percentage}% ({amt.toLocaleString('vi-VN')}đ)
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">Gắn riêng cho bộ phận (Cost Center đơn)</label>
+                  <select
+                    value={(formData as any).department_code || ''}
+                    onChange={(e) => setFormData(prev => ({ ...prev, department_code: e.target.value }))}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs focus:border-indigo-500 focus:outline-none bg-white shadow-sm"
+                  >
+                    <option value="">-- Chi chung toàn chi nhánh --</option>
+                    {deptsList.map(d => (
+                      <option key={d.id} value={d.code}>{d.name} ({d.code})</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </SlideOver>
 
@@ -1365,13 +1485,18 @@ export function CashbookClient({ shopId, permissions }: Props) {
             <>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Tên ngân hàng *</label>
-                <input
-                  type="text"
+                <select
                   value={fundFormData.bank_name}
                   onChange={(e) => setFundFormData(prev => ({ ...prev, bank_name: e.target.value }))}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-orange-500 focus:outline-none shadow-sm bg-white"
-                  placeholder="VD: Vietcombank, Techcombank..."
-                />
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-orange-500 focus:outline-none shadow-sm bg-white cursor-pointer"
+                >
+                  <option value="">-- Chọn ngân hàng --</option>
+                  {BANKS.map((b) => (
+                    <option key={b.code} value={b.code}>
+                      {b.shortName} - {b.name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>
@@ -1383,6 +1508,51 @@ export function CashbookClient({ shopId, permissions }: Props) {
                   className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-orange-500 focus:outline-none shadow-sm bg-white"
                   placeholder="VD: 1029384756..."
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Tên chủ tài khoản *</label>
+                <input
+                  type="text"
+                  value={fundFormData.account_name}
+                  onChange={(e) => setFundFormData(prev => ({ ...prev, account_name: e.target.value.toUpperCase() }))}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-orange-500 focus:outline-none shadow-sm bg-white uppercase font-semibold"
+                  placeholder="VD: NGUYEN VAN A..."
+                />
+              </div>
+
+              {/* VietQR Live Preview Card */}
+              <div className="mt-4 p-4 rounded-2xl bg-slate-50 border border-slate-200/60 space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Xem trước hóa đơn QR (VietQR Card)</span>
+                  <select
+                    value={fundFormData.qr_template || 'compact2'}
+                    onChange={(e) => {
+                      const val = e.target.value as any
+                      setQrPreviewTemplate(val)
+                      setFundFormData(prev => ({ ...prev, qr_template: val }))
+                    }}
+                    className="rounded-lg border border-slate-250 bg-white px-2 py-1 text-[10px] text-slate-650 focus:outline-none cursor-pointer"
+                  >
+                    <option value="compact2">Rút gọn (compact2)</option>
+                    <option value="compact">Cổ điển (compact)</option>
+                    <option value="qr_only">Chỉ mã QR (qr_only)</option>
+                  </select>
+                </div>
+                
+                <VietQRPreview
+                  bankCode={fundFormData.bank_name}
+                  accountNumber={fundFormData.account_number}
+                  accountName={fundFormData.account_name || shopName}
+                  template={qrPreviewTemplate}
+                  amount={50000}
+                  addInfo="DEMO123456"
+                  className="border border-slate-200/80 bg-white shadow-3xs"
+                />
+                
+                <p className="text-[10px] text-slate-450 text-center leading-normal">
+                  Mã QR động sẽ tự hiển thị tại quầy POS và được in ra hóa đơn khi khách chọn chuyển khoản tương ứng với Quỹ này.
+                </p>
               </div>
             </>
           )}

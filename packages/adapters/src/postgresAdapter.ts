@@ -39,6 +39,13 @@ const ENTITY_PREFIXES: Record<string, string> = {
   'goods-receipt-notes':        'GRN',
   'goods-receipt-note-items':   'GRI',
   'product-purchase-history':   'PPH',
+  'departments':                'DEP',
+  'user-departments':           'USD',
+  'assets':                     'AST',
+  'asset-allocations':          'ATA',
+  'cost-allocation-templates':  'CAT',
+  'warehouses':                  'WH',
+  'sepay-webhook-logs':          'SWL',
 }
 
 // Shared pool cache to avoid creating a new pool per request
@@ -71,7 +78,7 @@ export class PostgresConnector implements IDataConnector {
   }
 
   /** Columns that are JSONB type — empty strings must be null or valid JSON */
-  private readonly JSONB_COLUMNS = new Set(['metadata'])
+  private readonly JSONB_COLUMNS = new Set(['metadata', 'rules'])
 
   /** Sanitize a value before inserting/updating: handle JSONB columns */
   private sanitizeValue(column: string, value: unknown): unknown {
@@ -106,6 +113,9 @@ export class PostgresConnector implements IDataConnector {
     'purchase-requisition-items',
     'purchase-order-items',
     'goods-receipt-note-items',
+    'user-departments',
+    'assets',
+    'asset-allocations',
   ]
 
   private readonly LEGACY_ID_MAP: Record<string, string> = {
@@ -139,6 +149,12 @@ export class PostgresConnector implements IDataConnector {
     'goods-receipt-notes':        'grn_id',
     'goods-receipt-note-items':   'item_id',
     'product-purchase-history':   'history_id',
+    'departments':                'department_id',
+    'user-departments':           'user_department_id',
+    'assets':                     'asset_id',
+    'asset-allocations':          'allocation_id',
+    'cost-allocation-templates':  'template_id',
+    'warehouses':                 'warehouse_id',
   }
 
   private async generateSequentialId(entity: string): Promise<string> {
@@ -355,6 +371,12 @@ export class PostgresConnector implements IDataConnector {
       insertData.sku = insertData.id
     }
 
+    if (entity === 'employees' && (!insertData.employee_code || insertData.employee_code.trim() === '')) {
+      const match = insertData.id.match(/-(\d+)$/)
+      const seq = match ? match[1] : '10001'
+      insertData.employee_code = `NV${seq}`
+    }
+
     const columns = Object.keys(insertData)
     const columnsSql = columns.map(k => `"${k}"`).join(', ')
     const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ')
@@ -476,6 +498,11 @@ export class PostgresConnector implements IDataConnector {
       }
 
       if (entity === 'products' && !insertData.sku) insertData.sku = insertData.id
+      if (entity === 'employees' && (!insertData.employee_code || insertData.employee_code.trim() === '')) {
+        const match = insertData.id.match(/-(\d+)$/)
+        const seq = match ? match[1] : '10001'
+        insertData.employee_code = `NV${seq}`
+      }
       insertRows.push(insertData)
     }
 

@@ -11,3 +11,4 @@ supabase/.temp
 .claude
 .pnpm-store
 scratch/
+tests/

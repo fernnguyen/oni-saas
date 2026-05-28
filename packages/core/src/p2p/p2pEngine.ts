@@ -216,13 +216,46 @@ export class P2PEngine {
 
       if (qtyReceived <= 0) continue;
 
-      // 1. Write the clean standard stock_movement record (Zero-friction with legacy warehouse)
+      // Get the product details to determine its item_class
+      const product = await connector.findById('products', productId);
+      const itemClass = product?.item_class || 'commercial';
+
+      // 1. Determine target resolvedWarehouseId based on itemClass and grn settings
+      let resolvedWarehouseId = '';
+      if (itemClass === 'fixed_asset') {
+        // Assets are received into WH-ASSET (code: 'asset')
+        const assetWhRes = await connector.list('warehouses', {
+          filters: { code: 'asset' },
+          limit: 1
+        });
+        resolvedWarehouseId = assetWhRes.total > 0 ? assetWhRes.data[0].id : 'asset';
+      } else if (itemClass === 'supply') {
+        // Supplies are received into WH-SUPPLY (code: 'supply')
+        const supplyWhRes = await connector.list('warehouses', {
+          filters: { code: 'supply' },
+          limit: 1
+        });
+        resolvedWarehouseId = supplyWhRes.total > 0 ? supplyWhRes.data[0].id : 'supply';
+      } else {
+        // Commercial products are received into the target GRN warehouse or WH-SALE (code: 'sale')
+        resolvedWarehouseId = grn.warehouse_id || '';
+        if (!resolvedWarehouseId) {
+          const saleWhRes = await connector.list('warehouses', {
+            filters: { code: 'sale' },
+            limit: 1
+          });
+          resolvedWarehouseId = saleWhRes.total > 0 ? saleWhRes.data[0].id : 'sale';
+        }
+      }
+
+      // 2. Write the clean standard stock_movement record (Zero-friction with legacy warehouse)
       const stockMovementData = {
         type: 'p2p_purchase_in',
         product_id: productId,
         qty: String(qtyReceived),
         unit_cost: String(unitCost),
         branch_id: branchId,
+        warehouse_id: resolvedWarehouseId,
         supplier_id: po.supplier_id || '',
         reference_no: grnId,
         employee_id: userId,
@@ -233,11 +266,28 @@ export class P2PEngine {
       };
       await connector.create('stock-movements', stockMovementData);
 
-      // 2. Load and recalculate Moving Average Cost in the inventory cache
-      const inventoryList = await connector.list('inventory', {
-        filters: { product_id: productId, branch_id: branchId },
+      // 3. Load and recalculate Moving Average Cost in the inventory cache
+      let inventoryList = await connector.list('inventory', {
+        filters: { product_id: productId, warehouse_id: resolvedWarehouseId },
         limit: 1,
       });
+
+      // Self-healing legacy fallback: if no row is found for this warehouse, check for legacy rows
+      if (inventoryList.data.length === 0) {
+        const fallbackRes = await connector.list('inventory', {
+          filters: { product_id: productId },
+          limit: 100
+        });
+        const matched = (fallbackRes.data as any[]).find(
+          i => !i.warehouse_id || i.warehouse_id === '' || i.warehouse_id === 'default'
+        )
+        if (matched) {
+          await connector.update('inventory', matched.inventory_id as string, {
+            warehouse_id: resolvedWarehouseId
+          });
+          inventoryList = { data: [ { ...matched, warehouse_id: resolvedWarehouseId } ], total: 1, page: 1, limit: 1 };
+        }
+      }
 
       let currentStockQty = 0;
       let currentUnitCost = unitCost; // Default to incoming unit cost if no history
@@ -245,7 +295,7 @@ export class P2PEngine {
 
       if (inventoryList.data.length > 0) {
         const invRecord = inventoryList.data[0];
-        invId = invRecord.id;
+        invId = invRecord.inventory_id || invRecord.id;
         currentStockQty = parseFloat(invRecord.stock_qty || '0');
         currentUnitCost = parseFloat(invRecord.unit_cost || '0');
       }
@@ -273,6 +323,7 @@ export class P2PEngine {
         await connector.create('inventory', {
           product_id: productId,
           branch_id: branchId,
+          warehouse_id: resolvedWarehouseId,
           stock_qty: String(nextStockQty),
           min_stock: '0',
           unit_cost: String(nextUnitCost),
@@ -282,7 +333,6 @@ export class P2PEngine {
       }
 
       // 3. Update the global aggregate product stock count inside products table
-      const product = await connector.findById('products', productId);
       if (product) {
         const currentProdStock = parseFloat(product.stock_qty || '0');
         await connector.update('products', productId, {

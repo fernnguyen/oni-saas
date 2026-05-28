@@ -113,6 +113,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
     toast.success(`Đã cập nhật cấu hình cận date: ${days} ngày`)
   }
   const [customer, setCustomer] = useState<LocalCustomer | null>(null)
+  const [resumingOrder, setResumingOrder] = useState<LocalOrder | null>(null)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [activeCartItemId, setActiveCartItemId] = useState<string | null>(null)
 
@@ -475,11 +476,121 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
     toast.success(`Đã sao chép đơn thành "${label}"`)
   }
 
+  function handleCheckoutClose() {
+    setCheckoutOpen(false)
+    setResumingOrder(null)
+    cart.clear()
+    setCustomer(null)
+
+    if (tabs.length > 1) {
+      const remainingTabs = tabs.filter((t) => t.id !== activeTabId)
+      const nextTab = remainingTabs[remainingTabs.length - 1]
+
+      isSwitchingTabRef.current = true
+      setActiveTabId(nextTab.id)
+      setCustomer(nextTab.customer)
+      cart.restore({
+        items: nextTab.items,
+        discount_amount: nextTab.discount_amount,
+        note: nextTab.note,
+      })
+      setTabs(remainingTabs)
+
+      setTimeout(() => {
+        isSwitchingTabRef.current = false
+      }, 50)
+    } else {
+      setTabs([{
+        id: activeTabId,
+        label: tabs[0]?.label || 'Đơn hàng 1',
+        items: [],
+        customer: null,
+        discount_amount: 0,
+        note: '',
+      }])
+    }
+  }
+
+  function handleCheckoutCancel() {
+    if (resumingOrder) {
+      handleCheckoutClose()
+    } else {
+      setCheckoutOpen(false)
+    }
+  }
+
+  async function handleResumeCheckout(order: LocalOrder) {
+    try {
+      const items = await localDb.orderItems.where('order_local_id').equals(order.local_id).toArray()
+      const cartItems: CartItem[] = items.map(it => ({
+        product_id: it.product_id,
+        product_name: it.product_name,
+        qty: it.qty,
+        unit_price: it.unit_price,
+        cost_price: it.cost_price,
+        discount_amount: it.discount_amount,
+        line_total: it.line_total,
+        variant_label: it.variant_label,
+        modifiers: it.modifiers ? JSON.parse(it.modifiers) : undefined,
+        modifier_total: it.modifier_total,
+        unit_id: it.unit_id,
+        unit_name: it.unit_name,
+        conversion_rate: it.conversion_rate
+      }))
+
+      let orderCustomer: LocalCustomer | null = null
+      if (order.customer_id) {
+        orderCustomer = await localDb.customers.get(order.customer_id) || null
+      }
+
+      const tempTabId = crypto.randomUUID()
+      const orderNo = order.order_no || order.local_id.slice(0, 8).toUpperCase()
+      const label = `Thanh toán ${orderNo}`
+      
+      const newTab: OrderTab = {
+        id: tempTabId,
+        label,
+        items: cartItems,
+        customer: orderCustomer,
+        discount_amount: order.discount_amount,
+        note: order.note || '',
+      }
+
+      setTabs((prev) => [...prev, newTab])
+      isSwitchingTabRef.current = true
+      setActiveTabId(tempTabId)
+      setCustomer(orderCustomer)
+      cart.restore({
+        items: cartItems,
+        discount_amount: order.discount_amount,
+        note: order.note || '',
+      })
+      setResumingOrder(order)
+      
+      setTimeout(() => {
+        isSwitchingTabRef.current = false
+        setCheckoutOpen(true)
+      }, 50)
+
+    } catch (e) {
+      console.error('Failed to resume checkout:', e)
+      toast.error('Lỗi khi tải thông tin đơn hàng để thanh toán tiếp')
+    }
+  }
+
   async function cancelAndEditOrder(order: LocalOrder): Promise<boolean> {
     if (!permissions.includes('orders.delete')) {
       toast.error('Bạn không có quyền hủy đơn hàng này')
       return false
     }
+    const isOk = await confirm({
+      title: 'Xác nhận điều chỉnh đơn hàng',
+      description: 'Hệ thống sẽ hủy đơn hàng hiện tại (hoàn lại tồn kho) và tạo một giỏ hàng mới để bạn thay đổi mặt hàng. Bạn có chắc chắn muốn tiếp tục?',
+      confirmLabel: 'Đồng ý',
+      cancelLabel: 'Bỏ qua'
+    })
+    if (!isOk) return false
+
     try {
       if (order.server_id) {
         if (!isOnline) {
@@ -501,7 +612,11 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
       await localDb.transaction('rw', [localDb.orders, localDb.orderItems, localDb.syncQueue, localDb.inventory], async () => {
         await localDb.orders.update(order.local_id, { status: 'cancelled' })
         if (order.sync_status === 'pending') {
-          await localDb.syncQueue.where('local_order_id').equals(order.local_id).delete()
+          const qItems = await localDb.syncQueue.toArray()
+          const targetQ = qItems.find((item) => item.local_order_id === order.local_id)
+          if (targetQ) {
+            await localDb.syncQueue.delete(targetQ.id!)
+          }
         }
         const items = await localDb.orderItems.where('order_local_id').equals(order.local_id).toArray()
         for (const item of items) {
@@ -562,7 +677,22 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
   }
 
   const [orderPanelOpen, setOrderPanelOpen] = useState(false)
+  const [pendingOrdersCount, setPendingOrdersCount] = useState(0)
   const workerRef = useRef<SyncWorker | null>(null)
+
+  useEffect(() => {
+    if (!localDb) return
+    const sub = liveQuery(async () => {
+      return await localDb.orders
+        .where('status')
+        .equals('pending')
+        .count()
+    }).subscribe({
+      next: setPendingOrdersCount,
+      error: (err) => console.error('Failed to load pending orders count:', err)
+    })
+    return () => sub.unsubscribe()
+  }, [])
 
   useEffect(() => {
     const sub = liveQuery(async () => {
@@ -1013,7 +1143,13 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
             className="relative flex items-center gap-1 rounded border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50 transition-colors"
             title="Xem đơn hàng hôm nay"
           >
-            <IconClipboard className="h-3.5 w-3.5 shrink-0" /> Đơn hàng
+            <IconClipboard className="h-3.5 w-3.5 shrink-0" />
+            <span>Đơn hàng</span>
+            {pendingOrdersCount > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-bold text-white shadow-sm ring-1 ring-white animate-in zoom-in-50 duration-200">
+                {pendingOrdersCount}
+              </span>
+            )}
           </button>
 
           {isShiftEnabled && hasActiveShift && (
@@ -1160,45 +1296,17 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
         shopName={shopName}
         ordersPath={`/t/${backPath.split('/')[1]}/${branchId}/orders`}
         shopId={shopId}
+        branchId={branchId}
         onCopyToNewTab={copyToNewTab}
+        onResumeCheckout={handleResumeCheckout}
+        onCancelAndEdit={cancelAndEditOrder}
       />
 
       <CheckoutModal
         open={checkoutOpen}
-        onClose={() => setCheckoutOpen(false)}
-        onSuccess={() => {
-          setCheckoutOpen(false)
-          cart.clear()
-          setCustomer(null)
-
-          if (tabs.length > 1) {
-            const remainingTabs = tabs.filter((t) => t.id !== activeTabId)
-            const nextTab = remainingTabs[remainingTabs.length - 1]
-
-            isSwitchingTabRef.current = true
-            setActiveTabId(nextTab.id)
-            setCustomer(nextTab.customer)
-            cart.restore({
-              items: nextTab.items,
-              discount_amount: nextTab.discount_amount,
-              note: nextTab.note,
-            })
-            setTabs(remainingTabs)
-
-            setTimeout(() => {
-              isSwitchingTabRef.current = false
-            }, 50)
-          } else {
-            setTabs([{
-              id: activeTabId,
-              label: tabs[0]?.label || 'Đơn hàng 1',
-              items: [],
-              customer: null,
-              discount_amount: 0,
-              note: '',
-            }])
-          }
-        }}
+        onClose={handleCheckoutCancel}
+        onSuccess={handleCheckoutClose}
+        onMinimize={handleCheckoutClose}
         items={cart.items}
         subtotal={cart.subtotal}
         discount_amount={cart.discount_amount}
@@ -1212,6 +1320,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
         employeeId={userEmail}
         isOnline={isOnline}
         autoPrintReceipt={autoPrintReceipt}
+        existingOrder={resumingOrder}
       />
 
       <ConfirmDialog
