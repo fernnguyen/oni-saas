@@ -169,6 +169,7 @@ export const payment_funds = mysqlTable('payment_funds', {
   initial_balance: varchar('initial_balance', { length: 50 }).default('0'),
   current_balance: varchar('current_balance', { length: 50 }).default('0'),
   is_default: varchar('is_default', { length: 10 }).default('FALSE'),
+  qr_template: varchar('qr_template', { length: 50 }).default('compact2'),
 });
 
 export const shop_shifts = mysqlTable('shop_shifts', {

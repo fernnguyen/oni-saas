@@ -16,6 +16,8 @@ import { CustomerSearch } from './CustomerSearch'
 import { useQuery } from '@tanstack/react-query'
 import { calculateHourlyBilling } from '@oni/core'
 import { VietQRPreview } from '@/app/components/ui/VietQRPreview'
+import { useConfirm } from '@/app/components/ui/ConfirmProvider'
+import { BANKS } from '@/lib/constants/banks'
 
 interface Props {
   open: boolean
@@ -40,6 +42,7 @@ interface Props {
   orderPaidAmount?: number
   customCheckoutTime?: string
   hourlyRate?: number
+  existingOrder?: LocalOrder | null
 }
 
 const METHODS = [
@@ -168,7 +171,9 @@ export function CheckoutModal({
   orderPaidAmount = 0,
   customCheckoutTime,
   hourlyRate = 0,
+  existingOrder = null,
 }: Props) {
+  const confirm = useConfirm()
   const [localCustomer, setLocalCustomer] = useState(customer)
   const [payments, setPayments] = useState<PaymentRow[]>([
     { id: nextId(), method: 'cash', amount: String(total - discount_amount - orderPaidAmount) },
@@ -184,6 +189,7 @@ export function CheckoutModal({
   const [localCheckoutTime, setLocalCheckoutTime] = useState('')
   const [isEditingCheckout, setIsEditingCheckout] = useState(false)
   const [checkoutInput, setCheckoutInput] = useState('')
+  const [paymentsLoaded, setPaymentsLoaded] = useState(false)
 
   const [showQrGate, setShowQrGate] = useState(false)
   const [pollingActive, setPollingActive] = useState(false)
@@ -284,7 +290,14 @@ export function CheckoutModal({
 
   const activeBankCode = qrFund?.bank_name || settings?.bank_code || ''
   const activeBankAccountNumber = qrFund?.account_number || settings?.bank_account_number || ''
-  const activeBankAccountName = settings?.bank_account_name || ''
+  const activeBankAccountName = qrFund?.account_name || settings?.bank_account_name || ''
+  const activeTemplate = qrFund?.qr_template || settings?.qr_template || 'compact2'
+
+  const resolvedBankName = useMemo(() => {
+    if (!activeBankCode) return ''
+    const bank = BANKS.find(b => b.code.toUpperCase() === activeBankCode.toUpperCase() || b.shortName.toUpperCase() === activeBankCode.toUpperCase())
+    return bank ? `${bank.shortName} (${bank.code})` : activeBankCode
+  }, [activeBankCode])
 
   const getAutoMatchedFund = (method: string, list: Record<string, string>[]) => {
     if (list.length === 0) return undefined
@@ -370,9 +383,40 @@ export function CheckoutModal({
       setDiscountInput(String(discount_amount))
       setPointsRedeemed('0')
       setLocalNote(note)
+      setPaymentsLoaded(false)
+
+      if (existingOrder) {
+        localDb.payments.where('order_local_id').equals(existingOrder.local_id).toArray()
+          .then((list) => {
+            if (list && list.length > 0) {
+              setPayments(list.map(p => ({
+                id: p.local_id || crypto.randomUUID(),
+                method: p.method,
+                amount: String(p.amount),
+                fund_id: p.fund_id || ''
+              })))
+            } else {
+              const newRemaining = Math.max(0, finalTotal - orderPaidAmount)
+              const autoFund = getAutoMatchedFund('cash', fundsList)
+              setPayments([{ id: nextId(), method: 'cash', amount: String(newRemaining), fund_id: autoFund?.id || '' }])
+            }
+            setPaymentsLoaded(true)
+          })
+          .catch((err) => {
+            console.error('Failed to load existing payments:', err)
+            const newRemaining = Math.max(0, finalTotal - orderPaidAmount)
+            const autoFund = getAutoMatchedFund('cash', fundsList)
+            setPayments([{ id: nextId(), method: 'cash', amount: String(newRemaining), fund_id: autoFund?.id || '' }])
+            setPaymentsLoaded(true)
+          })
+      } else {
+        setPaymentsLoaded(true)
+      }
+    } else {
+      setPaymentsLoaded(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
+  }, [open, existingOrder])
 
   // Hydrate selected customer details in real-time when online to fetch latest loyalty_points and prepaid_balance
   async function refreshCustomerDetails() {
@@ -411,11 +455,14 @@ export function CheckoutModal({
 
   // When checkout time, rental type, or finalTotal changes → recalculate payment
   useEffect(() => {
+    if (existingOrder && paymentsLoaded) return
+    if (existingOrder && !paymentsLoaded) return
+
     const newRemaining = Math.max(0, finalTotal - orderPaidAmount)
     const autoFund = getAutoMatchedFund('cash', fundsList)
     setPayments([{ id: nextId(), method: 'cash', amount: String(newRemaining), fund_id: autoFund?.id || '' }])
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [localCheckoutTime, localRentalType, finalTotal, fundsList.length])
+  }, [localCheckoutTime, localRentalType, finalTotal, fundsList.length, paymentsLoaded, existingOrder])
 
   const overPaid = Math.max(0, orderPaidAmount - finalTotal)
   const remainingTotal = Math.max(0, finalTotal - orderPaidAmount)
@@ -779,7 +826,12 @@ export function CheckoutModal({
   }
 
   async function handleCancelQr() {
-    const isOk = window.confirm('Bạn có chắc chắn muốn hủy đơn hàng này không? Việc hủy sẽ xóa đơn hàng và khôi phục số lượng tồn kho sản phẩm.')
+    const isOk = await confirm({
+      title: 'Hủy đơn hàng đang thanh toán',
+      description: 'Bạn có chắc chắn muốn hủy đơn hàng này không? Việc hủy sẽ xóa đơn hàng và khôi phục số lượng tồn kho sản phẩm.',
+      confirmLabel: 'Đồng ý',
+      cancelLabel: 'Bỏ qua'
+    })
     if (!isOk) return
 
     setSaving(true)
@@ -877,7 +929,7 @@ export function CheckoutModal({
         .reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
       const actualPaid = Math.max(0, finalTotal - debtAmount)
 
-      const local_id = crypto.randomUUID()
+      const local_id = existingOrder ? existingOrder.local_id : crypto.randomUUID()
       const now = new Date().toISOString()
 
       const orderItems: LocalOrderItem[] = computedItems.map((item) => ({
@@ -996,9 +1048,9 @@ export function CheckoutModal({
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               local_order_id: local_id,
-              server_order_id: orderId,
+              server_order_id: existingOrder?.server_id || orderId,
               ...syncPayload,
-              stock_movements: syncPayload.stockMovements
+              stock_movements: existingOrder ? [] : syncPayload.stockMovements
             }),
           })
           if (res.ok) {
@@ -1033,7 +1085,24 @@ export function CheckoutModal({
         'rw',
         [localDb.orders, localDb.orderItems, localDb.payments, localDb.syncQueue, localDb.inventory, localDb.inventoryBatches],
         async () => {
-          await localDb.orders.add(order)
+          if (existingOrder) {
+            // Delete old items and payments to avoid duplication or conflicts
+            await localDb.orderItems.where('order_local_id').equals(local_id).delete()
+            await localDb.payments.where('order_local_id').equals(local_id).delete()
+            
+            // Delete from syncQueue if there was a pending sync
+            const qItems = await localDb.syncQueue.toArray()
+            const targetQ = qItems.find((item) => item.local_order_id === local_id)
+            if (targetQ) {
+              await localDb.syncQueue.delete(targetQ.id!)
+            }
+          }
+
+          if (existingOrder) {
+            await localDb.orders.put(order)
+          } else {
+            await localDb.orders.add(order)
+          }
           await localDb.orderItems.bulkAdd(orderItems)
           await localDb.payments.bulkAdd(localPayments)
 
@@ -1041,37 +1110,39 @@ export function CheckoutModal({
             await localDb.syncQueue.add(syncItem)
           }
 
-          for (const item of items) {
-            const inv = await localDb.inventory
-              .where('[product_id+branch_id]')
-              .equals([item.product_id, branchId])
-              .first()
-            if (inv) {
-              await localDb.inventory.put({
-                ...inv,
-                stock_qty: settings?.allow_negative_stock
-                  ? Number(inv.stock_qty) - (item.qty * (item.conversion_rate || 1))
-                  : Math.max(0, Number(inv.stock_qty) - (item.qty * (item.conversion_rate || 1))),
-              })
-            }
+          if (!existingOrder) {
+            for (const item of items) {
+              const inv = await localDb.inventory
+                .where('[product_id+branch_id]')
+                .equals([item.product_id, branchId])
+                .first()
+              if (inv) {
+                await localDb.inventory.put({
+                  ...inv,
+                  stock_qty: settings?.allow_negative_stock
+                    ? Number(inv.stock_qty) - (item.qty * (item.conversion_rate || 1))
+                    : Math.max(0, Number(inv.stock_qty) - (item.qty * (item.conversion_rate || 1))),
+                })
+              }
 
             const batches = await localDb.inventoryBatches
               .where('[product_id+branch_id]')
               .equals([item.product_id, branchId])
               .toArray()
 
-            if (batches && batches.length > 0) {
-              const activeBatches = batches.filter((b) => Number(b.stock_qty) > 0)
-              activeBatches.sort((a, b) => a.expiry_date.localeCompare(b.expiry_date))
+              if (batches && batches.length > 0) {
+                const activeBatches = batches.filter((b) => Number(b.stock_qty) > 0)
+                activeBatches.sort((a, b) => a.expiry_date.localeCompare(b.expiry_date))
 
-              let remainingToSubtract = item.qty * (item.conversion_rate || 1)
-              for (const b of activeBatches) {
-                if (remainingToSubtract <= 0) break
-                const deduct = Math.min(Number(b.stock_qty), remainingToSubtract)
-                await localDb.inventoryBatches.update(b.id, {
-                  stock_qty: Math.max(0, Number(b.stock_qty) - deduct)
-                })
-                remainingToSubtract -= deduct
+                let remainingToSubtract = item.qty * (item.conversion_rate || 1)
+                for (const b of activeBatches) {
+                  if (remainingToSubtract <= 0) break
+                  const deduct = Math.min(Number(b.stock_qty), remainingToSubtract)
+                  await localDb.inventoryBatches.update(b.id, {
+                    stock_qty: Math.max(0, Number(b.stock_qty) - deduct)
+                  })
+                  remainingToSubtract -= deduct
+                }
               }
             }
           }
@@ -1093,7 +1164,7 @@ export function CheckoutModal({
         return
       }
 
-      toast.success(isSuccessDirect ? 'Tạo mới đơn hàng thành công!' : 'Tạo mới đơn hàng thành công (chờ đồng bộ)')
+      toast.success(existingOrder ? 'Đã hoàn tất thanh toán đơn hàng!' : (isSuccessDirect ? 'Tạo mới đơn hàng thành công!' : 'Tạo mới đơn hàng thành công (chờ đồng bộ)'))
       onSuccess()
 
       if (autoPrintReceipt) {
@@ -1108,6 +1179,7 @@ export function CheckoutModal({
               bank_code: activeBankCode,
               bank_account_number: activeBankAccountNumber,
               bank_account_name: activeBankAccountName,
+              qr_template: activeTemplate,
             },
             printCount: 1,
             shopId
@@ -1160,53 +1232,116 @@ export function CheckoutModal({
 
         {showQrGate ? (
           <div className="flex flex-col flex-1 min-h-0 bg-slate-50 rounded-b-2xl overflow-y-auto">
-            <div className="p-5 flex-1 flex flex-col items-center justify-center space-y-4">
+            <div className="p-4 flex-1 flex flex-col items-center justify-center space-y-3">
               
               {/* Dynamic VietQR display */}
-              <div className="relative group p-4 bg-white rounded-2xl shadow-sm border border-slate-100/80 max-w-[240px] w-full flex flex-col items-center animate-in zoom-in duration-305">
-                <div className="absolute -inset-1.5 rounded-3xl bg-gradient-to-tr from-emerald-400 to-primary opacity-20 blur-xs group-hover:opacity-30 transition duration-500 animate-pulse"></div>
+              <div className="relative group p-3 bg-white rounded-2xl shadow-sm border border-slate-100/80 max-w-[245px] w-full flex flex-col items-center animate-in zoom-in duration-300">
+                <div className="absolute -inset-1 rounded-3xl bg-gradient-to-tr from-emerald-400 to-primary opacity-20 blur-xs group-hover:opacity-30 transition duration-500 animate-pulse"></div>
                 <VietQRPreview
                   bankCode={activeBankCode}
                   accountNumber={activeBankAccountNumber}
                   accountName={activeBankAccountName}
                   amount={bankTransferAmt}
                   addInfo={waitingOrderNo}
-                  template={settings?.qr_template || 'compact2'}
-                  className="relative z-10 w-full border border-slate-100"
+                  template={activeTemplate}
+                  hideFooter={true}
+                  className="relative z-10 w-full border border-slate-100 shadow-none"
                 />
-                <div className="mt-2 text-center relative z-10">
-                  <p className="text-[10px] font-bold text-slate-400 tracking-wide uppercase">Số tiền QR</p>
-                  <p className="text-sm font-extrabold text-primary">{fmtVND(bankTransferAmt)}</p>
-                </div>
+                
+                {/* Clean inline details with copy buttons, only shown for qr_only template */}
+                {activeTemplate === 'qr_only' ? (
+                  <div className="mt-2.5 w-full border-t border-slate-100 pt-2 flex flex-col gap-1.5 relative z-10 text-xs">
+                    <div className="flex flex-col gap-1 text-slate-700 bg-slate-50 p-2.5 rounded-xl border border-slate-200/50">
+                      <div className="flex justify-between items-center text-[10px]">
+                        <span className="text-slate-400 font-medium">Ngân hàng</span>
+                        <span className="font-bold text-slate-800">{resolvedBankName}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-[10px] border-t border-slate-100/50 pt-1">
+                        <span className="text-slate-400 font-medium">Số tài khoản</span>
+                        <div className="flex items-center gap-1">
+                          <span className="font-mono font-bold text-slate-800">{activeBankAccountNumber}</span>
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(activeBankAccountNumber)
+                              toast.success('Đã sao chép số tài khoản')
+                            }}
+                            className="text-slate-400 hover:text-primary p-0.5 rounded transition-all active:scale-90 cursor-pointer"
+                            title="Sao chép số tài khoản"
+                          >
+                            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex justify-between items-center text-[10px] border-t border-slate-100/50 pt-1">
+                        <span className="text-slate-400 font-medium">Chủ tài khoản</span>
+                        <span className="font-bold text-slate-800 uppercase tracking-wide truncate max-w-[125px]" title={activeBankAccountName}>
+                          {activeBankAccountName || 'Chưa cấu hình'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center text-[10px] border-t border-slate-100/50 pt-1">
+                        <span className="text-slate-400 font-medium">Nội dung</span>
+                        <div className="flex items-center gap-1">
+                          <span className="font-mono font-bold text-slate-800">{waitingOrderNo}</span>
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(waitingOrderNo)
+                              toast.success('Đã sao chép nội dung chuyển khoản')
+                            }}
+                            className="text-slate-400 hover:text-primary p-0.5 rounded transition-all active:scale-90 cursor-pointer"
+                            title="Sao chép nội dung"
+                          >
+                            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex justify-between items-center text-[10px] border-t border-slate-100/50 pt-1">
+                        <span className="text-slate-400 font-medium">Số tiền</span>
+                        <div className="flex items-center gap-1">
+                          <span className="font-bold text-primary">{fmtVND(bankTransferAmt)}</span>
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(String(bankTransferAmt))
+                              toast.success('Đã sao chép số tiền')
+                            }}
+                            className="text-slate-400 hover:text-primary p-0.5 rounded transition-all active:scale-90 cursor-pointer"
+                            title="Sao chép số tiền"
+                          >
+                            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
               </div>
 
               {/* Status Listening Indicator */}
-              <div className="w-full max-w-sm rounded-2xl border border-blue-100 bg-blue-50/60 p-3.5 flex items-center gap-3 shadow-2xs">
-                <div className="relative flex h-3.5 w-3.5 shrink-0">
+              <div className="w-full rounded-xl border border-blue-100 bg-blue-50/60 p-3 flex items-start gap-2.5 shadow-2xs">
+                <div className="relative flex h-3 w-3 shrink-0 mt-0.5">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-blue-500"></span>
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-semibold text-blue-950 truncate">Đang chờ thanh toán tự động...</p>
-                  <p className="text-[10px] text-blue-700/80 font-medium leading-relaxed mt-0.5">
-                    Hệ thống đang quét biến động số dư VietQR mỗi 2 giây.
+                <div className="flex-1 min-w-0 text-left">
+                  <p className="text-[11px] font-bold text-blue-950">Đang tự động kiểm tra giao dịch...</p>
+                  <p className="text-[9.5px] text-blue-800/90 font-medium leading-normal mt-0.5">
+                    Hệ thống quét tài khoản nhận mỗi 2 giây. Khi thanh toán thành công, đơn hàng sẽ <strong>tự động hoàn tất và gạch nợ</strong> (bạn không cần thao tác gì thêm).
+                  </p>
+                  <p className="text-[9.5px] text-blue-800/90 font-medium leading-normal mt-1">
+                    Nếu xảy ra lỗi hoặc chờ lâu, bạn có thể click nút xác nhận bằng tay ở phía dưới.
                   </p>
                 </div>
-              </div>
-
-              {/* Copy fields grid */}
-              <div className="w-full max-w-sm grid grid-cols-2 gap-2.5">
-                <div className="col-span-2">
-                  <CopyField label="Tên chủ tài khoản" value={activeBankAccountName} />
-                </div>
-                <CopyField label="Số tài khoản" value={activeBankAccountNumber} />
-                <CopyField label="Nội dung chuyển khoản" value={waitingOrderNo} />
               </div>
 
             </div>
 
             {/* Sticky Actions Footer */}
-            <div className="bg-white border-t border-slate-100 p-4 shrink-0 flex flex-col gap-2 rounded-b-2xl">
+            <div className="bg-white border-t border-slate-100 p-3 shrink-0 flex flex-col gap-2 rounded-b-2xl">
               <button
                 type="button"
                 onClick={handleConfirmManual}

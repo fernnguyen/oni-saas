@@ -106,11 +106,13 @@ export async function POST(
       name: payload.name,
       type: payload.type,
       account_number: payload.account_number ?? '',
+      account_name: payload.account_name ?? '',
       bank_name: payload.bank_name ?? '',
       initial_balance: String(payload.initial_balance),
       current_balance: String(payload.initial_balance),
       is_default: payload.is_default ? 'TRUE' : 'FALSE',
       active: 'TRUE',
+      qr_template: payload.qr_template ?? 'compact2',
     })
 
     invalidate(shopId, 'payment-funds')

@@ -55,6 +55,7 @@ const EMPTY_FUND_FORM = {
   bank_name: '',
   initial_balance: 0,
   is_default: false,
+  qr_template: 'compact2',
 }
 
 const DENOMINATIONS = [500000, 200000, 100000, 50000, 20000, 10000, 5000, 2000, 1000]
@@ -452,7 +453,9 @@ export function CashbookClient({ shopId, shopName, permissions }: Props) {
       bank_name: fund.bank_name || '',
       initial_balance: Number(fund.initial_balance || 0),
       is_default: fund.is_default === 'TRUE',
+      qr_template: fund.qr_template || 'compact2',
     })
+    setQrPreviewTemplate((fund.qr_template as any) || 'compact2')
     setFundSlideOpen(true)
   }
 
@@ -1523,8 +1526,12 @@ export function CashbookClient({ shopId, shopName, permissions }: Props) {
                 <div className="flex justify-between items-center">
                   <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Xem trước hóa đơn QR (VietQR Card)</span>
                   <select
-                    value={qrPreviewTemplate}
-                    onChange={(e) => setQrPreviewTemplate(e.target.value as any)}
+                    value={fundFormData.qr_template || 'compact2'}
+                    onChange={(e) => {
+                      const val = e.target.value as any
+                      setQrPreviewTemplate(val)
+                      setFundFormData(prev => ({ ...prev, qr_template: val }))
+                    }}
                     className="rounded-lg border border-slate-250 bg-white px-2 py-1 text-[10px] text-slate-650 focus:outline-none cursor-pointer"
                   >
                     <option value="compact2">Rút gọn (compact2)</option>

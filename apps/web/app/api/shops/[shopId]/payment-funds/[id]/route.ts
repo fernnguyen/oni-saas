@@ -12,7 +12,7 @@ export async function PUT(
     const { connector } = await requireShopAccess(shopId, 'cashbook.funds.manage')
 
     const body = await req.json()
-    const { name, type, account_number, bank_name, initial_balance, is_default, active } = body
+    const { name, type, account_number, account_name, bank_name, initial_balance, is_default, active, qr_template } = body
 
     // If is_default is TRUE, we must set other funds to is_default = FALSE
     if (is_default === true || is_default === 'TRUE') {
@@ -42,6 +42,8 @@ export async function PUT(
     if (active !== undefined) {
       updatePayload.active = (active === true || active === 'TRUE' || active === 'true') ? 'TRUE' : 'FALSE'
     }
+    if (account_name !== undefined) updatePayload.account_name = account_name
+    if (qr_template !== undefined) updatePayload.qr_template = qr_template
 
     const updated = await connector.update('payment-funds', id, updatePayload)
 
