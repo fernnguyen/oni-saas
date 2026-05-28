@@ -66,6 +66,59 @@ export function AssetsClient({ shopId, shopName, canManage }: Props) {
   const [allocQty, setAllocQty] = useState('1');
   const [allocDate, setAllocDate] = useState(new Date().toISOString().split('T')[0]);
 
+  // Commissioning state (2-Step Asset Commissioning)
+  const [commissionOpen, setCommissionOpen] = useState(false);
+  const [commissionForm, setCommissionForm] = useState({
+    product_id: '',
+    qty: '1',
+    department_code: '',
+    type: 'ccdc' as 'ccdc' | 'tscd',
+    depreciation_months: '12',
+    serial_no: '',
+    manufacturer: '',
+    warranty_expiry: '',
+    supplier_id: '',
+    purchase_date: new Date().toISOString().split('T')[0],
+  });
+
+  // Fetch warehouses to resolve WH-ASSET ID
+  const { data: whData } = useQuery({
+    queryKey: ['warehouses', shopId],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/warehouses`);
+      if (!res.ok) throw new Error('Không tải được danh sách kho');
+      return res.json() as Promise<{ data: Record<string, string>[]; total: number }>;
+    },
+  });
+
+  const assetWhId = useMemo(() => {
+    return whData?.data?.find((w) => w.code === 'asset')?.id || '';
+  }, [whData]);
+
+  // Fetch inventory stock in WH-ASSET for commissioning
+  const { data: assetInventoryData, refetch: refetchAssetInventory } = useQuery({
+    queryKey: ['asset-inventory', shopId, assetWhId],
+    enabled: !!assetWhId,
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/inventory?warehouse_id=${assetWhId}&limit=1000`);
+      if (!res.ok) throw new Error('Không tải được tồn kho tài sản');
+      return res.json() as Promise<{ data: any[]; total: number }>;
+    },
+  });
+
+  // Filter products in WH-ASSET that have stock > 0
+  const availableAssetProducts = useMemo(() => {
+    if (!assetInventoryData?.data) return [];
+    return assetInventoryData.data.filter((item) => parseFloat(item.stock_qty || '0') > 0);
+  }, [assetInventoryData]);
+
+  // Resolve currently selected product stock in form
+  const selectedProductStock = useMemo(() => {
+    if (!commissionForm.product_id || !availableAssetProducts) return 0;
+    const found = availableAssetProducts.find((p) => p.product_id === commissionForm.product_id);
+    return found ? parseFloat(found.stock_qty || '0') : 0;
+  }, [commissionForm.product_id, availableAssetProducts]);
+
   // 1. Fetch assets
   const { data: assetData, isLoading: assetsLoading, isFetching: assetsFetching } = useQuery({
     queryKey: ['assets', shopId, activeTab],
@@ -222,6 +275,29 @@ export function AssetsClient({ shopId, shopName, canManage }: Props) {
     onSuccess: () => {
       toast.success('Đã thu hồi bàn giao tài sản');
       queryClient.invalidateQueries({ queryKey: ['asset-allocations', shopId, selectedAssetId] });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  // Commission mutation
+  const commissionMutation = useMutation({
+    mutationFn: async (payload: any) => {
+      const res = await fetch(`/api/shops/${shopId}/assets/commission`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json.error ?? 'Bàn giao tài sản từ kho thất bại');
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast.success('⚡️ Bàn giao & kích hoạt thẻ tài sản thành công!');
+      setCommissionOpen(false);
+      queryClient.invalidateQueries({ queryKey: ['assets', shopId] });
+      refetchAssetInventory();
     },
     onError: (err: Error) => toast.error(err.message),
   });
@@ -416,12 +492,37 @@ export function AssetsClient({ shopId, shopName, canManage }: Props) {
           </p>
         </div>
         {canManage && (
-          <button
-            onClick={openCreate}
-            className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-dark transition-all cursor-pointer active:scale-95 shadow-sm"
-          >
-            + Đăng ký tài sản
-          </button>
+          <div className="flex items-center gap-2.5">
+            <button
+              onClick={() => {
+                setCommissionForm({
+                  product_id: '',
+                  qty: '1',
+                  department_code: '',
+                  type: 'ccdc',
+                  depreciation_months: '12',
+                  serial_no: '',
+                  manufacturer: '',
+                  warranty_expiry: '',
+                  supplier_id: '',
+                  purchase_date: new Date().toISOString().split('T')[0],
+                });
+                setCommissionOpen(true);
+              }}
+              className="rounded-xl bg-amber-600 hover:bg-amber-700 px-4 py-2 text-sm font-semibold text-white transition-all cursor-pointer active:scale-95 shadow-sm flex items-center gap-1.5"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+              </svg>
+              ⚡️ Bàn giao từ WH-ASSET
+            </button>
+            <button
+              onClick={openCreate}
+              className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-dark transition-all cursor-pointer active:scale-95 shadow-sm"
+            >
+              + Đăng ký thẻ tài sản
+            </button>
+          </div>
         )}
       </div>
 
@@ -788,6 +889,210 @@ export function AssetsClient({ shopId, shopName, canManage }: Props) {
                 })}
               </div>
             )}
+          </div>
+        </div>
+      </SlideOver>
+
+      {/* 2-Step Asset Commissioning SlideOver */}
+      <SlideOver
+        open={commissionOpen}
+        onClose={() => setCommissionOpen(false)}
+        title="Bàn giao tài sản từ kho WH-ASSET"
+        footer={
+          <div className="flex items-center gap-3 w-full justify-end">
+            <button
+              onClick={() => setCommissionOpen(false)}
+              className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 cursor-pointer"
+            >
+              Hủy
+            </button>
+            <button
+              onClick={() => {
+                if (!commissionForm.product_id) {
+                  toast.error('Vui lòng chọn sản phẩm trong kho');
+                  return;
+                }
+                if (!commissionForm.department_code) {
+                  toast.error('Vui lòng chọn phòng ban Cost Center nhận bàn giao');
+                  return;
+                }
+                const reqQty = parseFloat(commissionForm.qty);
+                if (isNaN(reqQty) || reqQty <= 0) {
+                  toast.error('Vui lòng điền số lượng bàn giao hợp lệ');
+                  return;
+                }
+                if (reqQty > selectedProductStock) {
+                  toast.error(`Số lượng bàn giao vượt quá tồn kho khả dụng (${selectedProductStock})`);
+                  return;
+                }
+                if (!commissionForm.depreciation_months) {
+                  toast.error('Vui lòng điền số tháng khấu hao');
+                  return;
+                }
+                commissionMutation.mutate(commissionForm);
+              }}
+              disabled={commissionMutation.isPending || !commissionForm.product_id}
+              className="rounded-xl bg-amber-600 px-5 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50 transition-all cursor-pointer active:scale-95 shadow-sm"
+            >
+              {commissionMutation.isPending ? 'Đang thực hiện...' : '⚡️ Kích hoạt & Bàn giao'}
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <div className="rounded-xl bg-amber-50 border border-amber-200/50 p-3.5 space-y-1.5">
+            <div className="text-xs font-bold text-amber-800 uppercase tracking-wider flex items-center gap-1.5">
+              <span>💡 Quy trình bàn giao 2 bước</span>
+            </div>
+            <p className="text-xs text-amber-700 leading-relaxed">
+              Tài sản vật lý sau khi nhập kho mua sắm (GRN) sẽ được lưu trữ tạm thời tại kho <strong className="font-semibold">WH-ASSET</strong>. Khi thực hiện bàn giao dưới đây, hệ thống sẽ tự động trừ kho WH-ASSET, kích hoạt thẻ tài sản khấu hao, và gán sử dụng cho Cost Center phòng ban tương ứng.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Chọn sản phẩm trong kho WH-ASSET *</label>
+            <select
+              value={commissionForm.product_id}
+              onChange={(e) => {
+                const pId = e.target.value;
+                const found = availableAssetProducts.find((p) => p.product_id === pId);
+                setCommissionForm((prev) => ({
+                  ...prev,
+                  product_id: pId,
+                  manufacturer: found?.manufacturer || prev.manufacturer || '',
+                  supplier_id: found?.supplier_id || prev.supplier_id || '',
+                }));
+              }}
+              className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm focus:border-primary focus:outline-none"
+            >
+              <option value="">-- Chọn sản phẩm có sẵn trong kho --</option>
+              {availableAssetProducts.map((item) => (
+                <option key={item.product_id} value={item.product_id}>
+                  {item.product_name} ({item.sku || 'Không có SKU'}) - Tồn kho: {item.stock_qty} {item.unit}
+                </option>
+              ))}
+            </select>
+            {commissionForm.product_id && (
+              <div className="mt-1.5 text-xs text-slate-500 font-semibold flex items-center gap-1.5 bg-slate-50 px-2.5 py-1 border rounded-lg w-fit">
+                <span>Tồn kho WH-ASSET khả dụng:</span>
+                <span className="text-primary font-bold">{selectedProductStock} sản phẩm</span>
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Số lượng bàn giao *</label>
+              <input
+                type="number"
+                min="1"
+                max={selectedProductStock}
+                value={commissionForm.qty}
+                onChange={(e) => setCommissionForm((prev) => ({ ...prev, qty: e.target.value }))}
+                className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm focus:border-primary focus:outline-none"
+                placeholder="1"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Phòng ban (Cost Center) *</label>
+              <select
+                value={commissionForm.department_code}
+                onChange={(e) => setCommissionForm((prev) => ({ ...prev, department_code: e.target.value }))}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm focus:border-primary focus:outline-none"
+              >
+                <option value="">-- Chọn phòng ban nhận --</option>
+                {deptData?.data?.map((dept) => (
+                  <option key={dept.id} value={dept.code}>
+                    {dept.name} ({dept.code})
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Phân loại thẻ tài sản *</label>
+              <select
+                value={commissionForm.type}
+                onChange={(e) => setCommissionForm((prev) => ({ ...prev, type: e.target.value as 'ccdc' | 'tscd' }))}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm focus:border-primary focus:outline-none"
+              >
+                <option value="ccdc">Công cụ dụng cụ (CCDC)</option>
+                <option value="tscd">Tài sản cố định (TSCĐ)</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Thời gian khấu hao (tháng) *</label>
+              <input
+                type="number"
+                min="1"
+                value={commissionForm.depreciation_months}
+                onChange={(e) => setCommissionForm((prev) => ({ ...prev, depreciation_months: e.target.value }))}
+                className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm focus:border-primary focus:outline-none"
+                placeholder="12"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Ngày bàn giao *</label>
+              <input
+                type="date"
+                value={commissionForm.purchase_date}
+                onChange={(e) => setCommissionForm((prev) => ({ ...prev, purchase_date: e.target.value }))}
+                className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm focus:border-primary focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Số sê-ri / Model</label>
+              <input
+                type="text"
+                value={commissionForm.serial_no}
+                onChange={(e) => setCommissionForm((prev) => ({ ...prev, serial_no: e.target.value }))}
+                className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm focus:border-primary focus:outline-none"
+                placeholder="S/N: Philip-928A"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Hãng sản xuất</label>
+              <input
+                type="text"
+                value={commissionForm.manufacturer}
+                onChange={(e) => setCommissionForm((prev) => ({ ...prev, manufacturer: e.target.value }))}
+                className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm focus:border-primary focus:outline-none"
+                placeholder="Philips, Dell, Sony..."
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Hạn bảo hành</label>
+              <input
+                type="date"
+                value={commissionForm.warranty_expiry}
+                onChange={(e) => setCommissionForm((prev) => ({ ...prev, warranty_expiry: e.target.value }))}
+                className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm focus:border-primary focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Nhà cung cấp (Gán liên kết)</label>
+            <select
+              value={commissionForm.supplier_id}
+              onChange={(e) => setCommissionForm((prev) => ({ ...prev, supplier_id: e.target.value }))}
+              className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm focus:border-primary focus:outline-none"
+            >
+              <option value="">-- Chọn nhà cung cấp --</option>
+              {supplierData?.data?.map((sup) => (
+                <option key={sup.id || sup.supplier_id} value={sup.id || sup.supplier_id}>
+                  {sup.name}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
       </SlideOver>

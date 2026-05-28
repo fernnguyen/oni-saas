@@ -44,6 +44,7 @@ const ENTITY_PREFIXES: Record<string, string> = {
   'assets':                     'AST',
   'asset-allocations':          'ATA',
   'cost-allocation-templates':  'CAT',
+  'warehouses':                  'WH',
 }
 
 export class MysqlConnector implements IDataConnector {
@@ -158,6 +159,7 @@ export class MysqlConnector implements IDataConnector {
     'assets':                     'asset_id',
     'asset-allocations':          'allocation_id',
     'cost-allocation-templates':  'template_id',
+    'warehouses':                 'warehouse_id',
   }
 
   private formatRow(entity: string, row: any): Record<string, string> {

@@ -44,6 +44,7 @@ const ENTITY_PREFIXES: Record<string, string> = {
   'assets':                     'AST',
   'asset-allocations':          'ATA',
   'cost-allocation-templates':  'CAT',
+  'warehouses':                  'WH',
 }
 
 // Shared pool cache to avoid creating a new pool per request
@@ -152,6 +153,7 @@ export class PostgresConnector implements IDataConnector {
     'assets':                     'asset_id',
     'asset-allocations':          'allocation_id',
     'cost-allocation-templates':  'template_id',
+    'warehouses':                 'warehouse_id',
   }
 
   private async generateSequentialId(entity: string): Promise<string> {

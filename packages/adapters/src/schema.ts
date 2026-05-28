@@ -100,6 +100,7 @@ export const products = mysqlTable('products', {
   stock_qty: varchar('stock_qty', { length: 50 }),
   metadata: text('metadata'),
   has_bom: varchar('has_bom', { length: 10 }).default('FALSE'),
+  item_class: varchar('item_class', { length: 50 }).default('commercial'),
   // ── Variant / Modifier System (Sprint 1) ──────────────────────────────────
   product_type: varchar('product_type', { length: 20 }).default('simple'),
   // 'simple' | 'variant_parent' | 'variant_child' | 'modifier'
@@ -216,6 +217,7 @@ export const inventory = mysqlTable('inventory', {
   sku: varchar('sku', { length: 255 }),
   variant_id: varchar('variant_id', { length: 255 }),
   branch_id: varchar('branch_id', { length: 255 }),
+  warehouse_id: varchar('warehouse_id', { length: 255 }),
   stock_qty: varchar('stock_qty', { length: 50 }),
   min_stock: varchar('min_stock', { length: 50 }),
   unit_cost: varchar('unit_cost', { length: 50 }),
@@ -234,6 +236,8 @@ export const stock_movements = mysqlTable('stock_movements', {
   qty: varchar('qty', { length: 50 }),
   unit_cost: varchar('unit_cost', { length: 50 }),
   branch_id: varchar('branch_id', { length: 255 }),
+  warehouse_id: varchar('warehouse_id', { length: 255 }),
+  to_warehouse_id: varchar('to_warehouse_id', { length: 255 }),
   supplier_id: varchar('supplier_id', { length: 255 }),
   reference_no: varchar('reference_no', { length: 255 }),
   employee_id: varchar('employee_id', { length: 255 }),
@@ -525,4 +529,15 @@ export const cost_allocation_templates = mysqlTable('cost_allocation_templates',
   branch_id: varchar('branch_id', { length: 255 }).notNull(),
   name: varchar('name', { length: 255 }).notNull(), // Tên mẫu (ví dụ: "Phân bổ Điện nước")
   rules: text('rules').notNull(), // Mảng JSON chứa stringified [{ department_code: string, percentage: number }]
+});
+
+// ── Bảng Kho hàng (Warehouses) ──────────────────────────────────────────
+export const warehouses = mysqlTable('warehouses', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  branch_id: varchar('branch_id', { length: 255 }).notNull(),
+  name: varchar('name', { length: 255 }).notNull(),
+  code: varchar('code', { length: 50 }).notNull(),
+  type: varchar('type', { length: 50 }).default('custom'), // 'sale' | 'supply' | 'asset' | 'custom'
+  active: varchar('active', { length: 10 }).default('TRUE'),
 });

@@ -43,7 +43,7 @@ const MOVEMENT_TYPES = [
 
 const MOVEMENT_TYPE_MAP = Object.fromEntries(MOVEMENT_TYPES.map((t) => [t.value, t]))
 
-const INPUT_TYPES = MOVEMENT_TYPES.filter((t) => ['purchase_in', 'return_in', 'adjustment', 'transfer_in'].includes(t.value))
+const INPUT_TYPES = MOVEMENT_TYPES.filter((t) => ['purchase_in', 'transfer_out', 'transfer_in', 'return_in', 'adjustment'].includes(t.value))
 
 interface FormItem {
   product_id: string
@@ -83,6 +83,8 @@ const EMPTY_FORM = {
   reason: '',
   batch_no: '',
   shipment_no: '',
+  warehouse_id: '',
+  to_warehouse_id: '',
   workflow_status: 'completed' as 'draft' | 'completed',
   payment_status: 'paid' as PaymentStatus,
   discount: '',
@@ -360,6 +362,17 @@ function CategorySelect({
 export function InventoryClient({ shopId, shopName }: Props) {
   const queryClient = useQueryClient()
   const { hasPermission } = usePermissions()
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState('')
+
+  // Warehouses query
+  const { data: warehousesData } = useQuery({
+    queryKey: ['warehouses', shopId],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/warehouses?limit=100`)
+      if (!res.ok) return { data: [] as Row[] }
+      return res.json() as Promise<{ data: Row[] }>
+    },
+  })
 
   // Fetch user details / role inside tenant
   const { data: permissionsData } = useQuery({
@@ -626,10 +639,11 @@ export function InventoryClient({ shopId, shopName }: Props) {
 
   // Inventory rows
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['inventory', shopId, stockPage, debouncedSearch],
+    queryKey: ['inventory', shopId, stockPage, debouncedSearch, selectedWarehouseId],
     queryFn: async () => {
       const sp = new URLSearchParams({ page: String(stockPage), limit: '50' })
       if (debouncedSearch) sp.set('search', debouncedSearch)
+      if (selectedWarehouseId) sp.set('warehouse_id', selectedWarehouseId)
       const res = await fetch(`/api/shops/${shopId}/inventory?${sp}`)
       if (!res.ok) throw new Error('Không tải được dữ liệu')
       return res.json() as Promise<{ data: Row[]; total: number }>
@@ -685,11 +699,12 @@ export function InventoryClient({ shopId, shopName }: Props) {
 
   // Stock movements (history tab — lazy)
   const { data: movementsData, isLoading: movementsLoading, isFetching: movementsFetching } = useQuery({
-    queryKey: ['stock-movements', shopId, historyPage, debouncedHistorySearch, typeFilter],
+    queryKey: ['stock-movements', shopId, historyPage, debouncedHistorySearch, typeFilter, selectedWarehouseId],
     queryFn: async () => {
       const sp = new URLSearchParams({ page: String(historyPage), limit: '50' })
       if (debouncedHistorySearch) sp.set('search', debouncedHistorySearch)
       if (typeFilter) sp.set('type', typeFilter)
+      if (selectedWarehouseId) sp.set('warehouse_id', selectedWarehouseId)
       const res = await fetch(`/api/shops/${shopId}/stock-movements?${sp}`)
       if (!res.ok) throw new Error('Không tải được lịch sử')
       return res.json() as Promise<{ data: Row[]; total: number }>
@@ -893,6 +908,21 @@ export function InventoryClient({ shopId, shopName }: Props) {
       return
     }
 
+    if (!form.warehouse_id) {
+      toast.error('Vui lòng chọn Kho thực hiện')
+      return
+    }
+
+    if (['transfer_out', 'transfer_in'].includes(form.type) && !form.to_warehouse_id) {
+      toast.error('Vui lòng chọn Kho đối ứng (Kho đi/đến)')
+      return
+    }
+
+    if (['transfer_out', 'transfer_in'].includes(form.type) && form.warehouse_id === form.to_warehouse_id) {
+      toast.error('Kho đi và Kho đến không được trùng nhau')
+      return
+    }
+
     let finalPayments = form.payments
     if (form.type === 'purchase_in') {
       const totalCost = form.items.reduce((sum, item) => sum + (Number(item.unit_cost || 0) * Math.abs(Number(item.qty || 0))), 0)
@@ -912,6 +942,7 @@ export function InventoryClient({ shopId, shopName }: Props) {
       branch_id: '',
       reason: form.reason,
       reference_no: form.reference_no,
+      warehouse_id: form.warehouse_id || undefined,
       items: form.items.map(item => ({
         product_id: item.product_id || undefined,
         qty: item.qty,
@@ -934,6 +965,8 @@ export function InventoryClient({ shopId, shopName }: Props) {
       reason: form.reason,
       discount: form.discount || '0',
       payments: finalPayments,
+      warehouse_id: form.warehouse_id || undefined,
+      to_warehouse_id: form.to_warehouse_id || undefined,
       workflow_status: form.workflow_status,
       payment_status: form.payment_status,
       shipment_no: form.shipment_no,
@@ -1252,25 +1285,47 @@ export function InventoryClient({ shopId, shopName }: Props) {
         </button>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1 w-fit">
-        {([
-          { key: 'history', label: 'Lịch sử phiếu kho' },
-          { key: 'stock', label: 'Tồn kho hiện tại' },
-        ] as { key: Tab; label: string }[]).map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={[
-              'rounded-lg px-4 py-1.5 text-sm font-medium transition-colors',
-              activeTab === tab.key
-                ? 'bg-primary text-white shadow-sm'
-                : 'text-slate-500 hover:text-slate-700',
-            ].join(' ')}
+      {/* Tabs & Warehouse Filter */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-2 rounded-2xl border border-slate-200 shadow-xs">
+        <div className="flex gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1 w-fit">
+          {([
+            { key: 'history', label: 'Lịch sử phiếu kho' },
+            { key: 'stock', label: 'Tồn kho hiện tại' },
+          ] as { key: Tab; label: string }[]).map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={[
+                'rounded-lg px-4 py-1.5 text-sm font-medium transition-colors cursor-pointer',
+                activeTab === tab.key
+                  ? 'bg-primary text-white shadow-xs'
+                  : 'text-slate-500 hover:text-slate-700',
+              ].join(' ')}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Bộ lọc Kho:</label>
+          <select
+            value={selectedWarehouseId}
+            onChange={(e) => {
+              setSelectedWarehouseId(e.target.value)
+              setStockPage(1)
+              setHistoryPage(1)
+            }}
+            className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 focus:border-primary focus:outline-none"
           >
-            {tab.label}
-          </button>
-        ))}
+            <option value="">-- Kho bán hàng mặc định (WH-SALE) --</option>
+            {(warehousesData?.data ?? []).map((w) => (
+              <option key={w.id || w.warehouse_id} value={w.id || w.warehouse_id}>
+                📦 {w.name} ({w.code?.toUpperCase()})
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {/* ── Stock tab ── */}
@@ -1405,6 +1460,48 @@ export function InventoryClient({ shopId, shopName }: Props) {
               <div className="mt-3 flex gap-2 rounded-xl bg-amber-50/80 border border-amber-100 p-3 text-xs text-amber-800 leading-relaxed shadow-sm">
                 <svg className="h-4 w-4 shrink-0 text-amber-600 mt-0.5" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
                 <span>Phiếu điều chỉnh chỉ dùng để kiểm kê và cân đối số lượng tồn kho thực tế, <strong>không</strong> phát sinh phiếu chi, công nợ nhà cung cấp hay doanh thu.</span>
+              </div>
+            )}
+          </div>
+
+          {/* Warehouse Selector in Form */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold text-slate-600">
+                {form.type === 'transfer_out' ? 'Kho xuất hàng (Kho đi) *' : form.type === 'transfer_in' ? 'Kho nhận hàng (Kho đến) *' : 'Kho thực hiện *'}
+              </label>
+              <select
+                value={form.warehouse_id}
+                onChange={(e) => setForm((f) => ({ ...f, warehouse_id: e.target.value }))}
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none font-medium bg-white"
+              >
+                <option value="">-- Chọn kho thực hiện --</option>
+                {(warehousesData?.data ?? []).map((w) => (
+                  <option key={w.id || w.warehouse_id} value={w.id || w.warehouse_id}>
+                    📦 {w.name} ({w.code?.toUpperCase()})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Destination Warehouse (only for transfers) */}
+            {['transfer_out', 'transfer_in'].includes(form.type) && (
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold text-slate-600">
+                  {form.type === 'transfer_out' ? 'Kho nhận hàng (Kho đến) *' : 'Kho xuất hàng (Kho đi) *'}
+                </label>
+                <select
+                  value={form.to_warehouse_id}
+                  onChange={(e) => setForm((f) => ({ ...f, to_warehouse_id: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none font-medium bg-white"
+                >
+                  <option value="">-- Chọn kho đối ứng --</option>
+                  {(warehousesData?.data ?? []).map((w) => (
+                    <option key={w.id || w.warehouse_id} value={w.id || w.warehouse_id}>
+                      📦 {w.name} ({w.code?.toUpperCase()})
+                    </option>
+                  ))}
+                </select>
               </div>
             )}
           </div>

@@ -431,6 +431,35 @@ export async function POST(
       (existingMovs.data as Record<string, string>[]).map(r => r.product_id)
     )
 
+    // Resolve standard warehouse IDs for multi-warehouse routing
+    const whList = await connector.list('warehouses', { limit: 100 })
+    const whs = whList.data as any[]
+
+    let saleWhId = whs.find(w => w.code === 'sale')?.id
+    let supplyWhId = whs.find(w => w.code === 'supply')?.id
+
+    // Self-healing: auto-seed standard warehouses on-the-fly if missing
+    if (!saleWhId && branchId) {
+      const newWh = await connector.create('warehouses', {
+        branch_id: branchId,
+        name: 'Kho Kinh doanh (Bán lẻ)',
+        code: 'sale',
+        type: 'sale',
+        active: 'TRUE'
+      })
+      saleWhId = newWh.id
+    }
+    if (!supplyWhId && branchId) {
+      const newWh = await connector.create('warehouses', {
+        branch_id: branchId,
+        name: 'Kho Vật tư & Tiêu hao',
+        code: 'supply',
+        type: 'supply',
+        active: 'TRUE'
+      })
+      supplyWhId = newWh.id
+    }
+
     // Fetch product details to identify which ones have BOM activated
     const productIdsInMovements = Array.from(new Set(stock_movements.map(mv => mv.product_id)))
     const productsInMovements: Record<string, any>[] = []
@@ -489,6 +518,7 @@ export async function POST(
               sku:          compSku,
               qty:          String(compQty),
               branch_id:    mv.branch_id ?? '',
+              warehouse_id: supplyWhId || '', // Decapitate raw materials strictly from WH-SUPPLY
               reference_no: movRef,
               reason:       `Trừ kho nguyên liệu phục vụ món: ${parentName} x ${Math.abs(mv.qty)}`,
               created_at:   getGMT7Time(),
@@ -511,6 +541,7 @@ export async function POST(
           sku:          product?.sku || '',
           qty:          String(Math.abs(mv.qty)),
           branch_id:    mv.branch_id ?? '',
+          warehouse_id: saleWhId || '', // Decapitate finished commercial goods strictly from WH-SALE
           reference_no: movRef,
           created_at:   getGMT7Time(),
         })
@@ -521,7 +552,7 @@ export async function POST(
       const createdMovs = await connector.batchCreate('stock-movements', movsToCreate)
       tx.add(async () => {
         for (const mov of createdMovs) {
-          await connector.delete('stock-movements', mov.movement_id).catch(() => {})
+          await connector.delete('stock-movements', mov.movement_id || mov.id).catch(() => {})
         }
       })
 
@@ -531,43 +562,57 @@ export async function POST(
         if (qtyToDeduct === 0) continue
 
         const pid = mov.product_id
-        const branchId = mov.branch_id ?? ''
+        const targetBranchId = mov.branch_id ?? branchId
         const sku = mov.sku ?? ''
+        const targetWhId = mov.warehouse_id || saleWhId || ''
 
-        // Query existing inventory for this product
+        // Query existing inventory for this product and resolved warehouse
         const invListResult = await connector.list('inventory', {
           page: 1, limit: 10,
-          filters: { product_id: pid }
+          filters: { product_id: pid, warehouse_id: targetWhId }
         })
         const allInv = invListResult.data as Record<string, string>[]
-        let invRow = allInv.find(i => i.branch_id === branchId)
-        if (!invRow && branchId !== '') {
-          invRow = allInv.find(i => i.branch_id === '')
-        }
-        if (!invRow) {
-          invRow = allInv[0]
+        let invRow = allInv.find(i => i.branch_id === targetBranchId) || allInv[0]
+
+        // Self-healing: if no inventory record is found in this specific warehouse, but a legacy 'default' or empty warehouse record exists, upgrade it dynamically on the fly
+        if (!invRow && targetWhId) {
+          const legacyInvRes = await connector.list('inventory', {
+            page: 1, limit: 10,
+            filters: { product_id: pid }
+          })
+          const legacyInvs = legacyInvRes.data as Record<string, string>[]
+          const legacyRow = legacyInvs.find(i => !i.warehouse_id || i.warehouse_id === '' || i.warehouse_id === 'default')
+          if (legacyRow) {
+            console.log(`[SELF-HEALING] Dynamically upgrading inventory row ${legacyRow.id || (legacyRow as any).inventory_id} to warehouse ${targetWhId}`)
+            const legacyRowId = legacyRow.id || (legacyRow as any).inventory_id
+            await connector.update('inventory', legacyRowId, {
+              warehouse_id: targetWhId
+            })
+            invRow = { ...legacyRow, warehouse_id: targetWhId }
+          }
         }
 
         if (invRow) {
           const oldQty = parseFloat(invRow.stock_qty || '0')
           const newQty = oldQty - qtyToDeduct
-          await connector.update('inventory', invRow.inventory_id as string, {
+          await connector.update('inventory', (invRow.inventory_id || invRow.id) as string, {
             stock_qty: String(newQty)
           })
           tx.add(async () => {
-            await connector.update('inventory', invRow.inventory_id as string, { stock_qty: String(oldQty) }).catch(() => {})
+            await connector.update('inventory', (invRow!.inventory_id || invRow!.id) as string, { stock_qty: String(oldQty) }).catch(() => {})
           })
         } else {
-          // Create a new inventory record with negative stock (no Math.max(0) capping)
+          // Create a new inventory record in the resolved warehouse with negative stock
           const createdInv = await connector.create('inventory', {
             product_id: pid,
-            branch_id: branchId || '',
+            branch_id: targetBranchId || '',
+            warehouse_id: targetWhId,
             stock_qty: String(-qtyToDeduct),
             min_stock: '0',
             sku: sku || ''
           } as Record<string, string>)
           tx.add(async () => {
-            await connector.delete('inventory', (createdInv as any).inventory_id).catch(() => {})
+            await connector.delete('inventory', (createdInv as any).inventory_id || (createdInv as any).id).catch(() => {})
           })
         }
       }
