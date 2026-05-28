@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import { BANKS } from '@/lib/constants/banks';
 import { getVerticalConfig } from '@oni/core';
@@ -161,6 +161,40 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
     note: string;
   }>>([]);
 
+  // Local state to toggle showing Webhook advanced settings
+  const [showWebhook, setShowWebhook] = useState(!!initial.sepay_webhook_token);
+
+  async function fetchWebhookLogs() {
+    try {
+      const res = await fetch(`/api/shops/${shop.id}/sepay/webhook-logs`);
+      if (res.ok) {
+        const json = await res.json();
+        const list = json.data || [];
+        const formatted = list.map((item: any) => ({
+          time: item.created_at ? new Date(item.created_at).toLocaleString('vi-VN') : '',
+          code: item.transaction_id || 'N/A',
+          bank: item.bank_account ? `${item.gateway || ''} (${item.bank_account})` : (item.gateway || 'N/A'),
+          content: item.content || '',
+          amount: parseFloat(item.transfer_amount) || 0,
+          status: item.status === 'success' ? 'success' as const : 'ignored' as const,
+          note: item.error_message || '',
+        }));
+        setWebhookLogs(formatted);
+      }
+    } catch (e) {
+      console.error('Failed to fetch webhook logs:', e);
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab === 'sepay' && showWebhook) {
+      void fetchWebhookLogs();
+      const interval = setInterval(() => {
+        void fetchWebhookLogs();
+      }, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [activeTab, showWebhook]);
 
   function set(key: keyof typeof form, value: any) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -318,32 +352,10 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
 
       if (response.status === 200) {
         toast.success('Bắn tín hiệu giả lập thành công! Hóa đơn đã được gạch nợ.');
-        setWebhookLogs(prev => [
-          {
-            time: formatDateTime(new Date()),
-            code: mockPayload.code,
-            bank: mockPayload.gateway,
-            content: mockPayload.transactionContent,
-            amount: mockPayload.amountIn,
-            status: 'success',
-            note: 'Gạch nợ đơn hàng thành công (Giả lập)'
-          },
-          ...prev
-        ]);
+        setTimeout(() => { void fetchWebhookLogs(); }, 800);
       } else {
         toast.warning(`Giao dịch bị từ chối/bỏ qua (Status ${response.status}).`);
-        setWebhookLogs(prev => [
-          {
-            time: formatDateTime(new Date()),
-            code: mockPayload.code,
-            bank: mockPayload.gateway,
-            content: mockPayload.transactionContent,
-            amount: mockPayload.amountIn,
-            status: 'ignored',
-            note: resBody?.error || 'Bỏ qua: Không tìm thấy mã đơn hàng hợp lệ'
-          },
-          ...prev
-        ]);
+        setTimeout(() => { void fetchWebhookLogs(); }, 800);
       }
     } catch (err: any) {
       setSimState(prev => ({
@@ -874,186 +886,173 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
                 description="Liên kết biến động số dư VietQR động theo thời gian thực và gạch nợ tự động"
               >
                 <div className="space-y-5">
-                  {/* Status Banner */}
-                  <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-5 rounded-2xl border border-blue-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
-                        <span className="text-xs font-semibold text-blue-600 uppercase tracking-wider">Trạng thái Webhook</span>
+                  {/* Webhook Enable Toggle Switch */}
+                  <Field label="Kích hoạt Đối soát & Gạch nợ tự động qua Webhook">
+                    <div
+                      onClick={() => {
+                        if (!canManage) return;
+                        const nextVal = !showWebhook;
+                        setShowWebhook(nextVal);
+                        if (!nextVal) {
+                          // Clear webhook fields when disabled to avoid confusion
+                          set('sepay_webhook_token', '');
+                          set('sepay_auth_method', 'token_query');
+                          set('sepay_hmac_key', '');
+                          set('sepay_api_key', '');
+                          set('sepay_bank_filter', '');
+                          set('sepay_transaction_type', 'all');
+                        } else {
+                          // Generate a random webhook token automatically when enabled
+                          const randToken = 'sepay_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+                          set('sepay_webhook_token', randToken);
+                        }
+                      }}
+                      className="flex cursor-pointer items-center gap-3 mt-1"
+                    >
+                      <div
+                        className={`relative h-6 w-11 rounded-full transition-colors ${showWebhook ? 'bg-primary' : 'bg-slate-200'} ${canManage ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
+                      >
+                        <span
+                          className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${showWebhook ? 'translate-x-5' : ''}`}
+                        />
                       </div>
-                      <h3 className="text-sm font-bold text-slate-800">
-                        {form.sepay_webhook_token ? 'Sẵn sàng kết nối (Webhook Active)' : 'Chưa thiết lập Webhook'}
-                      </h3>
-                      <p className="text-xs text-slate-500 max-w-xl leading-relaxed">
-                        SePay tự động đẩy biến động số dư ngân hàng về server ONI. Hệ thống tự động kiểm tra cú pháp, gạch nợ hóa đơn tương ứng & giải phóng sảnh chơi tức thì.
-                      </p>
-                    </div>
-                    <div className="flex-shrink-0">
-                      <span className="inline-flex items-center rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-bold text-white shadow-md shadow-blue-500/20">
-                        VietQR / SEPay
+                      <span className="text-sm text-slate-600 select-none font-medium">
+                        {showWebhook ? 'Đang kích hoạt đối soát và gạch nợ tự động qua SEPay' : 'Tạm dừng/Chỉ sử dụng VietQR tĩnh không gạch nợ'}
                       </span>
                     </div>
-                  </div>
+                  </Field>
 
-                  <div className="space-y-4">
-                    <Field
-                      label="Mã Bảo mật Webhook (Security Token)"
-                      hint="Xác thực nguồn tin gửi từ SePay. Giúp bảo mật tối đa tránh giả mạo."
-                    >
-                      <div className="flex gap-3">
-                        <input
-                          type="text"
-                          value={form.sepay_webhook_token}
-                          onChange={(e) => set('sepay_webhook_token', e.target.value)}
-                          disabled={!canManage}
-                          className={`${inputCls} font-mono`}
-                          placeholder="token_bao_mat_sepay_123"
-                        />
-                        {canManage && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const randToken = 'sepay_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-                              set('sepay_webhook_token', randToken);
-                            }}
-                            className="px-4 py-2.5 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 border border-indigo-200 rounded-xl transition-all cursor-pointer flex-shrink-0 active:scale-95 flex items-center gap-1.5"
+                  {showWebhook && (
+                    <div className="space-y-5 border-t border-slate-100 pt-4 animate-in fade-in slide-in-from-top-2 duration-200">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <Field label="Phương thức xác thực Webhook" hint="Khuyên dùng Query Token để đơn giản">
+                          <select
+                            value={form.sepay_auth_method}
+                            onChange={(e) => set('sepay_auth_method', e.target.value)}
+                            disabled={!canManage}
+                            className={inputCls}
                           >
-                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                            </svg>
-                            Sinh mã ngẫu nhiên
-                          </button>
-                        )}
+                            <option value="token_query">Xác thực qua Query Token (Khuyên dùng)</option>
+                            <option value="api_key">Xác thực qua API Key (Bearer Header)</option>
+                            <option value="hmac">Xác thực chữ ký HMAC Signature</option>
+                            <option value="none">Không xác thực bảo mật</option>
+                          </select>
+                        </Field>
+
+                        <Field label="Bộ lọc loại giao dịch nhận" hint="Chuyển khoản gạch nợ thường chỉ cần Tiền vào">
+                          <select
+                            value={form.sepay_transaction_type}
+                            onChange={(e) => set('sepay_transaction_type', e.target.value)}
+                            disabled={!canManage}
+                            className={inputCls}
+                          >
+                            <option value="all">Nhận cả Tiền vào & Tiền ra</option>
+                            <option value="in_only">Chỉ nhận giao dịch Tiền vào (Inbound Only)</option>
+                            <option value="out_only">Chỉ nhận giao dịch Tiền ra (Outbound Only)</option>
+                          </select>
+                        </Field>
                       </div>
-                    </Field>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-slate-100 pt-4 mt-2">
-                      <Field label="Phương thức xác thực Webhook">
-                        <select
-                          value={form.sepay_auth_method}
-                          onChange={(e) => set('sepay_auth_method', e.target.value)}
-                          disabled={!canManage}
-                          className={inputCls}
-                        >
-                          <option value="token_query">Query Parameter (?token=...) [Khuyên dùng]</option>
-                          <option value="hmac">HMAC-SHA256 Signature (Mã ký Header)</option>
-                          <option value="api_key">API Key (Authorization Header)</option>
-                          <option value="none">Không xác thực (Nguy hiểm / Dev mode)</option>
-                        </select>
-                      </Field>
-                      <Field label="Lọc loại biến động giao dịch">
-                        <select
-                          value={form.sepay_transaction_type}
-                          onChange={(e) => set('sepay_transaction_type', e.target.value)}
-                          disabled={!canManage}
-                          className={inputCls}
-                        >
-                          <option value="all">Nhận tất cả giao dịch (Tiền vào & Tiền ra)</option>
-                          <option value="in_only">Chỉ nhận giao dịch Tiền vào (Inbound Only)</option>
-                          <option value="out_only">Chỉ nhận giao dịch Tiền ra (Outbound Only)</option>
-                        </select>
-                      </Field>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {form.sepay_auth_method === 'hmac' && (
-                        <Field label="Khóa giải mã ký HMAC Key (Secret Key)" hint="Nhập Key từ SePay">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {form.sepay_auth_method === 'hmac' && (
+                          <Field label="Khóa giải mã ký HMAC Key (Secret Key)" hint="Nhập Key từ SePay">
+                            <input
+                              type="password"
+                              value={form.sepay_hmac_key}
+                              onChange={(e) => set('sepay_hmac_key', e.target.value)}
+                              disabled={!canManage}
+                              className={`${inputCls} font-mono`}
+                              placeholder="Nhập HMAC Secret..."
+                            />
+                          </Field>
+                        )}
+                        {form.sepay_auth_method === 'api_key' && (
+                          <Field label="Mã API Key (Bearer Token)" hint="Dùng để xác thực header">
+                            <input
+                              type="password"
+                              value={form.sepay_api_key}
+                              onChange={(e) => set('sepay_api_key', e.target.value)}
+                              disabled={!canManage}
+                              className={`${inputCls} font-mono`}
+                              placeholder="Bearer API Key..."
+                            />
+                          </Field>
+                        )}
+                        <Field label="Lọc số tài khoản ngân hàng cụ thể" hint="Bỏ trống nếu nhận tất cả">
                           <input
-                            type="password"
-                            value={form.sepay_hmac_key}
-                            onChange={(e) => set('sepay_hmac_key', e.target.value)}
+                            type="text"
+                            value={form.sepay_bank_filter}
+                            onChange={(e) => set('sepay_bank_filter', e.target.value)}
                             disabled={!canManage}
-                            className={`${inputCls} font-mono`}
-                            placeholder="Nhập HMAC Secret..."
+                            className={inputCls}
+                            placeholder="Ví dụ: 0987654321"
                           />
                         </Field>
-                      )}
-                      {form.sepay_auth_method === 'api_key' && (
-                        <Field label="Mã API Key (Bearer Token)" hint="Dùng để xác thực header">
-                          <input
-                            type="password"
-                            value={form.sepay_api_key}
-                            onChange={(e) => set('sepay_api_key', e.target.value)}
-                            disabled={!canManage}
-                            className={`${inputCls} font-mono`}
-                            placeholder="Bearer API Key..."
-                          />
-                        </Field>
-                      )}
-                      <Field label="Lọc số tài khoản ngân hàng cụ thể" hint="Bỏ trống nếu nhận tất cả">
-                        <input
-                          type="text"
-                          value={form.sepay_bank_filter}
-                          onChange={(e) => set('sepay_bank_filter', e.target.value)}
-                          disabled={!canManage}
-                          className={inputCls}
-                          placeholder="Ví dụ: 0987654321"
-                        />
-                      </Field>
-                    </div>
+                      </div>
 
-                    {form.sepay_webhook_token && (
-                      <div className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-200 border-dashed mt-2">
-                        <div>
-                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                            Đường dẫn nhận Webhook URL của bạn (Cấu hình trên SEPay.vn)
-                          </label>
-                          <div className="flex items-center gap-2 bg-white p-2.5 rounded-lg border border-slate-200">
-                            <code className="text-xs text-slate-600 font-mono break-all flex-1 select-all">
-                              {typeof window !== 'undefined'
-                                ? `${window.location.origin}/api/webhooks/payment/sepay?token=${form.sepay_webhook_token}`
-                                : `https://[domain-cua-ban]/api/webhooks/payment/sepay?token=${form.sepay_webhook_token}`}
-                            </code>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const url = typeof window !== 'undefined'
+                      {form.sepay_webhook_token && (
+                        <div className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-200 border-dashed mt-2">
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                              Đường dẫn nhận Webhook URL của bạn (Cấu hình trên SEPay.vn)
+                            </label>
+                            <div className="flex items-center gap-2 bg-white p-2.5 rounded-lg border border-slate-200">
+                              <code className="text-xs text-slate-600 font-mono break-all flex-1 select-all">
+                                {typeof window !== 'undefined'
                                   ? `${window.location.origin}/api/webhooks/payment/sepay?token=${form.sepay_webhook_token}`
-                                  : `https://[domain-cua-ban]/api/webhooks/payment/sepay?token=${form.sepay_webhook_token}`;
-                                navigator.clipboard.writeText(url);
-                                setCopied(true);
-                                toast.success('Đã sao chép đường dẫn Webhook!');
-                                setTimeout(() => setCopied(false), 2000);
-                              }}
-                              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-[11px] font-semibold text-slate-700 rounded-md transition-all cursor-pointer flex-shrink-0 flex items-center gap-1"
-                            >
-                              {copied ? (
-                                <>
-                                  <svg className="w-3.5 h-3.5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                  </svg>
-                                  <span>Đã chép</span>
-                                </>
-                              ) : (
-                                <>
-                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
-                                  </svg>
-                                  <span>Sao chép</span>
-                                </>
-                              )}
-                            </button>
+                                  : `https://[domain-cua-ban]/api/webhooks/payment/sepay?token=${form.sepay_webhook_token}`}
+                              </code>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const url = typeof window !== 'undefined'
+                                    ? `${window.location.origin}/api/webhooks/payment/sepay?token=${form.sepay_webhook_token}`
+                                    : `https://[domain-cua-ban]/api/webhooks/payment/sepay?token=${form.sepay_webhook_token}`;
+                                  navigator.clipboard.writeText(url);
+                                  setCopied(true);
+                                  toast.success('Đã sao chép đường dẫn Webhook!');
+                                  setTimeout(() => setCopied(false), 2000);
+                                }}
+                                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-[11px] font-semibold text-slate-700 rounded-md transition-all cursor-pointer flex-shrink-0 flex items-center gap-1"
+                              >
+                                {copied ? (
+                                  <>
+                                    <svg className="w-3.5 h-3.5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                    </svg>
+                                    <span>Đã chép</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
+                                    </svg>
+                                    <span>Sao chép</span>
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="border-t border-slate-200 pt-3 mt-1">
+                            <h4 className="text-xs font-bold text-slate-600 mb-1.5 flex items-center gap-1.5">
+                              <svg className="w-4 h-4 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                              <span>Hướng dẫn cấu hình trên SEPay.vn:</span>
+                            </h4>
+                            <ol className="list-decimal list-inside text-xs text-slate-500 space-y-1 pl-1 leading-relaxed">
+                              <li>Đăng nhập vào <strong>sepay.vn</strong> &rarr; Cấu hình <strong>Webhook</strong>.</li>
+                              <li>Bấm <strong>Thêm Webhook mới</strong>.</li>
+                              <li>Dán link Webhook URL đã copy ở trên vào mục <strong>Địa chỉ URL nhận Webhook</strong>.</li>
+                              <li>Chọn phương thức gửi là <strong>POST</strong>, kiểu xác thực khớp với <strong>Phương thức xác thực</strong> đã cấu hình bên trên.</li>
+                              <li>Bấm Lưu lại. Hệ thống sẽ tự động gạch nợ hóa đơn POS mỗi khi có tiền vào trùng mã hóa đơn.</li>
+                            </ol>
                           </div>
                         </div>
-
-                        <div className="border-t border-slate-200 pt-3 mt-1">
-                          <h4 className="text-xs font-bold text-slate-600 mb-1.5 flex items-center gap-1.5">
-                            <svg className="w-4 h-4 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            <span>Hướng dẫn cấu hình trên SEPay.vn:</span>
-                          </h4>
-                          <ol className="list-decimal list-inside text-xs text-slate-500 space-y-1 pl-1 leading-relaxed">
-                            <li>Đăng nhập vào <strong>sepay.vn</strong> &rarr; Cấu hình <strong>Webhook</strong>.</li>
-                            <li>Bấm <strong>Thêm Webhook mới</strong>.</li>
-                            <li>Dán link Webhook URL đã copy ở trên vào mục <strong>Địa chỉ URL nhận Webhook</strong>.</li>
-                            <li>Chọn phương thức gửi là <strong>POST</strong>, kiểu xác thực khớp với <strong>Phương thức xác thực</strong> đã cấu hình bên trên.</li>
-                            <li>Bấm Lưu lại. Hệ thống sẽ tự động gạch nợ hóa đơn POS mỗi khi có tiền vào trùng mã hóa đơn.</li>
-                          </ol>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </Section>
 
@@ -1087,7 +1086,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
             </form>
 
             {/* Khung Kiểm thử & Giả lập Webhook (Simulator Console) */}
-            {form.sepay_webhook_token && (
+            {showWebhook && form.sepay_webhook_token && (
               <Section 
                 title="Khung kiểm thử & Giả lập Webhook (Live Webhook Simulator)" 
                 description="Bắn tín hiệu giao dịch chuyển khoản giả lập cục bộ để kiểm tra tự động đối soát gạch nợ"
@@ -1165,7 +1164,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
             )}
 
             {/* Webhook Activity Logs Console */}
-            {form.sepay_webhook_token && (
+            {showWebhook && form.sepay_webhook_token && (
               <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
