@@ -114,6 +114,7 @@ const EMPTY_FORM = {
   parent_id: '',
   variant_options: '',
   has_bom: 'FALSE',
+  item_class: 'commercial',
 }
 
 // A single variant row in the UI editor
@@ -1297,6 +1298,23 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
         return <span>{cat ? cat.name : row.category_id || '-'}</span>
       }
     },
+    {
+      key: 'item_class',
+      label: 'Phân loại kho',
+      render: (row) => {
+        const c = row.item_class || 'commercial'
+        let color: 'gray' | 'blue' | 'purple' = 'gray'
+        let text = 'Thương mại'
+        if (c === 'supply') {
+          color = 'blue'
+          text = 'Vật tư & Tiêu hao'
+        } else if (c === 'fixed_asset') {
+          color = 'purple'
+          text = 'Tài sản & Thiết bị'
+        }
+        return <TagBadge label={text} color={color} />
+      }
+    },
     { key: 'unit', label: 'Đơn vị' },
     {
       key: 'sell_price',
@@ -1464,7 +1482,7 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div>
                         <div className="flex items-center justify-between mb-1">
                           <label className="block text-sm font-medium text-slate-700">Danh mục</label>
@@ -1490,6 +1508,21 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
                         </select>
                       </div>
                       <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Phân loại sản phẩm (Định tuyến kho)</label>
+                        <select
+                          value={formData.item_class || 'commercial'}
+                          onChange={(e) => setFormData(prev => ({ ...prev, item_class: e.target.value }))}
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white font-semibold text-slate-700"
+                        >
+                          <option value="commercial">🛍️ Hàng hóa thương mại (Nhập Kho Bán lẻ)</option>
+                          <option value="supply">📦 Vật tư & Tiêu hao (Nhập Kho Vật tư)</option>
+                          <option value="fixed_asset">🖥️ Tài sản & Thiết bị (Nhập Kho Tài sản)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1">Đơn vị</label>
                         <input
                           type="text"
@@ -1512,39 +1545,53 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
                     </div>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Đơn vị</label>
-                      <input
-                        type="text"
-                        value={formData.unit}
-                        onChange={(e) => setFormData(prev => ({ ...prev, unit: e.target.value }))}
-                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white"
-                        placeholder="Cái, Hộp, Ly..."
-                      />
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Đơn vị</label>
+                        <input
+                          type="text"
+                          value={formData.unit}
+                          onChange={(e) => setFormData(prev => ({ ...prev, unit: e.target.value }))}
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white"
+                          placeholder="Cái, Hộp, Ly..."
+                        />
+                      </div>
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-sm font-medium text-slate-700">Danh mục</label>
+                          <button
+                            type="button"
+                            onClick={openCreateCategory}
+                            className="text-xs text-primary hover:underline font-medium"
+                          >
+                            + Tạo mới
+                          </button>
+                        </div>
+                        <select
+                          value={formData.category_id}
+                          onChange={(e) => setFormData(prev => ({ ...prev, category_id: e.target.value }))}
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white"
+                        >
+                          <option value="">-- Chọn danh mục --</option>
+                          {categories.map((c: any) => (
+                            <option key={c.category_id} value={c.category_id}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
                     <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="block text-sm font-medium text-slate-700">Danh mục</label>
-                        <button
-                          type="button"
-                          onClick={openCreateCategory}
-                          className="text-xs text-primary hover:underline font-medium"
-                        >
-                          + Tạo mới
-                        </button>
-                      </div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Phân loại sản phẩm (Định tuyến kho)</label>
                       <select
-                        value={formData.category_id}
-                        onChange={(e) => setFormData(prev => ({ ...prev, category_id: e.target.value }))}
-                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white"
+                        value={formData.item_class || 'commercial'}
+                        onChange={(e) => setFormData(prev => ({ ...prev, item_class: e.target.value }))}
+                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white font-semibold text-slate-700"
                       >
-                        <option value="">-- Chọn danh mục --</option>
-                        {categories.map((c: any) => (
-                          <option key={c.category_id} value={c.category_id}>
-                            {c.name}
-                          </option>
-                        ))}
+                        <option value="commercial">🛍️ Hàng hóa thương mại (Nhập Kho Bán lẻ)</option>
+                        <option value="supply">📦 Vật tư & Tiêu hao (Nhập Kho Vật tư)</option>
+                        <option value="fixed_asset">🖥️ Tài sản & Thiết bị (Nhập Kho Tài sản)</option>
                       </select>
                     </div>
                   </div>
