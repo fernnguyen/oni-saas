@@ -24,6 +24,11 @@ const DEFAULT_SETTINGS = {
   enable_shift_management: false,
   strict_shift_lock: false,
   sepay_webhook_token: '',
+  sepay_auth_method: 'token_query',
+  sepay_hmac_key: '',
+  sepay_api_key: '',
+  sepay_bank_filter: '',
+  sepay_transaction_type: 'all',
   synced_from_sheet_at: null as string | null,
   loyalty_points_enabled: true,
   loyalty_money_to_point: 100000,
@@ -47,6 +52,11 @@ const putSchema = z.object({
   bank_account_name: z.string().max(100).optional(),
   qr_template: z.enum(['compact', 'compact2', 'qr_only', 'print']).optional(),
   sepay_webhook_token: z.string().max(255).optional(),
+  sepay_auth_method: z.enum(['token_query', 'hmac', 'api_key', 'oauth', 'none']).optional(),
+  sepay_hmac_key: z.string().max(255).optional().nullable(),
+  sepay_api_key: z.string().max(255).optional().nullable(),
+  sepay_bank_filter: z.string().max(100).optional().nullable(),
+  sepay_transaction_type: z.enum(['all', 'in_only', 'out_only']).optional(),
   receipt_footer: z.string().max(500).optional(),
   address: z.string().max(255).optional(),
   phone: z.string().max(20).optional(),
@@ -178,12 +188,59 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ shop
     delete finalSettingsData.tier_reward_type;
   }
 
-  const { error } = await admin
-    .from('shop_settings')
-    .upsert(
-      { shop_id: shopId, ...finalSettingsData, updated_at: now },
-      { onConflict: 'shop_id' },
-    );
+  let retryCount = 0;
+  let currentPayload = { shop_id: shopId, ...finalSettingsData, updated_at: now };
+  let error: any = null;
+
+  while (retryCount < 12) {
+    const res = await admin
+      .from('shop_settings')
+      .upsert(currentPayload, { onConflict: 'shop_id' });
+
+    if (!res.error) {
+      error = null;
+      break;
+    }
+
+    error = res.error;
+
+    // If it's a missing column error (Postgres 42703 or column not found in message)
+    if (error.code === '42703' || error.message?.includes('column')) {
+      const match = error.message.match(/column "([^"]+)"/);
+      if (match && match[1]) {
+        const missingCol = match[1];
+        console.warn(`[settings PUT] Column "${missingCol}" does not exist in shop_settings. Filtering it out and retrying.`);
+        delete (currentPayload as any)[missingCol];
+        retryCount++;
+        continue;
+      } else {
+        // Backup: if regex doesn't match but we have a known set of potential missing columns,
+        // we can try removing them sequentially.
+        let found = false;
+        const advancedColumns = [
+          'sepay_webhook_token',
+          'sepay_auth_method',
+          'sepay_hmac_key',
+          'sepay_api_key',
+          'sepay_bank_filter',
+          'sepay_transaction_type'
+        ];
+        for (const col of advancedColumns) {
+          if ((currentPayload as any)[col] !== undefined && (error.message.includes(col) || error.message.includes(`"${col}"`))) {
+            console.warn(`[settings PUT] Fallback column match: "${col}" does not exist. Removing and retrying.`);
+            delete (currentPayload as any)[col];
+            found = true;
+          }
+        }
+        if (found) {
+          retryCount++;
+          continue;
+        }
+      }
+    }
+    break;
+  }
+
 
   if (address !== undefined || phone !== undefined || parsed.data.shop_name !== undefined) {
     const shopUpdate: any = {};
