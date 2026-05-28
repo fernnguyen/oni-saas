@@ -15,6 +15,7 @@ import type { CartItem } from '@/hooks/useCart'
 import { CustomerSearch } from './CustomerSearch'
 import { useQuery } from '@tanstack/react-query'
 import { calculateHourlyBilling } from '@oni/core'
+import { VietQRPreview } from '@/app/components/ui/VietQRPreview'
 
 interface Props {
   open: boolean
@@ -267,7 +268,7 @@ export function CheckoutModal({
   const { data: fundsData } = useQuery({
     queryKey: ['payment-funds', shopId, branchId],
     queryFn: async () => {
-      const res = await fetch(`/api/shops/${shopId}/payment-funds?branch_id=${branchId}`)
+      const res = await fetch(`/api/shops/${shopId}/payment-funds?branch_id=${branchId}&active=TRUE`)
       if (!res.ok) return []
       const json = await res.json()
       return (json.data || []) as Record<string, string>[]
@@ -840,7 +841,7 @@ export function CheckoutModal({
     }
   }
 
-  async function handleSubmit() {
+  async function handleSubmit(options?: { bypassQr?: boolean }) {
     if (items.length === 0) return
     if (totalPaid < remainingTotal) {
       toast.error(`Còn thiếu ${fmtVND(remainingTotal - totalPaid)}`)
@@ -868,7 +869,7 @@ export function CheckoutModal({
       }
     }
 
-    const isWaitingForQr = bankTransferAmt > 0
+    const isWaitingForQr = bankTransferAmt > 0 && !options?.bypassQr
     setSaving(true)
     try {
       const debtAmount = payments
@@ -909,8 +910,10 @@ export function CheckoutModal({
         const matching = fundsList.filter((f) => f.type === fundType)
         const resolvedFundId = p.fund_id || matching.find((f) => f.is_default === 'TRUE')?.id || matching[0]?.id || ''
 
+        const payLocalId = crypto.randomUUID()
         return {
-          local_id: crypto.randomUUID(),
+          id: payLocalId,
+          local_id: payLocalId,
           order_local_id: local_id,
           method: p.method,
           amount: parseFloat(p.amount),
@@ -921,8 +924,10 @@ export function CheckoutModal({
       })
 
       if (cashChange > 0) {
+        const changeLocalId = crypto.randomUUID()
         localPayments.push({
-          local_id: crypto.randomUUID(),
+          id: changeLocalId,
+          local_id: changeLocalId,
           order_local_id: local_id,
           method: 'cash',
           amount: -cashChange,
@@ -1128,7 +1133,7 @@ export function CheckoutModal({
         if (!showQrGate) onClose()
       }
       if ((e.key === 'Enter') && (e.ctrlKey || e.metaKey)) {
-        if (!showQrGate) handleSubmit()
+        if (!showQrGate) handleSubmit({ bypassQr: true })
       }
     }
     document.addEventListener('keydown', onKey)
@@ -1142,7 +1147,7 @@ export function CheckoutModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={showQrGate ? undefined : onClose} />
 
-      <div className="relative z-10 w-full max-w-md max-h-[90vh] flex flex-col rounded-2xl bg-white shadow-2xl">
+      <div className="relative z-10 w-full max-w-xl max-h-[90vh] flex flex-col rounded-2xl bg-white shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 shrink-0">
           <h2 className="text-base font-semibold text-slate-900">
@@ -1158,12 +1163,16 @@ export function CheckoutModal({
             <div className="p-5 flex-1 flex flex-col items-center justify-center space-y-4">
               
               {/* Dynamic VietQR display */}
-              <div className="relative group p-4 bg-white rounded-2xl shadow-sm border border-slate-100/80 max-w-[200px] w-full flex flex-col items-center animate-in zoom-in duration-305">
+              <div className="relative group p-4 bg-white rounded-2xl shadow-sm border border-slate-100/80 max-w-[240px] w-full flex flex-col items-center animate-in zoom-in duration-305">
                 <div className="absolute -inset-1.5 rounded-3xl bg-gradient-to-tr from-emerald-400 to-primary opacity-20 blur-xs group-hover:opacity-30 transition duration-500 animate-pulse"></div>
-                <img
-                  src={`https://img.vietqr.io/image/${activeBankCode}-${activeBankAccountNumber}-${settings?.qr_template || 'compact2'}.png?amount=${bankTransferAmt}&addInfo=${waitingOrderNo}&accountName=${encodeURIComponent(activeBankAccountName)}`}
-                  alt="VietQR dynamic gate"
-                  className="relative z-10 w-full aspect-square object-contain rounded-lg border border-slate-100"
+                <VietQRPreview
+                  bankCode={activeBankCode}
+                  accountNumber={activeBankAccountNumber}
+                  accountName={activeBankAccountName}
+                  amount={bankTransferAmt}
+                  addInfo={waitingOrderNo}
+                  template={settings?.qr_template || 'compact2'}
+                  className="relative z-10 w-full border border-slate-100"
                 />
                 <div className="mt-2 text-center relative z-10">
                   <p className="text-[10px] font-bold text-slate-400 tracking-wide uppercase">Số tiền QR</p>
@@ -1655,27 +1664,39 @@ export function CheckoutModal({
             </div>
 
             {/* Footer */}
-            <div className="flex gap-3 border-t border-slate-100 px-5 py-4">
+            <div className="flex flex-col sm:flex-row gap-3 border-t border-slate-100 px-5 py-4">
               <button
                 onClick={onClose}
                 disabled={saving}
-                className="flex-1 rounded-xl border border-slate-200 py-2.5 text-sm text-slate-650 hover:bg-slate-50 disabled:opacity-50"
+                className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-650 hover:bg-slate-50 disabled:opacity-50 transition-colors"
               >
-                Hủy
+                Đóng
               </button>
-              <button
-                onClick={handleSubmit}
-                disabled={saving || items.length === 0 || remaining > 0}
-                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-primary py-2.5 text-sm font-semibold text-white hover:bg-primary-dark disabled:opacity-40 transition-colors"
-              >
-                {saving && (
-                  <svg className="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+
+              <div className="flex-1 flex flex-col sm:flex-row gap-3">
+                {/* Green button: Lưu & xác nhận (Đã thu) */}
+                <button
+                  onClick={() => handleSubmit({ bypassQr: true })}
+                  disabled={saving || items.length === 0 || remaining > 0}
+                  className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 py-2.5 px-4 text-sm font-bold text-white shadow-xs disabled:opacity-40 transition-all active:scale-98"
+                >
+                  <svg className="h-4.5 w-4.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
+                  Lưu & xác nhận
+                </button>
+
+                {/* Primary brand yellow button: Lưu & chờ thanh toán */}
+                {bankTransferAmt > 0 && (
+                  <button
+                    onClick={() => handleSubmit({ bypassQr: false })}
+                    disabled={saving || items.length === 0 || remaining > 0}
+                    className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-primary hover:bg-primary-dark py-2.5 px-4 text-sm font-bold text-white shadow-xs disabled:opacity-40 transition-all active:scale-98 animate-in fade-in slide-in-from-right-1 duration-200"
+                  >
+                    Lưu & chờ thanh toán
+                  </button>
                 )}
-                {saving ? 'Đang xử lý...' : (bankTransferAmt > 0 ? 'Lưu & Chờ thanh toán · Ctrl+Enter' : 'Hoàn tất · Ctrl+Enter')}
-              </button>
+              </div>
             </div>
           </>
         )}

@@ -514,6 +514,14 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
       toast.error('Bạn không có quyền hủy đơn hàng này')
       return false
     }
+    const isOk = await confirm({
+      title: 'Xác nhận điều chỉnh đơn hàng',
+      description: 'Hệ thống sẽ hủy đơn hàng và tạo lại đơn hàng này trong giỏ hàng như một đơn hàng mới. Bạn có chắc chắn muốn tiếp tục?',
+      confirmLabel: 'Đồng ý',
+      cancelLabel: 'Bỏ qua'
+    })
+    if (!isOk) return false
+
     try {
       if (order.server_id) {
         if (!isOnline) {
@@ -1198,6 +1206,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
         shopName={shopName}
         ordersPath={`/t/${backPath.split('/')[1]}/${branchId}/orders`}
         shopId={shopId}
+        branchId={branchId}
         onCopyToNewTab={copyToNewTab}
         onCancelAndEdit={cancelAndEditOrder}
       />
