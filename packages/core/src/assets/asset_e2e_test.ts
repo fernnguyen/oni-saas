@@ -5,7 +5,7 @@ class MockConnector {
   private db: Record<string, any[]> = {
     departments: [],
     assets: [],
-    asset_allocations: [],
+    'asset-allocations': [],
     cashbook: [],
   };
 
@@ -95,7 +95,7 @@ async function runAssetE2ETests() {
   // 3. Phân bổ bàn giao tài sản (Asset Allocation)
   console.log('\nStep 3: Phân bổ bàn giao tài sản cho các bộ phận...');
   // Bàn giao 2 cái cho buồng phòng, 1 cái cho nhà hàng bếp (Tổng cộng 3 cái)
-  await connector.create('asset_allocations', {
+  await connector.create('asset-allocations', {
     id: 'ATA-001',
     tenant_id: 'TNT-HOTEL',
     asset_id: asset.id,
@@ -103,7 +103,7 @@ async function runAssetE2ETests() {
     qty: '2',
     allocated_at: '2026-05-28',
   });
-  await connector.create('asset_allocations', {
+  await connector.create('asset-allocations', {
     id: 'ATA-002',
     tenant_id: 'TNT-HOTEL',
     asset_id: asset.id,

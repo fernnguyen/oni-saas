@@ -11,7 +11,7 @@ export async function POST(
 ) {
   try {
     const { shopId } = await params;
-    const { connector, permissions } = await requireShopAccess(shopId);
+    const { connector, permissions, userId } = await requireShopAccess(shopId);
 
     const hasManageAccess =
       permissions.includes('assets.manage') ||
@@ -82,6 +82,8 @@ export async function POST(
       serial_no: data.serial_no || '',
       manufacturer: data.manufacturer || '',
       warranty_expiry: data.warranty_expiry || '',
+      created_by: userId,
+      updated_by: userId,
     };
     if (data.supplier_id) {
       assetData.supplier_id = data.supplier_id;
@@ -96,6 +98,8 @@ export async function POST(
       department_code: data.department_code,
       qty: String(reqQty),
       allocated_at: purchaseDate,
+      created_by: userId,
+      updated_by: userId,
     };
     await connector.create('asset-allocations', allocationData);
 

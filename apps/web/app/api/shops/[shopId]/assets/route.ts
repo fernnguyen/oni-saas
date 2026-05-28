@@ -29,6 +29,72 @@ export async function GET(
 
     const result = await connector.list('assets', { page, limit, filters: filter, sortDesc: false });
 
+    // Fetch allocations and departments to resolve current department location
+    let allocationMap = new Map<string, string>();
+    try {
+      const [allocationsRes, departmentsRes] = await Promise.all([
+        connector.list('asset-allocations', { limit: 1000 }),
+        connector.list('departments', { limit: 100 }),
+      ]);
+
+      const departmentNameMap = new Map(
+        departmentsRes?.data?.map((d: any) => [d.code, d.name]) || []
+      );
+
+      if (allocationsRes && Array.isArray(allocationsRes.data)) {
+        // Sort allocations by allocated_at descending or created_at descending to get the latest
+        const sortedAllocs = [...allocationsRes.data].sort((a: any, b: any) => {
+          const dateA = new Date(a.allocated_at || a.created_at || 0).getTime();
+          const dateB = new Date(b.allocated_at || b.created_at || 0).getTime();
+          return dateB - dateA;
+        });
+
+        sortedAllocs.forEach((alloc: any) => {
+          const assetId = alloc.asset_id;
+          const deptCode = alloc.department_code;
+          const deptName = departmentNameMap.get(deptCode) || deptCode;
+          if (!allocationMap.has(assetId) && deptName) {
+            allocationMap.set(assetId, deptName);
+          }
+        });
+      }
+    } catch (err) {
+      console.error('Failed to resolve current department allocations:', err);
+    }
+
+    // Resolve profile display names for created_by and updated_by
+    if (result && Array.isArray(result.data) && result.data.length > 0) {
+      const userIds = Array.from(new Set(
+        result.data.flatMap((r: any) => [r.created_by, r.updated_by]).filter(Boolean)
+      ));
+
+      let profileMap = new Map<string, string>();
+      if (userIds.length > 0) {
+        const { getSupabaseAdminClient } = await import('@/lib/server/supabaseAdmin');
+        const admin = getSupabaseAdminClient();
+        const { data: profiles } = await admin
+          .from('tenant_user_profiles')
+          .select('user_id, display_name, login_email')
+          .in('user_id', userIds);
+        
+        if (profiles && profiles.length > 0) {
+          profileMap = new Map(profiles.map(p => [p.user_id, p.display_name || p.login_email || p.user_id]));
+        }
+      }
+
+      result.data = result.data.map((r: any) => {
+        const creatorName = r.created_by ? (profileMap.get(r.created_by) || `User (${r.created_by.slice(0, 8)})`) : 'Hệ thống';
+        const updaterName = r.updated_by ? (profileMap.get(r.updated_by) || `User (${r.updated_by.slice(0, 8)})`) : 'Hệ thống';
+        const currentDept = allocationMap.get(r.id) || 'Chưa di chuyển';
+        return {
+          ...r,
+          created_by: creatorName,
+          updated_by: updaterName,
+          current_department: currentDept,
+        };
+      });
+    }
+
     return NextResponse.json(result);
   } catch (e) {
     return handleApiError(e, 'GET assets');
@@ -41,7 +107,7 @@ export async function POST(
 ) {
   try {
     const { shopId } = await params;
-    const { connector, permissions } = await requireShopAccess(shopId);
+    const { connector, permissions, userId } = await requireShopAccess(shopId);
 
     const hasManageAccess = permissions.includes('assets.manage') || permissions.includes('settings.manage') || permissions.includes('owner') || permissions.includes('admin');
     if (!hasManageAccess) {
@@ -50,6 +116,8 @@ export async function POST(
 
     const body = await req.json();
     const data = assetCreateSchema.parse(body);
+    data.created_by = userId;
+    data.updated_by = userId;
 
     const created = await connector.create('assets', data);
     invalidate(shopId, 'assets');

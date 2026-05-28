@@ -41,6 +41,8 @@ export const assetCreateSchema = z.object({
   warranty_expiry: z.string().optional().nullable(),
   supplier_id: z.string().optional().nullable(),
   status: z.enum(['active', 'depreciated', 'disposed']).optional().default('active'),
+  created_by: z.string().optional().nullable(),
+  updated_by: z.string().optional().nullable(),
 }).transform((data) => {
   const result: Record<string, string> = {};
   for (const [key, value] of Object.entries(data)) {
@@ -65,6 +67,8 @@ export const assetUpdateSchema = z.object({
   manufacturer: z.string().optional().nullable(),
   warranty_expiry: z.string().optional().nullable(),
   supplier_id: z.string().optional().nullable(),
+  created_by: z.string().optional().nullable(),
+  updated_by: z.string().optional().nullable(),
 }).transform((data) => {
   const result: Record<string, string> = {};
   for (const [key, value] of Object.entries(data)) {
@@ -80,6 +84,10 @@ export const assetAllocationCreateSchema = z.object({
   department_code: z.string().min(1, 'Mã bộ phận Cost Center không được để trống'),
   qty: z.string().min(1, 'Số lượng phân bổ không được để trống'),
   allocated_at: z.string().min(1, 'Ngày bàn giao không được để trống'),
+  note: z.string().optional().nullable(),
+  recipient_name: z.string().optional().nullable(),
+  created_by: z.string().optional().nullable(),
+  updated_by: z.string().optional().nullable(),
 }).transform((data) => {
   const result: Record<string, string> = {};
   for (const [key, value] of Object.entries(data)) {
@@ -166,6 +174,8 @@ export const assetCommissionSchema = z.object({
   warranty_expiry: z.string().optional().nullable(),
   supplier_id: z.string().optional().nullable(),
   purchase_date: z.string().optional().nullable(),
+  created_by: z.string().optional().nullable(),
+  updated_by: z.string().optional().nullable(),
 }).transform((data) => {
   const result: Record<string, string> = {};
   for (const [key, value] of Object.entries(data)) {

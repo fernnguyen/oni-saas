@@ -11,7 +11,7 @@ export async function PATCH(
 ) {
   try {
     const { shopId, id } = await params;
-    const { connector, permissions } = await requireShopAccess(shopId);
+    const { connector, permissions, userId } = await requireShopAccess(shopId);
 
     const hasManageAccess = permissions.includes('assets.manage') || permissions.includes('settings.manage') || permissions.includes('owner') || permissions.includes('admin');
     if (!hasManageAccess) {
@@ -20,6 +20,7 @@ export async function PATCH(
 
     const body = await req.json();
     const data = assetUpdateSchema.parse(body);
+    data.updated_by = userId;
 
     const updated = await connector.update('assets', id, data);
     invalidate(shopId, 'assets');

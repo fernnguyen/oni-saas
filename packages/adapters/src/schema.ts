@@ -512,6 +512,8 @@ export const assets = mysqlTable('assets', {
   manufacturer: varchar('manufacturer', { length: 255 }),
   warranty_expiry: varchar('warranty_expiry', { length: 50 }),
   supplier_id: varchar('supplier_id', { length: 255 }), // Link sang bảng suppliers
+  created_by: varchar('created_by', { length: 255 }),
+  updated_by: varchar('updated_by', { length: 255 }),
 });
 
 // ── Bảng Bàn giao Tài sản (Asset Allocations) ────────────────────────────
@@ -522,6 +524,10 @@ export const asset_allocations = mysqlTable('asset_allocations', {
   department_code: varchar('department_code', { length: 50 }).notNull(), // Map trực tiếp sang departments.code (Cost Center)
   qty: varchar('qty', { length: 50 }).notNull(),
   allocated_at: varchar('allocated_at', { length: 50 }).notNull(),
+  note: text('note'),
+  recipient_name: varchar('recipient_name', { length: 255 }),
+  created_by: varchar('created_by', { length: 255 }),
+  updated_by: varchar('updated_by', { length: 255 }),
 });
 
 // ── Bảng Mẫu Phân bổ Chi phí (Cost Allocation Templates) ──────────────────

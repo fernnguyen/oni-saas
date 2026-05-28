@@ -81,6 +81,7 @@ export class MysqlConnector implements IDataConnector {
     'user-departments',
     'assets',
     'asset-allocations',
+    'asset_allocations',
   ]
 
   private async generateSequentialId(entity: string): Promise<string> {

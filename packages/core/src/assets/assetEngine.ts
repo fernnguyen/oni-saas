@@ -115,7 +115,7 @@ export class AssetEngine {
     }
 
     // 1. Truy xuất phân bổ tài sản để phân tách chi phí cho các phòng ban (Cost Center)
-    const allocationsResult = await connector.list('asset_allocations', {
+    const allocationsResult = await connector.list('asset-allocations', {
       filter: { asset_id: asset.id },
       limit: 100,
     });

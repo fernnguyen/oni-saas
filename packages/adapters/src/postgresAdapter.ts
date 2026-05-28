@@ -116,6 +116,7 @@ export class PostgresConnector implements IDataConnector {
     'user-departments',
     'assets',
     'asset-allocations',
+    'asset_allocations',
   ]
 
   private readonly LEGACY_ID_MAP: Record<string, string> = {
