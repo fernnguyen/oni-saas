@@ -608,7 +608,22 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
   }
 
   const [orderPanelOpen, setOrderPanelOpen] = useState(false)
+  const [pendingOrdersCount, setPendingOrdersCount] = useState(0)
   const workerRef = useRef<SyncWorker | null>(null)
+
+  useEffect(() => {
+    if (!localDb) return
+    const sub = liveQuery(async () => {
+      return await localDb.orders
+        .where('status')
+        .equals('pending')
+        .count()
+    }).subscribe({
+      next: setPendingOrdersCount,
+      error: (err) => console.error('Failed to load pending orders count:', err)
+    })
+    return () => sub.unsubscribe()
+  }, [])
 
   useEffect(() => {
     const sub = liveQuery(async () => {
@@ -1059,7 +1074,13 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
             className="relative flex items-center gap-1 rounded border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50 transition-colors"
             title="Xem đơn hàng hôm nay"
           >
-            <IconClipboard className="h-3.5 w-3.5 shrink-0" /> Đơn hàng
+            <IconClipboard className="h-3.5 w-3.5 shrink-0" />
+            <span>Đơn hàng</span>
+            {pendingOrdersCount > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-bold text-white shadow-sm ring-1 ring-white animate-in zoom-in-50 duration-200">
+                {pendingOrdersCount}
+              </span>
+            )}
           </button>
 
           {isShiftEnabled && hasActiveShift && (

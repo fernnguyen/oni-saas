@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { liveQuery } from 'dexie'
 import { localDb, type LocalOrder, type LocalOrderItem, type LocalPayment } from '@/lib/localDb/schema'
 import { useQuery } from '@tanstack/react-query'
@@ -21,12 +21,20 @@ interface Props {
   onCancelAndEdit: (order: LocalOrder) => Promise<boolean>
 }
 
+const STATUS_LABELS: Record<string, { label: string; cls: string }> = {
+  draft:       { label: 'Nháp', cls: 'bg-slate-100 text-slate-750 border border-slate-200' },
+  pending:     { label: 'Chờ thanh toán', cls: 'bg-amber-50 text-amber-700 border border-amber-200/50 font-bold animate-pulse' },
+  in_progress: { label: 'Đang sử dụng', cls: 'bg-blue-50 text-blue-700 border border-blue-200/50' },
+  completed:   { label: 'Hoàn thành', cls: 'bg-emerald-50 text-emerald-700 border border-emerald-200/50' },
+  cancelled:   { label: 'Đã hủy', cls: 'bg-slate-100 text-slate-500 border border-slate-250 line-through font-medium' },
+}
+
 const SYNC_LABELS: Record<string, { label: string; cls: string }> = {
-  pending:  { label: 'Chờ thanh toán', cls: 'bg-yellow-100 text-yellow-750 font-bold' },
-  syncing:  { label: 'Đang sync',  cls: 'bg-blue-100 text-blue-700' },
-  done:     { label: 'Đã sync',    cls: 'bg-green-100 text-green-700' },
-  failed:   { label: 'Lỗi sync',   cls: 'bg-red-100 text-red-600' },
-  cancelled: { label: 'Đã hủy',     cls: 'bg-slate-100 text-slate-500 line-through' },
+  pending:  { label: 'Chờ đồng bộ', cls: 'text-amber-600 font-medium' },
+  syncing:  { label: 'Đang đồng bộ...',  cls: 'text-blue-500 animate-pulse font-medium' },
+  done:     { label: 'Đã đồng bộ',    cls: 'text-slate-400 font-normal' },
+  failed:   { label: 'Lỗi đồng bộ',   cls: 'text-rose-500 font-semibold' },
+  cancelled: { label: 'Đã hủy',     cls: 'text-slate-400 line-through' },
 }
 
 const METHOD_LABEL: Record<string, string> = {
@@ -74,6 +82,10 @@ export function OrderHistoryPanel({
   const [selectedFundIdForCorrection, setSelectedFundIdForCorrection] = useState('')
   const [initialFundId, setInitialFundId] = useState<string | null>(null)
   const [savingPaymentCorrection, setSavingPaymentCorrection] = useState(false)
+
+  const pendingCount = useMemo(() => {
+    return todayOrders.filter(o => o.status === 'pending').length
+  }, [todayOrders])
 
   const { data: fundsData } = useQuery({
     queryKey: ['payment-funds', shopId, branchId],
@@ -298,11 +310,16 @@ export function OrderHistoryPanel({
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
 
       {/* Drawer from right */}
-      <div className="absolute right-0 top-0 flex h-full w-full max-w-sm flex-col bg-white shadow-2xl">
+      <div className="absolute right-0 top-0 flex h-full w-full max-w-md flex-col bg-white shadow-2xl">
         {/* Header */}
         <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-4 py-3">
           <div className="flex items-center gap-2 min-w-0">
-            <h2 className="text-sm font-semibold text-slate-900">Quản lý đơn hàng</h2>
+            <h2 className="text-sm font-semibold text-slate-900">Đơn hàng gần đây</h2>
+            {pendingCount > 0 && (
+              <span className="rounded-full bg-rose-500 px-1.5 py-0.5 text-[9px] font-bold text-white shadow-3xs shrink-0 animate-in zoom-in-50 duration-200">
+                {pendingCount} đang chờ
+              </span>
+            )}
             <a href={ordersPath} className="text-xs text-primary hover:underline shrink-0">Xem tất cả →</a>
           </div>
           <button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100">✕</button>
@@ -315,6 +332,7 @@ export function OrderHistoryPanel({
               <p className="p-6 text-center text-sm text-slate-400">Chưa có đơn hàng hôm nay</p>
             ) : (
               todayOrders.map((order) => {
+                const status = STATUS_LABELS[order.status] ?? { label: order.status, cls: 'bg-slate-100 text-slate-700 border border-slate-200' }
                 const sync = SYNC_LABELS[order.status === 'cancelled' ? 'cancelled' : order.sync_status] ?? SYNC_LABELS.pending
                 const isExpanded = expandedId === order.local_id
                 return (
@@ -324,17 +342,26 @@ export function OrderHistoryPanel({
                       className="flex w-full items-start justify-between px-4 py-3 text-left hover:bg-slate-50 transition-colors"
                     >
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <p className="text-sm font-medium text-slate-900">
                             {order.order_no ?? order.server_id ?? `LORD-${order.local_id.slice(-8).toUpperCase()}`}
                           </p>
-                          <span className={['rounded px-1.5 py-0.5 text-[10px] font-medium', sync.cls].join(' ')}>
-                            {sync.label}
+                          <span className={['rounded px-1.5 py-0.5 text-[9px] font-bold', status.cls].join(' ')}>
+                            {status.label}
                           </span>
                         </div>
-                        <p className="mt-0.5 text-xs text-slate-500">
-                          {fmtTime(order.created_at)}
-                          {order.customer_name && ` · ${order.customer_name}`}
+                        <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-500 flex-wrap">
+                          <span>{fmtTime(order.created_at)}</span>
+                          {order.customer_name && <span>· {order.customer_name}</span>}
+                          <span>·</span>
+                          <span className={['inline-flex items-center gap-0.5 text-[10px]', sync.cls].join(' ')}>
+                            {order.status !== 'cancelled' && order.sync_status === 'done' && (
+                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="3" stroke="currentColor" className="h-3 w-3 text-emerald-500 shrink-0">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                              </svg>
+                            )}
+                            {sync.label}
+                          </span>
                         </p>
                       </div>
                       <div className="ml-3 shrink-0 text-right">
