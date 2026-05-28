@@ -502,3 +502,62 @@ export const product_purchase_history = pgTable('product_purchase_history', {
   prodTenantIdx: index('idx_pph_prod_tenant').on(table.product_id, table.tenant_id),
 }));
 
+// ── Bảng Phòng ban toàn hệ thống (Departments) ───────────────────────────
+export const departments = pgTable('departments', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  branch_id: varchar('branch_id', { length: 255 }).notNull(),
+  name: varchar('name', { length: 255 }).notNull(), // Lễ tân, Buồng phòng, Bếp...
+  code: varchar('code', { length: 50 }).notNull(), // lodging_hskp, fnb_kitchen...
+  manager_id: varchar('manager_id', { length: 255 }), // Trưởng bộ phận (user_id)
+}, (table) => ({
+  deptTenantBranchIdx: index('idx_dept_tenant_branch').on(table.tenant_id, table.branch_id),
+}));
+
+// ── Bảng Liên kết Nhân sự - Phòng ban (User Departments) ──────────────────
+export const user_departments = pgTable('user_departments', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  user_id: varchar('user_id', { length: 255 }).notNull(),
+  department_id: varchar('department_id', { length: 255 }).notNull(),
+  is_manager: varchar('is_manager', { length: 10 }).default('FALSE'),
+}, (table) => ({
+  userDeptTenantIdx: index('idx_ud_tenant_user').on(table.tenant_id, table.user_id),
+}));
+
+// ── Bảng Quản lý Tài sản dùng chung (Assets) ─────────────────────────────
+export const assets = pgTable('assets', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  branch_id: varchar('branch_id', { length: 255 }),
+  name: varchar('name', { length: 255 }).notNull(), // Máy siêu âm, ga trải giường...
+  unit: varchar('unit', { length: 50 }).notNull(), // chiếc, cái, bộ...
+  type: varchar('type', { length: 50 }).notNull(), // 'ccdc' | 'tscd'
+  original_value: varchar('original_value', { length: 50 }).notNull(), // Nguyên giá
+  salvage_value: varchar('salvage_value', { length: 50 }).default('0'), // Giá trị thanh lý
+  purchase_date: varchar('purchase_date', { length: 50 }).notNull(),
+  depreciation_months: varchar('depreciation_months', { length: 50 }).notNull(), // Số tháng khấu hao
+  depreciated_value: varchar('depreciated_value', { length: 50 }).default('0'), // Lũy kế đã khấu hao
+  status: varchar('status', { length: 50 }).default('active'), // active | depreciated | disposed
+  // ── Mở rộng nghiệp vụ đa ngành ──────────────────────────────────────────
+  serial_no: varchar('serial_no', { length: 255 }), // Sê-ri máy
+  manufacturer: varchar('manufacturer', { length: 255 }),
+  warranty_expiry: varchar('warranty_expiry', { length: 50 }),
+  supplier_id: varchar('supplier_id', { length: 255 }), // Link sang bảng suppliers
+}, (table) => ({
+  assetTenantBranchIdx: index('idx_asset_tenant_branch').on(table.tenant_id, table.branch_id),
+}));
+
+// ── Bảng Bàn giao Tài sản (Asset Allocations) ────────────────────────────
+export const asset_allocations = pgTable('asset_allocations', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  asset_id: varchar('asset_id', { length: 255 }).notNull(),
+  department_code: varchar('department_code', { length: 50 }).notNull(), // Map trực tiếp sang departments.code (Cost Center)
+  qty: varchar('qty', { length: 50 }).notNull(),
+  allocated_at: varchar('allocated_at', { length: 50 }).notNull(),
+}, (table) => ({
+  allocTenantIdx: index('idx_alloc_tenant').on(table.tenant_id),
+}));
+
+
