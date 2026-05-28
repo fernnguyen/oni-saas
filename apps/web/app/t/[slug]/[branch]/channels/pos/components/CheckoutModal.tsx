@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { toast } from 'sonner'
 import {
   localDb,
@@ -20,6 +20,7 @@ interface Props {
   open: boolean
   onClose: () => void
   onSuccess: () => void
+  onMinimize?: () => void
   items: CartItem[]
   subtotal: number
   discount_amount: number
@@ -111,10 +112,43 @@ function nextId() {
   return String(Date.now() + Math.random())
 }
 
+function CopyField({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false)
+  const handleCopy = () => {
+    navigator.clipboard.writeText(value)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+    toast.success(`Đã sao chép ${label.toLowerCase()}`)
+  }
+  return (
+    <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+      <div className="min-w-0">
+        <p className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">{label}</p>
+        <p className="font-semibold text-slate-800 truncate mt-0.5">{value}</p>
+      </div>
+      <button
+        onClick={handleCopy}
+        className="ml-2 shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+      >
+        {copied ? (
+          <svg className="h-4 w-4 text-emerald-500 animate-in zoom-in" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+        ) : (
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+          </svg>
+        )}
+      </button>
+    </div>
+  )
+}
+
 export function CheckoutModal({
   open,
   onClose,
   onSuccess,
+  onMinimize,
   items,
   subtotal,
   discount_amount,
@@ -149,6 +183,27 @@ export function CheckoutModal({
   const [localCheckoutTime, setLocalCheckoutTime] = useState('')
   const [isEditingCheckout, setIsEditingCheckout] = useState(false)
   const [checkoutInput, setCheckoutInput] = useState('')
+
+  const [showQrGate, setShowQrGate] = useState(false)
+  const [pollingActive, setPollingActive] = useState(false)
+  const [waitingOrderId, setWaitingOrderId] = useState<string | null>(null)
+  const [waitingOrderNo, setWaitingOrderNo] = useState<string>('')
+
+  const createdLocalOrderRef = useRef<any>(null)
+  const createdLocalItemsRef = useRef<any>(null)
+  const createdLocalPaymentsRef = useRef<any>(null)
+
+  const bankTransferAmt = useMemo(() => {
+    return payments
+      .filter((p) => p.method === 'bank_transfer')
+      .reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
+  }, [payments])
+
+  const debtAmount = useMemo(() => {
+    return payments
+      .filter((p) => p.method === 'debt')
+      .reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
+  }, [payments])
 
   // Recalculate time charge when checkout time or rental type changes
   const computedItems = useMemo(() => {
@@ -220,6 +275,15 @@ export function CheckoutModal({
     enabled: !!shopId && !!branchId && open,
   })
   const fundsList = fundsData || []
+
+  const qrPayment = payments.find((p) => p.method === 'bank_transfer')
+  const qrFund = fundsList.find((f) => f.id === qrPayment?.fund_id) || 
+                 fundsList.find((f) => f.type === 'bank' && f.is_default === 'TRUE') || 
+                 fundsList.find((f) => f.type === 'bank')
+
+  const activeBankCode = qrFund?.bank_name || settings?.bank_code || ''
+  const activeBankAccountNumber = qrFund?.account_number || settings?.bank_account_number || ''
+  const activeBankAccountName = settings?.bank_account_name || ''
 
   const getAutoMatchedFund = (method: string, list: Record<string, string>[]) => {
     if (list.length === 0) return undefined
@@ -413,6 +477,369 @@ export function CheckoutModal({
     setPayments([{ id: nextId(), method: 'cash', amount: String(newTotal) }])
   }
 
+  function playSuccessSound() {
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext || (window as any).AudioContext)()
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.type = 'sine'
+      osc.frequency.setValueAtTime(523.25, ctx.currentTime) // C5
+      gain.gain.setValueAtTime(0.15, ctx.currentTime)
+      osc.start()
+      osc.frequency.setValueAtTime(659.25, ctx.currentTime + 0.15) // E5
+      osc.stop(ctx.currentTime + 0.35)
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  useEffect(() => {
+    if (!pollingActive || !isOnline || !waitingOrderId) return
+
+    let isSubscribed = true
+    let timerId: any
+
+    const poll = async () => {
+      const serverId = createdLocalOrderRef.current?.server_id
+      if (!serverId) {
+        if (isSubscribed) {
+          timerId = setTimeout(poll, 2000)
+        }
+        return
+      }
+
+      try {
+        const res = await fetch(`/api/shops/${shopId}/orders/${serverId}`)
+        if (res.ok && isSubscribed) {
+          const data = await res.json()
+          if (data.status === 'completed') {
+            playSuccessSound()
+            toast.success('Thanh toán chuyển khoản VietQR tự động thành công!')
+            
+            const bankPayment = {
+              local_id: crypto.randomUUID(),
+              order_local_id: waitingOrderId,
+              method: 'bank_transfer',
+              amount: bankTransferAmt,
+              reference_no: data.reference_no || 'SEPAY',
+              note: 'Tự động đối soát SEPay',
+            }
+
+            await localDb.transaction('rw', [localDb.orders, localDb.payments], async () => {
+              await localDb.orders.update(waitingOrderId, {
+                status: 'completed',
+                paid_amount: finalTotal,
+                sync_status: 'done'
+              })
+              await localDb.payments.add(bankPayment)
+            })
+
+            if (createdLocalOrderRef.current) {
+              broadcastOrderCreated({
+                ...createdLocalOrderRef.current,
+                status: 'completed',
+                paid_amount: finalTotal,
+                sync_status: 'done'
+              })
+            }
+
+            if (autoPrintReceipt) {
+              try {
+                const orderToPrint = {
+                  ...createdLocalOrderRef.current,
+                  status: 'completed',
+                  paid_amount: finalTotal,
+                }
+                const paymentsToPrint = [
+                  ...createdLocalPaymentsRef.current,
+                  bankPayment
+                ]
+                await printBill({
+                  order: orderToPrint,
+                  items: createdLocalItemsRef.current,
+                  payments: paymentsToPrint,
+                  shopName,
+                  settings: {
+                    ...settings,
+                    bank_code: activeBankCode,
+                    bank_account_number: activeBankAccountNumber,
+                    bank_account_name: activeBankAccountName,
+                  },
+                  printCount: 1,
+                  shopId
+                })
+              } catch (printErr) {
+                console.error('Auto print failed:', printErr)
+              }
+            }
+
+            setPollingActive(false)
+            setShowQrGate(false)
+            onSuccess()
+            return
+          }
+        }
+      } catch (err) {
+        console.error('Failed to poll order status:', err)
+      }
+
+      if (isSubscribed) {
+        timerId = setTimeout(poll, 2000)
+      }
+    }
+
+    poll()
+
+    return () => {
+      isSubscribed = false
+      clearTimeout(timerId)
+    }
+  }, [pollingActive, isOnline, waitingOrderId, shopId, finalTotal, bankTransferAmt, autoPrintReceipt, shopName, settings, onSuccess])
+
+  async function handleConfirmManual() {
+    setSaving(true)
+    const bankPayment = {
+      local_id: crypto.randomUUID(),
+      order_local_id: waitingOrderId!,
+      method: 'bank_transfer',
+      amount: bankTransferAmt,
+      reference_no: 'MANUAL',
+      note: 'Xác nhận thủ công tại POS',
+    }
+
+    if (isOnline && createdLocalOrderRef.current?.server_id) {
+      try {
+        const orderServerId = createdLocalOrderRef.current.server_id
+        await fetch(`/api/shops/${shopId}/orders/${orderServerId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            status: 'completed',
+            paid_amount: String(finalTotal),
+            debt_amount: String(debtAmount)
+          })
+        })
+
+        const pFunds = fundsList.filter((f) => f.type === 'bank')
+        const targetFundId = pFunds.find((f) => f.is_default === 'TRUE')?.id || pFunds[0]?.id || ''
+        
+        await fetch(`/api/shops/${shopId}/payments`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            order_id: orderServerId,
+            order_no: waitingOrderNo,
+            method: 'bank_transfer',
+            amount: String(bankTransferAmt),
+            reference_no: 'MANUAL',
+            note: 'Xác nhận thủ công tại POS',
+          })
+        })
+
+        await fetch(`/api/shops/${shopId}/cashbook`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'receipt',
+            amount: bankTransferAmt,
+            method: 'bank_transfer',
+            category: 'sales',
+            reference_id: orderServerId,
+            reference_name: localCustomer?.name || 'Khách lẻ',
+            note: `Thanh toán chuyển khoản thủ công cho đơn hàng ${waitingOrderNo}`,
+            employee_id: employeeId,
+            branch_id: branchId,
+            fund_id: targetFundId
+          })
+        })
+      } catch (apiErr) {
+        console.error('Manual confirmation online update failed:', apiErr)
+      }
+    }
+
+    try {
+      await localDb.transaction('rw', [localDb.orders, localDb.payments, localDb.syncQueue], async () => {
+        await localDb.orders.update(waitingOrderId!, {
+          status: 'completed',
+          paid_amount: finalTotal,
+          sync_status: isOnline ? 'done' : 'pending'
+        })
+        await localDb.payments.add(bankPayment)
+
+        if (!isOnline) {
+          const qItems = await localDb.syncQueue.toArray()
+          const qItem = qItems.find((item) => item.local_order_id === waitingOrderId)
+          if (qItem) {
+            const payload = qItem.payload
+            payload.order.status = 'completed'
+            payload.order.paid_amount = finalTotal
+            payload.payments.push({
+              local_id: bankPayment.local_id,
+              order_local_id: waitingOrderId!,
+              method: 'bank_transfer',
+              amount: bankTransferAmt,
+              reference_no: 'MANUAL',
+              note: 'Xác nhận thủ công tại POS',
+            })
+            await localDb.syncQueue.update(qItem.id!, { payload })
+          }
+        }
+      })
+
+      playSuccessSound()
+      toast.success('Xác nhận thanh toán thủ công thành công!')
+
+      if (createdLocalOrderRef.current) {
+        broadcastOrderCreated({
+          ...createdLocalOrderRef.current,
+          status: 'completed',
+          paid_amount: finalTotal,
+          sync_status: isOnline ? 'done' : 'pending'
+        })
+      }
+
+      if (autoPrintReceipt) {
+        try {
+          const orderToPrint = {
+            ...createdLocalOrderRef.current,
+            status: 'completed',
+            paid_amount: finalTotal,
+          }
+          const paymentsToPrint = [
+            ...createdLocalPaymentsRef.current,
+            bankPayment
+          ]
+          await printBill({
+            order: orderToPrint,
+            items: createdLocalItemsRef.current,
+            payments: paymentsToPrint,
+            shopName,
+            settings: {
+              ...settings,
+              bank_code: activeBankCode,
+              bank_account_number: activeBankAccountNumber,
+              bank_account_name: activeBankAccountName,
+            },
+            printCount: 1,
+            shopId
+          })
+        } catch (err) {
+          console.error('Print failed:', err)
+        }
+      }
+
+      setPollingActive(false)
+      setShowQrGate(false)
+      onSuccess()
+    } catch (err) {
+      console.error(err)
+      toast.error('Xác nhận thủ công thất bại')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handlePrintTemp() {
+    const tempOrder = {
+      ...createdLocalOrderRef.current,
+      status: 'pending',
+      note: `(PHIẾU TẠM TÍNH) ${localNote || ''}`
+    }
+    const printPayments = [
+      ...createdLocalPaymentsRef.current,
+      {
+        method: 'bank_transfer',
+        amount: bankTransferAmt,
+        note: 'Chờ chuyển khoản'
+      }
+    ]
+    try {
+      await printBill({
+        order: tempOrder,
+        items: createdLocalItemsRef.current,
+        payments: printPayments,
+        shopName,
+        settings: {
+          ...settings,
+          bank_code: activeBankCode,
+          bank_account_number: activeBankAccountNumber,
+          bank_account_name: activeBankAccountName,
+        },
+        printCount: 1,
+        shopId
+      })
+      toast.success('Đã gửi lệnh in phiếu tạm tính!')
+    } catch (err) {
+      console.error(err)
+      toast.error('In phiếu tạm tính thất bại')
+    }
+  }
+
+  async function handleCancelQr() {
+    const isOk = window.confirm('Bạn có chắc chắn muốn hủy đơn hàng này không? Việc hủy sẽ xóa đơn hàng và khôi phục số lượng tồn kho sản phẩm.')
+    if (!isOk) return
+
+    setSaving(true)
+    if (isOnline && createdLocalOrderRef.current?.server_id) {
+      try {
+        await fetch(`/api/shops/${shopId}/orders/${createdLocalOrderRef.current.server_id}`, {
+          method: 'DELETE'
+        })
+      } catch (err) {
+        console.error('Delete order from server failed:', err)
+      }
+    }
+
+    try {
+      await localDb.transaction('rw', [localDb.orders, localDb.orderItems, localDb.payments, localDb.syncQueue, localDb.inventory, localDb.inventoryBatches], async () => {
+        await localDb.orders.delete(waitingOrderId!)
+        await localDb.orderItems.where('order_local_id').equals(waitingOrderId!).delete()
+        await localDb.payments.where('order_local_id').equals(waitingOrderId!).delete()
+        const qItems = await localDb.syncQueue.toArray()
+        const targetQ = qItems.find((item) => item.local_order_id === waitingOrderId)
+        if (targetQ) {
+          await localDb.syncQueue.delete(targetQ.id!)
+        }
+
+        // Restore inventory locally
+        for (const item of computedItems) {
+          const inv = await localDb.inventory
+            .where('[product_id+branch_id]')
+            .equals([item.product_id, branchId])
+            .first()
+          if (inv) {
+            await localDb.inventory.put({
+              ...inv,
+              stock_qty: Number(inv.stock_qty) + (item.qty * (item.conversion_rate || 1))
+            })
+          }
+        }
+      })
+
+      toast.info('Đã hủy hóa đơn chờ thanh toán!')
+      setPollingActive(false)
+      setShowQrGate(false)
+    } catch (err) {
+      console.error(err)
+      toast.error('Hủy hóa đơn thất bại')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function handleMinimizeQr() {
+    setPollingActive(false)
+    setShowQrGate(false)
+    toast.success(`Đã lưu tạm hóa đơn ${waitingOrderNo || ''} thành công!`);
+    if (onMinimize) {
+      onMinimize()
+    } else {
+      onSuccess()
+    }
+  }
+
   async function handleSubmit() {
     if (items.length === 0) return
     if (totalPaid < remainingTotal) {
@@ -441,6 +868,7 @@ export function CheckoutModal({
       }
     }
 
+    const isWaitingForQr = bankTransferAmt > 0
     setSaving(true)
     try {
       const debtAmount = payments
@@ -470,26 +898,27 @@ export function CheckoutModal({
         conversion_rate: item.conversion_rate,
       }))
 
-      const localPayments: any[] = payments
-        .filter((p) => parseFloat(p.amount) > 0)
-        .map((p) => {
-          let fundType = 'bank'
-          if (p.method === 'cash') fundType = 'cash'
-          else if (['momo', 'zalopay', 'vnpay', 'wallet'].includes(p.method)) fundType = 'wallet'
+      const actualPayments = payments.filter((p) => parseFloat(p.amount) > 0)
+      const nonQrPayments = isWaitingForQr ? actualPayments.filter((p) => p.method !== 'bank_transfer') : actualPayments
 
-          const matching = fundsList.filter((f) => f.type === fundType)
-          const resolvedFundId = p.fund_id || matching.find((f) => f.is_default === 'TRUE')?.id || matching[0]?.id || ''
+      const localPayments: any[] = nonQrPayments.map((p) => {
+        let fundType = 'bank'
+        if (p.method === 'cash') fundType = 'cash'
+        else if (['momo', 'zalopay', 'vnpay', 'wallet'].includes(p.method)) fundType = 'wallet'
 
-          return {
-            local_id: crypto.randomUUID(),
-            order_local_id: local_id,
-            method: p.method,
-            amount: parseFloat(p.amount),
-            reference_no: '',
-            note: '',
-            fund_id: resolvedFundId,
-          }
-        })
+        const matching = fundsList.filter((f) => f.type === fundType)
+        const resolvedFundId = p.fund_id || matching.find((f) => f.is_default === 'TRUE')?.id || matching[0]?.id || ''
+
+        return {
+          local_id: crypto.randomUUID(),
+          order_local_id: local_id,
+          method: p.method,
+          amount: parseFloat(p.amount),
+          reference_no: '',
+          note: '',
+          fund_id: resolvedFundId,
+        }
+      })
 
       if (cashChange > 0) {
         localPayments.push({
@@ -513,14 +942,14 @@ export function CheckoutModal({
         discount_amount: localDiscount + tierDiscountAmount,
         tax_amount: 0,
         total_amount: finalTotal,
-        paid_amount: actualPaid,
+        paid_amount: isWaitingForQr ? actualPaid - bankTransferAmt : actualPaid,
         debt_amount: debtAmount,
         points_earned: earnedPoints,
         points_redeemed: Number(pointsRedeemed),
         note: localNote,
         created_at: now,
-        status: 'completed',
-        print_count: autoPrintReceipt ? 1 : 0,
+        status: isWaitingForQr ? 'pending' : 'completed',
+        print_count: autoPrintReceipt ? (isWaitingForQr ? 0 : 1) : 0,
         items: orderItems,
       }
 
@@ -564,7 +993,7 @@ export function CheckoutModal({
               local_order_id: local_id,
               server_order_id: orderId,
               ...syncPayload,
-              stock_movements: syncPayload.stockMovements // API expects stock_movements, local payload expects stockMovements
+              stock_movements: syncPayload.stockMovements
             }),
           })
           if (res.ok) {
@@ -608,7 +1037,6 @@ export function CheckoutModal({
           }
 
           for (const item of items) {
-            // 1. Decrement general inventory (filter by active branchId)
             const inv = await localDb.inventory
               .where('[product_id+branch_id]')
               .equals([item.product_id, branchId])
@@ -622,17 +1050,13 @@ export function CheckoutModal({
               })
             }
 
-            // 2. Decrement specific batches (FIFO/FEFO: oldest expiry first)
             const batches = await localDb.inventoryBatches
               .where('[product_id+branch_id]')
               .equals([item.product_id, branchId])
               .toArray()
 
             if (batches && batches.length > 0) {
-              // Filter active batches with positive stock quantity
               const activeBatches = batches.filter((b) => Number(b.stock_qty) > 0)
-
-              // Sort by expiry_date ascending (FEFO/FIFO order)
               activeBatches.sort((a, b) => a.expiry_date.localeCompare(b.expiry_date))
 
               let remainingToSubtract = item.qty * (item.conversion_rate || 1)
@@ -650,9 +1074,22 @@ export function CheckoutModal({
       )
 
       broadcastOrderCreated(order)
-      toast.success(isSuccessDirect ? 'Tạo mới đơn hàng thành công!' : 'Tạo mới đơn hàng thành công (chờ đồng bộ)')
 
-      onSuccess() // close modal + clear cart first
+      if (isWaitingForQr) {
+        createdLocalOrderRef.current = order
+        createdLocalItemsRef.current = orderItems
+        createdLocalPaymentsRef.current = localPayments
+        setWaitingOrderId(local_id)
+        setWaitingOrderNo(serverOrderNo || local_id.slice(0, 8).toUpperCase())
+        setShowQrGate(true)
+        setPollingActive(true)
+        setSaving(false)
+        toast.success('Đã khởi tạo đơn hàng! Đang chờ thanh toán chuyển khoản...')
+        return
+      }
+
+      toast.success(isSuccessDirect ? 'Tạo mới đơn hàng thành công!' : 'Tạo mới đơn hàng thành công (chờ đồng bộ)')
+      onSuccess()
 
       if (autoPrintReceipt) {
         try {
@@ -661,7 +1098,12 @@ export function CheckoutModal({
             items: orderItems,
             payments: localPayments,
             shopName,
-            settings,
+            settings: {
+              ...settings,
+              bank_code: activeBankCode,
+              bank_account_number: activeBankAccountNumber,
+              bank_account_name: activeBankAccountName,
+            },
             printCount: 1,
             shopId
           })
@@ -673,455 +1115,570 @@ export function CheckoutModal({
       console.error(err)
       toast.error('Tạo đơn thất bại')
     } finally {
-      setSaving(false)
+      if (!isWaitingForQr) {
+        setSaving(false)
+      }
     }
   }
 
   useEffect(() => {
     if (!open) return
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
-      if ((e.key === 'Enter') && (e.ctrlKey || e.metaKey)) handleSubmit()
+      if (e.key === 'Escape') {
+        if (!showQrGate) onClose()
+      }
+      if ((e.key === 'Enter') && (e.ctrlKey || e.metaKey)) {
+        if (!showQrGate) handleSubmit()
+      }
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, payments, items])
+  }, [open, payments, items, showQrGate])
 
   if (!open) return null
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/50" onClick={showQrGate ? undefined : onClose} />
 
       <div className="relative z-10 w-full max-w-md max-h-[90vh] flex flex-col rounded-2xl bg-white shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 shrink-0">
-          <h2 className="text-base font-semibold text-slate-900">Thanh toán đơn hàng</h2>
-          <button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100">✕</button>
+          <h2 className="text-base font-semibold text-slate-900">
+            {showQrGate ? 'Cổng thanh toán VietQR' : 'Thanh toán đơn hàng'}
+          </h2>
+          {!showQrGate && (
+            <button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100">✕</button>
+          )}
         </div>
 
-        <div className="p-4 space-y-3 overflow-y-auto">
-          {/* Customer */}
-          <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-            <div className="mb-1.5 flex items-center justify-between">
-              <p className="text-xs font-medium text-slate-500">KHÁCH HÀNG</p>
-              <p className="text-xs text-slate-600 font-medium">
-                {localCustomer ? (
-                  <span className="flex items-center gap-1.5 justify-end">
-                    <span>{localCustomer.name}</span>
-                    {localCustomer.phone && <span className="text-slate-400 font-normal">({localCustomer.phone})</span>}
-                    {localCustomer.customer_type && (
-                      <MemberTierBadge label={localCustomer.customer_type} color={customerTierColor} />
-                    )}
-                  </span>
-                ) : (
-                  'Khách lẻ'
-                )}
-              </p>
-            </div>
-            <CustomerSearch selected={localCustomer} onSelect={setLocalCustomer} />
-          </div>
-
-          {/* Prepaid Wallet inline suggest banner */}
-          {localCustomer && Number(localCustomer.prepaid_balance || 0) > 0 && (
-            <div className="flex items-center justify-between gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-3 text-xs text-emerald-800 animate-in fade-in slide-in-from-top-2 duration-200">
-              <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                <span className="text-base shrink-0">💳</span>
-                <span className="whitespace-normal leading-normal">
-                  Khách có <strong>{Number(localCustomer.prepaid_balance).toLocaleString('vi-VN')}đ</strong> ví trả trước. Bạn có muốn dùng không?
-                </span>
+        {showQrGate ? (
+          <div className="flex flex-col flex-1 min-h-0 bg-slate-50 rounded-b-2xl overflow-y-auto">
+            <div className="p-5 flex-1 flex flex-col items-center justify-center space-y-4">
+              
+              {/* Dynamic VietQR display */}
+              <div className="relative group p-4 bg-white rounded-2xl shadow-sm border border-slate-100/80 max-w-[200px] w-full flex flex-col items-center animate-in zoom-in duration-305">
+                <div className="absolute -inset-1.5 rounded-3xl bg-gradient-to-tr from-emerald-400 to-primary opacity-20 blur-xs group-hover:opacity-30 transition duration-500 animate-pulse"></div>
+                <img
+                  src={`https://img.vietqr.io/image/${activeBankCode}-${activeBankAccountNumber}-${settings?.qr_template || 'compact2'}.png?amount=${bankTransferAmt}&addInfo=${waitingOrderNo}&accountName=${encodeURIComponent(activeBankAccountName)}`}
+                  alt="VietQR dynamic gate"
+                  className="relative z-10 w-full aspect-square object-contain rounded-lg border border-slate-100"
+                />
+                <div className="mt-2 text-center relative z-10">
+                  <p className="text-[10px] font-bold text-slate-400 tracking-wide uppercase">Số tiền QR</p>
+                  <p className="text-sm font-extrabold text-primary">{fmtVND(bankTransferAmt)}</p>
+                </div>
               </div>
+
+              {/* Status Listening Indicator */}
+              <div className="w-full max-w-sm rounded-2xl border border-blue-100 bg-blue-50/60 p-3.5 flex items-center gap-3 shadow-2xs">
+                <div className="relative flex h-3.5 w-3.5 shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-blue-500"></span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-blue-950 truncate">Đang chờ thanh toán tự động...</p>
+                  <p className="text-[10px] text-blue-700/80 font-medium leading-relaxed mt-0.5">
+                    Hệ thống đang quét biến động số dư VietQR mỗi 2 giây.
+                  </p>
+                </div>
+              </div>
+
+              {/* Copy fields grid */}
+              <div className="w-full max-w-sm grid grid-cols-2 gap-2.5">
+                <div className="col-span-2">
+                  <CopyField label="Tên chủ tài khoản" value={activeBankAccountName} />
+                </div>
+                <CopyField label="Số tài khoản" value={activeBankAccountNumber} />
+                <CopyField label="Nội dung chuyển khoản" value={waitingOrderNo} />
+              </div>
+
+            </div>
+
+            {/* Sticky Actions Footer */}
+            <div className="bg-white border-t border-slate-100 p-4 shrink-0 flex flex-col gap-2 rounded-b-2xl">
               <button
                 type="button"
-                onClick={() => {
-                  const balance = Number(localCustomer.prepaid_balance || 0)
-                  setPayments(() => {
-                    const payAmount = Math.min(balance, finalTotal)
-                    const rows = [{ id: nextId(), method: 'prepaid', amount: String(payAmount) }]
-                    const remaining = finalTotal - payAmount
-                    if (remaining > 0) {
-                      rows.push({ id: nextId(), method: 'cash', amount: String(remaining) })
-                    }
-                    return rows
-                  })
-                }}
-                className="shrink-0 rounded-lg bg-emerald-600 px-2.5 py-1.5 font-bold text-white hover:bg-emerald-700 active:scale-95 transition-all shadow-sm cursor-pointer"
+                onClick={handleConfirmManual}
+                disabled={saving}
+                className="w-full flex items-center justify-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold py-3 text-sm shadow-sm hover:shadow-md active:scale-[0.99] transition-all cursor-pointer"
               >
-                Sử dụng
+                {saving ? (
+                  <svg className="h-4 w-4 animate-spin text-white" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                ) : (
+                  <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                )}
+                Xác nhận đã nhận tiền (Thủ công)
               </button>
-            </div>
-          )}
 
-          {/* Resource Info */}
-          {metadata?.check_in && (
-            <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-3 text-sm space-y-1.5 mb-4">
-              {metadata.overnight_rate && (
-                <div className="pb-2 mb-2 border-b border-blue-100/50 flex flex-col gap-1.5">
-                  <span className="text-[10px] font-bold text-slate-500 tracking-wide uppercase">Hình thức tính tiền</span>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setLocalRentalType('hourly')}
-                      className={`flex-1 py-1.5 px-2.5 rounded-lg border text-xs font-bold transition-all text-center ${localRentalType === 'hourly'
-                        ? 'border-primary bg-primary/10 text-primary ring-1 ring-primary'
-                        : 'border-slate-300 text-slate-500 bg-white hover:border-slate-350 hover:bg-slate-50'
-                        }`}
-                    >
-                      ⏱️ Theo giờ
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setLocalRentalType('overnight')}
-                      className={`flex-1 py-1.5 px-2.5 rounded-lg border text-xs font-bold transition-all text-center ${localRentalType === 'overnight'
-                        ? 'border-primary bg-primary/10 text-primary ring-1 ring-primary'
-                        : 'border-slate-300 text-slate-500 bg-white hover:border-slate-350 hover:bg-slate-50'
-                        }`}
-                    >
-                      🌙 Qua đêm ({Number(metadata.overnight_rate).toLocaleString('vi-VN')}₫)
-                    </button>
+              <div className="grid grid-cols-3 gap-1.5">
+                <button
+                  type="button"
+                  onClick={handlePrintTemp}
+                  disabled={saving}
+                  className="flex flex-col items-center justify-center gap-1.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-655 font-bold py-2 text-[10px] transition-colors cursor-pointer"
+                >
+                  <svg className="h-4 w-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-3a2 2 0 00-2-2H9a2 2 0 00-2 2v3a2 2 0 002 2zm5-14V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                  In tạm tính
+                </button>
+                <button
+                  type="button"
+                  onClick={handleMinimizeQr}
+                  disabled={saving}
+                  className="flex flex-col items-center justify-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50/40 hover:bg-blue-50 text-blue-700 font-bold py-2 text-[10px] transition-colors cursor-pointer"
+                >
+                  <svg className="h-4 w-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5" />
+                  </svg>
+                  Thu nhỏ & Lưu
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCancelQr}
+                  disabled={saving}
+                  className="flex flex-col items-center justify-center gap-1.5 rounded-xl border border-red-200 hover:bg-red-50 text-red-600 font-bold py-2 text-[10px] transition-colors cursor-pointer"
+                >
+                  <svg className="h-4 w-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                  Huỷ đơn hàng
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="p-4 space-y-3 overflow-y-auto">
+              {/* Customer */}
+              <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                <div className="mb-1.5 flex items-center justify-between">
+                  <p className="text-xs font-medium text-slate-500">KHÁCH HÀNG</p>
+                  <p className="text-xs text-slate-600 font-medium">
+                    {localCustomer ? (
+                      <span className="flex items-center gap-1.5 justify-end">
+                        <span>{localCustomer.name}</span>
+                        {localCustomer.phone && <span className="text-slate-400 font-normal">({localCustomer.phone})</span>}
+                        {localCustomer.customer_type && (
+                          <MemberTierBadge label={localCustomer.customer_type} color={customerTierColor} />
+                        )}
+                      </span>
+                    ) : (
+                      'Khách lẻ'
+                    )}
+                  </p>
+                </div>
+                <CustomerSearch selected={localCustomer} onSelect={setLocalCustomer} />
+              </div>
+
+              {/* Prepaid Wallet inline suggest banner */}
+              {localCustomer && Number(localCustomer.prepaid_balance || 0) > 0 && (
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-3 text-xs text-emerald-800 animate-in fade-in slide-in-from-top-2 duration-200">
+                  <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                    <span className="text-base shrink-0">💳</span>
+                    <span className="whitespace-normal leading-normal">
+                      Khách có <strong>{Number(localCustomer.prepaid_balance).toLocaleString('vi-VN')}đ</strong> ví trả trước. Bạn có muốn dùng không?
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const balance = Number(localCustomer.prepaid_balance || 0)
+                      setPayments(() => {
+                        const payAmount = Math.min(balance, finalTotal)
+                        const rows = [{ id: nextId(), method: 'prepaid', amount: String(payAmount) }]
+                        const remaining = finalTotal - payAmount
+                        if (remaining > 0) {
+                          rows.push({ id: nextId(), method: 'cash', amount: String(remaining) })
+                        }
+                        return rows
+                      })
+                    }}
+                    className="shrink-0 rounded-lg bg-emerald-600 px-2.5 py-1.5 font-bold text-white hover:bg-emerald-700 active:scale-95 transition-all shadow-sm cursor-pointer"
+                  >
+                    Sử dụng
+                  </button>
+                </div>
+              )}
+
+              {/* Resource Info */}
+              {metadata?.check_in && (
+                <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-3 text-sm space-y-1.5 mb-4">
+                  {metadata.overnight_rate && (
+                    <div className="pb-2 mb-2 border-b border-blue-100/50 flex flex-col gap-1.5">
+                      <span className="text-[10px] font-bold text-slate-500 tracking-wide uppercase">Hình thức tính tiền</span>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setLocalRentalType('hourly')}
+                          className={`flex-1 py-1.5 px-2.5 rounded-lg border text-xs font-bold transition-all text-center ${localRentalType === 'hourly'
+                            ? 'border-primary bg-primary/10 text-primary ring-1 ring-primary'
+                            : 'border-slate-300 text-slate-500 bg-white hover:border-slate-350 hover:bg-slate-50'
+                            }`}
+                        >
+                          ⏱️ Theo giờ
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setLocalRentalType('overnight')}
+                          className={`flex-1 py-1.5 px-2.5 rounded-lg border text-xs font-bold transition-all text-center ${localRentalType === 'overnight'
+                            ? 'border-primary bg-primary/10 text-primary ring-1 ring-primary'
+                            : 'border-slate-300 text-slate-500 bg-white hover:border-slate-350 hover:bg-slate-50'
+                            }`}
+                        >
+                          🌙 Qua đêm ({Number(metadata.overnight_rate).toLocaleString('vi-VN')}₫)
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">Giờ vào:</span>
+                    <span className="font-medium text-slate-900">{fmtDateTimeVN(new Date(metadata.check_in))}</span>
+                  </div>
+                  <div className="flex justify-between items-center mt-1">
+                    <span className="text-slate-600">{localCheckoutTime || customCheckoutTime ? 'Giờ ra:' : 'Giờ ra (Hiện tại):'}</span>
+                    {isEditingCheckout ? (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="datetime-local"
+                          value={checkoutInput}
+                          onChange={e => setCheckoutInput(e.target.value)}
+                          className="text-xs border border-slate-300 rounded px-1 py-0.5 outline-none"
+                        />
+                        <button onClick={() => {
+                          const checkInDate = new Date(metadata.check_in)
+                          const selectedDate = new Date(checkoutInput)
+                          if (selectedDate < checkInDate) {
+                            import('sonner').then(({ toast }) => toast.error('Giờ ra không được nhỏ hơn giờ vào!'))
+                            return
+                          }
+                          setLocalCheckoutTime(checkoutInput)
+                          setIsEditingCheckout(false)
+                        }} className="text-primary font-bold">OK</button>
+                      </div>
+                    ) : (
+                      <button onClick={() => {
+                        setCheckoutInput(localCheckoutTime || customCheckoutTime || new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16));
+                        setIsEditingCheckout(true);
+                      }} className="font-medium text-slate-900 border-b border-dotted border-slate-400 hover:text-primary transition-colors cursor-pointer">
+                        {localCheckoutTime || customCheckoutTime ? fmtDateTimeVN(new Date((localCheckoutTime || customCheckoutTime) as string)) : fmtDateTimeVN(new Date())}
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
-              <div className="flex justify-between">
-                <span className="text-slate-600">Giờ vào:</span>
-                <span className="font-medium text-slate-900">{fmtDateTimeVN(new Date(metadata.check_in))}</span>
-              </div>
-              <div className="flex justify-between items-center mt-1">
-                <span className="text-slate-600">{localCheckoutTime || customCheckoutTime ? 'Giờ ra:' : 'Giờ ra (Hiện tại):'}</span>
-                {isEditingCheckout ? (
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="datetime-local"
-                      value={checkoutInput}
-                      onChange={e => setCheckoutInput(e.target.value)}
-                      className="text-xs border border-slate-300 rounded px-1 py-0.5 outline-none"
-                    />
-                    <button onClick={() => {
-                      const checkInDate = new Date(metadata.check_in)
-                      const selectedDate = new Date(checkoutInput)
-                      if (selectedDate < checkInDate) {
-                        import('sonner').then(({ toast }) => toast.error('Giờ ra không được nhỏ hơn giờ vào!'))
-                        return
-                      }
-                      setLocalCheckoutTime(checkoutInput)
-                      setIsEditingCheckout(false)
-                    }} className="text-primary font-bold">OK</button>
-                  </div>
-                ) : (
-                  <button onClick={() => {
-                    setCheckoutInput(localCheckoutTime || customCheckoutTime || new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16));
-                    setIsEditingCheckout(true);
-                  }} className="font-medium text-slate-900 border-b border-dotted border-slate-400 hover:text-primary transition-colors cursor-pointer">
-                    {localCheckoutTime || customCheckoutTime ? fmtDateTimeVN(new Date((localCheckoutTime || customCheckoutTime) as string)) : fmtDateTimeVN(new Date())}
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
 
-          {/* Order summary */}
-          <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-            <div className="max-h-[260px] overflow-y-auto space-y-1 pr-1 scrollbar-thin">
-              {computedItems.map((item, idx) => (
-                <div key={`${item.product_id}-${idx}`} className="flex flex-col py-1.5 border-b border-slate-200/40 last:border-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-slate-800 font-medium text-sm leading-tight">
-                      {item.product_name}
-                      <span className="text-slate-400 text-xs font-normal ml-1.5 whitespace-nowrap">× {item.qty}</span>
-                    </span>
-                    <span className="text-slate-950 font-bold text-sm shrink-0">{fmtVND(item.line_total)}</span>
-                  </div>
-                  {/* Variant or Modifier details underneath */}
-                  {(item.variant_label || (item.modifiers && item.modifiers.length > 0)) && (
-                    <div className="pl-2 mt-0.5 text-[10px] text-slate-500 space-y-0.5">
-                      {item.variant_label && !item.modifiers?.length && (
-                        <span className="text-violet-600 font-semibold block">{item.variant_label}</span>
-                      )}
-                      {item.modifiers && item.modifiers.length > 0 && (
-                        <div className="text-amber-600 font-semibold block">
-                          <span>{item.modifiers.map(m => m.option).join(' · ')}</span>
-                          {(item.modifier_total ?? 0) > 0 && (
-                            <span className="ml-1 text-emerald-600 font-bold">+{item.modifier_total?.toLocaleString('vi-VN')}đ</span>
+              {/* Order summary */}
+              <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                <div className="max-h-[260px] overflow-y-auto space-y-1 pr-1 scrollbar-thin">
+                  {computedItems.map((item, idx) => (
+                    <div key={`${item.product_id}-${idx}`} className="flex flex-col py-1.5 border-b border-slate-200/40 last:border-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-slate-800 font-medium text-sm leading-tight">
+                          {item.product_name}
+                          <span className="text-slate-400 text-xs font-normal ml-1.5 whitespace-nowrap">× {item.qty}</span>
+                        </span>
+                        <span className="text-slate-950 font-bold text-sm shrink-0">{fmtVND(item.line_total)}</span>
+                      </div>
+                      {/* Variant or Modifier details underneath */}
+                      {(item.variant_label || (item.modifiers && item.modifiers.length > 0)) && (
+                        <div className="pl-2 mt-0.5 text-[10px] text-slate-500 space-y-0.5">
+                          {item.variant_label && !item.modifiers?.length && (
+                            <span className="text-violet-600 font-semibold block">{item.variant_label}</span>
+                          )}
+                          {item.modifiers && item.modifiers.length > 0 && (
+                            <div className="text-amber-600 font-semibold block">
+                              <span>{item.modifiers.map(m => m.option).join(' · ')}</span>
+                              {(item.modifier_total ?? 0) > 0 && (
+                                <span className="ml-1 text-emerald-600 font-bold">+{item.modifier_total?.toLocaleString('vi-VN')}đ</span>
+                              )}
+                            </div>
                           )}
                         </div>
                       )}
                     </div>
-                  )}
+                  ))}
                 </div>
-              ))}
-            </div>
-            <div className="mt-2 space-y-2 border-t border-slate-200 pt-3 text-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-500">Giảm giá:</span>
-                {isEditingDiscount ? (
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      autoFocus
-                      value={discountInput}
-                      onChange={(e) => setDiscountInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') applyDiscount()
-                        if (e.key === 'Escape') setIsEditingDiscount(false)
-                      }}
-                      className="w-24 text-right border-b border-slate-300 outline-none text-slate-800 bg-transparent font-medium"
-                    />
-                    <button onClick={applyDiscount} className="text-primary text-xs font-semibold">OK</button>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => setIsEditingDiscount(true)}
-                    className="font-medium text-slate-800 border-b border-dotted border-slate-400 hover:text-primary transition-colors cursor-pointer"
-                  >
-                    {localDiscount > 0 ? `-${fmtVND(localDiscount)}` : '0đ'}
-                  </button>
-                )}
-              </div>
-
-              {tierDiscountAmount > 0 && (
-                <div className="flex justify-between font-medium text-slate-600 text-sm mt-1">
-                  <span className="flex items-center gap-1.5">
-                    <span>Ưu đãi hạng</span>
-                    <MemberTierBadge label={localCustomer?.customer_type || ''} color={customerTierColor} />
-                    <span>(-{tierDiscountPct}%):</span>
-                  </span>
-                  <span className="text-emerald-600">-{fmtVND(tierDiscountAmount)}</span>
-                </div>
-              )}
-
-              {settings?.has_crm_access && settings?.loyalty_points_enabled !== false && localCustomer && (
-                <div className="flex items-center justify-between mt-1">
-                  <div className="flex flex-col">
-                    <span className="text-slate-500">Tiêu điểm (Có: {Math.floor(Number(localCustomer.loyalty_points || 0))}đ):</span>
-                    {!isOnline && <span className="text-[10px] text-orange-500 font-medium">(Chỉ khả dụng khi online)</span>}
-                  </div>
-                  {isOnline ? (
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        min="0"
-                        max={maxPointsRedeemable}
-                        value={pointsRedeemed}
-                        onChange={(e) => {
-                          const val = Math.min(maxPointsRedeemable, Math.max(0, parseInt(e.target.value) || 0))
-                          setPointsRedeemed(String(val))
-                        }}
-                        className="w-16 text-right border border-slate-200 rounded px-1.5 py-0.5 outline-none text-slate-800 bg-transparent text-xs"
-                      />
-                      <span className="text-slate-400 text-xs">= -{fmtVND(redemptionValue)}</span>
-                    </div>
-                  ) : (
-                    <span className="text-slate-400 text-xs">—</span>
-                  )}
-                </div>
-              )}
-
-              {settings?.has_crm_access && settings?.loyalty_points_enabled !== false && localCustomer && earnedPoints > 0 && (
-                <div className="flex justify-between font-medium text-slate-600 text-xs mt-1 border-t border-slate-100 pt-1">
-                  <span>Tích lũy nhận thêm:</span>
-                  <span className="text-blue-600">+{earnedPoints} điểm</span>
-                </div>
-              )}
-
-              <div className="flex justify-between font-bold text-slate-900 text-base border-t border-dashed border-slate-200 pt-2">
-                <span>Tổng cộng:</span>
-                <span className={orderPaidAmount > 0 ? "text-slate-900" : "text-primary"}>{fmtVND(finalTotal)}</span>
-              </div>
-              {orderPaidAmount > 0 && (
-                <div className="flex justify-between font-medium text-slate-600 text-sm mt-1">
-                  <span>Đã thu:</span>
-                  <span className="text-green-600">-{fmtVND(orderPaidAmount)}</span>
-                </div>
-              )}
-              {overPaid > 0 && (
-                <div className="flex justify-between font-bold text-red-600 text-sm mt-1 border-t border-red-100 pt-1">
-                  <span>Tiền thừa trả khách:</span>
-                  <span>{fmtVND(overPaid)}</span>
-                </div>
-              )}
-              {orderPaidAmount > 0 && overPaid === 0 && (
-                <div className="flex justify-between font-bold text-slate-700 text-sm border-t border-slate-200 pt-2 mt-2">
-                  <span>Cần thanh toán:</span>
-                  <span className="text-primary">{fmtVND(remainingTotal)}</span>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Note */}
-          <input
-            type="text"
-            value={localNote}
-            onChange={(e) => setLocalNote(e.target.value)}
-            placeholder="Ghi chú đơn hàng..."
-            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm placeholder:text-slate-400 focus:border-primary focus:outline-none"
-          />
-
-          {/* Payments */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-medium text-slate-500">PHƯƠNG THỨC THANH TOÁN</p>
-              <button
-                onClick={addPayment}
-                disabled={payments.length >= METHODS.length}
-                className="text-xs text-primary hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                + Thêm
-              </button>
-            </div>
-
-            {payments.map((p, idx) => {
-              const isPrepaid = p.method === 'prepaid'
-              const isDebt = p.method === 'debt'
-
-              let fundType = 'bank'
-              if (p.method === 'cash') fundType = 'cash'
-              else if (['momo', 'zalopay', 'vnpay', 'wallet'].includes(p.method)) fundType = 'wallet'
-
-              const matchingFunds = fundsList.filter((f) => f.type === fundType)
-              const selectedFundObj = fundsList.find((f) => f.id === p.fund_id) || matchingFunds[0]
-
-              return (
-                <div key={p.id} className="space-y-1.5">
-                  <div className="flex gap-2">
-                    <select
-                      value={p.method}
-                      onChange={(e) => updatePayment(p.id, 'method', e.target.value)}
-                      className="w-32 shrink-0 rounded-lg border border-slate-200 px-2 py-2 text-sm focus:border-primary focus:outline-none"
-                    >
-                      {METHODS.filter(
-                        (m) => m.value === p.method || !payments.some((other) => other.id !== p.id && other.method === m.value)
-                      ).map((m) => (
-                        <option key={m.value} value={m.value}>{m.label}</option>
-                      ))}
-                    </select>
-
-                    {/* Lựa chọn Quỹ cụ thể nếu có từ 2 quỹ trở lên cùng loại */}
-                    {matchingFunds.length > 1 && (
-                      <select
-                        value={p.fund_id || selectedFundObj?.id || ''}
-                        onChange={(e) => updatePayment(p.id, 'fund_id', e.target.value)}
-                        className="w-36 shrink-0 rounded-lg border border-orange-200 bg-orange-50/20 px-2 py-2 text-xs font-semibold text-orange-850 focus:border-primary focus:outline-none cursor-pointer"
-                      >
-                        {matchingFunds.map((f) => (
-                          <option key={f.id} value={f.id}>
-                            {f.name}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                    <div className="relative flex-1">
-                      <input
-                        type="text"
-                        value={p.amount ? Number(String(p.amount).replace(/\D/g, '')).toLocaleString('vi-VN') : ''}
-                        onChange={(e) => {
-                          const val = e.target.value.replace(/\D/g, '')
-                          updatePayment(p.id, 'amount', val)
-                        }}
-                        placeholder="0"
-                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-right text-sm focus:border-primary focus:outline-none"
-                      />
-                      {idx === payments.length - 1 && remaining > 0 && (
-                        <button
-                          onClick={distributeRemaining}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-primary hover:underline"
-                          title="Điền số tiền còn thiếu"
-                        >
-                          Điền
-                        </button>
-                      )}
-                    </div>
-                    {payments.length > 1 && (
+                <div className="mt-2 space-y-2 border-t border-slate-200 pt-3 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500">Giảm giá:</span>
+                    {isEditingDiscount ? (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          autoFocus
+                          value={discountInput}
+                          onChange={(e) => setDiscountInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') applyDiscount()
+                            if (e.key === 'Escape') setIsEditingDiscount(false)
+                          }}
+                          className="w-24 text-right border-b border-slate-300 outline-none text-slate-800 bg-transparent font-medium"
+                        />
+                        <button onClick={applyDiscount} className="text-primary text-xs font-semibold">OK</button>
+                      </div>
+                    ) : (
                       <button
-                        onClick={() => removePayment(p.id)}
-                        className="shrink-0 rounded-lg border border-slate-200 px-2 text-slate-400 hover:border-red-200 hover:text-red-400"
+                        onClick={() => setIsEditingDiscount(true)}
+                        className="font-medium text-slate-800 border-b border-dotted border-slate-400 hover:text-primary transition-colors cursor-pointer"
                       >
-                        ✕
+                        {localDiscount > 0 ? `-${fmtVND(localDiscount)}` : '0đ'}
                       </button>
                     )}
                   </div>
 
-                  {/* Label chỉ dẫn rõ ràng dòng tiền sẽ được đưa vào quỹ nào */}
-                  {selectedFundObj && p.method !== 'debt' && p.method !== 'prepaid' && (
-                    <div className="w-full flex items-center gap-2 rounded-lg bg-orange-50/50 border border-orange-100/60 px-3 py-1.5 text-xs text-orange-850 animate-in fade-in slide-in-from-top-1 duration-200">
-                      <svg className="h-3.5 w-3.5 text-orange-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 12h15" />
-                      </svg>
-                      <div className="flex-1 min-w-0">
-                        <span className="text-slate-500 font-medium">Dòng tiền sẽ được đưa vào quỹ: </span>
-                        <strong className="text-orange-950 font-bold">{selectedFundObj.name}</strong>
-                        {selectedFundObj.bank_name && (
-                          <span className="text-[10px] text-orange-600 font-medium ml-1">({selectedFundObj.bank_name})</span>
+                  {tierDiscountAmount > 0 && (
+                    <div className="flex justify-between font-medium text-slate-600 text-sm mt-1">
+                      <span className="flex items-center gap-1.5">
+                        <span>Ưu đãi hạng</span>
+                        <MemberTierBadge label={localCustomer?.customer_type || ''} color={customerTierColor} />
+                        <span>(-{tierDiscountPct}%):</span>
+                      </span>
+                      <span className="text-emerald-600">-{fmtVND(tierDiscountAmount)}</span>
+                    </div>
+                  )}
+
+                  {settings?.has_crm_access && settings?.loyalty_points_enabled !== false && localCustomer && (
+                    <div className="flex items-center justify-between mt-1">
+                      <div className="flex flex-col">
+                        <span className="text-slate-500">Tiêu điểm (Có: {Math.floor(Number(localCustomer.loyalty_points || 0))}đ):</span>
+                        {!isOnline && <span className="text-[10px] text-orange-500 font-medium">(Chỉ khả dụng khi online)</span>}
+                      </div>
+                      {isOnline ? (
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            min="0"
+                            max={maxPointsRedeemable}
+                            value={pointsRedeemed}
+                            onChange={(e) => {
+                              const val = Math.min(maxPointsRedeemable, Math.max(0, parseInt(e.target.value) || 0))
+                              setPointsRedeemed(String(val))
+                            }}
+                            className="w-16 text-right border border-slate-200 rounded px-1.5 py-0.5 outline-none text-slate-800 bg-transparent text-xs"
+                          />
+                          <span className="text-slate-400 text-xs">= -{fmtVND(redemptionValue)}</span>
+                        </div>
+                      ) : (
+                        <span className="text-slate-400 text-xs">—</span>
+                      )}
+                    </div>
+                  )}
+
+                  {settings?.has_crm_access && settings?.loyalty_points_enabled !== false && localCustomer && earnedPoints > 0 && (
+                    <div className="flex justify-between font-medium text-slate-600 text-xs mt-1 border-t border-slate-100 pt-1">
+                      <span>Tích lũy nhận thêm:</span>
+                      <span className="text-blue-600">+{earnedPoints} điểm</span>
+                    </div>
+                  )}
+
+                  <div className="flex justify-between font-bold text-slate-900 text-base border-t border-dashed border-slate-200 pt-2">
+                    <span>Tổng cộng:</span>
+                    <span className={orderPaidAmount > 0 ? "text-slate-900" : "text-primary"}>{fmtVND(finalTotal)}</span>
+                  </div>
+                  {orderPaidAmount > 0 && (
+                    <div className="flex justify-between font-medium text-slate-600 text-sm mt-1">
+                      <span>Đã thu:</span>
+                      <span className="text-green-600">-{fmtVND(orderPaidAmount)}</span>
+                    </div>
+                  )}
+                  {overPaid > 0 && (
+                    <div className="flex justify-between font-bold text-red-600 text-sm mt-1 border-t border-red-100 pt-1">
+                      <span>Tiền thừa trả khách:</span>
+                      <span>{fmtVND(overPaid)}</span>
+                    </div>
+                  )}
+                  {orderPaidAmount > 0 && overPaid === 0 && (
+                    <div className="flex justify-between font-bold text-slate-700 text-sm border-t border-slate-200 pt-2 mt-2">
+                      <span>Cần thanh toán:</span>
+                      <span className="text-primary">{fmtVND(remainingTotal)}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Note */}
+              <input
+                type="text"
+                value={localNote}
+                onChange={(e) => setLocalNote(e.target.value)}
+                placeholder="Ghi chú đơn hàng..."
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm placeholder:text-slate-400 focus:border-primary focus:outline-none"
+              />
+
+              {/* Payments */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-medium text-slate-500">PHƯƠNG THỨC THANH TOÁN</p>
+                  <button
+                    onClick={addPayment}
+                    disabled={payments.length >= METHODS.length}
+                    className="text-xs text-primary hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    + Thêm
+                  </button>
+                </div>
+
+                {payments.map((p, idx) => {
+                  const isPrepaid = p.method === 'prepaid'
+                  const isDebt = p.method === 'debt'
+
+                  let fundType = 'bank'
+                  if (p.method === 'cash') fundType = 'cash'
+                  else if (['momo', 'zalopay', 'vnpay', 'wallet'].includes(p.method)) fundType = 'wallet'
+
+                  const matchingFunds = fundsList.filter((f) => f.type === fundType)
+                  const selectedFundObj = fundsList.find((f) => f.id === p.fund_id) || matchingFunds[0]
+
+                  return (
+                    <div key={p.id} className="space-y-1.5">
+                      <div className="flex gap-2">
+                        <select
+                          value={p.method}
+                          onChange={(e) => updatePayment(p.id, 'method', e.target.value)}
+                          className="w-32 shrink-0 rounded-lg border border-slate-200 px-2 py-2 text-sm focus:border-primary focus:outline-none"
+                        >
+                          {METHODS.filter(
+                            (m) => m.value === p.method || !payments.some((other) => other.id !== p.id && other.method === m.value)
+                          ).map((m) => (
+                            <option key={m.value} value={m.value}>{m.label}</option>
+                          ))}
+                        </select>
+
+                        {/* Lựa chọn Quỹ cụ thể nếu có từ 2 quỹ trở lên cùng loại */}
+                        {matchingFunds.length > 1 && (
+                          <select
+                            value={p.fund_id || selectedFundObj?.id || ''}
+                            onChange={(e) => updatePayment(p.id, 'fund_id', e.target.value)}
+                            className="w-36 shrink-0 rounded-lg border border-orange-200 bg-orange-50/20 px-2 py-2 text-xs font-semibold text-orange-850 focus:border-primary focus:outline-none cursor-pointer"
+                          >
+                            {matchingFunds.map((f) => (
+                              <option key={f.id} value={f.id}>
+                                {f.name}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                        <div className="relative flex-1">
+                          <input
+                            type="text"
+                            value={p.amount ? Number(String(p.amount).replace(/\D/g, '')).toLocaleString('vi-VN') : ''}
+                            onChange={(e) => {
+                              const val = e.target.value.replace(/\D/g, '')
+                              updatePayment(p.id, 'amount', val)
+                            }}
+                            placeholder="0"
+                            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-right text-sm focus:border-primary focus:outline-none"
+                          />
+                          {idx === payments.length - 1 && remaining > 0 && (
+                            <button
+                              onClick={distributeRemaining}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-primary hover:underline"
+                              title="Điền số tiền còn thiếu"
+                            >
+                              Điền
+                            </button>
+                          )}
+                        </div>
+                        {payments.length > 1 && (
+                          <button
+                            onClick={() => removePayment(p.id)}
+                            className="shrink-0 rounded-lg border border-slate-200 px-2 text-slate-400 hover:border-red-200 hover:text-red-400"
+                          >
+                            ✕
+                          </button>
                         )}
                       </div>
-                    </div>
-                  )}
 
-                  {isPrepaid && (
-                    <div className="flex justify-between items-center text-xs px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 font-semibold border border-emerald-100">
-                      <span>Số dư ví trả trước khả dụng:</span>
-                      <span>
-                        {localCustomer ? `${fmtVND(Number(localCustomer.prepaid_balance || 0))}` : 'Khách lẻ (0đ)'}
-                      </span>
+                      {/* Label chỉ dẫn rõ ràng dòng tiền sẽ được đưa vào quỹ nào */}
+                      {selectedFundObj && p.method !== 'debt' && p.method !== 'prepaid' && (
+                        <div className="w-full flex items-center gap-2 rounded-lg bg-orange-50/50 border border-orange-100/60 px-3 py-1.5 text-xs text-orange-850 animate-in fade-in slide-in-from-top-1 duration-200">
+                          <svg className="h-3.5 w-3.5 text-orange-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 12h15" />
+                          </svg>
+                          <div className="flex-1 min-w-0">
+                            <span className="text-slate-500 font-medium">Dòng tiền sẽ được đưa vào quỹ: </span>
+                            <strong className="text-orange-950 font-bold">{selectedFundObj.name}</strong>
+                            {selectedFundObj.bank_name && (
+                              <span className="text-[10px] text-orange-600 font-medium ml-1">({selectedFundObj.bank_name})</span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {isPrepaid && (
+                        <div className="flex justify-between items-center text-xs px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 font-semibold border border-emerald-100">
+                          <span>Số dư ví trả trước khả dụng:</span>
+                          <span>
+                            {localCustomer ? `${fmtVND(Number(localCustomer.prepaid_balance || 0))}` : 'Khách lẻ (0đ)'}
+                          </span>
+                        </div>
+                      )}
+                      {isDebt && (
+                        <div className="flex justify-between items-center text-xs px-2.5 py-1.5 rounded-lg bg-red-50 text-red-700 font-semibold border border-red-100">
+                          <span>Nợ hiện tại / Hạn mức nợ:</span>
+                          <span>
+                            {localCustomer ? `${fmtVND(Number(localCustomer.debt_amount || 0))} / ${fmtVND(Number(localCustomer.credit_limit || 0))}` : 'Khách lẻ (Không nợ)'}
+                          </span>
+                        </div>
+                      )}
                     </div>
-                  )}
-                  {isDebt && (
-                    <div className="flex justify-between items-center text-xs px-2.5 py-1.5 rounded-lg bg-red-50 text-red-700 font-semibold border border-red-100">
-                      <span>Nợ hiện tại / Hạn mức nợ:</span>
-                      <span>
-                        {localCustomer ? `${fmtVND(Number(localCustomer.debt_amount || 0))} / ${fmtVND(Number(localCustomer.credit_limit || 0))}` : 'Khách lẻ (Không nợ)'}
-                      </span>
+                  )
+                })}
+
+                {/* Summary rows */}
+                <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500">Số tiền nhận:</span>
+                    <span className={remaining > 0 ? 'font-medium text-red-500' : 'font-medium text-green-600'}>
+                      {fmtVND(totalPaid)}
+                      {remaining > 0 && (
+                        <span className="ml-2 text-xs">còn thiếu {fmtVND(remaining)}</span>
+                      )}
+                    </span>
+                  </div>
+                  {remaining < 0 && cashRows.length > 0 && cashChange > 0 && (
+                    <div className="flex items-center justify-between border-t border-slate-200 pt-1">
+                      <span className="text-slate-500">Trả lại tiền thừa:</span>
+                      <span className="font-semibold text-red-500">{fmtVND(cashChange)}</span>
                     </div>
                   )}
                 </div>
-              )
-            })}
-
-            {/* Summary rows */}
-            <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-500">Số tiền nhận:</span>
-                <span className={remaining > 0 ? 'font-medium text-red-500' : 'font-medium text-green-600'}>
-                  {fmtVND(totalPaid)}
-                  {remaining > 0 && (
-                    <span className="ml-2 text-xs">còn thiếu {fmtVND(remaining)}</span>
-                  )}
-                </span>
               </div>
-              {remaining < 0 && cashRows.length > 0 && cashChange > 0 && (
-                <div className="flex items-center justify-between border-t border-slate-200 pt-1">
-                  <span className="text-slate-500">Trả lại tiền thừa:</span>
-                  <span className="font-semibold text-red-500">{fmtVND(cashChange)}</span>
-                </div>
-              )}
             </div>
-          </div>
-        </div>
 
-        {/* Footer */}
-        <div className="flex gap-3 border-t border-slate-100 px-5 py-4">
-          <button
-            onClick={onClose}
-            disabled={saving}
-            className="flex-1 rounded-xl border border-slate-200 py-2.5 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50"
-          >
-            Hủy
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={saving || items.length === 0 || remaining > 0}
-            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-primary py-2.5 text-sm font-semibold text-white hover:bg-primary-dark disabled:opacity-40 transition-colors"
-          >
-            {saving && (
-              <svg className="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-            )}
-            {saving ? 'Đang xử lý...' : 'Hoàn tất · Ctrl+Enter'}
-          </button>
-        </div>
+            {/* Footer */}
+            <div className="flex gap-3 border-t border-slate-100 px-5 py-4">
+              <button
+                onClick={onClose}
+                disabled={saving}
+                className="flex-1 rounded-xl border border-slate-200 py-2.5 text-sm text-slate-650 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={handleSubmit}
+                disabled={saving || items.length === 0 || remaining > 0}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-primary py-2.5 text-sm font-semibold text-white hover:bg-primary-dark disabled:opacity-40 transition-colors"
+              >
+                {saving && (
+                  <svg className="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                )}
+                {saving ? 'Đang xử lý...' : (bankTransferAmt > 0 ? 'Lưu & Chờ thanh toán · Ctrl+Enter' : 'Hoàn tất · Ctrl+Enter')}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )
