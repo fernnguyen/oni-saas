@@ -96,21 +96,26 @@ export async function POST(req: NextRequest) {
 
     console.log('[SEPAY Webhook] Payload received:', JSON.stringify(body));
 
-    const {
-      content: rawContent = '',
-      transferAmount: rawAmount = 0,
-      transferType: rawType = 'in',
-      gateway: rawGateway = '',
-      accountNumber: rawAccount = '',
-      code: rawCode = '',
-    } = body;
+    // Support both SePay official format and custom formats
+    content = body.transactionContent || body.content || '';
+    gateway = body.gateway || '';
+    accountNumber = body.accountNumber || body.account_number || '';
+    code = body.code || '';
 
-    content = rawContent;
-    transferAmount = parseFloat(rawAmount) || 0;
-    transferType = rawType;
-    gateway = rawGateway;
-    accountNumber = rawAccount;
-    code = rawCode;
+    // Determine amount and type based on amountIn / amountOut if present
+    const amountIn = parseFloat(body.amountIn);
+    const amountOut = parseFloat(body.amountOut);
+
+    if (!isNaN(amountIn) && amountIn > 0) {
+      transferAmount = amountIn;
+      transferType = 'in';
+    } else if (!isNaN(amountOut) && amountOut > 0) {
+      transferAmount = amountOut;
+      transferType = 'out';
+    } else {
+      transferAmount = parseFloat(body.transferAmount) || 0;
+      transferType = body.transferType || 'in';
+    }
 
     // 5. Handle inbound transfer check
     if (transferType !== 'in' || transferAmount <= 0) {
@@ -166,7 +171,7 @@ export async function POST(req: NextRequest) {
 
     // 7. Parse order number
     const contentText = String(content).toUpperCase();
-    const orderNoRegex = /(ORD[-_]?[A-Z0-9]+)/i;
+    const orderNoRegex = /(ORD[-_A-Z0-9]+)/i;
     const match = contentText.match(orderNoRegex);
     resolvedOrderNo = match ? match[1].trim() : '';
 
@@ -202,15 +207,27 @@ export async function POST(req: NextRequest) {
     // 9. Fetch order using connector
     let foundOrder: any = null;
 
-    const orderList = await shopConnector.list('orders', {
-      page: 1,
-      limit: 1,
-      filters: { order_no: resolvedOrderNo }
-    });
-    if (orderList.total > 0) {
-      foundOrder = orderList.data[0];
-    } else {
-      // Fallback search by reference_no/local ID
+    // A. First try finding directly by Primary Key ID (e.g., ORD-E007393D-10041)
+    try {
+      foundOrder = await shopConnector.findById('orders', resolvedOrderNo);
+    } catch (err) {
+      console.warn('[SEPAY Webhook] findById search error:', err);
+    }
+
+    // B. Fallback to order_no search if not found
+    if (!foundOrder) {
+      const orderList = await shopConnector.list('orders', {
+        page: 1,
+        limit: 1,
+        filters: { order_no: resolvedOrderNo }
+      });
+      if (orderList.total > 0) {
+        foundOrder = orderList.data[0];
+      }
+    }
+
+    // C. Fallback to reference_no / local ID search if still not found
+    if (!foundOrder) {
       const refList = await shopConnector.list('orders', {
         page: 1,
         limit: 1,

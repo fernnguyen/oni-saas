@@ -1935,6 +1935,10 @@ export function ResourceSlideOver({
           orderId={order.id}
           onClose={() => setCheckoutOpen(false)}
           onSuccess={handleCheckoutSuccess}
+          onMinimize={() => {
+            setCheckoutOpen(false)
+            onClose()
+          }}
           customer={(order?.customer_name && order.customer_name !== 'Khách lẻ') ? {
             customer_id: order.customer_id || '',
             name: order.customer_name,

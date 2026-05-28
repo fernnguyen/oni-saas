@@ -15,10 +15,11 @@ interface Props {
   ordersPath: string
   shopId: string
   onCopyToNewTab: (customer: LocalCustomer | null, items: CartItem[], discountAmount: number, note: string) => void
+  onCancelAndEdit: (order: LocalOrder) => Promise<boolean>
 }
 
 const SYNC_LABELS: Record<string, { label: string; cls: string }> = {
-  pending:  { label: 'Chờ sync',   cls: 'bg-yellow-100 text-yellow-700' },
+  pending:  { label: 'Chờ thanh toán', cls: 'bg-yellow-100 text-yellow-750 font-bold' },
   syncing:  { label: 'Đang sync',  cls: 'bg-blue-100 text-blue-700' },
   done:     { label: 'Đã sync',    cls: 'bg-green-100 text-green-700' },
   failed:   { label: 'Lỗi sync',   cls: 'bg-red-100 text-red-600' },
@@ -45,6 +46,7 @@ export function OrderHistoryPanel({
   ordersPath,
   shopId,
   onCopyToNewTab,
+  onCancelAndEdit,
 }: Props) {
   const [todayOrders, setTodayOrders] = useState<LocalOrder[]>([])
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -180,6 +182,22 @@ export function OrderHistoryPanel({
                         )}
                         {order.note && (
                           <p className="mt-2 text-xs italic text-slate-400">{order.note}</p>
+                        )}
+                        {order.status === 'pending' && (
+                          <button
+                            onClick={async () => {
+                              const ok = await onCancelAndEdit(order)
+                              if (ok) {
+                                onClose()
+                              }
+                            }}
+                            className="w-full mb-2 flex items-center justify-center gap-1.5 rounded-lg bg-primary hover:bg-primary-dark text-white py-2 text-xs font-bold transition-colors cursor-pointer"
+                          >
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                            </svg>
+                            Thanh toán tiếp / Đổi phương thức
+                          </button>
                         )}
                         <div className="mt-3 flex gap-2">
                           <button

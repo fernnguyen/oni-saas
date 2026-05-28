@@ -475,6 +475,40 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
     toast.success(`Đã sao chép đơn thành "${label}"`)
   }
 
+  function handleCheckoutClose() {
+    setCheckoutOpen(false)
+    cart.clear()
+    setCustomer(null)
+
+    if (tabs.length > 1) {
+      const remainingTabs = tabs.filter((t) => t.id !== activeTabId)
+      const nextTab = remainingTabs[remainingTabs.length - 1]
+
+      isSwitchingTabRef.current = true
+      setActiveTabId(nextTab.id)
+      setCustomer(nextTab.customer)
+      cart.restore({
+        items: nextTab.items,
+        discount_amount: nextTab.discount_amount,
+        note: nextTab.note,
+      })
+      setTabs(remainingTabs)
+
+      setTimeout(() => {
+        isSwitchingTabRef.current = false
+      }, 50)
+    } else {
+      setTabs([{
+        id: activeTabId,
+        label: tabs[0]?.label || 'Đơn hàng 1',
+        items: [],
+        customer: null,
+        discount_amount: 0,
+        note: '',
+      }])
+    }
+  }
+
   async function cancelAndEditOrder(order: LocalOrder): Promise<boolean> {
     if (!permissions.includes('orders.delete')) {
       toast.error('Bạn không có quyền hủy đơn hàng này')
@@ -501,7 +535,11 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
       await localDb.transaction('rw', [localDb.orders, localDb.orderItems, localDb.syncQueue, localDb.inventory], async () => {
         await localDb.orders.update(order.local_id, { status: 'cancelled' })
         if (order.sync_status === 'pending') {
-          await localDb.syncQueue.where('local_order_id').equals(order.local_id).delete()
+          const qItems = await localDb.syncQueue.toArray()
+          const targetQ = qItems.find((item) => item.local_order_id === order.local_id)
+          if (targetQ) {
+            await localDb.syncQueue.delete(targetQ.id!)
+          }
         }
         const items = await localDb.orderItems.where('order_local_id').equals(order.local_id).toArray()
         for (const item of items) {
@@ -1161,44 +1199,14 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
         ordersPath={`/t/${backPath.split('/')[1]}/${branchId}/orders`}
         shopId={shopId}
         onCopyToNewTab={copyToNewTab}
+        onCancelAndEdit={cancelAndEditOrder}
       />
 
       <CheckoutModal
         open={checkoutOpen}
         onClose={() => setCheckoutOpen(false)}
-        onSuccess={() => {
-          setCheckoutOpen(false)
-          cart.clear()
-          setCustomer(null)
-
-          if (tabs.length > 1) {
-            const remainingTabs = tabs.filter((t) => t.id !== activeTabId)
-            const nextTab = remainingTabs[remainingTabs.length - 1]
-
-            isSwitchingTabRef.current = true
-            setActiveTabId(nextTab.id)
-            setCustomer(nextTab.customer)
-            cart.restore({
-              items: nextTab.items,
-              discount_amount: nextTab.discount_amount,
-              note: nextTab.note,
-            })
-            setTabs(remainingTabs)
-
-            setTimeout(() => {
-              isSwitchingTabRef.current = false
-            }, 50)
-          } else {
-            setTabs([{
-              id: activeTabId,
-              label: tabs[0]?.label || 'Đơn hàng 1',
-              items: [],
-              customer: null,
-              discount_amount: 0,
-              note: '',
-            }])
-          }
-        }}
+        onSuccess={handleCheckoutClose}
+        onMinimize={handleCheckoutClose}
         items={cart.items}
         subtotal={cart.subtotal}
         discount_amount={cart.discount_amount}
