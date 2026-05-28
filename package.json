@@ -42,6 +42,7 @@
     "dexie": "^4.4.2",
     "html5-qrcode": "^2.3.8",
     "konva": "^10.3.0",
+    "lucide-react": "^1.16.0",
     "next": "16.2.6",
     "postcss": "^8.5.14",
     "react": "19.1.0",
