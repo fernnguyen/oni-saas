@@ -109,7 +109,7 @@ export default async function BranchSectionPage({ params }: Props) {
           { href: `${homePath}/categories`, label: 'Danh mục' },
           { href: `${homePath}/customers`, label: 'Khách hàng' },
           { href: `${homePath}/suppliers`, label: 'Nhà cung cấp' },
-          { href: `${homePath}/employees`, label: 'Nhân viên' },
+          { href: `${homePath}/settings/employees`, label: 'Nhân viên' },
           { href: `${homePath}/inventory`, label: 'Kho' },
         ].map((item) => (
           <Link

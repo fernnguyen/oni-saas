@@ -312,6 +312,12 @@ export class MysqlConnector implements IDataConnector {
       insertData.sku = insertData.id
     }
 
+    if (entity === 'employees' && (!insertData.employee_code || insertData.employee_code.trim() === '')) {
+      const match = insertData.id.match(/-(\d+)$/)
+      const seq = match ? match[1] : '10001'
+      insertData.employee_code = `NV${seq}`
+    }
+
     const columns = Object.keys(insertData).map(k => `\`${k}\``).join(', ')
     const placeholders = Object.keys(insertData).map(() => '?').join(', ')
     const values = Object.values(insertData)
@@ -425,6 +431,11 @@ export class MysqlConnector implements IDataConnector {
       }
       
       if (entity === 'products' && !insertData.sku) insertData.sku = insertData.id
+      if (entity === 'employees' && (!insertData.employee_code || insertData.employee_code.trim() === '')) {
+        const match = insertData.id.match(/-(\d+)$/)
+        const seq = match ? match[1] : '10001'
+        insertData.employee_code = `NV${seq}`
+      }
       insertRows.push(insertData)
     }
 

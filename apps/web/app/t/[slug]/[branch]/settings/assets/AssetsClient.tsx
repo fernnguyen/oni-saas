@@ -297,7 +297,7 @@ export function AssetsClient({ shopId, shopName, canManage }: Props) {
       render: (row) => (
         <TagBadge
           label={row.type === 'tscd' ? 'Tài sản cố định' : 'Công cụ dụng cụ'}
-          variant={row.type === 'tscd' ? 'violet' : 'emerald'}
+          color={row.type === 'tscd' ? 'purple' : 'green'}
         />
       ),
     },
@@ -342,15 +342,15 @@ export function AssetsClient({ shopId, shopName, canManage }: Props) {
       label: 'Trạng thái',
       render: (row) => {
         let label = 'Hoạt động';
-        let variant: 'emerald' | 'amber' | 'rose' = 'emerald';
+        let color: 'green' | 'yellow' | 'red' = 'green';
         if (row.status === 'depreciated') {
           label = 'Khấu hao hết';
-          variant = 'amber';
+          color = 'yellow';
         } else if (row.status === 'disposed') {
           label = 'Đã thanh lý';
-          variant = 'rose';
+          color = 'red';
         }
-        return <TagBadge label={label} variant={variant} />;
+        return <TagBadge label={label} color={color} />;
       },
     },
     {
