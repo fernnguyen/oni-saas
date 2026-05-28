@@ -374,6 +374,21 @@ export function InventoryClient({ shopId, shopName }: Props) {
     },
   })
 
+  // Reset selectedWarehouseId when shop changes to avoid mismatched warehouse IDs
+  useEffect(() => {
+    setSelectedWarehouseId('')
+  }, [shopId])
+
+  // Automatically select the primary sales warehouse by default
+  useEffect(() => {
+    if (warehousesData?.data && warehousesData.data.length > 0 && !selectedWarehouseId) {
+      const saleWh = warehousesData.data.find((w: any) => w.code === 'sale') || warehousesData.data[0]
+      if (saleWh) {
+        setSelectedWarehouseId(saleWh.id || saleWh.warehouse_id)
+      }
+    }
+  }, [warehousesData, selectedWarehouseId])
+
   // Fetch user details / role inside tenant
   const { data: permissionsData } = useQuery({
     queryKey: ['user-permissions', shopId],
@@ -1318,7 +1333,9 @@ export function InventoryClient({ shopId, shopName }: Props) {
             }}
             className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 focus:border-primary focus:outline-none"
           >
-            <option value="">-- Kho bán hàng mặc định (WH-SALE) --</option>
+            {(!warehousesData?.data || warehousesData.data.length === 0) && (
+              <option value="">Đang tải danh sách kho...</option>
+            )}
             {(warehousesData?.data ?? []).map((w) => (
               <option key={w.id || w.warehouse_id} value={w.id || w.warehouse_id}>
                 📦 {w.name} ({w.code?.toUpperCase()})
