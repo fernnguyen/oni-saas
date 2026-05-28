@@ -40,6 +40,9 @@ const EMPTY_FORM = {
   reference_name: '',
   note: '',
   fund_id: '',
+  apply_allocation: false,
+  allocation_template_id: '',
+  department_code: '',
 }
 
 const EMPTY_FUND_FORM = {
@@ -195,6 +198,28 @@ export function CashbookClient({ shopId, permissions }: Props) {
     },
   })
   const fundsList = fundsData?.data || []
+
+  // --- QUERY: LẤY DANH SÁCH MẪU PHÂN BỔ (CHO CASHBOOK FORM) ---
+  const { data: templatesRes } = useQuery({
+    queryKey: ['cost-allocation-templates', shopId],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/cost-allocations?limit=100`)
+      if (!res.ok) return { data: [], total: 0 }
+      return res.json() as Promise<{ data: Record<string, any>[]; total: number }>
+    },
+  })
+  const templatesList = templatesRes?.data || []
+
+  // --- QUERY: LẤY DANH SÁCH PHÒNG BAN (COST CENTERS) ---
+  const { data: deptsRes } = useQuery({
+    queryKey: ['departments', shopId],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/departments?limit=100`)
+      if (!res.ok) return { data: [], total: 0 }
+      return res.json() as Promise<{ data: Record<string, any>[]; total: number }>
+    },
+  })
+  const deptsList = deptsRes?.data || []
 
   // --- QUERY: LẤY DANH SÁCH GIAO DỊCH CASHBOOK + SỐ DƯ ĐỘNG ---
   const { data, isLoading, isFetching, refetch: refetchCashbook } = useQuery({
@@ -1215,7 +1240,7 @@ export function CashbookClient({ shopId, permissions }: Props) {
             </button>
             <button
               onClick={() => saveMutation.mutate(formData)}
-              disabled={saveMutation.isPending || formData.amount <= 0 || !formData.fund_id}
+              disabled={saveMutation.isPending || formData.amount <= 0 || !formData.fund_id || (!!(formData as any).apply_allocation && !(formData as any).allocation_template_id)}
               className={`rounded-xl px-4 py-2 text-sm font-medium text-white disabled:opacity-50 ${formData.type === 'receipt' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'}`}
             >
               {saveMutation.isPending ? 'Đang lưu...' : 'Lưu phiếu'}
@@ -1307,6 +1332,93 @@ export function CashbookClient({ shopId, permissions }: Props) {
               placeholder="Lý do thu chi..."
             />
           </div>
+
+          {/* COST ALLOCATION SECTION */}
+          {formData.type === 'payment' && (
+            <div className="pt-4 border-t border-slate-100 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="block text-sm font-semibold text-slate-700">Phân bổ chi phí bộ phận</span>
+                  <span className="block text-[11px] text-slate-400">Tự động bóc tách chi phí ảo cho các phòng ban (Cost Center)</span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={!!(formData as any).apply_allocation}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setFormData(prev => ({
+                      ...prev,
+                      apply_allocation: checked,
+                      department_code: checked ? '' : (prev as any).department_code,
+                      allocation_template_id: checked ? (templatesList[0]?.id || '') : '',
+                    }));
+                  }}
+                  className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
+                />
+              </div>
+
+              {!!(formData as any).apply_allocation ? (
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 mb-1">Mẫu phân bổ chi phí</label>
+                    <select
+                      value={(formData as any).allocation_template_id || ''}
+                      onChange={(e) => setFormData(prev => ({ ...prev, allocation_template_id: e.target.value }))}
+                      className="w-full rounded-lg border border-slate-200 px-2.5 py-2 text-xs focus:border-indigo-500 focus:outline-none bg-white"
+                    >
+                      <option value="">-- Chọn mẫu phân bổ --</option>
+                      {templatesList.map(t => (
+                        <option key={t.id} value={t.id}>{t.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Preview percentages */}
+                  {(() => {
+                    const tId = (formData as any).allocation_template_id;
+                    const selectedTemplate = templatesList.find(t => t.id === tId);
+                    if (!selectedTemplate) return null;
+                    let rules: Array<{ department_code: string; percentage: number }> = [];
+                    if (typeof selectedTemplate.rules === 'string') {
+                      try { rules = JSON.parse(selectedTemplate.rules); } catch {}
+                    } else if (Array.isArray(selectedTemplate.rules)) {
+                      rules = selectedTemplate.rules;
+                    }
+                    if (rules.length === 0) return null;
+                    return (
+                      <div className="space-y-1.5 pt-1 border-t border-slate-100">
+                        <span className="block text-[10px] font-bold text-slate-400 uppercase">Xem trước phân bổ ({Number(formData.amount).toLocaleString('vi-VN')}đ):</span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {rules.map(r => {
+                            const amt = Math.round((formData.amount * r.percentage) / 100);
+                            return (
+                              <span key={r.department_code} className="inline-flex text-[10px] bg-white border border-slate-200 px-2 py-0.5 rounded text-slate-600">
+                                <strong>{r.department_code}:</strong> {r.percentage}% ({amt.toLocaleString('vi-VN')}đ)
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">Gắn riêng cho bộ phận (Cost Center đơn)</label>
+                  <select
+                    value={(formData as any).department_code || ''}
+                    onChange={(e) => setFormData(prev => ({ ...prev, department_code: e.target.value }))}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs focus:border-indigo-500 focus:outline-none bg-white shadow-sm"
+                  >
+                    <option value="">-- Chi chung toàn chi nhánh --</option>
+                    {deptsList.map(d => (
+                      <option key={d.id} value={d.code}>{d.name} ({d.code})</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </SlideOver>
 
