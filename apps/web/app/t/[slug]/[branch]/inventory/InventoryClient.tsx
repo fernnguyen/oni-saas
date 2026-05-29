@@ -1292,12 +1292,21 @@ export function InventoryClient({ shopId, shopName }: Props) {
               : `${movementsData?.total ?? 0} phiếu${movementsFetching && !movementsLoading ? ' · Đang cập nhật...' : ''}`}
           </p>
         </div>
-        <button
-          onClick={() => setShowForm(true)}
-          className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark transition-colors"
-        >
-          + Nhập / xuất kho
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            href={`${pathname}/audit`}
+            className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/10 transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+            Kiểm kho (Lô / HSD)
+          </Link>
+          <button
+            onClick={() => setShowForm(true)}
+            className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark transition-colors"
+          >
+            + Nhập / xuất kho
+          </button>
+        </div>
       </div>
 
       {/* Tabs & Warehouse Filter */}

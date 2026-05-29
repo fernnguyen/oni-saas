@@ -57,12 +57,13 @@ export async function POST(
 
     const body = await req.json() as {
       branch_id: string
+      warehouse_id?: string
       reason?: string
       reference_no?: string
       items: AdjustItem[]
     }
 
-    const { branch_id = '', reason = '', reference_no = '', items = [] } = body
+    const { branch_id = '', warehouse_id = '', reason = '', reference_no = '', items = [] } = body
 
     if (items.length === 0) {
       return NextResponse.json({ error: 'Danh sách sản phẩm trống.' }, { status: 400 })
@@ -200,6 +201,7 @@ export async function POST(
         qty: String(pItem.qty),
         unit_cost: pItem.unitCost,
         branch_id: branch_id,
+        warehouse_id: warehouse_id, // Save warehouse ID directly in the ledger!
         reference_no: reference_no,
         reason: reason,
         batch_no: pItem.batch_no || '', // Capture batch_no directly in movement ledger
@@ -211,19 +213,13 @@ export async function POST(
         await connector.delete('stock-movements', (createdSM as any).movement_id || (createdSM as any).id).catch(() => {})
       })
 
-      // Fetch existing inventory for the branch
+      // Fetch existing inventory for the branch and warehouse
       const invListResult = await connector.list('inventory', {
         page: 1, limit: 10,
-        filters: { product_id: pItem.productId }
+        filters: { product_id: pItem.productId, warehouse_id: warehouse_id }
       })
       const allInv = invListResult.data as Record<string, string>[]
-      let invRow = allInv.find(i => i.branch_id === branch_id)
-      if (!invRow && branch_id !== '') {
-        invRow = allInv.find(i => i.branch_id === '')
-      }
-      if (!invRow) {
-        invRow = allInv[0]
-      }
+      let invRow = allInv[0]
 
       if (invRow) {
         const oldQty = parseFloat(invRow.stock_qty || '0')
@@ -238,6 +234,7 @@ export async function POST(
         const createdInv = await connector.create('inventory', {
           product_id: pItem.productId,
           branch_id: branch_id || '',
+          warehouse_id: warehouse_id || 'sale',
           stock_qty: String(Math.max(0, pItem.qty)),
           min_stock: '0',
           sku: sku || ''
