@@ -37,6 +37,10 @@ interface ShopSettings {
   sepay_bank_filter?: string | null;
   sepay_transaction_type?: string | null;
   updated_at: string;
+  // Debt Alert Settings
+  default_max_debt_days?: number;
+  default_max_debt_amount?: number;
+  allow_sell_over_debt_limit?: boolean;
   // CRM Settings
   has_crm_access?: boolean;
   loyalty_points_enabled?: boolean;
@@ -105,6 +109,9 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
     qr_auto_approve_session: initial.qr_auto_approve_session ?? false,
     enable_shift_management: initial.enable_shift_management ?? false,
     strict_shift_lock: initial.strict_shift_lock ?? false,
+    default_max_debt_days: String(initial.default_max_debt_days ?? 30),
+    default_max_debt_amount: String(initial.default_max_debt_amount ?? 10000000),
+    allow_sell_over_debt_limit: initial.allow_sell_over_debt_limit ?? true,
     sepay_webhook_token: initial.sepay_webhook_token ?? '',
     // SePay Advanced Configurations
     sepay_auth_method: initial.sepay_auth_method ?? 'token_query',
@@ -230,6 +237,9 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
           skip_cleaning_process: form.skip_cleaning_process,
           skip_return_confirmation: form.skip_return_confirmation,
           qr_auto_approve_session: form.qr_auto_approve_session,
+          default_max_debt_days: parseInt(form.default_max_debt_days, 10) || 0,
+          default_max_debt_amount: parseFloat(form.default_max_debt_amount) || 0,
+          allow_sell_over_debt_limit: form.allow_sell_over_debt_limit,
         };
       } else if (tab === 'sepay') {
         payload = {
@@ -763,6 +773,56 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
                       {form.qr_auto_approve_session 
                         ? `Tự động kích hoạt ${resourceLabel} ngay khi khách quét QR` 
                         : `Khách quét QR gửi yêu cầu, nhân viên phải duyệt mở ${resourceLabel} bằng tay (Mặc định)`}
+                    </span>
+                  </div>
+                </Field>
+              </div>
+            </Section>
+
+            <Section title="Cấu hình Cảnh báo & Giới hạn Công nợ" description="Thiết lập hạn mức công nợ tối đa, số ngày nợ cho phép mặc định và chốt chặn bán hàng cấp Shop">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Số ngày nợ tối đa cho phép (ngày)" hint="Mặc định: 30 ngày. 0 = không giới hạn số ngày">
+                  <input
+                    type="number" min="0"
+                    value={form.default_max_debt_days}
+                    onChange={(e) => set('default_max_debt_days', e.target.value)}
+                    disabled={!canManage}
+                    className={inputCls}
+                    placeholder="30"
+                  />
+                </Field>
+                <Field label="Hạn mức dư nợ tối đa (đ)" hint="Mặc định: 10.000.000đ. Hạn mức tiền nợ tối đa trên mỗi khách hàng">
+                  <input
+                    type="text"
+                    value={formatWithDots(form.default_max_debt_amount)}
+                    onChange={(e) => {
+                      const clean = e.target.value.replace(/[^0-9]/g, '')
+                      set('default_max_debt_amount', clean)
+                    }}
+                    disabled={!canManage}
+                    className={inputCls}
+                    placeholder="10.000.000"
+                  />
+                </Field>
+              </div>
+
+              <div className="border-t border-slate-100 pt-4 mt-4 space-y-4">
+                <Field label="Chốt chặn bán hàng khi quá hạn mức">
+                  <div
+                    onClick={() => canManage && set('allow_sell_over_debt_limit', !form.allow_sell_over_debt_limit)}
+                    className="flex cursor-pointer items-center gap-3 mt-1"
+                  >
+                    <div
+                      className={`relative h-6 w-11 rounded-full transition-colors ${!form.allow_sell_over_debt_limit ? 'bg-primary' : 'bg-slate-200'} ${canManage ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
+                    >
+                      <span
+                        className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${!form.allow_sell_over_debt_limit ? 'translate-x-5' : ''}`}
+                      />
+                    </div>
+                    <span className="text-sm text-slate-600 select-none font-medium">
+                      {!form.allow_sell_over_debt_limit 
+                        ? 'Chặn bán hàng cứng (Vô hiệu hóa nút thanh toán tại POS/Đơn hàng nếu quá hạn)' 
+                        : 'Cho phép bán tiếp & Cảnh báo mềm (Nhắc nhở nhân viên nhưng vẫn cho bán)'}
                     </span>
                   </div>
                 </Field>

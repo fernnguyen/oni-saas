@@ -71,6 +71,8 @@ export async function POST(
         existingCustomer = codeMap.get(customer_code)!
       }
 
+      const debtDays = parseInt(String(item.debt_days || '0'), 10)
+
       // Extract custom metadata (dynamic fields)
       const metadata: Record<string, any> = {
         zalo: item.zalo || '',
@@ -83,6 +85,7 @@ export async function POST(
         shipping_area: item.shipping_area || '',
         ward: item.ward || '',
         customer_group: item.customer_group || '',
+        debt_days: String(debtDays),
       }
 
       const note = item.note || ''
@@ -167,6 +170,14 @@ export async function POST(
 
         // Create virtual cashbook logs for diff balance nợ
         if (diffDebt !== 0) {
+          let debtCreatedAt = nowTime
+          if (debtDays > 0) {
+            const pastDate = new Date()
+            pastDate.setDate(pastDate.getDate() - debtDays)
+            pastDate.setUTCHours(pastDate.getUTCHours() + 7)
+            debtCreatedAt = pastDate.toISOString().replace('Z', '')
+          }
+
           cashbookToCreate.push({
             type:           'receipt', // Receipt type representing debt update
             amount:         String(Math.abs(diffDebt)),
@@ -175,10 +186,11 @@ export async function POST(
             reference_id:   existingCustomer.id,
             reference_name: name,
             note:           diffDebt > 0 
-              ? `Điều chỉnh tăng công nợ đầu kỳ khi import (Chênh lệch: +${diffDebt.toLocaleString('vi-VN')}đ)`
-              : `Điều chỉnh giảm công nợ đầu kỳ khi import (Chênh lệch: ${diffDebt.toLocaleString('vi-VN')}đ)`,
+              ? `Điều chỉnh tăng công nợ đầu kỳ khi import (Nợ trước đó ${debtDays} ngày)`
+              : `Điều chỉnh giảm công nợ đầu kỳ khi import`,
             employee_id:    user.id,
             is_virtual:     'TRUE', // Flag virtual so it does not affect actual cash book totals
+            created_at:     debtCreatedAt,
           })
         }
 
@@ -239,7 +251,27 @@ export async function POST(
       const debt = parseFloat(cc.debt_amount || '0')
       const prepaid = parseFloat(cc.prepaid_balance || '0')
 
+      // Find original import item to get debt_days
+      const importItem = importList.find(
+        (item) =>
+          (item.phone && cc.phone && item.phone.trim() === cc.phone.trim()) ||
+          (item.customer_code &&
+            cc.customer_code &&
+            item.customer_code.trim().toUpperCase() ===
+              cc.customer_code.trim().toUpperCase()) ||
+          (item.name && cc.name && item.name.trim() === cc.name.trim())
+      )
+      const debtDays = importItem ? parseInt(String(importItem.debt_days || '0'), 10) : 0
+
       if (debt > 0) {
+        let debtCreatedAt = nowTime
+        if (debtDays > 0) {
+          const pastDate = new Date()
+          pastDate.setDate(pastDate.getDate() - debtDays)
+          pastDate.setUTCHours(pastDate.getUTCHours() + 7)
+          debtCreatedAt = pastDate.toISOString().replace('Z', '')
+        }
+
         cashbookToCreate.push({
           type:           'receipt',
           amount:         String(debt),
@@ -247,9 +279,12 @@ export async function POST(
           category:       'debt_collection',
           reference_id:   cc.customer_id || cc.id,
           reference_name: cc.name,
-          note:           `Số dư công nợ đầu kỳ ghi nhận khi chuyển đổi hệ thống (Import KiotViet)`,
+          note:           debtDays > 0
+            ? `Số dư công nợ đầu kỳ ghi nhận khi chuyển đổi hệ thống (Nợ trước đó ${debtDays} ngày)`
+            : `Số dư công nợ đầu kỳ ghi nhận khi chuyển đổi hệ thống (Import KiotViet)`,
           employee_id:    user.id,
           is_virtual:     'TRUE',
+          created_at:     debtCreatedAt,
         })
       }
 

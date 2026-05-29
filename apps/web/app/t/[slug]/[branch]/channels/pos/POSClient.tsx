@@ -1255,6 +1255,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
         {/* Cart panel */}
         <div className="w-full md:w-72 shrink-0 overflow-hidden xl:w-80">
           <CartPanel
+            shopId={shopId}
             items={cart.items}
             inventory={inventory}
             subtotal={cart.subtotal}

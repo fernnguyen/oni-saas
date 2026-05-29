@@ -4,9 +4,23 @@ import { useDebounce } from 'use-debounce'
 import { localDb, type LocalCustomer } from '@/lib/localDb/schema'
 
 interface Props {
+  shopId?: string
   selected: LocalCustomer | null
   onSelect: (customer: LocalCustomer | null) => void
   onOpenCustomerModal?: () => void
+}
+
+function formatPhone(phone?: string): string {
+  if (!phone) return ''
+  const clean = phone.trim().replace(/\D/g, '')
+  if (clean.length === 10) {
+    return `${clean.substring(0, 4)}.${clean.substring(4, 7)}.${clean.substring(7)}`
+  }
+  if (clean.length === 9) {
+    const formatted = `0${clean}`
+    return `${formatted.substring(0, 4)}.${formatted.substring(4, 7)}.${formatted.substring(7)}`
+  }
+  return phone
 }
 
 function QuickCustomerBadge({ customer, onClear }: { customer: LocalCustomer; onClear: () => void }) {
@@ -14,13 +28,25 @@ function QuickCustomerBadge({ customer, onClear }: { customer: LocalCustomer; on
   return (
     <div className="flex items-center justify-between rounded-xl border border-blue-100 bg-blue-50 px-3 py-2">
       <div className="min-w-0">
-        <div className="flex items-center gap-1.5">
-          <p className="truncate text-sm font-medium text-slate-900">{customer.name}</p>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <p className="truncate text-sm font-medium text-slate-900">
+            {customer.name}
+            {customer.phone && (
+              <>
+                <span className="text-slate-350 mx-1.5 font-normal">·</span>
+                <span className="text-primary font-bold">{formatPhone(customer.phone)}</span>
+              </>
+            )}
+          </p>
           {isVirtual && (
             <span className="rounded bg-slate-200 px-1 py-0.5 text-[10px] text-slate-500">tạm</span>
           )}
         </div>
-        {customer.phone && <p className="text-xs text-slate-500">{customer.phone}</p>}
+        {customer.address && (
+          <p className="truncate text-[11px] text-slate-500 mt-0.5">
+            {customer.address}
+          </p>
+        )}
       </div>
       <button
         onClick={onClear}
@@ -33,7 +59,7 @@ function QuickCustomerBadge({ customer, onClear }: { customer: LocalCustomer; on
   )
 }
 
-export function CustomerSearch({ selected, onSelect, onOpenCustomerModal }: Props) {
+export function CustomerSearch({ shopId, selected, onSelect, onOpenCustomerModal }: Props) {
   const [query, setQuery] = useState('')
   const [phone, setPhone] = useState('')
   const [results, setResults] = useState<LocalCustomer[]>([])
@@ -61,15 +87,46 @@ export function CustomerSearch({ selected, onSelect, onOpenCustomerModal }: Prop
         return
       }
       const q = debouncedQuery.toLowerCase()
-      const items = await localDb.customers
+      
+      // 1. Search local DB first
+      const localItems = await localDb.customers
         .filter((c) => c.name.toLowerCase().includes(q) || (c.phone ?? '').includes(q))
         .limit(10)
         .toArray()
-      if (!cancelled) setResults(items)
+      
+      if (!cancelled) setResults(localItems)
+      
+      // 2. Hybrid search: if online and shopId is provided, query the server!
+      if (shopId && navigator.onLine) {
+        try {
+          const res = await fetch(`/api/shops/${shopId}/customers?search=${encodeURIComponent(debouncedQuery)}&limit=15`)
+          if (res.ok) {
+            const json = await res.json()
+            if (json.data && !cancelled) {
+              const serverItems = json.data as LocalCustomer[]
+              
+              // Merge server items with local items, avoiding duplicates
+              const merged = [...localItems]
+              serverItems.forEach((serverCust) => {
+                const exists = merged.some((c) => c.customer_id === serverCust.customer_id)
+                if (!exists) {
+                  merged.push(serverCust)
+                  // Proactively save to IndexedDB on the fly
+                  localDb.customers.put(serverCust).catch(() => {})
+                }
+              })
+              
+              setResults(merged.slice(0, 15))
+            }
+          }
+        } catch (err) {
+          console.error('POS hybrid customer search failed:', err)
+        }
+      }
     }
     search()
     return () => { cancelled = true }
-  }, [debouncedQuery])
+  }, [debouncedQuery, shopId])
 
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {
@@ -180,7 +237,7 @@ export function CustomerSearch({ selected, onSelect, onOpenCustomerModal }: Prop
                       </kbd>
                     )}
                   </div>
-                  <span className="text-slate-400 text-xs">{c.phone}</span>
+                  <span className="text-slate-400 text-xs">{c.phone ? formatPhone(c.phone) : ''}</span>
                 </button>
               ))}
 

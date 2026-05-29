@@ -19,6 +19,53 @@ import { VietQRPreview } from '@/app/components/ui/VietQRPreview'
 import { useConfirm } from '@/app/components/ui/ConfirmProvider'
 import { BANKS } from '@/lib/constants/banks'
 
+function calculateDebtAge(
+  orders: any[] = [],
+  transactions: any[] = [],
+  currentDebtAmount: number = 0
+): number {
+  if (currentDebtAmount <= 0) return 0
+  const debtIncrements: { amount: number; date: Date }[] = []
+  orders.forEach((order) => {
+    const debtAmount = Number(order.debt_amount || 0)
+    if (debtAmount > 0 && order.status !== 'cancelled') {
+      debtIncrements.push({
+        amount: debtAmount,
+        date: new Date(order.created_at || new Date()),
+      })
+    }
+  })
+  transactions.forEach((tx) => {
+    const isVirtualDebt =
+      tx.is_virtual === 'TRUE' &&
+      tx.type === 'receipt' &&
+      tx.method === 'debt' &&
+      tx.category === 'debt_collection'
+    if (isVirtualDebt) {
+      debtIncrements.push({
+        amount: Number(tx.amount || 0),
+        date: new Date(tx.created_at || new Date()),
+      })
+    }
+  })
+  if (debtIncrements.length === 0) return 0
+  debtIncrements.sort((a, b) => a.date.getTime() - b.date.getTime())
+  let remainingDebt = currentDebtAmount
+  let oldestUnpaidTx: { amount: number; date: Date } | null = null
+  for (let i = debtIncrements.length - 1; i >= 0; i--) {
+    const item = debtIncrements[i]
+    if (remainingDebt > 0) {
+      oldestUnpaidTx = item
+      remainingDebt -= item.amount
+    } else {
+      break
+    }
+  }
+  if (!oldestUnpaidTx) return 0
+  const diffTime = Math.abs(new Date().getTime() - oldestUnpaidTx.date.getTime())
+  return Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+}
+
 interface Props {
   open: boolean
   onClose: () => void
@@ -282,6 +329,49 @@ export function CheckoutModal({
     enabled: !!shopId && !!branchId && open,
   })
   const fundsList = fundsData || []
+
+  // Fetch Customer Purchase History for Debt Aging
+  const { data: customerOrders } = useQuery({
+    queryKey: ['customer-orders', shopId, localCustomer?.customer_id],
+    queryFn: async () => {
+      if (!localCustomer?.customer_id) return { data: [] }
+      const res = await fetch(`/api/shops/${shopId}/orders?customer_id=${localCustomer.customer_id}&limit=50`)
+      if (!res.ok) throw new Error('Không tải được lịch sử đơn hàng')
+      return res.json() as Promise<{ data: Record<string, any>[] }>
+    },
+    enabled: !!localCustomer?.customer_id && open,
+  })
+
+  // Fetch Customer Financial Transactions for Debt Aging
+  const { data: customerTransactions } = useQuery({
+    queryKey: ['customer-transactions', shopId, localCustomer?.customer_id],
+    queryFn: async () => {
+      if (!localCustomer?.customer_id) return { data: [] }
+      const res = await fetch(`/api/shops/${shopId}/cashbook?reference_id=${localCustomer.customer_id}&limit=50`)
+      if (!res.ok) throw new Error('Không tải được lịch sử giao dịch')
+      return res.json() as Promise<{ data: Record<string, any>[] }>
+    },
+    enabled: !!localCustomer?.customer_id && open,
+  })
+
+  const debtAge = useMemo(() => {
+    if (!localCustomer) return 0
+    return calculateDebtAge(
+      customerOrders?.data || [],
+      customerTransactions?.data || [],
+      Number(localCustomer.debt_amount || 0)
+    )
+  }, [customerOrders, customerTransactions, localCustomer])
+
+
+  const maxDebtDays = Number(settings?.default_max_debt_days ?? 30)
+  const maxDebtAmount = Number(settings?.default_max_debt_amount ?? 10000000)
+  const allowSellOverLimit = settings?.allow_sell_over_debt_limit !== false
+
+  const isDebtDaysExceeded = maxDebtDays > 0 && debtAge > maxDebtDays
+  const isDebtAmountExceeded = maxDebtAmount > 0 && (Number(localCustomer?.debt_amount || 0) + debtAmount) > maxDebtAmount
+
+  const isBlocked = !allowSellOverLimit && (isDebtDaysExceeded || isDebtAmountExceeded)
 
   const qrPayment = payments.find((p) => p.method === 'bank_transfer')
   const qrFund = fundsList.find((f) => f.id === qrPayment?.fund_id) || 
@@ -895,6 +985,10 @@ export function CheckoutModal({
 
   async function handleSubmit(options?: { bypassQr?: boolean }) {
     if (items.length === 0) return
+    if (isBlocked) {
+      toast.error('Giao dịch bị chặn do khách hàng vượt quá giới hạn công nợ.')
+      return
+    }
     if (totalPaid < remainingTotal) {
       toast.error(`Còn thiếu ${fmtVND(remainingTotal - totalPaid)}`)
       return
@@ -1205,13 +1299,13 @@ export function CheckoutModal({
         if (!showQrGate) onClose()
       }
       if ((e.key === 'Enter') && (e.ctrlKey || e.metaKey)) {
-        if (!showQrGate) handleSubmit({ bypassQr: true })
+        if (!showQrGate && !isBlocked) handleSubmit({ bypassQr: true })
       }
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, payments, items, showQrGate])
+  }, [open, payments, items, showQrGate, isBlocked])
 
   if (!open) return null
 
@@ -1419,7 +1513,7 @@ export function CheckoutModal({
                     )}
                   </p>
                 </div>
-                <CustomerSearch selected={localCustomer} onSelect={setLocalCustomer} />
+                <CustomerSearch shopId={shopId} selected={localCustomer} onSelect={setLocalCustomer} />
               </div>
 
               {/* Prepaid Wallet inline suggest banner */}
@@ -1657,6 +1751,58 @@ export function CheckoutModal({
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm placeholder:text-slate-400 focus:border-primary focus:outline-none"
               />
 
+              {/* Debt Alerts & Chốt chặn công nợ */}
+              {localCustomer && (isDebtDaysExceeded || isDebtAmountExceeded) && (
+                <div className={`rounded-xl p-3.5 border text-sm space-y-2 animate-in fade-in slide-in-from-top-2 duration-200 shadow-xs ${
+                  isBlocked
+                    ? 'border-red-200 bg-red-50/70 text-red-955'
+                    : 'border-amber-200 bg-amber-50/70 text-amber-955'
+                }`}>
+                  <div className="flex items-start gap-2.5">
+                    {isBlocked ? (
+                      <svg className="h-5 w-5 text-red-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                    ) : (
+                      <svg className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <h4 className={`text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 ${
+                        isBlocked ? 'text-red-800' : 'text-amber-800'
+                      }`}>
+                        {isBlocked ? '🚫 Chặn bán hàng (Vượt hạn mức nợ)' : '⚠️ Cảnh báo công nợ'}
+                      </h4>
+                      <p className={`text-[11px] mt-1 leading-relaxed ${isBlocked ? 'text-red-700' : 'text-amber-700'}`}>
+                        {isBlocked 
+                          ? 'Cửa hàng thiết lập chặn bán hàng khi khách hàng vượt quá giới hạn ngày nợ hoặc số tiền nợ. Vui lòng thanh toán hóa đơn bằng Tiền mặt / Chuyển khoản hoặc thực hiện Thu nợ cũ trước.' 
+                          : 'Khách hàng đã vượt quá hạn mức nợ hoặc số ngày nợ cho phép mặc định của cửa hàng. Vui lòng nhắc nhở khách hàng thanh toán sớm.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className={`text-[11px] border-t pt-2 grid grid-cols-2 gap-3 ${
+                    isBlocked ? 'border-red-100/80 text-red-900' : 'border-amber-100/85 text-amber-900'
+                  }`}>
+                    <div className="flex flex-col gap-0.5">
+                      <span className={isBlocked ? 'text-red-650' : 'text-amber-600'}>Số ngày nợ:</span>
+                      <span className={`font-semibold flex items-center gap-1 ${isDebtDaysExceeded ? 'text-red-600 font-bold' : 'text-slate-700'}`}>
+                        <span>{debtAge}</span> / <span className="text-slate-500 font-normal">{maxDebtDays} ngày</span>
+                        {isDebtDaysExceeded && <span className="inline-flex px-1 py-0.2 text-[9px] rounded bg-red-100 text-red-700 font-bold">Quá hạn</span>}
+                      </span>
+                    </div>
+                    <div className="flex flex-col gap-0.5">
+                      <span className={isBlocked ? 'text-red-650' : 'text-amber-600'}>Dư nợ sau đơn này:</span>
+                      <span className={`font-semibold flex items-center gap-1 ${isDebtAmountExceeded ? 'text-red-600 font-bold' : 'text-slate-700'}`}>
+                        <span>{fmtVND(Number(localCustomer?.debt_amount || 0) + debtAmount)}</span> / <span className="text-slate-500 font-normal">{fmtVND(maxDebtAmount)}</span>
+                        {isDebtAmountExceeded && <span className="inline-flex px-1 py-0.2 text-[9px] rounded bg-red-100 text-red-700 font-bold">Vượt hạn</span>}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Payments */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -1812,7 +1958,7 @@ export function CheckoutModal({
                 {/* Green button: Lưu & xác nhận (Đã thu) */}
                 <button
                   onClick={() => handleSubmit({ bypassQr: true })}
-                  disabled={saving || items.length === 0 || remaining > 0}
+                  disabled={saving || items.length === 0 || remaining > 0 || isBlocked}
                   className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 py-2.5 px-4 text-sm font-bold text-white shadow-xs disabled:opacity-40 transition-all active:scale-98"
                 >
                   <svg className="h-4.5 w-4.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
@@ -1825,7 +1971,7 @@ export function CheckoutModal({
                 {bankTransferAmt > 0 && (
                   <button
                     onClick={() => handleSubmit({ bypassQr: false })}
-                    disabled={saving || items.length === 0 || remaining > 0}
+                    disabled={saving || items.length === 0 || remaining > 0 || isBlocked}
                     className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-primary hover:bg-primary-dark py-2.5 px-4 text-sm font-bold text-white shadow-xs disabled:opacity-40 transition-all active:scale-98 animate-in fade-in slide-in-from-right-1 duration-200"
                   >
                     Lưu & chờ thanh toán

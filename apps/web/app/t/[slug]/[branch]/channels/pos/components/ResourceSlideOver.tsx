@@ -1296,7 +1296,7 @@ export function ResourceSlideOver({
                         <span className="text-xs text-slate-500 font-medium bg-slate-100 px-2 py-0.5 rounded">Mặc định: Khách lẻ</span>
                       )}
                     </div>
-                    <CustomerSearch selected={customer} onSelect={handleCustomerSelect} onOpenCustomerModal={() => setCustomerCreateModalOpen(true)} />
+                    <CustomerSearch shopId={shopId} selected={customer} onSelect={handleCustomerSelect} onOpenCustomerModal={() => setCustomerCreateModalOpen(true)} />
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
@@ -2137,7 +2137,7 @@ export function ResourceSlideOver({
               </button>
             </div>
             <div className="flex-1 overflow-y-auto p-5 space-y-5">
-              <CustomerSearch selected={editCustomerValue} onSelect={setEditCustomerValue} />
+              <CustomerSearch shopId={shopId} selected={editCustomerValue} onSelect={setEditCustomerValue} />
 
               <div className="pt-2">
                 <button

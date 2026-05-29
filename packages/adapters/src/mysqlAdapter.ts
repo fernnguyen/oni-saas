@@ -232,8 +232,12 @@ export class MysqlConnector implements IDataConnector {
         whereClauses.push(`(order_no LIKE ? OR customer_name LIKE ? OR reference_no LIKE ?)`)
         params.push(searchTerm, searchTerm, searchTerm)
       } else if (entity === 'customers') {
-        whereClauses.push(`(name LIKE ? OR phone LIKE ?)`)
-        params.push(searchTerm, searchTerm)
+        let phoneSearch = search.trim()
+        if (phoneSearch.startsWith('0')) {
+          phoneSearch = phoneSearch.substring(1)
+        }
+        whereClauses.push(`(name LIKE ? OR phone LIKE ? OR phone LIKE ? OR customer_code LIKE ?)`)
+        params.push(searchTerm, searchTerm, `%${phoneSearch}%`, searchTerm)
       } else if (entity === 'products') {
         whereClauses.push(`(name LIKE ? OR sku LIKE ?)`)
         params.push(searchTerm, searchTerm)

@@ -30,6 +30,69 @@ export function getBankDisplayName(bankCodeOrName: string) {
   return bank ? bank.shortName : bankCodeOrName
 }
 
+export function calculateDebtAge(
+  orders: any[] = [],
+  transactions: any[] = [],
+  currentDebtAmount: number = 0
+): number {
+  if (currentDebtAmount <= 0) return 0
+
+  // 1. Collect all debt-incrementing events
+  const debtIncrements: { amount: number; date: Date }[] = []
+
+  // Orders with debt_amount > 0 (excluding cancelled orders)
+  orders.forEach((order) => {
+    const debtAmount = Number(order.debt_amount || 0)
+    if (debtAmount > 0 && order.status !== 'cancelled') {
+      debtIncrements.push({
+        amount: debtAmount,
+        date: new Date(order.created_at || new Date()),
+      })
+    }
+  })
+
+  // Virtual debt entries created upon Excel import
+  transactions.forEach((tx) => {
+    const isVirtualDebt =
+      tx.is_virtual === 'TRUE' &&
+      tx.type === 'receipt' &&
+      tx.method === 'debt' &&
+      tx.category === 'debt_collection'
+    if (isVirtualDebt) {
+      debtIncrements.push({
+        amount: Number(tx.amount || 0),
+        date: new Date(tx.created_at || new Date()),
+      })
+    }
+  })
+
+  if (debtIncrements.length === 0) return 0
+
+  // 2. Sort by date ascending (oldest -> newest)
+  debtIncrements.sort((a, b) => a.date.getTime() - b.date.getTime())
+
+  // 3. FIFO backward loop to resolve oldest unpaid transaction
+  let remainingDebt = currentDebtAmount
+  let oldestUnpaidTx: { amount: number; date: Date } | null = null
+
+  for (let i = debtIncrements.length - 1; i >= 0; i--) {
+    const item = debtIncrements[i]
+    if (remainingDebt > 0) {
+      oldestUnpaidTx = item
+      remainingDebt -= item.amount
+    } else {
+      break
+    }
+  }
+
+  if (!oldestUnpaidTx) return 0
+
+  // 4. Calculate day diff from oldest unpaid transaction date to now
+  const diffTime = Math.abs(new Date().getTime() - oldestUnpaidTx.date.getTime())
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+  return diffDays
+}
+
 
 export function MemberTierBadge({ label, color }: { label: string; color?: string }) {
   const c = (color || 'slate').toLowerCase()
@@ -100,7 +163,7 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement
-      if (target.closest('.dropdown-actions-trigger')) {
+      if (target.closest('.dropdown-actions-trigger') || target.closest('.dropdown-actions-menu')) {
         return
       }
       setActiveDropdown(null)
@@ -372,7 +435,7 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
             </button>
 
             {isOpen && (
-              <div className="absolute right-0 mt-1.5 w-36 rounded-xl border border-slate-200/80 bg-white py-1 shadow-lg z-[60] origin-top-right focus:outline-none animate-in fade-in slide-in-from-top-1 duration-100">
+              <div className="dropdown-actions-menu absolute right-0 mt-1.5 w-36 rounded-xl border border-slate-200/80 bg-white py-1 shadow-lg z-[60] origin-top-right focus:outline-none animate-in fade-in slide-in-from-top-1 duration-100">
                 <button
                   onClick={() => {
                     setActiveDropdown(null);
@@ -478,6 +541,7 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
             const credit_limit = getVal(row, 'Hạn mức tín dụng', -1) || '0'
             const debt_amount = getVal(row, 'Nợ cần thu hiện tại', 23) || '0'
             const loyalty_points = getVal(row, 'Điểm hiện tại', 17) || '0'
+            const debt_days = getVal(row, 'Số ngày nợ', -1) || '0'
 
             const facebook = getVal(row, 'Facebook', 14)
             const zalo = getVal(row, 'Zalo', -1)
@@ -510,6 +574,7 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
               debt_amount,
               loyalty_points,
               prepaid_balance: '0',
+              debt_days,
               zalo,
               facebook,
               tax_code,
@@ -1577,62 +1642,96 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
             {/* Tab Contents */}
             <div className="space-y-4 pt-1">
               {/* Tab 1: Info (Read-only) */}
-              {detailTab === 'info' && (
-                <div className="space-y-4">
-                  {/* Financial Quick Cards */}
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-3 text-center space-y-0.5">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Điểm tích lũy</span>
-                      <span className="text-sm font-bold text-blue-600 block">
-                        {Number(viewTarget.loyalty_points || 0).toLocaleString('vi-VN')}
-                      </span>
+              {detailTab === 'info' && (() => {
+                const debtAge = calculateDebtAge(
+                  customerOrders?.data || [],
+                  customerTransactions?.data || [],
+                  Number(viewTarget.debt_amount || 0)
+                )
+                return (
+                  <div className="space-y-4 animate-in fade-in slide-in-from-top-1 duration-200">
+                    {/* Financial Quick Cards */}
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-3 text-center space-y-0.5">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Điểm tích lũy</span>
+                        <span className="text-sm font-bold text-blue-600 block">
+                          {Number(viewTarget.loyalty_points || 0).toLocaleString('vi-VN')}
+                        </span>
+                      </div>
+                      <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-3 text-center space-y-0.5">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Ví trả trước</span>
+                        <span className="text-sm font-bold text-emerald-600 block">
+                          {Number(viewTarget.prepaid_balance || 0).toLocaleString('vi-VN')}đ
+                        </span>
+                      </div>
+                      <div className="rounded-xl border border-red-100 bg-red-50/40 p-3 text-center space-y-0.5 relative overflow-hidden">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Nợ hiện tại</span>
+                        <span className="text-sm font-bold text-red-655 block">
+                          {Number(viewTarget.debt_amount || 0).toLocaleString('vi-VN')}đ
+                        </span>
+                        {debtAge > 0 && (
+                          <span className="text-[9px] text-red-600 font-semibold block mt-0.5 bg-red-100/50 rounded-md py-0.5 px-1 inline-block">
+                            ⏳ {debtAge} ngày nợ
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-3 text-center space-y-0.5">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Ví trả trước</span>
-                      <span className="text-sm font-bold text-emerald-600 block">
-                        {Number(viewTarget.prepaid_balance || 0).toLocaleString('vi-VN')}đ
-                      </span>
-                    </div>
-                    <div className="rounded-xl border border-red-100 bg-red-50/40 p-3 text-center space-y-0.5">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Nợ hiện tại</span>
-                      <span className="text-sm font-bold text-red-655 block">
-                        {Number(viewTarget.debt_amount || 0).toLocaleString('vi-VN')}đ
-                      </span>
-                    </div>
-                  </div>
 
-                  {/* Profile Details List */}
-                  <div className="rounded-2xl border border-slate-100 bg-white p-4 space-y-4 text-sm">
-                    <div className="grid grid-cols-2 gap-y-4 gap-x-2">
-                      <div className="space-y-0.5">
-                        <span className="text-xs text-slate-400 block font-medium">Mã khách hàng</span>
-                        <span className="text-slate-800 block break-all font-semibold"><CopyableId id={viewTarget.customer_id} className="text-slate-800 text-sm font-semibold" /></span>
+                    {/* Profile Details List */}
+                    <div className="rounded-2xl border border-slate-100 bg-white p-4 space-y-4 text-sm">
+                      <div className="grid grid-cols-2 gap-y-4 gap-x-2">
+                        <div className="space-y-0.5">
+                          <span className="text-xs text-slate-400 block font-medium">Mã khách hàng</span>
+                          <span className="text-slate-800 block break-all font-semibold">
+                            <CopyableId id={viewTarget.customer_id} className="text-slate-800 text-sm font-semibold" />
+                          </span>
+                        </div>
+                        <div className="space-y-0.5">
+                          <span className="text-xs text-slate-400 block font-medium">Hạn mức tín dụng</span>
+                          <span className="text-slate-800 font-semibold block">{Number(viewTarget.credit_limit || 0).toLocaleString('vi-VN')}đ</span>
+                        </div>
+                        <div className="space-y-0.5">
+                          <span className="text-xs text-slate-400 block font-medium">Địa chỉ Email</span>
+                          <span className="text-slate-800 block break-all">{viewTarget.email || '—'}</span>
+                        </div>
+                        <div className="space-y-0.5">
+                          <span className="text-xs text-slate-400 block font-medium">Địa chỉ nhà</span>
+                          <span className="text-slate-800 block">{viewTarget.address || '—'}</span>
+                        </div>
+
+                        {Number(viewTarget.debt_amount || 0) > 0 && (
+                          <div className="space-y-0.5 col-span-2 border-t border-dashed border-slate-100 pt-3 mt-1">
+                            <span className="text-xs text-slate-400 block font-medium">Theo dõi tuổi nợ (FIFO)</span>
+                            <div className="flex items-center gap-2 mt-1">
+                              <span className="text-xs font-bold text-red-600 bg-red-50 border border-red-100 px-2.5 py-1 rounded-lg flex items-center gap-1 shadow-3xs">
+                                ⏳ Khách nợ: {debtAge} ngày
+                              </span>
+                              {debtAge > 30 ? (
+                                <span className="text-[10px] font-bold text-red-700 bg-red-100 border border-red-200/50 px-2 py-0.5 rounded-md animate-pulse">
+                                  ⚠️ CẢNH BÁO QUÁ HẠN
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 border border-slate-200/50 px-2 py-0.5 rounded-md">
+                                  Trong thời hạn cho phép
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                      <div className="space-y-0.5">
-                        <span className="text-xs text-slate-400 block font-medium">Hạn mức tín dụng</span>
-                        <span className="text-slate-800 font-semibold block">{Number(viewTarget.credit_limit || 0).toLocaleString('vi-VN')}đ</span>
-                      </div>
-                      <div className="space-y-0.5">
-                        <span className="text-xs text-slate-400 block font-medium">Địa chỉ Email</span>
-                        <span className="text-slate-800 block break-all">{viewTarget.email || '—'}</span>
-                      </div>
-                      <div className="space-y-0.5">
-                        <span className="text-xs text-slate-400 block font-medium">Địa chỉ nhà</span>
-                        <span className="text-slate-800 block">{viewTarget.address || '—'}</span>
-                      </div>
+
+                      {viewTarget.note && (
+                        <div className="border-t border-slate-100 pt-3 space-y-1">
+                          <span className="text-xs text-slate-400 block font-medium">Ghi chú đặc biệt</span>
+                          <p className="text-slate-600 bg-slate-50/70 p-2.5 rounded-xl border border-slate-100/60 leading-relaxed text-xs italic">
+                            {viewTarget.note}
+                          </p>
+                        </div>
+                      )}
                     </div>
-                    
-                    {viewTarget.note && (
-                      <div className="border-t border-slate-100 pt-3 space-y-1">
-                        <span className="text-xs text-slate-400 block font-medium">Ghi chú đặc biệt</span>
-                        <p className="text-slate-600 bg-slate-50/70 p-2.5 rounded-xl border border-slate-100/60 leading-relaxed text-xs italic">
-                          {viewTarget.note}
-                        </p>
-                      </div>
-                    )}
                   </div>
-                </div>
-              )}
+                )
+              })()}
 
               {/* Tab 2: Purchase/Order History */}
               {detailTab === 'orders' && (

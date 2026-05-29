@@ -9,6 +9,7 @@ import { VariantPickerModal } from './VariantPickerModal'
 import { ModifierPickerModal } from './ModifierPickerModal'
 
 interface Props {
+  shopId?: string
   items: CartItem[]
   inventory?: Map<string, number>
   subtotal: number
@@ -49,6 +50,7 @@ function playBeep() {
 const DISCOUNT_PRESETS = [5, 10, 20, 50]
 
 export function CartPanel({
+  shopId,
   items,
   inventory,
   subtotal,
@@ -140,7 +142,7 @@ export function CartPanel({
             {customer ? customer.name : 'Khách lẻ'}
           </p>
         </div>
-        <CustomerSearch selected={customer} onSelect={onCustomerChange} onOpenCustomerModal={onOpenCustomerModal} />
+        <CustomerSearch shopId={shopId} selected={customer} onSelect={onCustomerChange} onOpenCustomerModal={onOpenCustomerModal} />
       </div>
 
       {/* Product search (Mobile only) */}

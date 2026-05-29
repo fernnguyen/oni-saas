@@ -80,6 +80,8 @@ export interface LocalCustomer {
   name: string
   phone?: string
   email?: string
+  address?: string
+  customer_code?: string
   customer_type?: string
   debt_amount?: number
   credit_limit?: number
