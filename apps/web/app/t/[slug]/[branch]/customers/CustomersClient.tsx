@@ -602,12 +602,22 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
             {isFetching && !isLoading && <span className="ml-2 text-xs text-slate-400">Đang cập nhật...</span>}
           </p>
         </div>
-        <button
-          onClick={openCreate}
-          className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
-        >
-          + Thêm khách hàng
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setImportModalOpen(true)}
+            className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-all flex items-center gap-1.5 cursor-pointer active:scale-95 shadow-sm"
+          >
+            <Upload className="w-4 h-4 text-slate-500" />
+            Import từ Excel
+          </button>
+          <button
+            onClick={openCreate}
+            className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark transition-all flex items-center gap-1.5 cursor-pointer active:scale-95 shadow-sm"
+          >
+            <UserPlus className="w-4 h-4" />
+            Thêm khách hàng
+          </button>
+        </div>
       </div>
 
       <SearchBar
