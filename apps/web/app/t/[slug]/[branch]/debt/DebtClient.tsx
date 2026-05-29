@@ -137,15 +137,35 @@ export function DebtClient({ shopId }: Props) {
   const processedData = useMemo(() => {
     const raw = data?.data ?? []
     const mapped = raw.map((row): Record<string, string> => {
-      const updatedAt = row.updated_at || row.created_at
+      // Parse metadata to extract imported debt_days
+      let importedDebtDays = 0
+      try {
+        if (row.metadata) {
+          const meta = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata
+          if (meta && meta.debt_days) {
+            importedDebtDays = parseInt(String(meta.debt_days), 10) || 0
+          }
+        }
+      } catch (e) {
+        console.error('Failed to parse metadata in DebtClient:', e)
+      }
+
+      // Calculate debt age:
+      // If there is an imported debt_days, the debt started 'importedDebtDays' before customer creation.
+      // Otherwise, the debt started at customer creation (created_at).
+      const baseDateStr = row.created_at || new Date().toISOString()
       let debtDays = 0
-      if (updatedAt) {
-        const updatedDate = new Date(updatedAt)
-        if (!isNaN(updatedDate.getTime())) {
-          const diffTime = Math.max(0, new Date().getTime() - updatedDate.getTime())
+      if (baseDateStr) {
+        const baseDate = new Date(baseDateStr)
+        if (!isNaN(baseDate.getTime())) {
+          if (importedDebtDays > 0) {
+            baseDate.setDate(baseDate.getDate() - importedDebtDays)
+          }
+          const diffTime = Math.max(0, new Date().getTime() - baseDate.getTime())
           debtDays = Math.floor(diffTime / (1000 * 60 * 60 * 24))
         }
       }
+
       return {
         ...row,
         debt_days: String(debtDays),

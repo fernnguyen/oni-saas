@@ -13,7 +13,7 @@ import { SearchBar } from '@/app/components/ui/SearchBar'
 import { NumberInput } from '@/app/components/ui/NumberInput'
 import { CopyableId } from '@/app/components/ui/CopyableId'
 import { format } from 'date-fns'
-import { UserPlus, Wallet, Pencil, X, Coins, Check, Upload, ArrowLeft } from 'lucide-react'
+import { UserPlus, Wallet, Pencil, X, Coins, Check, Upload, ArrowLeft, Clock, AlertTriangle } from 'lucide-react'
 import { useShift } from '@/app/components/providers/ShiftProvider'
 import { BANKS } from '@/lib/constants/banks'
 
@@ -33,7 +33,9 @@ export function getBankDisplayName(bankCodeOrName: string) {
 export function calculateDebtAge(
   orders: any[] = [],
   transactions: any[] = [],
-  currentDebtAmount: number = 0
+  currentDebtAmount: number = 0,
+  importedDebtDays: number = 0,
+  createdAt?: string
 ): number {
   if (currentDebtAmount <= 0) return 0
 
@@ -65,6 +67,18 @@ export function calculateDebtAge(
       })
     }
   })
+
+  // Fallback: If no transactions/orders are loaded yet in DB, but we have imported debt_days metadata
+  if (debtIncrements.length === 0 && importedDebtDays > 0) {
+    const baseDate = createdAt ? new Date(createdAt) : new Date()
+    if (!isNaN(baseDate.getTime())) {
+      baseDate.setDate(baseDate.getDate() - importedDebtDays)
+      debtIncrements.push({
+        amount: currentDebtAmount,
+        date: baseDate,
+      })
+    }
+  }
 
   if (debtIncrements.length === 0) return 0
 
@@ -300,12 +314,14 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
     queryKey: ['customer-transactions', shopId, viewTarget?.customer_id],
     queryFn: async () => {
       if (!viewTarget?.customer_id) return { data: [] }
-      const res = await fetch(`/api/shops/${shopId}/cashbook?reference_id=${viewTarget.customer_id}&limit=100`)
+      const res = await fetch(`/api/shops/${shopId}/cashbook?reference_id=${viewTarget.customer_id}&limit=100&is_virtual=all`)
       if (!res.ok) throw new Error('Không tải được lịch sử giao dịch')
       return res.json() as Promise<{ data: Record<string, any>[] }>
     },
     enabled: !!viewTarget?.customer_id && detailOpen,
   })
+
+  const maxDebtDays = Number(settings?.default_max_debt_days ?? 30)
 
   const depositMutation = useMutation({
     mutationFn: async (payload: { amount: number; method: string; note: string; fund_id: string }) => {
@@ -1643,10 +1659,26 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
             <div className="space-y-4 pt-1">
               {/* Tab 1: Info (Read-only) */}
               {detailTab === 'info' && (() => {
+                let importedDebtDays = 0
+                try {
+                  if (viewTarget.metadata) {
+                    const meta = typeof viewTarget.metadata === 'string'
+                      ? JSON.parse(viewTarget.metadata)
+                      : viewTarget.metadata
+                    if (meta && meta.debt_days) {
+                      importedDebtDays = parseInt(String(meta.debt_days), 10) || 0
+                    }
+                  }
+                } catch (e) {
+                  console.error('Failed to parse metadata in CustomersClient detail:', e)
+                }
+
                 const debtAge = calculateDebtAge(
                   customerOrders?.data || [],
                   customerTransactions?.data || [],
-                  Number(viewTarget.debt_amount || 0)
+                  Number(viewTarget.debt_amount || 0),
+                  importedDebtDays,
+                  viewTarget.created_at
                 )
                 return (
                   <div className="space-y-4 animate-in fade-in slide-in-from-top-1 duration-200">
@@ -1670,8 +1702,12 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
                           {Number(viewTarget.debt_amount || 0).toLocaleString('vi-VN')}đ
                         </span>
                         {debtAge > 0 && (
-                          <span className="text-[9px] text-red-600 font-semibold block mt-0.5 bg-red-100/50 rounded-md py-0.5 px-1 inline-block">
-                            ⏳ {debtAge} ngày nợ
+                          <span className={`text-[9px] font-semibold block mt-0.5 rounded-md py-0.5 px-1.5 inline-flex items-center gap-1.5 ${
+                            debtAge > maxDebtDays 
+                              ? 'text-red-600 bg-red-100/50' 
+                              : 'text-slate-600 bg-slate-100'
+                          }`}>
+                            <Clock className="w-2.5 h-2.5" /> {debtAge} ngày nợ
                           </span>
                         )}
                       </div>
@@ -1687,6 +1723,18 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
                           </span>
                         </div>
                         <div className="space-y-0.5">
+                          <span className="text-xs text-slate-400 block font-medium">Nhóm khách hàng</span>
+                          <span className="text-slate-800 block">{viewTarget.customer_group || 'Mặc định'}</span>
+                        </div>
+                        <div className="space-y-0.5">
+                          <span className="text-xs text-slate-400 block font-medium">Số điện thoại</span>
+                          <span className="text-slate-800 block font-semibold text-primary">{viewTarget.phone || '—'}</span>
+                        </div>
+                        <div className="space-y-0.5">
+                          <span className="text-xs text-slate-400 block font-medium">Ngày sinh nhật</span>
+                          <span className="text-slate-800 block">{viewTarget.birthday || '—'}</span>
+                        </div>
+                        <div className="space-y-0.5">
                           <span className="text-xs text-slate-400 block font-medium">Hạn mức tín dụng</span>
                           <span className="text-slate-800 font-semibold block">{Number(viewTarget.credit_limit || 0).toLocaleString('vi-VN')}đ</span>
                         </div>
@@ -1694,7 +1742,7 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
                           <span className="text-xs text-slate-400 block font-medium">Địa chỉ Email</span>
                           <span className="text-slate-800 block break-all">{viewTarget.email || '—'}</span>
                         </div>
-                        <div className="space-y-0.5">
+                        <div className="space-y-0.5 col-span-2">
                           <span className="text-xs text-slate-400 block font-medium">Địa chỉ nhà</span>
                           <span className="text-slate-800 block">{viewTarget.address || '—'}</span>
                         </div>
@@ -1703,15 +1751,19 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
                           <div className="space-y-0.5 col-span-2 border-t border-dashed border-slate-100 pt-3 mt-1">
                             <span className="text-xs text-slate-400 block font-medium">Theo dõi tuổi nợ (FIFO)</span>
                             <div className="flex items-center gap-2 mt-1">
-                              <span className="text-xs font-bold text-red-600 bg-red-50 border border-red-100 px-2.5 py-1 rounded-lg flex items-center gap-1 shadow-3xs">
-                                ⏳ Khách nợ: {debtAge} ngày
+                              <span className={`text-xs font-bold px-2.5 py-1 rounded-lg flex items-center gap-1.5 shadow-3xs border ${
+                                debtAge > maxDebtDays
+                                  ? 'text-red-600 bg-red-50 border-red-100'
+                                  : 'text-slate-600 bg-slate-50 border-slate-100'
+                              }`}>
+                                <Clock className="w-3.5 h-3.5" /> Khách nợ: {debtAge} ngày
                               </span>
-                              {debtAge > 30 ? (
-                                <span className="text-[10px] font-bold text-red-700 bg-red-100 border border-red-200/50 px-2 py-0.5 rounded-md animate-pulse">
-                                  ⚠️ CẢNH BÁO QUÁ HẠN
+                              {debtAge > maxDebtDays ? (
+                                <span className="text-[10px] font-bold text-red-700 bg-red-100 border border-red-200/50 px-2.5 py-1 rounded-lg flex items-center gap-1 animate-pulse">
+                                  <AlertTriangle className="w-3.5 h-3.5 text-red-600" /> CẢNH BÁO QUÁ HẠN
                                 </span>
                               ) : (
-                                <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 border border-slate-200/50 px-2 py-0.5 rounded-md">
+                                <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 border border-slate-200/50 px-2.5 py-1 rounded-lg flex items-center gap-1">
                                   Trong thời hạn cho phép
                                 </span>
                               )}
@@ -1828,75 +1880,79 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
               )}
 
               {/* Tab 3: prepaid / cashbook financial history */}
-              {detailTab === 'transactions' && (
-                <div className="space-y-3">
-                  {txLoading ? (
-                    <div className="py-8 text-center text-xs text-slate-400 animate-pulse">Đang tải lịch sử giao dịch...</div>
-                  ) : !customerTransactions?.data || customerTransactions.data.length === 0 ? (
-                    <div className="py-8 text-center text-xs text-slate-400 italic">Chưa có phát sinh giao dịch tài chính/nạp ví.</div>
-                  ) : (
-                    <div className="overflow-hidden border border-slate-200 rounded-2xl bg-white shadow-xs max-h-[380px] overflow-y-auto">
-                      <table className="min-w-full text-xs text-left">
-                        <thead className="bg-slate-50 text-slate-500 uppercase font-semibold border-b border-slate-200 sticky top-0 z-10">
-                          <tr>
-                            <th className="px-3 py-2.5">Số phiếu / Ngày</th>
-                            <th className="px-3 py-2.5">Danh mục / Ghi chú</th>
-                            <th className="px-3 py-2.5">Hình thức</th>
-                            <th className="px-3 py-2.5 text-right">Số tiền</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {customerTransactions.data.map((tx, i) => {
-                            const isReceipt = tx.type === 'receipt'
-                            // Vietnamese category translations for customer view
-                            const catMap: Record<string, string> = {
-                              prepaid_deposit: 'Nạp tiền ví trả trước',
-                              debt_collection: 'Thu nợ khách hàng',
-                              sales: 'Thu tiền bán hàng',
-                              other: 'Giao dịch khác'
-                            }
-                            const methodMap: Record<string, string> = {
-                              cash: 'Tiền mặt',
-                              bank_transfer: 'Chuyển khoản',
-                              card: 'Thẻ (POS)',
-                              momo: 'Momo',
-                              prepaid: 'Ví trả trước'
-                            }
-                            return (
-                              <tr key={tx.transaction_id || i} className="hover:bg-slate-50">
-                                <td className="px-3 py-2.5">
-                                  <span className="font-bold text-slate-800">
-                                    {tx.transaction_id ? <CopyableId id={tx.transaction_id} className="text-slate-800 font-bold" /> : '—'}
-                                  </span>
-                                  <div className="text-[10px] text-slate-400 mt-0.5">
-                                    {tx.created_at ? format(new Date(tx.created_at), 'HH:mm dd/MM/yyyy') : '—'}
-                                  </div>
-                                </td>
-                                <td className="px-3 py-2.5">
-                                  <span className="font-semibold text-slate-700 block">
-                                    {catMap[tx.category] || tx.category || 'Thu/Chi khác'}
-                                  </span>
-                                  {tx.note && <div className="text-[10px] text-slate-500 max-w-[220px] break-words mt-0.5">{tx.note}</div>}
-                                </td>
-                                <td className="px-3 py-2.5">
-                                  <span className="inline-flex text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200/60 font-medium">
-                                    {methodMap[tx.method] || tx.method}
-                                  </span>
-                                </td>
-                                <td className="px-3 py-2.5 text-right">
-                                  <span className={`font-bold block text-sm ${isReceipt ? 'text-green-600' : 'text-red-600'}`}>
-                                    {isReceipt ? '+' : '-'}{Number(tx.amount || 0).toLocaleString('vi-VN')}đ
-                                  </span>
-                                </td>
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              )}
+              {detailTab === 'transactions' && (() => {
+                const allTxs = customerTransactions?.data || []
+                return (
+                  <div className="space-y-3">
+                    {txLoading ? (
+                      <div className="py-8 text-center text-xs text-slate-400 animate-pulse">Đang tải lịch sử giao dịch...</div>
+                    ) : allTxs.length === 0 ? (
+                      <div className="py-8 text-center text-xs text-slate-400 italic">Chưa có phát sinh giao dịch tài chính/nạp ví.</div>
+                    ) : (
+                      <div className="overflow-hidden border border-slate-200 rounded-2xl bg-white shadow-xs max-h-[380px] overflow-y-auto">
+                        <table className="min-w-full text-xs text-left">
+                          <thead className="bg-slate-50 text-slate-500 uppercase font-semibold border-b border-slate-200 sticky top-0 z-10">
+                            <tr>
+                              <th className="px-3 py-2.5">Số phiếu / Ngày</th>
+                              <th className="px-3 py-2.5">Danh mục / Ghi chú</th>
+                              <th className="px-3 py-2.5">Hình thức</th>
+                              <th className="px-3 py-2.5 text-right">Số tiền</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {allTxs.map((tx, i) => {
+                              const isVirtualDebt = tx.is_virtual === 'TRUE' && tx.method === 'debt'
+                              const isReceipt = tx.type === 'receipt' && !isVirtualDebt
+                              const catMap: Record<string, string> = {
+                                prepaid_deposit: 'Nạp tiền ví trả trước',
+                                debt_collection: tx.is_virtual === 'TRUE' ? 'Dư nợ đầu kỳ (Import KiotViet)' : 'Thu nợ khách hàng',
+                                sales: 'Thu tiền bán hàng',
+                                other: 'Giao dịch khác'
+                              }
+                              const methodMap: Record<string, string> = {
+                                cash: 'Tiền mặt',
+                                bank_transfer: 'Chuyển khoản',
+                                card: 'Thẻ (POS)',
+                                momo: 'Momo',
+                                prepaid: 'Ví trả trước',
+                                debt: 'Ghi nợ'
+                              }
+                              return (
+                                <tr key={tx.transaction_id || i} className="hover:bg-slate-50">
+                                  <td className="px-3 py-2.5">
+                                    <span className="font-bold text-slate-800">
+                                      {tx.transaction_id ? <CopyableId id={tx.transaction_id} className="text-slate-800 font-bold" /> : '—'}
+                                    </span>
+                                    <div className="text-[10px] text-slate-400 mt-0.5">
+                                      {tx.created_at ? format(new Date(tx.created_at), 'HH:mm dd/MM/yyyy') : '—'}
+                                    </div>
+                                  </td>
+                                  <td className="px-3 py-2.5">
+                                    <span className="font-semibold text-slate-700 block">
+                                      {catMap[tx.category] || tx.category || 'Thu/Chi khác'}
+                                    </span>
+                                    {tx.note && <div className="text-[10px] text-slate-500 max-w-[220px] break-words mt-0.5">{tx.note}</div>}
+                                  </td>
+                                  <td className="px-3 py-2.5">
+                                    <span className="inline-flex text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200/60 font-medium">
+                                      {methodMap[tx.method] || tx.method}
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2.5 text-right">
+                                    <span className={`font-bold block text-sm ${isReceipt ? 'text-green-600' : 'text-red-600'}`}>
+                                      {isReceipt ? '+' : '-'}{Number(tx.amount || 0).toLocaleString('vi-VN')}đ
+                                    </span>
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
             </div>
           </div>
         )}

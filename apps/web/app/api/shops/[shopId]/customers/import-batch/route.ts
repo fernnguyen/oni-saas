@@ -33,12 +33,24 @@ export async function POST(
     const currentRes = await connector.list('customers', { limit: 10000 })
     const currentList = currentRes.data as Record<string, string>[]
 
+    // Function to normalize phone numbers to standard format (always starts with 0, digits only)
+    const cleanPhoneForMatch = (p?: string): string => {
+      if (!p) return ''
+      let clean = p.trim().replace(/\D/g, '')
+      if (clean.length > 0 && !clean.startsWith('0')) {
+        clean = '0' + clean
+      }
+      return clean
+    }
+
     // Create maps for O(1) duplicate checking
     const phoneMap = new Map<string, Record<string, string>>()
     const codeMap = new Map<string, Record<string, string>>()
 
     for (const c of currentList) {
-      if (c.phone) phoneMap.set(c.phone.trim(), c)
+      if (c.phone) {
+        phoneMap.set(cleanPhoneForMatch(c.phone), c)
+      }
       if (c.customer_code) codeMap.set(c.customer_code.trim().toUpperCase(), c)
     }
 
@@ -61,12 +73,13 @@ export async function POST(
       }
 
       const phone = (item.phone || '').trim()
+      const cleanPhone = cleanPhoneForMatch(phone)
       const customer_code = (item.customer_code || '').trim().toUpperCase()
 
       // Find if customer already exists in DB
       let existingCustomer: Record<string, string> | null = null
-      if (phone && phoneMap.has(phone)) {
-        existingCustomer = phoneMap.get(phone)!
+      if (cleanPhone && phoneMap.has(cleanPhone)) {
+        existingCustomer = phoneMap.get(cleanPhone)!
       } else if (customer_code && codeMap.has(customer_code)) {
         existingCustomer = codeMap.get(customer_code)!
       }
@@ -154,7 +167,7 @@ export async function POST(
           id: existingCustomer.id,
           data: {
             name,
-            phone: phone || existingCustomer.phone || '',
+            phone: cleanPhone || existingCustomer.phone || '',
             email: email || existingCustomer.email || '',
             address: address || existingCustomer.address || '',
             birthday: birthday || existingCustomer.birthday || '',
@@ -168,8 +181,25 @@ export async function POST(
           }
         })
 
-        // Create virtual cashbook logs for diff balance nợ
-        if (diffDebt !== 0) {
+        // Clean up old virtual cashbook entries to avoid duplicates and fix the date
+        try {
+          const oldVirtuals = await connector.list('cashbook', {
+            filters: { reference_id: existingCustomer.id, is_virtual: 'TRUE' },
+            limit: 50
+          })
+          if (oldVirtuals && Array.isArray(oldVirtuals.data)) {
+            for (const tx of oldVirtuals.data) {
+              if (tx.id) {
+                await connector.delete('cashbook', tx.id)
+              }
+            }
+          }
+        } catch (e) {
+          console.error('Failed to clean up old virtual transactions:', e)
+        }
+
+        // Create new virtual cashbook log for the updated total debt
+        if (finalDebt > 0) {
           let debtCreatedAt = nowTime
           if (debtDays > 0) {
             const pastDate = new Date()
@@ -179,17 +209,17 @@ export async function POST(
           }
 
           cashbookToCreate.push({
-            type:           'receipt', // Receipt type representing debt update
-            amount:         String(Math.abs(diffDebt)),
+            type:           'receipt',
+            amount:         String(finalDebt),
             method:         'debt',
             category:       'debt_collection',
             reference_id:   existingCustomer.id,
             reference_name: name,
-            note:           diffDebt > 0 
-              ? `Điều chỉnh tăng công nợ đầu kỳ khi import (Nợ trước đó ${debtDays} ngày)`
-              : `Điều chỉnh giảm công nợ đầu kỳ khi import`,
+            note:           debtDays > 0 
+              ? `Số dư công nợ đầu kỳ ghi nhận khi chuyển đổi hệ thống (Nợ trước đó ${debtDays} ngày)`
+              : `Số dư công nợ đầu kỳ ghi nhận khi chuyển đổi hệ thống (Import KiotViet)`,
             employee_id:    user.id,
-            is_virtual:     'TRUE', // Flag virtual so it does not affect actual cash book totals
+            is_virtual:     'TRUE',
             created_at:     debtCreatedAt,
           })
         }
@@ -216,7 +246,7 @@ export async function POST(
         // --- NEW CUSTOMER ---
         toCreate.push({
           name,
-          phone,
+          phone: cleanPhone,
           email,
           address,
           customer_code,
@@ -254,7 +284,7 @@ export async function POST(
       // Find original import item to get debt_days
       const importItem = importList.find(
         (item) =>
-          (item.phone && cc.phone && item.phone.trim() === cc.phone.trim()) ||
+          (item.phone && cc.phone && cleanPhoneForMatch(item.phone) === cleanPhoneForMatch(cc.phone)) ||
           (item.customer_code &&
             cc.customer_code &&
             item.customer_code.trim().toUpperCase() ===

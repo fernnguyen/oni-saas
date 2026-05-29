@@ -347,7 +347,7 @@ export function CheckoutModal({
     queryKey: ['customer-transactions', shopId, localCustomer?.customer_id],
     queryFn: async () => {
       if (!localCustomer?.customer_id) return { data: [] }
-      const res = await fetch(`/api/shops/${shopId}/cashbook?reference_id=${localCustomer.customer_id}&limit=50`)
+      const res = await fetch(`/api/shops/${shopId}/cashbook?reference_id=${localCustomer.customer_id}&limit=50&is_virtual=all`)
       if (!res.ok) throw new Error('Không tải được lịch sử giao dịch')
       return res.json() as Promise<{ data: Record<string, any>[] }>
     },
