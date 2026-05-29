@@ -474,6 +474,97 @@ export function InventoryClient({ shopId, shopName }: Props) {
   })
   const [addingBatchLoading, setAddingBatchLoading] = useState(false)
 
+  // Reusable helper to calculate and load warehouse-specific batch stocks
+  const loadWarehouseSpecificBatches = async (productId: string, totalStockQty: number, targetWhId: string) => {
+    if (typeof window === 'undefined' || !localDb) {
+      setSelectedProductBatches([])
+      return
+    }
+
+    // 1. Get branch batches
+    const list = await localDb.inventoryBatches
+      .where('[product_id+branch_id]')
+      .equals([productId, shopId])
+      .toArray()
+
+    // 2. Fetch completed movements of this product to compute warehouse-specific deltas
+    let movements: any[] = []
+    try {
+      const movementsRes = await fetch(`/api/shops/${shopId}/stock-movements?product_id=${productId}&limit=1000`)
+      if (movementsRes.ok) {
+        const json = await movementsRes.json()
+        movements = json.data || []
+      }
+    } catch (err) {
+      console.error('Failed to fetch movements for warehouse-specific batch calculation:', err)
+    }
+
+    const calcMovementDelta = (type: string, qty: number): number => {
+      const INBOUND_TYPES = ['purchase_in', 'p2p_purchase_in', 'return_in', 'transfer_in']
+      const OUTBOUND_TYPES = ['sale_out', 'transfer_out']
+      if (INBOUND_TYPES.includes(type)) return Math.abs(qty)
+      if (OUTBOUND_TYPES.includes(type)) return -Math.abs(qty)
+      return qty
+    }
+
+    // 3. Map batches and calculate their stock quantities in the target warehouse
+    const calculatedList = list.map(b => {
+      let batchQty = 0
+      movements.forEach(m => {
+        if (m.workflow_status !== 'completed') return
+        
+        const mBatch = (m.batch_no || '').trim().toLowerCase()
+        const bBatch = (b.batch_no || '').trim().toLowerCase()
+        if (mBatch !== bBatch) return
+
+        const qty = Math.abs(Number(m.qty || 0))
+        
+        if (m.warehouse_id === targetWhId) {
+          batchQty += calcMovementDelta(m.type, qty)
+        }
+        
+        if (m.to_warehouse_id === targetWhId && m.type === 'transfer_out') {
+          batchQty += qty
+        }
+      })
+
+      return {
+        ...b,
+        stock_qty: Math.max(0, batchQty)
+      }
+    })
+
+    // Filter out batches with 0 stock quantity
+    const activeBatches = calculatedList.filter(b => b.stock_qty > 0)
+
+    // 4. Healing check: If overall warehouse stock exceeds the sum of batches, allocate to DEFAULT
+    const sumOfCalculated = activeBatches.reduce((acc, b) => acc + b.stock_qty, 0)
+    if (totalStockQty > sumOfCalculated) {
+      const defaultBatch = activeBatches.find(b => b.batch_no.toLowerCase().trim() === 'default')
+      if (defaultBatch) {
+        defaultBatch.stock_qty += (totalStockQty - sumOfCalculated)
+      } else {
+        activeBatches.push({
+          id: `default-${productId}`,
+          product_id: productId,
+          branch_id: shopId,
+          batch_no: 'DEFAULT',
+          expiry_date: '',
+          stock_qty: totalStockQty - sumOfCalculated
+        })
+      }
+    }
+
+    // 5. Sort FEFO (earliest expiry first, empty/null expiry dates last)
+    activeBatches.sort((a, b) => {
+      if (!a.expiry_date) return 1
+      if (!b.expiry_date) return -1
+      return a.expiry_date.localeCompare(b.expiry_date)
+    })
+
+    setSelectedProductBatches(activeBatches)
+  }
+
   const handleConfirmAddBatch = async () => {
     if (!selectedStockProduct) return
     if (!newBatchForm.batch_no.trim()) {
@@ -489,11 +580,13 @@ export function InventoryClient({ shopId, shopName }: Props) {
     setAddingBatchLoading(true)
     try {
       const product = productMap.get(selectedStockProduct.product_id)
+      const targetWhId = selectedStockProduct.warehouse_id || selectedWarehouseId || undefined
       const res = await fetch(`/api/shops/${shopId}/inventory/adjust-batch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           branch_id: shopId,
+          warehouse_id: targetWhId,
           reason: `Khởi tạo số dư tồn kho ban đầu - Lô: ${newBatchForm.batch_no.trim()}`,
           items: [
             {
@@ -522,22 +615,15 @@ export function InventoryClient({ shopId, shopName }: Props) {
       // Close modals
       setAddingBatch(false)
 
-      // Reload batches list from local DB
+      // Reload batches list filtered by warehouse
       setLoadingBatches(true)
-      if (typeof window !== 'undefined' && localDb) {
-        const list = await localDb.inventoryBatches.where('[product_id+branch_id]').equals([selectedStockProduct.product_id, shopId]).toArray()
-        list.sort((a, b) => {
-          if (!a.expiry_date) return 1
-          if (!b.expiry_date) return -1
-          return a.expiry_date.localeCompare(b.expiry_date)
-        })
-        setSelectedProductBatches(list)
-      }
+      const nextTotalStock = Math.max(0, Number(selectedStockProduct.stock_qty || 0) + qty)
+      await loadWarehouseSpecificBatches(selectedStockProduct.product_id, nextTotalStock, targetWhId || 'sale')
 
       // Update selectedStockProduct total stock
       const updatedStockProduct = {
         ...selectedStockProduct,
-        stock_qty: Math.max(0, Number(selectedStockProduct.stock_qty || 0) + qty)
+        stock_qty: nextTotalStock
       }
       setSelectedStockProduct(updatedStockProduct)
 
@@ -557,21 +643,8 @@ export function InventoryClient({ shopId, shopName }: Props) {
     setSelectedStockProduct(row)
     setLoadingBatches(true)
     try {
-      if (typeof window !== 'undefined' && localDb) {
-        const list = await localDb.inventoryBatches
-          .where('[product_id+branch_id]')
-          .equals([row.product_id, shopId])
-          .toArray()
-        // Sort FEFO (earliest expiry first, empty/null expiry dates last)
-        list.sort((a, b) => {
-          if (!a.expiry_date) return 1
-          if (!b.expiry_date) return -1
-          return a.expiry_date.localeCompare(b.expiry_date)
-        })
-        setSelectedProductBatches(list)
-      } else {
-        setSelectedProductBatches([])
-      }
+      const targetWhId = row.warehouse_id || selectedWarehouseId
+      await loadWarehouseSpecificBatches(row.product_id, Number(row.stock_qty || 0), targetWhId)
     } catch (err) {
       console.error('Failed to load batches:', err)
       setSelectedProductBatches([])
@@ -601,11 +674,13 @@ export function InventoryClient({ shopId, shopName }: Props) {
         return
       }
 
+      const targetWhId = selectedStockProduct.warehouse_id || selectedWarehouseId || undefined
       const res = await fetch(`/api/shops/${shopId}/inventory/adjust-batch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           branch_id: shopId,
+          warehouse_id: targetWhId,
           reason: adjustReason || `Điều chỉnh lô hàng ${adjustingBatch.batch_no}: ${currentQty} -> ${targetQty}`,
           items: [
             {
@@ -645,23 +720,16 @@ export function InventoryClient({ shopId, shopName }: Props) {
       queryClient.invalidateQueries({ queryKey: ['products-all', shopId] })
 
       // Dynamically update SlideOver states
+      const nextTotalStock = Math.max(0, Number(selectedStockProduct.stock_qty || 0) + delta)
       const updatedStockProduct = {
         ...selectedStockProduct,
-        stock_qty: Math.max(0, Number(selectedStockProduct.stock_qty || 0) + delta)
+        stock_qty: nextTotalStock
       }
       setSelectedStockProduct(updatedStockProduct)
 
-      // Refetch local batches list
+      // Refetch local batches list filtered by warehouse
       setLoadingBatches(true)
-      if (typeof window !== 'undefined' && localDb) {
-        const list = await localDb.inventoryBatches.where('[product_id+branch_id]').equals([selectedStockProduct.product_id, shopId]).toArray()
-        list.sort((a, b) => {
-          if (!a.expiry_date) return 1
-          if (!b.expiry_date) return -1
-          return a.expiry_date.localeCompare(b.expiry_date)
-        })
-        setSelectedProductBatches(list)
-      }
+      await loadWarehouseSpecificBatches(selectedStockProduct.product_id, nextTotalStock, targetWhId || 'sale')
       setLoadingBatches(false)
     } catch (error: any) {
       toast.error(error.message || 'Có lỗi xảy ra khi điều chỉnh lô')
@@ -3253,7 +3321,17 @@ export function InventoryClient({ shopId, shopName }: Props) {
                   </div>
 
                   <div className="flex items-center justify-between border-t border-slate-200/60 pt-3 mt-1">
-                    <span className="text-xs font-medium text-slate-500">Tổng tồn kho chi nhánh:</span>
+                    {(() => {
+                      const targetWhId = selectedStockProduct.warehouse_id || selectedWarehouseId
+                      const whName = warehousesData?.data?.find(
+                        (w: any) => (w.id || w.warehouse_id) === targetWhId
+                      )?.name
+                      return (
+                        <span className="text-xs font-medium text-slate-500">
+                          Tổng tồn tại {whName ? `Kho ${whName}` : 'chi nhánh'}:
+                        </span>
+                      )
+                    })()}
                     <span className="text-xl font-extrabold text-orange-600 tabular-nums">
                       {totalQty.toLocaleString('vi-VN')} {product?.unit || selectedStockProduct.unit || 'đv'}
                     </span>
