@@ -474,6 +474,32 @@ export function InventoryClient({ shopId, shopName }: Props) {
   })
   const [addingBatchLoading, setAddingBatchLoading] = useState(false)
 
+  const [batchExpiryMap, setBatchExpiryMap] = useState<Map<string, string>>(new Map())
+
+  const refreshBatchExpiries = useMemo(() => {
+    return async () => {
+      if (typeof window !== 'undefined' && localDb) {
+        try {
+          const list = await localDb.inventoryBatches.toArray()
+          const m = new Map<string, string>()
+          list.forEach(b => {
+            if (b.branch_id === shopId && b.batch_no && b.expiry_date) {
+              const key = `${b.product_id}_${b.batch_no.trim().toLowerCase()}`
+              m.set(key, b.expiry_date)
+            }
+          })
+          setBatchExpiryMap(m)
+        } catch (err) {
+          console.error('Failed to load batch expiries:', err)
+        }
+      }
+    }
+  }, [shopId])
+
+  useEffect(() => {
+    refreshBatchExpiries()
+  }, [refreshBatchExpiries])
+
   // Reusable helper to calculate and load warehouse-specific batch stocks
   const loadWarehouseSpecificBatches = async (productId: string, totalStockQty: number, targetWhId: string) => {
     if (typeof window === 'undefined' || !localDb) {
@@ -608,6 +634,7 @@ export function InventoryClient({ shopId, shopName }: Props) {
       // Sync offline IndexedDB
       try {
         await hydrateAll(shopId, shopId)
+        await refreshBatchExpiries()
       } catch (err) {
         console.error('Offline database sync failed:', err)
       }
@@ -914,9 +941,13 @@ export function InventoryClient({ shopId, shopName }: Props) {
       setShowForm(false)
       setShowConfirm(false)
       setForm(EMPTY_FORM)
-      hydrateAll(shopId, shopId).catch((err) => {
-        console.error('Lỗi khi đồng bộ IndexedDB:', err)
-      })
+      hydrateAll(shopId, shopId)
+        .then(() => {
+          refreshBatchExpiries()
+        })
+        .catch((err) => {
+          console.error('Lỗi khi đồng bộ IndexedDB:', err)
+        })
       queryClient.invalidateQueries({ queryKey: ['inventory', shopId] })
       queryClient.invalidateQueries({ queryKey: ['products-all', shopId] })
       queryClient.invalidateQueries({ queryKey: ['stock-movements', shopId] })
@@ -1413,20 +1444,17 @@ export function InventoryClient({ shopId, shopName }: Props) {
         const p = productMap.get(row.product_id)
         return (
           <div>
-            <p className="text-sm font-medium text-slate-900">{p?.displayName ?? p?.name ?? row.product_id}</p>
-            <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
-              {(p?.sku || row.sku) && <span className="text-xs text-slate-400">{p?.sku || row.sku}</span>}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-sm font-medium text-slate-900">{p?.displayName ?? p?.name ?? row.product_id}</span>
               {row.batch_no && (
                 <span className="inline-flex items-center gap-0.5 rounded bg-slate-100 px-1 py-0.2 text-[9px] font-semibold text-slate-700 border border-slate-200">
-                  📦 Lô: {row.batch_no}
-                </span>
-              )}
-              {row.expiry_date && (
-                <span className="inline-flex items-center gap-0.5 rounded bg-amber-50 px-1 py-0.2 text-[9px] font-semibold text-amber-700 border border-amber-200">
-                  📅 HSD: {fmtDate(row.expiry_date)}
+                  Lô: {row.batch_no}
                 </span>
               )}
             </div>
+            {(p?.sku || row.sku) && (
+              <p className="text-xs text-slate-400 mt-0.5">SKU: {p?.sku || row.sku}</p>
+            )}
           </div>
         )
       },
@@ -1442,7 +1470,7 @@ export function InventoryClient({ shopId, shopName }: Props) {
         const color = isAdj
           ? qty >= 0 ? 'text-green-600' : 'text-red-500'
           : isIn ? 'text-green-600' : 'text-red-500'
-        const prefix = isAdj ? (qty >= 0 ? '+' : '') : (isIn ? '+' : '-')
+        const prefix = isAdj ? (qty >= 0 ? '+' : '-') : (isIn ? '+' : '-')
         return (
           <div className="flex flex-col items-end">
             <span className={`font-semibold tabular-nums ${color}`}>
@@ -1557,7 +1585,7 @@ export function InventoryClient({ shopId, shopName }: Props) {
         </button>
       ),
     },
-  ], [productMap, hasPricingPermission])
+  ], [productMap, hasPricingPermission, batchExpiryMap])
 
   const groupedMovements = useMemo(() => {
     if (!movementsData?.data) return []
@@ -1603,7 +1631,12 @@ export function InventoryClient({ shopId, shopName }: Props) {
       }
 
       groups[key].items.push(row)
-      groups[key].totalQty += Math.abs(Number(row.qty || 0))
+      const itemQty = Number(row.qty || 0)
+      if (row.type === 'adjustment') {
+        groups[key].totalQty += itemQty
+      } else {
+        groups[key].totalQty += Math.abs(itemQty)
+      }
     })
 
     return orderedKeys.map(key => groups[key])
@@ -1797,7 +1830,7 @@ export function InventoryClient({ shopId, shopName }: Props) {
                       const color = isAdj
                         ? qty >= 0 ? 'text-green-600 font-semibold' : 'text-red-500 font-semibold'
                         : isIn ? 'text-green-600 font-semibold' : 'text-red-500 font-semibold'
-                      const prefix = isAdj ? (qty >= 0 ? '+' : '') : (isIn ? '+' : '-')
+                      const prefix = isAdj ? (qty >= 0 ? '+' : '-') : (isIn ? '+' : '-')
 
                       return (
                         <Fragment key={key}>
@@ -1832,16 +1865,17 @@ export function InventoryClient({ shopId, shopName }: Props) {
                             </td>
                             <td className="px-4 py-3.5 max-w-[220px]">
                               <div>
-                                <p className="font-semibold text-slate-800 truncate" title={p?.displayName ?? p?.name ?? firstItem.product_id}>
-                                  {p?.displayName ?? p?.name ?? firstItem.product_id}
-                                </p>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="font-semibold text-slate-800 truncate" title={p?.displayName ?? p?.name ?? firstItem.product_id}>
+                                    {p?.displayName ?? p?.name ?? firstItem.product_id}
+                                  </span>
+                                  {firstItem.batch_no && (
+                                    <span className="inline-flex items-center gap-0.5 rounded bg-slate-100 px-1 py-0.2 text-[9px] font-semibold text-slate-700 border border-slate-200 select-none">
+                                      Lô: {firstItem.batch_no}
+                                    </span>
+                                  )}
+                                </div>
                                 {(p?.sku || firstItem.sku) && <p className="text-[10px] text-slate-400 font-mono mt-0.5">SKU: {p?.sku || firstItem.sku}</p>}
-                                {firstItem.batch_no && (
-                                  <div className="space-y-0.5 mt-1">
-                                    <span className="font-semibold text-slate-600 bg-amber-50 border border-amber-200/50 rounded px-1.5 py-0.2 text-[9px] inline-block">Lô: {firstItem.batch_no}</span>
-                                    {firstItem.expiry_date && <span className="text-[9px] block text-slate-400">HSD: {fmtDate(firstItem.expiry_date)}</span>}
-                                  </div>
-                                )}
                               </div>
                             </td>
                             <td className="px-4 py-3.5 max-w-[180px]">
@@ -1970,10 +2004,21 @@ export function InventoryClient({ shopId, shopName }: Props) {
                               )}
                             </div>
                           </td>
-                          <td className="px-4 py-3.5 text-right font-semibold tabular-nums text-slate-800">
-                            <span>
-                              {group.totalQty.toLocaleString('vi-VN')}
-                            </span>
+                          <td className="px-4 py-3.5 text-right font-semibold tabular-nums">
+                            {(() => {
+                              const isIn = t?.sign === '+'
+                              const isAdj = t?.sign === '±'
+                              const qty = group.totalQty
+                              const prefix = isAdj ? (qty >= 0 ? '+' : '-') : (isIn ? '+' : '-')
+                              const color = isAdj
+                                ? qty >= 0 ? 'text-green-600' : 'text-red-500'
+                                : isIn ? 'text-green-600' : 'text-red-500'
+                              return (
+                                <span className={color}>
+                                  {prefix}{Math.abs(qty).toLocaleString('vi-VN')}
+                                </span>
+                              )
+                            })()}
                           </td>
                           <td className="px-4 py-3.5 text-right">
                             <div className="flex flex-col items-end">
@@ -2049,7 +2094,7 @@ export function InventoryClient({ shopId, shopName }: Props) {
                                       const color = isAdj
                                         ? qty >= 0 ? 'text-green-600 font-semibold' : 'text-red-500 font-semibold'
                                         : isIn ? 'text-green-600 font-semibold' : 'text-red-500 font-semibold'
-                                      const prefix = isAdj ? (qty >= 0 ? '+' : '') : (isIn ? '+' : '-')
+                                      const prefix = isAdj ? (qty >= 0 ? '+' : '-') : (isIn ? '+' : '-')
                                       
                                       const itemHasPricePermission = hasPricingPermission || (item.type === 'purchase_in' && !item.reason?.includes('GRN'))
                                       const itemVal = Math.abs(qty) * Number(item.unit_cost || 0)
@@ -2092,12 +2137,16 @@ export function InventoryClient({ shopId, shopName }: Props) {
                                             </>
                                           )}
                                           <td className="px-4 py-3 text-slate-500">
-                                            {item.batch_no ? (
-                                              <div className="space-y-0.5">
-                                                <span className="font-semibold text-slate-700 bg-amber-50 border border-amber-200/60 rounded px-1.5 py-0.5 text-[10px] inline-block">Lô: {item.batch_no}</span>
-                                                {item.expiry_date && <span className="text-[10px] block text-slate-400">HSD: {fmtDate(item.expiry_date)}</span>}
-                                              </div>
-                                            ) : (
+                                            {item.batch_no ? (() => {
+                                              const key = `${item.product_id}_${item.batch_no.trim().toLowerCase()}`
+                                              const expiryDate = item.expiry_date || batchExpiryMap.get(key)
+                                              return (
+                                                <div className="space-y-0.5">
+                                                  <span className="font-semibold text-slate-700 bg-slate-100 border border-slate-200/60 rounded px-1.5 py-0.5 text-[10px] inline-block">Lô: {item.batch_no}</span>
+                                                  {expiryDate && <span className="text-[10px] block text-slate-400">HSD: {fmtDate(expiryDate)}</span>}
+                                                </div>
+                                              )
+                                            })() : (
                                               <span className="text-slate-300">—</span>
                                             )}
                                           </td>
@@ -3096,8 +3145,42 @@ export function InventoryClient({ shopId, shopName }: Props) {
               </div>
               <div>
                 <p className="text-slate-500 mb-1">Số lượng</p>
-                <p className="font-medium text-slate-900">{Math.abs(Number(viewMovement.qty)).toLocaleString('vi-VN')}</p>
+                {(() => {
+                  const qty = Number(viewMovement.qty || 0)
+                  const t = MOVEMENT_TYPE_MAP[viewMovement.type]
+                  const isIn = t?.sign === '+'
+                  const isAdj = t?.sign === '±'
+                  const color = isAdj
+                    ? qty >= 0 ? 'text-green-600 font-semibold' : 'text-red-500 font-semibold'
+                    : isIn ? 'text-green-600 font-semibold' : 'text-red-500 font-semibold'
+                  const prefix = isAdj ? (qty >= 0 ? '+' : '-') : (isIn ? '+' : '-')
+                  return (
+                    <p className={`font-semibold tabular-nums ${color}`}>
+                      {prefix}{Math.abs(qty).toLocaleString('vi-VN')}
+                    </p>
+                  )
+                })()}
               </div>
+              {viewMovement.type === 'adjustment' && (() => {
+                const match = (viewMovement.reason || '').match(/(-?\d+(?:\.\d+)?)\s*->\s*(-?\d+(?:\.\d+)?)/)
+                if (match) {
+                  const before = Number(match[1])
+                  const after = Number(match[2])
+                  return (
+                    <>
+                      <div>
+                        <p className="text-slate-500 mb-1">Tồn trước điều chỉnh</p>
+                        <p className="font-medium text-slate-700">{before.toLocaleString('vi-VN')}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-500 mb-1">Tồn sau điều chỉnh</p>
+                        <p className="font-semibold text-slate-800">{after.toLocaleString('vi-VN')}</p>
+                      </div>
+                    </>
+                  )
+                }
+                return null
+              })()}
               <div>
                 <p className="text-slate-500 mb-1">Đơn giá</p>
                 {hasPricingPermission || (viewMovement.type !== 'p2p_purchase_in' && !(viewMovement.type === 'purchase_in' && viewMovement.reason?.includes('GRN'))) ? (
@@ -3109,28 +3192,33 @@ export function InventoryClient({ shopId, shopName }: Props) {
                 )}
               </div>
 
-               {(viewMovement.batch_no || viewMovement.expiry_date || viewMovement.shipment_no) && (
-                <>
-                  {viewMovement.batch_no && (
-                    <div>
-                      <p className="text-slate-500 mb-1">Số lô</p>
-                      <p className="font-semibold text-slate-800 bg-slate-100/80 px-2 py-0.5 rounded border border-slate-200 text-xs inline-block">📦 {viewMovement.batch_no}</p>
-                    </div>
-                  )}
-                  {viewMovement.expiry_date && (
-                    <div>
-                      <p className="text-slate-500 mb-1">Hạn sử dụng (HSD)</p>
-                      <p className="font-semibold text-amber-700 bg-amber-50/80 px-2 py-0.5 rounded border border-amber-200 text-xs font-mono inline-block">📅 {fmtDate(viewMovement.expiry_date)}</p>
-                    </div>
-                  )}
-                  {viewMovement.shipment_no && (
-                    <div>
-                      <p className="text-slate-500 mb-1">Đợt nhập</p>
-                      <p className="font-medium text-slate-900">{viewMovement.shipment_no}</p>
-                    </div>
-                  )}
-                </>
-              )}
+               {(() => {
+                 const key = `${viewMovement.product_id}_${(viewMovement.batch_no || '').trim().toLowerCase()}`
+                 const expiryDate = viewMovement.expiry_date || batchExpiryMap.get(key)
+                 if (!viewMovement.batch_no && !expiryDate && !viewMovement.shipment_no) return null
+                 return (
+                   <>
+                     {viewMovement.batch_no && (
+                       <div>
+                         <p className="text-slate-500 mb-1">Số lô</p>
+                         <p className="font-semibold text-slate-800 bg-slate-100/80 px-2 py-0.5 rounded border border-slate-200 text-xs inline-block">📦 {viewMovement.batch_no}</p>
+                       </div>
+                     )}
+                     {expiryDate && (
+                       <div>
+                         <p className="text-slate-500 mb-1">Hạn sử dụng (HSD)</p>
+                         <p className="font-semibold text-amber-700 bg-amber-50/80 px-2 py-0.5 rounded border border-amber-200 text-xs font-mono inline-block">📅 {fmtDate(expiryDate)}</p>
+                       </div>
+                     )}
+                     {viewMovement.shipment_no && (
+                       <div>
+                         <p className="text-slate-500 mb-1">Đợt nhập</p>
+                         <p className="font-medium text-slate-900">{viewMovement.shipment_no}</p>
+                       </div>
+                     )}
+                   </>
+                 )
+               })()}
 
               {(viewMovement.type === 'purchase_in' || viewMovement.type === 'p2p_purchase_in') && (() => {
                 const isP2PMovement = viewMovement.type === 'p2p_purchase_in' || (viewMovement.type === 'purchase_in' && viewMovement.reason?.includes('GRN'));

@@ -397,13 +397,15 @@ export function AuditClient({ shopId, shopName }: Props) {
     ]).then(([batchesData, invData]) => {
       const systemStockQty = invData.data?.length > 0 ? Number(invData.data[0].stock_qty || 0) : 0
 
-      const productBatches: BatchItem[] = (batchesData.data || []).map(b => ({
-        id: b.id || b.batch_id,
-        batch_no: b.batch_no,
-        expiry_date: b.expiry_date ? b.expiry_date.split('T')[0] : '',
-        system_qty: Number(b.stock_qty || 0),
-        actual_qty: Number(b.stock_qty || 0), // Default actual stock to system stock
-      }))
+      const productBatches: BatchItem[] = (batchesData.data || [])
+        .filter(b => b.batch_no?.toUpperCase() !== 'DEFAULT')
+        .map(b => ({
+          id: b.id || b.batch_id,
+          batch_no: b.batch_no,
+          expiry_date: b.expiry_date ? b.expiry_date.split('T')[0] : '',
+          system_qty: Number(b.stock_qty || 0),
+          actual_qty: Number(b.stock_qty || 0), // Default actual stock to system stock
+        }))
 
       const sumOfBatchQty = productBatches.reduce((acc, b) => acc + b.system_qty, 0)
       const hasBatches = productBatches.length > 0
@@ -1113,14 +1115,14 @@ export function AuditClient({ shopId, shopName }: Props) {
                                       </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100 font-normal text-slate-700">
-                                      {item.batches.map((b) => {
+                                      {item.batches.map((b, idx) => {
                                         const actualQty = b.is_deleted ? 0 : b.actual_qty
                                         const bDiff = actualQty - b.system_qty
                                         const bDiffVal = bDiff * item.cost_price
 
                                         return (
                                           <tr 
-                                            key={b.batch_no} 
+                                            key={`${b.batch_no}_${idx}`} 
                                             className={`transition-colors ${b.is_deleted ? 'bg-red-50/85 text-red-700 line-through decoration-red-300' : 'hover:bg-slate-50/50'}`}
                                           >
                                             {/* Batch No */}
