@@ -1,5 +1,5 @@
 'use client'
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, Fragment } from 'react'
 import Link from 'next/link'
 import { useParams, usePathname } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -20,6 +20,8 @@ import { hydrateAll } from '@/lib/localDb/hydration'
 
 const Eye = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg>
 const ArrowRight = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M5 12h14" /><path d="m12 5 7 7-7 7" /></svg>
+const ChevronDown = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="m6 9 6 6 6-6" /></svg>
+const ChevronUp = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="m18 15-6-6-6 6" /></svg>
 
 interface Props {
   shopId: string
@@ -128,7 +130,32 @@ function FormattedNumberInput({
 
 function fmtDate(v: string | undefined) {
   if (!v) return '—'
-  return new Date(v).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' })
+  
+  // Format: YYYY-MM-DD
+  const isDateOnly = v.length === 10 && /^\d{4}-\d{2}-\d{2}$/.test(v)
+  if (isDateOnly) {
+    const [year, month, day] = v.split('-')
+    return `${day}/${month}/${year}`
+  }
+
+  // Parse datetime. If the string lacks a timezone offset, and doesn't end with Z,
+  // but we know it's stored as local time (e.g. from getGMT7Time() without Z),
+  // we append '+07:00' to force the browser to parse it as GMT+7!
+  let normalized = v
+  if ((v.includes('T') || v.includes(' ')) && !v.endsWith('Z') && !v.match(/[\+\-]\d{2}:?\d{2}$/)) {
+    normalized = v.replace(' ', 'T') + '+07:00'
+  }
+
+  const d = new Date(normalized)
+  if (isNaN(d.getTime())) return v
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const day = pad(d.getDate())
+  const month = pad(d.getMonth() + 1)
+  const year = d.getFullYear()
+  
+  const hours = pad(d.getHours())
+  const minutes = pad(d.getMinutes())
+  return `${hours}:${minutes} ${day}/${month}/${year}`
 }
 
 // ── Product autocomplete ──────────────────────────────────────────────────────
@@ -651,6 +678,18 @@ export function InventoryClient({ shopId, shopName }: Props) {
   const [historySearch, setHistorySearch] = useState(initialSearch)
   const [debouncedHistorySearch] = useDebounce(historySearch, 300)
   const [typeFilter, setTypeFilter] = useState('')
+  const [expandedMovements, setExpandedMovements] = useState<Set<string>>(new Set())
+  const toggleMovementExpand = (key: string) => {
+    setExpandedMovements((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) {
+        next.delete(key)
+      } else {
+        next.add(key)
+      }
+      return next
+    })
+  }
 
   // Inventory rows
   const { data, isLoading, isFetching } = useQuery({
@@ -1278,6 +1317,56 @@ export function InventoryClient({ shopId, shopName }: Props) {
     },
   ], [productMap, hasPricingPermission])
 
+  const groupedMovements = useMemo(() => {
+    if (!movementsData?.data) return []
+
+    const groups: Record<string, {
+      movement_no: string
+      created_at: string
+      type: string
+      reason: string
+      reference_no: string
+      workflow_status: string
+      payment_status: string
+      payments?: string | any[]
+      discount?: string
+      paid_amount?: string
+      items: any[]
+      totalQty: number
+      firstRow: any
+    }> = {}
+
+    const orderedKeys: string[] = []
+
+    movementsData.data.forEach((row: any) => {
+      const key = row.movement_no || `single-${row.movement_id}`
+      
+      if (!groups[key]) {
+        groups[key] = {
+          movement_no: row.movement_no || '',
+          created_at: row.created_at,
+          type: row.type,
+          reason: row.reason || '',
+          reference_no: row.reference_no || '',
+          workflow_status: row.workflow_status || 'completed',
+          payment_status: row.payment_status || 'paid',
+          payments: row.payments,
+          discount: row.discount,
+          paid_amount: row.paid_amount,
+          items: [],
+          totalQty: 0,
+          firstRow: row
+        }
+        orderedKeys.push(key)
+      }
+
+      groups[key].items.push(row)
+      groups[key].totalQty += Math.abs(Number(row.qty || 0))
+    })
+
+    return orderedKeys.map(key => groups[key])
+  }, [movementsData?.data])
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
@@ -1412,20 +1501,394 @@ export function InventoryClient({ shopId, shopName }: Props) {
             placeholder="Tìm theo mã phiếu, sản phẩm..."
           />
 
-          <DataTable
-            columns={historyColumns}
-            data={movementsData?.data ?? []}
-            loading={movementsLoading}
-            pagination={{ page: historyPage, total: movementsData?.total ?? 0, pageSize: 50, onChange: setHistoryPage }}
-            emptyState={
-              <EmptyState
-                title="Chưa có phiếu kho nào"
-                description="Các phiếu nhập hàng, bán hàng, trả hàng, điều chỉnh sẽ hiển thị ở đây."
-              />
-            }
-            rowKey={(row, idx) => `${row.movement_id ?? idx}`}
-            onRowClick={(row) => setViewMovement(row)}
-          />
+          {movementsLoading ? (
+            <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm w-full p-8 flex flex-col items-center justify-center space-y-3">
+              <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-primary" />
+              <p className="text-sm text-slate-500 font-medium">Đang tải lịch sử phiếu kho...</p>
+            </div>
+          ) : groupedMovements.length === 0 ? (
+            <EmptyState
+              title="Chưa có phiếu kho nào"
+              description="Các phiếu nhập hàng, bán hàng, trả hàng, điều chỉnh sẽ hiển thị ở đây."
+            />
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm w-full">
+              <table className="min-w-full text-sm divide-y divide-slate-200">
+                <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
+                  <tr>
+                    <th className="px-4 py-3 text-left w-10"></th>
+                    <th className="px-4 py-3 text-left font-semibold">Mã phiếu</th>
+                    <th className="px-4 py-3 text-left font-semibold">Loại phiếu</th>
+                    <th className="px-4 py-3 text-left font-semibold">Sản phẩm</th>
+                    <th className="px-4 py-3 text-left font-semibold">Nội dung / Ghi chú</th>
+                    <th className="px-4 py-3 text-left font-semibold">Từ phiếu</th>
+                    <th className="px-4 py-3 text-right font-semibold">Số lượng</th>
+                    <th className="px-4 py-3 text-right font-semibold">Tổng giá trị</th>
+                    <th className="px-4 py-3 text-center font-semibold w-24">Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-slate-200">
+                  {groupedMovements.map((group) => {
+                    const key = group.movement_no || `single-${group.firstRow.movement_id}`
+                    const isMulti = group.items.length > 1
+                    const isExpanded = expandedMovements.has(key)
+                    const t = MOVEMENT_TYPE_MAP[group.type]
+                    
+                    // Group-level total cost calculation
+                    const totalCost = group.items.reduce((acc, item) => acc + Math.abs(Number(item.qty || 0)) * Number(item.unit_cost || 0), 0)
+                    const discount = Number(group.firstRow.discount || 0)
+                    const afterDiscount = Math.max(0, totalCost - discount)
+                    let paid = Number(group.firstRow.paid_amount || 0)
+                    if (!group.firstRow.paid_amount && group.firstRow.payment_status === 'paid') {
+                      paid = afterDiscount
+                    }
+                    const debt = Math.max(0, afterDiscount - paid)
+                    const hasPricePermission = hasPricingPermission || (group.type === 'purchase_in' && !group.reason?.includes('GRN'))
+                    
+                    if (!isMulti) {
+                      // Render single-item slip (flat view)
+                      const firstItem = group.firstRow
+                      const p = productMap.get(firstItem.product_id)
+                      const qty = Number(firstItem.qty || 0)
+                      const isIn = t?.sign === '+'
+                      const isAdj = t?.sign === '±'
+                      const color = isAdj
+                        ? qty >= 0 ? 'text-green-600 font-semibold' : 'text-red-500 font-semibold'
+                        : isIn ? 'text-green-600 font-semibold' : 'text-red-500 font-semibold'
+                      const prefix = isAdj ? (qty >= 0 ? '+' : '') : (isIn ? '+' : '-')
+
+                      return (
+                        <Fragment key={key}>
+                          <tr 
+                            onClick={() => setViewMovement(firstItem)}
+                            className="hover:bg-slate-50/70 transition-colors cursor-pointer"
+                          >
+                            <td className="px-4 py-3.5 text-center">
+                              <span className="text-slate-200 block select-none">—</span>
+                            </td>
+                            <td className="px-4 py-3.5">
+                              <div className="min-w-[120px]" onClick={(e) => e.stopPropagation()}>
+                                {firstItem.movement_no ? (
+                                  <CopyableId id={firstItem.movement_no} className="text-sm font-semibold text-slate-800" />
+                                ) : firstItem.movement_id ? (
+                                  <CopyableId id={firstItem.movement_id} className="text-sm font-semibold text-slate-800" />
+                                ) : (
+                                  <span className="block text-sm font-semibold text-slate-800">—</span>
+                                )}
+                                <span className="flex items-center gap-1 text-[11px] text-slate-500 mt-0.5">
+                                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+                                  {fmtDate(group.created_at)}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3.5">
+                              {t ? (
+                                <TagBadge label={t.label} color={t.color} />
+                              ) : (
+                                <span className="text-xs text-slate-400 font-semibold">{group.type}</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3.5 max-w-[220px]">
+                              <div>
+                                <p className="font-semibold text-slate-800 truncate" title={p?.displayName ?? p?.name ?? firstItem.product_id}>
+                                  {p?.displayName ?? p?.name ?? firstItem.product_id}
+                                </p>
+                                {(p?.sku || firstItem.sku) && <p className="text-[10px] text-slate-400 font-mono mt-0.5">SKU: {p?.sku || firstItem.sku}</p>}
+                                {firstItem.batch_no && (
+                                  <span className="mt-1 font-semibold text-slate-600 bg-amber-50 border border-amber-200/50 rounded px-1.5 py-0.2 text-[9px] inline-block">Lô: {firstItem.batch_no}</span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3.5 max-w-[180px]">
+                              <span className="text-xs text-slate-600 block line-clamp-2" title={group.reason || undefined}>
+                                {group.reason || '—'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3.5">
+                              <div onClick={(e) => e.stopPropagation()}>
+                                {group.reference_no ? (
+                                  <CopyableId id={group.reference_no} className="text-sm font-semibold text-primary" />
+                                ) : (
+                                  <span className="text-xs text-slate-400 font-medium">—</span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3.5 text-right font-semibold tabular-nums">
+                              <span className={color}>
+                                {prefix}{Math.abs(qty).toLocaleString('vi-VN')}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3.5 text-right">
+                              <div className="flex flex-col items-end">
+                                {hasPricePermission ? (
+                                  <span className="font-bold text-slate-900 tabular-nums">
+                                    {fmtVND(afterDiscount)}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 italic flex items-center gap-0.5 font-medium">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="inline text-slate-400"><rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg> ***.*** đ
+                                  </span>
+                                )}
+                                {discount > 0 && hasPricePermission && (
+                                  <span className="text-[10px] text-red-500 font-medium mt-0.5">
+                                    Giảm: -{fmtVND(discount)}
+                                  </span>
+                                )}
+                                {['purchase_in', 'p2p_purchase_in'].includes(group.type) && (
+                                  <div className="mt-1" onClick={(e) => e.stopPropagation()}>
+                                    {hasPricePermission ? (
+                                      <PaymentStatusLabel
+                                        status={(group.firstRow.payment_status as PaymentStatus) || 'paid'}
+                                        amount={group.firstRow.payment_status === 'unpaid' ? (debt > 0 ? debt : afterDiscount) : paid}
+                                      />
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-50 text-slate-400 border border-slate-200 tabular-nums">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="inline text-slate-400"><rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg> ***.*** đ
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3.5 text-center" onClick={(e) => e.stopPropagation()}>
+                              <button
+                                onClick={() => setViewMovement(firstItem)}
+                                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-650 shadow-xs hover:bg-slate-50 transition-colors"
+                              >
+                                <Eye className="h-3.5 w-3.5" /> Xem
+                              </button>
+                            </td>
+                          </tr>
+                        </Fragment>
+                      )
+                    }
+
+                    // Multi-item slip (collapsable grouped view)
+                    return (
+                      <Fragment key={key}>
+                        {/* Parent Slip Row */}
+                        <tr 
+                          onClick={() => toggleMovementExpand(key)}
+                          className={[
+                            'hover:bg-slate-50/70 transition-colors cursor-pointer',
+                            isExpanded ? 'bg-slate-50/40 font-medium' : ''
+                          ].join(' ')}
+                        >
+                          <td className="px-4 py-3.5 text-center">
+                            <span className="text-slate-400 block transition-transform duration-200">
+                              {isExpanded ? <ChevronUp className="h-4 w-4 mx-auto" /> : <ChevronDown className="h-4 w-4 mx-auto" />}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3.5">
+                            <div className="min-w-[120px]" onClick={(e) => e.stopPropagation()}>
+                              {group.movement_no ? (
+                                <CopyableId id={group.movement_no} className="text-sm font-semibold text-slate-800" />
+                              ) : group.firstRow.movement_id ? (
+                                <CopyableId id={group.firstRow.movement_id} className="text-sm font-semibold text-slate-800" />
+                              ) : (
+                                <span className="block text-sm font-semibold text-slate-800">—</span>
+                              )}
+                              <span className="flex items-center gap-1 text-[11px] text-slate-500 mt-0.5">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+                                {fmtDate(group.created_at)}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3.5">
+                            {t ? (
+                              <TagBadge label={t.label} color={t.color} />
+                            ) : (
+                              <span className="text-xs text-slate-400 font-semibold">{group.type}</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3.5 max-w-[220px]">
+                            <div className="flex items-center gap-1.5">
+                              <span className="inline-flex items-center rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-650 border border-slate-200 select-none">
+                                Hỗn hợp
+                              </span>
+                              <span className="text-xs text-slate-500 font-semibold">
+                                {group.items.length} mặt hàng
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3.5 max-w-[180px]">
+                            <span className="text-xs text-slate-600 block line-clamp-2" title={group.reason || undefined}>
+                              {group.reason || '—'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3.5">
+                            <div onClick={(e) => e.stopPropagation()}>
+                              {group.reference_no ? (
+                                <CopyableId id={group.reference_no} className="text-sm font-semibold text-primary" />
+                              ) : (
+                                <span className="text-xs text-slate-400 font-medium">—</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3.5 text-right font-semibold tabular-nums text-slate-800">
+                            <span>
+                              {group.totalQty.toLocaleString('vi-VN')}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3.5 text-right">
+                            <div className="flex flex-col items-end">
+                              {hasPricePermission ? (
+                                <span className="font-bold text-slate-900 tabular-nums">
+                                  {fmtVND(afterDiscount)}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 italic flex items-center gap-0.5 font-medium">
+                                  <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="inline text-slate-400"><rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg> ***.*** đ
+                                </span>
+                              )}
+                              {discount > 0 && hasPricePermission && (
+                                <span className="text-[10px] text-red-500 font-medium mt-0.5">
+                                  Giảm: -{fmtVND(discount)}
+                                </span>
+                              )}
+                              {['purchase_in', 'p2p_purchase_in'].includes(group.type) && (
+                                <div className="mt-1" onClick={(e) => e.stopPropagation()}>
+                                  {hasPricePermission ? (
+                                    <PaymentStatusLabel
+                                      status={(group.firstRow.payment_status as PaymentStatus) || 'paid'}
+                                      amount={group.firstRow.payment_status === 'unpaid' ? (debt > 0 ? debt : afterDiscount) : paid}
+                                    />
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-50 text-slate-400 border border-slate-200 tabular-nums">
+                                      <svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="inline text-slate-400"><rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg> ***.*** đ
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3.5 text-center" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              onClick={() => toggleMovementExpand(key)}
+                              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 shadow-xs hover:bg-slate-50 transition-colors"
+                            >
+                              {isExpanded ? 'Thu gọn' : 'Chi tiết'}
+                            </button>
+                          </td>
+                        </tr>
+                        
+                        {/* Expanded items section */}
+                        {isExpanded && (
+                          <tr className="bg-slate-50/30">
+                            <td colSpan={9} className="px-6 py-4 border-l-2 border-primary/20">
+                              <div className="overflow-hidden rounded-xl border border-slate-200/60 bg-white shadow-xs">
+                                <table className="min-w-full text-xs">
+                                  <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200/60">
+                                    <tr>
+                                      <th className="px-4 py-2.5 text-center font-semibold w-12">STT</th>
+                                      <th className="px-4 py-2.5 text-left font-semibold w-80">Tên sản phẩm</th>
+                                      <th className="px-4 py-2.5 text-left font-semibold w-48">Mã hàng (SKU)</th>
+                                      <th className="px-4 py-2.5 text-left font-semibold w-20">ĐVT</th>
+                                      <th className="px-4 py-2.5 text-right font-semibold w-24">Số lượng</th>
+                                      {(group.type === 'purchase_in' || group.type === 'p2p_purchase_in') && (
+                                        <>
+                                          <th className="px-4 py-2.5 text-right font-semibold w-28">Đơn giá</th>
+                                          <th className="px-4 py-2.5 text-right font-semibold w-32">Thành tiền</th>
+                                        </>
+                                      )}
+                                      <th className="px-4 py-2.5 text-left font-semibold w-40">Thông tin lô / HSD</th>
+                                      <th className="px-4 py-2.5 text-center font-semibold w-24">Thao tác</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-100 bg-white">
+                                    {group.items.map((item, idx) => {
+                                      const p = productMap.get(item.product_id)
+                                      const qty = Number(item.qty || 0)
+                                      const isIn = t?.sign === '+'
+                                      const isAdj = t?.sign === '±'
+                                      const color = isAdj
+                                        ? qty >= 0 ? 'text-green-600 font-semibold' : 'text-red-500 font-semibold'
+                                        : isIn ? 'text-green-600 font-semibold' : 'text-red-500 font-semibold'
+                                      const prefix = isAdj ? (qty >= 0 ? '+' : '') : (isIn ? '+' : '-')
+                                      
+                                      const itemHasPricePermission = hasPricingPermission || (item.type === 'purchase_in' && !item.reason?.includes('GRN'))
+                                      const itemVal = Math.abs(qty) * Number(item.unit_cost || 0)
+                                      
+                                      return (
+                                        <tr key={item.movement_id || idx} className="hover:bg-slate-50/50 transition-colors">
+                                          <td className="px-4 py-3 text-center text-slate-400 font-medium">
+                                            {idx + 1}
+                                          </td>
+                                          <td className="px-4 py-3 font-semibold text-slate-800">
+                                            {p?.displayName ?? p?.name ?? item.product_id}
+                                          </td>
+                                          <td className="px-4 py-3 text-slate-500 font-mono">
+                                            {p?.sku || item.sku || '—'}
+                                          </td>
+                                          <td className="px-4 py-3 text-slate-600 font-medium">
+                                            {p?.unit || item.unit || 'Cái'}
+                                          </td>
+                                          <td className="px-4 py-3 text-right font-semibold tabular-nums">
+                                            <span className={color}>
+                                              {prefix}{Math.abs(qty).toLocaleString('vi-VN')}
+                                            </span>
+                                          </td>
+                                          {(group.type === 'purchase_in' || group.type === 'p2p_purchase_in') && (
+                                            <>
+                                              <td className="px-4 py-3 text-right tabular-nums text-slate-600">
+                                                {itemHasPricePermission ? (
+                                                  fmtVND(item.unit_cost)
+                                                ) : (
+                                                  <span className="text-slate-400 italic">***.***</span>
+                                                )}
+                                              </td>
+                                              <td className="px-4 py-3 text-right font-semibold tabular-nums text-slate-800">
+                                                {itemHasPricePermission ? (
+                                                  fmtVND(itemVal)
+                                                ) : (
+                                                  <span className="text-slate-400 italic">***.***</span>
+                                                )}
+                                              </td>
+                                            </>
+                                          )}
+                                          <td className="px-4 py-3 text-slate-500">
+                                            {item.batch_no ? (
+                                              <div className="space-y-0.5">
+                                                <span className="font-semibold text-slate-700 bg-amber-50 border border-amber-200/60 rounded px-1.5 py-0.5 text-[10px] inline-block">Lô: {item.batch_no}</span>
+                                                {item.expiry_date && <span className="text-[10px] block text-slate-400">HSD: {fmtDate(item.expiry_date)}</span>}
+                                              </div>
+                                            ) : (
+                                              <span className="text-slate-300">—</span>
+                                            )}
+                                          </td>
+                                          <td className="px-4 py-3 text-center">
+                                            <button
+                                              type="button"
+                                              onClick={() => setViewMovement(item)}
+                                              className="inline-flex items-center gap-1 rounded bg-slate-100 hover:bg-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-600 transition-colors"
+                                            >
+                                              <Eye className="h-3 w-3" /> Xem
+                                            </button>
+                                          </td>
+                                        </tr>
+                                      )
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    )
+                  })}
+                </tbody>
+              </table>
+              <div className="border-t border-slate-200 px-4 py-3 bg-slate-50/50">
+                <PaginationInline 
+                  page={historyPage} 
+                  total={movementsData?.total ?? 0} 
+                  pageSize={50} 
+                  onChange={setHistoryPage} 
+                />
+              </div>
+            </div>
+          )}
         </>
       )}
 
@@ -2673,4 +3136,80 @@ export function InventoryClient({ shopId, shopName }: Props) {
       )}
     </div>
   )
+}
+
+function PaginationInline({
+  page,
+  total,
+  pageSize,
+  onChange,
+}: {
+  page: number
+  total: number
+  pageSize: number
+  onChange: (page: number) => void
+}) {
+  const totalPages = Math.ceil(total / pageSize)
+  if (totalPages <= 1) return null
+  const start = Math.min((page - 1) * pageSize + 1, total)
+  const end = Math.min(page * pageSize, total)
+
+  const pages = buildPageList(page, totalPages)
+
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-sm text-slate-500">
+        Hiển thị {start}–{end} trong {total} kết quả
+      </span>
+      <div className="flex items-center gap-1">
+        <button
+          disabled={page <= 1}
+          onClick={() => onChange(page - 1)}
+          className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 shadow-xs hover:bg-slate-50 transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          ←
+        </button>
+        {pages.map((p, i) =>
+          p === '...' ? (
+            <span key={`ellipsis-${i}`} className="px-2.5 py-1.5 text-xs text-slate-400">
+              …
+            </span>
+          ) : (
+            <button
+              key={p}
+              onClick={() => onChange(p as number)}
+              className={[
+                'min-w-[32px] rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold shadow-xs transition-colors',
+                p === page
+                  ? 'bg-primary text-white border-primary'
+                  : 'bg-white text-slate-700 hover:bg-slate-50',
+              ].join(' ')}
+            >
+              {p}
+            </button>
+          )
+        )}
+        <button
+          disabled={page >= totalPages}
+          onClick={() => onChange(page + 1)}
+          className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 shadow-xs hover:bg-slate-50 transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          →
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function buildPageList(current: number, total: number): (number | '...')[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1)
+  const pages: (number | '...')[] = []
+  if (current <= 4) {
+    pages.push(1, 2, 3, 4, 5, '...', total)
+  } else if (current >= total - 3) {
+    pages.push(1, '...', total - 4, total - 3, total - 2, total - 1, total)
+  } else {
+    pages.push(1, '...', current - 1, current, current + 1, '...', total)
+  }
+  return pages
 }
