@@ -22,6 +22,8 @@ const Eye = ({ className }: { className?: string }) => <svg xmlns="http://www.w3
 const ArrowRight = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M5 12h14" /><path d="m12 5 7 7-7 7" /></svg>
 const ChevronDown = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="m6 9 6 6 6-6" /></svg>
 const ChevronUp = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="m18 15-6-6-6 6" /></svg>
+const Minus = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className}><line x1="5" y1="12" x2="19" y2="12" /></svg>
+const Plus = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className}><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
 
 interface Props {
   shopId: string
@@ -60,6 +62,19 @@ interface FormItem {
   unit?: string
   batch_no?: string
   expiry_date?: string
+  batches?: {
+    batch_no: string
+    expiry_date: string
+    qty: string
+    current_qty?: number
+    is_deleted?: boolean
+  }[]
+  has_existing_batches?: boolean
+  existing_batches?: {
+    batch_no: string
+    expiry_date?: string
+    stock_qty?: number
+  }[]
 }
 
 const EMPTY_FORM = {
@@ -659,6 +674,48 @@ export function InventoryClient({ shopId, shopName }: Props) {
   const [form, setForm] = useState(EMPTY_FORM)
   const [viewMovement, setViewMovement] = useState<Row | null>(null)
 
+  // Automatically pre-select SALE warehouse in the import/export form when opened, and ensure a distinct counterpart warehouse for transfers
+  useEffect(() => {
+    if (showForm && warehousesData?.data && warehousesData.data.length > 0) {
+      setForm((f) => {
+        let updatedWarehouseId = f.warehouse_id
+        let updatedToWarehouseId = f.to_warehouse_id
+
+        // 1. Populate warehouse_id if empty
+        if (!updatedWarehouseId) {
+          const saleWh = warehousesData.data.find(
+            (w: any) => w.code?.toLowerCase() === 'sale' || w.name?.toLowerCase().includes('sale')
+          )
+          if (saleWh) {
+            updatedWarehouseId = saleWh.id || saleWh.warehouse_id
+          } else if (selectedWarehouseId) {
+            updatedWarehouseId = selectedWarehouseId
+          } else {
+            const firstWh = warehousesData.data[0]
+            updatedWarehouseId = firstWh.id || firstWh.warehouse_id
+          }
+        }
+
+        // 2. Populate to_warehouse_id if empty or identical, ensuring it's different from warehouse_id for transfers
+        if (['transfer_out', 'transfer_in'].includes(f.type)) {
+          if (!updatedToWarehouseId || updatedToWarehouseId === updatedWarehouseId) {
+            const distinctWh = warehousesData.data.find(
+              (w: any) => (w.id || w.warehouse_id) !== updatedWarehouseId
+            )
+            if (distinctWh) {
+              updatedToWarehouseId = distinctWh.id || distinctWh.warehouse_id
+            }
+          }
+        }
+
+        if (updatedWarehouseId !== f.warehouse_id || updatedToWarehouseId !== f.to_warehouse_id) {
+          return { ...f, warehouse_id: updatedWarehouseId, to_warehouse_id: updatedToWarehouseId }
+        }
+        return f
+      })
+    }
+  }, [showForm, warehousesData, selectedWarehouseId, form.warehouse_id, form.to_warehouse_id, form.type])
+
   // Quick product create states
   const [quickCreateModal, setQuickCreateModal] = useState(false)
   const [quickCreateIdx, setQuickCreateIdx] = useState<number | null>(null)
@@ -907,6 +964,59 @@ export function InventoryClient({ shopId, shopName }: Props) {
       expiry_date: newItems[idx]?.expiry_date || '',
     }
     setForm(f => ({ ...f, items: newItems }))
+
+    // Background fetch existing batches and warehouse stock levels to auto-populate SlideOver
+    if (p.product_id) {
+      Promise.all([
+        fetch(`/api/shops/${shopId}/inventory-batches?product_id=${p.product_id}&limit=100`)
+          .then(res => res.ok ? res.json() as Promise<{ data: any[] }> : { data: [] }),
+        fetch(`/api/shops/${shopId}/inventory?product_id=${p.product_id}&warehouse_id=${form.warehouse_id || selectedWarehouseId}`)
+          .then(res => res.ok ? res.json() as Promise<{ data: any[] }> : { data: [] })
+      ]).then(([batchesData, invData]) => {
+        if (batchesData.data && batchesData.data.length > 0) {
+          const systemStockQty = invData.data?.length > 0 ? Number(invData.data[0].stock_qty || 0) : 0
+
+          setForm(f => {
+            const currentItem = f.items[idx]
+            if (currentItem && currentItem.product_id === p.product_id) {
+              const updatedItems = [...f.items]
+              
+              // Lock batch-managed products
+              updatedItems[idx].has_existing_batches = true
+
+              // Store existing batches for search/select suggestion
+              const mappedExisting = batchesData.data.map((b: any) => ({
+                batch_no: b.batch_no || '',
+                expiry_date: b.expiry_date ? b.expiry_date.split('T')[0] : '',
+                stock_qty: Number(b.stock_qty || 0)
+              }))
+
+              // Healing check: add DEFAULT if unbatched stock exists
+              const sumOfBatchQty = batchesData.data.reduce((acc: number, b: any) => acc + Number(b.stock_qty || 0), 0)
+              if (systemStockQty > sumOfBatchQty) {
+                mappedExisting.push({
+                  batch_no: 'DEFAULT',
+                  expiry_date: '',
+                  stock_qty: systemStockQty - sumOfBatchQty
+                })
+              }
+              updatedItems[idx].existing_batches = mappedExisting
+
+              // Always start with one single blank batch row instead of pre-populating multiple rows!
+              updatedItems[idx] = {
+                ...updatedItems[idx],
+                batches: [{ batch_no: '', expiry_date: '', qty: '1', current_qty: 0 }],
+                qty: '1'
+              }
+              return { ...f, items: updatedItems }
+            }
+            return f
+          })
+        }
+      }).catch(err => {
+        console.error('Error fetching batches in background:', err)
+      })
+    }
   }
 
   const handleConfirmQuickCreate = (e: React.FormEvent) => {
@@ -946,6 +1056,22 @@ export function InventoryClient({ shopId, shopName }: Props) {
 
     const invalidQty = form.items.find(item => !item.qty || Number(item.qty) === 0)
     if (invalidQty) { toast.error('Số lượng của tất cả sản phẩm phải khác 0'); return }
+
+    // Validate batches if enabled
+    const emptyBatches = form.items.find(item => item.batches && item.batches.length === 0)
+    if (emptyBatches) {
+      toast.error(`Sản phẩm "${emptyBatches.product_name}" bật chế độ nhập theo Lô nhưng chưa có lô hàng con nào`)
+      return
+    }
+
+    const invalidBatchQty = form.items.find(item =>
+      item.batches && item.batches.length > 0 &&
+      item.batches.some(b => !b.is_deleted && (!b.qty || Number(b.qty) <= 0))
+    )
+    if (invalidBatchQty) {
+      toast.error(`Số lượng của tất cả lô hàng cho sản phẩm "${invalidBatchQty.product_name}" phải lớn hơn 0`)
+      return
+    }
 
     // Final duplicate check safety-net
     const productIds = form.items.map(item => item.product_id).filter(Boolean)
@@ -992,12 +1118,48 @@ export function InventoryClient({ shopId, shopName }: Props) {
       }
     }
 
+    // Flatten items if they have sub-batches
+    const flattenedItems: any[] = []
+    form.items.forEach(item => {
+      if (item.batches && item.batches.length > 0) {
+        const activeBatches = item.batches.filter(b => !b.is_deleted)
+        // Count blank batch numbers to decide default format
+        let blankCount = 0
+        activeBatches.forEach(b => { if (!b.batch_no?.trim()) blankCount++ })
+
+        let blankIdx = 0
+        activeBatches.forEach(b => {
+          let finalBatchNo = b.batch_no?.trim()
+          if (!finalBatchNo) {
+            finalBatchNo = blankCount === 1 ? 'DEFAULT' : `L${blankIdx + 1}`
+            blankIdx++
+          }
+          flattenedItems.push({
+            ...item,
+            qty: b.qty,
+            batch_no: finalBatchNo,
+            expiry_date: b.expiry_date || undefined
+          })
+        })
+      } else {
+        let finalBatchNo = item.batch_no?.trim()
+        if (!finalBatchNo && item.expiry_date) {
+          finalBatchNo = 'DEFAULT'
+        }
+        flattenedItems.push({
+          ...item,
+          batch_no: finalBatchNo || undefined,
+          expiry_date: item.expiry_date || undefined
+        })
+      }
+    })
+
     const payload = form.type === 'adjustment' ? {
       branch_id: '',
       reason: form.reason,
       reference_no: form.reference_no,
       warehouse_id: form.warehouse_id || undefined,
-      items: form.items.map(item => ({
+      items: flattenedItems.map(item => ({
         product_id: item.product_id || undefined,
         qty: item.qty,
         unit_cost: item.unit_cost || undefined,
@@ -1008,8 +1170,8 @@ export function InventoryClient({ shopId, shopName }: Props) {
         min_price: item.min_price,
         sku: item.sku,
         unit: item.unit,
-        batch_no: item.batch_no || undefined,
-        expiry_date: item.expiry_date || undefined,
+        batch_no: item.batch_no,
+        expiry_date: item.expiry_date,
       }))
     } : {
       type: form.type,
@@ -1024,7 +1186,7 @@ export function InventoryClient({ shopId, shopName }: Props) {
       workflow_status: form.workflow_status,
       payment_status: form.payment_status,
       shipment_no: form.shipment_no,
-      items: form.items.map(item => ({
+      items: flattenedItems.map(item => ({
         product_id: item.product_id || undefined,
         qty: item.qty,
         unit_cost: item.unit_cost || '0',
@@ -1035,8 +1197,8 @@ export function InventoryClient({ shopId, shopName }: Props) {
         sell_price: item.sell_price,
         min_price: item.min_price,
         unit: item.unit,
-        batch_no: item.batch_no || undefined,
-        expiry_date: item.expiry_date || undefined,
+        batch_no: item.batch_no,
+        expiry_date: item.expiry_date,
       }))
     }
 
@@ -1184,7 +1346,19 @@ export function InventoryClient({ shopId, shopName }: Props) {
         return (
           <div>
             <p className="text-sm font-medium text-slate-900">{p?.displayName ?? p?.name ?? row.product_id}</p>
-            {(p?.sku || row.sku) && <p className="text-xs text-slate-400">{p?.sku || row.sku}</p>}
+            <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+              {(p?.sku || row.sku) && <span className="text-xs text-slate-400">{p?.sku || row.sku}</span>}
+              {row.batch_no && (
+                <span className="inline-flex items-center gap-0.5 rounded bg-slate-100 px-1 py-0.2 text-[9px] font-semibold text-slate-700 border border-slate-200">
+                  📦 Lô: {row.batch_no}
+                </span>
+              )}
+              {row.expiry_date && (
+                <span className="inline-flex items-center gap-0.5 rounded bg-amber-50 px-1 py-0.2 text-[9px] font-semibold text-amber-700 border border-amber-200">
+                  📅 HSD: {fmtDate(row.expiry_date)}
+                </span>
+              )}
+            </div>
           </div>
         )
       },
@@ -1595,7 +1769,10 @@ export function InventoryClient({ shopId, shopName }: Props) {
                                 </p>
                                 {(p?.sku || firstItem.sku) && <p className="text-[10px] text-slate-400 font-mono mt-0.5">SKU: {p?.sku || firstItem.sku}</p>}
                                 {firstItem.batch_no && (
-                                  <span className="mt-1 font-semibold text-slate-600 bg-amber-50 border border-amber-200/50 rounded px-1.5 py-0.2 text-[9px] inline-block">Lô: {firstItem.batch_no}</span>
+                                  <div className="space-y-0.5 mt-1">
+                                    <span className="font-semibold text-slate-600 bg-amber-50 border border-amber-200/50 rounded px-1.5 py-0.2 text-[9px] inline-block">Lô: {firstItem.batch_no}</span>
+                                    {firstItem.expiry_date && <span className="text-[9px] block text-slate-400">HSD: {fmtDate(firstItem.expiry_date)}</span>}
+                                  </div>
                                 )}
                               </div>
                             </td>
@@ -1954,21 +2131,33 @@ export function InventoryClient({ shopId, shopName }: Props) {
 
           {/* Warehouse Selector in Form */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
+            <div className={['transfer_out', 'transfer_in'].includes(form.type) ? '' : 'sm:col-span-2'}>
               <label className="mb-1.5 block text-xs font-semibold text-slate-600">
                 {form.type === 'transfer_out' ? 'Kho xuất hàng (Kho đi) *' : form.type === 'transfer_in' ? 'Kho nhận hàng (Kho đến) *' : 'Kho thực hiện *'}
               </label>
               <select
                 value={form.warehouse_id}
-                onChange={(e) => setForm((f) => ({ ...f, warehouse_id: e.target.value }))}
+                onChange={(e) => setForm((f) => {
+                  const nextVal = e.target.value
+                  let updatedToWarehouseId = f.to_warehouse_id
+                  if (['transfer_out', 'transfer_in'].includes(f.type) && updatedToWarehouseId === nextVal) {
+                    const distinctWh = warehousesData?.data?.find(
+                      (w: any) => (w.id || w.warehouse_id) !== nextVal
+                    )
+                    updatedToWarehouseId = distinctWh ? (distinctWh.id || distinctWh.warehouse_id) : ''
+                  }
+                  return { ...f, warehouse_id: nextVal, to_warehouse_id: updatedToWarehouseId }
+                })}
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none font-medium bg-white"
               >
                 <option value="">-- Chọn kho thực hiện --</option>
-                {(warehousesData?.data ?? []).map((w) => (
-                  <option key={w.id || w.warehouse_id} value={w.id || w.warehouse_id}>
-                    📦 {w.name} ({w.code?.toUpperCase()})
-                  </option>
-                ))}
+                {(warehousesData?.data ?? [])
+                  .filter((w) => !['transfer_out', 'transfer_in'].includes(form.type) || (w.id || w.warehouse_id) !== form.to_warehouse_id)
+                  .map((w) => (
+                    <option key={w.id || w.warehouse_id} value={w.id || w.warehouse_id}>
+                      📦 {w.name} ({w.code?.toUpperCase()})
+                    </option>
+                  ))}
               </select>
             </div>
 
@@ -1980,15 +2169,27 @@ export function InventoryClient({ shopId, shopName }: Props) {
                 </label>
                 <select
                   value={form.to_warehouse_id}
-                  onChange={(e) => setForm((f) => ({ ...f, to_warehouse_id: e.target.value }))}
+                  onChange={(e) => setForm((f) => {
+                    const nextVal = e.target.value
+                    let updatedWarehouseId = f.warehouse_id
+                    if (['transfer_out', 'transfer_in'].includes(f.type) && updatedWarehouseId === nextVal) {
+                      const distinctWh = warehousesData?.data?.find(
+                        (w: any) => (w.id || w.warehouse_id) !== nextVal
+                      )
+                      updatedWarehouseId = distinctWh ? (distinctWh.id || distinctWh.warehouse_id) : ''
+                    }
+                    return { ...f, to_warehouse_id: nextVal, warehouse_id: updatedWarehouseId }
+                  })}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none font-medium bg-white"
                 >
                   <option value="">-- Chọn kho đối ứng --</option>
-                  {(warehousesData?.data ?? []).map((w) => (
-                    <option key={w.id || w.warehouse_id} value={w.id || w.warehouse_id}>
-                      📦 {w.name} ({w.code?.toUpperCase()})
-                    </option>
-                  ))}
+                  {(warehousesData?.data ?? [])
+                    .filter((w) => (w.id || w.warehouse_id) !== form.warehouse_id)
+                    .map((w) => (
+                      <option key={w.id || w.warehouse_id} value={w.id || w.warehouse_id}>
+                        📦 {w.name} ({w.code?.toUpperCase()})
+                      </option>
+                    ))}
                 </select>
               </div>
             )}
@@ -2014,85 +2215,329 @@ export function InventoryClient({ shopId, shopName }: Props) {
                 </thead>
                 <tbody className="divide-y divide-slate-100 overflow-visible">
                   {form.items.map((item, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50/50 overflow-visible relative" style={{ zIndex: 100 - idx }}>
-                      <td className="px-2 py-1.5 align-top overflow-visible relative" style={{ zIndex: 100 - idx }}>
-                        <ProductSelect
-                          shopId={shopId}
-                          value={item.product_id || item.is_new ? { product_id: item.product_id || 'new', name: item.product_name, sku: item.sku } : null}
-                          onChange={(p) => handleSelectItemProduct(idx, p)}
-                        />
-                        {(item.product_id || item.is_new) && ['purchase_in', 'adjustment', 'return_in'].includes(form.type) && (
-                          <div className="mt-2 rounded-xl bg-slate-50 border border-slate-200/60 p-2 text-xs">
-                            <div className="flex gap-2">
-                              <div className="flex-1 space-y-1">
-                                <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block">Số lô</label>
-                                <input
-                                  type="text"
-                                  value={item.batch_no || ''}
-                                  onChange={(e) => {
-                                    const newItems = [...form.items]
-                                    newItems[idx].batch_no = e.target.value
-                                    setForm(f => ({ ...f, items: newItems }))
-                                  }}
-                                  placeholder="Nhập số lô..."
-                                  className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 focus:border-primary focus:outline-none"
-                                />
-                              </div>
-                              <div className="flex-1 space-y-1">
-                                <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block">Hạn sử dụng</label>
-                                <input
-                                  type="date"
-                                  value={item.expiry_date || ''}
-                                  onChange={(e) => {
-                                    const newItems = [...form.items]
-                                    newItems[idx].expiry_date = e.target.value
-                                    setForm(f => ({ ...f, items: newItems }))
-                                  }}
-                                  className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 focus:border-primary focus:outline-none"
-                                />
-                              </div>
+                    <Fragment key={idx}>
+                      <tr className="hover:bg-slate-50/50 overflow-visible relative" style={{ zIndex: 100 - idx }}>
+                        <td className="px-2 py-1.5 align-top overflow-visible relative" style={{ zIndex: 100 - idx }}>
+                          <ProductSelect
+                            shopId={shopId}
+                            value={item.product_id || item.is_new ? { product_id: item.product_id || 'new', name: item.product_name, sku: item.sku } : null}
+                            onChange={(p) => handleSelectItemProduct(idx, p)}
+                          />
+                        </td>
+                        <td className="px-2 py-1.5 align-top">
+                          <input
+                            type="number"
+                            value={item.qty}
+                            disabled={!!item.batches}
+                            readOnly={!!item.batches}
+                            onChange={(e) => {
+                              const newItems = [...form.items]
+                              newItems[idx].qty = e.target.value
+                              setForm(f => ({ ...f, items: newItems }))
+                            }}
+                            placeholder={form.type === 'adjustment' ? '±10' : '0'}
+                            className={`w-full text-center rounded-xl border px-2 py-2 text-sm focus:outline-none ${
+                              item.batches
+                                ? 'bg-amber-50/50 border-amber-200 text-amber-800 font-bold focus:border-amber-200'
+                                : 'border-slate-200 focus:border-primary'
+                            }`}
+                          />
+                        </td>
+                        <td className="px-2 py-1.5 align-top">
+                          <FormattedNumberInput
+                            value={item.unit_cost}
+                            onChange={(val) => {
+                              const newItems = [...form.items]
+                              newItems[idx].unit_cost = val
+                              setForm(f => ({ ...f, items: newItems }))
+                            }}
+                            placeholder="0"
+                            className="w-full rounded-xl border border-slate-200 px-2 py-2 text-sm focus:border-primary focus:outline-none"
+                          />
+                        </td>
+                        <td className="px-2 py-1.5 align-top text-center">
+                          {form.items.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveItemRow(idx)}
+                              className="p-1 text-slate-400 hover:text-red-500 rounded-lg hover:bg-slate-100 transition-colors mt-1"
+                              title="Xóa dòng"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /></svg>
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                      {(item.product_id || item.is_new) && (
+                        <tr className="bg-slate-50/20" style={{ zIndex: 99 - idx }}>
+                          <td colSpan={4} className="px-2 pb-3 pt-0 border-t-0">
+                            <div className="rounded-xl bg-slate-50 border border-slate-200/60 p-3 text-xs w-full">
+                              {!item.batches ? (
+                                <div>
+                                  <div className="flex gap-2">
+                                    <div className="flex-1 space-y-1">
+                                      <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block">Số lô</label>
+                                      <input
+                                        type="text"
+                                        value={item.batch_no || ''}
+                                        onChange={(e) => {
+                                          const newItems = [...form.items]
+                                          newItems[idx].batch_no = e.target.value
+                                          setForm(f => ({ ...f, items: newItems }))
+                                        }}
+                                        placeholder="Nhập số lô..."
+                                        className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 focus:border-primary focus:outline-none"
+                                      />
+                                    </div>
+                                    <div className="flex-1 space-y-1">
+                                      <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block">Hạn sử dụng</label>
+                                      <input
+                                        type="date"
+                                        value={item.expiry_date || ''}
+                                        onChange={(e) => {
+                                          const newItems = [...form.items]
+                                          newItems[idx].expiry_date = e.target.value
+                                          setForm(f => ({ ...f, items: newItems }))
+                                        }}
+                                        className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 focus:border-primary focus:outline-none"
+                                      />
+                                    </div>
+                                  </div>
+                                  <div className="mt-2 flex justify-end">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const newItems = [...form.items]
+                                        newItems[idx].batches = [
+                                          { batch_no: item.batch_no || '', expiry_date: item.expiry_date || '', qty: item.qty || '1', current_qty: 0 }
+                                        ]
+                                        newItems[idx].qty = String(Number(item.qty || 1))
+                                        setForm(f => ({ ...f, items: newItems }))
+                                      }}
+                                      className="text-[10px] font-semibold text-primary hover:text-primary-dark transition-colors flex items-center gap-1 cursor-pointer"
+                                    >
+                                      📦 Nhập theo Lô / HSD con
+                                    </button>
+                                  </div>
+                                </div>
+                                                            ) : (
+                                  <div className="space-y-2">
+                                    <div className="flex items-center justify-between border-b border-slate-200/60 pb-1">
+                                      <span className="font-bold text-slate-700 text-[10px] uppercase tracking-wider">Danh sách lô hàng con</span>
+                                      {!item.has_existing_batches && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const newItems = [...form.items]
+                                            delete newItems[idx].batches
+                                            setForm(f => ({ ...f, items: newItems }))
+                                          }}
+                                          className="text-[10px] font-medium text-red-500 hover:text-red-700 transition-colors cursor-pointer"
+                                        >
+                                          Trở về nhập SL tổng
+                                        </button>
+                                      )}
+                                    </div>
+                                    <div className="rounded-xl border border-slate-200/70 overflow-hidden shadow-inner bg-white w-full">
+                                      <table className="w-full text-left text-xs">
+                                        <thead>
+                                          <tr className="bg-slate-50 text-slate-400 font-semibold uppercase tracking-wider text-[9px] border-b border-slate-200 select-none">
+                                            <th className="px-3 py-2 w-36">Số lô</th>
+                                            <th className="px-3 py-2 w-32 text-center">Hạn sử dụng (HSD)</th>
+                                            <th className="px-3 py-2 text-right w-24">Tồn kho</th>
+                                            <th className="px-3 py-2 text-center w-36">Số lượng</th>
+                                            <th className="px-3 py-2 text-center w-24">Hành động</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100 font-normal text-slate-700">
+                                          {item.batches.map((b, bIdx) => {
+                                            return (
+                                              <tr 
+                                                key={bIdx}
+                                                className={`transition-colors ${b.is_deleted ? 'bg-red-50/85 text-red-500 line-through decoration-red-300' : 'hover:bg-slate-50/50'}`}
+                                              >
+                                                {/* Batch No */}
+                                                <td className="px-3 py-2 font-medium text-slate-800 text-[11px] align-middle">
+                                                  <div className="flex items-center gap-1">
+                                                    <span className="select-none">📦</span>
+                                                    <input
+                                                      type="text"
+                                                      list={`existing-batches-${idx}-${bIdx}`}
+                                                      value={b.batch_no}
+                                                      disabled={b.is_deleted}
+                                                      onChange={(e) => {
+                                                        const val = e.target.value
+                                                        const newItems = [...form.items]
+                                                        newItems[idx].batches![bIdx].batch_no = val
+                                                        
+                                                        // Auto-fill expiry_date and current_qty if it matches an existing batch
+                                                        const match = item.existing_batches?.find(eb => eb.batch_no === val.trim())
+                                                        if (match) {
+                                                          newItems[idx].batches![bIdx].expiry_date = match.expiry_date || ''
+                                                          newItems[idx].batches![bIdx].current_qty = match.stock_qty || 0
+                                                        } else {
+                                                          newItems[idx].batches![bIdx].current_qty = 0
+                                                        }
+                                                        setForm(f => ({ ...f, items: newItems }))
+                                                      }}
+                                                      placeholder="Lô..."
+                                                      className={`w-full bg-transparent border-0 border-b border-transparent hover:border-slate-200 focus:border-primary focus:outline-none py-0.5 text-xs text-slate-800 font-semibold focus:bg-white px-1 rounded transition-all ${b.is_deleted ? 'text-red-500' : ''}`}
+                                                    />
+                                                    {item.existing_batches && item.existing_batches.length > 0 && (
+                                                      <datalist id={`existing-batches-${idx}-${bIdx}`}>
+                                                        {item.existing_batches.map((eb, ebIdx) => (
+                                                          <option key={ebIdx} value={eb.batch_no}>
+                                                            {eb.batch_no} {eb.stock_qty !== undefined ? `(Tồn: ${eb.stock_qty})` : ''}
+                                                          </option>
+                                                        ))}
+                                                      </datalist>
+                                                    )}
+                                                  </div>
+                                                </td>
+
+                                                {/* Expiry date */}
+                                                <td className="px-3 py-2 text-center align-middle">
+                                                  {b.is_deleted ? (
+                                                    <span className="text-[10px] font-mono leading-none text-red-500 bg-red-50 px-1.5 py-0.5 rounded border border-red-200">
+                                                      {b.expiry_date ? fmtDate(b.expiry_date) : '—'}
+                                                    </span>
+                                                  ) : (
+                                                    <input
+                                                      type="date"
+                                                      value={b.expiry_date}
+                                                      disabled={b.is_deleted}
+                                                      onChange={(e) => {
+                                                        const newItems = [...form.items]
+                                                        newItems[idx].batches![bIdx].expiry_date = e.target.value
+                                                        setForm(f => ({ ...f, items: newItems }))
+                                                      }}
+                                                      className="rounded border border-slate-200 bg-slate-50/50 px-1.5 py-0.5 text-[10px] font-mono text-slate-800 focus:border-primary focus:outline-none"
+                                                    />
+                                                  )}
+                                                </td>
+
+                                                {/* Tồn kho */}
+                                                <td className="px-3 py-2 text-right text-slate-500 font-mono text-[11px] align-middle select-all">
+                                                  {(b.current_qty !== undefined ? b.current_qty : 0).toLocaleString()}
+                                                </td>
+
+                                                {/* Quantity actual */}
+                                                <td className="px-3 py-2 text-center align-middle">
+                                                  {b.is_deleted ? (
+                                                    <span className="inline-flex px-1.5 py-0.5 rounded bg-red-100/50 text-[10px] font-semibold text-red-500 border border-red-200/50 select-none">
+                                                      0 (Đã xóa)
+                                                    </span>
+                                                  ) : (
+                                                    <div className="flex items-center justify-center gap-1.5 max-w-[100px] mx-auto select-none">
+                                                      <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                          const newItems = [...form.items]
+                                                          const currentVal = Math.max(0, Number(newItems[idx].batches![bIdx].qty || 0) - 1)
+                                                          newItems[idx].batches![bIdx].qty = String(currentVal)
+                                                          const total = newItems[idx].batches!.reduce((sum, itemB) => sum + (itemB.is_deleted ? 0 : Number(itemB.qty || 0)), 0)
+                                                          newItems[idx].qty = String(total)
+                                                          setForm(f => ({ ...f, items: newItems }))
+                                                        }}
+                                                        className="w-6 h-6 flex items-center justify-center rounded-full bg-amber-50 hover:bg-amber-100 text-amber-600 border border-amber-200 cursor-pointer select-none transition-all active:scale-90"
+                                                        title="Giảm 1"
+                                                      >
+                                                        <Minus className="w-3 h-3" />
+                                                      </button>
+                                                      <input
+                                                        type="number"
+                                                        value={b.qty}
+                                                        onChange={(e) => {
+                                                          const newItems = [...form.items]
+                                                          newItems[idx].batches![bIdx].qty = e.target.value
+                                                          const total = newItems[idx].batches!.reduce((sum, itemB) => sum + (itemB.is_deleted ? 0 : Number(itemB.qty || 0)), 0)
+                                                          newItems[idx].qty = String(total)
+                                                          setForm(f => ({ ...f, items: newItems }))
+                                                        }}
+                                                        className="w-10 text-center rounded-lg border border-slate-200 py-0.5 text-xs focus:border-primary focus:outline-none font-medium text-slate-800 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                                        style={{ WebkitAppearance: 'none', MozAppearance: 'textfield' }}
+                                                      />
+                                                      <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                          const newItems = [...form.items]
+                                                          const currentVal = Number(newItems[idx].batches![bIdx].qty || 0) + 1
+                                                          newItems[idx].batches![bIdx].qty = String(currentVal)
+                                                          const total = newItems[idx].batches!.reduce((sum, itemB) => sum + (itemB.is_deleted ? 0 : Number(itemB.qty || 0)), 0)
+                                                          newItems[idx].qty = String(total)
+                                                          setForm(f => ({ ...f, items: newItems }))
+                                                        }}
+                                                        className="w-6 h-6 flex items-center justify-center rounded-full bg-amber-50 hover:bg-amber-100 text-amber-600 border border-amber-200 cursor-pointer select-none transition-all active:scale-90"
+                                                        title="Tăng 1"
+                                                      >
+                                                        <Plus className="w-3 h-3" />
+                                                      </button>
+                                                    </div>
+                                                  )}
+                                                </td>
+
+                                                {/* Action */}
+                                                <td className="px-3 py-2 text-center align-middle">
+                                                  {b.is_deleted ? (
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => {
+                                                        const newItems = [...form.items]
+                                                        newItems[idx].batches![bIdx].is_deleted = false
+                                                        newItems[idx].batches![bIdx].qty = '1'
+                                                        const total = newItems[idx].batches!.reduce((sum, itemB) => sum + (itemB.is_deleted ? 0 : Number(itemB.qty || 0)), 0)
+                                                        newItems[idx].qty = String(total)
+                                                        setForm(f => ({ ...f, items: newItems }))
+                                                      }}
+                                                      className="text-emerald-600 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 font-semibold text-[10px] px-2 py-0.5 border border-emerald-250 rounded transition-all cursor-pointer shadow-xs active:scale-95 select-none"
+                                                      title="Khôi phục lô"
+                                                    >
+                                                      Khôi phục
+                                                    </button>
+                                                  ) : (
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => {
+                                                        const newItems = [...form.items]
+                                                        newItems[idx].batches![bIdx].is_deleted = true
+                                                        newItems[idx].batches![bIdx].qty = '0'
+                                                        const total = newItems[idx].batches!.reduce((sum, itemB) => sum + (itemB.is_deleted ? 0 : Number(itemB.qty || 0)), 0)
+                                                        newItems[idx].qty = String(total)
+                                                        setForm(f => ({ ...f, items: newItems }))
+                                                      }}
+                                                      className="text-slate-400 hover:text-red-500 bg-slate-50 hover:bg-red-50 p-1 rounded transition-all cursor-pointer active:scale-95 inline-flex items-center justify-center select-none"
+                                                      title="Xóa lô"
+                                                    >
+                                                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                                    </button>
+                                                  )}
+                                                </td>
+                                              </tr>
+                                            )
+                                          })}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const newItems = [...form.items]
+                                        newItems[idx].batches!.push({ batch_no: '', expiry_date: '', qty: '1', current_qty: 0 })
+                                        const total = newItems[idx].batches!.reduce((sum, itemB) => sum + (itemB.is_deleted ? 0 : Number(itemB.qty || 0)), 0)
+                                        newItems[idx].qty = String(total)
+                                        setForm(f => ({ ...f, items: newItems }))
+                                      }}
+                                      className="w-full py-1.5 border border-dashed border-primary/40 text-primary bg-primary/5 hover:bg-primary/10 rounded-lg text-[10px] font-semibold transition-colors flex items-center justify-center gap-1 cursor-pointer select-none"
+                                    >
+                                      + Thêm lô con cho sản phẩm này
+                                    </button>
+                                  </div>
+                              )}
                             </div>
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-2 py-1.5 align-top">
-                        <input
-                          type="number"
-                          value={item.qty}
-                          onChange={(e) => {
-                            const newItems = [...form.items]
-                            newItems[idx].qty = e.target.value
-                            setForm(f => ({ ...f, items: newItems }))
-                          }}
-                          placeholder={form.type === 'adjustment' ? '±10' : '0'}
-                          className="w-full text-center rounded-xl border border-slate-200 px-2 py-2 text-sm focus:border-primary focus:outline-none"
-                        />
-                      </td>
-                      <td className="px-2 py-1.5 align-top">
-                        <FormattedNumberInput
-                          value={item.unit_cost}
-                          onChange={(val) => {
-                            const newItems = [...form.items]
-                            newItems[idx].unit_cost = val
-                            setForm(f => ({ ...f, items: newItems }))
-                          }}
-                          placeholder="0"
-                          className="w-full rounded-xl border border-slate-200 px-2 py-2 text-sm focus:border-primary focus:outline-none"
-                        />
-                      </td>
-                      <td className="px-2 py-1.5 align-top text-center">
-                        {form.items.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveItemRow(idx)}
-                            className="p-1 text-slate-400 hover:text-red-500 rounded-lg hover:bg-slate-100 transition-colors mt-1"
-                            title="Xóa dòng"
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /></svg>
-                          </button>
-                        )}
-                      </td>
-                    </tr>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   ))}
                   {/* Button tạo mới sản phẩm ở dòng cuối cùng */}
                   <tr>
@@ -2358,26 +2803,63 @@ export function InventoryClient({ shopId, shopName }: Props) {
               </div>
 
               <div className="mt-2 max-h-40 overflow-y-auto space-y-2 rounded-lg border border-slate-100 bg-white p-2">
-                {form.items.map((item, idx) => (
-                  <div key={idx} className="space-y-0.5 text-xs border-b border-slate-50 pb-1.5 last:border-0 last:pb-0">
-                    <div className="flex justify-between gap-4">
-                      <span className="text-slate-700 font-medium truncate max-w-[240px]">
-                        {item.product_name || 'Chưa chọn sản phẩm'}
-                      </span>
-                      <span className="font-mono text-slate-900 shrink-0">
-                        x{item.qty} {item.unit_cost && Number(item.unit_cost) > 0 ? `(${fmtVND(item.unit_cost)})` : ''}
-                      </span>
-                    </div>
-                    {item.batch_no && (
-                      <div className="text-[10px] text-slate-500">
-                        Lô: <span className="font-semibold text-slate-700">{item.batch_no}</span>
-                        {item.expiry_date && (
-                          <> · HSD: <span className="font-semibold text-slate-700">{fmtDate(item.expiry_date)}</span></>
-                        )}
+                {(() => {
+                  const flattenedPreviewItems: any[] = []
+                  form.items.forEach(item => {
+                    if (item.batches && item.batches.length > 0) {
+                      const activeBatches = item.batches.filter(b => !b.is_deleted)
+                      // Count blank batch numbers to decide default format
+                      let blankCount = 0
+                      activeBatches.forEach(b => { if (!b.batch_no?.trim()) blankCount++ })
+
+                      let blankIdx = 0
+                      activeBatches.forEach(b => {
+                        let finalBatchNo = b.batch_no?.trim()
+                        if (!finalBatchNo) {
+                          finalBatchNo = blankCount === 1 ? 'DEFAULT' : `L${blankIdx + 1}`
+                          blankIdx++
+                        }
+                        flattenedPreviewItems.push({
+                          ...item,
+                          qty: b.qty,
+                          batch_no: finalBatchNo,
+                          expiry_date: b.expiry_date || undefined
+                        })
+                      })
+                    } else {
+                      let finalBatchNo = item.batch_no?.trim()
+                      if (!finalBatchNo && item.expiry_date) {
+                        finalBatchNo = 'DEFAULT'
+                      }
+                      flattenedPreviewItems.push({
+                        ...item,
+                        batch_no: finalBatchNo || undefined,
+                        expiry_date: item.expiry_date || undefined
+                      })
+                    }
+                  })
+
+                  return flattenedPreviewItems.map((item, idx) => (
+                    <div key={idx} className="space-y-0.5 text-xs border-b border-slate-50 pb-1.5 last:border-0 last:pb-0">
+                      <div className="flex justify-between gap-4">
+                        <span className="text-slate-700 font-medium truncate max-w-[240px]">
+                          {item.product_name || 'Chưa chọn sản phẩm'}
+                        </span>
+                        <span className="font-mono text-slate-900 shrink-0">
+                          x{item.qty} {item.unit_cost && Number(item.unit_cost) > 0 ? `(${fmtVND(item.unit_cost)})` : ''}
+                        </span>
                       </div>
-                    )}
-                  </div>
-                ))}
+                      {item.batch_no && (
+                        <div className="text-[10px] text-slate-500">
+                          Lô: <span className="font-semibold text-slate-700">{item.batch_no}</span>
+                          {item.expiry_date && (
+                            <> · HSD: <span className="font-semibold text-slate-700">{fmtDate(item.expiry_date)}</span></>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))
+                })()}
               </div>
 
               {form.type === 'purchase_in' && (
@@ -2559,12 +3041,18 @@ export function InventoryClient({ shopId, shopName }: Props) {
                 )}
               </div>
 
-              {['purchase_in', 'p2p_purchase_in'].includes(viewMovement.type) && (viewMovement.batch_no || viewMovement.shipment_no) && (
+               {(viewMovement.batch_no || viewMovement.expiry_date || viewMovement.shipment_no) && (
                 <>
                   {viewMovement.batch_no && (
                     <div>
-                      <p className="text-slate-500 mb-1">Lô nhập</p>
-                      <p className="font-medium text-slate-900">{viewMovement.batch_no}</p>
+                      <p className="text-slate-500 mb-1">Số lô</p>
+                      <p className="font-semibold text-slate-800 bg-slate-100/80 px-2 py-0.5 rounded border border-slate-200 text-xs inline-block">📦 {viewMovement.batch_no}</p>
+                    </div>
+                  )}
+                  {viewMovement.expiry_date && (
+                    <div>
+                      <p className="text-slate-500 mb-1">Hạn sử dụng (HSD)</p>
+                      <p className="font-semibold text-amber-700 bg-amber-50/80 px-2 py-0.5 rounded border border-amber-200 text-xs font-mono inline-block">📅 {fmtDate(viewMovement.expiry_date)}</p>
                     </div>
                   )}
                   {viewMovement.shipment_no && (
