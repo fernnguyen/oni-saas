@@ -1,19 +1,19 @@
 import { z } from 'zod'
 
 export const customerCreateSchema = z.object({
-  name:           z.string().min(1),
-  phone:          z.string().min(1),
-  customer_code:  z.string().optional().default(''),
-  email:          z.string().optional().default(''),
-  address:        z.string().optional().default(''),
-  birthday:       z.string().optional().default(''),
-  customer_type:  z.string().optional().default('retail'),
-  credit_limit:   z.string().optional().default('0'),
-  debt_amount:    z.string().optional().default('0'),
-  loyalty_points: z.string().optional().default('0'),
-  prepaid_balance: z.string().optional().default('0'),
-  note:           z.string().optional().default(''),
-  metadata:       z.record(z.string(), z.any()).optional().default({}),
+  name:            z.string().min(1),
+  phone:           z.string().min(1),
+  customer_code:   z.string().nullable().optional().default(''),
+  email:           z.string().nullable().optional().default(''),
+  address:         z.string().nullable().optional().default(''),
+  birthday:        z.string().nullable().optional().default(''),
+  customer_type:   z.string().nullable().optional().default('retail'),
+  credit_limit:    z.string().nullable().optional().default('0'),
+  debt_amount:     z.string().nullable().optional().default('0'),
+  loyalty_points:  z.string().nullable().optional().default('0'),
+  prepaid_balance: z.string().nullable().optional().default('0'),
+  note:            z.string().nullable().optional().default(''),
+  metadata:        z.union([z.string(), z.record(z.string(), z.any())]).nullable().optional().default({}),
 })
 
 export const customerUpdateSchema = customerCreateSchema.partial()

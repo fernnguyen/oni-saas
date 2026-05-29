@@ -133,7 +133,9 @@ export async function POST(
     } as any
 
     if (data.metadata) {
-      data.metadata = JSON.stringify(data.metadata)
+      data.metadata = typeof data.metadata === 'string'
+        ? data.metadata
+        : JSON.stringify(data.metadata)
     }
 
     const created = await connector.create('customers', data)

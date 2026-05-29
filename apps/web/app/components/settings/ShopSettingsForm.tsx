@@ -137,12 +137,13 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
   const [saveStates, setSaveStates] = useState<Record<string, SaveState>>({
     general: 'idle',
     sales: 'idle',
+    debt: 'idle',
     sepay: 'idle',
     crm: 'idle'
   });
 
   const [copied, setCopied] = useState(false);
-  const [activeTab, setActiveTab] = useState<'general' | 'sales' | 'sepay' | 'crm'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'sales' | 'debt' | 'sepay' | 'crm'>('general');
 
   // Simulator State
   const [simState, setSimState] = useState<{
@@ -208,7 +209,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
     setSaveStates((prev) => ({ ...prev, [activeTab]: 'idle' }));
   }
 
-  async function handleSaveSubForm(tab: 'general' | 'sales' | 'sepay' | 'crm') {
+  async function handleSaveSubForm(tab: 'general' | 'sales' | 'debt' | 'sepay' | 'crm') {
     setSaveStates(prev => ({ ...prev, [tab]: 'saving' }));
     try {
       let payload: any = {};
@@ -237,6 +238,9 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
           skip_cleaning_process: form.skip_cleaning_process,
           skip_return_confirmation: form.skip_return_confirmation,
           qr_auto_approve_session: form.qr_auto_approve_session,
+        };
+      } else if (tab === 'debt') {
+        payload = {
           default_max_debt_days: parseInt(form.default_max_debt_days, 10) || 0,
           default_max_debt_amount: parseFloat(form.default_max_debt_amount) || 0,
           allow_sell_over_debt_limit: form.allow_sell_over_debt_limit,
@@ -279,7 +283,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
 
       if (!res.ok) throw new Error();
       setSaveStates(prev => ({ ...prev, [tab]: 'saved' }));
-      toast.success(`Đã lưu ${tab === 'general' ? 'Cài đặt chung' : tab === 'sales' ? 'Cấu hình Bán hàng & Kho' : tab === 'sepay' ? 'Cổng đối soát SePay' : 'Cài đặt CRM'} thành công!`);
+      toast.success(`Đã lưu ${tab === 'general' ? 'Cài đặt chung' : tab === 'sales' ? 'Cấu hình Bán hàng & Kho' : tab === 'debt' ? 'Cài đặt Công nợ & Cảnh báo' : tab === 'sepay' ? 'Cổng đối soát SePay' : 'Cài đặt CRM'} thành công!`);
       setTimeout(() => setSaveStates(prev => ({ ...prev, [tab]: 'idle' })), 2500);
     } catch {
       setSaveStates(prev => ({ ...prev, [tab]: 'error' }));
@@ -422,6 +426,17 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
               </svg>
             ), 
             desc: 'Thuế, giá, ca POS, luồng kho', 
+            permission: canManage 
+          },
+          { 
+            id: 'debt', 
+            label: 'Công nợ & Cảnh báo', 
+            icon: (
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            ), 
+            desc: 'Hạn mức nợ & Chốt chặn POS', 
             permission: canManage 
           },
           { 
@@ -779,6 +794,39 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
               </div>
             </Section>
 
+            {canManage && (
+              <div className="flex items-center gap-3 bg-white border border-slate-200 p-4 rounded-2xl shadow-xs">
+                <button
+                  type="submit"
+                  disabled={tabState === 'saving'}
+                  className="cursor-pointer rounded-xl bg-primary px-6 py-2.5 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-60 transition-all active:scale-95 shadow-sm shadow-primary/20"
+                >
+                  {tabState === 'saving' ? 'Đang lưu...' : 'Lưu Cấu hình Bán hàng & Kho'}
+                </button>
+                {tabState === 'saved' && (
+                  <p className="text-xs text-green-600 font-semibold flex items-center gap-1.5">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                    Đã lưu thành công.
+                  </p>
+                )}
+                {tabState === 'error' && (
+                  <p className="text-xs text-red-600 font-semibold flex items-center gap-1.5">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    Lưu thất bại. Thử lại.
+                  </p>
+                )}
+              </div>
+            )}
+          </form>
+        )}
+
+        {/* ── TAB 2.5: CÀI ĐẶT CÔNG NỢ & CẢNH BÁO ── */}
+        {activeTab === 'debt' && (
+          <form onSubmit={(e) => { e.preventDefault(); handleSaveSubForm('debt'); }} className="space-y-6">
             <Section title="Cấu hình Cảnh báo & Giới hạn Công nợ" description="Thiết lập hạn mức công nợ tối đa, số ngày nợ cho phép mặc định và chốt chặn bán hàng cấp Shop">
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Số ngày nợ tối đa cho phép (ngày)" hint="Mặc định: 30 ngày. 0 = không giới hạn số ngày">
@@ -836,7 +884,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
                   disabled={tabState === 'saving'}
                   className="cursor-pointer rounded-xl bg-primary px-6 py-2.5 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-60 transition-all active:scale-95 shadow-sm shadow-primary/20"
                 >
-                  {tabState === 'saving' ? 'Đang lưu...' : 'Lưu Cấu hình Bán hàng & Kho'}
+                  {tabState === 'saving' ? 'Đang lưu...' : 'Lưu Cấu hình Công nợ'}
                 </button>
                 {tabState === 'saved' && (
                   <p className="text-xs text-green-600 font-semibold flex items-center gap-1.5">
@@ -1660,9 +1708,9 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
     <div>
       <div className="flex items-baseline gap-2 mb-1.5">
         <label className="text-sm font-medium text-slate-700">{label}</label>
-        {hint && <span className="text-xs text-slate-400">{hint}</span>}
       </div>
       {children}
+      {hint && <p className="text-xs text-slate-400 mt-1">{hint}</p>}
     </div>
   );
 }

@@ -42,7 +42,9 @@ export async function PUT(
 
     const updateData = { ...data } as any
     if (updateData.metadata) {
-      updateData.metadata = JSON.stringify(updateData.metadata)
+      updateData.metadata = typeof updateData.metadata === 'string'
+        ? updateData.metadata
+        : JSON.stringify(updateData.metadata)
     }
 
     const updated = await connector.update('customers', id, updateData)

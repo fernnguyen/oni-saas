@@ -13,7 +13,7 @@ import { SearchBar } from '@/app/components/ui/SearchBar'
 import { NumberInput } from '@/app/components/ui/NumberInput'
 import { CopyableId } from '@/app/components/ui/CopyableId'
 import { format } from 'date-fns'
-import { UserPlus, Wallet, Pencil, X, Coins, Check, Upload, ArrowLeft, Clock, AlertTriangle } from 'lucide-react'
+import { UserPlus, Wallet, Pencil, X, Coins, Check, Upload, ArrowLeft, Clock, AlertTriangle, ChevronRight, CheckCircle2 } from 'lucide-react'
 import { useShift } from '@/app/components/providers/ShiftProvider'
 import { BANKS } from '@/lib/constants/banks'
 
@@ -244,6 +244,7 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
   const [depositMethod, setDepositMethod] = useState('bank_transfer')
   const [depositNote, setDepositNote] = useState('')
   const [confirmDepositOpen, setConfirmDepositOpen] = useState(false)
+  const [autoDeductDebt, setAutoDeductDebt] = useState(true)
 
   // Customer Detail States
   const [viewTarget, setViewTarget] = useState<Record<string, string> | null>(null)
@@ -348,7 +349,7 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
   const maxDebtDays = Number(settings?.default_max_debt_days ?? 30)
 
   const depositMutation = useMutation({
-    mutationFn: async (payload: { amount: number; method: string; note: string; fund_id: string }) => {
+    mutationFn: async (payload: { amount: number; method: string; note: string; fund_id: string; auto_deduct_debt?: boolean }) => {
       if (!depositTarget) return
       const res = await fetch(`/api/shops/${shopId}/customers/${depositTarget.customer_id}/deposit`, {
         method: 'POST',
@@ -361,22 +362,27 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
       }
       return res.json()
     },
-    onSuccess: (_, variables) => {
-      toast.success('Nạp tiền vào tài khoản thành công!')
+    onSuccess: (data, variables) => {
+      toast.success(
+        variables.auto_deduct_debt && parseFloat(depositTarget?.debt_amount || '0') > 0
+          ? 'Giao dịch khấu trừ nợ & nạp ví hoàn tất thành công!'
+          : 'Nạp tiền vào tài khoản thành công!'
+      )
       const customerId = depositTarget?.customer_id || depositTarget?.id
-      if (customerId) {
+      if (customerId && data) {
         queryClient.invalidateQueries({ queryKey: ['customer-transactions', shopId, customerId] })
         setViewTarget((prev) => {
           if (prev && (prev.customer_id === customerId || prev.id === customerId)) {
-            const currentBalance = parseFloat(prev.prepaid_balance || '0')
             return {
               ...prev,
-              prepaid_balance: String(currentBalance + variables.amount)
+              prepaid_balance: String(data.prepaid_balance),
+              debt_amount: String(data.debt_amount ?? prev.debt_amount)
             }
           }
           return prev
         })
       }
+      setConfirmDepositOpen(false)
       setDepositTarget(null)
       setDepositAmount('0')
       setDepositNote('')
@@ -413,6 +419,7 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
     setDepositAmount('0')
     setDepositMethod('bank_transfer')
     setDepositNote('')
+    setAutoDeductDebt(parseFloat(row.debt_amount || '0') > 0)
 
     const defaultFund = funds.find(f => f.is_default === 'TRUE') || funds[0]
     setDepositFundId(defaultFund?.id || '')
@@ -1202,15 +1209,32 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
               method: depositMethod,
               note: depositNote,
               fund_id: depositFundId,
+              auto_deduct_debt: autoDeductDebt,
             })
           }
-          setConfirmDepositOpen(false)
         }}
         title="Xác nhận nạp tiền Ví trả trước"
-        description={`Hành động này sẽ tự động tạo một PHIẾU THU SỔ QUỸ (Cashbook) tương ứng và nạp tiền vào ví khách hàng. Bạn có chắc chắn muốn nạp ${Number(depositAmount).toLocaleString('vi-VN')}đ thông qua sổ quỹ "${
-          funds.find(f => f.id === depositFundId)?.name || 'đã chọn'
-        }" cho khách hàng "${depositTarget?.name}" không?`}
-        confirmLabel="Xác nhận nạp tiền"
+        description={(() => {
+          if (!depositTarget) return ''
+          const currentDebt = parseFloat(depositTarget.debt_amount || '0')
+          const amount = parseFloat(depositAmount) || 0
+          const fundName = funds.find(f => f.id === depositFundId)?.name || 'đã chọn'
+          
+          if (autoDeductDebt && currentDebt > 0) {
+            const debtPayment = Math.min(amount, currentDebt)
+            const prepaidDeposit = amount - debtPayment
+            
+            let desc = `Hệ thống sẽ tự động khấu trừ ${Number(debtPayment).toLocaleString('vi-VN')}đ vào dư nợ của khách hàng "${depositTarget.name}".`
+            if (prepaidDeposit > 0) {
+              desc += ` Số tiền dư ${Number(prepaidDeposit).toLocaleString('vi-VN')}đ sẽ được nạp vào ví trả trước.`
+            }
+            desc += ` Đồng thời sẽ tự động tạo các phiếu thu tương ứng thông qua sổ quỹ "${fundName}". Bạn có chắc chắn muốn thực hiện giao dịch này không?`
+            return desc
+          }
+          
+          return `Hành động này sẽ tự động tạo một PHIẾU THU SỔ QUỸ (Cashbook) tương ứng và nạp tiền vào ví khách hàng. Bạn có chắc chắn muốn nạp ${Number(depositAmount).toLocaleString('vi-VN')}đ thông qua sổ quỹ "${fundName}" cho khách hàng "${depositTarget.name}" không?`
+        })()}
+        confirmLabel="Xác nhận giao dịch"
         variant="default"
         loading={depositMutation.isPending}
       />
@@ -1253,20 +1277,110 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
         }
       >
         <div className="space-y-4">
-          <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-sm">
-            <div className="flex justify-between">
-              <span className="text-slate-500">Số dư hiện tại:</span>
-              <span className="font-semibold text-slate-800">
-                {Number(depositTarget?.prepaid_balance || 0).toLocaleString('vi-VN')}đ
-              </span>
+          {/* Smart Debt Warning Notice */}
+          {depositTarget && parseFloat(depositTarget.debt_amount || '0') > 0 && (
+            <div className="rounded-xl border border-amber-100 bg-amber-50/50 p-3.5 text-xs text-amber-900 animate-in fade-in slide-in-from-top-1 duration-200 shadow-xs relative overflow-hidden">
+              <div className="absolute right-3 top-3 opacity-15 select-none pointer-events-none">
+                <AlertTriangle className="w-8 h-8 text-amber-500" />
+              </div>
+              <p className="font-bold text-[10px] uppercase tracking-wider text-amber-600 mb-1 flex items-center gap-1">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-500" /> Cảnh báo dư nợ hiện tại
+              </p>
+              <p className="mb-2 text-slate-700">Khách hàng này hiện đang có dư nợ cần thu là <b>{Number(depositTarget.debt_amount).toLocaleString('vi-VN')}đ</b>.</p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = depositTarget;
+                    setDepositTarget(null);
+                    setTimeout(() => {
+                      if (target) openCollectDebt(target);
+                    }, 50);
+                  }}
+                  className="text-[11px] font-bold text-amber-700 bg-amber-100 hover:bg-amber-200 px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                >
+                  Chuyển sang Thu nợ
+                  <ChevronRight className="w-3 h-3 text-amber-600" />
+                </button>
+              </div>
             </div>
-            <div className="flex justify-between mt-1.5 border-t border-slate-200/50 pt-1.5">
-              <span className="text-slate-500">Số dư sau khi nạp:</span>
-              <span className="font-semibold text-emerald-600">
-                {Number((parseFloat(depositTarget?.prepaid_balance || '0') + (parseFloat(depositAmount) || 0))).toLocaleString('vi-VN')}đ
-              </span>
+          )}
+
+          {/* Auto Deduct Debt Checkbox Option */}
+          {depositTarget && parseFloat(depositTarget.debt_amount || '0') > 0 && (
+            <div className="flex items-center gap-2.5 py-1 px-0.5">
+              <input
+                type="checkbox"
+                id="autoDeductDebt"
+                checked={autoDeductDebt}
+                onChange={(e) => setAutoDeductDebt(e.target.checked)}
+                className="h-4.5 w-4.5 rounded border-slate-300 accent-primary text-white cursor-pointer"
+              />
+              <label htmlFor="autoDeductDebt" className="text-xs font-semibold text-slate-700 cursor-pointer select-none">
+                Ưu tiên khấu trừ vào nợ cần thu trước (Gạch nợ tự động)
+              </label>
             </div>
-          </div>
+          )}
+
+          {/* Dynamic Balance Visual Cards */}
+          {depositTarget && (() => {
+            const currentPrepaid = parseFloat(depositTarget.prepaid_balance || '0')
+            const currentDebt = parseFloat(depositTarget.debt_amount || '0')
+            const amount = parseFloat(depositAmount) || 0
+
+            let simulatedPrepaid = currentPrepaid + amount
+            let simulatedDebt = currentDebt
+
+            if (autoDeductDebt && currentDebt > 0) {
+              const debtPayment = Math.min(amount, currentDebt)
+              const prepaidDeposit = amount - debtPayment
+              simulatedPrepaid = currentPrepaid + prepaidDeposit
+              simulatedDebt = currentDebt - debtPayment
+            }
+
+            return (
+              <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-3.5 text-xs space-y-2.5">
+                <div className="flex justify-between items-center text-slate-500 font-medium">
+                  <span>Số dư ví hiện tại:</span>
+                  <span className="font-semibold text-slate-800">
+                    {Number(currentPrepaid).toLocaleString('vi-VN')}đ
+                  </span>
+                </div>
+                {currentDebt > 0 && (
+                  <div className="flex justify-between items-center text-slate-500 font-medium border-t border-slate-200/50 pt-2">
+                    <span>Dư nợ hiện tại:</span>
+                    <span className="font-semibold text-red-600">
+                      {Number(currentDebt).toLocaleString('vi-VN')}đ
+                    </span>
+                  </div>
+                )}
+                
+                <div className="border-t border-slate-200 pt-2.5 space-y-2 mt-1">
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-600 font-semibold">Số dư ví sau khi nạp:</span>
+                    <span className="font-bold text-emerald-600 text-sm">
+                      {Number(simulatedPrepaid).toLocaleString('vi-VN')}đ
+                    </span>
+                  </div>
+                  {currentDebt > 0 && autoDeductDebt && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-600 font-semibold">Dư nợ còn lại sau nạp:</span>
+                      {simulatedDebt === 0 ? (
+                        <span className="inline-flex items-center gap-1 text-emerald-600 bg-emerald-50 border border-emerald-200/50 px-2.5 py-0.5 rounded-full text-xs font-bold shadow-xs">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                          Hết nợ
+                        </span>
+                      ) : (
+                        <span className="font-bold text-sm text-red-655">
+                          {Number(simulatedDebt).toLocaleString('vi-VN')}đ
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          })()}
 
           <NumberInput
             label="Số tiền nạp *"

@@ -11,8 +11,16 @@ export async function POST(
     const { shopId, id } = await params
     const { connector } = await requireShopAccess(shopId, 'customers.edit')
 
-    const body = await req.json() as { amount: number; method: string; note?: string; employee_id?: string; branch_id?: string; fund_id?: string }
-    const { amount, method, note, employee_id, branch_id, fund_id } = body
+    const body = await req.json() as { 
+      amount: number 
+      method: string 
+      note?: string 
+      employee_id?: string 
+      branch_id?: string 
+      fund_id?: string 
+      auto_deduct_debt?: boolean 
+    }
+    const { amount, method, note, employee_id, branch_id, fund_id, auto_deduct_debt } = body
 
     if (amount <= 0) {
       return NextResponse.json({ error: 'Số tiền nạp phải lớn hơn 0' }, { status: 400 })
@@ -24,11 +32,23 @@ export async function POST(
     }
 
     const currentPrepaid = parseFloat((customer.prepaid_balance as string) || '0')
-    const newPrepaid = currentPrepaid + amount
+    const currentDebt = parseFloat((customer.debt_amount as string) || '0')
 
-    // Update customer prepaid balance
+    let debtPayment = 0
+    let prepaidDeposit = amount
+
+    if (auto_deduct_debt && currentDebt > 0) {
+      debtPayment = Math.min(amount, currentDebt)
+      prepaidDeposit = amount - debtPayment
+    }
+
+    const newPrepaid = currentPrepaid + prepaidDeposit
+    const newDebt = Math.max(0, currentDebt - debtPayment)
+
+    // Update customer prepaid balance and outstanding debt
     await connector.update('customers', id, {
-      prepaid_balance: String(newPrepaid)
+      prepaid_balance: String(newPrepaid),
+      debt_amount: String(newDebt)
     })
 
     // Update payment fund balance if provided
@@ -42,19 +62,38 @@ export async function POST(
       }
     }
 
-    // Create cashbook entry
-    await connector.create('cashbook', {
-      type: 'receipt',
-      amount: String(amount),
-      method: method,
-      category: 'prepaid_deposit',
-      reference_id: id,
-      reference_name: (customer.name as string) || '',
-      note: note || `Nạp tiền ví trả trước cho khách hàng ${customer.name}`,
-      employee_id: employee_id || '',
-      branch_id: branch_id || '',
-      fund_id: fund_id || '',
-    })
+    // Create cashbook entries
+    // If debtPayment > 0, create a receipt of category debt_collection
+    if (debtPayment > 0) {
+      await connector.create('cashbook', {
+        type: 'receipt',
+        amount: String(debtPayment),
+        method: method,
+        category: 'debt_collection',
+        reference_id: id,
+        reference_name: (customer.name as string) || '',
+        note: `[Khấu trừ nợ tự động] ${note || `Thu nợ khách hàng ${customer.name}`}`,
+        employee_id: employee_id || '',
+        branch_id: branch_id || '',
+        fund_id: fund_id || '',
+      })
+    }
+
+    // If prepaidDeposit > 0, create a receipt of category prepaid_deposit
+    if (prepaidDeposit > 0) {
+      await connector.create('cashbook', {
+        type: 'receipt',
+        amount: String(prepaidDeposit),
+        method: method,
+        category: 'prepaid_deposit',
+        reference_id: id,
+        reference_name: (customer.name as string) || '',
+        note: `[Nạp ví trả trước] ${note || `Nạp tiền ví trả trước cho khách hàng ${customer.name}`}`,
+        employee_id: employee_id || '',
+        branch_id: branch_id || '',
+        fund_id: fund_id || '',
+      })
+    }
 
     invalidate(shopId, 'customers')
     invalidate(shopId, 'cashbook')
@@ -62,7 +101,7 @@ export async function POST(
       invalidate(shopId, 'payment-funds')
     }
 
-    return NextResponse.json({ prepaid_balance: newPrepaid })
+    return NextResponse.json({ prepaid_balance: newPrepaid, debt_amount: newDebt })
   } catch (e) {
     return handleApiError(e, 'POST customer deposit')
   }

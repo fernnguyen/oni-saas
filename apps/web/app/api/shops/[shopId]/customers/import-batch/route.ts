@@ -181,25 +181,58 @@ export async function POST(
           }
         })
 
-        // Clean up old virtual cashbook entries to avoid duplicates and fix the date
+        // Handle virtual cashbook entries to avoid duplicates and prevent clutter
+        let hasUpdatedVirtual = false
         try {
           const oldVirtuals = await connector.list('cashbook', {
             filters: { reference_id: existingCustomer.id, is_virtual: 'TRUE' },
             limit: 50
           })
-          if (oldVirtuals && Array.isArray(oldVirtuals.data)) {
-            for (const tx of oldVirtuals.data) {
-              if (tx.id) {
-                await connector.delete('cashbook', tx.id)
+          if (oldVirtuals && Array.isArray(oldVirtuals.data) && oldVirtuals.data.length > 0) {
+            if (finalDebt > 0) {
+              // We have debt: Keep exactly ONE primary virtual slip and update it in-place
+              const primaryTx = oldVirtuals.data[0]
+              
+              // Calculate new timestamp for debt age baseline
+              let debtCreatedAt = nowTime
+              if (debtDays > 0) {
+                const pastDate = new Date()
+                pastDate.setDate(pastDate.getDate() - debtDays)
+                pastDate.setUTCHours(pastDate.getUTCHours() + 7)
+                debtCreatedAt = pastDate.toISOString().replace('Z', '')
+              }
+
+              await connector.update('cashbook', primaryTx.id, {
+                amount: String(finalDebt),
+                created_at: debtCreatedAt,
+                note: debtDays > 0
+                  ? `Số dư công nợ đầu kỳ ghi nhận khi chuyển đổi hệ thống (Cập nhật ghi đè: Nợ trước đó ${debtDays} ngày. Số dư cũ: ${oldDebt.toLocaleString('vi-VN')}đ, mới: ${finalDebt.toLocaleString('vi-VN')}đ)`
+                  : `Số dư công nợ đầu kỳ ghi nhận khi chuyển đổi hệ thống (Cập nhật ghi đè: Import KiotViet. Số dư cũ: ${oldDebt.toLocaleString('vi-VN')}đ, mới: ${finalDebt.toLocaleString('vi-VN')}đ)`
+              })
+              hasUpdatedVirtual = true
+
+              // Delete any duplicate/excess virtual entries to clean up database clutter
+              for (let i = 1; i < oldVirtuals.data.length; i++) {
+                const extraTx = oldVirtuals.data[i]
+                if (extraTx.id) {
+                  await connector.delete('cashbook', extraTx.id)
+                }
+              }
+            } else {
+              // finalDebt === 0: Delete all old virtual slips as they are no longer needed (avoid clutter)
+              for (const tx of oldVirtuals.data) {
+                if (tx.id) {
+                  await connector.delete('cashbook', tx.id)
+                }
               }
             }
           }
         } catch (e) {
-          console.error('Failed to clean up old virtual transactions:', e)
+          console.error('Failed to manage virtual transactions:', e)
         }
 
-        // Create new virtual cashbook log for the updated total debt
-        if (finalDebt > 0) {
+        // Create a new virtual cashbook log ONLY if no existing one was found and updated, and finalDebt > 0
+        if (!hasUpdatedVirtual && finalDebt > 0) {
           let debtCreatedAt = nowTime
           if (debtDays > 0) {
             const pastDate = new Date()
