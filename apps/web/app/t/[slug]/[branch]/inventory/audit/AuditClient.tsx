@@ -44,6 +44,7 @@ interface BatchItem {
   system_qty: number
   actual_qty: number
   is_new?: boolean
+  is_deleted?: boolean
 }
 
 interface AuditItem {
@@ -70,6 +71,17 @@ function getGMT7Time() {
   const d = new Date()
   d.setUTCHours(d.getUTCHours() + 7)
   return d.toISOString().replace('Z', '')
+}
+
+function formatExpiryDate(dateStr: string) {
+  if (!dateStr) return '—'
+  if (dateStr.includes('/')) return dateStr
+  const parts = dateStr.split('-')
+  if (parts.length === 3) {
+    const [year, month, day] = parts
+    return `${day}/${month}/${year}`
+  }
+  return dateStr
 }
 
 export function AuditClient({ shopId, shopName }: Props) {
@@ -393,7 +405,20 @@ export function AuditClient({ shopId, shopName }: Props) {
         actual_qty: Number(b.stock_qty || 0), // Default actual stock to system stock
       }))
 
+      const sumOfBatchQty = productBatches.reduce((acc, b) => acc + b.system_qty, 0)
       const hasBatches = productBatches.length > 0
+
+      // Healing mechanism: if overall system stock is greater than the sum of batches, group the difference in DEFAULT
+      if (hasBatches && systemStockQty > sumOfBatchQty) {
+        const orphanQty = systemStockQty - sumOfBatchQty
+        productBatches.push({
+          id: `virtual-default-${pId}`,
+          batch_no: 'DEFAULT',
+          expiry_date: '',
+          system_qty: orphanQty,
+          actual_qty: orphanQty,
+        })
+      }
 
       setAuditItems(prev => prev.map(item => {
         if (item.product_id === pId) {
@@ -461,19 +486,63 @@ export function AuditClient({ shopId, shopName }: Props) {
       if (item.product_id === productId) {
         const updatedBatches = item.batches.map(b => {
           if (b.batch_no === batchNo) {
-            return { ...b, actual_qty: isNaN(qty) ? 0 : qty }
+            return { ...b, actual_qty: isNaN(qty) ? 0 : qty, is_deleted: false }
           }
           return b
         })
         return {
           ...item,
           batches: updatedBatches,
-          actual_qty: updatedBatches.reduce((acc, b) => acc + b.actual_qty, 0),
+          actual_qty: updatedBatches.reduce((acc, b) => acc + (b.is_deleted ? 0 : b.actual_qty), 0),
           is_checked: true
         }
       }
       return item
     }))
+  }
+
+  // Delete a batch (mark as deleted)
+  const handleDeleteBatch = (productId: string, batchNo: string) => {
+    setAuditItems(prev => prev.map(item => {
+      if (item.product_id === productId) {
+        const updatedBatches = item.batches.map(b => {
+          if (b.batch_no === batchNo) {
+            return { ...b, is_deleted: true, actual_qty: 0 }
+          }
+          return b
+        })
+        return {
+          ...item,
+          batches: updatedBatches,
+          actual_qty: updatedBatches.reduce((acc, b) => acc + (b.is_deleted ? 0 : b.actual_qty), 0),
+          is_checked: true
+        }
+      }
+      return item
+    }))
+    toast.success(`Đã đánh dấu xóa lô "${batchNo}"`)
+  }
+
+  // Restore a deleted batch
+  const handleRestoreBatch = (productId: string, batchNo: string) => {
+    setAuditItems(prev => prev.map(item => {
+      if (item.product_id === productId) {
+        const updatedBatches = item.batches.map(b => {
+          if (b.batch_no === batchNo) {
+            return { ...b, is_deleted: false, actual_qty: b.system_qty }
+          }
+          return b
+        })
+        return {
+          ...item,
+          batches: updatedBatches,
+          actual_qty: updatedBatches.reduce((acc, b) => acc + (b.is_deleted ? 0 : b.actual_qty), 0),
+          is_checked: true
+        }
+      }
+      return item
+    }))
+    toast.success(`Đã khôi phục lô "${batchNo}"`)
   }
 
   // Inline handle adding a new batch
@@ -511,7 +580,7 @@ export function AuditClient({ shopId, shopName }: Props) {
           ...item,
           has_batches: true,
           batches: updatedBatches,
-          actual_qty: updatedBatches.reduce((acc, b) => acc + b.actual_qty, 0),
+          actual_qty: updatedBatches.reduce((acc, b) => acc + (b.is_deleted ? 0 : b.actual_qty), 0),
           is_checked: true
         }
       }
@@ -588,7 +657,11 @@ export function AuditClient({ shopId, shopName }: Props) {
   const submitDialogDescription = useMemo(() => {
     const hasChanges = auditItems.some(item => {
       if (item.has_batches) {
-        return item.batches.some(b => b.actual_qty - b.system_qty !== 0 || b.is_new)
+        return item.batches.some(b => {
+          if (b.is_new && b.is_deleted) return false
+          const actualQty = b.is_deleted ? 0 : b.actual_qty
+          return actualQty - b.system_qty !== 0 || b.is_new
+        })
       }
       return item.actual_qty - item.system_qty !== 0
     })
@@ -650,8 +723,11 @@ export function AuditClient({ shopId, shopName }: Props) {
       if (item.has_batches) {
         // Submit batch level adjustments
         item.batches.forEach(b => {
-          const delta = b.actual_qty - b.system_qty
-          if (delta !== 0 || b.is_new) {
+          if (b.is_new && b.is_deleted) return // Skip new batches that were deleted
+          
+          const actualQty = b.is_deleted ? 0 : b.actual_qty
+          const delta = actualQty - b.system_qty
+          if (delta !== 0 || (b.is_new && !b.is_deleted)) {
             payloadItems.push({
               product_id: item.product_id,
               qty: String(delta),
@@ -1023,7 +1099,7 @@ export function AuditClient({ shopId, shopName }: Props) {
                           {item.has_batches && isExpanded && (
                             <tr className="bg-slate-50/70 select-none">
                               <td colSpan={8} className="px-6 py-2.5 border-t border-b border-slate-200/50">
-                                <div className="rounded-xl border border-slate-200/70 overflow-hidden shadow-inner bg-white max-w-4xl">
+                                <div className="rounded-xl border border-slate-200/70 overflow-hidden shadow-inner bg-white w-full">
                                   <table className="w-full text-left text-xs">
                                     <thead>
                                       <tr className="bg-slate-50 text-slate-400 font-semibold uppercase tracking-wider text-[9px] border-b border-slate-200">
@@ -1033,15 +1109,20 @@ export function AuditClient({ shopId, shopName }: Props) {
                                         <th className="px-3 py-2 text-center w-36">Thực tế</th>
                                         <th className="px-3 py-2 text-right w-24">SL lệch</th>
                                         <th className="px-3 py-2 text-right w-28">Giá trị lệch</th>
+                                        <th className="px-3 py-2 text-center w-24">Hành động</th>
                                       </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100 font-normal text-slate-700">
                                       {item.batches.map((b) => {
-                                        const bDiff = b.actual_qty - b.system_qty
+                                        const actualQty = b.is_deleted ? 0 : b.actual_qty
+                                        const bDiff = actualQty - b.system_qty
                                         const bDiffVal = bDiff * item.cost_price
 
                                         return (
-                                          <tr key={b.batch_no} className="hover:bg-slate-50/50 transition-colors">
+                                          <tr 
+                                            key={b.batch_no} 
+                                            className={`transition-colors ${b.is_deleted ? 'bg-red-50/85 text-red-700 line-through decoration-red-300' : 'hover:bg-slate-50/50'}`}
+                                          >
                                             {/* Batch No */}
                                             <td className="px-3 py-2 font-medium text-slate-800 text-[11px] truncate flex items-center gap-1 mt-0.5">
                                               📦 {b.batch_no}
@@ -1055,7 +1136,7 @@ export function AuditClient({ shopId, shopName }: Props) {
                                             {/* Expiry date */}
                                             <td className="px-3 py-2 text-center align-middle">
                                               <span className={`inline-flex px-1.5 py-0.5 rounded border text-[10px] font-mono leading-none ${getExpiryBadgeColor(b.expiry_date)}`}>
-                                                {b.expiry_date || '—'}
+                                                {formatExpiryDate(b.expiry_date)}
                                               </span>
                                             </td>
                                             
@@ -1066,29 +1147,35 @@ export function AuditClient({ shopId, shopName }: Props) {
                                             
                                             {/* Batch Actual Stock input */}
                                             <td className="px-3 py-2 text-center align-middle">
-                                              <div className="flex items-center justify-center gap-1.5 max-w-[100px] mx-auto">
-                                                <button
-                                                  onClick={() => handleUpdateBatchActual(item.product_id, b.batch_no, String(Math.max(0, b.actual_qty - 1)))}
-                                                  className="w-6 h-6 flex items-center justify-center rounded-full bg-amber-50 hover:bg-amber-100 text-amber-600 border border-amber-200 cursor-pointer select-none transition-all active:scale-90"
-                                                  title="Giảm 1"
-                                                >
-                                                  <Minus className="w-3 h-3" />
-                                                </button>
-                                                <input
-                                                  type="number"
-                                                  value={b.actual_qty}
-                                                  onChange={(e) => handleUpdateBatchActual(item.product_id, b.batch_no, e.target.value)}
-                                                  className="w-10 text-center rounded-lg border border-slate-200 py-0.5 text-xs focus:border-primary focus:outline-none font-medium text-slate-800 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                                  style={{ appearance: 'textfield', WebkitAppearance: 'none', MozAppearance: 'textfield' }}
-                                                />
-                                                <button
-                                                  onClick={() => handleUpdateBatchActual(item.product_id, b.batch_no, String(b.actual_qty + 1))}
-                                                  className="w-6 h-6 flex items-center justify-center rounded-full bg-amber-50 hover:bg-amber-100 text-amber-600 border border-amber-200 cursor-pointer select-none transition-all active:scale-90"
-                                                  title="Tăng 1"
-                                                >
-                                                  <Plus className="w-3 h-3" />
-                                                </button>
-                                              </div>
+                                              {b.is_deleted ? (
+                                                <span className="text-[11px] text-red-600 font-semibold bg-red-100/50 px-2 py-0.5 rounded-lg border border-red-200/50 select-none">
+                                                  0 (Đã xóa)
+                                                </span>
+                                              ) : (
+                                                <div className="flex items-center justify-center gap-1.5 max-w-[100px] mx-auto">
+                                                  <button
+                                                    onClick={() => handleUpdateBatchActual(item.product_id, b.batch_no, String(Math.max(0, b.actual_qty - 1)))}
+                                                    className="w-6 h-6 flex items-center justify-center rounded-full bg-amber-50 hover:bg-amber-100 text-amber-600 border border-amber-200 cursor-pointer select-none transition-all active:scale-90"
+                                                    title="Giảm 1"
+                                                  >
+                                                    <Minus className="w-3 h-3" />
+                                                  </button>
+                                                  <input
+                                                    type="number"
+                                                    value={b.actual_qty}
+                                                    onChange={(e) => handleUpdateBatchActual(item.product_id, b.batch_no, e.target.value)}
+                                                    className="w-10 text-center rounded-lg border border-slate-200 py-0.5 text-xs focus:border-primary focus:outline-none font-medium text-slate-800 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                                    style={{ appearance: 'textfield', WebkitAppearance: 'none', MozAppearance: 'textfield' }}
+                                                  />
+                                                  <button
+                                                    onClick={() => handleUpdateBatchActual(item.product_id, b.batch_no, String(b.actual_qty + 1))}
+                                                    className="w-6 h-6 flex items-center justify-center rounded-full bg-amber-50 hover:bg-amber-100 text-amber-600 border border-amber-200 cursor-pointer select-none transition-all active:scale-90"
+                                                    title="Tăng 1"
+                                                  >
+                                                    <Plus className="w-3 h-3" />
+                                                  </button>
+                                                </div>
+                                              )}
                                             </td>
                                             
                                             {/* Batch discrepancy */}
@@ -1099,6 +1186,29 @@ export function AuditClient({ shopId, shopName }: Props) {
                                             {/* Batch discrepancy val */}
                                             <td className={`px-3 py-2 text-right text-[11px] ${bDiffVal === 0 ? 'text-slate-400' : bDiffVal > 0 ? 'text-green-600 font-semibold' : 'text-red-500 font-semibold'}`}>
                                               {bDiffVal === 0 ? '—' : bDiffVal > 0 ? `+${fmtVND(bDiffVal)}` : fmtVND(bDiffVal)}
+                                            </td>
+
+                                            {/* Action button */}
+                                            <td className="px-3 py-2 text-center align-middle">
+                                              {b.is_deleted ? (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => handleRestoreBatch(item.product_id, b.batch_no)}
+                                                  className="text-emerald-600 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 font-semibold text-[10px] px-2 py-0.5 border border-emerald-250 rounded transition-all cursor-pointer shadow-xs active:scale-95"
+                                                  title="Khôi phục lô"
+                                                >
+                                                  Khôi phục
+                                                </button>
+                                              ) : (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => handleDeleteBatch(item.product_id, b.batch_no)}
+                                                  className="text-slate-400 hover:text-red-500 transition-colors flex items-center justify-center p-1 rounded-full cursor-pointer hover:bg-red-50 mx-auto"
+                                                  title="Xóa lô"
+                                                >
+                                                  <Trash2 className="w-3.5 h-3.5" />
+                                                </button>
+                                              )}
                                             </td>
                                           </tr>
                                         )
@@ -1145,7 +1255,7 @@ export function AuditClient({ shopId, shopName }: Props) {
                                         </td>
                                         
                                         {/* Add action button */}
-                                        <td colSpan={2} className="px-3 py-2 text-center align-middle">
+                                        <td colSpan={3} className="px-3 py-2 text-center align-middle">
                                           <button
                                             type="button"
                                             onClick={() => handleAddInlineBatch(item.product_id)}
