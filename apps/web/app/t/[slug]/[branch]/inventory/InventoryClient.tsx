@@ -3440,7 +3440,7 @@ export function InventoryClient({ shopId, shopName }: Props) {
                       )?.name
                       return (
                         <span className="text-xs font-medium text-slate-500">
-                          Tổng tồn tại {whName ? `Kho ${whName}` : 'chi nhánh'}:
+                          Tổng tồn tại {whName ? `${whName}` : 'chi nhánh'}:
                         </span>
                       )
                     })()}
