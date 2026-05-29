@@ -663,6 +663,7 @@ export function CheckoutModal({
               amount: bankTransferAmt,
               reference_no: data.reference_no || 'SEPAY',
               note: 'Tự động đối soát SEPay',
+              fund_id: qrFund?.id || '',
             }
 
             await localDb.transaction('rw', [localDb.orders, localDb.payments], async () => {
@@ -745,6 +746,7 @@ export function CheckoutModal({
       amount: bankTransferAmt,
       reference_no: 'MANUAL',
       note: 'Xác nhận thủ công tại POS',
+      fund_id: qrFund?.id || '',
     }
 
     if (isOnline && createdLocalOrderRef.current?.server_id) {
@@ -789,7 +791,7 @@ export function CheckoutModal({
             note: `Thanh toán chuyển khoản thủ công cho đơn hàng ${waitingOrderNo}`,
             employee_id: employeeId,
             branch_id: branchId,
-            fund_id: targetFundId
+            fund_id: qrFund?.id || targetFundId
           })
         })
       } catch (apiErr) {
@@ -820,6 +822,7 @@ export function CheckoutModal({
               amount: bankTransferAmt,
               reference_no: 'MANUAL',
               note: 'Xác nhận thủ công tại POS',
+              fund_id: qrFund?.id || '',
             })
             await localDb.syncQueue.update(qItem.id!, { payload })
           }
@@ -890,7 +893,8 @@ export function CheckoutModal({
       {
         method: 'bank_transfer',
         amount: bankTransferAmt,
-        note: 'Chờ chuyển khoản'
+        note: 'Chờ chuyển khoản',
+        fund_id: qrFund?.id || ''
       }
     ]
     try {
