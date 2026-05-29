@@ -11,7 +11,9 @@ export async function GET(
 ) {
   try {
     const { shopId } = await params
-    const { connector } = await requireShopAccess(shopId, 'inventory.view')
+    const { connector, shop } = await requireShopAccess(shopId, 'inventory.view')
+    const tenantId = shop.tenant_id
+    const branchId = shopId
 
     const sp = req.nextUrl.searchParams
     const page = Math.max(1, parseInt(sp.get('page') ?? '1'))
@@ -46,6 +48,29 @@ export async function GET(
       }
     }
 
+    // Auto-Healing database update: if we resolved a primary sales warehouse ID,
+    // update any null, empty, or 'default' warehouse_id values in legacy records
+    const pgConnector = connector as any
+    const pool = pgConnector.pool
+    if (pool && warehouse_id && isPrimarySalesWarehouse) {
+      try {
+        await pool.query(
+          `UPDATE inventory 
+           SET warehouse_id = $1, updated_at = NOW(), last_updated = NOW()
+           WHERE tenant_id = $2 AND branch_id = $3 AND (warehouse_id IS NULL OR warehouse_id = '' OR warehouse_id = 'default')`,
+          [warehouse_id, tenantId, branchId]
+        )
+        await pool.query(
+          `UPDATE stock_movements 
+           SET warehouse_id = $1, updated_at = NOW()
+           WHERE tenant_id = $2 AND branch_id = $3 AND (warehouse_id IS NULL OR warehouse_id = '' OR warehouse_id = 'default')`,
+          [warehouse_id, tenantId, branchId]
+        )
+      } catch (err) {
+        console.error('[Inventory GET] Legacy warehouse auto-healing failed:', err)
+      }
+    }
+
     // 1. Fetch all active products for the branch/shop
     const productFilters: Record<string, string> = { active: 'TRUE' }
     if (branch_id) productFilters.branch_id = branch_id
@@ -57,17 +82,32 @@ export async function GET(
     })
     const products = productsRes.data as any[]
 
-    // 2. Fetch all inventory records for the resolved warehouse_id
+    // 2. Fetch all inventory records for the branch (without database warehouse filter to allow in-memory legacy mapping)
     const inventoryFilters: Record<string, string> = {}
     if (branch_id) inventoryFilters.branch_id = branch_id
     if (product_id) inventoryFilters.product_id = product_id
-    if (warehouse_id) inventoryFilters.warehouse_id = warehouse_id
 
     const inventoryRes = await connector.list('inventory', {
       filters: inventoryFilters,
       limit: 10000
     })
-    const inventories = inventoryRes.data as any[]
+    let inventories = inventoryRes.data as any[]
+
+    // Filter in-memory by warehouse_id
+    if (warehouse_id) {
+      inventories = inventories.filter((inv: any) => {
+        if (isPrimarySalesWarehouse) {
+          return (
+            inv.warehouse_id === warehouse_id ||
+            !inv.warehouse_id ||
+            inv.warehouse_id === '' ||
+            inv.warehouse_id === 'default'
+          )
+        } else {
+          return inv.warehouse_id === warehouse_id
+        }
+      })
+    }
 
     // Map existing inventories by product_id
     const inventoryMap = new Map<string, any>()

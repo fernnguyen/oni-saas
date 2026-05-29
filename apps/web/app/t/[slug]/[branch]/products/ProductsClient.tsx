@@ -221,6 +221,33 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
   const [importingProgress, setImportingProgress] = useState(false)
   const [importConfirmOpen, setImportConfirmOpen] = useState(false)
   const [isParsingExcel, setIsParsingExcel] = useState(false)
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState('')
+
+  // Warehouses query for excel import
+  const { data: warehousesData } = useQuery({
+    queryKey: ['warehouses', shopId],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/warehouses?limit=100`)
+      if (!res.ok) return { data: [] as Record<string, string>[] }
+      return res.json() as Promise<{ data: Record<string, string>[] }>
+    },
+    enabled: importModalOpen,
+  })
+
+  // Reset warehouse selection on branch change
+  useEffect(() => {
+    setSelectedWarehouseId('')
+  }, [shopId])
+
+  // Automatically select the primary sales warehouse by default
+  useEffect(() => {
+    if (warehousesData?.data && warehousesData.data.length > 0 && !selectedWarehouseId) {
+      const saleWh = warehousesData.data.find((w: any) => w.code === 'sale') || warehousesData.data[0]
+      if (saleWh) {
+        setSelectedWarehouseId(saleWh.id || saleWh.warehouse_id)
+      }
+    }
+  }, [warehousesData, selectedWarehouseId])
 
   const [resetModalOpen, setResetModalOpen] = useState(false)
   const [resetConfirmText, setResetConfirmText] = useState('')
@@ -957,7 +984,10 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
       const res = await fetch(`/api/shops/${shopId}/products/import`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ products: parsedProducts })
+        body: JSON.stringify({ 
+          products: parsedProducts,
+          warehouse_id: selectedWarehouseId
+        })
       })
 
       if (!res.ok) {
@@ -2939,6 +2969,36 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
                       <strong className="text-lg font-extrabold text-emerald-800 mt-1 block">
                         {parsedProducts.filter(p => p.metadata).length}
                       </strong>
+                    </div>
+                  </div>
+
+                  {/* Warehouse Selection */}
+                  <div className="rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-50/50 to-indigo-50/30 p-4 shadow-sm space-y-2">
+                    <div className="flex items-center gap-2.5 text-blue-800">
+                      <span className="p-1.5 rounded-xl bg-blue-500 text-white shadow-sm flex items-center justify-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" /></svg>
+                      </span>
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-800">Chọn kho lưu trữ nhập hàng *</h4>
+                        <p className="text-[11px] text-slate-500">Tồn kho ban đầu từ file Excel sẽ được đưa chính xác vào kho này</p>
+                      </div>
+                    </div>
+                    
+                    <div className="max-w-xs">
+                      <select
+                        value={selectedWarehouseId}
+                        onChange={(e) => setSelectedWarehouseId(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 focus:border-primary focus:outline-none transition-all shadow-xs"
+                      >
+                        {(!warehousesData?.data || warehousesData.data.length === 0) && (
+                          <option value="">Đang tải danh sách kho...</option>
+                        )}
+                        {(warehousesData?.data ?? []).map((w) => (
+                          <option key={w.id || w.warehouse_id} value={w.id || w.warehouse_id}>
+                            📦 {w.name} ({w.code?.toUpperCase()})
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   </div>
 

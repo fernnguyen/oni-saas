@@ -18,9 +18,20 @@ export async function POST(
 
     const body = await req.json()
     const { products } = body
+    let warehouse_id = body.warehouse_id || ''
 
     if (!Array.isArray(products)) {
       return NextResponse.json({ error: 'Invalid products payload' }, { status: 400 })
+    }
+
+    if (!warehouse_id) {
+      const whRes = await connector.list('warehouses', {
+        filters: { code: 'sale' },
+        limit: 1
+      });
+      if (whRes.total > 0) {
+        warehouse_id = whRes.data[0].id;
+      }
     }
 
     const pgConnector = connector as any
@@ -242,10 +253,10 @@ export async function POST(
           await client.query(
             `INSERT INTO inventory (
               id, tenant_id, branch_id, product_id, sku, stock_qty, min_stock, unit_cost, 
-              active, created_at, updated_at, last_updated
+              active, created_at, updated_at, last_updated, warehouse_id
             ) VALUES (
               $1, $2, $3, $4, $5, $6, $7, $8, 
-              'TRUE', NOW(), NOW(), NOW()
+              'TRUE', NOW(), NOW(), NOW(), $9
             )`,
             [
               invId,
@@ -255,7 +266,8 @@ export async function POST(
               prefixedSku,
               p.stock_qty || '0',
               p.min_stock || '0',
-              p.cost_price || '0'
+              p.cost_price || '0',
+              warehouse_id || null
             ]
           )
 
@@ -266,11 +278,11 @@ export async function POST(
             const smId = `SM-${tenantHash}-${crypto.randomUUID().substring(0, 8).toUpperCase()}`
             await client.query(
               `INSERT INTO stock_movements (
-                id, tenant_id, branch_id, product_id, sku, type, movement_no, qty, unit_cost, reason, created_at, updated_at, active
+                id, tenant_id, branch_id, product_id, sku, type, movement_no, qty, unit_cost, reason, created_at, updated_at, active, warehouse_id
               ) VALUES (
-                $1, $2, $3, $4, $5, 'adjustment', $6, $7, $8, 'Nhập tồn kho ban đầu từ file Excel KiotViet', NOW(), NOW(), 'TRUE'
+                $1, $2, $3, $4, $5, 'adjustment', $6, $7, $8, 'Nhập tồn kho ban đầu từ file Excel KiotViet', NOW(), NOW(), 'TRUE', $9
               )`,
-              [smId, tenantId, branchId, productId, prefixedSku, movementNo, String(p.stock_qty), String(p.cost_price || '0')]
+              [smId, tenantId, branchId, productId, prefixedSku, movementNo, String(p.stock_qty), String(p.cost_price || '0'), warehouse_id || null]
             )
           }
         }
@@ -386,7 +398,8 @@ export async function POST(
           min_stock: p.min_stock || '0',
           unit_cost: p.cost_price || '0',
           active: 'TRUE',
-          last_updated: new Date().toISOString()
+          last_updated: new Date().toISOString(),
+          warehouse_id: warehouse_id || undefined
         })
 
         // Insert stock movements in fallback path (inventory adjustment history/stock card audit trail)
@@ -414,7 +427,8 @@ export async function POST(
             qty: String(p.stock_qty),
             unit_cost: String(p.cost_price || '0'),
             active: 'TRUE',
-            reason: 'Nhập tồn kho ban đầu từ file Excel KiotViet'
+            reason: 'Nhập tồn kho ban đầu từ file Excel KiotViet',
+            warehouse_id: warehouse_id || undefined
           })
         }
       }

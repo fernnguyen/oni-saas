@@ -1301,8 +1301,8 @@ export function InventoryClient({ shopId, shopName }: Props) {
       </div>
 
       {/* Tabs & Warehouse Filter */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-2 rounded-2xl border border-slate-200 shadow-xs">
-        <div className="flex gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1 w-fit">
+      <div className="border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <nav className="-mb-px flex space-x-4">
           {([
             { key: 'history', label: 'Lịch sử phiếu kho' },
             { key: 'stock', label: 'Tồn kho hiện tại' },
@@ -1310,19 +1310,18 @@ export function InventoryClient({ shopId, shopName }: Props) {
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={[
-                'rounded-lg px-4 py-1.5 text-sm font-medium transition-colors cursor-pointer',
+              className={`whitespace-nowrap pb-2 px-1 border-b-2 font-bold text-sm transition-all cursor-pointer ${
                 activeTab === tab.key
-                  ? 'bg-primary text-white shadow-xs'
-                  : 'text-slate-500 hover:text-slate-700',
-              ].join(' ')}
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+              }`}
             >
               {tab.label}
             </button>
           ))}
-        </div>
+        </nav>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 pb-2">
           <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Bộ lọc Kho:</label>
           <select
             value={selectedWarehouseId}
