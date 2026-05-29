@@ -561,7 +561,31 @@ export function InventoryClient({ shopId, shopName }: Props) {
     })
 
     // Filter out batches with 0 stock quantity
-    const activeBatches = calculatedList.filter(b => b.stock_qty > 0)
+    let activeBatches = calculatedList.filter(b => b.stock_qty > 0)
+
+    // Fallback: If no movements exist to calculate warehouse-specific stock,
+    // use the branch-level batch stocks from Dexie.
+    const sumOfCalculatedInitial = activeBatches.reduce((acc, b) => acc + b.stock_qty, 0)
+    if (sumOfCalculatedInitial === 0 && list.length > 0) {
+      const branchTotal = list.reduce((acc, b) => acc + (b.stock_qty || 0), 0)
+      const scaledBatches = list.map(b => {
+        let batchStock = b.stock_qty || 0
+        if (branchTotal > 0 && totalStockQty !== branchTotal) {
+          // Scale proportional to warehouse stock
+          batchStock = Math.round((b.stock_qty || 0) * (totalStockQty / branchTotal))
+        } else if (branchTotal === 0 && list.length === 1) {
+          batchStock = totalStockQty
+        }
+        return {
+          ...b,
+          stock_qty: batchStock
+        }
+      }).filter(b => b.stock_qty > 0)
+
+      if (scaledBatches.length > 0) {
+        activeBatches = scaledBatches
+      }
+    }
 
     // 4. Healing check: If overall warehouse stock exceeds the sum of batches, allocate to DEFAULT
     const sumOfCalculated = activeBatches.reduce((acc, b) => acc + b.stock_qty, 0)
