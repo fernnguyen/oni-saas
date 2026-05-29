@@ -71,6 +71,7 @@ export async function POST(
 
     // 1. Generate sequential PDK movement_no
     const movementNo = await generateMovementNo(connector, shop.tenant_id)
+    const finalReferenceNo = reference_no.trim() || movementNo
 
     // Cache to prevent duplicate category lookups/creates within this request
     const categoryCache = new Map<string, string>()
@@ -202,7 +203,7 @@ export async function POST(
         unit_cost: pItem.unitCost,
         branch_id: branch_id,
         warehouse_id: warehouse_id, // Save warehouse ID directly in the ledger!
-        reference_no: reference_no,
+        reference_no: finalReferenceNo,
         reason: reason,
         batch_no: pItem.batch_no || '', // Capture batch_no directly in movement ledger
         created_at: getGMT7Time()

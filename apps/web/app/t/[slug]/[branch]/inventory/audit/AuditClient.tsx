@@ -756,7 +756,7 @@ export function AuditClient({ shopId, shopName }: Props) {
       branch_id: shopId,
       warehouse_id: selectedWarehouseId,
       reason: reason || 'Kiểm kho định kỳ',
-      reference_no: referenceNo || `PDK-${Date.now().toString().substring(6)}`,
+      reference_no: referenceNo.trim(),
       items: payloadItems
     }
 
