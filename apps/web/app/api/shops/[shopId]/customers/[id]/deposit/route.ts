@@ -11,8 +11,8 @@ export async function POST(
     const { shopId, id } = await params
     const { connector } = await requireShopAccess(shopId, 'customers.edit')
 
-    const body = await req.json() as { amount: number; method: string; note?: string; employee_id?: string; branch_id?: string }
-    const { amount, method, note, employee_id, branch_id } = body
+    const body = await req.json() as { amount: number; method: string; note?: string; employee_id?: string; branch_id?: string; fund_id?: string }
+    const { amount, method, note, employee_id, branch_id, fund_id } = body
 
     if (amount <= 0) {
       return NextResponse.json({ error: 'Số tiền nạp phải lớn hơn 0' }, { status: 400 })
@@ -31,6 +31,17 @@ export async function POST(
       prepaid_balance: String(newPrepaid)
     })
 
+    // Update payment fund balance if provided
+    if (fund_id) {
+      const fund = await connector.findById('payment-funds', fund_id)
+      if (fund) {
+        const currentFundBalance = parseFloat(fund.current_balance || '0')
+        await connector.update('payment-funds', fund_id, {
+          current_balance: String(currentFundBalance + amount)
+        })
+      }
+    }
+
     // Create cashbook entry
     await connector.create('cashbook', {
       type: 'receipt',
@@ -42,10 +53,14 @@ export async function POST(
       note: note || `Nạp tiền ví trả trước cho khách hàng ${customer.name}`,
       employee_id: employee_id || '',
       branch_id: branch_id || '',
+      fund_id: fund_id || '',
     })
 
     invalidate(shopId, 'customers')
     invalidate(shopId, 'cashbook')
+    if (fund_id) {
+      invalidate(shopId, 'payment-funds')
+    }
 
     return NextResponse.json({ prepaid_balance: newPrepaid })
   } catch (e) {

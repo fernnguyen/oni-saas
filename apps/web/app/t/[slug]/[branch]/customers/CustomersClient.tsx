@@ -3,7 +3,7 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useDebounce } from 'use-debounce'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { DataTable, Column } from '@/app/components/ui/DataTable'
 import { SlideOver } from '@/app/components/ui/SlideOver'
 import { TagBadge } from '@/app/components/ui/TagBadge'
@@ -15,6 +15,21 @@ import { CopyableId } from '@/app/components/ui/CopyableId'
 import { format } from 'date-fns'
 import { UserPlus, Wallet, Pencil, X, Coins, Check, Upload, ArrowLeft } from 'lucide-react'
 import { useShift } from '@/app/components/providers/ShiftProvider'
+import { BANKS } from '@/lib/constants/banks'
+
+export function getBankDisplayName(bankCodeOrName: string) {
+  if (!bankCodeOrName) return '—'
+  const trimmed = bankCodeOrName.trim().toUpperCase()
+  const bank = BANKS.find(
+    (b) =>
+      b.code?.toUpperCase() === trimmed ||
+      b.shortName?.toUpperCase() === trimmed ||
+      b.name?.toUpperCase() === trimmed ||
+      b.short_name?.toUpperCase() === trimmed
+  )
+  return bank ? bank.shortName : bankCodeOrName
+}
+
 
 export function MemberTierBadge({ label, color }: { label: string; color?: string }) {
   const c = (color || 'slate').toLowerCase()
@@ -74,9 +89,25 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
   const canManageCrm = permissions.includes('crm.manage')
   const canAdjustWallet = permissions.includes('crm.wallet_adjust')
 
+  const router = useRouter()
   const queryClient = useQueryClient()
   const searchParams = useSearchParams()
   const initialSearch = searchParams?.get('search') || searchParams?.get('customerId') || ''
+
+  const [activeDropdown, setActiveDropdown] = useState<string | null>(null)
+  const [depositFundId, setDepositFundId] = useState('')
+
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      if (target.closest('.dropdown-actions-trigger')) {
+        return
+      }
+      setActiveDropdown(null)
+    }
+    document.addEventListener('click', handleOutsideClick)
+    return () => document.removeEventListener('click', handleOutsideClick)
+  }, [])
   
   const { data: settings } = useQuery({
     queryKey: ['settings', shopId],
@@ -214,7 +245,7 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
   })
 
   const depositMutation = useMutation({
-    mutationFn: async (payload: { amount: number; method: string; note: string }) => {
+    mutationFn: async (payload: { amount: number; method: string; note: string; fund_id: string }) => {
       if (!depositTarget) return
       const res = await fetch(`/api/shops/${shopId}/customers/${depositTarget.customer_id}/deposit`, {
         method: 'POST',
@@ -227,12 +258,28 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
       }
       return res.json()
     },
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       toast.success('Nạp tiền vào tài khoản thành công!')
+      const customerId = depositTarget?.customer_id || depositTarget?.id
+      if (customerId) {
+        queryClient.invalidateQueries({ queryKey: ['customer-transactions', shopId, customerId] })
+        setViewTarget((prev) => {
+          if (prev && (prev.customer_id === customerId || prev.id === customerId)) {
+            const currentBalance = parseFloat(prev.prepaid_balance || '0')
+            return {
+              ...prev,
+              prepaid_balance: String(currentBalance + variables.amount)
+            }
+          }
+          return prev
+        })
+      }
       setDepositTarget(null)
       setDepositAmount('0')
       setDepositNote('')
       queryClient.invalidateQueries({ queryKey: ['customers', shopId] })
+      queryClient.invalidateQueries({ queryKey: ['cashbook', shopId] })
+      queryClient.invalidateQueries({ queryKey: ['payment-funds', shopId] })
     },
     onError: (err: Error) => toast.error(err.message),
   })
@@ -263,6 +310,12 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
     setDepositAmount('0')
     setDepositMethod('bank_transfer')
     setDepositNote('')
+
+    const defaultFund = funds.find(f => f.is_default === 'TRUE') || funds[0]
+    setDepositFundId(defaultFund?.id || '')
+    if (defaultFund) {
+      setDepositMethod(defaultFund.type === 'cash' ? 'cash' : 'bank_transfer')
+    }
   }
 
   const columns = useMemo<Column<Record<string, string>>[]>(() => [
@@ -300,37 +353,72 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
     },
     {
       key: 'actions',
-      label: '',
-      render: (row) => (
-        <div className="flex items-center gap-2">
-          <button
-            onClick={(e) => { e.stopPropagation(); if (canAdjustWallet) openDeposit(row); }}
-            disabled={!canAdjustWallet}
-            className={`rounded-lg border px-3 py-1.5 text-xs font-medium shadow-sm transition-colors cursor-pointer ${
-              canAdjustWallet
-                ? 'border-emerald-100 bg-white text-emerald-600 hover:bg-emerald-50'
-                : 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed opacity-60'
-            }`}
-            title={canAdjustWallet ? "Nạp tiền trả trước" : "Nạp tiền trả trước 🔒 (Cần quyền)"}
-          >
-            Nạp tiền {!canAdjustWallet && '🔒'}
-          </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); openEdit(row); }}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:bg-slate-50 transition-colors cursor-pointer"
-          >
-            Sửa
-          </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); setDeleteTarget(row); }}
-            className="rounded-lg border border-red-100 bg-white px-3 py-1.5 text-xs font-medium text-red-500 shadow-sm hover:bg-red-50 transition-colors cursor-pointer"
-          >
-            Xóa
-          </button>
-        </div>
-      ),
+      label: 'Thao tác',
+      render: (row) => {
+        const isOpen = activeDropdown === row.customer_id
+        return (
+          <div className="relative inline-block text-left" onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setActiveDropdown(isOpen ? null : row.customer_id)
+              }}
+              className="dropdown-actions-trigger inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 transition-all cursor-pointer active:scale-95"
+            >
+              Thao tác
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor" className={`w-3 h-3 text-slate-500 transition-transform ${isOpen ? 'rotate-180' : ''}`}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+              </svg>
+            </button>
+
+            {isOpen && (
+              <div className="absolute right-0 mt-1.5 w-36 rounded-xl border border-slate-200/80 bg-white py-1 shadow-lg z-[60] origin-top-right focus:outline-none animate-in fade-in slide-in-from-top-1 duration-100">
+                <button
+                  onClick={() => {
+                    setActiveDropdown(null);
+                    if (canAdjustWallet) openDeposit(row);
+                  }}
+                  disabled={!canAdjustWallet}
+                  className={`flex w-full items-center gap-2 px-3 py-2 text-xs font-medium transition-colors cursor-pointer text-left ${
+                    canAdjustWallet
+                      ? 'text-slate-700 hover:bg-slate-50'
+                      : 'text-slate-400 cursor-not-allowed opacity-50'
+                  }`}
+                  title={canAdjustWallet ? "Nạp tiền trả trước" : "Nạp tiền trả trước 🔒 (Cần quyền)"}
+                >
+                  <Wallet className="w-3.5 h-3.5 text-emerald-500" />
+                  Nạp tiền {!canAdjustWallet && '🔒'}
+                </button>
+                <button
+                  onClick={() => {
+                    setActiveDropdown(null);
+                    openEdit(row);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer text-left"
+                >
+                  <Pencil className="w-3.5 h-3.5 text-blue-500" />
+                  Chỉnh sửa
+                </button>
+                <div className="border-t border-slate-100 my-1" />
+                <button
+                  onClick={() => {
+                    setActiveDropdown(null);
+                    setDeleteTarget(row);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-xs font-semibold text-red-650 hover:bg-red-50 transition-colors cursor-pointer text-left"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor" className="w-3.5 h-3.5 text-red-500">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                  </svg>
+                  Xóa bỏ
+                </button>
+              </div>
+            )}
+          </div>
+        )
+      }
     },
-  ], [settings])
+  ], [settings, activeDropdown])
 
   // Excel Import Handlers
   async function handleExcelImport(file: File) {
@@ -475,8 +563,11 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
       setImportFile(null)
       setImportProvider(null)
       setParsedCustomers([])
+      queryClient.resetQueries({ queryKey: ['customers', shopId] })
+      queryClient.refetchQueries({ queryKey: ['customers', shopId] })
       queryClient.invalidateQueries({ queryKey: ['customers', shopId] })
       queryClient.invalidateQueries({ queryKey: ['cashbook', shopId] })
+      router.refresh()
     } catch (err: any) {
       toast.error(err.message)
     } finally {
@@ -991,17 +1082,14 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
               amount: parseFloat(depositAmount),
               method: depositMethod,
               note: depositNote,
+              fund_id: depositFundId,
             })
           }
           setConfirmDepositOpen(false)
         }}
         title="Xác nhận nạp tiền Ví trả trước"
-        description={`Hành động này sẽ tự động tạo một PHIẾU THU SỔ QUỸ (Cashbook) tương ứng. Bạn có chắc chắn muốn nạp ${Number(depositAmount).toLocaleString('vi-VN')}đ bằng hình thức "${
-          depositMethod === 'bank_transfer' ? 'Chuyển khoản' :
-          depositMethod === 'cash' ? 'Tiền mặt' :
-          depositMethod === 'momo' ? 'Momo' :
-          depositMethod === 'vnpay' ? 'VNPay' :
-          depositMethod === 'zalopay' ? 'ZaloPay' : depositMethod
+        description={`Hành động này sẽ tự động tạo một PHIẾU THU SỔ QUỸ (Cashbook) tương ứng và nạp tiền vào ví khách hàng. Bạn có chắc chắn muốn nạp ${Number(depositAmount).toLocaleString('vi-VN')}đ thông qua sổ quỹ "${
+          funds.find(f => f.id === depositFundId)?.name || 'đã chọn'
         }" cho khách hàng "${depositTarget?.name}" không?`}
         confirmLabel="Xác nhận nạp tiền"
         variant="default"
@@ -1069,18 +1157,84 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
           />
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Phương thức thanh toán *</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Tài khoản/Sổ quỹ nhận tiền *</label>
             <select
-              value={depositMethod}
-              onChange={(e) => setDepositMethod(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+              value={depositFundId}
+              onChange={(e) => {
+                const val = e.target.value;
+                setDepositFundId(val);
+                const selectedFund = funds.find(f => f.id === val);
+                if (selectedFund) {
+                  const fundType = selectedFund.type || 'cash';
+                  if (fundType === 'cash') {
+                    setDepositMethod('cash');
+                  } else {
+                    setDepositMethod('bank_transfer');
+                  }
+                }
+              }}
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none transition-colors"
             >
-              <option value="bank_transfer">Chuyển khoản ngân hàng</option>
-              <option value="cash">Tiền mặt</option>
-              <option value="momo">Ví MoMo</option>
-              <option value="vnpay">Ví VNPay</option>
-              <option value="zalopay">Ví ZaloPay</option>
+              {funds.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name} ({f.type === 'cash' ? 'Tiền mặt' : 'Tài khoản ngân hàng'} - Số dư: {Number(f.current_balance || 0).toLocaleString('vi-VN')}đ)
+                </option>
+              ))}
+              {funds.length === 0 && <option value="">Đang tải danh sách sổ quỹ...</option>}
             </select>
+          </div>
+
+          {(() => {
+            const selectedFund = funds.find(f => f.id === depositFundId);
+            if (selectedFund && selectedFund.type === 'bank' && (selectedFund.bank_name || selectedFund.account_number)) {
+              return (
+                <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-4 space-y-2 text-xs text-indigo-900 animate-in fade-in slide-in-from-top-1 duration-200 shadow-xs relative overflow-hidden">
+                  <div className="absolute right-3 top-3 opacity-10 text-3xl font-bold select-none pointer-events-none">🏛️</div>
+                  <p className="font-bold text-[10px] uppercase tracking-wider text-indigo-500 mb-1 flex items-center gap-1">
+                    <span>🏛️</span> Thông tin thanh toán (Chuyển khoản)
+                  </p>
+                  <div className="grid grid-cols-3 gap-y-1.5 gap-x-2">
+                    <span className="text-indigo-650 font-medium">Ngân hàng:</span>
+                    <span className="col-span-2 font-bold text-slate-800">
+                      {getBankDisplayName(selectedFund.bank_name)}
+                    </span>
+                    
+                    <span className="text-indigo-650 font-medium">Số tài khoản:</span>
+                    <span className="col-span-2">
+                      {selectedFund.account_number ? (
+                        <CopyableId
+                          id={selectedFund.account_number}
+                          className="text-sm font-bold text-slate-800"
+                        />
+                      ) : (
+                        <span className="text-sm font-bold text-slate-800">—</span>
+                      )}
+                    </span>
+                    
+                    <span className="text-indigo-650 font-medium">Chủ tài khoản:</span>
+                    <span className="col-span-2">
+                      {selectedFund.account_name ? (
+                        <CopyableId
+                          id={selectedFund.account_name.toUpperCase()}
+                          className="text-sm font-bold text-slate-800 uppercase"
+                        />
+                      ) : (
+                        <span className="text-sm font-bold text-slate-800">—</span>
+                      )}
+                    </span>
+                  </div>
+                </div>
+              );
+            }
+            return null;
+          })()}
+
+          <div className="rounded-lg bg-blue-50 border border-blue-100 p-3 text-xs text-blue-700 space-y-1">
+            <p className="font-semibold flex items-center gap-1.5">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 11.082 1.29l-.041.02a.75.75 0 01-.082-1.29zM12 20.25a8.25 8.25 0 100-16.5 8.25 8.25 0 000 16.5z" /></svg>
+              Tự động khớp phương thức:
+            </p>
+            <p>Khi chọn sổ quỹ trên, phương thức thanh toán tương ứng là: <b>{depositMethod === 'cash' ? 'Tiền mặt' : 'Chuyển khoản ngân hàng'}</b>.</p>
           </div>
 
           <div>
@@ -1197,7 +1351,6 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
               onChange={(e) => {
                 const val = e.target.value;
                 setCollectDebtFundId(val);
-                // Auto map payment method based on fund type
                 const selectedFund = funds.find(f => f.id === val);
                 if (selectedFund) {
                   const fundType = selectedFund.type || 'cash';
@@ -1218,6 +1371,51 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
               {funds.length === 0 && <option value="">Đang tải danh sách sổ quỹ...</option>}
             </select>
           </div>
+
+          {(() => {
+            const selectedFund = funds.find(f => f.id === collectDebtFundId);
+            if (selectedFund && selectedFund.type === 'bank' && (selectedFund.bank_name || selectedFund.account_number)) {
+              return (
+                <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-4 space-y-2 text-xs text-indigo-900 animate-in fade-in slide-in-from-top-1 duration-200 shadow-xs relative overflow-hidden">
+                  <div className="absolute right-3 top-3 opacity-10 text-3xl font-bold select-none pointer-events-none">🏛️</div>
+                  <p className="font-bold text-[10px] uppercase tracking-wider text-indigo-500 mb-1 flex items-center gap-1">
+                    <span>🏛️</span> Thông tin thanh toán (Chuyển khoản)
+                  </p>
+                  <div className="grid grid-cols-3 gap-y-1.5 gap-x-2">
+                    <span className="text-indigo-650 font-medium">Ngân hàng:</span>
+                    <span className="col-span-2 font-bold text-slate-800">
+                      {getBankDisplayName(selectedFund.bank_name)}
+                    </span>
+                    
+                    <span className="text-indigo-650 font-medium">Số tài khoản:</span>
+                    <span className="col-span-2">
+                      {selectedFund.account_number ? (
+                        <CopyableId
+                          id={selectedFund.account_number}
+                          className="text-sm font-bold text-slate-800"
+                        />
+                      ) : (
+                        <span className="text-sm font-bold text-slate-800">—</span>
+                      )}
+                    </span>
+                    
+                    <span className="text-indigo-650 font-medium">Chủ tài khoản:</span>
+                    <span className="col-span-2">
+                      {selectedFund.account_name ? (
+                        <CopyableId
+                          id={selectedFund.account_name.toUpperCase()}
+                          className="text-sm font-bold text-slate-800 uppercase"
+                        />
+                      ) : (
+                        <span className="text-sm font-bold text-slate-800">—</span>
+                      )}
+                    </span>
+                  </div>
+                </div>
+              );
+            }
+            return null;
+          })()}
 
           <div className="rounded-lg bg-blue-50 border border-blue-100 p-3 text-xs text-blue-700 space-y-1">
             <p className="font-semibold flex items-center gap-1.5">
