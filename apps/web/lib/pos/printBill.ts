@@ -1,4 +1,5 @@
 import type { LocalOrder, LocalOrderItem, LocalPayment } from '@/lib/localDb/schema'
+import { BANKS } from '@/lib/constants/banks'
 
 const METHOD_LABEL: Record<string, string> = {
   cash: 'Tiền mặt',
@@ -100,13 +101,68 @@ export async function printBill({
   const phoneHtml = currentSettings?.phone ? `<p class="sub">Hotline: ${currentSettings.phone}</p>` : ''
   
   let qrHtml = ''
-  if (currentSettings?.bank_code && currentSettings?.bank_account_number && currentSettings?.qr_template) {
-    const qrUrl = `https://img.vietqr.io/image/${currentSettings.bank_code}-${currentSettings.bank_account_number}-${currentSettings.qr_template}.png?amount=${total}&addInfo=${orderNo || shortId}&accountName=${currentSettings.bank_account_name || ''}`
-    qrHtml = `<div class="sep"></div>
-    <div style="text-align:center; margin-top: 10px;">
-      <p style="font-weight:bold; margin-bottom: 4px;">Quét QR để thanh toán</p>
-      <img src="${qrUrl}" style="width: 100%; max-width: 95px; margin: 0 auto;" />
-    </div>`
+  
+  // Find bank transfer payment
+  const bankTransferPayment = (payments || []).find((p) => p.method === 'bank_transfer')
+  
+  let activeBankCode = ''
+  let activeBankAccountNumber = ''
+  let activeBankAccountName = ''
+  let activeQrTemplate = 'compact2'
+  let qrAmount = total
+
+  if (bankTransferPayment) {
+    qrAmount = Number(bankTransferPayment.amount || 0)
+    if (qrAmount <= 0) qrAmount = total
+
+    let fundInfo: any = null
+    if (bankTransferPayment.fund_id && shopId) {
+      try {
+        const res = await fetch(`/api/shops/${shopId}/payment-funds?active=TRUE`)
+        if (res.ok) {
+          const json = await res.json()
+          const funds = json.data || []
+          fundInfo = funds.find((f: any) => f.id === bankTransferPayment.fund_id)
+        }
+      } catch (e) {
+        console.error('Failed to fetch payment funds for printBill', e)
+      }
+    }
+
+    if (fundInfo?.account_number && fundInfo?.bank_name) {
+      activeBankCode = fundInfo.bank_name
+      activeBankAccountNumber = fundInfo.account_number
+      activeBankAccountName = fundInfo.account_name || ''
+      activeQrTemplate = fundInfo.qr_template || 'compact2'
+    } else {
+      activeBankCode = currentSettings?.bank_code || ''
+      activeBankAccountNumber = currentSettings?.bank_account_number || ''
+      activeBankAccountName = currentSettings?.bank_account_name || ''
+      activeQrTemplate = currentSettings?.qr_template || 'compact2'
+    }
+  } else {
+    activeBankCode = currentSettings?.bank_code || ''
+    activeBankAccountNumber = currentSettings?.bank_account_number || ''
+    activeBankAccountName = currentSettings?.bank_account_name || ''
+    activeQrTemplate = currentSettings?.qr_template || 'compact2'
+  }
+
+  if (activeBankCode && activeBankAccountNumber && activeQrTemplate) {
+    const qrUrl = `https://img.vietqr.io/image/${activeBankCode}-${activeBankAccountNumber}-${activeQrTemplate}.png?amount=${qrAmount}&addInfo=${orderNo || shortId}&accountName=${encodeURIComponent(activeBankAccountName)}`
+    
+    if (activeQrTemplate === 'qr_only') {
+      qrHtml = `<div class="sep"></div>
+      <div style="text-align:center; margin-top: 10px;">
+        <p style="font-weight:bold; margin-bottom: 4px;">Quét QR để thanh toán</p>
+        <img src="${qrUrl}" style="width: 100%; max-width: 70px; margin: 0 auto;" />
+      </div>`
+    } else {
+      qrHtml = `<div class="sep"></div>
+      <div style="text-align:center; margin-top: 10px;">
+        <p style="font-weight:bold; margin-bottom: 4px;">Quét QR để thanh toán</p>
+        <img src="${qrUrl}" style="width: 100%; max-width: 95px; margin: 0 auto;" />
+      </div>`
+    }
   }
   
   const wifiHtml = currentSettings?.wifi_info ? `<p style="text-align:center;">Wi-Fi: ${currentSettings.wifi_info}</p>` : ''
