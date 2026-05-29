@@ -75,6 +75,10 @@ export async function POST(
       prepaid_balance: '0',
       loyalty_points: '0',
       debt_amount: '0',
+    } as any
+
+    if (data.metadata) {
+      data.metadata = JSON.stringify(data.metadata)
     }
 
     const created = await connector.create('customers', data)

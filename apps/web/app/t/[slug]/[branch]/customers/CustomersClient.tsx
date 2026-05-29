@@ -13,6 +13,7 @@ import { SearchBar } from '@/app/components/ui/SearchBar'
 import { NumberInput } from '@/app/components/ui/NumberInput'
 import { CopyableId } from '@/app/components/ui/CopyableId'
 import { format } from 'date-fns'
+import { UserPlus, Wallet, Pencil, X, Coins, Check, Upload, ArrowLeft } from 'lucide-react'
 
 export function MemberTierBadge({ label, color }: { label: string; color?: string }) {
   const c = (color || 'slate').toLowerCase()
@@ -84,6 +85,24 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
     },
   })
   
+    // Excel Import States
+  const [importModalOpen, setImportModalOpen] = useState(false)
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [importProvider, setImportProvider] = useState<'kiotviet' | 'oni' | null>(null)
+  const [parsedCustomers, setParsedCustomers] = useState<any[]>([])
+  const [isParsingExcel, setIsParsingExcel] = useState(false)
+  const [importingProgress, setImportingProgress] = useState(false)
+  const [conflictStrategy, setConflictStrategy] = useState<'skip' | 'overwrite'>('skip')
+  const [balanceStrategy, setBalanceStrategy] = useState<'overwrite' | 'accumulate'>('accumulate')
+
+  // CRM Debt Collection (Trả nợ) States
+  const [collectDebtTarget, setCollectDebtTarget] = useState<Record<string, string> | null>(null)
+  const [collectDebtAmount, setCollectDebtAmount] = useState('0')
+  const [collectDebtMethod, setCollectDebtMethod] = useState('cash')
+  const [collectDebtFundId, setCollectDebtFundId] = useState('')
+  const [collectDebtNote, setCollectDebtNote] = useState('')
+  const [confirmCollectDebtOpen, setConfirmCollectDebtOpen] = useState(false)
+
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState(initialSearch)
   const [debouncedSearch] = useDebounce(search, 300)
@@ -311,7 +330,251 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
     },
   ], [settings])
 
-  return (
+  // Excel Import Handlers
+  async function handleExcelImport(file: File) {
+    setIsParsingExcel(true)
+    setImportFile(file)
+    try {
+      const { read, utils } = await import('xlsx')
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        try {
+          const binaryStr = e.target?.result
+          const workbook = read(binaryStr, { type: 'binary' })
+          const sheetName = workbook.SheetNames[0]
+          const sheet = workbook.Sheets[sheetName]
+          const rows = utils.sheet_to_json<any[]>(sheet, { header: 1 })
+          
+          if (rows.length < 2) {
+            toast.error('Tệp Excel trống hoặc không có dòng tiêu đề')
+            setIsParsingExcel(false)
+            return
+          }
+
+          const headers = rows[0].map((h: any) => String(h || '').trim())
+          const records: any[] = []
+
+          const colMap: Record<string, number> = {}
+          headers.forEach((h, idx) => {
+            colMap[h] = idx
+          })
+
+          const getVal = (row: any[], headerName: string, directIdx: number) => {
+            const idx = colMap[headerName] !== undefined ? colMap[headerName] : directIdx
+            return row[idx] !== undefined && row[idx] !== null ? String(row[idx]).trim() : ''
+          }
+
+          for (let i = 1; i < rows.length; i++) {
+            const row = rows[i] as any[]
+            if (!row || row.length === 0) continue
+
+            const name = getVal(row, 'Tên khách hàng', 3)
+            if (!name) continue
+
+            const phone = getVal(row, 'Điện thoại', 4)
+            const customer_code = getVal(row, 'Mã khách hàng', 2)
+            const customer_type_str = getVal(row, 'Loại khách', 0)
+            const address_base = getVal(row, 'Địa chỉ', 5)
+            const shipping_area = getVal(row, 'Khu vực giao hàng', 6)
+            const ward = getVal(row, 'Phường/Xã', 7)
+
+            let fullAddress = address_base
+            if (ward) fullAddress += (fullAddress ? ', ' : '') + ward
+            if (shipping_area) fullAddress += (fullAddress ? ', ' : '') + shipping_area
+
+            const email = getVal(row, 'Email', 13)
+            const birthday = getVal(row, 'Ngày sinh', 11)
+            const note = getVal(row, 'Ghi chú', 16)
+            const credit_limit = getVal(row, 'Hạn mức tín dụng', -1) || '0'
+            const debt_amount = getVal(row, 'Nợ cần thu hiện tại', 23) || '0'
+            const loyalty_points = getVal(row, 'Điểm hiện tại', 17) || '0'
+
+            const facebook = getVal(row, 'Facebook', 14)
+            const zalo = getVal(row, 'Zalo', -1)
+            const tax_code = getVal(row, 'Mã số thuế', 9)
+            const id_card = getVal(row, 'Số CMND/CCCD', 10)
+            const gender = getVal(row, 'Giới tính', 12)
+            const company = getVal(row, 'Công ty', 8)
+            const created_by = getVal(row, 'Người tạo', 19)
+            const customer_group = getVal(row, 'Nhóm khách hàng', 15)
+
+            let customer_type = 'retail'
+            if (customer_type_str.toLowerCase().includes('sỉ') || customer_type_str.toLowerCase().includes('wholesale')) {
+              customer_type = 'wholesale'
+            } else if (customer_type_str.toLowerCase().includes('vip')) {
+              customer_type = 'vip'
+            } else if (customer_type_str.toLowerCase().includes('nội bộ') || customer_type_str.toLowerCase().includes('staff')) {
+              customer_type = 'staff'
+            }
+
+            records.push({
+              name,
+              phone,
+              customer_code,
+              customer_type,
+              email,
+              address: fullAddress,
+              birthday,
+              note,
+              credit_limit,
+              debt_amount,
+              loyalty_points,
+              prepaid_balance: '0',
+              zalo,
+              facebook,
+              tax_code,
+              id_card,
+              gender,
+              company,
+              created_by,
+              customer_group,
+              shipping_area,
+              ward
+            })
+          }
+
+          setParsedCustomers(records)
+          toast.success(`Đã đọc thành công ${records.length} khách hàng!`)
+        } catch (err: any) {
+          toast.error('Lỗi khi phân tích dữ liệu Excel: ' + err.message)
+        } finally {
+          setIsParsingExcel(false)
+        }
+      }
+      reader.readAsBinaryString(file)
+    } catch (err: any) {
+      toast.error('Không thể load thư viện xlsx: ' + err.message)
+      setIsParsingExcel(false)
+    }
+  }
+
+  async function submitExcelImport() {
+    if (parsedCustomers.length === 0) return
+    setImportingProgress(true)
+    try {
+      const res = await fetch(`/api/shops/${shopId}/customers/import-batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customers: parsedCustomers,
+          conflict_strategy: conflictStrategy,
+          balance_strategy: balanceStrategy,
+        }),
+      })
+
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}))
+        throw new Error(json.error ?? 'Import thất bại')
+      }
+
+      const result = await res.json()
+      toast.success(`Import hoàn tất! Tạo mới: ${result.created}, Cập nhật: ${result.updated}, Bỏ qua: ${result.skipped}`)
+      setImportModalOpen(false)
+      setImportFile(null)
+      setImportProvider(null)
+      setParsedCustomers([])
+      queryClient.invalidateQueries({ queryKey: ['customers', shopId] })
+      queryClient.invalidateQueries({ queryKey: ['cashbook', shopId] })
+    } catch (err: any) {
+      toast.error(err.message)
+    } finally {
+      setImportingProgress(false)
+    }
+  }
+
+  async function downloadOniTemplate() {
+    try {
+      const { utils, write } = await import('xlsx')
+      const headers = [
+        'Loại khách', 'Mã khách hàng', 'Tên khách hàng', 'Điện thoại', 'Email', 
+        'Địa chỉ', 'Khu vực giao hàng', 'Phường/Xã', 'Công ty', 'Mã số thuế', 
+        'Số CMND/CCCD', 'Ngày sinh', 'Giới tính', 'Facebook', 'Zalo', 'Nhóm khách hàng', 
+        'Ghi chú', 'Điểm hiện tại', 'Nợ cần thu hiện tại'
+      ]
+      const sample = [
+        ['Cá nhân', 'KH0001', 'Nguyễn Văn A', '0912345678', 'a@example.com', '123 Đường Lê Lợi', 'Quận 1, TP Hồ Chí Minh', 'Bến Nghé', '', '', '', '15/10/1990', 'Nam', 'fb.com/nguyenvana', '0912345678', 'Khách thân thiết', 'Khách VIP POS', '100', '0'],
+        ['Công ty', 'KH0002', 'Công ty TNHH Oni', '0987654321', 'contact@oni.vn', '456 Đường Nguyễn Huệ', 'Quận 1, TP Hồ Chí Minh', 'Bến Nghé', 'Công ty TNHH Oni', '0102030405', '038201001234', '', '', '', '', 'Doanh nghiệp', 'Đối tác chiến lược', '0', '5500000']
+      ]
+      const ws = utils.aoa_to_sheet([headers, ...sample])
+      const wb = utils.book_new()
+      utils.book_append_sheet(wb, ws, 'KhachHang')
+      const out = write(wb, { bookType: 'xlsx', type: 'binary' })
+      const buf = new ArrayBuffer(out.length)
+      const view = new Uint8Array(buf)
+      for (let i = 0; i < out.length; i++) view[i] = out.charCodeAt(i) & 0xff
+      const blob = new Blob([buf], { type: 'application/octet-stream' })
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = 'template_KH_Oni.xlsx'
+      a.click()
+    } catch (err: any) {
+      toast.error('Không thể xuất template: ' + err.message)
+    }
+  }
+
+  // Load payment funds (Quỹ tiền mặt, Ngân hàng...)
+  const { data: fundsData } = useQuery({
+    queryKey: ['payment-funds', shopId],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/payment-funds`)
+      if (!res.ok) throw new Error('Không tải được danh sách quỹ')
+      return res.json() as Promise<{ data: Record<string, any>[] }>
+    }
+  })
+  const funds = fundsData?.data ?? []
+
+  // CRM Debt Collection (Trả nợ) Mutation
+  const collectDebtMutation = useMutation({
+    mutationFn: async (payload: { amount: number; method: string; note: string; fund_id: string }) => {
+      if (!collectDebtTarget) return
+      const res = await fetch(`/api/shops/${shopId}/cashbook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'receipt',
+          amount: payload.amount,
+          method: payload.method,
+          category: 'debt_collection',
+          reference_id: collectDebtTarget.customer_id || collectDebtTarget.id,
+          reference_name: collectDebtTarget.name,
+          note: payload.note || `Thu nợ khách hàng ${collectDebtTarget.name}`,
+          fund_id: payload.fund_id || undefined,
+        }),
+      })
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}))
+        throw new Error(json.error ?? 'Thu nợ thất bại')
+      }
+      return res.json()
+    },
+    onSuccess: () => {
+      toast.success('Ghi nhận thu nợ khách hàng thành công!')
+      setCollectDebtTarget(null)
+      setCollectDebtAmount('0')
+      setCollectDebtNote('')
+      queryClient.invalidateQueries({ queryKey: ['customers', shopId] })
+      queryClient.invalidateQueries({ queryKey: ['cashbook', shopId] })
+      queryClient.invalidateQueries({ queryKey: ['payment-funds', shopId] })
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+
+  function openCollectDebt(row: Record<string, string>) {
+    setCollectDebtTarget(row)
+    setCollectDebtAmount(String(parseFloat(row.debt_amount || '0')))
+    setCollectDebtMethod('cash')
+    
+    // Auto-select default fund
+    const defaultFund = funds.find(f => f.is_default === 'TRUE') || funds[0]
+    setCollectDebtFundId(defaultFund?.id || '')
+    if (defaultFund) {
+      setCollectDebtMethod(defaultFund.type === 'cash' ? 'cash' : 'bank_transfer')
+    }
+    
+    setCollectDebtNote(`Thu nợ khách hàng ${row.name}`)
+  }
+
+    return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4">
         <div>
@@ -353,16 +616,30 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
           <>
             <button
               onClick={() => setSlideOpen(false)}
-              className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
+              className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all"
             >
+              <X className="w-4 h-4" />
               Hủy
             </button>
             <button
               onClick={() => saveMutation.mutate(formData)}
               disabled={saveMutation.isPending}
-              className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
+              className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50 flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all shadow-sm"
             >
-              {saveMutation.isPending ? 'Đang lưu...' : 'Lưu'}
+              {saveMutation.isPending ? (
+                <>
+                  <svg className="animate-spin -ml-1 mr-1.5 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Đang lưu...
+                </>
+              ) : (
+                <>
+                  <Check className="w-4 h-4" />
+                  Lưu khách hàng
+                </>
+              )}
             </button>
           </>
         }
@@ -469,9 +746,199 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
               value={formData.note}
               onChange={(e) => setFormData(prev => ({ ...prev, note: e.target.value }))}
               rows={3}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none resize-none"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none resize-none bg-white"
               placeholder="Nhập ghi chú"
             />
+          </div>
+
+          <div className="border-t border-slate-100 pt-4 mt-4 space-y-4">
+            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Thông tin mở rộng (CRM)</h4>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Zalo</label>
+                <input
+                  type="text"
+                  value={(() => {
+                    try {
+                      const meta = typeof formData.metadata === 'string' ? JSON.parse(formData.metadata) : formData.metadata || {}
+                      return meta.zalo || ''
+                    } catch (e) {
+                      return ''
+                    }
+                  })()}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    setFormData(prev => {
+                      let meta = {}
+                      try {
+                        meta = typeof prev.metadata === 'string' ? JSON.parse(prev.metadata) : prev.metadata || {}
+                      } catch (err) {}
+                      return {
+                        ...prev,
+                        metadata: JSON.stringify({ ...meta, zalo: val })
+                      }
+                    })
+                  }}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs focus:border-primary focus:outline-none bg-white"
+                  placeholder="SĐT Zalo"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Facebook Link</label>
+                <input
+                  type="text"
+                  value={(() => {
+                    try {
+                      const meta = typeof formData.metadata === 'string' ? JSON.parse(formData.metadata) : formData.metadata || {}
+                      return meta.facebook || ''
+                    } catch (e) {
+                      return ''
+                    }
+                  })()}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    setFormData(prev => {
+                      let meta = {}
+                      try {
+                        meta = typeof prev.metadata === 'string' ? JSON.parse(prev.metadata) : prev.metadata || {}
+                      } catch (err) {}
+                      return {
+                        ...prev,
+                        metadata: JSON.stringify({ ...meta, facebook: val })
+                      }
+                    })
+                  }}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs focus:border-primary focus:outline-none bg-white"
+                  placeholder="https://facebook.com/..."
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Số CMND/CCCD</label>
+                <input
+                  type="text"
+                  value={(() => {
+                    try {
+                      const meta = typeof formData.metadata === 'string' ? JSON.parse(formData.metadata) : formData.metadata || {}
+                      return meta.id_card || ''
+                    } catch (e) {
+                      return ''
+                    }
+                  })()}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    setFormData(prev => {
+                      let meta = {}
+                      try {
+                        meta = typeof prev.metadata === 'string' ? JSON.parse(prev.metadata) : prev.metadata || {}
+                      } catch (err) {}
+                      return {
+                        ...prev,
+                        metadata: JSON.stringify({ ...meta, id_card: val })
+                      }
+                    })
+                  }}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs focus:border-primary focus:outline-none bg-white"
+                  placeholder="CCCD/CMND"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Mã số thuế</label>
+                <input
+                  type="text"
+                  value={(() => {
+                    try {
+                      const meta = typeof formData.metadata === 'string' ? JSON.parse(formData.metadata) : formData.metadata || {}
+                      return meta.tax_code || ''
+                    } catch (e) {
+                      return ''
+                    }
+                  })()}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    setFormData(prev => {
+                      let meta = {}
+                      try {
+                        meta = typeof prev.metadata === 'string' ? JSON.parse(prev.metadata) : prev.metadata || {}
+                      } catch (err) {}
+                      return {
+                        ...prev,
+                        metadata: JSON.stringify({ ...meta, tax_code: val })
+                      }
+                    })
+                  }}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs focus:border-primary focus:outline-none bg-white"
+                  placeholder="Mã số thuế"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Tên công ty</label>
+                <input
+                  type="text"
+                  value={(() => {
+                    try {
+                      const meta = typeof formData.metadata === 'string' ? JSON.parse(formData.metadata) : formData.metadata || {}
+                      return meta.company || ''
+                    } catch (e) {
+                      return ''
+                    }
+                  })()}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    setFormData(prev => {
+                      let meta = {}
+                      try {
+                        meta = typeof prev.metadata === 'string' ? JSON.parse(prev.metadata) : prev.metadata || {}
+                      } catch (err) {}
+                      return {
+                        ...prev,
+                        metadata: JSON.stringify({ ...meta, company: val })
+                      }
+                    })
+                  }}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs focus:border-primary focus:outline-none bg-white"
+                  placeholder="Tên công ty"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Giới tính</label>
+                <select
+                  value={(() => {
+                    try {
+                      const meta = typeof formData.metadata === 'string' ? JSON.parse(formData.metadata) : formData.metadata || {}
+                      return meta.gender || ''
+                    } catch (e) {
+                      return ''
+                    }
+                  })()}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    setFormData(prev => {
+                      let meta = {}
+                      try {
+                        meta = typeof prev.metadata === 'string' ? JSON.parse(prev.metadata) : prev.metadata || {}
+                      } catch (err) {}
+                      return {
+                        ...prev,
+                        metadata: JSON.stringify({ ...meta, gender: val })
+                      }
+                    })
+                  }}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs focus:border-primary focus:outline-none bg-white"
+                >
+                  <option value="">-- Chưa chọn --</option>
+                  <option value="Nam">Nam</option>
+                  <option value="Nữ">Nữ</option>
+                  <option value="Khác">Khác</option>
+                </select>
+              </div>
+            </div>
           </div>
         </div>
       </SlideOver>
@@ -522,16 +989,30 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
           <>
             <button
               onClick={() => setDepositTarget(null)}
-              className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
+              className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all"
             >
+              <X className="w-4 h-4" />
               Hủy
             </button>
             <button
               onClick={() => setConfirmDepositOpen(true)}
               disabled={depositMutation.isPending || parseFloat(depositAmount) <= 0}
-              className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+              className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all shadow-sm"
             >
-              {depositMutation.isPending ? 'Đang nạp...' : 'Nạp tiền'}
+              {depositMutation.isPending ? (
+                <>
+                  <svg className="animate-spin -ml-1 mr-1.5 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Đang nạp...
+                </>
+              ) : (
+                <>
+                  <Wallet className="w-4 h-4" />
+                  Nạp tiền
+                </>
+              )}
             </button>
           </>
         }
@@ -584,7 +1065,149 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
               placeholder="Nhập ghi chú nạp tiền..."
             />
           </div>
+        </div>
+      </SlideOver>
+
+      <ConfirmDialog
+        open={confirmCollectDebtOpen}
+        onClose={() => setConfirmCollectDebtOpen(false)}
+        onConfirm={() => {
+          if (collectDebtTarget) {
+            collectDebtMutation.mutate({
+              amount: parseFloat(collectDebtAmount),
+              method: collectDebtMethod,
+              fund_id: collectDebtFundId,
+              note: collectDebtNote,
+            })
+          }
+          setConfirmCollectDebtOpen(false)
+        }}
+        title="Xác nhận thu nợ khách hàng"
+        description={`Hành động này sẽ tự động tạo một PHIẾU THU SỔ QUỸ tương ứng và khấu trừ công nợ của khách hàng. Bạn có chắc chắn muốn thu ${Number(collectDebtAmount).toLocaleString('vi-VN')}đ từ khách hàng "${collectDebtTarget?.name}" không?`}
+        confirmLabel="Xác nhận thu nợ"
+        variant="default"
+        loading={collectDebtMutation.isPending}
+      />
+
+      {/* Collect Debt SlideOver */}
+      <SlideOver
+        open={!!collectDebtTarget}
+        onClose={() => setCollectDebtTarget(null)}
+        title={`Thu nợ khách hàng: ${collectDebtTarget?.name}`}
+        footer={
+          <>
+            <button
+              onClick={() => setCollectDebtTarget(null)}
+              className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all"
+            >
+              <X className="w-4 h-4" />
+              Hủy
+            </button>
+            <button
+              onClick={() => setConfirmCollectDebtOpen(true)}
+              disabled={collectDebtMutation.isPending || parseFloat(collectDebtAmount) <= 0}
+              className="rounded-xl bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50 flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all shadow-sm"
+            >
+              {collectDebtMutation.isPending ? (
+                <>
+                  <svg className="animate-spin -ml-1 mr-1.5 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Đang xử lý...
+                </>
+              ) : (
+                <>
+                  <Coins className="w-4 h-4" />
+                  Xác nhận thu nợ
+                </>
+              )}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="rounded-xl border border-red-100 bg-red-50/50 p-3 text-sm space-y-2">
+            <div className="flex justify-between">
+              <span className="text-slate-500">Dư nợ hiện tại:</span>
+              <span className="font-bold text-red-600">
+                {Number(collectDebtTarget?.debt_amount || 0).toLocaleString('vi-VN')}đ
+              </span>
+            </div>
+            <div className="flex justify-between mt-1.5 border-t border-slate-200/50 pt-2">
+              <span className="text-slate-500 font-medium">Dư nợ còn lại sau thu:</span>
+              <span className="font-bold text-slate-800">
+                {Number(Math.max(0, parseFloat(collectDebtTarget?.debt_amount || '0') - (parseFloat(collectDebtAmount) || 0))).toLocaleString('vi-VN')}đ
+              </span>
+            </div>
           </div>
+
+          <div className="space-y-1">
+            <NumberInput
+              label="Số tiền thu *"
+              value={collectDebtAmount}
+              onChange={(v) => setCollectDebtAmount(v)}
+              suffix="đ"
+            />
+            <div className="flex justify-end pt-1">
+              <button
+                type="button"
+                className="text-xs font-semibold text-primary hover:underline hover:text-primary-dark transition-colors cursor-pointer"
+                onClick={() => setCollectDebtAmount(String(parseFloat(collectDebtTarget?.debt_amount || '0')))}
+              >
+                Thu toàn bộ dư nợ
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Tài khoản/Sổ quỹ nhận tiền *</label>
+            <select
+              value={collectDebtFundId}
+              onChange={(e) => {
+                const val = e.target.value;
+                setCollectDebtFundId(val);
+                // Auto map payment method based on fund type
+                const selectedFund = funds.find(f => f.id === val);
+                if (selectedFund) {
+                  const fundType = selectedFund.type || 'cash';
+                  if (fundType === 'cash') {
+                    setCollectDebtMethod('cash');
+                  } else {
+                    setCollectDebtMethod('bank_transfer');
+                  }
+                }
+              }}
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none transition-colors"
+            >
+              {funds.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name} ({f.type === 'cash' ? 'Tiền mặt' : 'Tài khoản ngân hàng'} - Số dư: {Number(f.current_balance || 0).toLocaleString('vi-VN')}đ)
+                </option>
+              ))}
+              {funds.length === 0 && <option value="">Đang tải danh sách sổ quỹ...</option>}
+            </select>
+          </div>
+
+          <div className="rounded-lg bg-blue-50 border border-blue-100 p-3 text-xs text-blue-700 space-y-1">
+            <p className="font-semibold flex items-center gap-1.5">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 11.082 1.29l-.041.02a.75.75 0 01-.082-1.29zM12 20.25a8.25 8.25 0 100-16.5 8.25 8.25 0 000 16.5z" /></svg>
+              Tự động khớp phương thức:
+            </p>
+            <p>Khi chọn sổ quỹ trên, phương thức thanh toán tương ứng là: <b>{collectDebtMethod === 'cash' ? 'Tiền mặt' : 'Chuyển khoản ngân hàng'}</b>.</p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Ghi chú</label>
+            <textarea
+              value={collectDebtNote}
+              onChange={(e) => setCollectDebtNote(e.target.value)}
+              rows={3}
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none resize-none transition-colors"
+              placeholder="Nhập ghi chú thu nợ..."
+            />
+          </div>
+        </div>
       </SlideOver>
 
       {/* Customer Detail SlideOver (Read-Only) */}
@@ -596,6 +1219,24 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
         footer={
           <div className="flex w-full items-center justify-between">
             <div className="flex gap-2">
+              {viewTarget && Number(viewTarget.debt_amount || 0) > 0 && (
+                <button
+                  onClick={() => {
+                    setDetailOpen(false)
+                    openCollectDebt(viewTarget)
+                  }}
+                  disabled={!permissions.includes('cashbook.manage')}
+                  className={`rounded-xl border px-4 py-2 text-sm font-medium shadow-xs transition-all flex items-center gap-1.5 ${
+                    permissions.includes('cashbook.manage')
+                      ? 'border-red-255 bg-red-50 text-red-700 hover:bg-red-100 cursor-pointer active:scale-95'
+                      : 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed opacity-60'
+                  }`}
+                  title={permissions.includes('cashbook.manage') ? "Trả nợ (Thu nợ khách hàng)" : "Trả nợ 🔒 (Cần quyền quản lý sổ quỹ)"}
+                >
+                  <Coins className="w-4 h-4" />
+                  Trả nợ {!permissions.includes('cashbook.manage') && '🔒'}
+                </button>
+              )}
               <button
                 onClick={() => {
                   if (viewTarget && canAdjustWallet) {
@@ -604,13 +1245,14 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
                   }
                 }}
                 disabled={!canAdjustWallet}
-                className={`rounded-xl border px-4 py-2 text-sm font-medium shadow-xs transition-all ${
+                className={`rounded-xl border px-4 py-2 text-sm font-medium shadow-xs transition-all flex items-center gap-1.5 ${
                   canAdjustWallet
                     ? 'border-emerald-250 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 cursor-pointer active:scale-95'
                     : 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed opacity-60'
                 }`}
                 title={canAdjustWallet ? "Nạp tiền ví trả trước" : "Nạp tiền ví trả trước 🔒 (Cần quyền)"}
               >
+                <Wallet className="w-4 h-4" />
                 Nạp tiền ví {!canAdjustWallet && '🔒'}
               </button>
               <button
@@ -620,15 +1262,17 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
                     openEdit(viewTarget)
                   }
                 }}
-                className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark cursor-pointer active:scale-95 transition-all shadow-xs"
+                className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark cursor-pointer active:scale-95 transition-all shadow-xs flex items-center gap-1.5"
               >
+                <Pencil className="w-4 h-4" />
                 Chỉnh sửa thông tin
               </button>
             </div>
             <button
               onClick={() => setDetailOpen(false)}
-              className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 cursor-pointer"
+              className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 cursor-pointer flex items-center gap-1.5"
             >
+              <X className="w-4 h-4" />
               Đóng
             </button>
           </div>
@@ -930,6 +1574,303 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
           </div>
         )}
       </SlideOver>
+      {/* MULTI-PROVIDER EXCEL IMPORT WIZARD MODAL */}
+      {importModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-4xl rounded-2xl bg-white p-6 shadow-2xl border border-slate-100 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                {importProvider !== null && parsedCustomers.length === 0 && (
+                  <button
+                    type="button"
+                    disabled={importingProgress}
+                    onClick={() => {
+                      setImportProvider(null)
+                      setImportFile(null)
+                      setParsedCustomers([])
+                    }}
+                    className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 mr-1 flex items-center justify-center cursor-pointer transition-colors"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                  </button>
+                )}
+                <div className="p-2 rounded-xl bg-primary text-white shadow-md shadow-primary/20">
+                  <Upload className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-800">
+                    {importProvider === null
+                      ? 'Nhập dữ liệu khách hàng từ Excel'
+                      : importProvider === 'kiotviet'
+                        ? 'Nhập dữ liệu khách hàng từ KiotViet'
+                        : 'Nhập dữ liệu khách hàng từ Template chuẩn'}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    {importProvider === null
+                      ? 'Chọn nhà cung cấp dịch vụ hoặc sử dụng file mẫu chuẩn của ONI'
+                      : importProvider === 'kiotviet'
+                        ? 'Hỗ trợ nợ đầu kỳ, điểm tích lũy, các trường động (Zalo, Facebook, MST, CMND...)'
+                        : 'Mẫu file tối ưu hóa dữ liệu khách hàng chuẩn hệ thống với cấu trúc đơn giản'}
+                  </p>
+                </div>
+              </div>
+              <button
+                disabled={importingProgress}
+                onClick={() => {
+                  setImportModalOpen(false)
+                  setImportFile(null)
+                  setImportProvider(null)
+                  setParsedCustomers([])
+                }}
+                className="text-slate-400 hover:text-slate-600 text-lg p-1 cursor-pointer disabled:opacity-50"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="my-4 flex-1 overflow-y-auto space-y-4 pr-1">
+              {importProvider === null ? (
+                <div className="py-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl mx-auto">
+                    {/* KIOTVIET CARD */}
+                    <div
+                      onClick={() => setImportProvider('kiotviet')}
+                      className="group cursor-pointer rounded-2xl border-2 border-slate-100 hover:border-orange-200 bg-white p-6 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col justify-between min-h-[200px]"
+                    >
+                      <div>
+                        <div className="w-12 h-12 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300">
+                          <Upload className="w-6 h-6" />
+                        </div>
+                        <h4 className="text-base font-bold text-slate-800 group-hover:text-orange-600 transition-colors">KiotViet Excel</h4>
+                        <p className="text-xs text-slate-500 mt-2 leading-relaxed">Nhập danh sách khách hàng từ file Excel xuất trực tiếp từ quản lý KiotViet. Giữ nguyên công nợ, điểm số và thông tin cá nhân.</p>
+                      </div>
+                      <div className="mt-4 flex items-center text-xs font-semibold text-orange-600 group-hover:translate-x-1 transition-transform gap-1">
+                        Chọn nguồn này
+                        <ArrowLeft className="w-4 h-4 rotate-180" />
+                      </div>
+                    </div>
+
+                    {/* TEMPLATE ONI CARD */}
+                    <div
+                      className="group rounded-2xl border-2 border-slate-100 hover:border-primary/30 bg-white p-6 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col justify-between min-h-[200px]"
+                    >
+                      <div onClick={() => setImportProvider('oni')} className="cursor-pointer">
+                        <div className="w-12 h-12 rounded-xl bg-primary/10 text-primary flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300">
+                          <Upload className="w-6 h-6" />
+                        </div>
+                        <h4 className="text-base font-bold text-slate-800 group-hover:text-primary transition-colors">Template Chuẩn ONI</h4>
+                        <p className="text-xs text-slate-500 mt-2 leading-relaxed">Nhập dữ liệu tối ưu theo file Excel mẫu chuẩn Oni. Thích hợp cho việc khởi tạo mới nhanh chóng và chính xác.</p>
+                      </div>
+
+                      <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+                        <button
+                          type="button"
+                          onClick={downloadOniTemplate}
+                          className="text-[11px] font-bold text-primary hover:text-primary-dark underline flex items-center gap-1 cursor-pointer"
+                        >
+                          Tải File Mẫu
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setImportProvider('oni')}
+                          className="text-xs font-semibold text-primary hover:text-primary-dark flex items-center gap-1 cursor-pointer group-hover:translate-x-1 transition-transform"
+                        >
+                          Chọn nguồn này
+                          <ArrowLeft className="w-4 h-4 rotate-180" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : parsedCustomers.length === 0 ? (
+                // Drag and drop zone
+                <div className="py-8 flex flex-col items-center justify-center border-2 border-dashed border-slate-200 rounded-2xl hover:border-primary transition-colors duration-300 bg-slate-50/50">
+                  <Upload className="w-12 h-12 text-slate-400 mb-4 animate-bounce" />
+                  <p className="text-sm font-semibold text-slate-700">Kéo thả file Excel của bạn vào đây</p>
+                  <p className="text-xs text-slate-400 mt-1">Hỗ trợ tệp Excel `.xlsx` hoặc `.xls` chứa danh sách khách hàng đầy đủ.</p>
+                  <div className="mt-4 flex gap-3">
+                    {importProvider === 'oni' && (
+                      <button
+                        type="button"
+                        onClick={downloadOniTemplate}
+                        className="rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-4 py-2 text-xs font-semibold text-slate-600 cursor-pointer shadow-xs transition-colors"
+                      >
+                        Tải File Mẫu (.xlsx)
+                      </button>
+                    )}
+                    <label className="rounded-xl bg-primary text-white hover:bg-primary-dark px-4 py-2 text-xs font-semibold cursor-pointer shadow-sm hover:shadow-md transition-all active:scale-95">
+                      Chọn file Excel (.xlsx)
+                      <input
+                        type="file"
+                        className="hidden"
+                        accept=".xlsx, .xls"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          if (file) handleExcelImport(file)
+                        }}
+                      />
+                    </label>
+                  </div>
+                </div>
+              ) : (
+                // Preview data and strategy forms
+                <div className="space-y-6">
+                  {/* Stats card */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="rounded-2xl border border-blue-100 bg-blue-50/50 p-4">
+                      <span className="text-[10px] uppercase font-bold text-blue-500 tracking-wider">Tổng số khách hàng</span>
+                      <div className="text-xl font-black text-blue-650 mt-1">{parsedCustomers.length.toLocaleString()} khách</div>
+                    </div>
+                    <div className="rounded-2xl border border-red-100 bg-red-50/50 p-4">
+                      <span className="text-[10px] uppercase font-bold text-red-500 tracking-wider">Tổng nợ đầu kỳ</span>
+                      <div className="text-xl font-black text-red-600 mt-1">
+                        {parsedCustomers.reduce((sum, c) => sum + (parseFloat(c.debt_amount) || 0), 0).toLocaleString()}đ
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-emerald-100 bg-emerald-50/50 p-4">
+                      <span className="text-[10px] uppercase font-bold text-emerald-500 tracking-wider">Tổng điểm tích lũy</span>
+                      <div className="text-xl font-black text-emerald-600 mt-1">
+                        {parsedCustomers.reduce((sum, c) => sum + (parseFloat(c.loyalty_points) || 0), 0).toLocaleString()} điểm
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Strategy Config Card */}
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-4 space-y-4">
+                    <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                      <svg className="w-4 h-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M10.34 15.84c-.68-.34-1.16-.94-1.34-1.62-.18-.68-.08-1.4.3-1.98l1.4-2.1c.38-.58.98-.98 1.66-1.12.68-.14 1.38-.02 1.96.34l2.1 1.4c.58.38.98.98 1.12 1.66.14.68.02 1.38-.34 1.96l-1.4 2.1c-.38.58-.98.98-1.66 1.12-.68.14-1.38.02-1.96-.34l-2.1-1.4z" /></svg>
+                      Cấu hình xử lý trùng lặp và số dư nợ
+                    </h4>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Duplicate Conflict Strategy */}
+                      <div className="space-y-2">
+                        <label className="block text-xs font-semibold text-slate-600">Khi trùng Số điện thoại hoặc Mã khách hàng:</label>
+                        <div className="flex gap-4">
+                          <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="conflict_strategy"
+                              checked={conflictStrategy === 'skip'}
+                              onChange={() => setConflictStrategy('skip')}
+                              className="text-primary focus:ring-primary w-4 h-4"
+                            />
+                            Bỏ qua (Giữ thông tin cũ)
+                          </label>
+                          <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="conflict_strategy"
+                              checked={conflictStrategy === 'overwrite'}
+                              onChange={() => setConflictStrategy('overwrite')}
+                              className="text-primary focus:ring-primary w-4 h-4"
+                            />
+                            Cập nhật (Ghi đè thông tin mới)
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* Balance Update Strategy */}
+                      {conflictStrategy === 'overwrite' && (
+                        <div className="space-y-2">
+                          <label className="block text-xs font-semibold text-slate-600">Cách xử lý Công nợ và Điểm tích lũy:</label>
+                          <div className="flex gap-4">
+                            <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
+                              <input
+                                type="radio"
+                                name="balance_strategy"
+                                checked={balanceStrategy === 'overwrite'}
+                                onChange={() => setBalanceStrategy('overwrite')}
+                                className="text-primary focus:ring-primary w-4 h-4"
+                              />
+                              Ghi đè số dư từ Excel
+                            </label>
+                            <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
+                              <input
+                                type="radio"
+                                name="balance_strategy"
+                                checked={balanceStrategy === 'accumulate'}
+                                onChange={() => setBalanceStrategy('accumulate')}
+                                className="text-primary focus:ring-primary w-4 h-4"
+                              />
+                              Cộng dồn vào số hiện tại
+                            </label>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="rounded-xl bg-amber-50 border border-amber-100 p-2.5 text-[10px] text-amber-700 leading-relaxed font-medium">
+                      * Cửa hàng sẽ tự động ghi nhận các Phiếu Sổ quỹ (Cashbook) ảo được đánh dấu là `is_virtual` để khớp dòng công nợ đầu kỳ, hoàn toàn không làm sai lệch số dư két tiền/ngân hàng của shop.
+                    </div>
+                  </div>
+
+                  {/* Preview Table */}
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block px-1">Danh sách xem trước (10 dòng đầu)</span>
+                    <div className="rounded-xl border border-slate-200 overflow-x-auto shadow-sm bg-white max-h-60 overflow-y-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider">
+                            <th className="px-3 py-2">Họ tên</th>
+                            <th className="px-3 py-2">Số điện thoại</th>
+                            <th className="px-3 py-2">Mã KH</th>
+                            <th className="px-3 py-2">Loại khách</th>
+                            <th className="px-3 py-2 text-right">Nợ cần thu</th>
+                            <th className="px-3 py-2 text-right">Điểm số</th>
+                            <th className="px-3 py-2">Địa chỉ</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {parsedCustomers.slice(0, 10).map((c, idx) => (
+                            <tr key={idx} className="border-b border-slate-100 hover:bg-slate-50/50">
+                              <td className="px-3 py-2 font-semibold text-slate-800">{c.name}</td>
+                              <td className="px-3 py-2 text-slate-700">{c.phone || '—'}</td>
+                              <td className="px-3 py-2 font-mono font-semibold text-slate-600">{c.customer_code || '—'}</td>
+                              <td className="px-3 py-2 text-slate-600">
+                                <span className="inline-flex px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 text-slate-600">
+                                  {c.customer_type === 'wholesale' ? 'Khách sỉ' : c.customer_type === 'vip' ? 'VIP' : c.customer_type === 'staff' ? 'Nội bộ' : 'Bán lẻ'}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-right font-bold text-red-600 font-mono">{Number(c.debt_amount || 0).toLocaleString()}đ</td>
+                              <td className="px-3 py-2 text-right font-semibold text-blue-600 font-mono">{Number(c.loyalty_points || 0).toLocaleString()}</td>
+                              <td className="px-3 py-2 text-slate-500 truncate max-w-[150px]">{c.address || '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="border-t border-slate-100 pt-3 flex justify-end gap-3">
+              <button
+                disabled={importingProgress}
+                onClick={() => {
+                  setImportModalOpen(false)
+                  setImportFile(null)
+                  setImportProvider(null)
+                  setParsedCustomers([])
+                }}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 cursor-pointer disabled:opacity-50"
+              >
+                Hủy
+              </button>
+              {parsedCustomers.length > 0 && (
+                <button
+                  disabled={importingProgress}
+                  onClick={submitExcelImport}
+                  className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-dark cursor-pointer transition-colors shadow-sm disabled:opacity-50"
+                >
+                  {importingProgress ? 'Đang Import...' : `Bắt đầu Import (${parsedCustomers.length} KH)`}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -40,7 +40,12 @@ export async function PUT(
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { prepaid_balance, loyalty_points, debt_amount, ...data } = parsed
 
-    const updated = await connector.update('customers', id, data)
+    const updateData = { ...data } as any
+    if (updateData.metadata) {
+      updateData.metadata = JSON.stringify(updateData.metadata)
+    }
+
+    const updated = await connector.update('customers', id, updateData)
     invalidate(shopId, 'customers')
     return NextResponse.json(updated)
   } catch (e) {

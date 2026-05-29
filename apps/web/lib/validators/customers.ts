@@ -13,6 +13,7 @@ export const customerCreateSchema = z.object({
   loyalty_points: z.string().optional().default('0'),
   prepaid_balance: z.string().optional().default('0'),
   note:           z.string().optional().default(''),
+  metadata:       z.record(z.string(), z.any()).optional().default({}),
 })
 
 export const customerUpdateSchema = customerCreateSchema.partial()
