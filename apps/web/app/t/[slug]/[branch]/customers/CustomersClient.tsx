@@ -30,6 +30,18 @@ export function getBankDisplayName(bankCodeOrName: string) {
   return bank ? bank.shortName : bankCodeOrName
 }
 
+export function formatCustomerId(id: string | undefined): string {
+  if (!id) return '—'
+  const parts = id.split('-')
+  if (parts.length >= 3 && (parts[0] === 'C' || parts[0] === 'S')) {
+    const num = parts[parts.length - 1]
+    if (/^\d+$/.test(num)) {
+      return `#${num}`
+    }
+  }
+  return id
+}
+
 export function calculateDebtAge(
   orders: any[] = [],
   transactions: any[] = [],
@@ -222,6 +234,10 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
   const [deleteTarget, setDeleteTarget] = useState<Record<string, string> | null>(null)
   const hasAutoOpened = useRef(false)
 
+  // Server-side sorting states
+  const [sortBy, setSortBy] = useState<string | null>(null)
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc' | null>(null)
+
   // CRM Deposit States
   const [depositTarget, setDepositTarget] = useState<Record<string, string> | null>(null)
   const [depositAmount, setDepositAmount] = useState('0')
@@ -235,10 +251,18 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
   const [detailTab, setDetailTab] = useState<'info' | 'orders' | 'transactions'>('info')
 
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['customers', shopId, page, debouncedSearch],
+    queryKey: ['customers', shopId, page, debouncedSearch, sortBy, sortOrder],
     queryFn: async () => {
       const sp = new URLSearchParams({ page: String(page), limit: '50' })
-      if (debouncedSearch) sp.set('search', debouncedSearch)
+      let searchQuery = debouncedSearch
+      if (searchQuery.startsWith('#')) {
+        searchQuery = searchQuery.substring(1)
+      }
+      if (searchQuery) sp.set('search', searchQuery)
+      if (sortBy) {
+        sp.set('sort_by', sortBy)
+        sp.set('sort_order', sortOrder || 'asc')
+      }
       const res = await fetch(`/api/shops/${shopId}/customers?${sp}`)
       if (!res.ok) throw new Error('Không tải được dữ liệu')
       return res.json() as Promise<{ data: Record<string, string>[]; total: number }>
@@ -401,9 +425,15 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
     { 
       key: 'customer_id', 
       label: 'Mã KH',
-      render: (row) => row.customer_id ? <CopyableId id={row.customer_id} className="text-sm font-semibold text-primary" /> : '—'
+      render: (row) => row.customer_id ? (
+        <CopyableId 
+          id={row.customer_id} 
+          label={formatCustomerId(row.customer_id)} 
+          className="text-sm font-semibold text-primary" 
+        />
+      ) : '—'
     },
-    { key: 'name', label: 'Tên' },
+    { key: 'name', label: 'Tên', sortable: true },
     { key: 'phone', label: 'SĐT' },
     {
       key: 'customer_type',
@@ -418,16 +448,19 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
     {
       key: 'loyalty_points',
       label: 'Điểm tích lũy',
+      sortable: true,
       render: (row) => <span className="font-medium text-blue-600">{Number(row.loyalty_points || 0).toLocaleString('vi-VN')} điểm</span>,
     },
     {
       key: 'prepaid_balance',
       label: 'Số dư trả trước',
+      sortable: true,
       render: (row) => <span className="font-semibold text-emerald-600">{Number(row.prepaid_balance || 0).toLocaleString('vi-VN')}đ</span>,
     },
     {
       key: 'debt_amount',
       label: 'Công nợ',
+      sortable: true,
       render: (row) => <span className="font-medium text-slate-700">{Number(row.debt_amount || 0).toLocaleString('vi-VN')}đ</span>,
     },
     {
@@ -806,6 +839,11 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
         emptyState={<EmptyState title="Chưa có khách hàng nào" description="Nhấn '+ Thêm khách hàng' để bắt đầu." />}
         rowKey={(row) => row.customer_id}
         onRowClick={openDetail}
+        onSort={(key, dir) => {
+          setSortBy(key)
+          setSortOrder(dir)
+          setPage(1)
+        }}
       />
 
       <SlideOver
@@ -813,10 +851,10 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
         onClose={() => setSlideOpen(false)}
         title={editingId ? 'Chỉnh sửa khách hàng' : 'Thêm khách hàng'}
         footer={
-          <>
+          <div className="flex flex-col-reverse sm:flex-row justify-end gap-2.5 sm:gap-3 w-full *:w-full sm:*:w-auto">
             <button
               onClick={() => setSlideOpen(false)}
-              className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all"
+              className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all justify-center"
             >
               <X className="w-4 h-4" />
               Hủy
@@ -824,7 +862,7 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
             <button
               onClick={() => saveMutation.mutate(formData)}
               disabled={saveMutation.isPending}
-              className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50 flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all shadow-sm"
+              className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50 flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all shadow-sm justify-center"
             >
               {saveMutation.isPending ? (
                 <>
@@ -841,7 +879,7 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
                 </>
               )}
             </button>
-          </>
+          </div>
         }
       >
         <div className="space-y-4">
@@ -1526,8 +1564,8 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
         title={`Chi tiết khách hàng: ${viewTarget?.name || ''}`}
         width={720}
         footer={
-          <div className="flex w-full items-center justify-between">
-            <div className="flex gap-2">
+          <div className="flex flex-col-reverse sm:flex-row w-full items-center justify-between gap-3 sm:gap-4 *:w-full sm:*:w-auto">
+            <div className="flex flex-col sm:flex-row gap-2">
               {viewTarget && Number(viewTarget.debt_amount || 0) > 0 && (
                 <button
                   onClick={() => {
@@ -1535,7 +1573,7 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
                     openCollectDebt(viewTarget)
                   }}
                   disabled={!permissions.includes('cashbook.manage')}
-                  className={`rounded-xl border px-4 py-2 text-sm font-medium shadow-xs transition-all flex items-center gap-1.5 ${
+                  className={`rounded-xl border px-4 py-2 text-sm font-medium shadow-xs transition-all flex items-center gap-1.5 justify-center ${
                     permissions.includes('cashbook.manage')
                       ? 'border-red-255 bg-red-50 text-red-700 hover:bg-red-100 cursor-pointer active:scale-95'
                       : 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed opacity-60'
@@ -1554,7 +1592,7 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
                   }
                 }}
                 disabled={!canAdjustWallet}
-                className={`rounded-xl border px-4 py-2 text-sm font-medium shadow-xs transition-all flex items-center gap-1.5 ${
+                className={`rounded-xl border px-4 py-2 text-sm font-medium shadow-xs transition-all flex items-center gap-1.5 justify-center ${
                   canAdjustWallet
                     ? 'border-emerald-250 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 cursor-pointer active:scale-95'
                     : 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed opacity-60'
@@ -1571,7 +1609,7 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
                     openEdit(viewTarget)
                   }
                 }}
-                className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark cursor-pointer active:scale-95 transition-all shadow-xs flex items-center gap-1.5"
+                className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark cursor-pointer active:scale-95 transition-all shadow-xs flex items-center gap-1.5 justify-center"
               >
                 <Pencil className="w-4 h-4" />
                 Chỉnh sửa thông tin
@@ -1579,7 +1617,7 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
             </div>
             <button
               onClick={() => setDetailOpen(false)}
-              className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 cursor-pointer flex items-center gap-1.5"
+              className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 cursor-pointer flex items-center gap-1.5 justify-center"
             >
               <X className="w-4 h-4" />
               Đóng
@@ -1701,15 +1739,6 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
                         <span className="text-sm font-bold text-red-655 block">
                           {Number(viewTarget.debt_amount || 0).toLocaleString('vi-VN')}đ
                         </span>
-                        {debtAge > 0 && (
-                          <span className={`text-[9px] font-semibold block mt-0.5 rounded-md py-0.5 px-1.5 inline-flex items-center gap-1.5 ${
-                            debtAge > maxDebtDays 
-                              ? 'text-red-600 bg-red-100/50' 
-                              : 'text-slate-600 bg-slate-100'
-                          }`}>
-                            <Clock className="w-2.5 h-2.5" /> {debtAge} ngày nợ
-                          </span>
-                        )}
                       </div>
                     </div>
 
@@ -1719,7 +1748,11 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
                         <div className="space-y-0.5">
                           <span className="text-xs text-slate-400 block font-medium">Mã khách hàng</span>
                           <span className="text-slate-800 block break-all font-semibold">
-                            <CopyableId id={viewTarget.customer_id} className="text-slate-800 text-sm font-semibold" />
+                            <CopyableId 
+                              id={viewTarget.customer_id} 
+                              label={formatCustomerId(viewTarget.customer_id)} 
+                              className="text-slate-800 text-sm font-semibold" 
+                            />
                           </span>
                         </div>
                         <div className="space-y-0.5">

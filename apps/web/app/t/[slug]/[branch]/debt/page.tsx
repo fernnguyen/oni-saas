@@ -1,7 +1,8 @@
 import { redirect, notFound } from 'next/navigation'
 import { getSupabaseServerClient } from '@/lib/server/supabaseServer'
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
-import { DebtClient } from './DebtClient'
+import { DebtClientDynamic as DebtClient } from './DebtClientDynamic'
+import { Suspense } from 'react'
 
 interface Props {
   params: Promise<{ slug: string; branch: string }>
@@ -25,5 +26,9 @@ export default async function DebtPage({ params }: Props) {
 
   if (!shop) notFound()
 
-  return <DebtClient shopId={shop.id} shopName={shop.name} />
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-slate-500">Đang tải sổ nợ...</div>}>
+      <DebtClient shopId={shop.id} shopName={shop.name} />
+    </Suspense>
+  )
 }

@@ -1,7 +1,8 @@
 import { redirect, notFound } from 'next/navigation'
 import { getSupabaseServerClient } from '@/lib/server/supabaseServer'
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
-import { CustomersClient } from './CustomersClient'
+import { CustomersClientDynamic as CustomersClient } from './CustomersClientDynamic'
+import { Suspense } from 'react'
 
 interface Props {
   params: Promise<{ slug: string; branch: string }>
@@ -34,5 +35,9 @@ export default async function CustomersPage({ params }: Props) {
     ? await getUserPermissions(authData.user.id, tenantShop.tenant_id, shop.id).catch(() => [] as string[])
     : []
 
-  return <CustomersClient shopId={shop.id} shopName={shop.name} permissions={permissions} />
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-slate-500">Đang tải danh sách khách hàng...</div>}>
+      <CustomersClient shopId={shop.id} shopName={shop.name} permissions={permissions} />
+    </Suspense>
+  )
 }

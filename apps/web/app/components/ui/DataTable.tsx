@@ -32,6 +32,7 @@ export interface DataTableProps<T extends object> {
   emptyState?: React.ReactNode
   rowKey?: (row: T, idx: number) => string
   onRowClick?: (row: T) => void
+  onSort?: (key: string | null, dir: 'asc' | 'desc' | null) => void
 }
 
 type SortDir = 'asc' | 'desc' | null
@@ -70,6 +71,7 @@ export function DataTable<T extends object>({
   emptyState,
   rowKey,
   onRowClick,
+  onSort,
 }: DataTableProps<T>) {
   const tableData = rows ?? data ?? []
   const [sortKey, setSortKey] = useState<string | null>(null)
@@ -80,15 +82,23 @@ export function DataTable<T extends object>({
     rowKey ? rowKey(row, idx) : String((row as Record<string, unknown>)['id'] ?? idx)
 
   const handleSort = (key: string) => {
+    let nextKey: string | null = key
+    let nextDir: SortDir = 'asc'
+
     if (sortKey !== key) {
-      setSortKey(key)
-      setSortDir('asc')
+      nextKey = key
+      nextDir = 'asc'
     } else if (sortDir === 'asc') {
-      setSortDir('desc')
+      nextKey = key
+      nextDir = 'desc'
     } else {
-      setSortKey(null)
-      setSortDir(null)
+      nextKey = null
+      nextDir = null
     }
+
+    setSortKey(nextKey)
+    setSortDir(nextDir)
+    onSort?.(nextKey, nextDir)
   }
 
   const sortedData = useMemo(() => {

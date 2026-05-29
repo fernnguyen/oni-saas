@@ -4,11 +4,12 @@ import { toast } from 'sonner'
 
 interface CopyableIdProps {
   id: string
+  label?: string
   onClick?: () => void
   className?: string
 }
 
-export function CopyableId({ id, onClick, className }: CopyableIdProps) {
+export function CopyableId({ id, label, onClick, className }: CopyableIdProps) {
   const [copied, setCopied] = useState(false)
 
   const handleCopy = (e: React.MouseEvent) => {
@@ -25,10 +26,10 @@ export function CopyableId({ id, onClick, className }: CopyableIdProps) {
           onClick={onClick}
           className={className || "text-primary font-semibold hover:underline"}
         >
-          {id}
+          {label || id}
         </button>
       ) : (
-        <span className={className || "text-primary font-semibold"}>{id}</span>
+        <span className={className || "text-primary font-semibold"}>{label || id}</span>
       )}
       <button
         onClick={handleCopy}

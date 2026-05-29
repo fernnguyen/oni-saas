@@ -26,6 +26,18 @@ export function getBankDisplayName(bankCodeOrName: string) {
   return bank ? bank.shortName : bankCodeOrName
 }
 
+export function formatCustomerId(id: string | undefined): string {
+  if (!id) return '—'
+  const parts = id.split('-')
+  if (parts.length >= 3 && (parts[0] === 'C' || parts[0] === 'S')) {
+    const num = parts[parts.length - 1]
+    if (/^\d+$/.test(num)) {
+      return `#${num}`
+    }
+  }
+  return id
+}
+
 interface Props {
   shopId: string
   shopName: string
@@ -173,7 +185,10 @@ export function DebtClient({ shopId }: Props) {
     })
 
     if (!search) return mapped
-    const s = search.toLowerCase()
+    let s = search.toLowerCase()
+    if (s.startsWith('#')) {
+      s = s.substring(1)
+    }
     return mapped.filter(row => 
       row.name?.toLowerCase().includes(s) || 
       row.phone?.toLowerCase().includes(s) || 
@@ -185,7 +200,16 @@ export function DebtClient({ shopId }: Props) {
     { 
       key: 'id_code', 
       label: tab === 'supplier' ? 'Mã NCC' : 'Mã KH', 
-      render: (row) => <span>{tab === 'supplier' ? row.id : row.customer_id}</span> 
+      render: (row) => {
+        const fullId = tab === 'supplier' ? row.id : row.customer_id
+        return fullId ? (
+          <CopyableId 
+            id={fullId} 
+            label={formatCustomerId(fullId)} 
+            className="text-sm font-semibold text-primary" 
+          />
+        ) : <span>—</span>
+      }
     },
     { 
       key: 'name', 
@@ -308,10 +332,10 @@ export function DebtClient({ shopId }: Props) {
         onClose={() => setSlideOpen(false)}
         title={tab === 'supplier' ? 'Trả nợ nhà cung cấp' : 'Thu nợ khách hàng'}
         footer={
-          <>
+          <div className="flex flex-col-reverse sm:flex-row justify-end gap-2.5 sm:gap-3 w-full *:w-full sm:*:w-auto">
             <button
               onClick={() => setSlideOpen(false)}
-              className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all"
+              className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all justify-center"
             >
               <X className="w-4 h-4" />
               Hủy
@@ -319,7 +343,7 @@ export function DebtClient({ shopId }: Props) {
             <button
               onClick={() => setConfirmOpen(true)}
               disabled={collectMutation.isPending || amountToCollect <= 0}
-              className="rounded-xl bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50 flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all shadow-sm"
+              className="rounded-xl bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50 flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all shadow-sm justify-center"
             >
               {collectMutation.isPending ? (
                 <>
@@ -336,7 +360,7 @@ export function DebtClient({ shopId }: Props) {
                 </>
               )}
             </button>
-          </>
+          </div>
         }
       >
         {selectedEntity && (
