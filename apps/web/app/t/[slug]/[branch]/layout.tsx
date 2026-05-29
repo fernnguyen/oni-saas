@@ -7,6 +7,7 @@ import type { Metadata } from 'next';
 import { checkFeatureAccess } from '@/lib/server/features';
 import { NotificationProvider } from '@/app/components/notifications/NotificationContext';
 import QRNotificationCenter from './channels/pos/components/QRNotificationCenter';
+import { ShiftProvider } from '@/app/components/providers/ShiftProvider';
 
 interface Props {
   params: Promise<{ slug: string; branch: string }>;
@@ -184,7 +185,14 @@ export default async function BranchLayout({ params, children }: Props) {
         currentBranchAddress={shop.address}
         industryType={tenant.industry_type}
       >
-        {children}
+        <ShiftProvider
+          shopId={shop.id}
+          branchId={shop.id}
+          userEmail={authData.user.email || ''}
+          permissions={permissions}
+        >
+          {children}
+        </ShiftProvider>
       </DashboardShell>
       <QRNotificationCenter
         shopId={shop.id}

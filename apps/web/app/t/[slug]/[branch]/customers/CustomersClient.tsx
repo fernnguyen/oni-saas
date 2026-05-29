@@ -14,6 +14,7 @@ import { NumberInput } from '@/app/components/ui/NumberInput'
 import { CopyableId } from '@/app/components/ui/CopyableId'
 import { format } from 'date-fns'
 import { UserPlus, Wallet, Pencil, X, Coins, Check, Upload, ArrowLeft } from 'lucide-react'
+import { useShift } from '@/app/components/providers/ShiftProvider'
 
 export function MemberTierBadge({ label, color }: { label: string; color?: string }) {
   const c = (color || 'slate').toLowerCase()
@@ -69,6 +70,7 @@ const EMPTY_FORM = {
 }
 
 export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
+  const { checkShiftOrOpen } = useShift()
   const canManageCrm = permissions.includes('crm.manage')
   const canAdjustWallet = permissions.includes('crm.wallet_adjust')
 
@@ -514,9 +516,9 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
 
   // Load payment funds (Quỹ tiền mặt, Ngân hàng...)
   const { data: fundsData } = useQuery({
-    queryKey: ['payment-funds', shopId],
+    queryKey: ['payment-funds', shopId, 'active'],
     queryFn: async () => {
-      const res = await fetch(`/api/shops/${shopId}/payment-funds`)
+      const res = await fetch(`/api/shops/${shopId}/payment-funds?active=TRUE`)
       if (!res.ok) throw new Error('Không tải được danh sách quỹ')
       return res.json() as Promise<{ data: Record<string, any>[] }>
     }
@@ -547,8 +549,24 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
       }
       return res.json()
     },
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       toast.success('Ghi nhận thu nợ khách hàng thành công!')
+      const customerId = collectDebtTarget?.customer_id || collectDebtTarget?.id
+      if (customerId) {
+        queryClient.invalidateQueries({ queryKey: ['customer-transactions', shopId, customerId] })
+        setViewTarget((prev) => {
+          if (prev && (prev.customer_id === customerId || prev.id === customerId)) {
+            const currentDebt = parseFloat(prev.debt_amount || '0')
+            const amountPaid = variables.amount
+            const newDebt = Math.max(0, currentDebt - amountPaid)
+            return {
+              ...prev,
+              debt_amount: String(newDebt)
+            }
+          }
+          return prev
+        })
+      }
       setCollectDebtTarget(null)
       setCollectDebtAmount('0')
       setCollectDebtNote('')
@@ -1073,11 +1091,13 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
         onClose={() => setConfirmCollectDebtOpen(false)}
         onConfirm={() => {
           if (collectDebtTarget) {
-            collectDebtMutation.mutate({
-              amount: parseFloat(collectDebtAmount),
-              method: collectDebtMethod,
-              fund_id: collectDebtFundId,
-              note: collectDebtNote,
+            checkShiftOrOpen(() => {
+              collectDebtMutation.mutate({
+                amount: parseFloat(collectDebtAmount),
+                method: collectDebtMethod,
+                fund_id: collectDebtFundId,
+                note: collectDebtNote,
+              })
             })
           }
           setConfirmCollectDebtOpen(false)
@@ -1234,7 +1254,7 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
                   title={permissions.includes('cashbook.manage') ? "Trả nợ (Thu nợ khách hàng)" : "Trả nợ 🔒 (Cần quyền quản lý sổ quỹ)"}
                 >
                   <Coins className="w-4 h-4" />
-                  Trả nợ {!permissions.includes('cashbook.manage') && '🔒'}
+                  Thu nợ {!permissions.includes('cashbook.manage') && '🔒'}
                 </button>
               )}
               <button

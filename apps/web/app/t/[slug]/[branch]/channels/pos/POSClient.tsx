@@ -18,6 +18,7 @@ import { CheckoutModal } from './components/CheckoutModal'
 import { SyncStatusBar } from './components/SyncStatusBar'
 import { OrderHistoryPanel } from './components/OrderHistoryPanel'
 import { CustomerCreateModal } from './components/CustomerCreateModal'
+import { useShift } from '@/app/components/providers/ShiftProvider'
 
 interface Props {
   shopId: string
@@ -46,6 +47,7 @@ const shellCls = '-mx-4 -my-4 md:-mx-6 md:-my-6 flex flex-col bg-slate-50 overfl
 const shellStyle = { height: 'calc(100dvh - 3.5rem)' } as const
 
 export function POSClient({ shopId, branchId, shopName, userEmail, backPath, autoPrintReceipt, mutePosSound, permissions = [] }: Props) {
+  const { checkShiftOrOpen } = useShift()
   const { status, lastHydratedAt, refresh } = usePOSHydration(shopId, branchId)
   const isOnline = useNetworkStatus()
   const confirm = useConfirm()
@@ -175,9 +177,8 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
   // Auto-open Shift Open Modal if enabled but no active shift
   useEffect(() => {
     if (isShiftEnabled && !isOpenShiftLoading && !hasActiveShift && !hasDismissedShiftOpen) {
-      setShiftOpenModalOpen(true)
-    } else {
-      setShiftOpenModalOpen(false)
+      checkShiftOrOpen(() => {})
+      setHasDismissedShiftOpen(true)
     }
   }, [isShiftEnabled, isOpenShiftLoading, hasActiveShift, hasDismissedShiftOpen])
 
@@ -809,12 +810,9 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
       if (e.key === 'F9') {
         if (!checkoutOpen && cart.items.length > 0) {
           e.preventDefault()
-          if (isShiftEnabled && !hasActiveShift) {
-            toast.error('Vui lòng mở ca làm việc trước khi thanh toán!')
-            setShiftOpenModalOpen(true)
-          } else {
+          checkShiftOrOpen(() => {
             setCheckoutOpen(true)
-          }
+          })
         }
       }
 
@@ -1173,8 +1171,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
           {isShiftEnabled && !hasActiveShift && (
             <button
               onClick={() => {
-                setOpeningCashInput('0')
-                setShiftOpenModalOpen(true)
+                checkShiftOrOpen(() => {})
               }}
               className="flex items-center gap-1.5 rounded border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-100 transition-colors animate-pulse cursor-pointer shrink-0"
               title="Mở ca làm việc mới"
@@ -1272,12 +1269,9 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
             onNoteChange={cart.setNote}
             onHold={holdCurrentCart}
             onCheckout={() => {
-              if (isShiftEnabled && !hasActiveShift) {
-                toast.error('Vui lòng mở ca làm việc trước khi thanh toán!')
-                setShiftOpenModalOpen(true)
-                return
-              }
-              setCheckoutOpen(true)
+              checkShiftOrOpen(() => {
+                setCheckoutOpen(true)
+              })
             }}
             onClearCart={clearCart}
             onAddToCart={cart.addItem}
@@ -1381,9 +1375,9 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
         onSuccess={handleCustomerCreatedGlobal}
       />
 
-      {/* DIALOG 1: MỞ CA LÀM VIỆC (SHIFT OPEN) */}
+      {/* DIALOG 1: MỞ CA LÀM VIỆC (SHIFT OPEN) - DISABLED locally in favor of global ShiftProvider */}
       <ConfirmDialog
-        open={shiftOpenModalOpen}
+        open={false}
         onClose={() => {
           setShiftOpenModalOpen(false)
           setHasDismissedShiftOpen(true)

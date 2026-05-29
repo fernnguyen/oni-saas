@@ -136,7 +136,7 @@ export async function POST(
   let tx: RollbackContext | undefined;
   try {
     const { shopId } = await params
-    const { connector, user } = await requireShopAccess(shopId, 'cashbook.manage')
+    const { connector, user, shop, permissions } = await requireShopAccess(shopId, 'cashbook.manage')
     tx = new RollbackContext()
 
     const body = await req.json()
@@ -155,20 +155,24 @@ export async function POST(
     let activeShift: Record<string, string> | null = null
 
     if (isShiftEnabled) {
-      const userEmail = user.email || ''
-      
-      const shiftsRes = await connector.list('shop-shifts', {
-        filters: { branch_id: branchId, user_id: userEmail, status: 'open' },
-        limit: 1
-      })
-      
-      if (shiftsRes.total === 0) {
-        return NextResponse.json(
-          { error: 'Yêu cầu mở ca làm việc: Vui lòng mở ca làm việc tại POS trước khi thực hiện thu/chi!' },
-          { status: 400 }
-        )
+      const isBypassShift = permissions.includes('cashbook.shift.manage')
+
+      if (!isBypassShift) {
+        const userEmail = user.email || ''
+        
+        const shiftsRes = await connector.list('shop-shifts', {
+          filters: { branch_id: branchId, user_id: userEmail, status: 'open' },
+          limit: 1
+        })
+        
+        if (shiftsRes.total === 0) {
+          return NextResponse.json(
+            { error: 'Yêu cầu mở ca làm việc: Vui lòng mở ca làm việc tại POS trước khi thực hiện thu/chi!' },
+            { status: 400 }
+          )
+        }
+        activeShift = shiftsRes.data[0]
       }
-      activeShift = shiftsRes.data[0]
     }
 
     // --- XỬ LÝ QUỸ THANH TOÁN (FUND) ---
