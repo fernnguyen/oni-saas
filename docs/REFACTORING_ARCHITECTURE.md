@@ -118,4 +118,11 @@ Hệ thống chia làm 2 phân tầng dữ liệu rõ rệt. Agent phải phân 
   - **BẮT BUỘC (Đúng):** `<Link href="/q1/settings">` hoặc `router.push('/q1/settings')` (hoặc dùng `/[branch]/settings` với biến branch tương ứng).
 - AI Agent phải luôn ghi nhớ rằng đối với trình duyệt của người dùng, `/t/[slug]` không hề tồn tại.
 
+### 6.5 Vị trí đặt file Test & Bảo mật thông tin nhạy cảm (Testing & Security)
+- **QUY TẮC BẮT BUỘC:** Mọi file test (unit test, integration test, scratch test scripts) **BẮT BUỘC** phải được đặt bên trong thư mục [tests/](file:///Users/fern/Coding/ERP/oni-saas-starter/tests) ở thư mục gốc của dự án.
+- **CẤM TUYỆT ĐỐI:** Không sinh hoặc lưu trữ các file test, file nháp test bừa bãi ở các thư mục bên ngoài (như `apps/web/`, `packages/`, hoặc thư mục gốc `oni-saas-starter/`), trừ khi có yêu cầu đặc biệt rõ ràng.
+- **An toàn bảo mật:** Các file test thường chứa các API Key, Database URL, hoặc Secret credentials dùng cho mục đích chạy thử nghiệm. Việc đặt sai vị trí có thể vô tình đưa chúng lên Git repository gây lộ lọt thông tin bảo mật nghiêm trọng.
+- AI Agent phải luôn dọn dẹp sạch các file tạm/file nháp chạy test sau khi hoàn thành công việc và kiểm tra kỹ git status trước khi dừng Turn.
+
+
 
