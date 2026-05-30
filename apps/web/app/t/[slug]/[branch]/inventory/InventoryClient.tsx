@@ -942,6 +942,41 @@ export function InventoryClient({ shopId, shopName }: Props) {
     enabled: activeTab === 'history',
   })
 
+  // Sync URL search parameters on load
+  useEffect(() => {
+    if (!initialSearch) return
+
+    const movementPrefixes = ['SM-', 'PDK-', 'PN-', 'PX-', 'PTH-', 'CKV-', 'CKX-']
+    const isMovementSearch = movementPrefixes.some(prefix => initialSearch.toUpperCase().startsWith(prefix))
+
+    if (isMovementSearch) {
+      setActiveTab('history')
+      setHistorySearch(initialSearch)
+      setSearch('')
+    } else {
+      setActiveTab('stock')
+      setSearch(initialSearch)
+      setHistorySearch(initialSearch)
+    }
+  }, [initialSearch])
+
+  // Automatically expand matching movement slip details when searching for a specific slip code
+  useEffect(() => {
+    if (debouncedHistorySearch && movementsData?.data && movementsData.data.length > 0) {
+      const movementPrefixes = ['SM-', 'PDK-', 'PN-', 'PX-', 'PTH-', 'CKV-', 'CKX-']
+      const isMovementSearch = movementPrefixes.some(prefix => debouncedHistorySearch.toUpperCase().startsWith(prefix))
+      
+      if (isMovementSearch) {
+        const keys = new Set<string>()
+        movementsData.data.forEach((row: any) => {
+          const key = row.movement_no || `single-${row.movement_id}`
+          keys.add(key)
+        })
+        setExpandedMovements(keys)
+      }
+    }
+  }, [movementsData, debouncedHistorySearch])
+
   // Create movement mutation
   const mutation = useMutation({
     mutationFn: async (payload: any) => {
