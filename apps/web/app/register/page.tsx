@@ -2,7 +2,7 @@ import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
 import { RegisterForm } from './RegisterForm';
 
 export default async function RegisterPage({ searchParams }: { searchParams: Promise<{ [key: string]: string | string[] | undefined }> }) {
-  const { domain } = await searchParams;
+  const { domain, industry } = await searchParams;
   const admin = getSupabaseAdminClient();
   
   // Fetch available plans from the database, ordered by ID (e.g. Mini -> Pro -> Enterprise)
@@ -11,5 +11,11 @@ export default async function RegisterPage({ searchParams }: { searchParams: Pro
   // Fallback to empty array if no plans exist in the DB
   const plans = dbPlans || [];
 
-  return <RegisterForm plans={plans} initialDomain={typeof domain === 'string' ? domain : undefined} />;
+  return (
+    <RegisterForm 
+      plans={plans} 
+      initialDomain={typeof domain === 'string' ? domain : undefined} 
+      initialIndustry={typeof industry === 'string' ? industry : undefined}
+    />
+  );
 }

@@ -74,7 +74,7 @@ const INDUSTRY_VISUALS: Record<IndustryType, {
   },
 };
 
-export function RegisterForm({ plans, initialDomain }: { plans: any[], initialDomain?: string }) {
+export function RegisterForm({ plans, initialDomain, initialIndustry }: { plans: any[], initialDomain?: string, initialIndustry?: string }) {
   const router = useRouter();
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [slug, setSlug] = useState(initialDomain || '');
@@ -88,7 +88,55 @@ export function RegisterForm({ plans, initialDomain }: { plans: any[], initialDo
   const [selectedPlanCode, setSelectedPlanCode] = useState(defaultPlan?.code || '');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [industryType, setIndustryType] = useState<IndustryType>('retail');
+
+  const [industryType, setIndustryType] = useState<IndustryType>(() => {
+    if (initialIndustry) {
+      const normalized = initialIndustry.toLowerCase();
+      // Check if it matches INDUSTRY_TYPES directly
+      if (INDUSTRY_TYPES.includes(normalized as any)) {
+        return normalized as IndustryType;
+      }
+      
+      // Look up sub-industries/slug mapping
+      const mapping: Record<string, IndustryType> = {
+        // Retail
+        'nha-thuoc-quay-duoc': 'retail',
+        'dien-thoai-dien-may': 'retail',
+        'tap-hoa-sieu-thi': 'retail',
+        'my-pham-hoa-my-pham': 'retail',
+        'vat-lieu-xay-dung-son': 'retail',
+        'nong-san-thuc-pham-sach': 'retail',
+        'me-be': 'retail',
+        'sach-van-phong-pham': 'retail',
+        // Fashion
+        'thoi-trang-phu-kien': 'fashion',
+        // FnB
+        'cafe-tra-sua': 'fnb',
+        'nha-hang-quan-an': 'fnb',
+        'bar-pub-club': 'fnb',
+        // Billiards
+        'quan-billiards-bi-a': 'billiards',
+        // Sports Court
+        'san-pickleball-the-thao': 'sports_court',
+        'sports-court': 'sports_court',
+        // Lodging
+        'khach-san-nha-nghi': 'lodging',
+        'homestay-villa': 'lodging',
+        // Service Hourly
+        'beauty-spa-massage': 'service_hourly',
+        'hair-salon-nails': 'service_hourly',
+        'karaoke-giai-tri': 'service_hourly',
+        'phong-kham-tu-nhan': 'service_hourly',
+        'fitness-yoga-center': 'service_hourly',
+        'service-hourly': 'service_hourly',
+      };
+      
+      if (mapping[normalized]) {
+        return mapping[normalized];
+      }
+    }
+    return 'retail';
+  });
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function handleNameChange(val: string) {

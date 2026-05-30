@@ -4,74 +4,78 @@ import { getSupabaseAdminClient } from '../lib/server/supabaseAdmin';
 import { PricingSection } from './PricingSection';
 import { LoginButton } from './LoginButton';
 import { HeroDashboardMock } from './HeroDashboardMock';
-
-/* ── Inline SVG icon components ─────────────────────────────── */
-const DatabaseIcon = () => (
-  <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-    <ellipse cx="12" cy="5" rx="9" ry="3" /><path d="M21 12c0 1.66-4.03 3-9 3s-9-1.34-9-3" /><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5" />
-  </svg>
-);
-const AiIcon = () => (
-  <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
-  </svg>
-);
-const BellIcon = () => (
-  <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
-  </svg>
-);
-const ShopIcon = () => (
-  <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 21v-7.5a.75.75 0 01.75-.75h3a.75.75 0 01.75.75V21m-4.5 0H2.36m11.14 0H18m0 0h3.64m-1.39 0V9.349m-16.5 11.65V9.35m0 0a3.001 3.001 0 003.75-.615A2.993 2.993 0 009.75 9.75c.896 0 1.7-.393 2.25-1.016a2.993 2.993 0 002.25 1.016c.896 0 1.7-.393 2.25-1.016a3.001 3.001 0 003.75.614m-16.5 0a3.004 3.004 0 01-.621-4.72L4.318 3.44A1.5 1.5 0 015.378 3h13.243a1.5 1.5 0 011.06.44l1.19 1.189a3 3 0 01-.621 4.72m-13.5 8.65h3.75a.75.75 0 00.75-.75V13.5a.75.75 0 00-.75-.75H6.75a.75.75 0 00-.75.75v3.75c0 .415.336.75.75.75z" />
-  </svg>
-);
-const ShieldIcon = () => (
-  <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
-  </svg>
-);
-const GlobeIcon = () => (
-  <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 9c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 9c0-.778.099-1.533.284-2.253" />
-  </svg>
-);
-const CheckIcon = () => (
-  <svg className="h-5 w-5 shrink-0 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-  </svg>
-);
+import { IndustryDropdown } from './components/layout/IndustryDropdown';
+import { INDUSTRY_GROUPS, INDUSTRIES_LIST, ALL_SECTORS } from './components/layout/industriesData';
+import { 
+  Database, 
+  Sparkles, 
+  MessageSquare, 
+  Store, 
+  Shield, 
+  Globe, 
+  Check, 
+  FileSpreadsheet, 
+  ArrowRight,
+  Clock,
+  QrCode,
+  Calendar,
+  AlertCircle
+} from 'lucide-react';
 
 /* ── Data ────────────────────────────────────────────────────── */
 const FEATURES = [
-  { icon: <DatabaseIcon />, title: 'BYOD - Sở hữu dữ liệu', desc: 'Kết nối Google Sheets, Supabase hoặc database riêng. Dữ liệu luôn thuộc về bạn, chúng tôi không can thiệp.' },
-  { icon: <AiIcon />, title: 'AI thông minh', desc: 'Phân tích doanh thu, dự báo hàng tồn, đề xuất giá bán - tất cả đều tự động nhờ AI.' },
-  { icon: <BellIcon />, title: 'Zalo & Telegram', desc: 'Nhận thông báo đơn hàng, cảnh báo hết hàng qua Zalo OA và Telegram Bot theo thời gian thực.' },
-  { icon: <ShopIcon />, title: 'POS & Kho hàng', desc: 'Bán hàng, quản lý kho, đa chi nhánh, quét barcode - mọi thứ gói gọn trong một nền tảng.' },
-  { icon: <ShieldIcon />, title: 'Bảo mật cao cấp', desc: 'Xác thực 2 lớp (2FA), phân quyền chi tiết theo vai trò, audit log đầy đủ.' },
-  { icon: <GlobeIcon />, title: 'Subdomain riêng', desc: 'Mỗi doanh nghiệp có gian hàng riêng tại your-shop.oni.vn - sẵn sàng trong 60 giây.' },
+  { 
+    icon: <Database className="h-6 w-6 text-blue-600" />, 
+    title: 'BYOD - Sở hữu dữ liệu', 
+    desc: 'Kết nối Google Sheets, Supabase hoặc database riêng. Dữ liệu luôn thuộc về bạn, chúng tôi không can thiệp.' 
+  },
+  { 
+    icon: <Sparkles className="h-6 w-6 text-indigo-600" />, 
+    title: 'AI thông minh', 
+    desc: 'Phân tích doanh thu, dự báo hàng tồn, đề xuất giá bán - tất cả đều tự động nhờ AI bằng ngôn ngữ tự nhiên.' 
+  },
+  { 
+    icon: <MessageSquare className="h-6 w-6 text-emerald-600" />, 
+    title: 'Zalo & Telegram Alerts', 
+    desc: 'Nhận thông báo đơn hàng, cảnh báo hết hàng và báo cáo tài chính qua Zalo OA và Telegram Bot theo thời gian thực.' 
+  },
+  { 
+    icon: <Store className="h-6 w-6 text-amber-600" />, 
+    title: 'POS & Kho hàng chuyên biệt', 
+    desc: 'Thiết kế giao diện POS và báo cáo đặc thù cho từng ngành nghề: thời trang, ăn uống, dịch vụ, bán lẻ...' 
+  },
+  { 
+    icon: <Shield className="h-6 w-6 text-rose-600" />, 
+    title: 'Bảo mật doanh nghiệp', 
+    desc: 'Xác thực 2 lớp (2FA), phân quyền chi tiết theo vai trò cho nhân viên và lưu vết lịch sử (audit log) đầy đủ.' 
+  },
+  { 
+    icon: <Globe className="h-6 w-6 text-cyan-600" />, 
+    title: 'Subdomain riêng biệt', 
+    desc: 'Mỗi doanh nghiệp có gian hàng quản trị riêng tại your-shop.oni.vn - sẵn sàng sử dụng trong 60 giây.' 
+  },
 ];
 
 const STEPS = [
-  { num: '01', title: 'Đăng ký gian hàng', desc: 'Chọn subdomain, nhập thông tin - gian hàng sẵn sàng trong 60 giây.' },
-  { num: '02', title: 'Kết nối dữ liệu', desc: 'Tùy chỉnh sử dụng Google Sheets hoặc Supabase. Bạn quản lý toàn quyền dữ liệu của mình.' },
-  { num: '03', title: 'Bắt đầu bán hàng', desc: 'Mở POS, nhập hàng, quản lý kho, công nợ, báo cáo - tất cả trên trình duyệt.' },
+  { num: '01', title: 'Đăng ký gian hàng', desc: 'Chọn subdomain của bạn, nhập thông tin - gian hàng sẵn sàng trong 60 giây.' },
+  { num: '02', title: 'Kết nối dữ liệu', desc: 'Lựa chọn sử dụng Google Sheets, Supabase riêng, database PostgreSQL riêng (BYOD) hoặc shared PostgreSQL dùng chung của ONI.' },
+  { num: '03', title: 'Bắt đầu bán hàng', desc: 'Mở POS chuyên ngành, quản lý kho, công nợ, báo cáo - tất cả trên mọi thiết bị.' },
 ];
 
 const PLAN_DETAILS: Record<string, any> = {
   'plan_mini': {
     price: 'Miễn phí', period: '', badge: '',
-    features: ['1 chi nhánh', '500 sản phẩm', 'DB dùng chung (PostgreSQL)', 'POS cơ bản', 'Cộng đồng hỗ trợ'],
+    features: ['1 chi nhánh', '500 sản phẩm', 'DB dùng chung (Shared PostgreSQL)', 'POS cơ bản', 'Cộng đồng hỗ trợ'],
     cta: 'Đăng ký miễn phí', highlight: false,
   },
   'plan_pro': {
     price: '299K', period: '/tháng', badge: 'Phổ biến',
-    features: ['5 chi nhánh', 'Không giới hạn sản phẩm', 'Google Sheet / BYOD (Riêng tư)', 'AI insights', 'Zalo & Telegram', '2FA & audit log', 'Hỗ trợ ưu tiên'],
+    features: ['5 chi nhánh', 'Không giới hạn sản phẩm', 'Google Sheets, Supabase hoặc DB riêng (BYOD)', 'AI insights', 'Zalo & Telegram', '2FA & audit log', 'Hỗ trợ ưu tiên'],
     cta: 'Bắt đầu bán hàng', highlight: true,
   },
   'plan_enterprise': {
     price: 'Liên hệ', period: '', badge: '',
-    features: ['Không giới hạn chi nhánh', 'Mọi tính năng Pro', 'Custom database', 'API & webhook', 'SLA 99.9%', 'Onboarding chuyên biệt'],
+    features: ['Không giới hạn chi nhánh', 'Mọi tính năng Pro', 'Doanh nghiệp BYOD (Dedicated PostgreSQL)', 'API & webhook', 'SLA 99.9%', 'Onboarding chuyên biệt'],
     cta: 'Liên hệ tư vấn', highlight: false,
   }
 };
@@ -102,14 +106,15 @@ export default async function LandingPage() {
             <Image src="/logo.png" alt="ONI.vn" width={32} height={32} className="rounded-lg shadow-md" />
             <span className="text-xl font-extrabold tracking-tight text-primary">ONI.vn</span>
           </Link>
-          <div className="hidden md:flex items-center gap-8 text-sm font-semibold text-slate-600">
+          <div className="hidden md:flex items-center gap-8 text-sm font-semibold text-slate-650">
+            <IndustryDropdown />
             <a href="#features" className="hover:text-primary transition-colors">Tính năng</a>
             <a href="#how" className="hover:text-primary transition-colors">Cách hoạt động</a>
             <a href="#pricing" className="hover:text-primary transition-colors">Bảng giá</a>
           </div>
           <div className="flex items-center gap-3">
             <LoginButton />
-            <Link href="/register" className="whitespace-nowrap rounded-lg bg-primary px-5 py-2.5 text-sm font-bold text-white shadow-md hover:bg-primary-dark hover:shadow-lg transition-all">
+            <Link href="/register" id="navbar-cta-register" className="whitespace-nowrap rounded-lg bg-primary px-5 py-2.5 text-sm font-bold text-white shadow-md hover:bg-primary-dark hover:shadow-lg transition-all">
               Bắt đầu<span className="hidden sm:inline"> bán hàng</span>
             </Link>
           </div>
@@ -134,7 +139,7 @@ export default async function LandingPage() {
           <div className="flex-1 text-center lg:text-left z-10">
             <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50/80 backdrop-blur-md px-4 py-1.5 text-sm font-medium text-primary shadow-sm">
               <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-              Sẵn sàng kết nối BYOD
+              Sẵn sàng kết nối BYOD (Sở hữu dữ liệu)
             </div>
             <h1 className="text-4xl md:text-6xl lg:text-[3.5rem] font-extrabold leading-[1.1] tracking-tight text-slate-900 mb-6 drop-shadow-sm">
               Sở hữu dữ liệu. <br/>
@@ -142,25 +147,23 @@ export default async function LandingPage() {
                 Làm chủ kinh doanh.
               </span>
             </h1>
-            <p className="mt-6 max-w-2xl mx-auto lg:mx-0 text-lg md:text-xl text-slate-600 leading-relaxed font-medium">
+            <p className="mt-6 max-w-2xl mx-auto lg:mx-0 text-lg md:text-xl text-slate-650 leading-relaxed font-medium">
               Nền tảng POS & quản lý bán hàng đa chi nhánh đột phá. Giữ toàn quyền dữ liệu với cơ chế BYOD, tích hợp AI thông minh và thông báo đa kênh.
             </p>
             <div className="mt-10 flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4">
-              <Link href="/register" className="group flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl bg-primary px-8 py-4 text-base font-bold text-white shadow-xl hover:bg-primary-dark transition-all hover:scale-105">
+              <Link href="/register" id="hero-cta-register" className="group flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl bg-primary px-8 py-4 text-base font-bold text-white shadow-xl hover:bg-primary-dark transition-all hover:scale-105">
                 Bắt đầu bán hàng ngay
-                <svg className="h-4 w-4 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
-                </svg>
+                <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
               </Link>
-              <a href="#how" className="flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white/50 backdrop-blur-md px-8 py-4 text-base font-semibold text-slate-700 hover:bg-slate-50 transition-all">
-                Xem cách hoạt động
+              <a href="#solutions" className="flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white/50 backdrop-blur-md px-8 py-4 text-base font-semibold text-slate-700 hover:bg-slate-50 transition-all">
+                Xem giải pháp ngành nghề
               </a>
             </div>
             {/* Trust badges */}
-            <div className="mt-12 flex flex-wrap items-center justify-center lg:justify-start gap-6 text-sm font-medium text-slate-500">
-              <div className="flex items-center gap-1.5"><ShieldIcon /><span className="opacity-90">Bảo mật AES-256</span></div>
-              <div className="flex items-center gap-1.5"><DatabaseIcon /><span className="opacity-90">BYOD Database</span></div>
-              <div className="flex items-center gap-1.5"><GlobeIcon /><span className="opacity-90">Uptime 99.9%</span></div>
+            <div className="mt-12 flex flex-wrap items-center justify-center lg:justify-start gap-6 text-sm font-medium text-slate-550">
+              <div className="flex items-center gap-1.5"><Shield className="h-4 w-4 text-emerald-600" /><span className="opacity-90">Bảo mật mã hóa đầu cuối</span></div>
+              <div className="flex items-center gap-1.5"><Database className="h-4 w-4 text-blue-600" /><span className="opacity-90">Kết nối Database riêng (BYOD)</span></div>
+              <div className="flex items-center gap-1.5"><Globe className="h-4 w-4 text-cyan-600" /><span className="opacity-90">Độ tin cậy SLA 99.9%</span></div>
             </div>
           </div>
 
@@ -194,6 +197,89 @@ export default async function LandingPage() {
         </div>
       </section>
 
+      {/* ═══ SECTION NGÀNH NGHỀ KINH DOANH (NEW!) ═══ */}
+      <section id="solutions" className="relative py-24 bg-white border-b border-slate-200/50">
+        <div className="mx-auto max-w-7xl px-6">
+          <div className="text-center mb-16 lg:mb-20">
+            <p className="text-sm font-bold uppercase tracking-widest text-primary mb-3">Phân khúc ngành nghề</p>
+            <h2 className="text-3xl md:text-5xl font-extrabold text-slate-900 tracking-tight">Giải pháp tối ưu cho từng lĩnh vực</h2>
+            <p className="mt-4 max-w-2xl mx-auto text-lg text-slate-500 font-medium">
+              Không ép buộc tất cả sử dụng chung một giao diện. ONI phân loại giao diện POS, cách tính bill và báo cáo tài chính phù hợp hoàn hảo cho từng phân khúc kinh doanh đặc thù.
+            </p>
+          </div>
+
+          <div className="space-y-12">
+            {INDUSTRY_GROUPS.map((group) => {
+              const groupVerticals = INDUSTRIES_LIST.filter(ind => ind.group === group.id);
+              
+              return (
+                <div key={group.id} className="rounded-3xl border border-slate-200/65 bg-slate-50/30 p-8 shadow-xs hover:shadow-md transition-all duration-300">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pb-6 border-b border-slate-200/70 mb-8">
+                    <div className="max-w-2xl">
+                      <h3 className="text-xl md:text-2xl font-black text-slate-900 flex items-center gap-2">
+                        <span className="inline-block h-3 w-3 rounded-full bg-primary animate-pulse" />
+                        {group.title}
+                      </h3>
+                      <p className="text-sm text-slate-500 font-medium mt-1">{group.description}</p>
+                    </div>
+                    <Link 
+                      href={`/register?industry=${
+                        group.id === 'retail' ? 'retail' : group.id === 'fnb_ent' ? 'fnb' : 'lodging'
+                      }`} 
+                      className="whitespace-nowrap rounded-xl bg-white border border-slate-200 px-5 py-2.5 text-xs font-bold text-slate-700 shadow-xs hover:bg-slate-50 hover:shadow-sm transition-all text-center"
+                    >
+                      Đăng ký dùng thử phân khúc này &rarr;
+                    </Link>
+                  </div>
+
+                  <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3">
+                    {groupVerticals.map((ind) => {
+                      const Icon = ind.icon;
+                      return (
+                        <Link 
+                          key={ind.slug} 
+                          href={`/solutions/${ind.slug}`}
+                          id={`home-ind-card-${ind.slug}`}
+                          className={`group flex flex-col justify-between rounded-2xl border border-slate-200/80 bg-white p-6 hover:border-primary/20 hover:shadow-xl hover:shadow-slate-900/5 transition-all duration-300`}
+                        >
+                          <div>
+                            <div className="flex items-center justify-between mb-4">
+                              <div className={`inline-flex h-10 w-10 items-center justify-center rounded-xl border ${ind.color}`}>
+                                <Icon className="h-5 w-5" />
+                              </div>
+                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest group-hover:text-primary transition-colors">Xem chi tiết &rarr;</span>
+                            </div>
+                            
+                            <h4 className="text-base font-extrabold text-slate-900 mb-2 group-hover:text-primary transition-colors">{ind.label}</h4>
+                            <p className="text-slate-500 text-xs leading-relaxed font-semibold mb-6">{ind.description}</p>
+                            
+                            {/* Sub-industries tags */}
+                            <div className="space-y-2 mt-4 pt-4 border-t border-slate-100">
+                              <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Hỗ trợ các nghiệp vụ:</span>
+                              <div className="flex flex-wrap gap-1.5">
+                                {ind.subIndustries.map((sub, idx) => {
+                                  const SubIcon = sub.icon;
+                                  return (
+                                    <span key={idx} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-500/5 border border-slate-200/80 text-[10px] font-bold text-slate-650 hover:bg-slate-100/70 hover:text-slate-950 transition-colors">
+                                      <SubIcon className="h-3 w-3 text-slate-450 shrink-0" />
+                                      {sub.label}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
       {/* ═══ FEATURES ═══ */}
       <section id="features" className="relative py-24 md:py-32 bg-slate-50">
         <div className="mx-auto max-w-7xl px-6">
@@ -203,9 +289,9 @@ export default async function LandingPage() {
             <p className="mt-4 max-w-2xl mx-auto text-lg text-slate-500 font-medium">Kiến trúc Provider-Agnostic - kết nối bất kỳ nguồn dữ liệu nào. Bạn giữ toàn quyền kiểm soát.</p>
           </div>
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {FEATURES.map((f) => (
-              <div key={f.title} className="group rounded-3xl border border-slate-200 bg-white p-8 hover:border-primary/30 hover:shadow-2xl hover:shadow-primary/5 transition-all duration-300 transform hover:-translate-y-1">
-                <div className="mb-6 inline-flex items-center justify-center rounded-2xl bg-blue-50 p-4 text-primary group-hover:bg-primary group-hover:text-white transition-colors duration-300">
+            {FEATURES.map((f, idx) => (
+              <div key={idx} className="group rounded-3xl border border-slate-200 bg-white p-8 hover:border-primary/30 hover:shadow-2xl hover:shadow-primary/5 transition-all duration-300 transform hover:-translate-y-1">
+                <div className="mb-6 inline-flex items-center justify-center rounded-2xl bg-blue-50 p-4 transition-colors duration-300">
                   {f.icon}
                 </div>
                 <h3 className="text-xl font-bold text-slate-900 mb-3">{f.title}</h3>
@@ -216,130 +302,253 @@ export default async function LandingPage() {
         </div>
       </section>
 
-      {/* ═══ UNIQUE CAPABILITIES ═══ */}
+      {/* ═══ UNIQUE CAPABILITIES (UPGRADED WITH DETAILED VISUALS) ═══ */}
       <section className="relative py-24 md:py-32 bg-white">
         <div className="mx-auto max-w-7xl px-6">
           <div className="text-center mb-16 lg:mb-24">
             <p className="text-sm font-bold uppercase tracking-widest text-primary mb-3">Vận hành thông minh</p>
-            <h2 className="text-3xl md:text-5xl font-extrabold text-slate-900 tracking-tight">Thiết kế cho mọi ngành hàng</h2>
-            <p className="mt-4 max-w-2xl mx-auto text-lg text-slate-500 font-medium">Từ bán lẻ, F&B đến dịch vụ - ONI thích ứng với mô hình kinh doanh của riêng bạn bằng những tính năng độc quyền.</p>
+            <h2 className="text-3xl md:text-5xl font-extrabold text-slate-900 tracking-tight">Công cụ nâng cao thúc đẩy doanh số</h2>
+            <p className="mt-4 max-w-2xl mx-auto text-lg text-slate-500 font-medium">Giải quyết triệt để các bài toán vận hành phức tạp nhất của cửa hàng bằng các công nghệ dẫn đầu.</p>
           </div>
           
-          <div className="grid gap-12 lg:grid-cols-2 items-center mb-24">
+          {/* Section: VietQR & Sổ Quỹ */}
+          <div className="grid gap-12 lg:grid-cols-2 items-center mb-28">
             <div className="order-2 lg:order-1">
-              <h3 className="text-2xl font-bold text-slate-900 mb-4">Giải quyết trọn vẹn nghiệp vụ phức tạp</h3>
+              <div className="inline-flex items-center gap-1.5 text-xs font-bold text-primary uppercase tracking-wider bg-orange-50 px-3 py-1 rounded-full border border-orange-100 mb-4">
+                <QrCode className="h-3.5 w-3.5" /> Mới cập nhật
+              </div>
+              <h3 className="text-2.5xl font-extrabold text-slate-900 mb-4">Thanh toán VietQR động liên kết Sổ Quỹ</h3>
               <p className="text-lg text-slate-600 mb-6 leading-relaxed">
-                Được thiết kế từ kinh nghiệm thực tiễn, hệ thống đáp ứng trơn tru các luồng vận hành chuyên sâu: từ bán hàng đa kênh, quản lý chuỗi chi nhánh, định lượng kho nguyên vật liệu, cho đến đối soát công nợ tự động.
+                Khi thanh toán hóa đơn, hệ thống tự động tạo mã VietQR động chứa chính xác số tiền và mô tả đơn hàng. Tiền được chuyển thẳng vào số tài khoản ngân hàng liên kết với <strong className="font-bold text-slate-900">Sổ quỹ chuyên biệt</strong> của chi nhánh, giúp tự động đối soát tài chính mà không cần kế toán thủ công.
               </p>
-              <ul className="space-y-3">
-                <li className="flex items-center gap-3 text-slate-700 font-medium"><CheckIcon /> Xử lý đơn hàng tốc độ cao, đồng bộ offline/online</li>
-                <li className="flex items-center gap-3 text-slate-700 font-medium"><CheckIcon /> Quản lý kho, thẻ kho và định lượng chính xác</li>
-                <li className="flex items-center gap-3 text-slate-700 font-medium"><CheckIcon /> Sổ quỹ liên kết công nợ, báo cáo P&L thời gian thực</li>
+              <ul className="space-y-3.5">
+                <li className="flex items-center gap-3 text-slate-700 font-medium"><Check className="h-5 w-5 text-emerald-600 shrink-0" /> Tự động điền số tiền và mã hóa đơn, tránh sai sót chuyển khoản</li>
+                <li className="flex items-center gap-3 text-slate-700 font-medium"><Check className="h-5 w-5 text-emerald-600 shrink-0" /> Phân luồng dòng tiền về đúng tài khoản ngân hàng của từng chi nhánh/sổ quỹ</li>
+                <li className="flex items-center gap-3 text-slate-700 font-medium"><Check className="h-5 w-5 text-emerald-600 shrink-0" /> Đối soát tự động (reconciliation), tự động cập nhật trạng thái đơn Đã thanh toán</li>
               </ul>
             </div>
-            <div className="order-1 lg:order-2 rounded-3xl bg-orange-50 p-8 border border-orange-100 relative overflow-hidden">
-               <div className="absolute top-0 right-0 p-6 opacity-20"><DatabaseIcon /></div>
-               <div className="relative z-10 flex gap-4 flex-col">
-                  <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex items-center gap-4 hover:-translate-y-1 transition-transform">
-                    <div className="h-10 w-10 rounded-lg bg-blue-100 flex items-center justify-center text-blue-600">
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>
+            <div className="order-1 lg:order-2 rounded-3xl bg-gradient-to-br from-orange-50 to-amber-50/50 p-8 border border-orange-100 relative overflow-hidden shadow-sm">
+               <div className="absolute top-0 right-0 p-6 opacity-10 text-orange-600"><QrCode className="h-24 w-24" /></div>
+               <div className="relative z-10 flex gap-4 flex-col max-w-sm mx-auto">
+                  <div className="bg-white p-5 rounded-2xl shadow-md border border-slate-100 flex flex-col gap-3.5">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                      <div>
+                        <span className="text-xs font-bold text-slate-400 uppercase block">Thanh toán đơn hàng</span>
+                        <span className="font-extrabold text-slate-800 text-sm">Đơn hàng #DH-1025</span>
+                      </div>
+                      <span className="bg-emerald-50 text-emerald-700 border border-emerald-100 text-[10px] font-bold px-2 py-0.5 rounded-md uppercase">Chờ quét mã</span>
                     </div>
-                    <div>
-                      <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Bán hàng POS</span>
-                      <div className="font-semibold text-slate-800">Giao diện tối ưu cảm ứng & barcode</div>
+                    
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-semibold text-slate-500">Sổ quỹ đích:</span>
+                      <span className="text-sm font-bold text-slate-700 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-150">Quỹ Ngân hàng (ACB)</span>
                     </div>
-                  </div>
-                  <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex items-center gap-4 hover:-translate-y-1 transition-transform">
-                    <div className="h-10 w-10 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-600">
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z"/></svg>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-semibold text-slate-500">Số tiền:</span>
+                      <span className="text-lg font-extrabold text-primary">185,000đ</span>
                     </div>
-                    <div>
-                      <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Kho & Sản xuất</span>
-                      <div className="font-semibold text-slate-800">Cảnh báo tồn kho & Định lượng BOM</div>
-                    </div>
-                  </div>
-                  <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex items-center gap-4 hover:-translate-y-1 transition-transform">
-                    <div className="h-10 w-10 rounded-lg bg-amber-100 flex items-center justify-center text-amber-600">
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                    </div>
-                    <div>
-                      <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Tài chính</span>
-                      <div className="font-semibold text-slate-800">Sổ quỹ & Đối soát công nợ tức thời</div>
+
+                    <div className="border border-slate-100 rounded-xl p-3 bg-slate-50/80 flex items-center justify-center flex-col gap-2">
+                      {/* Visual QR Simulator */}
+                      <div className="w-32 h-32 bg-white rounded-lg border border-slate-200/80 p-2 flex items-center justify-center relative">
+                        <div className="grid grid-cols-4 gap-1 w-full h-full opacity-80">
+                          {Array.from({ length: 16 }).map((_, i) => (
+                            <div 
+                              key={i} 
+                              className={`rounded-sm ${(i * 3 + 1) % 2 === 0 ? 'bg-slate-800' : 'bg-transparent'} 
+                                ${[0, 1, 4, 12, 13, 15].includes(i) ? 'bg-slate-800' : ''}`} 
+                            />
+                          ))}
+                        </div>
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <span className="bg-primary text-white text-[9px] font-black tracking-tighter px-1 rounded-sm border border-white uppercase shadow-sm">ACB</span>
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-slate-400 font-semibold tracking-wide mt-1">Quét mã bằng ứng dụng Ngân hàng để thanh toán</p>
                     </div>
                   </div>
                </div>
             </div>
           </div>
 
-          <div className="grid gap-12 lg:grid-cols-2 items-center mb-24">
-            <div className="rounded-3xl bg-slate-900 p-8 border border-slate-800 relative overflow-hidden shadow-2xl">
-               <div className="absolute top-0 left-0 p-6 opacity-10 text-white"><BellIcon /></div>
-               <div className="relative z-10 space-y-4">
-                  <div className="bg-slate-800/80 backdrop-blur-md p-4 rounded-xl border border-slate-700/50 flex items-start gap-4">
-                    <div className="h-10 w-10 rounded-full bg-blue-500/20 flex items-center justify-center shrink-0">
-                      <svg className="w-5 h-5 text-blue-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .24z"/></svg>
+          {/* Section: Batch & Expiry Management */}
+          <div className="grid gap-12 lg:grid-cols-2 items-center mb-28">
+            <div className="rounded-3xl bg-gradient-to-br from-slate-550/5 to-slate-900/5 p-8 border border-slate-200 relative overflow-hidden shadow-xs">
+               <div className="absolute top-0 left-0 p-6 opacity-10 text-slate-650"><Calendar className="h-24 w-24" /></div>
+               <div className="relative z-10 flex gap-4 flex-col">
+                  <div className="bg-white p-5 rounded-2xl shadow-md border border-slate-100 flex flex-col gap-4">
+                    <div className="flex items-center justify-between border-b border-slate-150 pb-2">
+                      <span className="font-extrabold text-slate-800 text-sm">Quản lý Lô & Hạn sử dụng</span>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase">Cảnh báo tồn kho</span>
                     </div>
-                    <div>
-                      <div className="font-semibold text-slate-200">Hóa đơn điện tử qua Zalo</div>
-                      <div className="text-sm text-slate-400 mt-1">Hệ thống vừa gửi hóa đơn #1024 (345k) qua Zalo OA cho khách hàng.</div>
-                    </div>
-                  </div>
-                  <div className="bg-slate-800/80 backdrop-blur-md p-4 rounded-xl border border-slate-700/50 flex items-start gap-4 ml-6">
-                    <div className="h-10 w-10 rounded-full bg-amber-500/20 flex items-center justify-center shrink-0">
-                      <svg className="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
-                    </div>
-                    <div>
-                      <div className="font-semibold text-slate-200">Cảnh báo Telegram</div>
-                      <div className="text-sm text-slate-400 mt-1">Sản phẩm "Cà phê máy" sắp hết. Cảnh báo tự động đẩy tới bộ phận Kho.</div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs font-semibold">
+                        <thead>
+                          <tr className="border-b border-slate-100 text-slate-400">
+                            <th className="pb-2 font-bold">Tên sản phẩm</th>
+                            <th className="pb-2 font-bold">Lô nhập</th>
+                            <th className="pb-2 font-bold">Hạn sử dụng</th>
+                            <th className="pb-2 font-bold text-right">Tồn kho</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50">
+                          <tr className="text-red-650 bg-red-50/50">
+                            <td className="py-2.5 font-bold">Amoxicillin 500</td>
+                            <td className="py-2.5">L-AMX01</td>
+                            <td className="py-2.5 flex items-center gap-1"><AlertCircle className="h-3 w-3 shrink-0 text-red-500" /> 10/06/2026</td>
+                            <td className="py-2.5 text-right font-bold">120 hộp</td>
+                          </tr>
+                          <tr className="text-orange-655 bg-orange-50/30">
+                            <td className="py-2.5 font-bold">Paracetamol 500</td>
+                            <td className="py-2.5">L-PCT05</td>
+                            <td className="py-2.5">28/11/2026</td>
+                            <td className="py-2.5 text-right font-bold">340 hộp</td>
+                          </tr>
+                          <tr className="text-slate-700">
+                            <td className="py-2.5 font-bold">Vitamin C 1000</td>
+                            <td className="py-2.5">L-VTC12</td>
+                            <td className="py-2.5">15/09/2027</td>
+                            <td className="py-2.5 text-right font-bold">500 hộp</td>
+                          </tr>
+                        </tbody>
+                      </table>
                     </div>
                   </div>
                </div>
             </div>
             <div>
-              <h3 className="text-2xl font-bold text-slate-900 mb-4">Hệ thống Thông báo Đa kênh</h3>
+              <div className="inline-flex items-center gap-1.5 text-xs font-bold text-primary uppercase tracking-wider bg-blue-50 px-3 py-1 rounded-full border border-blue-100 mb-4">
+                <Calendar className="h-3.5 w-3.5" /> Kiểm soát hạn dùng
+              </div>
+              <h3 className="text-2.5xl font-extrabold text-slate-900 mb-4">Quản lý Lô & Hạn sử dụng chuyên sâu</h3>
               <p className="text-lg text-slate-600 mb-6 leading-relaxed">
-                Tích hợp sâu sắc với Zalo OA và Telegram, giúp bạn gửi thông báo đơn hàng tự động cho khách và nhận cảnh báo nội bộ ngay lập tức về tình trạng kinh doanh.
+                Tuyệt đối quan trọng đối với các ngành hàng Dược phẩm, Thực phẩm và Mỹ phẩm. Hệ thống giúp theo dõi chi tiết từng lô sản phẩm nhập vào, tự động tính toán và tô đỏ các sản phẩm sắp hết hạn để bộ phận bán hàng kịp thời xử lý, giảm thiểu tối đa tổn thất hàng hóa.
               </p>
-              <ul className="space-y-3">
-                <li className="flex items-center gap-3 text-slate-700 font-medium"><CheckIcon /> Gửi hóa đơn điện tử tự động qua Zalo OA</li>
-                <li className="flex items-center gap-3 text-slate-700 font-medium"><CheckIcon /> Nhận cảnh báo doanh thu, tồn kho qua nhóm Telegram</li>
-                <li className="flex items-center gap-3 text-slate-700 font-medium"><CheckIcon /> Tùy chỉnh bot cấu hình riêng cho từng chi nhánh</li>
+              <ul className="space-y-3.5">
+                <li className="flex items-center gap-3 text-slate-700 font-medium"><Check className="h-5 w-5 text-emerald-600 shrink-0" /> Quản lý xuất nhập tồn theo nguyên tắc FEFO (Hết hạn trước - Xuất trước)</li>
+                <li className="flex items-center gap-3 text-slate-700 font-medium"><Check className="h-5 w-5 text-emerald-600 shrink-0" /> Tự động đẩy cảnh báo các lô hàng cận date lên màn hình POS bán lẻ</li>
+                <li className="flex items-center gap-3 text-slate-700 font-medium"><Check className="h-5 w-5 text-emerald-600 shrink-0" /> Báo cáo chi tiết tuổi hàng tồn kho giúp hoạch định nguồn cung chính xác</li>
               </ul>
             </div>
           </div>
 
-          <div className="grid gap-12 lg:grid-cols-2 items-center">
+          {/* Section: Zalo & Telegram Alerts */}
+          <div className="grid gap-12 lg:grid-cols-2 items-center mb-28">
             <div className="order-2 lg:order-1">
-              <h3 className="text-2xl font-bold text-slate-900 mb-4">Trợ lý AI phân tích kinh doanh</h3>
+              <div className="inline-flex items-center gap-1.5 text-xs font-bold text-primary uppercase tracking-wider bg-emerald-50 px-3 py-1 rounded-full border border-emerald-100 mb-4">
+                <MessageSquare className="h-3.5 w-3.5" /> Truyền thông đa kênh
+              </div>
+              <h3 className="text-2.5xl font-extrabold text-slate-900 mb-4">Hệ thống thông báo đẩy Zalo & Telegram Bot</h3>
               <p className="text-lg text-slate-600 mb-6 leading-relaxed">
-                Không cần đọc báo cáo phức tạp. Chỉ cần &quot;chat&quot; với trợ lý AI của ONI bằng ngôn ngữ tự nhiên, bạn sẽ có ngay những thông tin quan trọng nhất để ra quyết định.
+                Tăng tính kết nối với khách hàng và tự động hóa vận hành nội bộ. Gửi hóa đơn điện tử tự động cho khách qua Zalo OA ngay khi thanh toán đơn. Đồng thời, cảnh báo tức thì về tồn kho tối thiểu, doanh số ngày và biến động quỹ qua Telegram nhóm quản trị.
               </p>
-              <ul className="space-y-3">
-                <li className="flex items-center gap-3 text-slate-700 font-medium"><CheckIcon /> Phân tích số liệu và xu hướng bán hàng</li>
-                <li className="flex items-center gap-3 text-slate-700 font-medium"><CheckIcon /> Tra cứu nhanh doanh thu theo ngày, theo mặt hàng</li>
-                <li className="flex items-center gap-3 text-slate-700 font-medium"><CheckIcon /> Hỗ trợ gợi ý các quyết định nhập kho thông minh</li>
+              <ul className="space-y-3.5">
+                <li className="flex items-center gap-3 text-slate-700 font-medium"><Check className="h-5 w-5 text-emerald-600 shrink-0" /> Gửi tin nhắn chăm sóc khách hàng và hóa đơn Zalo không tốn phí giấy in</li>
+                <li className="flex items-center gap-3 text-slate-700 font-medium"><Check className="h-5 w-5 text-emerald-600 shrink-0" /> Nhận tin nhắn cảnh báo tồn kho cận date, doanh thu chi nhánh qua Telegram</li>
+                <li className="flex items-center gap-3 text-slate-700 font-medium"><Check className="h-5 w-5 text-emerald-600 shrink-0" /> Phân quyền gửi thông báo linh hoạt đến từng nhóm nhân viên phụ trách</li>
               </ul>
             </div>
-            <div className="order-1 lg:order-2 rounded-3xl bg-blue-50 p-8 border border-blue-100 relative overflow-hidden shadow-xl shadow-blue-900/5">
-               <div className="absolute top-0 right-0 p-8 opacity-20 text-blue-400">
-                  <svg className="w-24 h-24" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}><path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+            <div className="order-1 lg:order-2 rounded-3xl bg-slate-900 p-8 border border-slate-800 relative overflow-hidden shadow-2xl">
+               <div className="absolute top-0 left-0 p-6 opacity-10 text-white"><MessageSquare className="h-24 w-24" /></div>
+               <div className="relative z-10 space-y-4 max-w-sm mx-auto">
+                  <div className="bg-slate-800/80 backdrop-blur-md p-4 rounded-xl border border-slate-700/50 flex items-start gap-3">
+                    <div className="h-9 w-9 rounded-full bg-blue-500/20 flex items-center justify-center shrink-0">
+                      <svg className="w-5 h-5 text-blue-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .24z"/></svg>
+                    </div>
+                    <div>
+                      <div className="font-semibold text-slate-200 text-xs sm:text-sm">Hóa đơn điện tử qua Zalo</div>
+                      <div className="text-[11px] text-slate-400 mt-1 leading-relaxed">Hệ thống vừa tự động gửi hóa đơn số #1025 trị giá 185,000đ thành công qua Zalo OA cho khách hàng <strong>Nguyễn Văn A</strong>.</div>
+                    </div>
+                  </div>
+                  <div className="bg-slate-800/80 backdrop-blur-md p-4 rounded-xl border border-slate-700/50 flex items-start gap-3 ml-6">
+                    <div className="h-9 w-9 rounded-full bg-amber-500/20 flex items-center justify-center shrink-0">
+                      <span className="text-amber-400 font-bold text-xs">Bot</span>
+                    </div>
+                    <div>
+                      <div className="font-semibold text-slate-200 text-xs sm:text-sm">Cảnh báo tồn kho (Telegram)</div>
+                      <div className="text-[11px] text-slate-400 mt-1 leading-relaxed">Sản phẩm <strong>&quot;Amoxicillin 500&quot;</strong> tại Chi nhánh 1 đã chạm mốc tồn tối thiểu (còn 120 hộp). Đề xuất nhập thêm hàng!</div>
+                    </div>
+                  </div>
                </div>
-               <div className="relative z-10 flex flex-col gap-4">
-                  <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col gap-4 relative">
+            </div>
+          </div>
+
+          {/* Section: AI Assistant */}
+          <div className="grid gap-12 lg:grid-cols-2 items-center mb-28">
+            <div className="order-2 lg:order-1">
+              <div className="inline-flex items-center gap-1.5 text-xs font-bold text-primary uppercase tracking-wider bg-violet-50 px-3 py-1 rounded-full border border-violet-100 mb-4">
+                <Sparkles className="h-3.5 w-3.5" /> Trí tuệ nhân tạo
+              </div>
+              <h3 className="text-2.5xl font-extrabold text-slate-900 mb-4">Trợ lý AI phân tích kinh doanh</h3>
+              <p className="text-lg text-slate-600 mb-6 leading-relaxed">
+                Không cần phải tự lập báo cáo doanh số phức tạp trên Excel. Chỉ cần trò chuyện với trợ lý trí tuệ nhân tạo (AI) của ONI bằng ngôn ngữ tự nhiên, bạn sẽ được trả lời ngay tức thì về hiệu quả kinh doanh, mặt hàng bán chạy và dự báo dòng tiền chính xác.
+              </p>
+              <ul className="space-y-3.5">
+                <li className="flex items-center gap-3 text-slate-700 font-medium"><Check className="h-5 w-5 text-emerald-600 shrink-0" /> Hỏi đáp bằng giọng nói hoặc văn bản về mọi số liệu kinh doanh</li>
+                <li className="flex items-center gap-3 text-slate-700 font-medium"><Check className="h-5 w-5 text-emerald-600 shrink-0" /> Phân tích tự động điểm hòa vốn và dự phóng hàng hóa lỗi thời</li>
+                <li className="flex items-center gap-3 text-slate-700 font-medium"><Check className="h-5 w-5 text-emerald-600 shrink-0" /> Tự động tóm tắt hoạt động kinh doanh vào mỗi cuối ngày</li>
+              </ul>
+            </div>
+            <div className="order-1 lg:order-2 rounded-3xl bg-blue-50/50 p-8 border border-blue-100 relative overflow-hidden shadow-sm">
+               <div className="absolute top-0 right-0 p-8 opacity-10 text-primary">
+                  <Sparkles className="h-24 w-24" />
+               </div>
+               <div className="relative z-10 flex flex-col gap-4 max-w-sm mx-auto">
+                  <div className="bg-white p-5 rounded-2xl shadow-md border border-slate-100 flex flex-col gap-4 relative">
                     <div className="flex items-start gap-3 flex-row-reverse">
-                      <div className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center shrink-0 text-slate-600 text-xs font-bold uppercase border border-slate-200">U</div>
-                      <div className="bg-slate-50 border border-slate-100 rounded-2xl rounded-tr-none px-4 py-3 text-sm text-slate-700 shadow-sm leading-relaxed text-right">
-                        Hôm nay cửa hàng bán được bao nhiêu?
+                      <div className="h-8 w-8 rounded-full bg-slate-155 border border-slate-200 flex items-center justify-center shrink-0 text-slate-600 text-[10px] font-bold uppercase">U</div>
+                      <div className="bg-slate-50 border border-slate-100 rounded-2xl rounded-tr-none px-4 py-2.5 text-xs text-slate-700 shadow-xs leading-relaxed text-right">
+                        Hôm nay cửa hàng bán được bao nhiêu và mặt hàng nào chạy nhất?
                       </div>
                     </div>
                     <div className="flex items-start gap-3 mt-2">
-                      <div className="h-8 w-8 rounded-full bg-primary flex items-center justify-center shrink-0 text-white text-xs font-bold shadow-md">AI</div>
-                      <div className="bg-primary rounded-2xl rounded-tl-none px-4 py-3 text-sm text-white shadow-md leading-relaxed border border-primary-dark">
-                        Doanh thu hôm nay là <strong>4,200,000đ</strong> (25 đơn). <br/>Mặt hàng bán chạy nhất: <span className="text-orange-200 font-semibold">Trà Sữa (10 ly)</span>.
+                      <div className="h-8 w-8 rounded-full bg-primary flex items-center justify-center shrink-0 text-white text-[10px] font-bold shadow-md">AI</div>
+                      <div className="bg-primary rounded-2xl rounded-tl-none px-4 py-2.5 text-xs text-white shadow-md leading-relaxed border border-primary-dark">
+                        Tính đến 11:20, tổng doanh thu hôm nay là <strong>4,200,000đ</strong> (25 đơn hàng). Mặt hàng bán tốt nhất là <span className="text-orange-200 font-bold">Cà phê sữa đá (15 ly)</span>. Dòng tiền hôm nay tăng 12% so với hôm qua.
                       </div>
                     </div>
                   </div>
                </div>
+            </div>
+          </div>
+
+          {/* Section: Excel Data Importer */}
+          <div className="grid gap-12 lg:grid-cols-2 items-center">
+            <div className="rounded-3xl bg-gradient-to-br from-emerald-50 to-teal-50/30 p-8 border border-emerald-100 relative overflow-hidden shadow-xs">
+               <div className="absolute top-0 left-0 p-6 opacity-10 text-emerald-600"><FileSpreadsheet className="h-24 w-24" /></div>
+               <div className="relative z-10 flex gap-4 flex-col max-w-sm mx-auto">
+                  <div className="bg-white p-5 rounded-2xl shadow-md border border-slate-150 flex flex-col items-center text-center gap-4">
+                    <div className="h-12 w-12 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600">
+                      <FileSpreadsheet className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-slate-800 text-sm">Nhập dữ liệu 1-Click</h4>
+                      <p className="text-xs text-slate-450 mt-1 leading-relaxed">Tải lên file Excel mẫu của cửa hàng cũ để chuyển đổi ngay sang ONI</p>
+                    </div>
+                    <div className="w-full border border-dashed border-slate-200 rounded-xl p-6 bg-slate-50/50 flex flex-col items-center justify-center cursor-pointer hover:bg-slate-100/50 transition-colors">
+                      <span className="text-xs font-bold text-primary">Kéo & thả file Excel vào đây</span>
+                      <span className="text-[10px] text-slate-400 mt-1 font-semibold">Hỗ trợ tệp XLS, XLSX lên tới 10MB</span>
+                    </div>
+                    <div className="w-full flex items-center gap-2 bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-left">
+                      <Check className="h-4 w-4 text-emerald-600 shrink-0" />
+                      <span className="text-[10px] text-emerald-800 font-bold leading-normal">Tự động nhận diện cột: Mã hàng, Tên sản phẩm, Giá bán, Tồn kho, Nhóm hàng</span>
+                    </div>
+                  </div>
+               </div>
+            </div>
+            <div>
+              <div className="inline-flex items-center gap-1.5 text-xs font-bold text-primary uppercase tracking-wider bg-emerald-50 px-3 py-1 rounded-full border border-emerald-100 mb-4">
+                <FileSpreadsheet className="h-3.5 w-3.5" /> Chuyển đổi dữ liệu
+              </div>
+              <h3 className="text-2.5xl font-extrabold text-slate-900 mb-4">Nhập khẩu dữ liệu 1-Click thông minh</h3>
+              <p className="text-lg text-slate-600 mb-6 leading-relaxed">
+                Đừng ngần ngại thay đổi hệ thống quản lý cũ vì sợ tốn công gõ lại dữ liệu. ONI cung cấp bộ công cụ nhập khẩu Excel thông minh. Bạn chỉ cần tải file xuất kho, danh sách sản phẩm hay danh mục khách hàng cũ lên, hệ thống AI sẽ tự động phân tích định dạng cột và sắp xếp dữ liệu vào đúng vị trí chỉ trong vài giây.
+              </p>
+              <ul className="space-y-3.5">
+                <li className="flex items-center gap-3 text-slate-700 font-medium"><Check className="h-5 w-5 text-emerald-600 shrink-0" /> Tự động nhận diện cấu trúc file Excel từ bất kỳ phần mềm cũ nào</li>
+                <li className="flex items-center gap-3 text-slate-700 font-medium"><Check className="h-5 w-5 text-emerald-600 shrink-0" /> Xử lý trùng lặp mã sản phẩm và lọc dữ liệu rác thông minh</li>
+                <li className="flex items-center gap-3 text-slate-700 font-medium"><Check className="h-5 w-5 text-emerald-600 shrink-0" /> Sẵn sàng mở bán ngay lập tức mà không gián đoạn hoạt động kinh doanh</li>
+              </ul>
             </div>
           </div>
         </div>
@@ -357,8 +566,8 @@ export default async function LandingPage() {
             <div className="hidden md:block absolute top-12 left-[15%] right-[15%] h-0.5 bg-gradient-to-r from-orange-100 via-orange-300 to-orange-100" />
             
             {STEPS.map((s, idx) => (
-              <div key={s.num} className="relative z-10 text-center flex flex-col items-center">
-                <div className="flex h-24 w-24 items-center justify-center rounded-full bg-white border-4 border-slate-50 shadow-xl shadow-orange-900/5 mb-6 group-hover:border-orange-100 transition-colors">
+              <div key={idx} className="relative z-10 text-center flex flex-col items-center">
+                <div className="flex h-24 w-24 items-center justify-center rounded-full bg-white border-4 border-slate-50 shadow-xl shadow-orange-900/5 mb-6 hover:border-orange-100 transition-colors">
                   <span className="text-3xl font-black text-primary">{s.num}</span>
                 </div>
                 <h3 className="text-xl font-bold text-slate-900 mb-3">{s.title}</h3>
@@ -382,37 +591,64 @@ export default async function LandingPage() {
           <h2 className="text-4xl md:text-5xl font-extrabold text-slate-900 tracking-tight mb-6">
             Bắt đầu quản lý kinh doanh thông minh
           </h2>
-          <p className="text-xl text-slate-600 font-medium mb-10 max-w-2xl mx-auto">
-            Bắt đầu kinh doanh với chi phí 0đ. Thiết lập trong 60 giây. Làm chủ dữ liệu kinh doanh của bạn ngay hôm nay.
+          <p className="text-xl text-slate-650 font-medium mb-10 max-w-2xl mx-auto">
+            Bắt đầu bán hàng ngay với gói Tiên phong miễn phí 3 năm. Nâng cấp chi phí cực rẻ cho quy mô chuỗi nhiều chi nhánh.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Link href="/register" className="group flex items-center justify-center gap-2 rounded-xl bg-primary px-8 py-4 text-lg font-bold text-white shadow-xl hover:bg-primary-dark transition-all hover:scale-105">
+            <Link href="/register" id="cta-bottom-register" className="group flex items-center justify-center gap-2 rounded-xl bg-primary px-8 py-4 text-lg font-bold text-white shadow-xl hover:bg-primary-dark transition-all hover:scale-105">
               Đăng ký ngay
-              <svg className="h-5 w-5 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
-              </svg>
+              <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-1" />
             </Link>
           </div>
         </div>
       </section>
 
       {/* ═══ FOOTER ═══ */}
-      <footer className="bg-white py-16 border-t border-slate-100">
-        <div className="mx-auto max-w-7xl px-6 flex flex-col md:flex-row items-center justify-between gap-8">
-          <div className="flex items-center gap-3">
-            <Image src="/logo.png" alt="ONI.vn" width={40} height={40} className="rounded-xl shadow-md" />
-            <span className="text-xl font-bold tracking-tight text-slate-900">ONI.vn</span>
+      <footer className="bg-slate-900 text-slate-400 py-20 border-t border-slate-850">
+        <div className="mx-auto max-w-7xl px-6">
+          <div className="grid gap-12 md:grid-cols-4 lg:grid-cols-5 mb-16 pb-12 border-b border-slate-800">
+            <div className="lg:col-span-2 space-y-4">
+              <Link href="/" className="flex items-center gap-3">
+                <Image src="/logo.png" alt="ONI.vn" width={44} height={44} className="rounded-xl shadow-lg border border-slate-800" />
+                <span className="text-xl font-black tracking-tight text-white">ONI.vn</span>
+              </Link>
+              <p className="text-sm text-slate-500 font-medium max-w-sm leading-relaxed">
+                Nền tảng POS &amp; quản lý bán hàng đa chi nhánh đột phá. Cơ chế kết nối dữ liệu riêng tư BYOD, tích hợp AI phân tích thông minh và Zalo/Telegram.
+              </p>
+              <div className="text-xs text-slate-500 font-bold">
+                &copy; {new Date().getFullYear()} ONI.vn. Đã đăng ký bản quyền.
+              </div>
+            </div>
+            
+            {ALL_SECTORS.map((group) => (
+              <div key={group.groupId} className="space-y-4">
+                <h4 className="text-xs font-black uppercase tracking-wider text-slate-200 border-b border-slate-800 pb-2">{group.groupLabel}</h4>
+                <ul className="space-y-2.5 text-xs font-semibold">
+                  {group.items.map((item, idx) => (
+                    <li key={idx}>
+                      <Link href={item.href} className="hover:text-primary transition-colors hover:underline">
+                        {item.label}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
           </div>
-          <div className="flex flex-wrap items-center justify-center gap-8 text-sm font-medium text-slate-500">
-            <a href="#features" className="hover:text-primary transition-colors">Tính năng</a>
-            <a href="#how" className="hover:text-primary transition-colors">Cách hoạt động</a>
-            <a href="#pricing" className="hover:text-primary transition-colors">Bảng giá</a>
-            <LoginButton />
+
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-xs font-bold text-slate-500">
+            <div className="flex flex-wrap gap-x-8 gap-y-2 justify-center">
+              <a href="#features" className="hover:text-white transition-colors">Tính năng nghiệp vụ</a>
+              <a href="#how" className="hover:text-white transition-colors">Cách hoạt động</a>
+              <a href="#pricing" className="hover:text-white transition-colors">Bảng giá gói cước</a>
+              <Link href="/register" className="hover:text-white transition-colors">Đăng ký dùng thử miễn phí 3 năm</Link>
+            </div>
+            <div className="text-[10px] text-slate-600">
+              Sản phẩm phục vụ Chuyển đổi số Hộ kinh doanh &amp; Doanh nghiệp Việt Nam.
+            </div>
           </div>
-          <p className="text-sm font-medium text-slate-400">&copy; {new Date().getFullYear()} ONI.vn. Đã đăng ký bản quyền.</p>
         </div>
       </footer>
     </div>
   );
 }
-
