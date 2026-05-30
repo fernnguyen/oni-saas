@@ -351,7 +351,7 @@ export default async function IndustrySolutionPage({ params }: Props) {
                 <Check className="h-5 w-5 text-emerald-600 shrink-0 mt-0.5" />
                 <div>
                   <strong className="block text-slate-800 text-sm">Sở hữu dữ liệu tuyệt đối</strong>
-                  <span className="text-slate-500 text-xs block mt-0.5 leading-relaxed">Dữ liệu đơn hàng, kho báu khách hàng của bạn được lưu ngay trên Google Sheets cá nhân hoặc Supabase của riêng bạn.</span>
+                  <span className="text-slate-500 text-xs block mt-0.5 leading-relaxed">Dữ liệu đơn hàng và khách hàng được lưu trữ an toàn trên cơ sở dữ liệu biệt lập (PostgreSQL, Supabase) hoặc database riêng của bạn.</span>
                 </div>
               </li>
               <li className="flex items-start gap-3 text-slate-700">
@@ -392,7 +392,7 @@ export default async function IndustrySolutionPage({ params }: Props) {
                       <span className="text-xs font-bold text-slate-300">Gói Pro/Enterprise:</span>
                       <span className="text-[10px] font-extrabold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-md border border-blue-500/25">BYOD (Sở hữu dữ liệu)</span>
                     </div>
-                    <p className="text-[10px] text-slate-400 leading-normal font-semibold">Tự do kết nối Google Sheets cá nhân, private Supabase hoặc PostgreSQL riêng của chính khách hàng.</p>
+                    <p className="text-[10px] text-slate-400 leading-normal font-semibold">Tự do kết nối các cổng lưu trữ dữ liệu an toàn như Supabase riêng, dedicated PostgreSQL hoặc MySQL biệt lập của khách hàng.</p>
                   </div>
                 </div>
 
@@ -442,7 +442,7 @@ export default async function IndustrySolutionPage({ params }: Props) {
                 <span className="text-xl font-black tracking-tight text-white">ONI.vn</span>
               </Link>
               <p className="text-sm text-slate-500 font-medium max-w-sm leading-relaxed text-left">
-                Nền tảng POS &amp; quản lý bán hàng đa chi nhánh đột phá. Cơ chế kết nối dữ liệu riêng tư BYOD, tích hợp AI phân tích thông minh và Zalo/Telegram.
+                Nền tảng Mini ERP &amp; quản lý bán hàng đa chi nhánh đột phá. Cơ chế kết nối cơ sở dữ liệu riêng tư BYOD biệt lập, tích hợp AI phân tích thông minh và Zalo/Telegram.
               </p>
               <div className="text-xs text-slate-500 font-bold text-left">
                 &copy; {new Date().getFullYear()} ONI.vn. Đã đăng ký bản quyền.

@@ -382,7 +382,7 @@ export default async function SubIndustrySolutionPage({ params }: Props) {
                 <Check className="h-5 w-5 text-emerald-600 shrink-0 mt-0.5" />
                 <div>
                   <strong className="block text-slate-800 text-sm">Gói Nâng cao (BYOD): Sở hữu dữ liệu tuyệt đối</strong>
-                  <span className="text-slate-500 text-xs block mt-0.5 leading-relaxed">Tự do kết nối các cổng lưu trữ dữ liệu của riêng bạn như database PostgreSQL riêng, private Supabase, MySQL hoặc cổng Google Sheets nhẹ nhàng.</span>
+                  <span className="text-slate-500 text-xs block mt-0.5 leading-relaxed">Tự do kết nối các cổng lưu trữ dữ liệu của riêng bạn như database PostgreSQL riêng, private Supabase, MySQL độc lập để bảo vệ tối đa tài sản thông tin của doanh nghiệp.</span>
                 </div>
               </li>
               <li className="flex items-start gap-3 text-slate-700">
@@ -415,7 +415,7 @@ export default async function SubIndustrySolutionPage({ params }: Props) {
                   <div className="bg-slate-800 border border-slate-700/55 rounded-2xl p-4 flex flex-col gap-2">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-slate-300">Cổng dữ liệu được chọn:</span>
-                      <span className="text-[10px] font-extrabold text-blue-400 bg-blue-500/10 px-2.5 py-0.5 rounded-md border border-blue-500/20">PostgreSQL / Supabase / Google Sheets</span>
+                      <span className="text-[10px] font-extrabold text-blue-400 bg-blue-500/10 px-2.5 py-0.5 rounded-md border border-blue-500/20">PostgreSQL / Supabase / Dedicated DB</span>
                     </div>
                   </div>
                 </div>
@@ -483,7 +483,7 @@ export default async function SubIndustrySolutionPage({ params }: Props) {
                 <span className="text-xl font-black tracking-tight text-white">ONI.vn</span>
               </Link>
               <p className="text-sm text-slate-500 font-medium max-w-sm leading-relaxed text-left">
-                Nền tảng POS &amp; quản lý bán hàng đa chi nhánh đột phá. Cơ chế kết nối dữ liệu riêng tư BYOD, tích hợp AI phân tích thông minh và Zalo/Telegram.
+                Nền tảng Mini ERP &amp; quản lý bán hàng đa chi nhánh đột phá. Cơ chế kết nối cơ sở dữ liệu riêng tư BYOD biệt lập, tích hợp AI phân tích thông minh và Zalo/Telegram.
               </p>
               <div className="text-xs text-slate-500 font-bold text-left">
                 &copy; {new Date().getFullYear()} ONI.vn. Đã đăng ký bản quyền.

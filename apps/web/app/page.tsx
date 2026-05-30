@@ -19,7 +19,11 @@ import {
   Clock,
   QrCode,
   Calendar,
-  AlertCircle
+  AlertCircle,
+  ShoppingCart,
+  Coins,
+  Users,
+  Server
 } from 'lucide-react';
 
 /* ── Data ────────────────────────────────────────────────────── */
@@ -27,38 +31,38 @@ const FEATURES = [
   { 
     icon: <Database className="h-6 w-6 text-blue-600" />, 
     title: 'BYOD - Sở hữu dữ liệu', 
-    desc: 'Kết nối Google Sheets, Supabase hoặc database riêng. Dữ liệu luôn thuộc về bạn, chúng tôi không can thiệp.' 
+    desc: 'Kết nối cơ sở dữ liệu riêng tư (Supabase, PostgreSQL, MySQL) hoặc bảng tính cá nhân. Dữ liệu là tài sản riêng của doanh nghiệp.' 
   },
   { 
-    icon: <Sparkles className="h-6 w-6 text-indigo-600" />, 
-    title: 'AI thông minh', 
-    desc: 'Phân tích doanh thu, dự báo hàng tồn, đề xuất giá bán - tất cả đều tự động nhờ AI bằng ngôn ngữ tự nhiên.' 
+    icon: <ShoppingCart className="h-6 w-6 text-emerald-600" />, 
+    title: 'Nghiệp vụ Mua hàng & P2P', 
+    desc: 'Chuỗi quy trình Mua hàng chuyên nghiệp: Yêu cầu mua (PR) → Đơn mua (PO) → Nhập kho (GRN) giúp kiểm soát chặt chẽ giá vốn và nhà cung cấp.' 
   },
   { 
-    icon: <MessageSquare className="h-6 w-6 text-emerald-600" />, 
-    title: 'Zalo & Telegram Alerts', 
-    desc: 'Nhận thông báo đơn hàng, cảnh báo hết hàng và báo cáo tài chính qua Zalo OA và Telegram Bot theo thời gian thực.' 
+    icon: <Coins className="h-6 w-6 text-amber-600" />, 
+    title: 'Quản lý Tài sản & Khấu hao', 
+    desc: 'Lập lịch khấu hao tài sản cố định, quản lý phân bổ chi phí hoạt động chi tiết giúp tính toán điểm hòa vốn doanh nghiệp cực kỳ khoa học.' 
   },
   { 
-    icon: <Store className="h-6 w-6 text-amber-600" />, 
-    title: 'POS & Kho hàng chuyên biệt', 
-    desc: 'Thiết kế giao diện POS và báo cáo đặc thù cho từng ngành nghề: thời trang, ăn uống, dịch vụ, bán lẻ...' 
+    icon: <Users className="h-6 w-6 text-indigo-650" />, 
+    title: 'Hệ quản trị Mini CRM', 
+    desc: 'Quản lý thông tin khách hàng, phân hạng thẻ hội viên, theo dõi công nợ nhắc nợ tự động qua Zalo OA và Telegram.' 
   },
   { 
-    icon: <Shield className="h-6 w-6 text-rose-600" />, 
-    title: 'Bảo mật doanh nghiệp', 
-    desc: 'Xác thực 2 lớp (2FA), phân quyền chi tiết theo vai trò cho nhân viên và lưu vết lịch sử (audit log) đầy đủ.' 
+    icon: <Sparkles className="h-6 w-6 text-violet-600" />, 
+    title: 'Trợ lý AI Phân tích', 
+    desc: 'Hỏi đáp bằng ngôn ngữ tự nhiên để tóm tắt tài chính cuối ngày, phân tích hiệu suất mặt hàng và dự báo dòng tiền thông minh.' 
   },
   { 
-    icon: <Globe className="h-6 w-6 text-cyan-600" />, 
-    title: 'Subdomain riêng biệt', 
-    desc: 'Mỗi doanh nghiệp có gian hàng quản trị riêng tại your-shop.oni.vn - sẵn sàng sử dụng trong 60 giây.' 
+    icon: <Server className="h-6 w-6 text-cyan-600" />, 
+    title: 'Triển khai Private Cloud', 
+    desc: 'Đóng gói cài đặt, tùy biến mã nguồn và triển khai dedicated trên máy chủ riêng (AWS, GCP...) dành cho doanh nghiệp và chuỗi lớn.' 
   },
 ];
 
 const STEPS = [
   { num: '01', title: 'Đăng ký gian hàng', desc: 'Chọn subdomain của bạn, nhập thông tin - gian hàng sẵn sàng trong 60 giây.' },
-  { num: '02', title: 'Kết nối dữ liệu', desc: 'Lựa chọn sử dụng Google Sheets, Supabase riêng, database PostgreSQL riêng (BYOD) hoặc shared PostgreSQL dùng chung của ONI.' },
+  { num: '02', title: 'Thiết lập lưu trữ', desc: 'Lựa chọn cơ sở dữ liệu riêng biệt của doanh nghiệp (BYOD) như Supabase, PostgreSQL độc lập hoặc sử dụng CSDL đám mây an toàn của ONI.' },
   { num: '03', title: 'Bắt đầu bán hàng', desc: 'Mở POS chuyên ngành, quản lý kho, công nợ, báo cáo - tất cả trên mọi thiết bị.' },
 ];
 
@@ -70,7 +74,7 @@ const PLAN_DETAILS: Record<string, any> = {
   },
   'plan_pro': {
     price: '299K', period: '/tháng', badge: 'Phổ biến',
-    features: ['5 chi nhánh', 'Không giới hạn sản phẩm', 'Google Sheets, Supabase hoặc DB riêng (BYOD)', 'AI insights', 'Zalo & Telegram', '2FA & audit log', 'Hỗ trợ ưu tiên'],
+    features: ['5 chi nhánh', 'Không giới hạn sản phẩm', 'Cơ sở dữ liệu riêng (BYOD - Supabase, DB riêng)', 'AI insights', 'Zalo & Telegram Alerts', '2FA & audit log', 'Hỗ trợ ưu tiên'],
     cta: 'Bắt đầu bán hàng', highlight: true,
   },
   'plan_enterprise': {
@@ -140,16 +144,16 @@ export default async function LandingPage() {
           <div className="flex-1 text-center lg:text-left z-10">
             <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50/80 backdrop-blur-md px-4 py-1.5 text-sm font-medium text-primary shadow-sm">
               <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-              Sẵn sàng kết nối BYOD (Sở hữu dữ liệu)
+              Sở hữu cơ sở dữ liệu riêng biệt (BYOD)
             </div>
             <h1 className="text-4xl md:text-6xl lg:text-[3.5rem] font-extrabold leading-[1.1] tracking-tight text-slate-900 mb-6 drop-shadow-sm">
-              Sở hữu dữ liệu. <br/>
+              Bán hàng dễ dàng. <br/>
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-orange-400">
-                Làm chủ kinh doanh.
+                Quản lý gọn gàng.
               </span>
             </h1>
             <p className="mt-6 max-w-2xl mx-auto lg:mx-0 text-lg md:text-xl text-slate-650 leading-relaxed font-medium">
-              Nền tảng POS & quản lý bán hàng đa chi nhánh đột phá. Giữ toàn quyền dữ liệu với cơ chế BYOD, tích hợp AI thông minh và thông báo đa kênh.
+              Hệ thống bán hàng và Mini ERP thông minh, tin cậy. Bảo mật tuyệt đối dữ liệu kinh doanh với kiến trúc CSDL ổn định cao, hỗ trợ kết nối DB riêng tư (BYOD) giúp doanh nghiệp làm chủ 100% tài sản số của mình.
             </p>
             <div className="mt-10 flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4">
               <Link href="/register" id="hero-cta-register" className="group flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl bg-primary px-8 py-4 text-base font-bold text-white shadow-xl hover:bg-primary-dark transition-all hover:scale-105">
@@ -233,7 +237,11 @@ export default async function LandingPage() {
                     </Link>
                   </div>
 
-                  <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3">
+                  <div className={`grid gap-6 justify-center ${
+                    groupVerticals.length === 1 ? 'grid-cols-1 max-w-sm mx-auto' :
+                    groupVerticals.length === 2 ? 'grid-cols-1 md:grid-cols-2 max-w-3xl mx-auto' :
+                    'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 max-w-7xl mx-auto'
+                  }`}>
                     {groupVerticals.map((ind) => {
                       const Icon = ind.icon;
                       return (
@@ -513,6 +521,136 @@ export default async function LandingPage() {
             </div>
           </div>
 
+          {/* ═══ ERP procurement, Fixed Assets & Private Cloud Deployments ═══ */}
+          <div className="grid gap-12 lg:grid-cols-2 items-center mb-28">
+            <div className="rounded-3xl bg-gradient-to-br from-indigo-50/50 to-blue-50/50 p-8 border border-indigo-100 relative overflow-hidden shadow-sm">
+               <div className="absolute top-0 right-0 p-6 opacity-10 text-indigo-650"><Server className="h-24 w-24" /></div>
+               <div className="relative z-10 space-y-5 max-w-lg mx-auto">
+                  {/* Visual P2P Flow Tracker */}
+                  <div className="bg-white p-5 rounded-2xl shadow-md border border-slate-100 flex flex-col gap-3">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                      <span className="font-extrabold text-slate-800 text-xs sm:text-sm">Quy trình Cung ứng Mua hàng (P2P)</span>
+                      <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 px-2.5 py-0.5 rounded-md uppercase">Đồng bộ Kho</span>
+                    </div>
+                    
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center justify-between p-2 bg-slate-50 border border-slate-100 rounded-xl text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="h-5 w-5 rounded-full bg-slate-200 border border-slate-300 text-[10px] font-black flex items-center justify-center text-slate-655 font-mono">PR</span>
+                          <span className="font-bold text-slate-700">Yêu cầu Mua hàng #PR-102</span>
+                        </div>
+                        <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-md">Đã Duyệt</span>
+                      </div>
+                      
+                      <div className="flex items-center justify-between p-2 bg-slate-50 border border-slate-100 rounded-xl text-xs ml-4">
+                        <div className="flex items-center gap-2">
+                          <span className="h-5 w-5 rounded-full bg-primary/20 border border-primary/30 text-[10px] font-black flex items-center justify-center text-primary font-mono">PO</span>
+                          <span className="font-bold text-slate-700">Đơn đặt hàng NCC #PO-589</span>
+                        </div>
+                        <span className="text-[9px] font-bold text-blue-600 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded-md">Đã Gửi</span>
+                      </div>
+                      
+                      <div className="flex items-center justify-between p-2 bg-slate-50 border border-slate-100 rounded-xl text-xs ml-8">
+                        <div className="flex items-center gap-2">
+                          <span className="h-5 w-5 rounded-full bg-emerald-100 border border-emerald-200 text-[10px] font-black flex items-center justify-center text-emerald-700 font-mono">GRN</span>
+                          <span className="font-bold text-slate-700">Phiếu nhập kho hàng #GRN-845</span>
+                        </div>
+                        <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-md">Đã Nhập Kho</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Fixed Assets Allocation */}
+                  <div className="bg-white p-5 rounded-2xl shadow-md border border-slate-100 flex flex-col gap-3">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                      <span className="font-extrabold text-slate-800 text-xs sm:text-sm">Tài sản Cố định & Khấu hao</span>
+                      <span className="text-[9px] font-bold text-amber-600 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-md uppercase">Định kỳ tháng</span>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-xs font-semibold text-slate-650">
+                        <span>Máy pha cafe Nuova Simonelli</span>
+                        <span className="font-bold text-slate-800">85,000,000đ</span>
+                      </div>
+                      <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden flex">
+                        <div className="bg-amber-500 h-full" style={{ width: '60%' }} />
+                      </div>
+                      <div className="flex items-center justify-between text-[10px] text-slate-400 font-bold">
+                        <span>Đã khấu hao: 24 tháng (51M)</span>
+                        <span className="text-amber-600">Còn lại: 34M</span>
+                      </div>
+                    </div>
+                  </div>
+               </div>
+            </div>
+            
+            <div>
+              <div className="inline-flex items-center gap-1.5 text-xs font-bold text-primary uppercase tracking-wider bg-indigo-50 px-3 py-1 rounded-full border border-indigo-100 mb-4">
+                <ShoppingCart className="h-3.5 w-3.5 animate-pulse" /> Quản lý mua hàng & Kho bãi
+              </div>
+              <h3 className="text-2.5xl font-extrabold text-slate-900 mb-4">Nhập hàng thông minh, kiểm kho chặt chẽ</h3>
+              <p className="text-lg text-slate-655 mb-6 leading-relaxed">
+                Khi cửa hàng lớn lên, bạn cần kiểm soát nguồn hàng nhập và chi phí thiết bị. ONI hỗ trợ bạn quản lý từ yêu cầu mua hàng, đặt hàng nhà cung cấp cho đến khi hàng vào kho. Mọi tài sản lớn nhỏ của quán đều được theo dõi giá trị khấu hao rõ ràng để bạn luôn biết dòng tiền đi về đâu.
+              </p>
+              <ul className="space-y-3.5">
+                <li className="flex items-center gap-3 text-slate-700 font-medium"><Check className="h-5 w-5 text-emerald-600 shrink-0" /> Theo dõi quy trình nhập hàng (PR → PO → GRN) để kiểm soát giá vốn</li>
+                <li className="flex items-center gap-3 text-slate-700 font-medium"><Check className="h-5 w-5 text-emerald-600 shrink-0" /> Quản lý tài sản của quán, tự động tính khấu hao tài sản cố định</li>
+                <li className="flex items-center gap-3 text-slate-700 font-medium"><Check className="h-5 w-5 text-emerald-600 shrink-0" /> Phân bổ chi phí vận hành giúp bạn tính toán điểm hòa vốn dễ dàng</li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Section: Dedicated Server Deployments & On-Premise for Enterprises */}
+          <div className="grid gap-12 lg:grid-cols-2 items-center mb-28">
+            <div className="order-2 lg:order-1">
+              <div className="inline-flex items-center gap-1.5 text-xs font-bold text-primary uppercase tracking-wider bg-cyan-50 px-3 py-1 rounded-full border border-cyan-100 mb-4">
+                <Server className="h-3.5 w-3.5" /> Giải pháp cho chuỗi lớn
+              </div>
+              <h3 className="text-2.5xl font-extrabold text-slate-900 mb-4">Cài đặt trên máy chủ riêng của bạn</h3>
+              <p className="text-lg text-slate-655 mb-6 leading-relaxed">
+                Nếu bạn đang vận hành chuỗi nhiều chi nhánh hoặc muốn tự kiểm soát 100% hệ thống của mình, ONI sẵn sàng hỗ trợ cài đặt và tùy biến phần mềm chạy trên máy chủ riêng của bạn. Đảm bảo tính riêng tư, bảo mật dữ liệu tuyệt đối và hoạt động độc lập không phụ thuộc vào bên thứ ba.
+              </p>
+              <ul className="space-y-3.5">
+                <li className="flex items-center gap-3 text-slate-700 font-medium"><Check className="h-5 w-5 text-emerald-600 shrink-0" /> Sở hữu 100% cơ sở dữ liệu biệt lập, không chia sẻ với ai</li>
+                <li className="flex items-center gap-3 text-slate-700 font-medium"><Check className="h-5 w-5 text-emerald-600 shrink-0" /> Tự do kết nối các hệ thống nội bộ của bạn thông qua API và Webhook</li>
+                <li className="flex items-center gap-3 text-slate-700 font-medium"><Check className="h-5 w-5 text-emerald-600 shrink-0" /> Đội ngũ kỹ sư ONI hỗ trợ lắp đặt, bàn giao và bảo trì hệ thống định kỳ</li>
+              </ul>
+            </div>
+            
+            <div className="order-1 lg:order-2 rounded-3xl bg-slate-900 p-8 border border-slate-800 relative overflow-hidden shadow-2xl">
+               <div className="absolute top-0 right-0 p-6 opacity-10 text-white"><Server className="h-24 w-24" /></div>
+               <div className="relative z-10 space-y-4 max-w-sm mx-auto">
+                  <div className="bg-slate-800/80 backdrop-blur-md p-5 rounded-2xl border border-slate-700/50 flex flex-col gap-3">
+                    <div className="flex items-center justify-between border-b border-slate-700 pb-2">
+                      <span className="font-extrabold text-slate-200 text-xs">Cơ sở Hạ tầng Máy chủ Riêng</span>
+                      <span className="text-[9px] font-black text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-2 py-0.5 rounded-md uppercase">Dedicated</span>
+                    </div>
+                    
+                    <div className="space-y-2.5 text-xs text-slate-400 font-semibold">
+                      <div className="flex items-center justify-between">
+                        <span>Máy chủ lưu trữ:</span>
+                        <span className="text-slate-200">AWS EC2 Dedicated</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>IP Máy chủ:</span>
+                        <span className="text-slate-200 font-mono select-all">103.85.24.12</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>Mã nguồn:</span>
+                        <span className="text-slate-200 font-mono text-[10px]">oni-erp-custom.git</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>Trạng thái:</span>
+                        <span className="text-emerald-400 flex items-center gap-1">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-ping" />
+                          Đang chạy ổn định
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+               </div>
+            </div>
+          </div>
+
           {/* Section: Excel Data Importer */}
           <div className="grid gap-12 lg:grid-cols-2 items-center">
             <div className="rounded-3xl bg-gradient-to-br from-emerald-50 to-teal-50/30 p-8 border border-emerald-100 relative overflow-hidden shadow-xs">
@@ -614,7 +752,7 @@ export default async function LandingPage() {
                 <span className="text-xl font-black tracking-tight text-white">ONI.vn</span>
               </Link>
               <p className="text-sm text-slate-500 font-medium max-w-sm leading-relaxed">
-                Nền tảng POS &amp; quản lý bán hàng đa chi nhánh đột phá. Cơ chế kết nối dữ liệu riêng tư BYOD, tích hợp AI phân tích thông minh và Zalo/Telegram.
+                Nền tảng Mini ERP &amp; quản lý bán hàng đa chi nhánh đột phá. Cơ chế kết nối cơ sở dữ liệu riêng tư BYOD biệt lập, tích hợp AI phân tích thông minh và Zalo/Telegram.
               </p>
               <div className="text-xs text-slate-500 font-bold">
                 &copy; {new Date().getFullYear()} ONI.vn. Đã đăng ký bản quyền.

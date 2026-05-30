@@ -92,7 +92,11 @@ export function PricingSection({ plans }: { plans: any[] }) {
           </div>
         </div>
 
-        <div className="grid gap-8 lg:gap-10 md:grid-cols-3 items-center">
+        <div className={`grid gap-8 lg:gap-10 items-center justify-center ${
+          plans.length === 1 ? 'grid-cols-1 max-w-md mx-auto' :
+          plans.length === 2 ? 'grid-cols-1 md:grid-cols-2 max-w-3xl mx-auto' :
+          'grid-cols-1 md:grid-cols-3 max-w-7xl mx-auto'
+        }`}>
           {plans.map((p) => (
             <div key={p.code} className={`relative rounded-[2rem] p-10 transition-all duration-300 ${
               p.highlight
