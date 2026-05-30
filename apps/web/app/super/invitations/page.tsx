@@ -17,7 +17,7 @@ export default async function SuperInvitationsPage() {
     .order('used_at', { ascending: false });
 
   return (
-    <div className="space-y-6 max-w-5xl">
+    <div className="space-y-6">
       <div>
         <div className="text-xs font-medium uppercase tracking-[0.2em] text-slate-400">Superadmin</div>
         <h1 className="mt-1 text-xl font-bold text-slate-900">Quản lý mã mời</h1>

@@ -38,7 +38,7 @@ export default async function SuperUsers({
   }
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="space-y-6">
       <div>
         <h1 className="text-xl font-bold text-slate-900">Tìm người dùng</h1>
         <p className="text-sm text-slate-500 mt-0.5">Tìm kiếm theo email hoặc user ID</p>

@@ -9,7 +9,7 @@ export default async function SuperPlans() {
     .order('id');
 
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="space-y-6">
       <div>
         <h1 className="text-xl font-bold text-slate-900">Gói dịch vụ</h1>
         <p className="text-sm text-slate-500 mt-0.5">Xem và quản lý các gói dịch vụ của hệ thống</p>
