@@ -62,3 +62,60 @@ Nếu đây là lần đầu tiên bạn cấu hình hệ thống Local MySQL (v
    pnpm db:push
    ```
 3. Lệnh này sẽ gọi qua `packages/adapters` để đọc schema và khởi tạo toàn bộ bảng (`orders`, `products`, `customers`, v.v.) vào Database của bạn.
+
+---
+
+## 6. AI Agent Guidelines (Quy tắc bắt buộc cho Antigravity & Gemini)
+
+Để tránh các lỗi cơ bản khi thực hiện code trong hệ thống, mọi AI Agent (bao gồm cả Antigravity) khi làm việc trên workspace này **BẮT BUỘC** phải tuân thủ tuyệt đối các quy tắc sau:
+
+### 6.1 Sử dụng Icon (React Lucide)
+- **BẮT BUỘC** luôn dùng icon từ thư viện `lucide-react`.
+- **CẤM** viết code SVG inline tự chế hoặc dùng các thư viện icon ngoài khác.
+- **Import format:**
+  ```typescript
+  import { Trash2, Edit, Check, AlertCircle } from 'lucide-react'
+  ```
+
+### 6.2 Hộp thoại Xác nhận & Trạng thái Loading (Confirm Dialogs)
+- **BẮT BUỘC** yêu cầu xác nhận (`confirm`) trước các hành động làm thay đổi trạng thái (xóa, cập nhật, thay đổi trạng thái kích hoạt, v.v.).
+- **BẮT BUỘC** dùng hook `useConfirm` từ `@/app/components/ui/ConfirmProvider` thay vì tự tạo modal/alert cục bộ.
+- **BẮT BUỘC** truyền hàm thực thi async vào thuộc tính `onConfirm` để kích hoạt trạng thái loading spinner tự động của hộp thoại.
+- **Pattern chuẩn:**
+  ```typescript
+  const confirm = useConfirm()
+  
+  const handleDelete = async (id: string) => {
+    await confirm({
+      title: 'Xác nhận xóa tài khoản/quỹ',
+      description: 'Bạn có chắc chắn muốn xóa tài khoản này không?',
+      confirmLabel: 'Xóa',
+      cancelLabel: 'Hủy',
+      variant: 'danger',
+      onConfirm: async () => {
+        // Trả về promise để hiển thị spinner trên nút Xác nhận và khóa tương tác
+        await deleteMutation.mutateAsync(id)
+      }
+    })
+  }
+  ```
+
+### 6.3 Thao tác Database (Supabase vs. Dynamic Connector)
+Hệ thống chia làm 2 phân tầng dữ liệu rõ rệt. Agent phải phân biệt và sử dụng đúng:
+- **Control-plane (Supabase):** Dùng để truy vấn Auth, Tenants, Subscriptions, Plans, Domains, Connectors metadata config. (Truy vấn qua client của Supabase).
+- **Data-plane (Operational Business Data):** Đối với các bảng nghiệp vụ (`products`, `categories`, `customers`, `inventory`, `stock_movements`, `cashbook`, `payment-funds`, `shifts`, `fund-audits`), **CẤM** truy vấn trực tiếp bằng Supabase client.
+- **Cách dùng đúng:** Trong API route handlers, luôn dùng `requireShopAccess(shopId, permission)` để lấy instance `connector` động.
+  ```typescript
+  const { connector } = await requireShopAccess(shopId, 'products.view')
+  const products = await connector.list('products', { filters })
+  ```
+
+### 6.4 Định tuyến URL & Subdomain Mapping (Client URL vs Physical Folder)
+- **Bối cảnh:** Ngoại trừ trang quản trị hệ thống (`/super`), mọi nghiệp vụ và trang của Tenant đều hoạt động dưới dạng **Subdomain** (ví dụ: `tenant-slug.oni.vn` hoặc `linhka.localhost:3000`).
+- **Cơ chế:** Middleware sẽ âm thầm rewrite (định tuyến ẩn) request từ subdomain `[slug].oni.vn/[branch]/settings` vào thư mục vật lý `/apps/web/app/t/[slug]/[branch]/settings`.
+- **QUY TẮC BẮT BUỘC:** Khi sinh code cho Frontend (thẻ `<Link>`, hàm `router.push`, `window.location`, v.v.), **KHÔNG ĐƯỢC** thêm tiền tố vật lý `/t/[slug]` hay `/t/[branch]` vào URL.
+  - **CẤM (Sai):** `<Link href="/t/ca-phe-minh/q1/settings">` hoặc `router.push('/t/q1/settings')`
+  - **BẮT BUỘC (Đúng):** `<Link href="/q1/settings">` hoặc `router.push('/q1/settings')` (hoặc dùng `/[branch]/settings` với biến branch tương ứng).
+- AI Agent phải luôn ghi nhớ rằng đối với trình duyệt của người dùng, `/t/[slug]` không hề tồn tại.
+
+
