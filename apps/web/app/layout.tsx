@@ -9,25 +9,25 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://oni.vn';
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: 'ONI.vn – Nền tảng quản trị doanh nghiệp SME',
+    default: 'ONI.vn – Phần mềm bán hàng POS, Mini CRM & ERP quản trị SME',
     template: '%s | ONI.vn',
   },
   description:
-    'Hệ thống POS & quản lý kho đa chi nhánh. Dữ liệu thuộc về bạn — BYOD (Bring Your Own Database). AI, Zalo, Telegram tích hợp sẵn.',
+    'Phần mềm bán hàng POS, quản lý kho, chuỗi mua hàng và chăm sóc khách hàng (Mini CRM) đa chi nhánh. Tùy biến kết nối database riêng biệt (BYOD), tích hợp AI, Zalo & Telegram.',
   openGraph: {
     type: 'website',
     locale: 'vi_VN',
     url: siteUrl,
     siteName: 'ONI.vn',
-    title: 'ONI.vn – Nền tảng quản trị doanh nghiệp SME',
+    title: 'ONI.vn – Phần mềm bán hàng POS, Mini CRM & ERP quản trị SME',
     description:
-      'Hệ thống POS & quản lý kho đa chi nhánh. Dữ liệu thuộc về bạn — BYOD (Bring Your Own Database). AI, Zalo, Telegram tích hợp sẵn.',
+      'Phần mềm bán hàng POS, quản lý kho, chuỗi mua hàng và chăm sóc khách hàng (Mini CRM) đa chi nhánh. Tùy biến kết nối database riêng biệt (BYOD), tích hợp AI, Zalo & Telegram.',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'ONI.vn – Nền tảng quản trị doanh nghiệp SME',
+    title: 'ONI.vn – Phần mềm bán hàng POS, Mini CRM & ERP quản trị SME',
     description:
-      'Hệ thống POS & quản lý kho đa chi nhánh. Dữ liệu thuộc về bạn — BYOD (Bring Your Own Database). AI, Zalo, Telegram tích hợp sẵn.',
+      'Phần mềm bán hàng POS, quản lý kho, chuỗi mua hàng và chăm sóc khách hàng (Mini CRM) đa chi nhánh. Tùy biến kết nối database riêng biệt (BYOD), tích hợp AI, Zalo & Telegram.',
   },
   icons: {
     icon: [
