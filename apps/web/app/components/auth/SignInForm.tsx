@@ -144,7 +144,7 @@ export function SignInForm({
               <span className="font-bold text-slate-900 text-lg" title={tenantName}>{tenantName}</span>
             </div>
             <h1 className="text-2xl font-bold text-slate-900">Đăng nhập vào quản lý</h1>
-            <p className="mt-1 text-sm text-slate-500">{tenantSlug}.oni.vn</p>
+            <p className="mt-1 text-sm text-slate-500">{tenantName} ({tenantSlug}.{ROOT_DOMAIN})</p>
           </>
         ) : (
           <>
