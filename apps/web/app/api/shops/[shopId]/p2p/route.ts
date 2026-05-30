@@ -174,12 +174,18 @@ export async function POST(
         const { note, items, status } = data;
 
         // 1. Tạo PR Header
-        const prHeader = await connector.create('purchase-requisitions', {
+        let prHeader = await connector.create('purchase-requisitions', {
           status: status || 'DRAFT',
           created_by: ctx.user.id,
           estimated_total: '0',
           note: note || '',
         });
+
+        // Cập nhật requisition_no theo ID đã sinh tự động
+        prHeader = await connector.update('purchase-requisitions', prHeader.id, {
+          requisition_no: prHeader.id,
+        });
+
 
         // 2. Tạo các PR Items nếu có
         if (Array.isArray(items) && items.length > 0) {
@@ -245,12 +251,17 @@ export async function POST(
         }
 
         // 2. Tạo GRN Header
-        const grnHeader = await connector.create('goods-receipt-notes', {
+        let grnHeader = await connector.create('goods-receipt-notes', {
           purchase_order_id: po.id,
           received_by: ctx.user.id,
           warehouse_id: 'DEFAULT',
           status: 'DRAFT',
-          note: `Tự động tạo đối chiếu theo đơn đặt hàng PO #${po.id}`,
+          note: `Tự động tạo đối chiếu theo đơn đặt hàng PO #${po.purchase_order_no || po.id}`,
+        });
+
+        // Cập nhật grn_no theo ID đã sinh tự động
+        grnHeader = await connector.update('goods-receipt-notes', grnHeader.id, {
+          grn_no: grnHeader.id,
         });
 
         // 3. Lấy danh sách PO Items

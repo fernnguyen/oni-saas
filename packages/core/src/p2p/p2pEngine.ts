@@ -152,7 +152,10 @@ export class P2PEngine {
       branch_id: pr.branch_id || '',
       note: `Tự động tạo từ đề xuất mua sắm PR #${pr.requisition_no || prId}`,
     };
-    const po = await connector.create('purchase-orders', poData);
+    let po = await connector.create('purchase-orders', poData);
+    po = await connector.update('purchase-orders', po.id, {
+      purchase_order_no: po.id,
+    });
     
     // Copy items to PO items
     for (const prItem of itemsResult.data) {

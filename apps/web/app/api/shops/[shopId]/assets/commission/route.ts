@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireShopAccess } from '@/lib/server/shopAccess';
 import { assetCommissionSchema } from '@/lib/validators/assets';
 import { invalidate } from '@/lib/server/cache';
+import { getTenantHash } from '@oni/core';
 import { handleApiError } from '../../../_helpers';
 
 export async function POST(
@@ -11,7 +12,8 @@ export async function POST(
 ) {
   try {
     const { shopId } = await params;
-    const { connector, permissions, userId } = await requireShopAccess(shopId);
+    const { connector, permissions, userId, shop } = await requireShopAccess(shopId);
+
 
     const hasManageAccess =
       permissions.includes('assets.manage') ||
@@ -104,7 +106,9 @@ export async function POST(
     await connector.create('asset-allocations', allocationData);
 
     // 6. Write commission stock movement (representing export out of WH-ASSET physical inventory)
-    const movementNo = `SM-COMM-${Date.now()}`;
+    const tenantHash = getTenantHash(shop.tenant_id);
+    const movementNo = `SM-${tenantHash}-COMM-${Date.now().toString().slice(-6)}`;
+
     const movementData = {
       movement_no: movementNo,
       type: 'commission',
