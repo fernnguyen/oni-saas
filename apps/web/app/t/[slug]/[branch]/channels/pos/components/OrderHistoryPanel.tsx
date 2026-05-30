@@ -432,6 +432,14 @@ export function OrderHistoryPanel({
                                           {METHOD_LABEL[p.method] ?? p.method}
                                         </span>
                                         {order.status !== 'cancelled' && !isEditing && (
+                                          (() => {
+                                            const perms = settings?.permissions || []
+                                            if (!perms.includes('orders.edit')) return false
+                                            if (perms.includes('payments.force_edit')) return true
+                                            const createdTime = order.created_at ? new Date(order.created_at).getTime() : 0
+                                            return (Date.now() - createdTime) < 30 * 60 * 1000
+                                          })()
+                                        ) && (
                                           <button
                                             onClick={async () => {
                                               setEditingPaymentId(p.local_id)

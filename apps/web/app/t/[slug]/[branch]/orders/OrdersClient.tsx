@@ -119,7 +119,6 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
   const [debouncedSearch] = useDebounce(search, 300)
   const [statusFilter, setStatusFilter] = useState('')
   const [selectedOrder, setSelectedOrder] = useState<Row | null>(null)
-  const [editStatus, setEditStatus] = useState('')
   const [cancelTarget, setCancelTarget] = useState<Row | null>(null)
   const [cancelReason, setCancelReason] = useState('Sai sót hệ thống')
   const [customCancelReason, setCustomCancelReason] = useState('')
@@ -303,27 +302,7 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
     return qtyMap
   }, [orderReturnsData])
 
-  // Update status
-  const statusMutation = useMutation({
-    mutationFn: async ({ id, status }: { id: string; status: string }) => {
-      const res = await fetch(`/api/shops/${shopId}/orders/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
-      })
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({}))
-        throw new Error(json.error ?? 'Cập nhật thất bại')
-      }
-      return res.json()
-    },
-    onSuccess: (updated) => {
-      toast.success('Đã cập nhật trạng thái')
-      setSelectedOrder(updated)
-      queryClient.invalidateQueries({ queryKey: ['orders', shopId] })
-    },
-    onError: (err: Error) => toast.error(err.message),
-  })
+
 
   // Add payment
   const paymentMutation = useMutation({
@@ -435,7 +414,6 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
               .then(data => {
                 if (data) {
                   setSelectedOrder(data)
-                  setEditStatus(data.status)
                 }
               })
           }
@@ -449,7 +427,6 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
           toast.success('Đã tạo phiếu trả hàng — xem trong mục Đơn trả hàng')
         }
         setSelectedOrder((prev) => prev ? { ...prev, status: 'returning' } : prev)
-        setEditStatus('returning')
       }
       setShowReturnForm(false)
       setShowConfirmReturn(false)
@@ -482,7 +459,6 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
       toast.success('Đã hủy đơn hàng')
       setCancelTarget(null)
       if (selectedOrder) {
-        setEditStatus('cancelled')
         setSelectedOrder({ ...selectedOrder, status: 'cancelled' })
       }
       queryClient.invalidateQueries({ queryKey: ['orders', shopId] })
@@ -608,7 +584,6 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
 
   function openDetail(row: Row) {
     setSelectedOrder(row)
-    setEditStatus(row.status)
     setPaymentForm(EMPTY_PAYMENT)
     setShowPaymentForm(false)
   }
@@ -862,6 +837,10 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
                   <dd className="text-slate-900">{selectedOrder.employee_id || '—'}</dd>
                 </div>
                 <div>
+                  <dt className="text-slate-500">Trạng thái</dt>
+                  <dd><TagBadge label={statusLabel(selectedOrder.status)} color={statusColor(selectedOrder.status)} /></dd>
+                </div>
+                <div>
                   <dt className="text-slate-500">Tổng tiền</dt>
                   <dd className="font-semibold text-slate-900">{fmtVND(selectedOrder.total_amount)}</dd>
                 </div>
@@ -882,30 +861,6 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
                   </div>
                 )}
               </dl>
-            </div>
-
-            {/* Status update */}
-            <div>
-              <h3 className="mb-2 text-sm font-medium text-slate-700">Cập nhật trạng thái</h3>
-              <div className="flex gap-2">
-                <select
-                  value={editStatus}
-                  onChange={(e) => setEditStatus(e.target.value)}
-                  disabled={selectedOrder.status === 'cancelled'}
-                  className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none disabled:opacity-50 disabled:bg-slate-50"
-                >
-                  {STATUS_OPTIONS.filter((o) => o.value && (o.value !== 'cancelled' || permissions.includes('orders.delete'))).map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
-                <button
-                  onClick={() => statusMutation.mutate({ id: selectedOrder.order_id, status: editStatus })}
-                  disabled={statusMutation.isPending || editStatus === selectedOrder.status || selectedOrder.status === 'cancelled'}
-                  className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
-                >
-                  {statusMutation.isPending ? 'Đang lưu...' : 'Lưu'}
-                </button>
-              </div>
             </div>
 
             {/* Order items */}
@@ -1033,6 +988,12 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
                             {p.note && <span className="ml-2 text-slate-400 text-xs">— {p.note}</span>}
 
                             {selectedOrder.status !== 'cancelled' && !isEditing && permissions.includes('orders.edit') && (
+                              (() => {
+                                if (permissions.includes('payments.force_edit')) return true
+                                const createdTime = selectedOrder.created_at ? new Date(selectedOrder.created_at).getTime() : 0
+                                return (Date.now() - createdTime) < 30 * 60 * 1000
+                              })()
+                            ) && (
                               <button
                                 onClick={async () => {
                                   setEditingPaymentId(p.payment_id || p.id)
