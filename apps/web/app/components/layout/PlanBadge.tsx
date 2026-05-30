@@ -70,9 +70,18 @@ export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd
         if (data && data.length > 0) {
           const rawPlans = data as PlanRow[];
           // Filter plans: show only public plans OR the organization's current plan
-          const filtered = rawPlans.filter(
-            (p) => p.metadata?.show_public !== false || p.code === planCode
-          );
+          const filtered = rawPlans.filter((p) => {
+            let meta = p.metadata;
+            if (typeof meta === 'string') {
+              try {
+                meta = JSON.parse(meta);
+              } catch {
+                meta = {};
+              }
+            }
+            const isShowPublic = meta?.show_public !== false && meta?.show_public !== 'false';
+            return isShowPublic || p.code === planCode;
+          });
           setPlans(filtered);
         }
       })
