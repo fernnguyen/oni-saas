@@ -301,23 +301,23 @@ export class PostgresConnector implements IDataConnector {
         if (phoneSearch.startsWith('0')) {
           phoneSearch = phoneSearch.substring(1)
         }
-        whereClauses.push(`("name" ILIKE $${paramIdx} OR "phone" ILIKE $${paramIdx} OR "phone" ILIKE $${paramIdx + 1} OR "customer_code" ILIKE $${paramIdx})`)
+        whereClauses.push(`("name" ILIKE $${paramIdx} OR "phone" ILIKE $${paramIdx} OR "phone" ILIKE $${paramIdx + 1} OR "customer_code" ILIKE $${paramIdx} OR "id" ILIKE $${paramIdx})`)
         params.push(searchTerm, `%${phoneSearch}%`)
         paramIdx += 2
       } else if (entity === 'products') {
-        whereClauses.push(`("name" ILIKE $${paramIdx} OR "sku" ILIKE $${paramIdx})`)
+        whereClauses.push(`("name" ILIKE $${paramIdx} OR "sku" ILIKE $${paramIdx} OR "id" ILIKE $${paramIdx})`)
         params.push(searchTerm)
         paramIdx++
       } else if (entity === 'orders') {
-        whereClauses.push(`("order_no" ILIKE $${paramIdx} OR "customer_name" ILIKE $${paramIdx} OR "reference_no" ILIKE $${paramIdx})`)
+        whereClauses.push(`("order_no" ILIKE $${paramIdx} OR "customer_name" ILIKE $${paramIdx} OR "reference_no" ILIKE $${paramIdx} OR "id" ILIKE $${paramIdx})`)
         params.push(searchTerm)
         paramIdx++
       } else if (entity === 'returns') {
-        whereClauses.push(`("return_no" ILIKE $${paramIdx} OR "order_no" ILIKE $${paramIdx} OR "customer_name" ILIKE $${paramIdx})`)
+        whereClauses.push(`("return_no" ILIKE $${paramIdx} OR "order_no" ILIKE $${paramIdx} OR "customer_name" ILIKE $${paramIdx} OR "id" ILIKE $${paramIdx})`)
         params.push(searchTerm)
         paramIdx++
       } else if (entity === 'suppliers') {
-        whereClauses.push(`("name" ILIKE $${paramIdx} OR "phone" ILIKE $${paramIdx})`)
+        whereClauses.push(`("name" ILIKE $${paramIdx} OR "phone" ILIKE $${paramIdx} OR "id" ILIKE $${paramIdx})`)
         params.push(searchTerm)
         paramIdx++
       } else {

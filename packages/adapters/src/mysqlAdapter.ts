@@ -229,21 +229,21 @@ export class MysqlConnector implements IDataConnector {
     if (search) {
       const searchTerm = `%${search}%`
       if (entity === 'orders') {
-        whereClauses.push(`(order_no LIKE ? OR customer_name LIKE ? OR reference_no LIKE ?)`)
-        params.push(searchTerm, searchTerm, searchTerm)
+        whereClauses.push(`(order_no LIKE ? OR customer_name LIKE ? OR reference_no LIKE ? OR id LIKE ?)`)
+        params.push(searchTerm, searchTerm, searchTerm, searchTerm)
       } else if (entity === 'customers') {
         let phoneSearch = search.trim()
         if (phoneSearch.startsWith('0')) {
           phoneSearch = phoneSearch.substring(1)
         }
-        whereClauses.push(`(name LIKE ? OR phone LIKE ? OR phone LIKE ? OR customer_code LIKE ?)`)
-        params.push(searchTerm, searchTerm, `%${phoneSearch}%`, searchTerm)
+        whereClauses.push(`(name LIKE ? OR phone LIKE ? OR phone LIKE ? OR customer_code LIKE ? OR id LIKE ?)`)
+        params.push(searchTerm, searchTerm, `%${phoneSearch}%`, searchTerm, searchTerm)
       } else if (entity === 'products') {
-        whereClauses.push(`(name LIKE ? OR sku LIKE ?)`)
-        params.push(searchTerm, searchTerm)
-      } else if (entity === 'returns') {
-        whereClauses.push(`(return_no LIKE ? OR order_no LIKE ? OR customer_name LIKE ?)`)
+        whereClauses.push(`(name LIKE ? OR sku LIKE ? OR id LIKE ?)`)
         params.push(searchTerm, searchTerm, searchTerm)
+      } else if (entity === 'returns') {
+        whereClauses.push(`(return_no LIKE ? OR order_no LIKE ? OR customer_name LIKE ? OR id LIKE ?)`)
+        params.push(searchTerm, searchTerm, searchTerm, searchTerm)
       } else {
         // Fallback for other entities: just search by legacy ID or name if possible, 
         // but since we don't know schema, we might skip or do a generic fallback.
