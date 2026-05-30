@@ -233,6 +233,23 @@ export async function POST(
         const toWhId = data.to_warehouse_id;
         const transferQty = parseFloat(data.qty);
 
+        // Automatically generate a matching CKN (transfer_in) slip in the destination warehouse
+        const matchingMovementNo = await generateMovementNo(connector, 'transfer_in', shop.tenant_id);
+        const matchingPayload = {
+          ...payload,
+          id: `SM-${crypto.randomUUID().substring(0, 8).toUpperCase()}`,
+          movement_no: matchingMovementNo,
+          type: 'transfer_in',
+          warehouse_id: toWhId,
+          to_warehouse_id: resolvedWarehouseId,
+          reference_no: movementNo,
+          reason: data.reason || `Nhập chuyển kho từ ${resolvedWarehouseId}`,
+        };
+        const createdMatching = await connector.create('stock-movements', matchingPayload);
+        tx.add(async () => {
+          await connector.delete('stock-movements', (createdMatching as any).movement_id).catch(() => {});
+        });
+
         let destInvRes = await connector.list('inventory', {
           page: 1, limit: 1,
           filters: { product_id: data.product_id, warehouse_id: toWhId }
