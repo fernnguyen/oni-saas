@@ -8,14 +8,24 @@ export default async function RegisterPage({ searchParams }: { searchParams: Pro
   // Fetch available plans from the database, ordered by ID (e.g. Mini -> Pro -> Enterprise)
   const { data: dbPlans } = await admin.from('plans').select('*').order('id', { ascending: true });
   
-  // Fallback to empty array if no plans exist in the DB
-  const plans = dbPlans || [];
+  // Fetch system settings for registration mode
+  const { data: settingsData } = await admin
+    .from('system_settings')
+    .select('config')
+    .eq('id', 'global')
+    .single();
+  const config = settingsData?.config || {};
+  const registrationMode = config.registration_mode || 'free'; // 'free' | 'code' | 'disabled'
+
+  // Only show public plans during registration
+  const plans = (dbPlans || []).filter((p: any) => p.metadata?.show_public !== false);
 
   return (
     <RegisterForm 
       plans={plans} 
       initialDomain={typeof domain === 'string' ? domain : undefined} 
       initialIndustry={typeof industry === 'string' ? industry : undefined}
+      registrationMode={registrationMode}
     />
   );
 }

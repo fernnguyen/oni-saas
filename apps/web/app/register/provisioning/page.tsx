@@ -30,7 +30,7 @@ export default function ProvisioningPage() {
     const raw = sessionStorage.getItem('oni_register');
     if (!raw) { router.replace('/register'); return; }
 
-    let data: { slug: string; name: string; email: string; password: string; plan_code?: string };
+    let data: { slug: string; name: string; email: string; password: string; plan_code?: string; invitation_code?: string };
     try { data = JSON.parse(raw); } catch { router.replace('/register'); return; }
 
     const ROOT = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
@@ -58,7 +58,14 @@ export default function ProvisioningPage() {
     })
       .then(async (res) => {
         const body = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(body.message || 'Đã xảy ra lỗi. Vui lòng thử lại.');
+        if (!res.ok) {
+          if (body.field) {
+            const fieldName = body.field === 'invitation_code' ? 'invitationCode' : body.field;
+            sessionStorage.setItem('oni_register_field_errors', JSON.stringify({ [fieldName]: body.message }));
+          }
+          sessionStorage.setItem('oni_register_error', body.message || 'Đã xảy ra lỗi. Vui lòng thử lại.');
+          throw new Error(body.message || 'Đã xảy ra lỗi. Vui lòng thử lại.');
+        }
         return body as { tenant_id: string; workspace_url: string; email: string; slug: string };
       })
       .then((result) => {

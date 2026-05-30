@@ -7,9 +7,32 @@ export function TogglePlanNotify({ planId, meta }: { planId: number; meta: any }
   const [isPending, startTransition] = useTransition();
   const isSharedEnabled = !!meta?.can_use_push_notify;
   const isCustomEnabled = !!meta?.can_use_custom_notify;
+  const isShowPublic = meta?.show_public !== false;
 
   return (
-    <div className="flex gap-6">
+    <div className="flex flex-wrap gap-6">
+      <label className="flex items-center cursor-pointer">
+        <div className="relative">
+          <input
+            type="checkbox"
+            className="sr-only"
+            checked={isShowPublic}
+            disabled={isPending}
+            onChange={(e) => {
+              const newValue = e.target.checked;
+              startTransition(() => {
+                togglePlanPushNotify(planId, meta, 'show_public', newValue);
+              });
+            }}
+          />
+          <div className={`block w-10 h-6 rounded-full transition-colors ${isShowPublic ? 'bg-blue-600' : 'bg-slate-300'}`}></div>
+          <div className={`dot absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${isShowPublic ? 'transform translate-x-4' : ''}`}></div>
+        </div>
+        <div className="ml-3 text-sm font-medium text-slate-700">
+          Hiển thị công khai (Public)
+        </div>
+      </label>
+
       <label className="flex items-center cursor-pointer">
         <div className="relative">
           <input

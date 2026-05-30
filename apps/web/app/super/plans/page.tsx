@@ -39,8 +39,17 @@ export default async function SuperPlans() {
                   <div className="flex items-center gap-2">
                     <h2 className="font-semibold text-slate-900">{plan.name}</h2>
                     {plan.is_default && (
-                      <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
-                        Default
+                      <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
+                        Mặc định
+                      </span>
+                    )}
+                    {meta.show_public !== false ? (
+                      <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">
+                        🌐 Công khai
+                      </span>
+                    ) : (
+                      <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-zinc-100 text-zinc-700">
+                        👁️‍🗨️ Đang ẩn
                       </span>
                     )}
                   </div>

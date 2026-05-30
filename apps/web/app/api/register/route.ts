@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getSupabaseAdminClient } from '../../../lib/server/supabaseAdmin';
+import { getSupabaseServerClient } from '../../../lib/server/supabaseServer';
 import { verifyTurnstileToken } from '../../../lib/server/turnstile';
 import { INDUSTRY_TYPES } from '@oni/core';
 
@@ -8,16 +9,17 @@ import { INDUSTRY_TYPES } from '@oni/core';
 const ONI_FAKE_EMAIL_RE = /^[^@]+@[^.]+\.oni\.vn$/i;
 
 const schema = z.object({
-  slug:      z.string().min(2).max(50).regex(/^[a-z0-9-]+$/, 'Chỉ dùng chữ thường, số và dấu gạch ngang'),
-  name:      z.string().min(2).max(100),
-  email:     z.string().email().refine(
+  slug:            z.string().min(2).max(50).regex(/^[a-z0-9-]+$/, 'Chỉ dùng chữ thường, số và dấu gạch ngang'),
+  name:            z.string().min(2).max(100),
+  email:           z.string().email().refine(
     (e) => !ONI_FAKE_EMAIL_RE.test(e),
     { message: 'Không thể đăng ký với email này' },
   ),
-  password:  z.string().min(8),
-  plan_code: z.string().optional(),
-  industry_type: z.enum(INDUSTRY_TYPES).default('retail'),
+  password:        z.string().min(8),
+  plan_code:       z.string().optional(),
+  industry_type:   z.enum(INDUSTRY_TYPES).default('retail'),
   turnstile_token: z.string().optional(),
+  invitation_code: z.string().optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -32,7 +34,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { slug, name, email, password, industry_type, turnstile_token } = parsed.data;
+  const { slug, name, email, password, industry_type, turnstile_token, invitation_code } = parsed.data;
 
   // Cloudflare Turnstile Verification
   const ip = req.headers.get('x-forwarded-for') || undefined;
@@ -45,6 +47,65 @@ export async function POST(req: NextRequest) {
   }
 
   const admin = getSupabaseAdminClient();
+
+  // 0 — Load global registration system settings
+  const { data: settingsData } = await admin
+    .from('system_settings')
+    .select('config')
+    .eq('id', 'global')
+    .single();
+
+  const config = settingsData?.config || {};
+  const registrationMode = config.registration_mode || 'free'; // 'free' | 'code' | 'disabled'
+  const requireEmailVerification = !!config.require_email_verification;
+
+  if (registrationMode === 'disabled') {
+    return NextResponse.json(
+      { message: 'Tính năng đăng ký đang tạm khóa. Vui lòng liên hệ Admin để tạo tài khoản.' },
+      { status: 403 }
+    );
+  }
+
+  if (registrationMode === 'code') {
+    if (!invitation_code || !invitation_code.trim()) {
+      return NextResponse.json(
+        { message: 'Yêu cầu nhập mã mời để đăng ký thành viên.', field: 'invitation_code' },
+        { status: 422 }
+      );
+    }
+
+    const trimmedCode = invitation_code.trim();
+
+    // Query invitation code from DB
+    const { data: codeData } = await admin
+      .from('invitation_codes')
+      .select('*')
+      .eq('code', trimmedCode)
+      .maybeSingle();
+
+    if (!codeData) {
+      return NextResponse.json(
+        { message: 'Mã mời không tồn tại hoặc không hợp lệ.', field: 'invitation_code' },
+        { status: 422 }
+      );
+    }
+
+    // Check expiration date
+    if (codeData.expires_at && new Date(codeData.expires_at) < new Date()) {
+      return NextResponse.json(
+        { message: 'Mã mời này đã hết hạn sử dụng.', field: 'invitation_code' },
+        { status: 422 }
+      );
+    }
+
+    // Check maximum usage count
+    if (codeData.max_uses !== null && codeData.used_count >= codeData.max_uses) {
+      return NextResponse.json(
+        { message: 'Mã mời này đã đạt giới hạn sử dụng tối đa.', field: 'invitation_code' },
+        { status: 422 }
+      );
+    }
+  }
 
   // 1 — Check slug uniqueness (tenant + shop + reserved subdomains share global slug namespace)
   const [{ count: tenantCount }, { count: shopCount }, { count: reservedCount }] = await Promise.all([
@@ -60,20 +121,56 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // 2 — Create auth user (email pre-confirmed so workspace is immediately accessible)
-  const { data: userData, error: authError } = await admin.auth.admin.createUser({
-    email,
-    password,
-    email_confirm: true,
-  });
-  if (authError) {
-    const isDuplicate = authError.message.toLowerCase().includes('already');
-    return NextResponse.json(
-      { message: isDuplicate ? 'Email này đã được đăng ký.' : authError.message, field: isDuplicate ? 'email' : undefined },
-      { status: isDuplicate ? 409 : 400 },
-    );
+  const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
+  const protocol   = rootDomain.startsWith('localhost') ? 'http' : 'https';
+
+  // 2 — Create auth user (depending on whether email verification is required)
+  let userId: string;
+  let verificationRequired = false;
+
+  if (requireEmailVerification) {
+    const supabaseClient = await getSupabaseServerClient();
+    // signUp automatically triggers confirmation email templates configured in Supabase Auth
+    const { data: signUpData, error: authError } = await supabaseClient.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo: `${protocol}://${slug}.${rootDomain}/auth/callback`,
+      }
+    });
+
+    if (authError) {
+      const isDuplicate = authError.message.toLowerCase().includes('already');
+      return NextResponse.json(
+        { message: isDuplicate ? 'Email này đã được đăng ký.' : authError.message, field: isDuplicate ? 'email' : undefined },
+        { status: isDuplicate ? 409 : 400 },
+      );
+    }
+
+    if (!signUpData.user) {
+      return NextResponse.json({ message: 'Không thể tạo tài khoản người dùng.' }, { status: 400 });
+    }
+
+    userId = signUpData.user.id;
+    verificationRequired = true;
+  } else {
+    // Pre-confirmed user creation
+    const { data: userData, error: authError } = await admin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+    });
+
+    if (authError) {
+      const isDuplicate = authError.message.toLowerCase().includes('already');
+      return NextResponse.json(
+        { message: isDuplicate ? 'Email này đã được đăng ký.' : authError.message, field: isDuplicate ? 'email' : undefined },
+        { status: isDuplicate ? 409 : 400 },
+      );
+    }
+
+    userId = userData.user.id;
   }
-  const userId = userData.user.id;
 
   // 3 — Create tenant + owner membership + subscription (one atomic RPC)
   const { data: tenant, error: tenantError } = await admin.rpc('create_tenant_with_owner', {
@@ -129,9 +226,39 @@ export async function POST(req: NextRequest) {
     }
   });
 
-  const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
-  const protocol   = rootDomain.startsWith('localhost') ? 'http' : 'https';
+  // 6 — Handle Invitation Code Usage Records
+  if (registrationMode === 'code' && invitation_code) {
+    const trimmedCode = invitation_code.trim();
+    
+    // Atomic safe increment
+    try {
+      const { error: rpcError } = await admin.rpc('increment_invitation_code_uses', { p_code: trimmedCode });
+      if (rpcError) throw rpcError;
+    } catch (e) {
+      console.warn('increment_invitation_code_uses RPC failed, trying fallback:', e);
+      // Fallback update
+      const { data: current } = await admin.from('invitation_codes').select('used_count').eq('code', trimmedCode).single();
+      if (current) {
+        await admin.from('invitation_codes').update({ used_count: current.used_count + 1 }).eq('code', trimmedCode);
+      }
+    }
+
+    // Log the use
+    await admin.from('invitation_code_uses').insert({
+      code: trimmedCode,
+      tenant_id: tenantId,
+      email: email,
+    });
+  }
+
   const workspaceUrl = `${protocol}://${slug}.${rootDomain}`;
 
-  return NextResponse.json({ tenant_id: tenantId, workspace_url: workspaceUrl, email, slug }, { status: 201 });
+  return NextResponse.json({
+    tenant_id: tenantId,
+    workspace_url: workspaceUrl,
+    email,
+    slug,
+    verification_required: verificationRequired
+  }, { status: 201 });
 }
+

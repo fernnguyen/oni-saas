@@ -21,7 +21,7 @@ interface PlanRow {
   name:          string;
   price_monthly: number;
   price_yearly:  number;
-  metadata: Record<string, number>;
+  metadata: Record<string, any>;
 }
 
 interface SepayOrder {
@@ -67,11 +67,18 @@ export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd
       .select('id, code, name, price_monthly, price_yearly, metadata')
       .order('id', { ascending: true })
       .then(({ data }) => {
-        if (data && data.length > 0) setPlans(data as PlanRow[]);
+        if (data && data.length > 0) {
+          const rawPlans = data as PlanRow[];
+          // Filter plans: show only public plans OR the organization's current plan
+          const filtered = rawPlans.filter(
+            (p) => p.metadata?.show_public !== false || p.code === planCode
+          );
+          setPlans(filtered);
+        }
       })
       .then(() => setPlansLoading(false), () => setPlansLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [planCode]);
 
   if (!planCode) return null;
 

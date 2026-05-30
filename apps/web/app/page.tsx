@@ -84,14 +84,15 @@ const PLAN_DETAILS: Record<string, any> = {
 export default async function LandingPage() {
   const admin = getSupabaseAdminClient();
   const { data: dbPlans } = await admin.from('plans').select('*').order('id', { ascending: true });
-
-  const plans = (dbPlans || []).map((p: any) => ({
-    name: p.name,
-    code: p.code,
-    price_monthly: p.price_monthly,
-    price_yearly: p.price_yearly,
-    ...(PLAN_DETAILS[p.code] || PLAN_DETAILS['plan_mini'])
-  }));
+  const plans = (dbPlans || [])
+    .filter((p: any) => p.metadata?.show_public !== false)
+    .map((p: any) => ({
+      name: p.name,
+      code: p.code,
+      price_monthly: p.price_monthly,
+      price_yearly: p.price_yearly,
+      ...(PLAN_DETAILS[p.code] || PLAN_DETAILS['plan_mini'])
+    }));
 
   // Fallback in case DB is empty
   const displayPlans = plans.length > 0 ? plans : Object.keys(PLAN_DETAILS).map((k) => ({ name: k, code: k, ...PLAN_DETAILS[k] }));
