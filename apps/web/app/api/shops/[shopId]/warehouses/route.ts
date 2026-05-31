@@ -8,29 +8,42 @@ import { handleApiError } from '../../_helpers';
 async function unifyLegacyWarehouses(connector: any, shopId: string) {
   try {
     // 1. Fetch all warehouses in this branch
-    const whRes = await connector.list('warehouses', { limit: 200 });
+    const whRes = await connector.list('warehouses', { limit: 200, filters: { branch_id: shopId } });
     const whs = whRes.data as any[];
 
-    // 2. Find WH-SALE (Kho Kinh doanh)
-    let saleWh = whs.find((w: any) => w.code === 'sale');
-    
-    // If not found by code, look by type
-    if (!saleWh) {
-      saleWh = whs.find((w: any) => w.type === 'sale');
+    const standardWarehouses = [
+      { code: 'sale', name: 'Kho Kinh doanh (Bán lẻ)', type: 'sale' },
+      { code: 'supply', name: 'Kho Vật tư & Tiêu hao', type: 'supply' },
+      { code: 'asset', name: 'Kho Tài sản chờ bàn giao', type: 'asset' }
+    ];
+
+    // Provision any missing standard warehouses
+    const createdWhs: any[] = [];
+    for (const sw of standardWarehouses) {
+      let found = whs.find((w: any) => w.code === sw.code);
+      if (!found && sw.code === 'sale') {
+        // Fallback check by type for sale warehouse
+        found = whs.find((w: any) => w.type === 'sale');
+      }
+
+      if (!found) {
+        console.log(`[SELF-HEALING] Standard warehouse ${sw.code} not found for shop ${shopId}. Creating...`);
+        const newWh = await connector.create('warehouses', {
+          branch_id: shopId,
+          name: sw.name,
+          code: sw.code,
+          type: sw.type,
+          active: 'TRUE',
+        });
+        createdWhs.push(newWh);
+      } else {
+        createdWhs.push(found);
+      }
     }
 
-    // If still not found, create standard WH-SALE
-    if (!saleWh) {
-      console.log(`[SELF-HEALING] WH-SALE not found for shop ${shopId}. Creating...`);
-      saleWh = await connector.create('warehouses', {
-        branch_id: shopId,
-        name: 'Kho Kinh doanh (Bán lẻ)',
-        code: 'sale',
-        type: 'sale',
-        active: 'TRUE'
-      });
-    }
-
+    // Resolve active saleWhId
+    const saleWh = createdWhs.find((w: any) => w.code === 'sale') || whs.find((w: any) => w.code === 'sale' || w.type === 'sale');
+    if (!saleWh) return;
     const saleWhId = saleWh.id;
 
     // 3. Find any legacy/duplicate warehouses (code 'default', 'Default', or name containing 'mặc định' or 'default')
@@ -46,7 +59,7 @@ async function unifyLegacyWarehouses(connector: any, shopId: string) {
       );
     });
 
-    if (legacyWarehouses.length === 0) return;
+    if (legacyWarehouses.length === 0 && createdWhs.length === standardWarehouses.length) return;
 
     console.log(`[SELF-HEALING] Found ${legacyWarehouses.length} legacy/duplicate warehouses to merge for shop ${shopId}.`);
 
@@ -137,7 +150,7 @@ export async function GET(
     const page = Math.max(1, parseInt(sp.get('page') ?? '1'));
     const limit = Math.min(500, Math.max(1, parseInt(sp.get('limit') ?? '200')));
 
-    const result = await connector.list('warehouses', { page, limit, sortDesc: false });
+    const result = await connector.list('warehouses', { page, limit, filters: { branch_id: shopId }, sortDesc: false });
 
     return NextResponse.json(result);
   } catch (e) {
@@ -158,7 +171,7 @@ export async function POST(
 
     if (action === 'seed') {
       // Auto-provision standard warehouses
-      const existingRes = await connector.list('warehouses', { limit: 100 });
+      const existingRes = await connector.list('warehouses', { limit: 100, filters: { branch_id: shopId } });
       const existing = existingRes.data as any[];
 
       const standardWarehouses = [
@@ -190,10 +203,11 @@ export async function POST(
 
     const body = await req.json();
     const data = warehouseCreateSchema.parse(body);
+    data.branch_id = shopId; // Force the warehouse to belong to the active shop!
 
     // Ensure unique warehouse code within the branch
     const existing = await connector.list('warehouses', {
-      filters: { code: data.code }
+      filters: { code: data.code, branch_id: shopId }
     });
 
     if (existing.data && existing.data.length > 0) {

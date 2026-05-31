@@ -16,7 +16,13 @@ export async function GET(
     const page = Math.max(1, parseInt(sp.get('page') ?? '1'));
     const limit = Math.min(500, Math.max(1, parseInt(sp.get('limit') ?? '200')));
 
-    const result = await connector.list('cost-allocation-templates', { page, limit, sortDesc: false });
+    // Force strict branch filtering
+    const result = await connector.list('cost-allocation-templates', { 
+      page, 
+      limit, 
+      filters: { branch_id: shopId },
+      sortDesc: false 
+    });
 
     return NextResponse.json(result);
   } catch (e) {
@@ -34,6 +40,9 @@ export async function POST(
 
     const body = await req.json();
     const data = costAllocationTemplateCreateSchema.parse(body);
+
+    // Force strict branch scoping on write
+    data.branch_id = shopId;
 
     const created = await connector.create('cost-allocation-templates', data);
 

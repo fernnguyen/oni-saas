@@ -71,7 +71,7 @@ export async function POST(
 
     // 4. Create the asset record
     const assetData: Record<string, string> = {
-      branch_id: product.branch_id || '',
+      branch_id: shopId,
       name: product.name || '',
       unit: product.unit || 'cái',
       type: data.type || 'ccdc',
@@ -117,7 +117,7 @@ export async function POST(
       variant_id: product.variant_id || '',
       qty: `-${reqQty}`, // negative value to decrement stock
       unit_cost: unitCost,
-      branch_id: product.branch_id,
+      branch_id: shopId,
       warehouse_id: assetWhId,
       reference_no: assetId,
       reason: `Bàn giao tài sản 2 bước sang bộ phận Cost Center: ${data.department_code}. Mã TS: ${assetId}`,

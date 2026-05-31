@@ -11,7 +11,7 @@ export async function POST(
 ) {
   try {
     const { shopId } = await params;
-    const { connector, userId, permissions } = await requireShopAccess(shopId);
+    const { connector, userId, permissions, shop } = await requireShopAccess(shopId);
 
     const body = await req.json().catch(() => ({}));
     const { transaction_name } = body;
@@ -190,8 +190,8 @@ export async function POST(
     }
 
     // 4. Create summarized Cashbook entries for each department
-    const tenantId = activeAssets[0]?.tenant_id || '';
-    const branchId = activeAssets[0]?.branch_id || '';
+    const tenantId = shop.tenant_id;
+    const branchId = shopId;
 
     // Keep track of department cashbook IDs
     const departmentCashbookIds = new Map<string, string>();

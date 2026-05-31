@@ -80,11 +80,8 @@ export class MysqlConnector implements IDataConnector {
     'purchase-order-items',
     'goods-receipt-note-items',
     'user-departments',
-    'assets',
     'asset-allocations',
     'asset_allocations',
-    'asset-depreciations',
-    'asset_depreciations',
   ]
 
   private async generateSequentialId(entity: string): Promise<string> {
@@ -200,7 +197,7 @@ export class MysqlConnector implements IDataConnector {
     }
 
     if (this.branchId && !this.tenantScopedEntities.includes(entity)) {
-      whereClauses.push('branch_id = ?')
+      whereClauses.push('(branch_id = ? OR branch_id IS NULL OR branch_id = \'\')')
       params.push(this.branchId)
     }
 
@@ -280,7 +277,7 @@ export class MysqlConnector implements IDataConnector {
     }
 
     if (this.branchId && !this.tenantScopedEntities.includes(entity)) {
-      query += ' AND branch_id = ?'
+      query += ' AND (branch_id = ? OR branch_id IS NULL OR branch_id = \'\')'
       params.push(this.branchId)
     }
 
@@ -377,7 +374,7 @@ export class MysqlConnector implements IDataConnector {
     }
 
     if (this.branchId && !this.tenantScopedEntities.includes(entity)) {
-      query += ' AND branch_id = ?'
+      query += ' AND (branch_id = ? OR branch_id IS NULL OR branch_id = \'\')'
       values.push(this.branchId)
     }
 
@@ -399,7 +396,7 @@ export class MysqlConnector implements IDataConnector {
     }
 
     if (this.branchId && !this.tenantScopedEntities.includes(entity)) {
-      query += ' AND branch_id = ?'
+      query += ' AND (branch_id = ? OR branch_id IS NULL OR branch_id = \'\')'
       params.push(this.branchId)
     }
 

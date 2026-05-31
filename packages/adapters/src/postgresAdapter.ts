@@ -115,11 +115,8 @@ export class PostgresConnector implements IDataConnector {
     'purchase-order-items',
     'goods-receipt-note-items',
     'user-departments',
-    'assets',
     'asset-allocations',
     'asset_allocations',
-    'asset-depreciations',
-    'asset_depreciations',
   ]
 
   private readonly LEGACY_ID_MAP: Record<string, string> = {
@@ -252,7 +249,7 @@ export class PostgresConnector implements IDataConnector {
     }
 
     if (this.branchId && !this.tenantScopedEntities.includes(entity)) {
-      whereClauses.push(`branch_id = $${paramIdx}`)
+      whereClauses.push(`(branch_id = $${paramIdx} OR branch_id IS NULL OR branch_id = '')`)
       params.push(this.branchId)
       paramIdx++
     }
@@ -363,7 +360,7 @@ export class PostgresConnector implements IDataConnector {
     }
 
     if (this.branchId && !this.tenantScopedEntities.includes(entity)) {
-      queryText += ` AND branch_id = $${paramIdx}`
+      queryText += ` AND (branch_id = $${paramIdx} OR branch_id IS NULL OR branch_id = '')`
       params.push(this.branchId)
       paramIdx++
     }
@@ -458,7 +455,7 @@ export class PostgresConnector implements IDataConnector {
     }
 
     if (this.branchId && !this.tenantScopedEntities.includes(entity)) {
-      queryText += ` AND branch_id = $${paramIdx}`
+      queryText += ` AND (branch_id = $${paramIdx} OR branch_id IS NULL OR branch_id = '')`
       values.push(this.branchId)
       paramIdx++
     }
@@ -483,7 +480,7 @@ export class PostgresConnector implements IDataConnector {
     }
 
     if (this.branchId && !this.tenantScopedEntities.includes(entity)) {
-      queryText += ` AND branch_id = $${paramIdx}`
+      queryText += ` AND (branch_id = $${paramIdx} OR branch_id IS NULL OR branch_id = '')`
       params.push(this.branchId)
       paramIdx++
     }

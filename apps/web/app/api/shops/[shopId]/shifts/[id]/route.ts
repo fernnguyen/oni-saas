@@ -25,8 +25,11 @@ export async function PUT(
 
     // 1. Lấy thông tin ca làm việc hiện tại
     const shift = await connector.findById('shop-shifts', id)
-    if (!shift) {
-      return NextResponse.json({ error: 'Không tìm thấy ca làm việc này' }, { status: 404 })
+    if (!shift || shift.branch_id !== shopId) {
+      return NextResponse.json(
+        { error: 'Không tìm thấy ca làm việc trong chi nhánh này.' },
+        { status: 404 }
+      )
     }
 
     // Chống gian lận: Nếu ca đã đóng (status = 'closed'), khóa vĩnh viễn không cho sửa đổi

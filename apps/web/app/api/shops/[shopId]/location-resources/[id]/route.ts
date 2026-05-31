@@ -13,7 +13,9 @@ export async function GET(
     const { connector } = await requireShopAccess(shopId, 'pos.use')
 
     const row = await connector.findById('location-resources', id)
-    if (!row) return NextResponse.json({ error: 'Resource not found' }, { status: 404 })
+    if (!row || row.branch_id !== shopId) {
+      return NextResponse.json({ error: 'Không tìm thấy bàn/phòng trong chi nhánh này.' }, { status: 404 })
+    }
     return NextResponse.json(row)
   } catch (e) {
     return handleApiError(e, 'GET location-resource')
@@ -28,8 +30,17 @@ export async function PATCH(
     const { shopId, id } = await params
     const { connector } = await requireShopAccess(shopId, 'products.edit')
 
+    // 1. Verify resource exists and belongs to the active branch
+    const current = await connector.findById('location-resources', id)
+    if (!current || current.branch_id !== shopId) {
+      return NextResponse.json({ error: 'Không tìm thấy bàn/phòng trong chi nhánh này.' }, { status: 404 })
+    }
+
     const body = await req.json()
     const data = resourceUpdateSchema.parse(body)
+
+    // Force strict branch scoping on write
+    data.branch_id = shopId
 
     const updated = await connector.update('location-resources', id, data)
 
@@ -46,7 +57,7 @@ export async function PATCH(
           .in('status', ['active', 'pending'])
           .eq('active', 'TRUE')
       } catch (sessErr) {
-        console.error('Failed to auto-complete QR session in resource PATCH:', sessErr)
+         console.error('Failed to auto-complete QR session in resource PATCH:', sessErr)
       }
     }
 
@@ -64,6 +75,12 @@ export async function DELETE(
   try {
     const { shopId, id } = await params
     const { connector } = await requireShopAccess(shopId, 'products.delete')
+
+    // 1. Verify resource exists and belongs to the active branch
+    const current = await connector.findById('location-resources', id)
+    if (!current || current.branch_id !== shopId) {
+      return NextResponse.json({ error: 'Không tìm thấy bàn/phòng trong chi nhánh này.' }, { status: 404 })
+    }
 
     await connector.delete('location-resources', id)
     invalidate(shopId, 'location-resources')

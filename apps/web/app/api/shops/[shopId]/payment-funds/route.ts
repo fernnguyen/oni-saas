@@ -14,11 +14,10 @@ export async function GET(
     const { connector } = await requireShopAccess(shopId, 'cashbook.view')
 
     const { searchParams } = new URL(req.url)
-    const branch_id = searchParams.get('branch_id')
     const active = searchParams.get('active')
 
-    const filters: Record<string, string> = {}
-    if (branch_id) filters.branch_id = branch_id
+    // Force strict branch filtering
+    const filters: Record<string, string> = { branch_id: shopId }
     if (active) {
       filters.active = active.toUpperCase()
     } else {
@@ -28,9 +27,9 @@ export async function GET(
     let result = await connector.list('payment-funds', { page: 1, limit: 100, filters })
 
     // Auto-seed default funds if none exists for this branch
-    if (result.total === 0 && branch_id) {
+    if (result.total === 0) {
       await connector.create('payment-funds', {
-        branch_id,
+        branch_id: shopId,
         name: 'Quỹ tiền mặt tại quầy',
         type: 'cash',
         account_number: '',
@@ -42,7 +41,7 @@ export async function GET(
       })
 
       await connector.create('payment-funds', {
-        branch_id,
+        branch_id: shopId,
         name: 'Tài khoản ngân hàng mặc định',
         type: 'bank',
         account_number: '',
@@ -54,7 +53,7 @@ export async function GET(
       })
 
       await connector.create('payment-funds', {
-        branch_id,
+        branch_id: shopId,
         name: 'Ví điện tử (Momo, ZaloPay...)',
         type: 'wallet',
         account_number: '',
@@ -87,10 +86,13 @@ export async function POST(
     const body = await req.json()
     const payload = paymentFundCreateSchema.parse(body)
 
+    // Force strict branch scoping on write
+    payload.branch_id = shopId
+
     // Nếu đánh dấu mặc định, cần tắt mặc định ở các quỹ khác cùng chi nhánh
     if (payload.is_default) {
       const existingFunds = await connector.list('payment-funds', {
-        filters: { branch_id: payload.branch_id, is_default: 'TRUE' },
+        filters: { branch_id: shopId, is_default: 'TRUE' },
         limit: 100,
       })
       const funds = existingFunds.data as Record<string, string>[]
@@ -102,7 +104,7 @@ export async function POST(
     }
 
     const createdFund = await connector.create('payment-funds', {
-      branch_id: payload.branch_id,
+      branch_id: shopId,
       name: payload.name,
       type: payload.type,
       account_number: payload.account_number ?? '',

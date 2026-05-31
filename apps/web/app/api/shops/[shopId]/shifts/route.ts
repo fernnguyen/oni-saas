@@ -14,14 +14,13 @@ export async function GET(
     const { connector, user } = await requireShopAccess(shopId, 'cashbook.view')
 
     const { searchParams } = new URL(req.url)
-    const branch_id = searchParams.get('branch_id')
     const status = searchParams.get('status')
     const user_id = searchParams.get('user_id') // email nhân viên
     const page = parseInt(searchParams.get('page') || '1', 10)
     const limit = parseInt(searchParams.get('limit') || '50', 10)
 
-    const filters: Record<string, string> = {}
-    if (branch_id) filters.branch_id = branch_id
+    // Force strict branch filtering
+    const filters: Record<string, string> = { branch_id: shopId }
     if (status) filters.status = status
     if (user_id) filters.user_id = user_id
 
@@ -51,9 +50,12 @@ export async function POST(
     const payload = shiftOpenSchema.parse(body)
     const userEmail = user.email || ''
 
+    // Force strict branch scoping on write
+    payload.branch_id = shopId
+
     // 1. Kiểm tra xem nhân viên đã có ca làm việc nào đang mở ở chi nhánh đó chưa
     const existingOpenShifts = await connector.list('shop-shifts', {
-      filters: { branch_id: payload.branch_id, user_id: userEmail, status: 'open' },
+      filters: { branch_id: shopId, user_id: userEmail, status: 'open' },
       limit: 1
     })
 
@@ -66,7 +68,7 @@ export async function POST(
 
     // 2. Tạo ca làm việc mới
     const createdShift = await connector.create('shop-shifts', {
-      branch_id: payload.branch_id,
+      branch_id: shopId,
       user_id: userEmail,
       opened_at: new Date().toISOString(),
       status: 'open',
