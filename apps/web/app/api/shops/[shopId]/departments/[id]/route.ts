@@ -16,9 +16,12 @@ export async function PATCH(
     const body = await req.json();
     const data = departmentUpdateSchema.parse(body);
 
+    // Enforce branch_id on update payload
+    data.branch_id = shopId;
+
     if (data.code) {
       const existing = await connector.list('departments', {
-        filters: { code: data.code }
+        filters: { code: data.code, branch_id: shopId }
       });
       const other = existing.data?.find((d: any) => d.id !== id);
       if (other) {

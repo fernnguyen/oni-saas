@@ -78,7 +78,7 @@ export function EmployeesClient({ shopId }: Props) {
   }
 
   function openCreate() {
-    setFormData(EMPTY_FORM)
+    setFormData({ ...EMPTY_FORM, branch_id: shopId })
     setEditingId(null)
     setSlideOpen(true)
   }
@@ -240,16 +240,7 @@ export function EmployeesClient({ shopId }: Props) {
               <option value="warehouse">Kho</option>
             </select>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Mã chi nhánh</label>
-            <input
-              type="text"
-              value={formData.branch_id}
-              onChange={(e) => setFormData(prev => ({ ...prev, branch_id: e.target.value }))}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
-              placeholder="Nhập mã chi nhánh"
-            />
-          </div>
+
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Hoa hồng (%)</label>
             <input

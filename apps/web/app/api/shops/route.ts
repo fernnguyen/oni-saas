@@ -4,12 +4,14 @@ import { getSupabaseServerClient } from '../../../lib/server/supabaseServer';
 import { getSupabaseAdminClient } from '../../../lib/server/supabaseAdmin';
 import { hasPermission } from '../../../lib/server/permissions';
 import { enforceLimit, isPlanLimitError, planLimitResponse } from '../../../lib/server/planLimits';
+import { INDUSTRY_TYPES } from '@oni/core';
 
 const createSchema = z.object({
   tenant_id: z.string().uuid(),
   name: z.string().min(1),
   slug: z.string().min(1).max(50).regex(/^[a-z0-9-]+$/, 'Slug chỉ chứa a-z, 0-9, dấu gạch ngang'),
   address: z.string().optional(),
+  industry_type: z.enum(INDUSTRY_TYPES).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -23,7 +25,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: 'Invalid input', errors: parsed.error.flatten() }, { status: 400 });
   }
 
-  const { tenant_id, name, slug, address } = parsed.data;
+  const { tenant_id, name, slug, address, industry_type } = parsed.data;
 
   const allowed = await hasPermission(auth.user.id, tenant_id, 'shops.create');
   if (!allowed) return NextResponse.json({ message: 'Forbidden' }, { status: 403 });
@@ -41,6 +43,7 @@ export async function POST(req: NextRequest) {
     p_name: name,
     p_slug: slug,
     p_address: address ?? null,
+    p_industry_type: industry_type ?? 'retail',
   });
 
   if (error) return NextResponse.json({ message: error.message }, { status: 400 });

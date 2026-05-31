@@ -10,7 +10,7 @@ export async function GET() {
   const admin = getSupabaseAdminClient();
   const { data } = await admin
     .from('user_tenants')
-    .select('tenants(id, name, slug)')
+    .select('tenants(id, name, slug, industry_type)')
     .eq('user_id', auth.user.id);
 
   const tenants = (data ?? []).map((row: any) => row.tenants).filter(Boolean);

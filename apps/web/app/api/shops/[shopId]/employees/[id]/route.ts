@@ -30,6 +30,11 @@ export async function PUT(
 
     const body = await req.json()
     const data = employeeUpdateSchema.parse(body)
+    
+    // Always keep branch_id locked to the current active shop
+    if (data.branch_id !== undefined) {
+      data.branch_id = shopId
+    }
 
     const updated = await connector.update('employees', id, data)
     invalidate(shopId, 'employees')

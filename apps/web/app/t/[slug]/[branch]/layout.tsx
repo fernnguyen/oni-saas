@@ -28,7 +28,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   // Fetch shop/branch info
   const { data: shop } = await admin
     .from('shops_view')
-    .select('name')
+    .select('name, industry_type')
     .eq('slug', branch)
     .eq('tenant_id', tenant?.id)
     .maybeSingle();
@@ -48,7 +48,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     service_hourly: 'Dịch vụ thuê theo giờ',
   };
 
-  const industryName = INDUSTRY_MAP[tenant.industry_type] || 'Cửa hàng';
+  const resolvedIndustry = shop?.industry_type ?? tenant?.industry_type ?? 'retail';
+  const industryName = INDUSTRY_MAP[resolvedIndustry] || 'Cửa hàng';
   const title = `${shop.name} | ${tenant.name} – Nền tảng quản trị doanh nghiệp SME ONI.vn`;
   const description = `Hệ thống POS, quản lý kho hàng và báo cáo doanh thu cho chi nhánh ${shop.name} thuộc chuỗi ${tenant.name} (${industryName}) trên nền tảng ONI.vn.`;
 
@@ -183,7 +184,7 @@ export default async function BranchLayout({ params, children }: Props) {
         periodEnd={periodEnd}
         currentBranchSlug={branch}
         currentBranchAddress={shop.address}
-        industryType={tenant.industry_type}
+        industryType={shop?.industry_type ?? tenant.industry_type}
       >
         <ShiftProvider
           shopId={shop.id}

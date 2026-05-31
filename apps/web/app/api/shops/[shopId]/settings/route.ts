@@ -6,6 +6,7 @@ import { assertUserShopAccess } from '../../../../../lib/server/shops';
 import { getUserPermissions } from '../../../../../lib/server/permissions';
 import { getShopsForTenant } from '../../../../../lib/server/shops';
 import { getTenantForUser } from '../../../../../lib/server/tenants';
+import { INDUSTRY_TYPES } from '@oni/core';
 
 const DEFAULT_SETTINGS = {
   shop_name: '',
@@ -54,6 +55,7 @@ const putSchema = z.object({
   bank_account_number: z.string().max(50).optional(),
   bank_account_name: z.string().max(100).optional(),
   qr_template: z.enum(['compact', 'compact2', 'qr_only', 'print']).optional(),
+  industry_type: z.enum(INDUSTRY_TYPES).optional(),
   sepay_webhook_token: z.string().max(255).optional(),
   sepay_auth_method: z.enum(['token_query', 'hmac', 'api_key', 'oauth', 'none']).optional(),
   sepay_hmac_key: z.string().max(255).optional().nullable(),
@@ -178,7 +180,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ shop
   const now = new Date().toISOString();
   const admin = getSupabaseAdminClient();
 
-  const { address, phone, ...settingsData } = parsed.data;
+  const { address, phone, industry_type, ...settingsData } = parsed.data;
 
   // Enforce CRM access gate: force crm features to be disabled and strip crm settings if tenant does not have access
   let finalSettingsData = { ...settingsData };
@@ -248,11 +250,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ shop
   }
 
 
-  if (address !== undefined || phone !== undefined || parsed.data.shop_name !== undefined) {
+  if (address !== undefined || phone !== undefined || parsed.data.shop_name !== undefined || industry_type !== undefined) {
     const shopUpdate: any = {};
     if (address !== undefined) shopUpdate.address = address;
     if (phone !== undefined) shopUpdate.phone = phone;
     if (parsed.data.shop_name !== undefined) shopUpdate.name = parsed.data.shop_name;
+    if (industry_type !== undefined) shopUpdate.industry_type = industry_type;
 
     const { error: shopError } = await admin
       .from('shops')

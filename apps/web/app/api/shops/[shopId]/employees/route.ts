@@ -20,12 +20,12 @@ export async function GET(
     const branch_id = sp.get('branch_id') ?? ''
     const role = sp.get('role') ?? ''
     const filters: Record<string, string> = {}
-    if (branch_id) filters.branch_id = branch_id
+    filters.branch_id = branch_id || shopId
     if (role) filters.role = role
 
     const result = await shopCache(
       () => connector.list('employees', { page, limit, search: search || undefined, filters, sortDesc: true }),
-      ['employees', shopId, String(page), String(limit), search, branch_id, role],
+      ['employees', shopId, String(page), String(limit), search, filters.branch_id, role],
       { tags: [shopTag(shopId, 'employees')], revalidate: cacheTTL.employees }
     )
 
@@ -45,6 +45,7 @@ export async function POST(
 
     const body = await req.json()
     const data = employeeCreateSchema.parse(body)
+    data.branch_id = shopId // Force the employee to belong to the active shop!
 
     const created = await connector.create('employees', data)
     invalidate(shopId, 'employees')

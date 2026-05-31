@@ -66,7 +66,8 @@ export default async function POSPage({ params }: Props) {
   const permissions = await getUserPermissions(authData.user.id, tenant.id, shop.id).catch(() => [] as string[])
 
   // Determine POS layout from industry type
-  const vertical = getVerticalConfig(tenant.industry_type ?? 'retail')
+  const resolvedIndustryType = shop.industry_type ?? tenant.industry_type ?? 'retail'
+  const vertical = getVerticalConfig(resolvedIndustryType)
 
   if (vertical.posLayout === 'table_map' || vertical.posLayout === 'room_map') {
     return (
@@ -82,7 +83,7 @@ export default async function POSPage({ params }: Props) {
         hasHourlyBilling={vertical.features.hourly_billing}
         autoPrintReceipt={autoPrintReceipt}
         mutePosSound={mutePosSound}
-        industryType={tenant.industry_type ?? 'retail'}
+        industryType={resolvedIndustryType}
         permissions={permissions}
       />
     )

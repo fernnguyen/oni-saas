@@ -19,11 +19,11 @@ export default async function ResourcesPage({ params }: Props) {
 
   const { data: shop } = await admin
     .from('shops_view')
-    .select('id')
+    .select('id, industry_type')
     .eq('slug', branch)
     .eq('tenant_id', tenant.id)
     .maybeSingle()
   if (!shop) notFound()
 
-  return <ResourcesClient shopId={shop.id} industryType={tenant.industry_type ?? 'fnb'} />
+  return <ResourcesClient shopId={shop.id} industryType={shop.industry_type ?? tenant.industry_type ?? 'fnb'} />
 }

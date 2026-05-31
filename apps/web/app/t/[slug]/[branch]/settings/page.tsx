@@ -21,7 +21,7 @@ export default async function BranchSettingsPage({ params }: Props) {
   const admin = getSupabaseAdminClient();
   const { data: shop } = await admin
     .from('shops_view')
-    .select('id, name, slug, address, tenant_id')
+    .select('id, name, slug, address, tenant_id, industry_type')
     .eq('slug', branch)
     .maybeSingle();
 
@@ -92,7 +92,7 @@ export default async function BranchSettingsPage({ params }: Props) {
         settings={settings}
         canManage={canManage}
         permissions={permissions}
-        industryType={tenant?.industry_type ?? 'retail'}
+        industryType={shop?.industry_type ?? tenant?.industry_type ?? 'retail'}
       />
     </div>
   );

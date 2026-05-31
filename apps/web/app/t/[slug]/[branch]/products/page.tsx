@@ -19,7 +19,7 @@ export default async function ProductsPage({ params }: Props) {
   const admin = getSupabaseAdminClient()
   const { data: shop } = await admin
     .from('shops_view')
-    .select('id, name')
+    .select('id, name, industry_type')
     .eq('slug', branch)
     .maybeSingle()
 
@@ -32,7 +32,7 @@ export default async function ProductsPage({ params }: Props) {
     .eq('slug', slug)
     .maybeSingle()
 
-  const industryType = tenant?.industry_type ?? 'retail'
+  const industryType = shop.industry_type ?? tenant?.industry_type ?? 'retail'
 
   return (
     <ProductsClient

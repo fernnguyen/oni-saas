@@ -18,7 +18,8 @@ export async function GET(
     const page = Math.max(1, parseInt(sp.get('page') ?? '1'));
     const limit = Math.min(500, Math.max(1, parseInt(sp.get('limit') ?? '200')));
 
-    const result = await connector.list('departments', { page, limit, sortDesc: false });
+    const filters = { branch_id: shopId };
+    const result = await connector.list('departments', { page, limit, filters, sortDesc: false });
 
     return NextResponse.json(result);
   } catch (e) {
@@ -37,10 +38,11 @@ export async function POST(
 
     const body = await req.json();
     const data = departmentCreateSchema.parse(body);
+    data.branch_id = shopId; // Force the department to belong to the active shop!
 
     // Kiểm tra tính độc nhất của mã phòng ban trong chi nhánh
     const existing = await connector.list('departments', {
-      filters: { code: data.code }
+      filters: { code: data.code, branch_id: shopId }
     });
 
     if (existing.data && existing.data.length > 0) {

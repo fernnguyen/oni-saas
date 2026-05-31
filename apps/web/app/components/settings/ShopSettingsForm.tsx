@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import { BANKS } from '@/lib/constants/banks';
-import { getVerticalConfig } from '@oni/core';
+import { getVerticalConfig, VERTICAL_REGISTRY, INDUSTRY_TYPES, type IndustryType } from '@oni/core';
+import { useConfirm } from '@/app/components/ui/ConfirmProvider';
 
 interface ShopSettings {
   shop_id: string;
@@ -77,6 +78,7 @@ function formatWithDots(val: string | number): string {
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
 export function ShopSettingsForm({ shop, settings: initial, canManage, permissions = [], industryType }: Props) {
+  const confirm = useConfirm();
   const canManageSettings = canManage;
   const canManageQr = permissions.includes('qr_order.manage') || canManageSettings;
   const canManageCrm = permissions.includes('crm.manage') || canManageSettings;
@@ -88,6 +90,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
     shop_name: shop.name, // always prefer canonical name
     address: shop.address ?? '',
     phone: shop.phone ?? '',
+    industry_type: industryType || 'retail',
     currency: initial.currency,
     timezone: initial.timezone,
     tax_rate: String(initial.tax_rate),
@@ -214,6 +217,17 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
     try {
       let payload: any = {};
       if (tab === 'general') {
+        if (form.industry_type !== industryType) {
+          const targetConfig = VERTICAL_REGISTRY[form.industry_type as IndustryType];
+          const sourceConfig = VERTICAL_REGISTRY[industryType as IndustryType] ?? VERTICAL_REGISTRY.retail;
+          const ok = await confirm({
+            title: '⚠️ Xác nhận chuyển đổi ngành nghề chi nhánh',
+            description: `Hệ thống sẽ chuyển chi nhánh này từ "${sourceConfig.label}" sang "${targetConfig?.label}".\n\n• Giao diện bán hàng (POS) và luồng nghiệp vụ của chi nhánh sẽ được tái cấu hình lập tức.\n• Quyết định này không ảnh hưởng đến các chi nhánh khác trong cùng tổ chức.`,
+            confirmLabel: 'Tôi đồng ý, chuyển đổi',
+            variant: 'danger',
+          });
+          if (!ok) return;
+        }
         payload = {
           shop_name: form.shop_name || undefined,
           address: form.address || undefined,
@@ -221,6 +235,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
           tax_id: form.tax_id || undefined,
           wifi_info: form.wifi_info || undefined,
           receipt_footer: form.receipt_footer || undefined,
+          industry_type: form.industry_type || undefined,
         };
       } else if (tab === 'sales') {
         payload = {
@@ -553,6 +568,61 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
                     placeholder="Cảm ơn quý khách đã mua hàng tại ONI!"
                   />
                 </Field>
+              </div>
+            </Section>
+
+            <Section title="Ngành kinh doanh chi nhánh" description="Cấu hình nghiệp vụ và giao diện bán hàng chuyên biệt cho chi nhánh này">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2 pr-1">
+                {INDUSTRY_TYPES.map((type) => {
+                  const config = VERTICAL_REGISTRY[type];
+                  const isActive = form.industry_type === type;
+                  const isCurrent = industryType === type;
+                  
+                  const cardVisuals = {
+                    retail: 'from-blue-500/10 to-indigo-500/10 border-blue-500/30 text-indigo-700 bg-blue-50/20',
+                    fnb: 'from-orange-500/10 to-rose-500/10 border-orange-500/30 text-rose-700 bg-orange-50/20',
+                    billiards: 'from-emerald-500/10 to-teal-500/10 border-emerald-500/30 text-emerald-700 bg-emerald-50/20',
+                    sports_court: 'from-violet-500/10 to-fuchsia-500/10 border-violet-500/30 text-violet-700 bg-violet-50/20',
+                    lodging: 'from-cyan-500/10 to-blue-500/10 border-cyan-500/30 text-blue-700 bg-cyan-50/20',
+                    fashion: 'from-pink-500/10 to-rose-500/10 border-pink-500/30 text-pink-700 bg-pink-50/20',
+                    service_hourly: 'from-amber-500/10 to-orange-500/10 border-amber-500/30 text-amber-700 bg-amber-50/20',
+                  };
+                  const vStyle = cardVisuals[type] || cardVisuals.retail;
+
+                  return (
+                    <button
+                      key={type}
+                      type="button"
+                      disabled={!canManage}
+                      onClick={() => set('industry_type', type)}
+                      className={`cursor-pointer group relative rounded-2xl border-2 p-3 text-left transition-all duration-300 hover:-translate-y-0.5 flex flex-col justify-between ${isActive
+                          ? `${vStyle} border-primary ring-2 ring-primary/10 shadow-sm`
+                          : 'border-slate-100 bg-white hover:border-slate-300 hover:shadow-xs'
+                        } ${!canManage ? 'opacity-65 cursor-not-allowed' : ''}`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-lg transition-transform duration-300 group-hover:scale-110 shrink-0">
+                          {config.icon}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <p className="text-xs font-bold text-slate-800 leading-snug truncate">
+                              {config.label}
+                            </p>
+                            {isCurrent && (
+                              <span className="text-[8px] font-bold uppercase tracking-wider text-primary bg-primary/10 px-1 py-0.5 rounded-full border border-primary/20 shrink-0 scale-90">
+                                Đang dùng
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[9px] text-slate-400 mt-0.5 line-clamp-1">
+                            {config.description}
+                          </p>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </Section>
 
