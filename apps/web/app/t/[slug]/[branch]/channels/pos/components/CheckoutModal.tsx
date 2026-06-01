@@ -237,6 +237,7 @@ export function CheckoutModal({
   const [isEditingCheckout, setIsEditingCheckout] = useState(false)
   const [checkoutInput, setCheckoutInput] = useState('')
   const [paymentsLoaded, setPaymentsLoaded] = useState(false)
+  const [hidePrepaidSuggest, setHidePrepaidSuggest] = useState(false)
 
   const [showQrGate, setShowQrGate] = useState(false)
   const [pollingActive, setPollingActive] = useState(false)
@@ -507,6 +508,13 @@ export function CheckoutModal({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, existingOrder])
+
+  // Reset prepaid suggest banner when modal opens or customer changes
+  useEffect(() => {
+    if (open) {
+      setHidePrepaidSuggest(false)
+    }
+  }, [open, localCustomer?.customer_id])
 
   // Hydrate selected customer details in real-time when online to fetch latest loyalty_points and prepaid_balance
   async function refreshCustomerDetails() {
@@ -1522,7 +1530,7 @@ export function CheckoutModal({
               </div>
 
               {/* Prepaid Wallet inline suggest banner */}
-              {localCustomer && Number(localCustomer.prepaid_balance || 0) > 0 && (
+              {localCustomer && Number(localCustomer.prepaid_balance || 0) > 0 && !hidePrepaidSuggest && (
                 <div className="flex items-center justify-between gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-3 text-xs text-emerald-800 animate-in fade-in slide-in-from-top-2 duration-200">
                   <div className="flex items-center gap-1.5 min-w-0 flex-1">
                     <span className="text-base shrink-0">💳</span>
@@ -1543,6 +1551,7 @@ export function CheckoutModal({
                         }
                         return rows
                       })
+                      setHidePrepaidSuggest(true)
                     }}
                     className="shrink-0 rounded-lg bg-emerald-600 px-2.5 py-1.5 font-bold text-white hover:bg-emerald-700 active:scale-95 transition-all shadow-sm cursor-pointer"
                   >
@@ -1848,7 +1857,7 @@ export function CheckoutModal({
                         </select>
 
                         {/* Lựa chọn Quỹ cụ thể nếu có từ 2 quỹ trở lên cùng loại */}
-                        {matchingFunds.length > 1 && (
+                        {matchingFunds.length > 1 && p.method !== 'debt' && p.method !== 'prepaid' && (
                           <select
                             value={p.fund_id || selectedFundObj?.id || ''}
                             onChange={(e) => updatePayment(p.id, 'fund_id', e.target.value)}
