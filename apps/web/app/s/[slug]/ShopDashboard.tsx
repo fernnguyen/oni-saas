@@ -6,7 +6,14 @@ import { useQuery } from '@tanstack/react-query';
 import { SetupModal } from '../../components/connectors/SetupModal';
 
 interface Props {
-  shop: { id: string; tenantId: string; name: string; slug: string };
+  shop: {
+    id: string;
+    tenantId: string;
+    name: string;
+    slug: string;
+    tenantSlug?: string;
+    address?: string | null;
+  };
   connectorStatus: string | null;
   connectorId: string | null;
   homePath: string;
@@ -253,7 +260,31 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
             {getGreeting()}
           </span>
           <h1 className="text-2xl font-bold text-slate-800 tracking-tight mt-0.5">{shop.name}</h1>
-          <p className="mt-1 text-xs text-slate-400 font-mono tracking-wide">{shop.slug}.oni.vn</p>
+          
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mt-1.5 text-xs text-slate-500 font-medium tracking-wide">
+            {/* Physical Address of the shop */}
+            {shop.address && (
+              <div className="flex items-center gap-1.5">
+                <svg className="w-3.5 h-3.5 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                <span className="text-slate-650">{shop.address}</span>
+              </div>
+            )}
+
+            {shop.address && (
+              <span className="text-slate-300 select-none hidden sm:inline">•</span>
+            )}
+
+            {/* Website URL showing subdomain */}
+            <div className="flex items-center gap-1.5">
+              <svg className="w-3.5 h-3.5 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+              </svg>
+              <span className="text-slate-600 font-medium">{shop.tenantSlug || 'tenant'}.oni.vn/{shop.slug}</span>
+            </div>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">

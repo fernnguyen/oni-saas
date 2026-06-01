@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog';
+import { INDUSTRY_TYPES, VERTICAL_REGISTRY, type IndustryType } from '@oni/core';
 
 interface Branch {
   id: string;
@@ -53,6 +54,7 @@ function CreateBranchModal({
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
   const [address, setAddress] = useState('');
+  const [industryType, setIndustryType] = useState<IndustryType>('retail');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -69,7 +71,13 @@ function CreateBranchModal({
       const res = await fetch('/api/shops', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenant_id: tenantId, name, slug, address: address || undefined }),
+        body: JSON.stringify({ 
+          tenant_id: tenantId, 
+          name, 
+          slug, 
+          address: address || undefined,
+          industry_type: industryType 
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -122,10 +130,38 @@ function CreateBranchModal({
               required
             />
             {slug && (
-              <p className="mt-1 text-xs text-slate-400">
-                URL: <span className="font-mono text-primary">/{slug}/</span>
+              <p className="mt-1 text-[11px] leading-normal text-slate-400 font-medium">
+                Slug được tự động tạo theo tên chi nhánh nhưng bạn hoàn toàn có thể tùy chỉnh. <br />
+                URL: <span className="font-mono text-primary font-bold">/{slug}/</span>
               </p>
             )}
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">Ngành nghề kinh doanh</label>
+            <div className="grid grid-cols-2 gap-2 max-h-[160px] overflow-y-auto pr-1 border border-slate-100 rounded-xl p-1 bg-slate-50/50">
+              {INDUSTRY_TYPES.map((type) => {
+                const config = VERTICAL_REGISTRY[type];
+                const isActive = industryType === type;
+                return (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() => setIndustryType(type)}
+                    className={`flex items-center gap-2 rounded-xl border p-2 text-left transition-all cursor-pointer ${
+                      isActive
+                        ? 'border-primary bg-primary/5 text-primary ring-2 ring-primary/10 font-medium'
+                        : 'border-slate-200/80 bg-white hover:border-slate-300 hover:bg-slate-50/30'
+                    }`}
+                  >
+                    <span className="text-base shrink-0 select-none">{config.icon}</span>
+                    <div className="min-w-0 flex-1">
+                      <p className={`text-xs truncate font-semibold ${isActive ? 'text-primary' : 'text-slate-750'}`}>{config.label}</p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           <div>
@@ -271,8 +307,8 @@ export function BranchSelector({
       <div ref={ref} className="relative py-2 min-w-0">
         <button
           onClick={() => canSwitch && setOpen((o) => !o)}
-          className={`w-full flex items-center gap-2 rounded-xl p-2 text-left transition-all min-w-0 border ${
-            open ? 'border-primary/30 bg-primary/5 shadow-3xs' : 'border-slate-200/60 hover:bg-slate-50/60'
+          className={`w-full flex items-center gap-2 rounded-xl p-2 text-left transition-all min-w-0 ${
+            open ? 'bg-primary/5 shadow-3xs' : 'hover:bg-slate-50/60'
           } ${canSwitch ? 'cursor-pointer active:scale-98' : 'cursor-default'}`}
         >
           <div className={`h-8 w-8 rounded-xl flex items-center justify-center font-bold text-sm shrink-0 shadow-3xs transition-transform duration-200 ${currentStyle.bg}`}>

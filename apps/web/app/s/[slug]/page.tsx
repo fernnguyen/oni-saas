@@ -76,6 +76,12 @@ export default async function ShopPage({ params }: Props) {
   const connectorStatus = connector?.status ?? null;
   const connectorId = connector?.id ?? null;
 
+  const { data: tenant } = await admin
+    .from('tenants')
+    .select('slug')
+    .eq('id', shop.tenant_id)
+    .maybeSingle();
+
   return (
     <DashboardShell
       tenantName={shop.name}
@@ -89,7 +95,14 @@ export default async function ShopPage({ params }: Props) {
       permissions={permissions}
     >
       <ShopDashboard
-        shop={{ id: shop.id, tenantId: shop.tenant_id, name: shop.name, slug: shop.slug }}
+        shop={{
+          id: shop.id,
+          tenantId: shop.tenant_id,
+          name: shop.name,
+          slug: shop.slug,
+          tenantSlug: tenant?.slug || '',
+          address: shop.address,
+        }}
         connectorStatus={connectorStatus}
         connectorId={connectorId}
         homePath={homePath}

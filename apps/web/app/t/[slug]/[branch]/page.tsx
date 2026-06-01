@@ -9,7 +9,7 @@ interface Props {
 
 // Only accessible via subdomain rewrite. slug = tenant slug, branch = shop slug.
 export default async function BranchPage({ params }: Props) {
-  const { branch } = await params;
+  const { slug, branch } = await params;
   const supabase = await getSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
 
@@ -20,7 +20,7 @@ export default async function BranchPage({ params }: Props) {
   const admin = getSupabaseAdminClient();
   const { data: shop } = await admin
     .from('shops_view')
-    .select('id, tenant_id, name, slug')
+    .select('id, tenant_id, name, slug, address')
     .eq('slug', branch)
     .maybeSingle();
 
@@ -40,7 +40,14 @@ export default async function BranchPage({ params }: Props) {
 
   return (
     <ShopDashboard
-      shop={{ id: shop.id, tenantId: shop.tenant_id, name: shop.name, slug: shop.slug }}
+      shop={{
+        id: shop.id,
+        tenantId: shop.tenant_id,
+        name: shop.name,
+        slug: shop.slug,
+        tenantSlug: slug,
+        address: shop.address,
+      }}
       connectorStatus={connectorStatus}
       connectorId={connectorId}
       homePath={homePath}
