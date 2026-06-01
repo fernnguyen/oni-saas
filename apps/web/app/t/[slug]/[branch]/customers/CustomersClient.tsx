@@ -582,7 +582,7 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
       { key: 'phone', label: 'SĐT' },
       {
         key: 'customer_type',
-        label: 'Hạng thành viên',
+        label: 'Hạng',
         render: (row) => {
           const type = (row.customer_type || '').trim().toLowerCase()
           const tiers = settings?.has_crm_access ? (settings?.membership_tiers || []) : []
@@ -592,13 +592,13 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
       },
       {
         key: 'loyalty_points',
-        label: 'Điểm tích lũy',
+        label: 'Điểm',
         sortable: true,
         render: (row) => <span className="font-medium text-blue-600">{Number(row.loyalty_points || 0).toLocaleString('vi-VN')} điểm</span>,
       },
       {
         key: 'prepaid_balance',
-        label: 'Số dư trả trước',
+        label: 'Số dư ví',
         sortable: true,
         render: (row) => <span className="font-semibold text-emerald-600">{Number(row.prepaid_balance || 0).toLocaleString('vi-VN')}đ</span>,
       },

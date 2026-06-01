@@ -828,7 +828,7 @@ export function AuditClient({ shopId, shopName }: Props) {
                   setShowSearchDropdown(false)
                 }
               }}
-              placeholder="Gõ tên thuốc, SKU hoặc quét mã vạch (Barcode)..."
+              placeholder="Nhập tên sản phẩm, SKU hoặc quét mã vạch (Barcode)..."
               className="w-full pl-9 pr-24 py-2 border border-slate-200 rounded-xl bg-slate-50/50 hover:bg-white focus:bg-white text-sm focus:border-primary focus:outline-none transition-all shadow-inner font-semibold text-slate-700"
             />
             <div className="absolute inset-y-1.5 right-1.5 flex items-center gap-1">
