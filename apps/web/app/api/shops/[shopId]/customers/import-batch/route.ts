@@ -109,9 +109,18 @@ export async function POST(
       const credit_limit = String(item.credit_limit || '0')
 
       // Numeric inputs
-      const importDebt = parseFloat(String(item.debt_amount || '0'))
+      const rawImportDebt = parseFloat(String(item.debt_amount || '0'))
       const importPoints = parseFloat(String(item.loyalty_points || '0'))
-      const importPrepaid = parseFloat(String(item.prepaid_balance || '0'))
+      const rawImportPrepaid = parseFloat(String(item.prepaid_balance || '0'))
+
+      let importDebt = rawImportDebt
+      let importPrepaid = rawImportPrepaid
+
+      // Convert negative debt (-) to prepaid balance (ví trả trước)
+      if (rawImportDebt < 0) {
+        importPrepaid = rawImportPrepaid + Math.abs(rawImportDebt)
+        importDebt = 0
+      }
 
       if (existingCustomer) {
         // --- DUPLICATE DETECTED ---
@@ -259,6 +268,7 @@ export async function POST(
 
         // Create virtual cashbook logs for diff balance ví trả trước
         if (diffPrepaid !== 0) {
+          const wasNegativeDebt = rawImportDebt < 0
           cashbookToCreate.push({
             type:           'receipt',
             amount:         String(Math.abs(diffPrepaid)),
@@ -266,9 +276,11 @@ export async function POST(
             category:       'sales',
             reference_id:   existingCustomer.id,
             reference_name: name,
-            note:           diffPrepaid > 0
-              ? `Điều chỉnh tăng ví trả trước đầu kỳ khi import (Chênh lệch: +${diffPrepaid.toLocaleString('vi-VN')}đ)`
-              : `Điều chỉnh giảm ví trả trước đầu kỳ khi import (Chênh lệch: ${diffPrepaid.toLocaleString('vi-VN')}đ)`,
+            note:           wasNegativeDebt && diffPrepaid > 0
+              ? `Điều chỉnh tăng ví trả trước đầu kỳ khi import (Chuyển đổi từ công nợ ${rawImportDebt.toLocaleString('vi-VN')}đ)`
+              : diffPrepaid > 0
+                ? `Điều chỉnh tăng ví trả trước đầu kỳ khi import (Chênh lệch: +${diffPrepaid.toLocaleString('vi-VN')}đ)`
+                : `Điều chỉnh giảm ví trả trước đầu kỳ khi import (Chênh lệch: ${diffPrepaid.toLocaleString('vi-VN')}đ)`,
             employee_id:    user.id,
             is_virtual:     'TRUE',
           })
@@ -352,6 +364,7 @@ export async function POST(
       }
 
       if (prepaid > 0) {
+        const wasNegativeDebt = importItem && parseFloat(String(importItem.debt_amount || '0')) < 0
         cashbookToCreate.push({
           type:           'receipt',
           amount:         String(prepaid),
@@ -359,7 +372,9 @@ export async function POST(
           category:       'sales',
           reference_id:   cc.customer_id || cc.id,
           reference_name: cc.name,
-          note:           `Số dư Ví trả trước đầu kỳ ghi nhận khi chuyển đổi hệ thống (Import KiotViet)`,
+          note:           wasNegativeDebt
+            ? `Số dư Ví trả trước đầu kỳ ghi nhận khi chuyển đổi hệ thống (Chuyển đổi từ công nợ âm ${parseFloat(String(importItem.debt_amount)).toLocaleString('vi-VN')}đ)`
+            : `Số dư Ví trả trước đầu kỳ ghi nhận khi chuyển đổi hệ thống (Import KiotViet)`,
           employee_id:    user.id,
           is_virtual:     'TRUE',
         })
