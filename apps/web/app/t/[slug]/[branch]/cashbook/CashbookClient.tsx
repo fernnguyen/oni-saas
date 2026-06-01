@@ -17,16 +17,17 @@ import { useConfirm } from '@/app/components/ui/ConfirmProvider'
 import { BANKS } from '@/lib/constants/banks'
 import { VietQRPreview } from '@/app/components/ui/VietQRPreview'
 
-const Clock = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-const Wallet = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect x="2" y="4" width="20" height="16" rx="2" ry="2"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
-const Plus = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-const CheckList = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-
-const CashIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className}><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-const BankIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M3 22h18"/><path d="M6 18V11"/><path d="M10 18V11"/><path d="M14 18V11"/><path d="M18 18V11"/><path d="M12 2L2 7h20L12 2z"/></svg>
-const PhoneIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
-const Pencil = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-const RefreshIcon = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M16 3h5v5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 21H3v-5"/></svg>
+import { 
+  Clock, 
+  Wallet, 
+  Plus, 
+  ClipboardCheck, 
+  Banknote, 
+  Landmark, 
+  Smartphone, 
+  Pencil, 
+  RefreshCw 
+} from 'lucide-react'
 
 interface Props {
   shopId: string
@@ -100,6 +101,18 @@ const getPresetDates = (type: string) => {
   }
   return { from, to }
 }
+const getDisplayId = (id: string) => {
+  if (!id) return '';
+  const parts = id.split('-');
+  const tenantHashRegex = /^[A-Z0-9]{8}$/;
+  if (parts.length >= 3) {
+    const hashIndex = parts.findIndex(part => tenantHashRegex.test(part));
+    if (hashIndex !== -1 && hashIndex < parts.length - 1) {
+      return parts.slice(hashIndex + 1).join('-');
+    }
+  }
+  return id;
+};
 
 export function CashbookClient({ shopId, shopName, permissions }: Props) {
   const confirm = useConfirm()
@@ -560,6 +573,7 @@ export function CashbookClient({ shopId, shopName, permissions }: Props) {
     inventory_payment: 'Thanh toán nhập kho',
     inventory_receipt: 'Thu nhập kho',
     prepaid_deposit: 'Nạp tiền ví trả trước',
+    depreciation_expense: 'Chi phí khấu hao',
   }
 
   const METHOD_MAP: Record<string, string> = {
@@ -575,23 +589,29 @@ export function CashbookClient({ shopId, shopName, permissions }: Props) {
     { 
       key: 'transaction_id', 
       label: 'Số phiếu',
-      render: (row) => (
-        <div>
-          {row.transaction_id ? (
-            <CopyableId id={row.transaction_id} className="text-sm font-semibold text-slate-900" />
-          ) : (
-            <span className="block text-sm font-semibold text-slate-900">—</span>
-          )}
-          <div className="flex items-center text-[11px] text-slate-500 mt-1 gap-1">
-            <Clock className="w-3 h-3" />
-            <span>{format(new Date(row.created_at || new Date()), 'HH:mm dd/MM/yy')}</span>
+      className: 'whitespace-nowrap',
+      render: (row) => {
+        const fullId = row.transaction_id || '';
+        const displayId = getDisplayId(fullId);
+        return (
+          <div>
+            {fullId ? (
+              <CopyableId id={fullId} label={displayId} className="text-sm font-semibold text-primary" />
+            ) : (
+              <span className="block text-sm font-semibold text-slate-900">—</span>
+            )}
+            <div className="flex items-center text-[11px] text-slate-500 mt-1 gap-1">
+              <Clock className="w-3 h-3" />
+              <span>{format(new Date(row.created_at || new Date()), 'HH:mm dd/MM/yy')}</span>
+            </div>
           </div>
-        </div>
-      )
+        )
+      }
     },
     {
       key: 'type',
-      label: 'Loại',
+      label: 'Loại phiếu',
+      className: 'whitespace-nowrap',
       render: (row) => (
         <TagBadge 
           label={row.type === 'receipt' ? 'Phiếu Thu' : 'Phiếu Chi'} 
@@ -602,28 +622,25 @@ export function CashbookClient({ shopId, shopName, permissions }: Props) {
     {
       key: 'amount',
       label: 'Số tiền',
+      className: 'whitespace-nowrap',
       render: (row) => (
         <div>
           <span className={`block font-semibold text-sm ${row.type === 'receipt' ? 'text-emerald-600' : 'text-rose-600'}`}>
             {row.type === 'receipt' ? '+' : '-'}{Number(row.amount || 0).toLocaleString('vi-VN')}đ
           </span>
-          <div className="mt-1 flex items-center gap-1.5 flex-wrap">
-            <span className="inline-flex text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200">
-              {METHOD_MAP[row.method] || row.method}
-            </span>
-            {row.fund_id && (
-              <span className="inline-flex items-center text-[10px] bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded border border-indigo-100 gap-0.5">
-                <Wallet className="w-2.5 h-2.5" />
-                {fundsList.find(f => f.id === row.fund_id)?.name || 'Quỹ'}
-              </span>
-            )}
-          </div>
+          {row.fund_id && (
+            <div className="flex items-center text-[11px] text-slate-500 mt-1 gap-1">
+              <Wallet className="w-3 h-3 text-slate-400" />
+              <span>{fundsList.find(f => f.id === row.fund_id)?.name || 'Quỹ'}</span>
+            </div>
+          )}
         </div>
       ),
     },
     { 
       key: 'category', 
-      label: 'Danh mục', 
+      label: 'Danh mục / Phương thức', 
+      className: 'whitespace-nowrap',
       render: (row) => {
         let color: any = 'gray'
         if (row.category === 'sales') color = 'blue'
@@ -631,21 +648,49 @@ export function CashbookClient({ shopId, shopName, permissions }: Props) {
         else if (row.category === 'import' || row.category === 'inventory_payment' || row.category === 'inventory_receipt' || row.category === 'inventory') color = 'purple'
         else if (row.category === 'salary') color = 'yellow'
         else if (row.category === 'utilities') color = 'blue'
+        else if (row.category === 'depreciation_expense') color = 'purple'
         
-        return <TagBadge label={CATEGORY_MAP[row.category] || row.category} color={color} />
+        return (
+          <div className="space-y-1">
+            <div className="block">
+              <TagBadge label={CATEGORY_MAP[row.category] || row.category} color={color} />
+            </div>
+            <div className="block">
+              <span className="inline-flex items-center text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200/80 font-medium">
+                {METHOD_MAP[row.method] || row.method}
+              </span>
+            </div>
+          </div>
+        )
       } 
     },
-    { key: 'reference_name', label: 'Người nộp/nhận' },
+    {
+      key: 'reference_name',
+      label: 'Người nhận/nộp',
+      className: 'whitespace-nowrap',
+      render: (row) => (
+        <div>
+          <span className="block text-sm font-medium text-slate-900">
+            {row.reference_name || '—'}
+          </span>
+          {row.note && (
+            <span className="block text-[11px] text-slate-500 mt-1 max-w-xs break-words whitespace-normal">
+              {row.note}
+            </span>
+          )}
+        </div>
+      ),
+    },
     { 
       key: 'balance_after_transaction', 
       label: 'Số dư sau GD',
+      className: 'whitespace-nowrap',
       render: (row) => (
         <span className="text-xs text-slate-600 font-medium">
           {row.balance_after_transaction ? `${Number(row.balance_after_transaction).toLocaleString('vi-VN')}đ` : '—'}
         </span>
       )
     },
-    { key: 'note', label: 'Ghi chú', render: (row) => <span className="text-[11px] text-slate-500 block max-w-xs">{row.note}</span> },
   ], [fundsList])
 
   const shiftColumns = useMemo<Column<Record<string, any>>[]>(() => [
@@ -835,7 +880,7 @@ export function CashbookClient({ shopId, shopName, permissions }: Props) {
               onClick={openAudit}
               className="rounded-full border border-slate-200 bg-amber-50 px-3.5 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 shadow-sm flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer border-amber-100"
             >
-              <CheckList className="w-3.5 h-3.5 text-amber-600" />
+              <ClipboardCheck className="w-3.5 h-3.5 text-amber-600" />
               Kiểm quỹ
             </button>
           </HasPermission>
@@ -890,7 +935,7 @@ export function CashbookClient({ shopId, shopName, permissions }: Props) {
           className="pb-3 px-2 text-slate-400 hover:text-orange-600 active:scale-95 transition-all cursor-pointer flex items-center gap-1.5 text-xs font-semibold select-none border-b-2 border-transparent hover:border-orange-500"
           title="Làm mới dữ liệu từ máy chủ"
         >
-          <RefreshIcon className={`w-3.5 h-3.5 ${(isFetching || isShiftsLoading) ? 'animate-spin text-orange-500' : ''}`} />
+          <RefreshCw className={`w-3.5 h-3.5 ${(isFetching || isShiftsLoading) ? 'animate-spin text-orange-500' : ''}`} />
           <span>Đồng bộ dữ liệu</span>
         </button>
       </div>
@@ -1013,7 +1058,7 @@ export function CashbookClient({ shopId, shopName, permissions }: Props) {
           >
             <div className="flex items-center justify-between">
               <span className={`text-[9px] font-bold uppercase tracking-wider ${!fundFilter ? 'text-orange-600' : 'text-slate-400'}`}>Tất cả quỹ</span>
-              <BankIcon className={`w-3.5 h-3.5 ${!fundFilter ? 'text-orange-500' : 'text-slate-400'}`} />
+              <Landmark className={`w-3.5 h-3.5 ${!fundFilter ? 'text-orange-500' : 'text-slate-400'}`} />
             </div>
             <div className="flex items-baseline gap-0.5 mt-0.5">
               <span className={`text-sm font-bold ${!fundFilter ? 'text-orange-950' : 'text-slate-700'}`}>
@@ -1035,11 +1080,11 @@ export function CashbookClient({ shopId, shopName, permissions }: Props) {
               const balance = parseFloat(fund.current_balance || '0')
               
               // Render flat SVG icon
-              let icon = <CashIcon className={`w-3.5 h-3.5 ${isSelected ? 'text-orange-500' : 'text-slate-400'}`} />
+              let icon = <Banknote className={`w-3.5 h-3.5 ${isSelected ? 'text-orange-500' : 'text-slate-400'}`} />
               if (fund.type === 'bank') {
-                icon = <BankIcon className={`w-3.5 h-3.5 ${isSelected ? 'text-orange-500' : 'text-slate-400'}`} />
+                icon = <Landmark className={`w-3.5 h-3.5 ${isSelected ? 'text-orange-500' : 'text-slate-400'}`} />
               } else if (fund.type === 'wallet') {
-                icon = <PhoneIcon className={`w-3.5 h-3.5 ${isSelected ? 'text-orange-500' : 'text-slate-400'}`} />
+                icon = <Smartphone className={`w-3.5 h-3.5 ${isSelected ? 'text-orange-500' : 'text-slate-400'}`} />
               }
  
               return (

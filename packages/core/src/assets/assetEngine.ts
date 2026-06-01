@@ -1,3 +1,5 @@
+import * as crypto from 'crypto';
+
 export interface Asset {
   id: string;
   tenant_id: string;
@@ -167,7 +169,11 @@ export class AssetEngine {
 
         if (allocatedAmount <= 0) continue;
 
-        const cashbookId = `CSB-DEP-${asset.id}-${allocation.department_code}-${Date.now().toString().slice(-6)}`;
+        const parts = asset.id.split('-');
+        const tenantHash = parts.length >= 3 ? parts[1] : (asset.tenant_id ? crypto.createHash('sha256').update(asset.tenant_id).digest('hex').substring(0, 8).toUpperCase() : 'SYSTEM');
+        const assetPrefix = parts[0] || 'AST';
+        const assetSeq = parts.slice(2).join('-') || '00000';
+        const cashbookId = `CSB-DEP-${tenantHash}-${assetPrefix}-${assetSeq}-${allocation.department_code}-${Date.now().toString().slice(-6)}`;
         const note = `[Khấu hao ${assetTypeName} - Kỳ ${periodStr}] Phân bổ tài sản "${asset.name}" cho Bộ phận ${allocation.department_code.toUpperCase()} (SL bàn giao: ${allocQty}/${totalAllocatedQty} chiếc)`;
 
         const cashbookEntry: CashbookEntryInput = {
@@ -208,7 +214,11 @@ export class AssetEngine {
       }
     } else {
       // Trường hợp tài sản chưa bàn giao sử dụng, khấu hao mặc định tính vào chi phí quản lý chi nhánh
-      const cashbookId = `CSB-DEP-${asset.id}-${Date.now().toString().slice(-6)}`;
+      const parts = asset.id.split('-');
+      const tenantHash = parts.length >= 3 ? parts[1] : (asset.tenant_id ? crypto.createHash('sha256').update(asset.tenant_id).digest('hex').substring(0, 8).toUpperCase() : 'SYSTEM');
+      const assetPrefix = parts[0] || 'AST';
+      const assetSeq = parts.slice(2).join('-') || '00000';
+      const cashbookId = `CSB-DEP-${tenantHash}-${assetPrefix}-${assetSeq}-${Date.now().toString().slice(-6)}`;
       const note = `[Khấu hao ${assetTypeName} - Kỳ ${periodStr}] Tài sản "${asset.name}" chưa phân bổ sử dụng (tính vào chi phí quản lý chung)`;
 
       const cashbookEntry: CashbookEntryInput = {

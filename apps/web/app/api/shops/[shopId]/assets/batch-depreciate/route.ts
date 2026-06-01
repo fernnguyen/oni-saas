@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireShopAccess } from '@/lib/server/shopAccess';
+import crypto from 'crypto';
 import { AssetEngine, Asset } from '@oni/core';
 import { invalidate } from '@/lib/server/cache';
 import { handleApiError } from '@/app/api/shops/_helpers';
@@ -192,6 +193,7 @@ export async function POST(
     // 4. Create summarized Cashbook entries for each department
     const tenantId = shop.tenant_id;
     const branchId = shopId;
+    const tenantHash = crypto.createHash('sha256').update(tenantId).digest('hex').substring(0, 8).toUpperCase();
 
     // Keep track of department cashbook IDs
     const departmentCashbookIds = new Map<string, string>();
@@ -200,7 +202,7 @@ export async function POST(
       if (group.totalAmount <= 0) continue;
 
       const deptName = departmentNameMap.get(deptCode) || (deptCode === 'general_management' ? 'Quản lý chung' : deptCode);
-      const cashbookId = `CSB-DEP-BATCH-${deptCode.toUpperCase()}-${Date.now().toString().slice(-6)}`;
+      const cashbookId = `CSB-DEP-BATCH-${tenantHash}-${deptCode.toUpperCase()}-${Date.now().toString().slice(-6)}`;
       departmentCashbookIds.set(deptCode, cashbookId);
 
       // Build a beautiful, high-fidelity list of equipment
