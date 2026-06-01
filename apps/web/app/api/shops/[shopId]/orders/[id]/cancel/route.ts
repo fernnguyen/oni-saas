@@ -212,7 +212,7 @@ export async function POST(
     const cancelledBy = user.user_metadata?.display_name || user.user_metadata?.full_name || user.email || 'Hệ thống'
     const totalAmount = Number((order as Record<string, string>).total_amount || 0)
 
-    dispatchNotification(shop.tenant_id, 'ORDER_CANCELLED', {
+    dispatchNotification(shop.tenant_id, shopId, 'ORDER_CANCELLED', {
       title: 'Đơn hàng bị hủy',
       message: `Mã đơn: ${orderNo}\nKhách hàng: ${(order as Record<string, string>).customer_name || 'Khách lẻ'}\nTổng tiền: ${totalAmount.toLocaleString('vi-VN')}đ\nLý do hủy: ${reason}\n\n📝 Người hủy: ${cancelledBy} (${domainName})`,
     }).catch(err => console.error('Failed to dispatch ORDER_CANCELLED:', err))

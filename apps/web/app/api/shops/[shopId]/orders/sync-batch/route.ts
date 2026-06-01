@@ -835,7 +835,7 @@ Còn nợ: ${Number(order.debt_amount || 0).toLocaleString('vi-VN')}đ
 📝 Người tạo phiếu: ${creatorEmail} (${domainName})`;
 
       // Dispatch notification asynchronously without blocking response
-      dispatchNotification(shop.tenant_id, 'ORDER_CREATED', {
+      dispatchNotification(shop.tenant_id, shopId, 'ORDER_CREATED', {
         title: `📦 Đơn hàng mới (POS) - ${shop.name}`,
         message,
       }).catch(console.error);

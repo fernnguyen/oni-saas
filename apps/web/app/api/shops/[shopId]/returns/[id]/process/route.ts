@@ -225,7 +225,7 @@ export async function POST(
     const cashbookText = cashbookId ? `\nSổ quỹ: Đã tạo phiếu chi #${cashbookId}` : (r.refund_method !== 'none' && r.refund_method !== 'store_credit' && totalRefund > 0 ? `\nSổ quỹ: Đã tạo phiếu chi hoàn tiền` : '')
     const inventoryInfo = stockMovementsText ? `\nKho hàng: ${stockMovementsText}` : ''
 
-    dispatchNotification(shop.tenant_id, 'ORDER_RETURNED', {
+    dispatchNotification(shop.tenant_id, shopId, 'ORDER_RETURNED', {
       title: 'Khách trả hàng',
       message: `Phiếu trả hàng: ${returnRef}\nĐơn gốc: ${actualOrderNo}\nKhách hàng: ${customerName}\nHoàn tiền: ${totalRefund.toLocaleString('vi-VN')}đ${inventoryInfo}${cashbookText}${r.note ? `\nGhi chú: ${r.note}` : ''}\n\n📝 Người xử lý: ${processedByEmail} (${tenantDomain})`
     }).catch(err => console.error('Failed to dispatch ORDER_RETURNED:', err))

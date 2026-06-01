@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache';
 
 export async function saveNotificationSettings(
   tenantId: string,
+  shopId: string,
   slug: string,
   botToken: string,
   chatId: string,
@@ -19,6 +20,7 @@ export async function saveNotificationSettings(
       .from('tenant_notification_channels')
       .select('id')
       .eq('tenant_id', tenantId)
+      .eq('shop_id', shopId)
       .eq('provider', 'telegram')
       .maybeSingle();
 
@@ -32,6 +34,7 @@ export async function saveNotificationSettings(
         .from('tenant_notification_channels')
         .insert({
           tenant_id: tenantId,
+          shop_id: shopId,
           provider: 'telegram',
           config,
           is_active: true
@@ -44,6 +47,7 @@ export async function saveNotificationSettings(
       .from('tenant_notification_channels')
       .update({ is_active: false })
       .eq('tenant_id', tenantId)
+      .eq('shop_id', shopId)
       .eq('provider', 'telegram');
   }
 
@@ -53,6 +57,7 @@ export async function saveNotificationSettings(
       .from('tenant_notification_events')
       .select('id')
       .eq('tenant_id', tenantId)
+      .eq('shop_id', shopId)
       .eq('event_name', ev.name)
       .maybeSingle();
 
@@ -66,17 +71,18 @@ export async function saveNotificationSettings(
         .from('tenant_notification_events')
         .insert({
           tenant_id: tenantId,
+          shop_id: shopId,
           event_name: ev.name,
           is_enabled: ev.enabled
         });
     }
   }
 
-  revalidatePath(`/t/${slug}/settings`);
+  revalidatePath(`/t/${slug}/${shopId}/settings`);
   return { success: true };
 }
 
-export async function generatePairingCode(tenantId: string) {
+export async function generatePairingCode(tenantId: string, shopId: string) {
   const admin = getSupabaseAdminClient();
   const code = 'ONI-' + Math.random().toString(36).substring(2, 8).toUpperCase();
   const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // 15 minutes
@@ -84,6 +90,7 @@ export async function generatePairingCode(tenantId: string) {
   const { error } = await admin.from('bot_pairing_codes').insert({
     code,
     tenant_id: tenantId,
+    shop_id: shopId,
     expires_at: expiresAt
   });
 
@@ -91,18 +98,19 @@ export async function generatePairingCode(tenantId: string) {
   return code;
 }
 
-export async function checkSharedBotConnection(tenantId: string) {
+export async function checkSharedBotConnection(tenantId: string, shopId: string) {
   const admin = getSupabaseAdminClient();
   const { data } = await admin
     .from('tenant_notification_channels')
-    .select('id')
+    .select('id, config')
     .eq('tenant_id', tenantId)
+    .eq('shop_id', shopId)
     .eq('provider', 'telegram')
     .is('config->bot_token', null)
     .eq('is_active', true)
     .maybeSingle();
 
-  return !!data;
+  return data ? { connected: true, config: data.config } : { connected: false };
 }
 
 export async function clearPairingCode(code: string) {
@@ -110,15 +118,16 @@ export async function clearPairingCode(code: string) {
   await admin.from('bot_pairing_codes').delete().eq('code', code);
 }
 
-export async function revokeSharedBotConnection(tenantId: string, slug: string) {
+export async function revokeSharedBotConnection(tenantId: string, shopId: string, slug: string) {
   const admin = getSupabaseAdminClient();
   await admin
     .from('tenant_notification_channels')
     .update({ is_active: false, config: {} })
     .eq('tenant_id', tenantId)
+    .eq('shop_id', shopId)
     .eq('provider', 'telegram')
     .is('config->bot_token', null);
     
-  revalidatePath(`/t/${slug}/settings`);
+  revalidatePath(`/t/${slug}/${shopId}/settings`);
   return { success: true };
 }

@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
       // Find the pairing code
       const { data: pairingCode } = await admin
         .from('bot_pairing_codes')
-        .select('tenant_id')
+        .select('tenant_id, shop_id')
         .eq('code', code)
         .gte('expires_at', new Date().toISOString())
         .maybeSingle();
@@ -33,14 +33,16 @@ export async function POST(req: NextRequest) {
       }
 
       const tenantId = pairingCode.tenant_id;
+      const shopId = pairingCode.shop_id;
 
-      // Upsert notification channel for this tenant (Shared Bot)
+      // Upsert notification channel for this tenant & shop (Shared Bot)
       const config = { chat_id: String(chatId) }; // No bot_token means shared bot
 
       const { data: existing } = await admin
         .from('tenant_notification_channels')
         .select('id')
         .eq('tenant_id', tenantId)
+        .eq('shop_id', shopId)
         .eq('provider', 'telegram')
         .is('config->bot_token', null) // find shared bot channel
         .maybeSingle();
@@ -55,6 +57,7 @@ export async function POST(req: NextRequest) {
           .from('tenant_notification_channels')
           .insert({
             tenant_id: tenantId,
+            shop_id: shopId,
             provider: 'telegram',
             config,
             is_active: true

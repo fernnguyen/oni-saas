@@ -316,7 +316,7 @@ export class NotificationDispatcher {
 
     // Kênh 2: Telegram Bot (đẩy cho quản trị viên/thu ngân nhận tin ngoài ứng dụng)
     try {
-      await dispatchNotification(tenantId, 'QR_SESSION_CREATED', {
+      await dispatchNotification(tenantId, shop.id, 'QR_SESSION_CREATED', {
         title,
         message: content,
         url: path
@@ -365,7 +365,7 @@ export class NotificationDispatcher {
 
     // Kênh 2: Telegram Bot
     try {
-      await dispatchNotification(tenantId, 'QR_ORDER_CREATED', {
+      await dispatchNotification(tenantId, shop.id, 'QR_ORDER_CREATED', {
         title,
         message: content,
         url: path

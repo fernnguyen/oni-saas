@@ -9,11 +9,12 @@ export interface NotificationPayload {
 }
 
 /**
- * Dispatch a notification event to all active channels for a tenant,
+ * Dispatch a notification event to all active channels for a tenant and shop,
  * if the tenant's plan allows it and the event is enabled.
  */
 export async function dispatchNotification(
   tenantId: string,
+  shopId: string,
   eventName: string,
   payload: NotificationPayload
 ): Promise<void> {
@@ -31,23 +32,25 @@ export async function dispatchNotification(
 
     const admin = getSupabaseAdminClient();
 
-    // 2. Check if event is enabled for this tenant
+    // 2. Check if event is enabled for this shop
     const { data: eventData } = await admin
       .from('tenant_notification_events')
       .select('is_enabled')
       .eq('tenant_id', tenantId)
+      .eq('shop_id', shopId)
       .eq('event_name', eventName)
-      .single();
+      .maybeSingle();
 
     if (!eventData || !eventData.is_enabled) {
       return; // Event not enabled
     }
 
-    // 3. Fetch active channels
+    // 3. Fetch active channels for this shop
     const { data: channels } = await admin
       .from('tenant_notification_channels')
       .select('provider, config')
       .eq('tenant_id', tenantId)
+      .eq('shop_id', shopId)
       .eq('is_active', true);
 
     if (!channels || channels.length === 0) {
@@ -74,7 +77,7 @@ export async function dispatchNotification(
 
     await Promise.allSettled(promises);
   } catch (error) {
-    console.error(`Failed to dispatch notification for tenant ${tenantId}, event ${eventName}:`, error);
+    console.error(`Failed to dispatch notification for tenant ${tenantId}, shop ${shopId}, event ${eventName}:`, error);
   }
 }
 

@@ -171,7 +171,7 @@ export async function POST(
 
         const message = `Mã đơn: #${data.order_no}\nKhách hàng: ${customerDisplay}\n${data.note ? `Ghi chú: ${data.note}\n` : ''}\n🛍 MẶT HÀNG:\n${itemsList}\n\n💰 THANH TOÁN:\nTiền hàng: ${Number(data.subtotal).toLocaleString('vi-VN')}đ\nGiảm giá: ${Number(data.discount_amount).toLocaleString('vi-VN')}đ\nTổng cộng: ${Number(data.total_amount).toLocaleString('vi-VN')}đ\nĐã thu: ${paidText}\nCòn nợ: ${Number(data.debt_amount || 0).toLocaleString('vi-VN')}đ\n\n📝 Người tạo phiếu: ${creatorEmail} (${domainName})`;
 
-        await dispatchNotification(shop.tenant_id, 'ORDER_CREATED', {
+        await dispatchNotification(shop.tenant_id, shopId, 'ORDER_CREATED', {
           title: `📦 Đơn hàng mới (Online) - ${shop.name}`,
           message,
         });

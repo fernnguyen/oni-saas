@@ -4,6 +4,7 @@ import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
 import { getUserPermissions } from '@/lib/server/permissions';
 import { ShopSettingsForm } from '@/app/components/settings/ShopSettingsForm';
 import { PermissionGate } from '@/app/components/ui/PermissionGate';
+import { getTenantPlanMeta } from '@/lib/server/subscriptions';
 
 interface Props {
   params: Promise<{ slug: string; branch: string }>;
@@ -47,9 +48,15 @@ export default async function BranchSettingsPage({ params }: Props) {
   }
   const shopId: string = shop.id;
 
-  const [settingsResult, shopResult] = await Promise.all([
+  const planMeta = await getTenantPlanMeta(shop.tenant_id);
+  const canUsePushNotify = !!planMeta?.can_use_push_notify;
+  const canUseCustomNotify = !!planMeta?.can_use_custom_notify;
+
+  const [settingsResult, shopResult, channelsResult, eventsResult] = await Promise.all([
     admin.from('shop_settings').select('*').eq('shop_id', shopId).maybeSingle(),
     admin.from('shops').select('phone').eq('id', shopId).maybeSingle(),
+    admin.from('tenant_notification_channels').select('config').eq('shop_id', shopId).eq('provider', 'telegram').eq('is_active', true).maybeSingle(),
+    admin.from('tenant_notification_events').select('event_name, is_enabled').eq('shop_id', shopId)
   ]);
 
   const canManage =
@@ -80,6 +87,11 @@ export default async function BranchSettingsPage({ params }: Props) {
     has_crm_access: hasCrmAccess
   };
 
+  const eventsConfig = (eventsResult.data || []).reduce((acc: any, curr: any) => {
+    acc[curr.event_name] = curr.is_enabled;
+    return acc;
+  }, {});
+
   return (
     <div className="space-y-6">
       <div>
@@ -93,6 +105,12 @@ export default async function BranchSettingsPage({ params }: Props) {
         canManage={canManage}
         permissions={permissions}
         industryType={shop?.industry_type ?? tenant?.industry_type ?? 'retail'}
+        tenantId={shop.tenant_id}
+        slug={slug}
+        canUsePushNotify={canUsePushNotify}
+        canUseCustomNotify={canUseCustomNotify}
+        telegramConfig={channelsResult.data?.config as any}
+        eventsConfig={eventsConfig}
       />
     </div>
   );
