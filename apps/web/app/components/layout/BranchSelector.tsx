@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { toast } from 'sonner';
+import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog';
 
 interface Branch {
   id: string;
@@ -167,6 +168,25 @@ function CreateBranchModal({
   );
 }
 
+function getBranchStyle(slug: string) {
+  let hash = 0;
+  for (let i = 0; i < slug.length; i++) {
+    hash = slug.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const index = Math.abs(hash) % 7;
+
+  const gradients = [
+    { bg: 'bg-gradient-to-br from-indigo-500 to-blue-600 text-white shadow-xs border border-indigo-400/20', text: 'text-indigo-600' },
+    { bg: 'bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-xs border border-emerald-400/20', text: 'text-teal-600' },
+    { bg: 'bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-xs border border-orange-400/20', text: 'text-orange-600' },
+    { bg: 'bg-gradient-to-br from-rose-500 to-pink-600 text-white shadow-xs border border-rose-400/20', text: 'text-pink-600' },
+    { bg: 'bg-gradient-to-br from-purple-500 to-fuchsia-600 text-white shadow-xs border border-purple-400/20', text: 'text-fuchsia-600' },
+    { bg: 'bg-gradient-to-br from-cyan-500 to-blue-600 text-white shadow-xs border border-cyan-400/20', text: 'text-cyan-600' },
+    { bg: 'bg-gradient-to-br from-slate-500 to-zinc-700 text-white shadow-xs border border-slate-400/20', text: 'text-slate-600' },
+  ];
+  return gradients[index];
+}
+
 export function BranchSelector({
   tenantId,
   currentSlug,
@@ -180,6 +200,8 @@ export function BranchSelector({
   const [branches, setBranches] = useState<Branch[]>([]);
   const [limitStatus, setLimitStatus] = useState<LimitStatus | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [pendingBranch, setPendingBranch] = useState<{ slug: string; name: string } | null>(null);
+  
   const ref = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
   const router = useRouter();
@@ -210,24 +232,34 @@ export function BranchSelector({
   function switchBranch(slug: string, name?: string) {
     setOpen(false);
     if (slug === currentSlug) return;
+    setPendingBranch({ slug, name: name ?? slug });
+  }
+
+  function executeSwitchBranch() {
+    if (!pendingBranch) return;
+    const { slug, name } = pendingBranch;
+    setPendingBranch(null);
     const newPath = pathname.replace(/^\/[^/]+/, '/' + slug);
     router.push(newPath);
-    toast.success(`Đã chuyển sang ${branchLabel.toLowerCase()} ${name ?? slug}`);
+    toast.success(`Đã chuyển sang ${branchLabel.toLowerCase()} ${name}`);
   }
 
   function handleCreated(slug: string, name: string) {
     setShowCreate(false);
     loadBranches();
-    switchBranch(slug, name);
+    const newPath = pathname.replace(/^\/[^/]+/, '/' + slug);
+    router.push(newPath);
+    toast.success(`Đã chuyển sang ${branchLabel.toLowerCase()} ${name}`);
   }
 
   const initial = currentName.charAt(0).toUpperCase();
   const canSwitch = branches.length > 1 || !!canCreate;
+  const currentStyle = getBranchStyle(currentSlug);
 
   if (collapsed) {
     return (
       <div className="flex justify-center py-2 border-b border-slate-200">
-        <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm">
+        <div className={`h-8 w-8 rounded-xl flex items-center justify-center font-bold text-sm shrink-0 shadow-xs transition-all duration-200 hover:scale-105 ${currentStyle.bg}`}>
           {initial}
         </div>
       </div>
@@ -239,16 +271,16 @@ export function BranchSelector({
       <div ref={ref} className="relative py-2 min-w-0">
         <button
           onClick={() => canSwitch && setOpen((o) => !o)}
-          className={`w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors min-w-0 ${
-            canSwitch ? 'hover:bg-slate-50 cursor-pointer' : 'cursor-default'
-          }`}
+          className={`w-full flex items-center gap-2 rounded-xl p-2 text-left transition-all min-w-0 border ${
+            open ? 'border-primary/30 bg-primary/5 shadow-3xs' : 'border-slate-200/60 hover:bg-slate-50/60'
+          } ${canSwitch ? 'cursor-pointer active:scale-98' : 'cursor-default'}`}
         >
-          <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm shrink-0">
+          <div className={`h-8 w-8 rounded-xl flex items-center justify-center font-bold text-sm shrink-0 shadow-3xs transition-transform duration-200 ${currentStyle.bg}`}>
             {initial}
           </div>
           <div className="flex-1 min-w-0 hidden lg:block">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5 leading-none">{branchLabel}</p>
-            <p className="text-sm font-semibold text-slate-900 truncate leading-tight">{currentName}</p>
+            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5 leading-none">{branchLabel}</p>
+            <p className="text-sm font-semibold text-slate-800 truncate leading-tight">{currentName}</p>
           </div>
           {canSwitch && (
             <svg
@@ -264,7 +296,7 @@ export function BranchSelector({
         </button>
 
         {open && (
-          <div className="absolute left-2 w-[260px] top-full mt-1 rounded-lg border border-slate-200 bg-white shadow-lg z-50 py-1 overflow-hidden">
+          <div className="absolute left-2 w-[260px] top-full mt-1 rounded-xl border border-slate-200 bg-white shadow-lg z-50 py-1 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-100">
             <div className="px-3 pb-2 pt-1 border-b border-slate-100 flex items-center justify-between">
               <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Chuyển {branchLabel.toLowerCase()}</p>
               {limitStatus && (
@@ -275,30 +307,29 @@ export function BranchSelector({
             </div>
             {branches.map((b) => {
               const isCurrent = b.slug === currentSlug;
+              const bStyle = getBranchStyle(b.slug);
               return (
                 <button
                   key={b.id}
                   onClick={() => switchBranch(b.slug, b.name)}
                   className={`w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors cursor-pointer ${
-                    isCurrent ? 'bg-blue-50' : 'hover:bg-slate-50'
+                    isCurrent ? 'bg-primary/5 font-semibold' : 'hover:bg-slate-50'
                   }`}
                 >
                   <div
-                    className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
-                      isCurrent ? 'bg-primary text-white' : 'bg-slate-100 text-slate-600'
-                    }`}
+                    className={`h-7 w-7 rounded-xl flex items-center justify-center text-xs font-bold shrink-0 shadow-3xs ${bStyle.bg}`}
                   >
                     {b.name.charAt(0).toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-slate-800 truncate leading-tight">{b.name}</p>
+                    <p className={`text-sm leading-tight truncate ${isCurrent ? 'text-primary font-bold' : 'text-slate-700 font-medium'}`}>{b.name}</p>
                     {b.address && (
-                      <p className="text-[11px] text-slate-400 truncate leading-snug">{b.address}</p>
+                      <p className="text-[11px] text-slate-450 truncate leading-snug mt-0.5">{b.address}</p>
                     )}
                   </div>
                   {isCurrent && (
                     <svg
-                      className="h-3.5 w-3.5 text-primary shrink-0"
+                      className="h-3.5 w-3.5 text-primary shrink-0 animate-in zoom-in-50 duration-200"
                       fill="none"
                       viewBox="0 0 24 24"
                       stroke="currentColor"
@@ -317,7 +348,7 @@ export function BranchSelector({
                 {limitStatus?.atLimit ? (
                   <div className="px-3 py-2">
                     <div className="flex items-center gap-2.5">
-                      <div className="h-7 w-7 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+                      <div className="h-7 w-7 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
                         <svg className="h-3.5 w-3.5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
                         </svg>
@@ -333,15 +364,15 @@ export function BranchSelector({
                 ) : (
                   <button
                     onClick={() => { setOpen(false); setShowCreate(true); }}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-slate-50 transition-colors cursor-pointer"
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-slate-50 transition-colors cursor-pointer group"
                   >
-                    <div className="h-7 w-7 rounded-full bg-slate-100 flex items-center justify-center shrink-0">
-                      <svg className="h-3.5 w-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <div className="h-7 w-7 rounded-xl bg-slate-100 flex items-center justify-center shrink-0 group-hover:bg-primary/10 transition-colors">
+                      <svg className="h-3.5 w-3.5 text-slate-500 group-hover:text-primary transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
                       </svg>
                     </div>
                     <div className="flex-1 min-w-0">
-                      <span className="text-sm font-medium text-slate-600">Chi nhánh mới</span>
+                      <span className="text-sm font-medium text-slate-600 group-hover:text-primary transition-colors">Chi nhánh mới</span>
                       {limitStatus && limitStatus.limit !== -1 && (
                         <span className="ml-1.5 text-[11px] text-slate-400">
                           ({limitStatus.current}/{limitStatus.limit})
@@ -362,6 +393,18 @@ export function BranchSelector({
           onClose={() => setShowCreate(false)}
           onCreated={handleCreated}
           branchLabel={branchLabel}
+        />
+      )}
+
+      {pendingBranch && (
+        <ConfirmDialog
+          open={!!pendingBranch}
+          onClose={() => setPendingBranch(null)}
+          onConfirm={executeSwitchBranch}
+          title={`Xác nhận chuyển ${branchLabel.toLowerCase()}?`}
+          description={`Bạn đang thực hiện chuyển sang ${branchLabel.toLowerCase()} "${pendingBranch.name}".\n\nTất cả dữ liệu giao dịch chưa lưu hoặc biểu mẫu đang thao tác trên chi nhánh hiện tại sẽ bị tải lại. Bạn có chắc chắn muốn tiếp tục không?`}
+          confirmLabel="Đồng ý chuyển"
+          cancelLabel="Hủy bỏ"
         />
       )}
     </>

@@ -4,6 +4,7 @@ import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
 import { getShopsForTenant } from '@/lib/server/shops';
 import { SignInForm } from '@/app/components/auth/SignInForm';
 import type { Metadata } from 'next';
+import { MapPin, ChevronRight } from 'lucide-react';
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -130,30 +131,90 @@ export default async function TenantRootPage({ params }: Props) {
     redirect(`/${branches[0].slug}`);
   }
 
+  const tenantStyle = getBranchStyle(tenant.slug);
+
   // Branch selector for tenants with multiple branches
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-start pt-16 pb-12 px-6">
+
       <div className="w-full max-w-md">
-        <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-white font-bold text-sm">
+        <div className="mb-8 text-center animate-in fade-in slide-in-from-top-4 duration-300">
+          <div className={`mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl font-black text-xl tracking-wider shadow-md border border-white/20 transition-all hover:scale-105 duration-200 ${tenantStyle.bg}`}>
             {tenant.name.charAt(0).toUpperCase()}
           </div>
-          <h1 className="text-xl font-semibold text-slate-900">{tenant.name}</h1>
-          <p className="mt-1 text-sm text-slate-500">Chọn chi nhánh để tiếp tục</p>
+          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">{tenant.name}</h1>
+          <p className="mt-1.5 text-sm text-slate-500 font-medium">Chọn chi nhánh để tiếp tục làm việc</p>
         </div>
-        <div className="space-y-3">
-          {branches.map((branch) => (
-            <a
-              key={branch.id}
-              href={`/${branch.slug}`}
-              className="block rounded-2xl border border-slate-200 bg-white px-5 py-4 hover:border-primary hover:bg-blue-50/40 transition-colors"
-            >
-              <div className="text-sm font-semibold text-slate-900">{branch.name}</div>
-              <div className="mt-0.5 text-xs text-slate-400 font-mono">{branch.slug}</div>
-            </a>
-          ))}
+        <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-350">
+          {branches.map((branch) => {
+            const bStyle = getBranchStyle(branch.slug);
+            const initial = branch.name.charAt(0).toUpperCase();
+            return (
+              <a
+                key={branch.id}
+                href={`/${branch.slug}`}
+                className="group block rounded-2xl border border-slate-200 bg-white p-5 shadow-3xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md hover:border-primary/40 active:translate-y-0 active:scale-99 cursor-pointer"
+              >
+                <div className="flex items-center gap-4">
+                  <div
+                    className={`h-11 w-11 rounded-2xl flex items-center justify-center text-base font-black shrink-0 shadow-3xs transition-transform duration-300 group-hover:scale-105 ${bStyle.bg}`}
+                  >
+                    {initial}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-base font-bold text-slate-800 truncate leading-tight group-hover:text-primary transition-colors">
+                        {branch.name}
+                      </span>
+                      <span className="text-[9px] text-slate-400 font-mono font-medium truncate uppercase tracking-wider bg-slate-100 px-1.5 py-0.5 rounded-md">
+                        {branch.slug}
+                      </span>
+                    </div>
+                    {branch.address ? (
+                      <div className="mt-2 flex items-center gap-1 text-slate-500">
+                        <MapPin className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                        <span className="text-xs text-slate-400 leading-normal truncate">
+                          {branch.address}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="mt-2 flex items-center gap-1 text-slate-350">
+                        <MapPin className="h-3.5 w-3.5 text-slate-300 shrink-0" />
+                        <span className="text-xs text-slate-350 italic leading-normal truncate">
+                          Chưa có thông tin địa chỉ
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="h-8 w-8 rounded-xl bg-slate-50 flex items-center justify-center text-slate-400 opacity-60 group-hover:opacity-100 group-hover:bg-primary/10 group-hover:text-primary transition-all duration-200">
+                    <ChevronRight className="h-4 w-4" />
+                  </div>
+                </div>
+              </a>
+            );
+          })}
         </div>
       </div>
     </div>
   );
 }
+
+function getBranchStyle(slug: string) {
+  let hash = 0;
+  for (let i = 0; i < slug.length; i++) {
+    hash = slug.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const index = Math.abs(hash) % 7;
+
+  const gradients = [
+    { bg: 'bg-gradient-to-br from-indigo-500 to-blue-600 text-white shadow-xs border border-indigo-400/20', text: 'text-indigo-600' },
+    { bg: 'bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-xs border border-emerald-400/20', text: 'text-teal-600' },
+    { bg: 'bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-xs border border-orange-400/20', text: 'text-orange-600' },
+    { bg: 'bg-gradient-to-br from-rose-500 to-pink-600 text-white shadow-xs border border-rose-400/20', text: 'text-pink-600' },
+    { bg: 'bg-gradient-to-br from-purple-500 to-fuchsia-600 text-white shadow-xs border border-purple-400/20', text: 'text-fuchsia-600' },
+    { bg: 'bg-gradient-to-br from-cyan-500 to-blue-600 text-white shadow-xs border border-cyan-400/20', text: 'text-cyan-600' },
+    { bg: 'bg-gradient-to-br from-slate-500 to-zinc-700 text-white shadow-xs border border-slate-400/20', text: 'text-slate-650' },
+  ];
+  return gradients[index];
+}
+
