@@ -37,8 +37,8 @@ export async function GET(
 
     // Fetch customers
     const res = await connector.list('customers', {
-      page: sort_by ? 1 : page,
-      limit: sort_by ? 5000 : limit,
+      page: 1, // Always fetch page 1 from DB when we slice in memory
+      limit: 5000, // Fetch up to 5000 records to support filtering and pagination in memory
       search: search || undefined,
       filters
     })
@@ -153,9 +153,10 @@ export async function GET(
           note,
         }
       })
-      
-      res.total = res.data.length
     }
+
+    // Sync total count after all filters are applied
+    res.total = res.data.length
 
     // Inject virtual Khach le if no search or matches search
     const s = search.toLowerCase()
@@ -196,19 +197,18 @@ export async function GET(
             : String(bVal).localeCompare(String(aVal), 'vi', { numeric: true })
         }
       })
-
-      const offset = (page - 1) * limit
-      const slicedData = res.data.slice(offset, offset + limit)
-      
-      return NextResponse.json({
-        data: slicedData,
-        total: res.total,
-        page,
-        limit
-      })
     }
 
-    return NextResponse.json(res)
+    // Always slice data in-memory for 100% consistent pagination and total count
+    const offset = (page - 1) * limit
+    const slicedData = res.data.slice(offset, offset + limit)
+    
+    return NextResponse.json({
+      data: slicedData,
+      total: res.total,
+      page,
+      limit
+    })
   } catch (e) {
     return handleApiError(e, 'GET customers')
   }

@@ -13,7 +13,7 @@ import { SearchBar } from '@/app/components/ui/SearchBar'
 import { NumberInput } from '@/app/components/ui/NumberInput'
 import { CopyableId } from '@/app/components/ui/CopyableId'
 import { format } from 'date-fns'
-import { UserPlus, Wallet, Pencil, X, Coins, Check, Upload, ArrowLeft, Clock, AlertTriangle, ChevronRight, CheckCircle2 } from 'lucide-react'
+import { UserPlus, Wallet, Pencil, X, Coins, Check, Upload, ArrowLeft, Clock, AlertTriangle, ChevronRight, CheckCircle2, RefreshCw } from 'lucide-react'
 import { useShift } from '@/app/components/providers/ShiftProvider'
 import { BANKS } from '@/lib/constants/banks'
 
@@ -250,6 +250,34 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
   const [viewTarget, setViewTarget] = useState<Record<string, string> | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
   const [detailTab, setDetailTab] = useState<'info' | 'orders' | 'transactions'>('info')
+  const [isRefreshingDetail, setIsRefreshingDetail] = useState(false)
+
+  const handleRefreshIndex = () => {
+    queryClient.invalidateQueries({ queryKey: ['customers', shopId] })
+    toast.success('Đã làm mới danh sách khách hàng!')
+  }
+
+  const handleRefreshDetail = async () => {
+    if (!viewTarget?.customer_id) return
+    setIsRefreshingDetail(true)
+    try {
+      const res = await fetch(`/api/shops/${shopId}/customers/${viewTarget.customer_id}`)
+      if (!res.ok) throw new Error('Không tải được thông tin mới nhất')
+      const updatedCustomer = await res.json()
+      setViewTarget(updatedCustomer)
+
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: ['customer-orders', shopId, viewTarget.customer_id] }),
+        queryClient.refetchQueries({ queryKey: ['customer-transactions', shopId, viewTarget.customer_id] }),
+        queryClient.invalidateQueries({ queryKey: ['customers', shopId] })
+      ])
+      toast.success('Đã cập nhật dữ liệu mới nhất!')
+    } catch (err: any) {
+      toast.error('Lỗi khi làm mới dữ liệu: ' + err.message)
+    } finally {
+      setIsRefreshingDetail(false)
+    }
+  }
 
   // CRM Merge States
   const [showMerged, setShowMerged] = useState(false)
@@ -956,6 +984,13 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            onClick={handleRefreshIndex}
+            className="rounded-xl border border-slate-200 bg-white p-2 text-slate-600 hover:bg-slate-50 transition-all flex items-center justify-center cursor-pointer active:scale-95 shadow-sm"
+            title="Làm mới danh sách"
+          >
+            <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} />
+          </button>
           {canManageCrm && (
             <button
               onClick={() => setImportModalOpen(true)}
@@ -1842,6 +1877,16 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
         onClose={() => setDetailOpen(false)}
         title={`Chi tiết khách hàng: ${viewTarget?.name || ''}`}
         width={720}
+        headerActions={
+          <button
+            onClick={handleRefreshDetail}
+            disabled={isRefreshingDetail}
+            className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors cursor-pointer active:scale-90 flex items-center justify-center"
+            title="Cập nhật dữ liệu mới nhất"
+          >
+            <RefreshCw className={`w-4 h-4 ${isRefreshingDetail ? 'animate-spin text-primary' : ''}`} />
+          </button>
+        }
         footer={(() => {
           let isMerged = false
           try {

@@ -8,6 +8,7 @@ export interface SlideOverProps {
   title: string
   width?: number
   footer?: React.ReactNode
+  headerActions?: React.ReactNode
   children: React.ReactNode
 }
 
@@ -17,6 +18,7 @@ export function SlideOver({
   title,
   width = 480,
   footer,
+  headerActions,
   children,
 }: SlideOverProps) {
   useEffect(() => {
@@ -50,11 +52,13 @@ export function SlideOver({
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-200 px-4 sm:px-6 py-4">
           <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
-          <button
-            onClick={onClose}
-            className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-            aria-label="Đóng"
-          >
+          <div className="flex items-center gap-2">
+            {headerActions}
+            <button
+              onClick={onClose}
+              className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              aria-label="Đóng"
+            >
             <svg
               xmlns="http://www.w3.org/2000/svg"
               width="20"
@@ -70,6 +74,7 @@ export function SlideOver({
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           </button>
+          </div>
         </div>
 
         {/* Body */}
