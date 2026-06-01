@@ -32,8 +32,14 @@ export async function POST(
       return NextResponse.json({ error: 'Không tìm thấy khách hàng' }, { status: 404 })
     }
 
-    const currentPrepaid = parseFloat((customer.prepaid_balance as string) || '0')
-    const currentDebt = parseFloat((customer.debt_amount as string) || '0')
+    const targetBranch = branch_id || shopId
+    const statsRes = await connector.list('customer-branch-stats', {
+      filters: { customer_id: id, branch_id: targetBranch }
+    })
+    const stats = statsRes.data[0]
+
+    const currentPrepaid = parseFloat(stats?.prepaid_balance || '0')
+    const currentDebt = parseFloat(stats?.debt_amount || '0')
 
     let debtPayment = 0
     let prepaidDeposit = amount

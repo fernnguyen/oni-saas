@@ -8,8 +8,7 @@ export function shopTag(shopId: string, entity: string) {
 }
 
 export function invalidate(shopId: string, entity: string) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ;(revalidateTag as any)(shopTag(shopId, entity), 'max')
+  revalidateTag(shopTag(shopId, entity), 'max')
 }
 
 /**

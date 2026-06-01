@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireShopAccess } from '@/lib/server/shopAccess'
 import { customerCreateSchema } from '@/lib/validators/customers'
@@ -34,136 +35,128 @@ export async function GET(
 
     const show_merged = sp.get('show_merged') === 'true'
 
-    const result = await shopCache(
-      async () => {
-        // Fetch customers
-        const res = await connector.list('customers', {
-          page: sort_by ? 1 : page,
-          limit: sort_by ? 5000 : limit,
-          search: search || undefined,
-          filters
-        })
+    // Fetch customers
+    const res = await connector.list('customers', {
+      page: sort_by ? 1 : page,
+      limit: sort_by ? 5000 : limit,
+      search: search || undefined,
+      filters
+    })
 
-        // Filter out merged/duplicate customers if not show_merged
-        if (!show_merged) {
-          res.data = res.data.filter((c: any) => {
-            let meta = c.metadata
-            if (typeof meta === 'string') {
-              try { meta = JSON.parse(meta) } catch (e) {}
-            }
-            return !meta?.merged_into_id
-          })
-          res.total = res.data.length
+    // Filter out merged/duplicate customers if not show_merged
+    if (!show_merged) {
+      res.data = res.data.filter((c: any) => {
+        let meta = c.metadata
+        if (typeof meta === 'string') {
+          try { meta = JSON.parse(meta) } catch (e) {}
         }
+        return !meta?.merged_into_id
+      })
+      res.total = res.data.length
+    }
 
-        // Fetch stats for the current branch to merge and to know who has transacted
-        const statsRes = await connector.list('customer-branch-stats', {
-          limit: 10000,
-          filters: { branch_id: shopId }
-        })
-        const statsMap = new Map<string, any>()
-        for (const s of statsRes.data) {
-          statsMap.set(s.customer_id, s)
+    // Fetch stats for the current branch to merge and to know who has transacted
+    const statsRes = await connector.list('customer-branch-stats', {
+      limit: 10000,
+      filters: { branch_id: shopId }
+    })
+    const statsMap = new Map<string, any>()
+    for (const s of statsRes.data) {
+      statsMap.set(s.customer_id, s)
+    }
+
+    if (shareCustomers) {
+      // Shared Mode: merge stats for all profiles
+      res.data = res.data.map((c: any) => {
+        if (c.id === 'C-DEFAULT-RETAIL') return c
+        const stats = statsMap.get(c.id)
+        return {
+          ...c,
+          debt_amount: stats?.debt_amount ?? '0',
+          loyalty_points: stats?.loyalty_points ?? '0',
+          prepaid_balance: stats?.prepaid_balance ?? '0',
+          note: stats?.note ?? '',
         }
+      })
+    } else {
+      // Private Mode: only allow global profiles if they have transacted (have stats in this shop)
+      res.data = res.data.filter((c: any) => {
+        if (c.id === 'C-DEFAULT-RETAIL') return true
+        
+        const isLocal = c.branch_id === shopId
+        if (isLocal) return true
+        
+        const isGlobal = !c.branch_id || c.branch_id === ''
+        const hasTransacted = statsMap.has(c.id)
+        
+        return isGlobal && hasTransacted
+      }).map((c: any) => {
+        // Merge stats for allowed transacted global profiles
+        const stats = statsMap.get(c.id)
+        return {
+          ...c,
+          debt_amount: stats?.debt_amount ?? '0',
+          loyalty_points: stats?.loyalty_points ?? '0',
+          prepaid_balance: stats?.prepaid_balance ?? '0',
+          note: stats?.note ?? '',
+        }
+      })
+      
+      res.total = res.data.length
+    }
 
-        if (shareCustomers) {
-          // Shared Mode: merge stats for all profiles
-          res.data = res.data.map((c: any) => {
-            if (c.id === 'C-DEFAULT-RETAIL') return c
-            const stats = statsMap.get(c.id)
-            return {
-              ...c,
-              debt_amount: stats?.debt_amount ?? '0',
-              loyalty_points: stats?.loyalty_points ?? '0',
-              prepaid_balance: stats?.prepaid_balance ?? '0',
-              note: stats?.note ?? '',
-            }
-          })
+    // Inject virtual Khach le if no search or matches search
+    const s = search.toLowerCase()
+    if (!s || 'khách lẻ'.includes(s) || 'khach le'.includes(s) || s === 'c-default-retail') {
+      const exists = res.data.some((c: any) => c.customer_id === 'C-DEFAULT-RETAIL')
+      if (!exists) {
+        res.data.unshift({
+          id: 'C-DEFAULT-RETAIL',
+          customer_id: 'C-DEFAULT-RETAIL',
+          name: 'Khách lẻ',
+          phone: '',
+          email: '',
+          address: '',
+          customer_type: 'retail',
+          credit_limit: '0',
+          debt_amount: '0',
+          loyalty_points: '0',
+          prepaid_balance: '0',
+          note: 'Khách hàng mặc định của hệ thống'
+        })
+        res.total += 1
+      }
+    }
+
+    // Sort in memory if requested
+    if (sort_by && ['name', 'loyalty_points', 'prepaid_balance', 'debt_amount'].includes(sort_by)) {
+      res.data.sort((a: any, b: any) => {
+        const aVal = a[sort_by] ?? ''
+        const bVal = b[sort_by] ?? ''
+        
+        if (['loyalty_points', 'prepaid_balance', 'debt_amount'].includes(sort_by)) {
+          const aNum = parseFloat(String(aVal)) || 0
+          const bNum = parseFloat(String(bVal)) || 0
+          return sort_order === 'asc' ? aNum - bNum : bNum - aNum
         } else {
-          // Private Mode: only allow global profiles if they have transacted (have stats in this shop)
-          res.data = res.data.filter((c: any) => {
-            if (c.id === 'C-DEFAULT-RETAIL') return true
-            
-            const isLocal = c.branch_id === shopId
-            if (isLocal) return true
-            
-            const isGlobal = !c.branch_id || c.branch_id === ''
-            const hasTransacted = statsMap.has(c.id)
-            
-            return isGlobal && hasTransacted
-          }).map((c: any) => {
-            // Merge stats for allowed transacted global profiles
-            const stats = statsMap.get(c.id)
-            return {
-              ...c,
-              debt_amount: stats?.debt_amount ?? '0',
-              loyalty_points: stats?.loyalty_points ?? '0',
-              prepaid_balance: stats?.prepaid_balance ?? '0',
-              note: stats?.note ?? '',
-            }
-          })
-          
-          res.total = res.data.length
+          return sort_order === 'asc'
+            ? String(aVal).localeCompare(String(bVal), 'vi', { numeric: true })
+            : String(bVal).localeCompare(String(aVal), 'vi', { numeric: true })
         }
+      })
 
-        // Inject virtual Khach le if no search or matches search
-        const s = search.toLowerCase()
-        if (!s || 'khách lẻ'.includes(s) || 'khach le'.includes(s) || s === 'c-default-retail') {
-          const exists = res.data.some((c: any) => c.customer_id === 'C-DEFAULT-RETAIL')
-          if (!exists) {
-            res.data.unshift({
-              id: 'C-DEFAULT-RETAIL',
-              customer_id: 'C-DEFAULT-RETAIL',
-              name: 'Khách lẻ',
-              phone: '',
-              email: '',
-              address: '',
-              customer_type: 'retail',
-              credit_limit: '0',
-              debt_amount: '0',
-              loyalty_points: '0',
-              prepaid_balance: '0',
-              note: 'Khách hàng mặc định của hệ thống'
-            })
-            res.total += 1
-          }
-        }
+      const offset = (page - 1) * limit
+      const slicedData = res.data.slice(offset, offset + limit)
+      
+      return NextResponse.json({
+        data: slicedData,
+        total: res.total,
+        page,
+        limit
+      })
+    }
 
-        // Sort in memory if requested
-        if (sort_by && ['name', 'loyalty_points', 'prepaid_balance', 'debt_amount'].includes(sort_by)) {
-          res.data.sort((a: any, b: any) => {
-            const aVal = a[sort_by] ?? ''
-            const bVal = b[sort_by] ?? ''
-            
-            if (['loyalty_points', 'prepaid_balance', 'debt_amount'].includes(sort_by)) {
-              const aNum = parseFloat(String(aVal)) || 0
-              const bNum = parseFloat(String(bVal)) || 0
-              return sort_order === 'asc' ? aNum - bNum : bNum - aNum
-            } else {
-              return sort_order === 'asc'
-                ? String(aVal).localeCompare(String(bVal), 'vi', { numeric: true })
-                : String(bVal).localeCompare(String(aVal), 'vi', { numeric: true })
-            }
-          })
-
-          const offset = (page - 1) * limit
-          const slicedData = res.data.slice(offset, offset + limit)
-          
-          return {
-            data: slicedData,
-            total: res.total,
-            page,
-            limit
-          }
-        }
-
-        return res
-      },
-      ['customers', shopId, String(page), String(limit), search, customer_type, sort_by, sort_order, String(shareCustomers), String(show_merged)],
-      { tags: [shopTag(shopId, 'customers')], revalidate: cacheTTL.customers }
-    )
-
-    return NextResponse.json(result)
+    return NextResponse.json(res)
   } catch (e) {
     return handleApiError(e, 'GET customers')
   }

@@ -628,16 +628,21 @@ export async function POST(
           customerPhone = (customer.phone as string) || ''
           
           const updates: Record<string, string> = {}
+          const targetBranch = branchId || shopId
+          const statsRes = await connector.list('customer-branch-stats', {
+            filters: { customer_id: order.customer_id, branch_id: targetBranch }
+          })
+          const stats = statsRes.data[0]
           
           // 1. Debt amount
-          const currentDebt = parseFloat((customer.debt_amount as string) || '0')
+          const currentDebt = parseFloat(stats?.debt_amount || '0')
           if (order.debt_amount && Number(order.debt_amount) > 0) {
             const newDebt = currentDebt + Number(order.debt_amount)
             updates.debt_amount = String(newDebt)
           }
 
           // 2. Loyalty points (Tích điểm & Tiêu điểm)
-          const currentPoints = parseFloat((customer.loyalty_points as string) || '0')
+          const currentPoints = parseFloat(stats?.loyalty_points || '0')
           const earned = hasCrmAccess ? Number(order.points_earned || 0) : 0
           const redeemed = hasCrmAccess ? Number(order.points_redeemed || 0) : 0
           if (earned > 0 || redeemed > 0) {
@@ -646,7 +651,7 @@ export async function POST(
           }
 
           // 3. Prepaid balance
-          const currentPrepaid = parseFloat((customer.prepaid_balance as string) || '0')
+          const currentPrepaid = parseFloat(stats?.prepaid_balance || '0')
           const prepaidSpent = payments
             .filter((p) => p.method === 'prepaid')
             .reduce((s, p) => s + Number(p.amount), 0)

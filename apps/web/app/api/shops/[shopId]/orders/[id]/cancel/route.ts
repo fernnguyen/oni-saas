@@ -173,13 +173,15 @@ export async function POST(
     const debtAmount = parseFloat((order as Record<string, string>).debt_amount || '0')
     const customerId = (order as Record<string, string>).customer_id
     if (debtAmount > 0 && customerId) {
-      const customer = await connector.findById('customers', customerId)
-      if (customer) {
-        const currentDebt = parseFloat((customer.debt_amount as string) || '0')
-        const newDebt = Math.max(0, currentDebt - debtAmount)
-        await updateCustomerStats(connector, customerId, shopId, { debt_amount: String(newDebt) }, tx)
-        invalidate(shopId, 'customers')
-      }
+      const statsRes = await connector.list('customer-branch-stats', {
+        filters: { customer_id: customerId, branch_id: shopId }
+      })
+      const stats = statsRes.data[0]
+      const currentDebt = parseFloat(stats?.debt_amount || '0')
+
+      const newDebt = Math.max(0, currentDebt - debtAmount)
+      await updateCustomerStats(connector, customerId, shopId, { debt_amount: String(newDebt) }, tx)
+      invalidate(shopId, 'customers')
     }
 
     // 3. Update order status to cancelled (Done last to act as commit!)

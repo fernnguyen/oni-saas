@@ -321,15 +321,32 @@ export async function POST(
 
     // If this is a debt collection, reduce customer debt
     if (payload.category === 'debt_collection' && payload.reference_id) {
-      const customer = await connector.findById('customers', payload.reference_id)
-      if (customer) {
-        const currentDebt = parseFloat((customer.debt_amount as string) || '0')
-        const newDebt = Math.max(0, currentDebt - payload.amount)
-        await updateCustomerStats(connector, payload.reference_id, branchId || shopId, {
-          debt_amount: String(newDebt)
-        }, tx)
-        invalidate(shopId, 'customers')
+      const targetBranch = branchId || shopId
+      const statsRes = await connector.list('customer-branch-stats', {
+        filters: { customer_id: payload.reference_id, branch_id: targetBranch }
+      })
+      const stats = statsRes.data[0]
+      const currentDebt = parseFloat(stats?.debt_amount || '0')
+
+      if (currentDebt <= 0) {
+        return NextResponse.json(
+          { error: 'Khách hàng hiện không có nợ cần thu!' },
+          { status: 400 }
+        )
       }
+
+      if (payload.amount > currentDebt) {
+        return NextResponse.json(
+          { error: `Số tiền thu nợ (${payload.amount.toLocaleString('vi-VN')}đ) không được vượt quá dư nợ hiện tại (${currentDebt.toLocaleString('vi-VN')}đ)!` },
+          { status: 400 }
+        )
+      }
+
+      const newDebt = Math.max(0, currentDebt - payload.amount)
+      await updateCustomerStats(connector, payload.reference_id, targetBranch, {
+        debt_amount: String(newDebt)
+      }, tx)
+      invalidate(shopId, 'customers')
     }
 
     // If this is a debt payment, reduce supplier debt
