@@ -50,6 +50,7 @@ interface ShopSettings {
   tier_reward_type?: string;
   tier_evaluation_years?: number;
   membership_tiers?: { name: string; threshold: number | string; discount: number | string; color?: string }[];
+  share_customers?: boolean;
 }
 
 interface Shop {
@@ -135,6 +136,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
           { name: 'Bạc', threshold: 15000000, discount: 5, color: 'sapphire' },
           { name: 'Vàng', threshold: 35000000, discount: 10, color: 'gold' }
         ]) as { name: string; threshold: number | string; discount: number | string; color?: string }[],
+    share_customers: initial.share_customers ?? false,
   });
 
   const [saveStates, setSaveStates] = useState<Record<string, SaveState>>({
@@ -287,6 +289,7 @@ export function ShopSettingsForm({ shop, settings: initial, canManage, permissio
             discount: parseFloat(String(t.discount)) || 0,
             color: t.color || 'slate'
           })),
+          share_customers: form.share_customers,
         };
       }
 

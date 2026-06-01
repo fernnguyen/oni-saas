@@ -153,6 +153,18 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ shop
   const { checkFeatureAccess } = await import('@/lib/server/features');
   settings.has_crm_access = ctx.tenantId ? await checkFeatureAccess(ctx.tenantId, 'crm') : false;
   settings.permissions = ctx.permissions;
+
+  // Fetch share_customers from tenants table
+  let shareCustomers = false;
+  if (ctx.tenantId) {
+    const { data: tenantData } = await admin
+      .from('tenants')
+      .select('share_customers')
+      .eq('id', ctx.tenantId)
+      .maybeSingle();
+    shareCustomers = tenantData?.share_customers ?? false;
+  }
+  settings.share_customers = shareCustomers;
   
   return NextResponse.json(settings);
 }
@@ -181,8 +193,6 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ shop
   const admin = getSupabaseAdminClient();
 
   const { address, phone, industry_type, ...settingsData } = parsed.data;
-
-  // Enforce CRM access gate: force crm features to be disabled and strip crm settings if tenant does not have access
   let finalSettingsData = { ...settingsData };
   if (!hasCrmAccess) {
     finalSettingsData = {
@@ -278,5 +288,15 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ shop
     .eq('shop_id', shopId)
     .single();
 
-  return NextResponse.json(updated);
+  const responseData = {
+    ...updated,
+    share_customers: (await admin
+      .from('tenants')
+      .select('share_customers')
+      .eq('id', ctx.tenantId)
+      .maybeSingle()
+    ).data?.share_customers ?? false
+  };
+
+  return NextResponse.json(responseData);
 }

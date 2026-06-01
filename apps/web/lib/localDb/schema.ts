@@ -87,6 +87,7 @@ export interface LocalCustomer {
   credit_limit?: number
   loyalty_points?: number
   prepaid_balance?: number
+  branch_id?: string
   last_seen_at?: string
 }
 

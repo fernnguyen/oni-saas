@@ -36,6 +36,14 @@ export async function GET(
 
     const { connector, shop } = await requireShopAccess(actualShopId);
     
+    const admin = getSupabaseAdminClient();
+    const { data: tenant } = await admin
+      .from('tenants')
+      .select('share_customers')
+      .eq('id', shop.tenant_id)
+      .maybeSingle();
+    const shareCustomers = tenant?.share_customers ?? false;
+    
     const searchParams = req.nextUrl.searchParams;
     const q = (searchParams.get('q') || '').trim();
     
@@ -327,14 +335,30 @@ export async function GET(
             }
             const item = await connector.findById('customers', candidateId);
             if (item) {
-              results.push({
-                id: item.customer_id || item.id,
-                type: 'customer',
-                title: item.name || 'Khách hàng',
-                subtitle: item.phone || item.email || 'Không có SĐT',
-                amount: parseFloat(item.debt_amount || '0'),
-                url: `customers?search=${item.customer_id || item.id}`
-              });
+              let allowed = true;
+              if (!shareCustomers && item.customer_id !== 'C-DEFAULT-RETAIL') {
+                const isLocal = item.branch_id === actualShopId;
+                const isGlobal = !item.branch_id || item.branch_id === '';
+                if (isGlobal) {
+                  const statsRes = await connector.list('customer-branch-stats', {
+                    filters: { customer_id: item.id || item.customer_id, branch_id: actualShopId }
+                  });
+                  allowed = statsRes.data.length > 0;
+                } else if (!isLocal) {
+                  allowed = false;
+                }
+              }
+              
+              if (allowed) {
+                results.push({
+                  id: item.customer_id || item.id,
+                  type: 'customer',
+                  title: item.name || 'Khách hàng',
+                  subtitle: item.phone || item.email || 'Không có SĐT',
+                  amount: parseFloat(item.debt_amount || '0'),
+                  url: `customers?search=${item.customer_id || item.id}`
+                });
+              }
             }
           }
         } else {
@@ -353,7 +377,32 @@ export async function GET(
 
           // If numeric but not a phone number, only perform search if it's broad search
           const res = await connector.list('customers', { search: q, limit: 100 });
-          const valid = res.data.filter(item => 
+          
+          // Fetch stats to know who has transacted in this shop
+          const statsRes = await connector.list('customer-branch-stats', {
+            limit: 10000,
+            filters: { branch_id: actualShopId }
+          });
+          const statsMap = new Map<string, any>();
+          for (const s of statsRes.data) {
+            statsMap.set(s.customer_id, s);
+          }
+
+          let valid = res.data;
+          
+          if (!shareCustomers) {
+            valid = valid.filter((c: any) => {
+              const isLocal = c.branch_id === actualShopId;
+              if (isLocal) return true;
+              
+              const isGlobal = !c.branch_id || c.branch_id === '';
+              const hasTransacted = statsMap.has(c.id);
+              
+              return isGlobal && hasTransacted;
+            });
+          }
+
+          valid = valid.filter(item => 
             (item.name || '').toLowerCase().includes(qLower) ||
             (item.phone || '').toLowerCase().includes(qLower) ||
             (item.email || '').toLowerCase().includes(qLower) ||

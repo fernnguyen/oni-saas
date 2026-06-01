@@ -110,7 +110,7 @@ export function CashbookClient({ shopId, shopName, permissions }: Props) {
   const [page, setPage] = useState(1)
   const [typeFilter, setTypeFilter] = useState<string>('')
   const [fundFilter, setFundFilter] = useState<string>('')
-  const [dateRangeType, setDateRangeType] = useState<string>('this_month')
+  const [dateRangeType, setDateRangeType] = useState<string>('last_7_days')
   const [fromDate, setFromDate] = useState<string>('')
   const [toDate, setToDate] = useState<string>('')
   

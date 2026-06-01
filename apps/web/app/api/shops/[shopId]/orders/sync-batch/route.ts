@@ -6,6 +6,7 @@ import { dispatchNotification } from '@/lib/server/notifications'
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
 import { RollbackContext } from '@oni/adapters'
 import crypto from 'crypto'
+import { updateCustomerStats } from '@/lib/server/customerStats'
 
 const INBOUND_TYPES = ['purchase_in', 'p2p_purchase_in', 'return_in', 'transfer_in']
 const OUTBOUND_TYPES = ['sale_out', 'transfer_out']
@@ -740,19 +741,9 @@ export async function POST(
             }
           }
 
-          // Apply updates
+          // Apply updates to both customers table and customer-branch-stats
           if (Object.keys(updates).length > 0) {
-            await connector.update('customers', order.customer_id, updates)
-            tx.add(async () => {
-              // Rollback update logic
-              const rollbackObj: Record<string, string> = {}
-              if (updates.debt_amount !== undefined) rollbackObj.debt_amount = String(currentDebt)
-              if (updates.loyalty_points !== undefined) rollbackObj.loyalty_points = String(currentPoints)
-              if (updates.prepaid_balance !== undefined) rollbackObj.prepaid_balance = String(currentPrepaid)
-              if (updates.customer_type !== undefined) rollbackObj.customer_type = String(customer.customer_type || 'retail')
-              
-              await connector.update('customers', order.customer_id!, rollbackObj).catch(() => {})
-            })
+            await updateCustomerStats(connector, order.customer_id, branchId || shopId, updates, tx)
             invalidate(shopId, 'customers')
           }
         }

@@ -522,6 +522,7 @@ export function CheckoutModal({
           credit_limit: data.credit_limit != null ? parseFloat(String(data.credit_limit)) || 0 : 0,
           loyalty_points: data.loyalty_points != null ? parseFloat(String(data.loyalty_points)) || 0 : 0,
           prepaid_balance: data.prepaid_balance != null ? parseFloat(String(data.prepaid_balance)) || 0 : 0,
+          branch_id: data.branch_id,
         }
         setLocalCustomer(parsed)
         if (localDb) {

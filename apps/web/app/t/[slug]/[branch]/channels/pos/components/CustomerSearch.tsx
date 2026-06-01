@@ -90,7 +90,16 @@ export function CustomerSearch({ shopId, selected, onSelect, onOpenCustomerModal
       
       // 1. Search local DB first
       const localItems = await localDb.customers
-        .filter((c) => c.name.toLowerCase().includes(q) || (c.phone ?? '').includes(q))
+        .filter((c) => {
+          const matchesText = c.name.toLowerCase().includes(q) || (c.phone ?? '').includes(q)
+          if (!matchesText) return false
+          
+          // Enforce strict branch isolation: hide customer if branch_id is set to a different shop
+          const cBranchId = c.branch_id
+          if (cBranchId && cBranchId !== shopId) return false
+          
+          return true
+        })
         .limit(10)
         .toArray()
       

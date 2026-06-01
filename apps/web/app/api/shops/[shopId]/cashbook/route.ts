@@ -6,6 +6,7 @@ import { handleApiError } from '../../_helpers'
 import { cashbookCreateSchema } from '@/lib/validators/cashbook'
 import { RollbackContext } from '@oni/adapters'
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
+import { updateCustomerStats } from '@/lib/server/customerStats'
 
 export async function GET(
   req: NextRequest,
@@ -324,12 +325,9 @@ export async function POST(
       if (customer) {
         const currentDebt = parseFloat((customer.debt_amount as string) || '0')
         const newDebt = Math.max(0, currentDebt - payload.amount)
-        await connector.update('customers', payload.reference_id, {
+        await updateCustomerStats(connector, payload.reference_id, branchId || shopId, {
           debt_amount: String(newDebt)
-        })
-        tx.add(async () => {
-          await connector.update('customers', payload.reference_id!, { debt_amount: String(currentDebt) }).catch(() => {})
-        })
+        }, tx)
         invalidate(shopId, 'customers')
       }
     }

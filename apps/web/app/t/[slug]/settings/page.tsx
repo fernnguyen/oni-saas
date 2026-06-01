@@ -25,7 +25,7 @@ export default async function TenantSettingsPage({ params }: Props) {
 
   const { data: tenant } = await admin
     .from('tenants')
-    .select('id, name, slug, industry_type')
+    .select('id, name, slug, industry_type, share_customers')
     .eq('slug', slug)
     .maybeSingle();
 
@@ -154,6 +154,7 @@ export default async function TenantSettingsPage({ params }: Props) {
           connector={connector}
           canManage={canManage}
           planCode={planDetails?.planCode}
+          initialShareCustomers={tenant.share_customers}
         />
 
         <NotificationSettingsForm

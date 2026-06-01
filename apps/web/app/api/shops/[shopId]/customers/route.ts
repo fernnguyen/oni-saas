@@ -4,6 +4,7 @@ import { customerCreateSchema } from '@/lib/validators/customers'
 import { shopTag, invalidate, shopCache } from '@/lib/server/cache'
 import { cacheTTL } from '@/lib/env'
 import { handleApiError } from '../../_helpers'
+import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
 
 export async function GET(
   req: NextRequest,
@@ -11,7 +12,15 @@ export async function GET(
 ) {
   try {
     const { shopId } = await params
-    const { connector } = await requireShopAccess(shopId, 'customers.view')
+    const { shop, connector } = await requireShopAccess(shopId, 'customers.view')
+
+    const admin = getSupabaseAdminClient()
+    const { data: tenant } = await admin
+      .from('tenants')
+      .select('share_customers')
+      .eq('id', shop.tenant_id)
+      .maybeSingle()
+    const shareCustomers = tenant?.share_customers ?? false
 
     const sp = req.nextUrl.searchParams
     const page = Math.max(1, parseInt(sp.get('page') ?? '1'))
@@ -25,32 +34,89 @@ export async function GET(
 
     const result = await shopCache(
       async () => {
-        // If sorting by custom columns, retrieve matching data in full, sort in memory, and then slice.
-        if (sort_by && ['name', 'loyalty_points', 'prepaid_balance', 'debt_amount'].includes(sort_by)) {
-          const res = await connector.list('customers', { page: 1, limit: 5000, search: search || undefined, filters })
-          
-          // Inject virtual Khach le if no search or matches search
-          const s = search.toLowerCase()
-          if (!s || 'khách lẻ'.includes(s) || 'khach le'.includes(s) || s === 'c-default-retail') {
-            const exists = res.data.some((c: any) => c.customer_id === 'C-DEFAULT-RETAIL')
-            if (!exists) {
-              res.data.unshift({
-                id: 'C-DEFAULT-RETAIL',
-                customer_id: 'C-DEFAULT-RETAIL',
-                name: 'Khách lẻ',
-                phone: '',
-                email: '',
-                address: '',
-                customer_type: 'retail',
-                credit_limit: '0',
-                debt_amount: '0',
-                note: 'Khách hàng mặc định của hệ thống'
-              })
-              res.total += 1
-            }
-          }
+        // Fetch customers
+        const res = await connector.list('customers', {
+          page: sort_by ? 1 : page,
+          limit: sort_by ? 5000 : limit,
+          search: search || undefined,
+          filters
+        })
 
-          // Sort in memory
+        // Fetch stats for the current branch to merge and to know who has transacted
+        const statsRes = await connector.list('customer-branch-stats', {
+          limit: 10000,
+          filters: { branch_id: shopId }
+        })
+        const statsMap = new Map<string, any>()
+        for (const s of statsRes.data) {
+          statsMap.set(s.customer_id, s)
+        }
+
+        if (shareCustomers) {
+          // Shared Mode: merge stats for all profiles
+          res.data = res.data.map((c: any) => {
+            if (c.id === 'C-DEFAULT-RETAIL') return c
+            const stats = statsMap.get(c.id)
+            return {
+              ...c,
+              debt_amount: stats?.debt_amount ?? '0',
+              loyalty_points: stats?.loyalty_points ?? '0',
+              prepaid_balance: stats?.prepaid_balance ?? '0',
+              note: stats?.note ?? '',
+            }
+          })
+        } else {
+          // Private Mode: only allow global profiles if they have transacted (have stats in this shop)
+          res.data = res.data.filter((c: any) => {
+            if (c.id === 'C-DEFAULT-RETAIL') return true
+            
+            const isLocal = c.branch_id === shopId
+            if (isLocal) return true
+            
+            const isGlobal = !c.branch_id || c.branch_id === ''
+            const hasTransacted = statsMap.has(c.id)
+            
+            return isGlobal && hasTransacted
+          }).map((c: any) => {
+            // Merge stats for allowed transacted global profiles
+            const stats = statsMap.get(c.id)
+            return {
+              ...c,
+              debt_amount: stats?.debt_amount ?? '0',
+              loyalty_points: stats?.loyalty_points ?? '0',
+              prepaid_balance: stats?.prepaid_balance ?? '0',
+              note: stats?.note ?? '',
+            }
+          })
+          
+          res.total = res.data.length
+        }
+
+        // Inject virtual Khach le if no search or matches search
+        const s = search.toLowerCase()
+        if (!s || 'khách lẻ'.includes(s) || 'khach le'.includes(s) || s === 'c-default-retail') {
+          const exists = res.data.some((c: any) => c.customer_id === 'C-DEFAULT-RETAIL')
+          if (!exists) {
+            res.data.unshift({
+              id: 'C-DEFAULT-RETAIL',
+              customer_id: 'C-DEFAULT-RETAIL',
+              name: 'Khách lẻ',
+              phone: '',
+              email: '',
+              address: '',
+              customer_type: 'retail',
+              credit_limit: '0',
+              debt_amount: '0',
+              loyalty_points: '0',
+              prepaid_balance: '0',
+              note: 'Khách hàng mặc định của hệ thống'
+            })
+            res.total += 1
+          }
+        }
+
+        // Sort in memory if requested
+        if (sort_by && ['name', 'loyalty_points', 'prepaid_balance', 'debt_amount'].includes(sort_by)) {
           res.data.sort((a: any, b: any) => {
             const aVal = a[sort_by] ?? ''
             const bVal = b[sort_by] ?? ''
@@ -66,7 +132,6 @@ export async function GET(
             }
           })
 
-          // Slice pagination
           const offset = (page - 1) * limit
           const slicedData = res.data.slice(offset, offset + limit)
           
@@ -78,32 +143,9 @@ export async function GET(
           }
         }
 
-        const res = await connector.list('customers', { page, limit, search: search || undefined, filters })
-        
-        // Inject virtual Khach le if no search or matches search
-        const s = search.toLowerCase()
-        if (!s || 'khách lẻ'.includes(s) || 'khach le'.includes(s) || s === 'c-default-retail') {
-          // If not already returned by DB (which shouldn't happen anymore but just in case)
-          const exists = res.data.some((c: any) => c.customer_id === 'C-DEFAULT-RETAIL')
-          if (!exists) {
-            res.data.unshift({
-              id: 'C-DEFAULT-RETAIL',
-              customer_id: 'C-DEFAULT-RETAIL',
-              name: 'Khách lẻ',
-              phone: '',
-              email: '',
-              address: '',
-              customer_type: 'retail',
-              credit_limit: '0',
-              debt_amount: '0',
-              note: 'Khách hàng mặc định của hệ thống'
-            })
-            res.total += 1
-          }
-        }
         return res
       },
-      ['customers', shopId, String(page), String(limit), search, customer_type, sort_by, sort_order],
+      ['customers', shopId, String(page), String(limit), search, customer_type, sort_by, sort_order, String(shareCustomers)],
       { tags: [shopTag(shopId, 'customers')], revalidate: cacheTTL.customers }
     )
 
@@ -119,28 +161,116 @@ export async function POST(
 ) {
   try {
     const { shopId } = await params
-    const { connector } = await requireShopAccess(shopId, 'customers.create')
+    const { shop, connector } = await requireShopAccess(shopId, 'customers.create')
+
+    const admin = getSupabaseAdminClient()
+    const { data: tenant } = await admin
+      .from('tenants')
+      .select('share_customers')
+      .eq('id', shop.tenant_id)
+      .maybeSingle()
+    const shareCustomers = tenant?.share_customers ?? false
 
     const body = await req.json()
     const parsed = customerCreateSchema.parse(body)
 
-    // STRICT accounting integrity: override accounting & CRM statistics to '0' on creation
-    const data = {
-      ...parsed,
-      prepaid_balance: '0',
-      loyalty_points: '0',
-      debt_amount: '0',
-    } as any
+    let created: any
+    const phone = parsed.phone?.trim()
 
-    if (data.metadata) {
-      data.metadata = typeof data.metadata === 'string'
-        ? data.metadata
-        : JSON.stringify(data.metadata)
+    if (shareCustomers && phone) {
+      // 1. Search if a customer with this phone number already exists globally
+      const existRes = await connector.list('customers', { filters: { phone } })
+      const existing = existRes.data.find((c: any) => c.phone?.trim() === phone)
+
+      if (existing) {
+        // Customer profile exists globally. Let's Auto-Link!
+        // Try to find if branch stats already exist for this branch
+        const statsRes = await connector.list('customer-branch-stats', {
+          filters: { customer_id: existing.id, branch_id: shopId }
+        })
+        const existingStats = statsRes.data[0]
+
+        if (!existingStats) {
+          // Initialize branch stats with 0 balances
+          await connector.create('customer-branch-stats', {
+            customer_id: existing.id,
+            branch_id: shopId,
+            debt_amount: '0',
+            loyalty_points: '0',
+            prepaid_balance: '0',
+            note: parsed.note || ''
+          })
+        }
+
+        created = {
+          ...existing,
+          debt_amount: existingStats?.debt_amount ?? '0',
+          loyalty_points: existingStats?.loyalty_points ?? '0',
+          prepaid_balance: existingStats?.prepaid_balance ?? '0',
+          note: existingStats?.note ?? parsed.note ?? '',
+        }
+        
+        invalidate(shopId, 'customers')
+        return NextResponse.json(created, { status: 200 })
+      } else {
+        // Create new global profile
+        const data = {
+          ...parsed,
+          branch_id: '', // Global profile
+          prepaid_balance: '0',
+          loyalty_points: '0',
+          debt_amount: '0',
+        } as any
+        
+        if (data.metadata) {
+          data.metadata = typeof data.metadata === 'string' ? data.metadata : JSON.stringify(data.metadata)
+        }
+
+        // Remove note from data as it goes to stats
+        const note = data.note || ''
+        delete data.note
+
+        const profile = await connector.create('customers', data)
+
+        // Create branch stats for current branch
+        await connector.create('customer-branch-stats', {
+          customer_id: profile.id,
+          branch_id: shopId,
+          debt_amount: '0',
+          loyalty_points: '0',
+          prepaid_balance: '0',
+          note: note
+        })
+
+        created = {
+          ...profile,
+          debt_amount: '0',
+          loyalty_points: '0',
+          prepaid_balance: '0',
+          note: note,
+        }
+        
+        invalidate(shopId, 'customers')
+        return NextResponse.json(created, { status: 201 })
+      }
+    } else {
+      // Private mode, or customer has no phone number (treat as local to branch)
+      const data = {
+        ...parsed,
+        branch_id: shopId, // Explicitly branch-scoped
+        prepaid_balance: '0',
+        loyalty_points: '0',
+        debt_amount: '0',
+      } as any
+
+      if (data.metadata) {
+        data.metadata = typeof data.metadata === 'string' ? data.metadata : JSON.stringify(data.metadata)
+      }
+
+      created = await connector.create('customers', data)
+      invalidate(shopId, 'customers')
+      return NextResponse.json(created, { status: 201 })
     }
-
-    const created = await connector.create('customers', data)
-    invalidate(shopId, 'customers')
-    return NextResponse.json(created, { status: 201 })
   } catch (e) {
     return handleApiError(e, 'POST customers')
   }

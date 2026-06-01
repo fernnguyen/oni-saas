@@ -47,6 +47,7 @@ const ENTITY_PREFIXES: Record<string, string> = {
   'cost-allocation-templates':  'CAT',
   'warehouses':                  'WH',
   'sepay-webhook-logs':          'SWL',
+  'customer-branch-stats':       'CBS',
 }
 
 export class MysqlConnector implements IDataConnector {
@@ -56,9 +57,13 @@ export class MysqlConnector implements IDataConnector {
     connectionUri: string,
     private readonly tenantId?: string,
     private readonly branchId?: string,
+    private readonly shareCustomers?: boolean,
   ) {
     const poolConnection = mysql.createPool(connectionUri)
     this.db = drizzle(poolConnection as any)
+    if (this.shareCustomers) {
+      this.tenantScopedEntities.push('customers')
+    }
   }
 
   // Helper to ensure table names are safe

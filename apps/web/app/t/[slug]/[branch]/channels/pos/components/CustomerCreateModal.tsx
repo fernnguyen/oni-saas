@@ -100,6 +100,7 @@ export function CustomerCreateModal({ open, onClose, shopId, onSuccess }: Props)
               email: data.email,
               customer_type: data.customer_type,
               debt_amount: parseFloat(data.debt_amount) || 0,
+              branch_id: data.branch_id,
               last_seen_at: new Date().toISOString(),
             }
             toast.success(`Đã tạo và đồng bộ khách hàng: ${trimmedName}`)
@@ -122,6 +123,7 @@ export function CustomerCreateModal({ open, onClose, shopId, onSuccess }: Props)
           email: email.trim() || undefined,
           customer_type: customerType,
           debt_amount: parseFloat(debtAmount) || 0,
+          branch_id: shopId,
           last_seen_at: new Date().toISOString(),
         }
         toast.info(`Đã tạo khách hàng cục bộ: ${trimmedName} (sẽ đồng bộ khi lên mạng)`)

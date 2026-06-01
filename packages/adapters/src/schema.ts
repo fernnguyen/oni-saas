@@ -1,4 +1,4 @@
-import { mysqlTable, int, bigint, varchar, timestamp, boolean, text, primaryKey, serial, json } from 'drizzle-orm/mysql-core';
+import { mysqlTable, int, bigint, varchar, timestamp, boolean, text, primaryKey, serial, json, index } from 'drizzle-orm/mysql-core';
 
 // Base columns for all tables
 const getBaseColumns = () => ({
@@ -581,3 +581,18 @@ export const sepayWebhookLogs = mysqlTable('sepay_webhook_logs', {
   status: varchar('status', { length: 50 }), // success, ignored, failed, disabled
   error_message: text('error_message'),
 });
+
+export const customer_branch_stats = mysqlTable('customer_branch_stats', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  customer_id: varchar('customer_id', { length: 255 }).notNull(),
+  branch_id: varchar('branch_id', { length: 255 }).notNull(),
+  debt_amount: varchar('debt_amount', { length: 50 }).default('0'),
+  loyalty_points: varchar('loyalty_points', { length: 50 }).default('0'),
+  prepaid_balance: varchar('prepaid_balance', { length: 50 }).default('0'),
+  note: text('note'),
+}, (table) => ({
+  idxBranch: index('idx_cbs_branch').on(table.branch_id),
+  idxCustomerBranch: index('idx_cbs_customer_branch').on(table.customer_id, table.branch_id),
+}));
+

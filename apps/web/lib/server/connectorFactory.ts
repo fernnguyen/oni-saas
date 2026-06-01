@@ -18,21 +18,33 @@ export async function getConnectorForShop(shopId: string, preFetchedTenantId?: s
     tenantId = shop.tenant_id
   }
 
-  // 2. Fetch the active connector for this tenant
-  const { data: connector, error } = await admin
-    .from('connectors')
-    .select('id, type, status, config')
-    .eq('tenant_id', tenantId)
-    .eq('status', 'active')
-    .maybeSingle()
+  // 2. Fetch the active connector and tenant's share_customers setting
+  const [connectorResult, tenantResult] = await Promise.all([
+    admin
+      .from('connectors')
+      .select('id, type, status, config')
+      .eq('tenant_id', tenantId)
+      .eq('status', 'active')
+      .maybeSingle(),
+    admin
+      .from('tenants')
+      .select('share_customers')
+      .eq('id', tenantId)
+      .maybeSingle()
+  ])
 
-  if (error) throw error
+  if (connectorResult.error) throw connectorResult.error
+  if (tenantResult.error) throw tenantResult.error
+
+  const connector = connectorResult.data
   if (!connector) {
     throw Object.assign(
       new Error('No active connector configured for this tenant'),
       { code: 'NO_CONNECTOR' },
     )
   }
+
+  const shareCustomers = tenantResult.data?.share_customers ?? false
 
   // 3. Create the connector and inject both tenantId and branchId (shopId)
   return createConnector(
@@ -41,5 +53,6 @@ export async function getConnectorForShop(shopId: string, preFetchedTenantId?: s
     connector.type === 'google_sheets' ? getServiceAccountToken : undefined,
     tenantId,
     shopId,
+    shareCustomers,
   )
 }

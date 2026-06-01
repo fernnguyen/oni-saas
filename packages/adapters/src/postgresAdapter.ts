@@ -47,6 +47,7 @@ const ENTITY_PREFIXES: Record<string, string> = {
   'cost-allocation-templates':  'CAT',
   'warehouses':                  'WH',
   'sepay-webhook-logs':          'SWL',
+  'customer-branch-stats':       'CBS',
 }
 
 // Shared pool cache to avoid creating a new pool per request
@@ -68,8 +69,12 @@ export class PostgresConnector implements IDataConnector {
     connectionUri: string,
     private readonly tenantId?: string,
     private readonly branchId?: string,
+    private readonly shareCustomers?: boolean,
   ) {
     this.pool = getPool(connectionUri)
+    if (this.shareCustomers) {
+      this.tenantScopedEntities.push('customers')
+    }
   }
 
   /** Execute a parameterized query and return rows */

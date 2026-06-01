@@ -11,6 +11,7 @@ export function createConnector(
   tokenProvider?: () => Promise<string>,
   tenantId?: string,
   branchId?: string,
+  shareCustomers?: boolean,
 ): IDataConnector {
   // 1. Khởi tạo adapter cơ sở dữ liệu thực tế dựa theo loại connector
   const connector = (() => {
@@ -24,22 +25,22 @@ export function createConnector(
       case 'mysql_local': {
         const connectionUri = process.env.LOCAL_MYSQL_URI || process.env.DATABASE_URL
         if (!connectionUri) throw new Error('LOCAL_MYSQL_URI is not set in environment variables')
-        return new MysqlConnector(connectionUri, tenantId, branchId)
+        return new MysqlConnector(connectionUri, tenantId, branchId, shareCustomers)
       }
       case 'mysql_remote': {
         const connectionUri = config['connection_uri'] as string
         if (!connectionUri) throw new Error('connection_uri is required in mysql connector config')
-        return new MysqlConnector(connectionUri, tenantId, branchId)
+        return new MysqlConnector(connectionUri, tenantId, branchId, shareCustomers)
       }
       case 'postgres_local': {
         const connectionUri = process.env.LOCAL_PG_URI || process.env.DATABASE_URL
         if (!connectionUri) throw new Error('LOCAL_PG_URI is not set in environment variables')
-        return new PostgresConnector(connectionUri, tenantId, branchId)
+        return new PostgresConnector(connectionUri, tenantId, branchId, shareCustomers)
       }
       case 'postgres_remote': {
         const connectionUri = config['connection_uri'] as string
         if (!connectionUri) throw new Error('connection_uri is required in postgres connector config')
-        return new PostgresConnector(connectionUri, tenantId, branchId)
+        return new PostgresConnector(connectionUri, tenantId, branchId, shareCustomers)
       }
       default:
         return new StubConnector(type, tenantId)

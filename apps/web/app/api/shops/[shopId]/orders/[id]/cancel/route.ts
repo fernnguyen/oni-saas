@@ -5,6 +5,7 @@ import { handleApiError } from '../../../../_helpers'
 import { dispatchNotification } from '@/lib/server/notifications'
 import { RollbackContext } from '@oni/adapters'
 import crypto from 'crypto'
+import { updateCustomerStats } from '@/lib/server/customerStats'
 
 const INBOUND_TYPES = ['purchase_in', 'p2p_purchase_in', 'return_in', 'transfer_in']
 const OUTBOUND_TYPES = ['sale_out', 'transfer_out']
@@ -176,10 +177,7 @@ export async function POST(
       if (customer) {
         const currentDebt = parseFloat((customer.debt_amount as string) || '0')
         const newDebt = Math.max(0, currentDebt - debtAmount)
-        await connector.update('customers', customerId, { debt_amount: String(newDebt) })
-        tx.add(async () => {
-          await connector.update('customers', customerId, { debt_amount: String(currentDebt) }).catch(() => {})
-        })
+        await updateCustomerStats(connector, customerId, shopId, { debt_amount: String(newDebt) }, tx)
         invalidate(shopId, 'customers')
       }
     }

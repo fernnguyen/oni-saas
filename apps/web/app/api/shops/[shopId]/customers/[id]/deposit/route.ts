@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireShopAccess } from '@/lib/server/shopAccess'
 import { invalidate } from '@/lib/server/cache'
 import { handleApiError } from '../../../../_helpers'
+import { updateCustomerStats } from '@/lib/server/customerStats'
 
 export async function POST(
   req: NextRequest,
@@ -45,8 +46,8 @@ export async function POST(
     const newPrepaid = currentPrepaid + prepaidDeposit
     const newDebt = Math.max(0, currentDebt - debtPayment)
 
-    // Update customer prepaid balance and outstanding debt
-    await connector.update('customers', id, {
+    // Update customer prepaid balance and outstanding debt in both shared and branch tables
+    await updateCustomerStats(connector, id, branch_id || shopId, {
       prepaid_balance: String(newPrepaid),
       debt_amount: String(newDebt)
     })
