@@ -32,6 +32,8 @@ export async function GET(
     const filters: Record<string, string> = {}
     if (customer_type) filters.customer_type = customer_type
 
+    const show_merged = sp.get('show_merged') === 'true'
+
     const result = await shopCache(
       async () => {
         // Fetch customers
@@ -41,6 +43,18 @@ export async function GET(
           search: search || undefined,
           filters
         })
+
+        // Filter out merged/duplicate customers if not show_merged
+        if (!show_merged) {
+          res.data = res.data.filter((c: any) => {
+            let meta = c.metadata
+            if (typeof meta === 'string') {
+              try { meta = JSON.parse(meta) } catch (e) {}
+            }
+            return !meta?.merged_into_id
+          })
+          res.total = res.data.length
+        }
 
         // Fetch stats for the current branch to merge and to know who has transacted
         const statsRes = await connector.list('customer-branch-stats', {
@@ -145,7 +159,7 @@ export async function GET(
 
         return res
       },
-      ['customers', shopId, String(page), String(limit), search, customer_type, sort_by, sort_order, String(shareCustomers)],
+      ['customers', shopId, String(page), String(limit), search, customer_type, sort_by, sort_order, String(shareCustomers), String(show_merged)],
       { tags: [shopTag(shopId, 'customers')], revalidate: cacheTTL.customers }
     )
 

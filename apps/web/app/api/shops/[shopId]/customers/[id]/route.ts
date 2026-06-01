@@ -149,9 +149,68 @@ export async function PUT(
       invalidate(shopId, 'customers')
       return NextResponse.json(merged)
     } else {
-      const updated = await connector.update('customers', id, updateData)
-      invalidate(shopId, 'customers')
-      return NextResponse.json(updated)
+      const customer = await connector.findById('customers', id)
+      if (!customer) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+      // Copy-on-Write (CoW) for global profile in Private Mode
+      const isGlobal = !customer.branch_id || customer.branch_id === ''
+      if (isGlobal) {
+        const localData = {
+          ...customer,
+          ...updateData,
+          branch_id: shopId,
+        }
+        delete localData.id
+        delete localData.customer_id
+        delete localData.created_at
+        delete localData.updated_at
+
+        // 1. Create a local customer profile
+        const localCustomer = await connector.create('customers', localData)
+        const localCustomerId = localCustomer.customer_id || localCustomer.id
+
+        // 2. Point existing branch stats to the new local customer
+        const statsRes = await connector.list('customer-branch-stats', {
+          filters: { customer_id: id, branch_id: shopId }
+        })
+        const stats = statsRes.data[0]
+        if (stats) {
+          await connector.update('customer-branch-stats', stats.id, {
+            customer_id: localCustomerId
+          })
+        }
+
+        // 3. Update orders of this branch to point to localCustomerId
+        const ordersRes = await connector.list('orders', {
+          limit: 1000,
+          filters: { customer_id: id, branch_id: shopId }
+        })
+        for (const o of ordersRes.data) {
+          await connector.update('orders', o.order_id || o.id, {
+            customer_id: localCustomerId
+          })
+        }
+
+        // 4. Update cashbook entries of this branch to point to localCustomerId
+        const cbRes = await connector.list('cashbook', {
+          limit: 1000,
+          filters: { reference_id: id, branch_id: shopId }
+        })
+        for (const cb of cbRes.data) {
+          await connector.update('cashbook', cb.transaction_id || cb.id, {
+            reference_id: localCustomerId
+          })
+        }
+
+        invalidate(shopId, 'customers')
+        invalidate(shopId, 'orders')
+        invalidate(shopId, 'cashbook')
+        return NextResponse.json(localCustomer)
+      } else {
+        const updated = await connector.update('customers', id, updateData)
+        invalidate(shopId, 'customers')
+        return NextResponse.json(updated)
+      }
     }
   } catch (e) {
     return handleApiError(e, 'PUT customer')
@@ -179,25 +238,36 @@ export async function DELETE(
       .maybeSingle()
     const shareCustomers = tenant?.share_customers ?? false
 
-    if (shareCustomers) {
-      // Find the customer to see if they are local or global
-      const customer = await connector.findById('customers', id)
-      if (customer) {
-        // Delete branch stats
-        const statsRes = await connector.list('customer-branch-stats', {
-          filters: { customer_id: id, branch_id: shopId }
-        })
-        for (const s of statsRes.data) {
-          await connector.delete('customer-branch-stats', s.id)
-        }
+    const customer = await connector.findById('customers', id)
+    if (customer) {
+      // 1. Delete branch stats for the current branch
+      const statsRes = await connector.list('customer-branch-stats', {
+        filters: { customer_id: id, branch_id: shopId }
+      })
+      for (const s of statsRes.data) {
+        await connector.delete('customer-branch-stats', s.id)
+      }
 
-        // If the customer has a branch_id set to this shopId (local customer), we delete the main profile too!
+      // 2. Check if other branches have transactions or stats
+      const allStats = await connector.list('customer-branch-stats', {
+        filters: { customer_id: id }
+      })
+      const hasOtherStats = allStats.data.some((s: any) => s.branch_id !== shopId)
+
+      if (hasOtherStats) {
+        // If other branches use this profile, keep the profile but unbind it from current branch if it was local
         if (customer.branch_id === shopId) {
+          await connector.update('customers', id, { branch_id: '' })
+        }
+      } else {
+        // If NO other branch uses this profile:
+        // Delete the main profile only if it's a local customer of this branch, or a global customer with no other stats
+        const isLocal = customer.branch_id === shopId
+        const isGlobal = !customer.branch_id || customer.branch_id === ''
+        if (isLocal || isGlobal) {
           await connector.delete('customers', id)
         }
       }
-    } else {
-      await connector.delete('customers', id)
     }
 
     invalidate(shopId, 'customers')

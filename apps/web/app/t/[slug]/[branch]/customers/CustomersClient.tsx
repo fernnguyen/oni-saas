@@ -251,8 +251,17 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
   const [detailOpen, setDetailOpen] = useState(false)
   const [detailTab, setDetailTab] = useState<'info' | 'orders' | 'transactions'>('info')
 
+  // CRM Merge States
+  const [showMerged, setShowMerged] = useState(false)
+  const [mergeTarget, setMergeTarget] = useState<Record<string, string> | null>(null)
+  const [mergeSearch, setMergeSearch] = useState('')
+  const [debouncedMergeSearch] = useDebounce(mergeSearch, 300)
+  const [selectedPrimaryCustomer, setSelectedPrimaryCustomer] = useState<Record<string, string> | null>(null)
+  const [mergeSlideOpen, setMergeSlideOpen] = useState(false)
+  const [confirmUnmergeOpen, setConfirmUnmergeOpen] = useState(false)
+
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['customers', shopId, page, debouncedSearch, sortBy, sortOrder],
+    queryKey: ['customers', shopId, page, debouncedSearch, sortBy, sortOrder, showMerged],
     queryFn: async () => {
       const sp = new URLSearchParams({ page: String(page), limit: '50' })
       let searchQuery = debouncedSearch
@@ -260,6 +269,7 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
         searchQuery = searchQuery.substring(1)
       }
       if (searchQuery) sp.set('search', searchQuery)
+      if (showMerged) sp.set('show_merged', 'true')
       if (sortBy) {
         sp.set('sort_by', sortBy)
         sp.set('sort_order', sortOrder || 'asc')
@@ -268,6 +278,24 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
       if (!res.ok) throw new Error('Không tải được dữ liệu')
       return res.json() as Promise<{ data: Record<string, string>[]; total: number }>
     },
+  })
+
+  // Candidates for merge
+  const { data: primaryCandidates, isLoading: candidatesLoading } = useQuery({
+    queryKey: ['primary-candidates', shopId, debouncedMergeSearch, mergeTarget?.customer_id],
+    queryFn: async () => {
+      if (!debouncedMergeSearch || !mergeTarget) return { data: [] }
+      const sp = new URLSearchParams({ search: debouncedMergeSearch, page: '1', limit: '10' })
+      const res = await fetch(`/api/shops/${shopId}/customers?${sp}`)
+      if (!res.ok) throw new Error('Không tải được danh sách ứng viên')
+      const json = await res.json() as { data: Record<string, string>[] }
+      
+      // Filter out the duplicate customer itself
+      return {
+        data: json.data.filter((c) => c.customer_id !== mergeTarget.customer_id)
+      }
+    },
+    enabled: mergeSlideOpen && !!debouncedMergeSearch && !!mergeTarget,
   })
 
   const saveMutation = useMutation({
@@ -306,6 +334,57 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
       toast.success('Đã xóa')
       setDeleteTarget(null)
       queryClient.invalidateQueries({ queryKey: ['customers', shopId] })
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+
+  const mergeMutation = useMutation({
+    mutationFn: async (payload: { primary_id: string; duplicate_id: string }) => {
+      const res = await fetch(`/api/shops/${shopId}/customers/merge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}))
+        throw new Error(json.error ?? 'Gộp thất bại')
+      }
+      return res.json()
+    },
+    onSuccess: () => {
+      toast.success('Gộp khách hàng thành công!')
+      setMergeSlideOpen(false)
+      setMergeTarget(null)
+      setSelectedPrimaryCustomer(null)
+      setMergeSearch('')
+      queryClient.invalidateQueries({ queryKey: ['customers', shopId] })
+      queryClient.invalidateQueries({ queryKey: ['orders', shopId] })
+      queryClient.invalidateQueries({ queryKey: ['cashbook', shopId] })
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+
+  const unmergeMutation = useMutation({
+    mutationFn: async (payload: { duplicate_id: string }) => {
+      const res = await fetch(`/api/shops/${shopId}/customers/unmerge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}))
+        throw new Error(json.error ?? 'Hủy gộp thất bại')
+      }
+      return res.json()
+    },
+    onSuccess: () => {
+      toast.success('Hủy gộp khách hàng thành công!')
+      setConfirmUnmergeOpen(false)
+      setDetailOpen(false)
+      setViewTarget(null)
+      queryClient.invalidateQueries({ queryKey: ['customers', shopId] })
+      queryClient.invalidateQueries({ queryKey: ['orders', shopId] })
+      queryClient.invalidateQueries({ queryKey: ['cashbook', shopId] })
     },
     onError: (err: Error) => toast.error(err.message),
   })
@@ -428,116 +507,171 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
     }
   }
 
-  const columns = useMemo<Column<Record<string, string>>[]>(() => [
-    { 
-      key: 'customer_id', 
-      label: 'Mã KH',
-      render: (row) => row.customer_id ? (
-        <CopyableId 
-          id={row.customer_id} 
-          label={formatCustomerId(row.customer_id)} 
-          className="text-sm font-semibold text-primary" 
-        />
-      ) : '—'
-    },
-    { key: 'name', label: 'Tên', sortable: true },
-    { key: 'phone', label: 'SĐT' },
-    {
-      key: 'customer_type',
-      label: 'Hạng thành viên',
-      render: (row) => {
-        const type = (row.customer_type || '').trim().toLowerCase()
-        const tiers = settings?.has_crm_access ? (settings?.membership_tiers || []) : []
-        const activeTier = tiers.find((t: any) => (t.name || '').trim().toLowerCase() === type)
-        return <MemberTierBadge label={row.customer_type} color={activeTier?.color || 'slate'} />
-      },
-    },
-    {
-      key: 'loyalty_points',
-      label: 'Điểm tích lũy',
-      sortable: true,
-      render: (row) => <span className="font-medium text-blue-600">{Number(row.loyalty_points || 0).toLocaleString('vi-VN')} điểm</span>,
-    },
-    {
-      key: 'prepaid_balance',
-      label: 'Số dư trả trước',
-      sortable: true,
-      render: (row) => <span className="font-semibold text-emerald-600">{Number(row.prepaid_balance || 0).toLocaleString('vi-VN')}đ</span>,
-    },
-    {
-      key: 'debt_amount',
-      label: 'Công nợ',
-      sortable: true,
-      render: (row) => <span className="font-medium text-slate-700">{Number(row.debt_amount || 0).toLocaleString('vi-VN')}đ</span>,
-    },
-    {
-      key: 'actions',
-      label: 'Thao tác',
-      render: (row) => {
-        const isOpen = activeDropdown === row.customer_id
-        return (
-          <div className="relative inline-block text-left" onClick={(e) => e.stopPropagation()}>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setActiveDropdown(isOpen ? null : row.customer_id)
-              }}
-              className="dropdown-actions-trigger inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 transition-all cursor-pointer active:scale-95"
-            >
-              Thao tác
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor" className={`w-3 h-3 text-slate-500 transition-transform ${isOpen ? 'rotate-180' : ''}`}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-              </svg>
-            </button>
-
-            {isOpen && (
-              <div className="dropdown-actions-menu absolute right-0 mt-1.5 w-36 rounded-xl border border-slate-200/80 bg-white py-1 shadow-lg z-[60] origin-top-right focus:outline-none animate-in fade-in slide-in-from-top-1 duration-100">
-                <button
-                  onClick={() => {
-                    setActiveDropdown(null);
-                    if (canAdjustWallet) openDeposit(row);
-                  }}
-                  disabled={!canAdjustWallet}
-                  className={`flex w-full items-center gap-2 px-3 py-2 text-xs font-medium transition-colors cursor-pointer text-left ${
-                    canAdjustWallet
-                      ? 'text-slate-700 hover:bg-slate-50'
-                      : 'text-slate-400 cursor-not-allowed opacity-50'
-                  }`}
-                  title={canAdjustWallet ? "Nạp tiền trả trước" : "Nạp tiền trả trước 🔒 (Cần quyền)"}
-                >
-                  <Wallet className="w-3.5 h-3.5 text-emerald-500" />
-                  Nạp tiền {!canAdjustWallet && '🔒'}
-                </button>
-                <button
-                  onClick={() => {
-                    setActiveDropdown(null);
-                    openEdit(row);
-                  }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer text-left"
-                >
-                  <Pencil className="w-3.5 h-3.5 text-blue-500" />
-                  Chỉnh sửa
-                </button>
-                <div className="border-t border-slate-100 my-1" />
-                <button
-                  onClick={() => {
-                    setActiveDropdown(null);
-                    setDeleteTarget(row);
-                  }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-xs font-semibold text-red-650 hover:bg-red-50 transition-colors cursor-pointer text-left"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor" className="w-3.5 h-3.5 text-red-500">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                  </svg>
-                  Xóa bỏ
-                </button>
-              </div>
-            )}
-          </div>
-        )
+  const columns = useMemo<Column<Record<string, string>>[]>(() => {
+    const getMeta = (row: Record<string, string>) => {
+      try {
+        return typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata || {}
+      } catch (e) {
+        return {}
       }
-    },
-  ], [settings, activeDropdown])
+    }
+
+    return [
+      { 
+        key: 'customer_id', 
+        label: 'Mã KH',
+        render: (row) => {
+          const meta = getMeta(row)
+          const isMerged = !!meta?.merged_into_id
+          return row.customer_id ? (
+            <CopyableId 
+              id={row.customer_id} 
+              label={formatCustomerId(row.customer_id)} 
+              className={`text-sm font-semibold ${isMerged ? "text-slate-400 line-through decoration-slate-300" : "text-primary"}`} 
+            />
+          ) : '—'
+        }
+      },
+      { 
+        key: 'name', 
+        label: 'Tên', 
+        sortable: true,
+        render: (row) => {
+          const meta = getMeta(row)
+          const isMerged = !!meta?.merged_into_id
+          return (
+            <span className={`flex items-center gap-2 ${isMerged ? "text-slate-400 italic line-through decoration-slate-200" : "font-semibold text-slate-800"}`}>
+              {row.name}
+              {isMerged && (
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-extrabold bg-slate-100 text-slate-400 border border-slate-200 shadow-3xs uppercase tracking-wider">
+                  Đã gộp
+                </span>
+              )}
+            </span>
+          )
+        }
+      },
+      { key: 'phone', label: 'SĐT' },
+      {
+        key: 'customer_type',
+        label: 'Hạng thành viên',
+        render: (row) => {
+          const type = (row.customer_type || '').trim().toLowerCase()
+          const tiers = settings?.has_crm_access ? (settings?.membership_tiers || []) : []
+          const activeTier = tiers.find((t: any) => (t.name || '').trim().toLowerCase() === type)
+          return <MemberTierBadge label={row.customer_type} color={activeTier?.color || 'slate'} />
+        },
+      },
+      {
+        key: 'loyalty_points',
+        label: 'Điểm tích lũy',
+        sortable: true,
+        render: (row) => <span className="font-medium text-blue-600">{Number(row.loyalty_points || 0).toLocaleString('vi-VN')} điểm</span>,
+      },
+      {
+        key: 'prepaid_balance',
+        label: 'Số dư trả trước',
+        sortable: true,
+        render: (row) => <span className="font-semibold text-emerald-600">{Number(row.prepaid_balance || 0).toLocaleString('vi-VN')}đ</span>,
+      },
+      {
+        key: 'debt_amount',
+        label: 'Công nợ',
+        sortable: true,
+        render: (row) => <span className="font-medium text-slate-700">{Number(row.debt_amount || 0).toLocaleString('vi-VN')}đ</span>,
+      },
+      {
+        key: 'actions',
+        label: 'Thao tác',
+        render: (row) => {
+          const isOpen = activeDropdown === row.customer_id
+          const meta = getMeta(row)
+          const isMerged = !!meta?.merged_into_id
+          return (
+            <div className="relative inline-block text-left" onClick={(e) => e.stopPropagation()}>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActiveDropdown(isOpen ? null : row.customer_id)
+                }}
+                className="dropdown-actions-trigger inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 transition-all cursor-pointer active:scale-95"
+              >
+                Thao tác
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor" className={`w-3 h-3 text-slate-500 transition-transform ${isOpen ? 'rotate-180' : ''}`}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                </svg>
+              </button>
+
+              {isOpen && (
+                <div className="dropdown-actions-menu absolute right-0 mt-1.5 w-36 rounded-xl border border-slate-200/80 bg-white py-1 shadow-lg z-[60] origin-top-right focus:outline-none animate-in fade-in slide-in-from-top-1 duration-100">
+                  <button
+                    onClick={() => {
+                      setActiveDropdown(null);
+                      if (canAdjustWallet) openDeposit(row);
+                    }}
+                    disabled={!canAdjustWallet || isMerged}
+                    className={`flex w-full items-center gap-2 px-3 py-2 text-xs font-medium transition-colors cursor-pointer text-left ${
+                      canAdjustWallet && !isMerged
+                        ? 'text-slate-700 hover:bg-slate-50'
+                        : 'text-slate-400 cursor-not-allowed opacity-50'
+                    }`}
+                    title={isMerged ? "Hồ sơ đã gộp không thể nạp tiền" : canAdjustWallet ? "Nạp tiền trả trước" : "Nạp tiền trả trước 🔒 (Cần quyền)"}
+                  >
+                    <Wallet className="w-3.5 h-3.5 text-emerald-500" />
+                    Nạp tiền {!canAdjustWallet && '🔒'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setActiveDropdown(null);
+                      openEdit(row);
+                    }}
+                    disabled={isMerged}
+                    className={`flex w-full items-center gap-2 px-3 py-2 text-xs font-medium text-left transition-colors cursor-pointer ${
+                      isMerged ? 'text-slate-400 cursor-not-allowed opacity-50' : 'text-slate-700 hover:bg-slate-50'
+                    }`}
+                    title={isMerged ? "Hồ sơ đã gộp không thể chỉnh sửa trực tiếp" : "Chỉnh sửa thông tin"}
+                  >
+                    <Pencil className="w-3.5 h-3.5 text-blue-500" />
+                    Chỉnh sửa
+                  </button>
+                  {canManageCrm && row.customer_id !== 'C-DEFAULT-RETAIL' && !isMerged && (
+                    <button
+                      onClick={() => {
+                        setActiveDropdown(null);
+                        setMergeTarget(row);
+                        setMergeSearch('');
+                        setSelectedPrimaryCustomer(null);
+                        setMergeSlideOpen(true);
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer text-left"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.2" stroke="currentColor" className="w-3.5 h-3.5 text-indigo-500">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+                      </svg>
+                      Gộp hồ sơ
+                    </button>
+                  )}
+                  <div className="border-t border-slate-100 my-1" />
+                  <button
+                    onClick={() => {
+                      setActiveDropdown(null);
+                      setDeleteTarget(row);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-xs font-semibold text-red-655 hover:bg-red-50 transition-colors cursor-pointer text-left"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor" className="w-3.5 h-3.5 text-red-500">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                    </svg>
+                    Xóa bỏ
+                  </button>
+                </div>
+              )}
+            </div>
+          )
+        }
+      },
+    ]
+  }, [settings, activeDropdown, canManageCrm, canAdjustWallet])
 
   // Excel Import Handlers
   async function handleExcelImport(file: File) {
@@ -832,11 +966,33 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
         </div>
       </div>
 
-      <SearchBar
-        value={search}
-        onChange={(v) => { setSearch(v); setPage(1) }}
-        placeholder="Tìm kiếm..."
-      />
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex-1">
+          <SearchBar
+            value={search}
+            onChange={(v) => { setSearch(v); setPage(1) }}
+            placeholder="Tìm kiếm..."
+          />
+        </div>
+        {canManageCrm && (
+          <div className="flex items-center gap-2 self-start sm:self-center px-1">
+            <input
+              type="checkbox"
+              id="showMergedToggle"
+              checked={showMerged}
+              onChange={(e) => {
+                setShowMerged(e.target.checked)
+                setPage(1)
+              }}
+              className="h-4.5 w-4.5 rounded border-slate-300 accent-primary text-white cursor-pointer"
+            />
+            <label htmlFor="showMergedToggle" className="text-xs font-semibold text-slate-700 cursor-pointer select-none flex items-center gap-1.5 hover:text-slate-900 transition-colors">
+              Hiển thị khách đã gộp
+              <span className="text-[10px] text-slate-400 font-normal italic">(Quản trị viên)</span>
+            </label>
+          </div>
+        )}
+      </div>
 
       <DataTable
         columns={columns}
@@ -1677,72 +1833,144 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
         onClose={() => setDetailOpen(false)}
         title={`Chi tiết khách hàng: ${viewTarget?.name || ''}`}
         width={720}
-        footer={
-          <div className="flex flex-col-reverse sm:flex-row w-full items-center justify-between gap-3 sm:gap-4 *:w-full sm:*:w-auto">
-            <div className="flex flex-col sm:flex-row gap-2">
-              {viewTarget && Number(viewTarget.debt_amount || 0) > 0 && (
-                <button
-                  onClick={() => {
-                    setDetailOpen(false)
-                    openCollectDebt(viewTarget)
-                  }}
-                  disabled={!permissions.includes('cashbook.manage')}
-                  className={`rounded-xl border px-4 py-2 text-sm font-medium shadow-xs transition-all flex items-center gap-1.5 justify-center ${
-                    permissions.includes('cashbook.manage')
-                      ? 'border-red-255 bg-red-50 text-red-700 hover:bg-red-100 cursor-pointer active:scale-95'
-                      : 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed opacity-60'
-                  }`}
-                  title={permissions.includes('cashbook.manage') ? "Trả nợ (Thu nợ khách hàng)" : "Trả nợ 🔒 (Cần quyền quản lý sổ quỹ)"}
-                >
-                  <Coins className="w-4 h-4" />
-                  Thu nợ {!permissions.includes('cashbook.manage') && '🔒'}
-                </button>
-              )}
+        footer={(() => {
+          let isMerged = false
+          try {
+            const meta = typeof viewTarget?.metadata === 'string' ? JSON.parse(viewTarget.metadata) : viewTarget?.metadata || {}
+            isMerged = !!meta.merged_into_id
+          } catch (e) {}
+
+          return (
+            <div className="flex flex-col-reverse sm:flex-row w-full items-center justify-between gap-3 sm:gap-4 *:w-full sm:*:w-auto">
+              <div className="flex flex-col sm:flex-row gap-2">
+                {!isMerged && viewTarget && Number(viewTarget.debt_amount || 0) > 0 && (
+                  <button
+                    onClick={() => {
+                      setDetailOpen(false)
+                      openCollectDebt(viewTarget)
+                    }}
+                    disabled={!permissions.includes('cashbook.manage')}
+                    className={`rounded-xl border px-4 py-2 text-sm font-medium shadow-xs transition-all flex items-center gap-1.5 justify-center ${
+                      permissions.includes('cashbook.manage')
+                        ? 'border-red-255 bg-red-50 text-red-700 hover:bg-red-100 cursor-pointer active:scale-95'
+                        : 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed opacity-60'
+                    }`}
+                    title={permissions.includes('cashbook.manage') ? "Trả nợ (Thu nợ khách hàng)" : "Trả nợ 🔒 (Cần quyền quản lý sổ quỹ)"}
+                  >
+                    <Coins className="w-4 h-4" />
+                    Thu nợ {!permissions.includes('cashbook.manage') && '🔒'}
+                  </button>
+                )}
+                {!isMerged && (
+                  <button
+                    onClick={() => {
+                      if (viewTarget && canAdjustWallet) {
+                        setDetailOpen(false)
+                        openDeposit(viewTarget)
+                      }
+                    }}
+                    disabled={!canAdjustWallet}
+                    className={`rounded-xl border px-4 py-2 text-sm font-medium shadow-xs transition-all flex items-center gap-1.5 justify-center ${
+                      canAdjustWallet
+                        ? 'border-emerald-250 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 cursor-pointer active:scale-95'
+                        : 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed opacity-60'
+                    }`}
+                    title={canAdjustWallet ? "Nạp tiền ví trả trước" : "Nạp tiền ví trả trước 🔒 (Cần quyền)"}
+                  >
+                    <Wallet className="w-4 h-4" />
+                    Nạp tiền ví {!canAdjustWallet && '🔒'}
+                  </button>
+                )}
+                {!isMerged && (
+                  <button
+                    onClick={() => {
+                      if (viewTarget) {
+                        setDetailOpen(false)
+                        openEdit(viewTarget)
+                      }
+                    }}
+                    className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark cursor-pointer active:scale-95 transition-all shadow-xs flex items-center gap-1.5 justify-center"
+                  >
+                    <Pencil className="w-4 h-4" />
+                    Chỉnh sửa thông tin
+                  </button>
+                )}
+                {isMerged && canManageCrm && (
+                  <button
+                    onClick={() => setConfirmUnmergeOpen(true)}
+                    className="rounded-xl border border-red-200 bg-red-50 text-red-750 hover:bg-red-100 px-4 py-2 text-sm font-bold flex items-center gap-1.5 justify-center cursor-pointer active:scale-95 transition-all shadow-xs"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.2" stroke="currentColor" className="w-4 h-4 text-red-500 animate-pulse">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" />
+                    </svg>
+                    Hủy gộp hồ sơ
+                  </button>
+                )}
+              </div>
               <button
-                onClick={() => {
-                  if (viewTarget && canAdjustWallet) {
-                    setDetailOpen(false)
-                    openDeposit(viewTarget)
-                  }
-                }}
-                disabled={!canAdjustWallet}
-                className={`rounded-xl border px-4 py-2 text-sm font-medium shadow-xs transition-all flex items-center gap-1.5 justify-center ${
-                  canAdjustWallet
-                    ? 'border-emerald-250 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 cursor-pointer active:scale-95'
-                    : 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed opacity-60'
-                }`}
-                title={canAdjustWallet ? "Nạp tiền ví trả trước" : "Nạp tiền ví trả trước 🔒 (Cần quyền)"}
+                onClick={() => setDetailOpen(false)}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 cursor-pointer flex items-center gap-1.5 justify-center"
               >
-                <Wallet className="w-4 h-4" />
-                Nạp tiền ví {!canAdjustWallet && '🔒'}
-              </button>
-              <button
-                onClick={() => {
-                  if (viewTarget) {
-                    setDetailOpen(false)
-                    openEdit(viewTarget)
-                  }
-                }}
-                className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark cursor-pointer active:scale-95 transition-all shadow-xs flex items-center gap-1.5 justify-center"
-              >
-                <Pencil className="w-4 h-4" />
-                Chỉnh sửa thông tin
+                <X className="w-4 h-4" />
+                Đóng
               </button>
             </div>
-            <button
-              onClick={() => setDetailOpen(false)}
-              className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 cursor-pointer flex items-center gap-1.5 justify-center"
-            >
-              <X className="w-4 h-4" />
-              Đóng
-            </button>
-          </div>
-        }
+          )
+        })()}
       >
-        {viewTarget && (
-          <div className="space-y-6">
-            {/* Header Profiling & Membership Color Badge */}
-            <div className="flex flex-col items-center bg-slate-50 border border-slate-100 rounded-2xl p-4 text-center space-y-2 relative overflow-hidden">
+        {viewTarget && (() => {
+          let isMerged = false
+          let meta: any = {}
+          try {
+            meta = typeof viewTarget.metadata === 'string' ? JSON.parse(viewTarget.metadata) : viewTarget.metadata || {}
+            isMerged = !!meta.merged_into_id
+          } catch(e) {}
+
+          return (
+            <div className="space-y-6">
+              {/* Premium Warning Alert Banner for Merged Profiles */}
+              {isMerged && (
+                <div className="rounded-2xl border border-amber-250 bg-amber-50/70 p-4 text-xs text-amber-900 shadow-sm relative overflow-hidden flex flex-col gap-2 animate-in fade-in duration-200">
+                  <div className="absolute right-3 top-3 opacity-10 select-none pointer-events-none">
+                    <AlertTriangle className="w-8 h-8 text-amber-500" />
+                  </div>
+                  <p className="font-extrabold uppercase tracking-wider text-amber-600 flex items-center gap-1.5 text-[10px]">
+                    <AlertTriangle className="w-4 h-4 text-amber-500" />
+                    Hồ sơ đã bị gộp (Merged Profile)
+                  </p>
+                  <p className="text-slate-700 leading-relaxed font-medium">
+                    Hồ sơ khách hàng này đã được gộp vào hồ sơ chính bởi <b>{meta.merged_by || 'quản trị viên'}</b> vào lúc <b>{meta.merged_at ? format(new Date(meta.merged_at), 'HH:mm - dd/MM/yyyy') : '—'}</b>. Toàn bộ lịch sử giao dịch, công nợ, điểm thưởng đã được tích hợp sang hồ sơ chính.
+                  </p>
+                  <div className="flex gap-2.5 mt-1">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const res = await fetch(`/api/shops/${shopId}/customers?search=${meta.merged_into_id}`)
+                          if (res.ok) {
+                            const json = await res.json()
+                            const found = json.data?.find((c: any) => c.customer_id === meta.merged_into_id)
+                            if (found) {
+                              setViewTarget(found)
+                              setDetailTab('info')
+                            } else {
+                              toast.error("Không tìm thấy hồ sơ chính trong chi nhánh này")
+                            }
+                          }
+                        } catch (e) {
+                          toast.error("Lỗi khi kết nối hồ sơ chính")
+                        }
+                      }}
+                      className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200/50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg transition-colors cursor-pointer flex items-center gap-1 shadow-3xs"
+                    >
+                      Xem hồ sơ chính ➜
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Header Profiling & Membership Color Badge */}
+              <div className="flex flex-col items-center bg-slate-50 border border-slate-100 rounded-2xl p-4 text-center space-y-2 relative overflow-hidden">
               {/* Branch pro ambient gradient accent backdrop */}
               <div className="absolute inset-0 bg-gradient-to-b from-primary/5 to-transparent pointer-events-none" />
               <div className="w-12 h-12 bg-primary/10 text-primary rounded-full flex items-center justify-center text-lg font-bold">
@@ -2102,8 +2330,276 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
               })()}
             </div>
           </div>
+          )
+        })()}
+      </SlideOver>
+      {/* CUSTOMER MERGE SLIDEOVER */}
+      <SlideOver
+        open={mergeSlideOpen}
+        onClose={() => {
+          setMergeSlideOpen(false)
+          setMergeTarget(null)
+          setSelectedPrimaryCustomer(null)
+          setMergeSearch('')
+        }}
+        title="Gộp hồ sơ khách hàng"
+        width={750}
+        footer={
+          <div className="flex flex-col-reverse sm:flex-row justify-end gap-2.5 sm:gap-3 w-full *:w-full sm:*:w-auto">
+            <button
+              onClick={() => {
+                setMergeSlideOpen(false)
+                setMergeTarget(null)
+                setSelectedPrimaryCustomer(null)
+                setMergeSearch('')
+              }}
+              className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all justify-center"
+            >
+              <X className="w-4 h-4" />
+              Hủy
+            </button>
+            <button
+              onClick={() => {
+                if (mergeTarget && selectedPrimaryCustomer) {
+                  mergeMutation.mutate({
+                    primary_id: selectedPrimaryCustomer.customer_id,
+                    duplicate_id: mergeTarget.customer_id
+                  })
+                }
+              }}
+              disabled={!selectedPrimaryCustomer || mergeMutation.isPending}
+              className="rounded-xl bg-indigo-650 hover:bg-indigo-700 disabled:opacity-40 px-4 py-2 text-sm font-semibold text-white flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all shadow-sm justify-center"
+            >
+              {mergeMutation.isPending ? (
+                <>
+                  <svg className="animate-spin -ml-1 mr-1.5 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Đang thực hiện gộp...
+                </>
+              ) : (
+                <>
+                  <Check className="w-4 h-4" />
+                  Xác nhận gộp hồ sơ
+                </>
+              )}
+            </button>
+          </div>
+        }
+      >
+        {mergeTarget && (
+          <div className="space-y-6">
+            {/* STEP 1: Duplicate customer details */}
+            <div className="rounded-2xl border border-red-100 bg-red-50/15 p-4 space-y-3">
+              <div className="flex justify-between items-start">
+                <div>
+                  <span className="text-[9px] font-extrabold text-red-600 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full uppercase tracking-wider">Hồ sơ phụ (Sẽ bị gộp và giải phóng)</span>
+                  <h4 className="font-extrabold text-slate-800 text-base mt-2 flex items-center gap-1.5">
+                    {mergeTarget.name}
+                    {mergeTarget.phone && <span className="text-xs text-slate-500 font-normal">({mergeTarget.phone})</span>}
+                  </h4>
+                </div>
+                <div className="text-right">
+                  <span className="text-xs text-slate-400 font-medium block">Mã KH</span>
+                  <span className="font-mono text-xs font-semibold text-slate-600 block">{formatCustomerId(mergeTarget.customer_id)}</span>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-3 gap-3 pt-1">
+                <div className="bg-white/80 border border-slate-100 rounded-xl p-2 text-center">
+                  <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Công nợ</span>
+                  <span className="text-xs font-extrabold text-slate-700 block">{Number(mergeTarget.debt_amount || 0).toLocaleString('vi-VN')}đ</span>
+                </div>
+                <div className="bg-white/80 border border-slate-100 rounded-xl p-2 text-center">
+                  <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Ví trả trước</span>
+                  <span className="text-xs font-extrabold text-emerald-600 block">{Number(mergeTarget.prepaid_balance || 0).toLocaleString('vi-VN')}đ</span>
+                </div>
+                <div className="bg-white/80 border border-slate-100 rounded-xl p-2 text-center">
+                  <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Điểm thưởng</span>
+                  <span className="text-xs font-extrabold text-blue-600 block">{Number(mergeTarget.loyalty_points || 0).toLocaleString('vi-VN')} điểm</span>
+                </div>
+              </div>
+            </div>
+
+            {/* STEP 2: Search for primary candidate */}
+            <div className="space-y-2">
+              <label className="block text-sm font-semibold text-slate-700">Tìm kiếm hồ sơ chính giữ lại *</label>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={mergeSearch}
+                  onChange={(e) => setMergeSearch(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 pl-9 pr-4 py-2 text-sm focus:border-indigo-500 focus:outline-none transition-colors"
+                  placeholder="Nhập tên hoặc số điện thoại của hồ sơ chính..."
+                />
+                <div className="absolute left-3 top-2.5 text-slate-400">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor" className="w-4 h-4">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.637 10.637z" />
+                  </svg>
+                </div>
+              </div>
+
+              {/* Results List */}
+              {candidatesLoading ? (
+                <div className="py-4 text-center text-xs text-slate-400 animate-pulse">Đang tìm ứng viên...</div>
+              ) : mergeSearch && primaryCandidates?.data?.length === 0 ? (
+                <div className="py-4 text-center text-xs text-slate-450 italic bg-slate-50 rounded-xl border border-dashed">Không tìm thấy ứng viên phù hợp.</div>
+              ) : (
+                <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
+                  {primaryCandidates?.data?.map((cand) => {
+                    const isSelected = selectedPrimaryCustomer?.customer_id === cand.customer_id
+                    return (
+                      <div
+                        key={cand.customer_id}
+                        onClick={() => setSelectedPrimaryCustomer(cand)}
+                        className={`group rounded-xl border p-3 flex justify-between items-center cursor-pointer transition-all duration-250 ${
+                          isSelected
+                            ? 'border-indigo-500 bg-indigo-50/40 shadow-xs'
+                            : 'border-slate-100 hover:border-slate-350 bg-white hover:bg-slate-50/50'
+                        }`}
+                      >
+                        <div>
+                          <h5 className={`text-xs font-bold transition-colors ${isSelected ? 'text-indigo-650' : 'text-slate-800'}`}>{cand.name}</h5>
+                          <p className="text-[10px] text-slate-400 mt-0.5">{cand.phone || 'Không có SĐT'} • {cand.address || 'Không có địa chỉ'}</p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="text-right text-[10px]">
+                            <span className="text-slate-500 font-semibold block">Nợ: {Number(cand.debt_amount || 0).toLocaleString()}đ</span>
+                            <span className="text-slate-400 block mt-0.5">Điểm: {Number(cand.loyalty_points || 0).toLocaleString()}</span>
+                          </div>
+                          <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-all ${
+                            isSelected ? 'border-indigo-500 bg-indigo-500 text-white' : 'border-slate-200 bg-white text-transparent'
+                          }`}>
+                            <Check className="w-3.5 h-3.5" />
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* STEP 3: Side-by-Side and Combined Visual Result */}
+            {selectedPrimaryCustomer && (
+              <div className="space-y-4 pt-2 border-t border-slate-100 animate-in fade-in duration-300">
+                <h4 className="text-sm font-semibold text-slate-700">So sánh & Dự phóng kết quả sau gộp</h4>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  {/* Left Card: Primary (Survivor) */}
+                  <div className="rounded-2xl border-2 border-amber-300 bg-amber-50/10 p-4 space-y-3 relative overflow-hidden shadow-xs">
+                    <div className="absolute right-2 top-2 text-amber-500">
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+                        <path fillRule="evenodd" d="M10.788 3.21c.448-1.077 1.976-1.077 2.424 0l2.082 5.006 5.404.434c1.164.093 1.636 1.545.749 2.305l-4.117 3.527 1.257 5.273c.271 1.136-.964 2.033-1.96 1.425L12 18.354 7.373 21.18c-.996.608-2.231-.29-1.96-1.425l1.257-5.273-4.117-3.527c-.887-.76-.415-2.212.749-2.305l5.404-.434 2.082-5.005z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                    <div>
+                      <span className="text-[9px] font-bold text-amber-600 uppercase tracking-wider block">Hồ sơ chính (Giữ lại)</span>
+                      <h5 className="font-extrabold text-slate-800 text-sm mt-1">{selectedPrimaryCustomer.name}</h5>
+                      <span className="text-[10px] text-slate-400 block mt-0.5">{selectedPrimaryCustomer.phone || 'Không có SĐT'}</span>
+                    </div>
+                    <div className="space-y-1.5 text-[11px] pt-1">
+                      <div className="flex justify-between text-slate-500">
+                        <span>Công nợ chi nhánh:</span>
+                        <span className="font-bold text-slate-800">{Number(selectedPrimaryCustomer.debt_amount || 0).toLocaleString()}đ</span>
+                      </div>
+                      <div className="flex justify-between text-slate-500">
+                        <span>Ví trả trước:</span>
+                        <span className="font-bold text-emerald-600">{Number(selectedPrimaryCustomer.prepaid_balance || 0).toLocaleString()}đ</span>
+                      </div>
+                      <div className="flex justify-between text-slate-500">
+                        <span>Điểm tích lũy:</span>
+                        <span className="font-bold text-blue-600">{Number(selectedPrimaryCustomer.loyalty_points || 0).toLocaleString()} điểm</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right Card: Duplicate (Merged) */}
+                  <div className="rounded-2xl border border-dashed border-slate-350 bg-slate-50/50 p-4 space-y-3 relative opacity-75">
+                    <div>
+                      <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block">Hồ sơ gộp (Giải phóng)</span>
+                      <h5 className="font-extrabold text-slate-400 text-sm mt-1 line-through">{mergeTarget.name}</h5>
+                      <span className="text-[10px] text-slate-400 block mt-0.5">{mergeTarget.phone || 'Không có SĐT'}</span>
+                    </div>
+                    <div className="space-y-1.5 text-[11px] pt-1">
+                      <div className="flex justify-between text-slate-400">
+                        <span>Công nợ chi nhánh:</span>
+                        <span className="font-bold text-slate-500">+{Number(mergeTarget.debt_amount || 0).toLocaleString()}đ</span>
+                      </div>
+                      <div className="flex justify-between text-slate-400">
+                        <span>Ví trả trước:</span>
+                        <span className="font-bold text-slate-500">+{Number(mergeTarget.prepaid_balance || 0).toLocaleString()}đ</span>
+                      </div>
+                      <div className="flex justify-between text-slate-400">
+                        <span>Điểm tích lũy:</span>
+                        <span className="font-bold text-slate-500">+{Number(mergeTarget.loyalty_points || 0).toLocaleString()} điểm</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Simulating consolidated balances */}
+                <div className="rounded-xl border border-indigo-150 bg-indigo-50/30 p-4 space-y-3">
+                  <h5 className="text-xs font-bold text-indigo-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <span>✨</span> Trạng thái dự kiến của hồ sơ chính sau khi gộp tại chi nhánh này:
+                  </h5>
+                  <div className="grid grid-cols-3 gap-4 pt-1 text-center">
+                    <div>
+                      <span className="text-[10px] text-slate-500 font-semibold block">Công nợ tổng hợp:</span>
+                      <span className="text-sm font-extrabold text-slate-800 block mt-0.5">
+                        {Number(parseFloat(selectedPrimaryCustomer.debt_amount || '0') + parseFloat(mergeTarget.debt_amount || '0')).toLocaleString()}đ
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 font-semibold block">Ví trả trước tổng hợp:</span>
+                      <span className="text-sm font-extrabold text-emerald-600 block mt-0.5">
+                        {Number(parseFloat(selectedPrimaryCustomer.prepaid_balance || '0') + parseFloat(mergeTarget.prepaid_balance || '0')).toLocaleString()}đ
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 font-semibold block">Điểm thưởng tổng hợp:</span>
+                      <span className="text-sm font-extrabold text-blue-600 block mt-0.5">
+                        {Number(parseFloat(selectedPrimaryCustomer.loyalty_points || '0') + parseFloat(mergeTarget.loyalty_points || '0')).toLocaleString()} điểm
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Accounting Warning Box */}
+                <div className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-3.5 text-xs text-indigo-900 leading-relaxed font-medium relative shadow-3xs">
+                  <p className="font-extrabold uppercase tracking-wider text-indigo-650 mb-1 flex items-center gap-1">
+                    <AlertTriangle className="w-3.5 h-3.5 text-indigo-500" /> Hướng dẫn hạch toán an toàn
+                  </p>
+                  <p className="text-slate-700 text-[11px]">
+                    * Hệ thống sẽ tự động hạch toán chuyển đổi toàn bộ công nợ, ví trả trước, điểm thưởng của khách hàng phụ sang khách hàng chính ở <b>TẤT CẢ các chi nhánh</b> có giao dịch phát sinh. Toàn bộ hóa đơn (Orders) và phiếu thu/chi (Cashbook) cũng sẽ được tham chiếu an toàn sang hồ sơ chính. Bạn có thể <b>Hủy gộp bất cứ lúc nào</b> để hoàn trả nguyên vẹn trạng thái cũ mà không lo ngại mất mát số dư.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </SlideOver>
+
+      {/* UNMERGE CONFIRM DIALOG */}
+      <ConfirmDialog
+        open={confirmUnmergeOpen}
+        onClose={() => setConfirmUnmergeOpen(false)}
+        onConfirm={() => {
+          if (viewTarget) {
+            unmergeMutation.mutate({ duplicate_id: viewTarget.customer_id })
+          }
+        }}
+        title="Xác nhận hủy gộp khách hàng"
+        description={(() => {
+          if (!viewTarget) return ''
+          return `Bạn có chắc chắn muốn hủy gộp hồ sơ khách hàng "${viewTarget.name}" không? Hành động này sẽ chuyển toàn bộ hóa đơn, sổ quỹ và khôi phục số dư của khách hàng này về trạng thái trước khi gộp ở tất cả các chi nhánh liên quan.`
+        })()}
+        confirmLabel="Đồng ý hủy gộp"
+        variant="danger"
+        loading={unmergeMutation.isPending}
+      />
+
       {/* MULTI-PROVIDER EXCEL IMPORT WIZARD MODAL */}
       {importModalOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
