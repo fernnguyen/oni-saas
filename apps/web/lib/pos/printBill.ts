@@ -1,14 +1,40 @@
 import type { LocalOrder, LocalOrderItem, LocalPayment } from '@/lib/localDb/schema'
 import { BANKS } from '@/lib/constants/banks'
 
-const METHOD_LABEL: Record<string, string> = {
-  cash: 'Tiền mặt',
-  card: 'Thẻ',
-  bank_transfer: 'Chuyển khoản',
-  momo: 'MoMo',
-  vnpay: 'VNPay',
-  zalopay: 'ZaloPay',
-  debt: 'Ghi nợ',
+function getMethodLabel(method: string, isBilingual: boolean) {
+  const labels: Record<string, { vi: string, en: string }> = {
+    cash: { vi: 'Tiền mặt', en: 'Cash' },
+    card: { vi: 'Thẻ', en: 'Card' },
+    bank_transfer: { vi: 'Chuyển khoản', en: 'Bank Transfer' },
+    momo: { vi: 'MoMo', en: 'MoMo' },
+    vnpay: { vi: 'VNPay', en: 'VNPay' },
+    zalopay: { vi: 'ZaloPay', en: 'ZaloPay' },
+    debt: { vi: 'Ghi nợ', en: 'Debt' },
+  }
+  const entry = labels[method]
+  if (!entry) return method
+  return isBilingual ? `${entry.vi} / ${entry.en}` : entry.vi
+}
+
+function translateProductName(name: string, isBilingual: boolean) {
+  if (!isBilingual) return name
+  if (name.includes('Tiền phòng (Qua đêm)')) return 'Tiền phòng (Qua đêm) / Room Charge (Overnight)'
+  if (name.includes('Tiền giờ sử dụng')) {
+    const match = name.match(/\(([^)]+)\)/)
+    const duration = match ? match[1] : ''
+    const enDuration = duration
+      .replace(/phút/g, 'm')
+      .replace(/p/g, 'm')
+      .replace(/giờ/g, 'h')
+      .replace(/g/g, 'h')
+      .replace(/ngày/g, 'd')
+    return duration 
+      ? `Tiền giờ sử dụng (${duration}) / Hourly Charge (${enDuration})`
+      : 'Tiền giờ sử dụng / Hourly Charge'
+  }
+  if (name.includes('Tiền phòng')) return name + ' / Room Charge'
+  if (name.includes('Tiền bàn')) return name + ' / Table Charge'
+  return name
 }
 
 function fmtVND(amount: number) {
@@ -93,10 +119,15 @@ export async function printBill({
     orderMeta = typeof (order as any).metadata === 'string' ? JSON.parse((order as any).metadata) : ((order as any).metadata || {})
   } catch {}
 
-  const billTitle = 'HOÁ ĐƠN BÁN HÀNG'
-  const reprintHtml = printCount > 1 ? `<p class="sub" style="font-style: italic; margin-top: 2px;">(In lại lần ${printCount - 1})</p>` : ''
+  const isBilingual = !!currentSettings?.print_bilingual
+  const billTitle = isBilingual ? 'HOÁ ĐƠN BÁN HÀNG<br/><span style="font-size:10px;font-weight:normal;text-transform:uppercase;color:#444">SALES RECEIPT</span>' : 'HOÁ ĐƠN BÁN HÀNG'
+  const reprintHtml = printCount > 1 
+    ? (isBilingual 
+        ? `<p class="sub" style="font-style: italic; margin-top: 2px;">(In lại lần ${printCount - 1} / Duplicate #${printCount - 1})</p>`
+        : `<p class="sub" style="font-style: italic; margin-top: 2px;">(In lại lần ${printCount - 1})</p>`)
+    : ''
   
-  const taxIdHtml = currentSettings?.tax_id ? `<p class="sub">MST: ${currentSettings.tax_id}</p>` : ''
+  const taxIdHtml = currentSettings?.tax_id ? `<p class="sub">${isBilingual ? 'MST / Tax ID' : 'MST'}: ${currentSettings.tax_id}</p>` : ''
   const addressHtml = currentSettings?.address ? `<p class="sub">${currentSettings.address}</p>` : ''
   const phoneHtml = currentSettings?.phone ? `<p class="sub">Hotline: ${currentSettings.phone}</p>` : ''
   
@@ -153,21 +184,27 @@ export async function printBill({
     if (activeQrTemplate === 'qr_only') {
       qrHtml = `<div class="sep"></div>
       <div style="text-align:center; margin-top: 10px;">
-        <p style="font-weight:bold; margin-bottom: 4px;">Quét QR để thanh toán</p>
+        <p style="font-weight:bold; margin-bottom: 4px;">${isBilingual ? 'Quét QR để thanh toán / Scan to pay' : 'Quét QR để thanh toán'}</p>
         <img src="${qrUrl}" style="width: 100%; max-width: 70px; margin: 0 auto;" />
       </div>`
     } else {
       qrHtml = `<div class="sep"></div>
       <div style="text-align:center; margin-top: 10px;">
-        <p style="font-weight:bold; margin-bottom: 4px;">Quét QR để thanh toán</p>
+        <p style="font-weight:bold; margin-bottom: 4px;">${isBilingual ? 'Quét QR để thanh toán / Scan to pay' : 'Quét QR để thanh toán'}</p>
         <img src="${qrUrl}" style="width: 100%; max-width: 95px; margin: 0 auto;" />
       </div>`
     }
   }
   
   const wifiHtml = currentSettings?.wifi_info ? `<p style="text-align:center;">Wi-Fi: ${currentSettings.wifi_info}</p>` : ''
-  const customFooter = currentSettings?.receipt_footer ? `<p class="footer">${currentSettings.receipt_footer}</p>` : '<p class="footer">Cảm ơn quý khách!</p>'
-  const footerHtml = `${customFooter}<br/><br/><div class="sep"></div><p class="sub" style="font-size: 11px; margin-top: 6px;">Hệ thống quản lý bán hàng <b>ONI.vn</b></p>`
+  const showBrandAttribution = currentSettings?.show_brand_attribution !== false
+  const customFooter = currentSettings?.receipt_footer 
+    ? `<p class="footer">${currentSettings.receipt_footer}</p>` 
+    : `<p class="footer">${isBilingual ? 'Cảm ơn quý khách! / Thank you!' : 'Cảm ơn quý khách!'}</p>`
+  const attributionHtml = showBrandAttribution
+    ? `<br/><br/><div class="sep"></div><p class="sub" style="font-size: 11px; margin-top: 6px;">Hệ thống quản lý bán hàng <b>ONI.vn</b></p>`
+    : ''
+  const footerHtml = `${customFooter}${attributionHtml}`
 
   const html = `<!DOCTYPE html>
 <html>
@@ -201,25 +238,44 @@ ${phoneHtml}
 ${taxIdHtml}
 <h2>${billTitle}</h2>
 ${reprintHtml}
-<p class="sub">${fmtDate(createdDate)}</p>
-<p class="sub">Mã đơn: ${displayOrderCode}</p>
+<p class="sub">${isBilingual ? 'Ngày / Date: ' + fmtDate(createdDate) : fmtDate(createdDate)}</p>
+<p class="sub">${isBilingual ? 'Mã đơn / Order No: ' + displayOrderCode : 'Mã đơn: ' + displayOrderCode}</p>
 <div class="sep"></div>
 ${(() => {
   const timeSpan = orderMeta?.check_in ? fmtTimeSpan(orderMeta.check_in, orderMeta.check_out) : null;
-  return `<table style="margin-bottom: 4px;">
+  const walkInText = isBilingual ? 'Khách lẻ / Walk-in' : 'Khách lẻ'
+  const customerLabel = isBilingual ? 'Khách / Cust' : 'Khách'
+  const checkInLabel = isBilingual ? 'Vào / In' : 'Vào'
+  const checkOutLabel = isBilingual ? 'Ra / Out' : 'Ra'
+
+  return `<table style="margin-bottom: 4px; width: 100%;">
   <tr>
-    <td style="width: 50%; padding-right: 4px;">${customerName ? 'Khách: ' + customerName : 'Khách lẻ'}</td>
-    <td style="width: 50%; padding-left: 4px;">${orderMeta?.resource_name ? orderMeta.resource_name : ''}</td>
+    <td style="width: 100%; padding-bottom: 2px;">${customerLabel}: ${customerName ? customerName : walkInText}</td>
   </tr>
+  ${orderMeta?.resource_name ? `<tr>
+    <td style="width: 100%; padding-bottom: 2px;">${isBilingual ? 'Vị trí / Area' : 'Vị trí'}: ${orderMeta.resource_name}</td>
+  </tr>` : ''}
   ${timeSpan ? `<tr>
-    <td style="width: 50%; padding-right: 4px;">Vào: ${timeSpan.in}</td>
-    <td style="width: 50%; padding-left: 4px;">${timeSpan.out ? 'Ra: ' + timeSpan.out : ''}</td>
+    <td style="width: 100%; padding-top: 2px;">
+      <table style="width: 100%;">
+        <tr>
+          <td style="width: 50%; padding-right: 4px;">${checkInLabel}: ${timeSpan.in}</td>
+          <td style="width: 50%; padding-left: 4px;">${timeSpan.out ? `${checkOutLabel}: ${timeSpan.out}` : ''}</td>
+        </tr>
+      </table>
+    </td>
   </tr>` : ''}
 </table>`
 })()}
 <div class="sep"></div>
 <table>
-<tr><td class="bold" style="width: 6%">TT</td><td class="bold pl">Sản phẩm</td><td class="c bold pl" style="width: 8%">SL</td><td class="r bold pl" style="width: 22%">Đ.giá</td><td class="r bold pl" style="width: 26%">T.tiền</td></tr>
+<tr>
+  <td class="bold" style="width: 6%">${isBilingual ? 'TT<br/>No' : 'TT'}</td>
+  <td class="bold pl">${isBilingual ? 'Sản phẩm<br/>Product' : 'Sản phẩm'}</td>
+  <td class="c bold pl" style="width: 10%">${isBilingual ? 'SL<br/>Qty' : 'SL'}</td>
+  <td class="r bold pl" style="width: 23%">${isBilingual ? 'Đ.giá<br/>Price' : 'Đ.giá'}</td>
+  <td class="r bold pl" style="width: 25%">${isBilingual ? 'T.tiền<br/>Amt' : 'T.tiền'}</td>
+</tr>
 ${items
   .map((it, idx) => {
     // Build sub-line for variant/modifier info
@@ -243,7 +299,7 @@ ${items
     const effectivePrice = Number(it.unit_price) + (Number((it as any).modifier_total) || 0)
     return `<tr>
   <td>${idx + 1}</td>
-  <td class="pl">${it.product_name}${subLine}</td>
+  <td class="pl">${translateProductName(it.product_name, isBilingual)}${subLine}</td>
   <td class="c pl">${it.qty}</td>
   <td class="r pl">${fmtVND(effectivePrice)}</td>
   <td class="r pl">${fmtVND(Number(it.line_total))}</td>
@@ -253,21 +309,21 @@ ${items
 </table>
 <div class="sep"></div>
 <table>
-<tr><td>Tạm tính:</td><td class="r">${fmtVND(subtotal)}</td></tr>
-${discount > 0 ? `<tr><td>Giảm giá:</td><td class="r">-${fmtVND(discount)}</td></tr>` : ''}
-<tr class="total-row"><td>TỔNG CỘNG:</td><td class="r">${fmtVND(total)}</td></tr>
+<tr><td>${isBilingual ? 'Tạm tính / Subtotal:' : 'Tạm tính:'}</td><td class="r">${fmtVND(subtotal)}</td></tr>
+${discount > 0 ? `<tr><td>${isBilingual ? 'Giảm giá / Discount:' : 'Giảm giá:'}</td><td class="r">-${fmtVND(discount)}</td></tr>` : ''}
+<tr class="total-row"><td>${isBilingual ? 'TỔNG CỘNG / TOTAL:' : 'TỔNG CỘNG:'}</td><td class="r">${fmtVND(total)}</td></tr>
 </table>
 <div class="sep"></div>
 <table>
 ${payments.map((p) => {
   const amt = Number(p.amount)
   if (amt < 0) {
-    return `<tr><td>Trả lại khách:</td><td class="r">${fmtVND(Math.abs(amt))}</td></tr>`
+    return `<tr><td>${isBilingual ? 'Trả lại khách / Change:' : 'Trả lại khách:'}</td><td class="r">${fmtVND(Math.abs(amt))}</td></tr>`
   }
-  return `<tr><td>${METHOD_LABEL[p.method] ?? p.method}:</td><td class="r">${fmtVND(amt)}</td></tr>`
+  return `<tr><td>${getMethodLabel(p.method, isBilingual)}:</td><td class="r">${fmtVND(amt)}</td></tr>`
 }).join('')}
 </table>
-${order.note ? `<div class="sep"></div><p>Ghi chú: ${order.note}</p>` : ''}
+${order.note ? `<div class="sep"></div><p>${isBilingual ? 'Ghi chú / Note' : 'Ghi chú'}: ${order.note}</p>` : ''}
 ${qrHtml}
 ${wifiHtml}
 ${footerHtml}

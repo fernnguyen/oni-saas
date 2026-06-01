@@ -28,6 +28,8 @@ interface ShopSettings {
   bank_account_name?: string | null;
   qr_template?: string | null;
   receipt_footer?: string | null;
+  print_bilingual?: boolean;
+  show_brand_attribution?: boolean;
   default_price_type: string;
   qr_auto_approve_session?: boolean;
   enable_shift_management?: boolean;
@@ -131,6 +133,8 @@ export function ShopSettingsForm({
     bank_account_name: initial.bank_account_name ?? '',
     qr_template: initial.qr_template ?? 'compact2',
     receipt_footer: initial.receipt_footer ?? '',
+    print_bilingual: initial.print_bilingual ?? false,
+    show_brand_attribution: initial.show_brand_attribution ?? true,
     default_price_type: initial.default_price_type,
     qr_auto_approve_session: initial.qr_auto_approve_session ?? false,
     enable_shift_management: initial.enable_shift_management ?? false,
@@ -390,6 +394,8 @@ export function ShopSettingsForm({
           wifi_info: form.wifi_info || undefined,
           receipt_footer: form.receipt_footer || undefined,
           industry_type: form.industry_type || undefined,
+          print_bilingual: form.print_bilingual,
+          show_brand_attribution: form.show_brand_attribution,
         };
       } else if (tab === 'sales') {
         payload = {
@@ -723,7 +729,41 @@ export function ShopSettingsForm({
                   placeholder="ONI / 12345678"
                 />
               </Field>
-              <div className="border-t border-slate-100 pt-4 mt-4">
+              <div className="border-t border-slate-100 pt-4 mt-4 space-y-4">
+                <Field label="In song ngữ (Tiếng Việt / English)" hint="Hiển thị song ngữ (Việt - Anh) các tiêu đề, cột thông tin và tiền phòng/giờ trên hóa đơn in ra">
+                  <div
+                    onClick={() => canManage && set('print_bilingual', !form.print_bilingual)}
+                    className="flex cursor-pointer items-center gap-3 mt-1"
+                  >
+                    <div
+                      className={`relative h-6 w-11 rounded-full transition-colors ${form.print_bilingual ? 'bg-primary' : 'bg-slate-200'} ${canManage ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
+                    >
+                      <span
+                        className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${form.print_bilingual ? 'translate-x-5' : ''}`}
+                      />
+                    </div>
+                    <span className="text-sm text-slate-600 select-none font-medium">
+                      {form.print_bilingual ? 'Bật in hóa đơn song ngữ' : 'Chỉ in tiếng Việt (Mặc định)'}
+                    </span>
+                  </div>
+                </Field>
+                <Field label="Giới thiệu thương hiệu ONI.vn" hint="Hiển thị dòng chữ quảng bá 'Hệ thống quản lý bán hàng ONI.vn' ở chân hóa đơn in ra">
+                  <div
+                    onClick={() => canManage && set('show_brand_attribution', !form.show_brand_attribution)}
+                    className="flex cursor-pointer items-center gap-3 mt-1"
+                  >
+                    <div
+                      className={`relative h-6 w-11 rounded-full transition-colors ${form.show_brand_attribution ? 'bg-primary' : 'bg-slate-200'} ${canManage ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
+                    >
+                      <span
+                        className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${form.show_brand_attribution ? 'translate-x-5' : ''}`}
+                      />
+                    </div>
+                    <span className="text-sm text-slate-600 select-none font-medium">
+                      {form.show_brand_attribution ? 'Bật giới thiệu ONI.vn ở chân bill (Mặc định)' : 'Tắt giới thiệu thương hiệu'}
+                    </span>
+                  </div>
+                </Field>
                 <Field label="Lời cảm ơn (Cuối bill)">
                   <textarea
                     value={form.receipt_footer}
