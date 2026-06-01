@@ -254,7 +254,7 @@ export async function POST(
         let grnHeader = await connector.create('goods-receipt-notes', {
           purchase_order_id: po.id,
           received_by: ctx.user.id,
-          warehouse_id: 'DEFAULT',
+          warehouse_id: 'default',
           status: 'DRAFT',
           note: `Tự động tạo đối chiếu theo đơn đặt hàng PO #${po.purchase_order_no || po.id}`,
         });

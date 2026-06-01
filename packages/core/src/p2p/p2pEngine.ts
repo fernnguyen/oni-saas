@@ -242,7 +242,7 @@ export class P2PEngine {
       } else {
         // Commercial products are received into the target GRN warehouse or WH-SALE (code: 'sale')
         resolvedWarehouseId = grn.warehouse_id || '';
-        if (!resolvedWarehouseId) {
+        if (!resolvedWarehouseId || resolvedWarehouseId.toLowerCase() === 'default') {
           const saleWhRes = await connector.list('warehouses', {
             filters: { code: 'sale' },
             limit: 1
