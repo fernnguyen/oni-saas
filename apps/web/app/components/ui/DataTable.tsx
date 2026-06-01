@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useMemo } from 'react'
+import { ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 
 export type Column<T> = {
   key: string
@@ -211,11 +212,19 @@ export function DataTable<T extends object>({
               >
                 <span className="inline-flex items-center gap-1">
                   {col.label ?? col.header ?? ''}
-                  {col.sortable && (
-                    <span className="text-slate-400">
-                      {sortKey === col.key && sortDir === 'asc' ? '↑' : sortKey === col.key && sortDir === 'desc' ? '↓' : '↕'}
-                    </span>
-                  )}
+                  {col.sortable && (() => {
+                    const isSorted = sortKey === col.key
+                    const isAsc = isSorted && sortDir === 'asc'
+                    const isDesc = isSorted && sortDir === 'desc'
+                    
+                    if (isAsc) {
+                      return <ArrowUp className="w-3.5 h-3.5 text-slate-800 ml-1 inline-block" />
+                    }
+                    if (isDesc) {
+                      return <ArrowDown className="w-3.5 h-3.5 text-slate-800 ml-1 inline-block" />
+                    }
+                    return <ArrowUpDown className="w-3.5 h-3.5 text-slate-350 ml-1 inline-block opacity-70 hover:opacity-100 transition-opacity" />
+                  })()}
                 </span>
               </th>
             ))}
