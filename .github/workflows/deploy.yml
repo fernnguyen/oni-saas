@@ -33,7 +33,8 @@ jobs:
             # Cài đặt dependency (phòng khi có thư viện mới)
             pnpm install
             
-            # Build ứng dụng
+            # Build ứng dụng với tag phiên bản hiện tại làm biến môi trường
+            export NEXT_PUBLIC_APP_VERSION="${{ github.ref_name }}"
             pnpm run build
             
             # Push database schema mới

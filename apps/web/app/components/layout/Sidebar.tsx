@@ -157,6 +157,9 @@ function SidebarContent({
               BETA
             </span>
           )}
+          <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-medium select-none">
+            {process.env.NEXT_PUBLIC_APP_VERSION || 'v0.1.0-dev'}
+          </span>
           <button
             onClick={onClose}
             className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 cursor-pointer shrink-0"
@@ -253,7 +256,7 @@ function SidebarContent({
         ))}
       </nav>
 
-      <div className="p-1 border-t border-slate-200">
+      <div className="p-1 border-t border-slate-200 flex flex-col gap-1 items-center">
         {!hidePlanBadge && planCode && planName && tenantId && (
           <PlanBadge
             tenantId={tenantId}
@@ -264,6 +267,13 @@ function SidebarContent({
             canUpgrade={permissions.includes('settings.manage') || permissions.includes('org.manage') || permissions.includes('billing.manage')}
             collapsed={collapsed}
           />
+        )}
+        {collapsed && (
+          <div className="text-[9px] text-slate-400 font-semibold select-none mt-1.5 mb-1 px-1 text-center truncate w-full transition-all duration-200">
+            <span title={`Phiên bản: ${process.env.NEXT_PUBLIC_APP_VERSION || 'v0.1.0-dev'}`}>
+              {(process.env.NEXT_PUBLIC_APP_VERSION || 'v0.1.0-dev').split('-')[0]}
+            </span>
+          </div>
         )}
       </div>
     </div>
