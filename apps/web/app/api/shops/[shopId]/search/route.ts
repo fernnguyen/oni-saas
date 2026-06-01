@@ -336,6 +336,7 @@ export async function GET(
             const item = await connector.findById('customers', candidateId);
             if (item) {
               let allowed = true;
+              let stats: any = null;
               if (!shareCustomers && item.customer_id !== 'C-DEFAULT-RETAIL') {
                 const isLocal = item.branch_id === actualShopId;
                 const isGlobal = !item.branch_id || item.branch_id === '';
@@ -343,10 +344,16 @@ export async function GET(
                   const statsRes = await connector.list('customer-branch-stats', {
                     filters: { customer_id: item.id || item.customer_id, branch_id: actualShopId }
                   });
+                  stats = statsRes.data[0];
                   allowed = statsRes.data.length > 0;
                 } else if (!isLocal) {
                   allowed = false;
                 }
+              } else if (shareCustomers && item.customer_id !== 'C-DEFAULT-RETAIL') {
+                const statsRes = await connector.list('customer-branch-stats', {
+                  filters: { customer_id: item.id || item.customer_id, branch_id: actualShopId }
+                });
+                stats = statsRes.data[0];
               }
               
               if (allowed) {
@@ -355,7 +362,7 @@ export async function GET(
                   type: 'customer',
                   title: item.name || 'Khách hàng',
                   subtitle: item.phone || item.email || 'Không có SĐT',
-                  amount: parseFloat(item.debt_amount || '0'),
+                  amount: parseFloat(stats?.debt_amount ?? item.debt_amount ?? '0'),
                   url: `customers?search=${item.customer_id || item.id}`
                 });
               }
@@ -413,12 +420,13 @@ export async function GET(
           valid.slice(0, 5).forEach(item => {
             const alreadyAdded = results.some(r => r.id === (item.customer_id || item.id));
             if (!alreadyAdded) {
+              const stats = statsMap.get(item.id || item.customer_id);
               results.push({
                 id: item.customer_id || item.id,
                 type: 'customer',
                 title: item.name || 'Khách hàng',
                 subtitle: item.phone || item.email || 'Không có SĐT',
-                amount: parseFloat(item.debt_amount || '0'),
+                amount: parseFloat(stats?.debt_amount ?? item.debt_amount ?? '0'),
                 url: `customers?search=${item.customer_id || item.id}`
               });
             }

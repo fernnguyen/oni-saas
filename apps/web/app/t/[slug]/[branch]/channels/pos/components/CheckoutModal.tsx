@@ -1786,7 +1786,7 @@ export function CheckoutModal({
                       <h4 className={`text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 ${
                         isBlocked ? 'text-red-800' : 'text-amber-800'
                       }`}>
-                        {isBlocked ? '🚫 Chặn bán hàng (Vượt hạn mức nợ)' : '⚠️ Cảnh báo công nợ'}
+                        {isBlocked ? 'Chặn bán hàng (Vượt hạn mức nợ)' : 'Cảnh báo công nợ'}
                       </h4>
                       <p className={`text-[11px] mt-1 leading-relaxed ${isBlocked ? 'text-red-700' : 'text-amber-700'}`}>
                         {isBlocked 

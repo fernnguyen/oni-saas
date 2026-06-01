@@ -578,7 +578,14 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
         key: 'debt_amount',
         label: 'Công nợ',
         sortable: true,
-        render: (row) => <span className="font-medium text-slate-700">{Number(row.debt_amount || 0).toLocaleString('vi-VN')}đ</span>,
+        render: (row) => {
+          const debt = Number(row.debt_amount || 0)
+          return (
+            <span className={`font-semibold ${debt > 0 ? 'text-rose-600' : 'text-slate-500'}`}>
+              {debt.toLocaleString('vi-VN')}đ
+            </span>
+          )
+        },
       },
       {
         key: 'actions',
@@ -949,13 +956,15 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => setImportModalOpen(true)}
-            className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-all flex items-center gap-1.5 cursor-pointer active:scale-95 shadow-sm"
-          >
-            <Upload className="w-4 h-4 text-slate-500" />
-            Import từ Excel
-          </button>
+          {canManageCrm && (
+            <button
+              onClick={() => setImportModalOpen(true)}
+              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-all flex items-center gap-1.5 cursor-pointer active:scale-95 shadow-sm"
+            >
+              <Upload className="w-4 h-4 text-slate-500" />
+              Import từ Excel
+            </button>
+          )}
           <button
             onClick={openCreate}
             className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark transition-all flex items-center gap-1.5 cursor-pointer active:scale-95 shadow-sm"
@@ -2279,8 +2288,8 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
                               const isVirtualDebt = tx.is_virtual === 'TRUE' && tx.method === 'debt'
                               const isReceipt = tx.type === 'receipt' && !isVirtualDebt
                               const catMap: Record<string, string> = {
-                                prepaid_deposit: 'Nạp tiền ví trả trước',
-                                debt_collection: tx.is_virtual === 'TRUE' ? 'Dư nợ đầu kỳ (Import KiotViet)' : 'Thu nợ khách hàng',
+                                prepaid_deposit: tx.is_virtual === 'TRUE' ? 'Ví trả trước đầu kỳ' : 'Nạp tiền ví trả trước',
+                                debt_collection: tx.is_virtual === 'TRUE' ? 'Dư nợ đầu kỳ' : 'Thu nợ khách hàng',
                                 sales: 'Thu tiền bán hàng',
                                 other: 'Giao dịch khác'
                               }
@@ -2290,7 +2299,8 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
                                 card: 'Thẻ (POS)',
                                 momo: 'Momo',
                                 prepaid: 'Ví trả trước',
-                                debt: 'Ghi nợ'
+                                debt: 'Ghi nợ',
+                                system: 'Hệ thống'
                               }
                               return (
                                 <tr key={tx.transaction_id || i} className="hover:bg-slate-50">

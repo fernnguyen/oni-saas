@@ -70,12 +70,38 @@ export async function GET(
       res.data = res.data.map((c: any) => {
         if (c.id === 'C-DEFAULT-RETAIL') return c
         const stats = statsMap.get(c.id)
+        
+        let debt = stats?.debt_amount ?? c.debt_amount ?? '0'
+        let prepaid = stats?.prepaid_balance ?? c.prepaid_balance ?? '0'
+        const points = stats?.loyalty_points ?? c.loyalty_points ?? '0'
+        const note = stats?.note ?? c.note ?? ''
+
+        const dNum = parseFloat(debt)
+        if (dNum < 0) {
+          const absD = Math.abs(dNum)
+          prepaid = String(parseFloat(prepaid) + absD)
+          debt = '0'
+          
+          // Self-heal the database in the background
+          if (stats) {
+            void connector.update('customer-branch-stats', stats.id, {
+              debt_amount: '0',
+              prepaid_balance: prepaid
+            }).catch(err => console.error('Self-heal stats failed:', err))
+          } else {
+            void connector.update('customers', c.id, {
+              debt_amount: '0',
+              prepaid_balance: prepaid
+            }).catch(err => console.error('Self-heal customer profile failed:', err))
+          }
+        }
+
         return {
           ...c,
-          debt_amount: stats?.debt_amount ?? '0',
-          loyalty_points: stats?.loyalty_points ?? '0',
-          prepaid_balance: stats?.prepaid_balance ?? '0',
-          note: stats?.note ?? '',
+          debt_amount: debt,
+          loyalty_points: points,
+          prepaid_balance: prepaid,
+          note,
         }
       })
     } else {
@@ -93,12 +119,38 @@ export async function GET(
       }).map((c: any) => {
         // Merge stats for allowed transacted global profiles
         const stats = statsMap.get(c.id)
+        
+        let debt = stats?.debt_amount ?? c.debt_amount ?? '0'
+        let prepaid = stats?.prepaid_balance ?? c.prepaid_balance ?? '0'
+        const points = stats?.loyalty_points ?? c.loyalty_points ?? '0'
+        const note = stats?.note ?? c.note ?? ''
+
+        const dNum = parseFloat(debt)
+        if (dNum < 0) {
+          const absD = Math.abs(dNum)
+          prepaid = String(parseFloat(prepaid) + absD)
+          debt = '0'
+          
+          // Self-heal the database in the background
+          if (stats) {
+            void connector.update('customer-branch-stats', stats.id, {
+              debt_amount: '0',
+              prepaid_balance: prepaid
+            }).catch(err => console.error('Self-heal stats failed:', err))
+          } else {
+            void connector.update('customers', c.id, {
+              debt_amount: '0',
+              prepaid_balance: prepaid
+            }).catch(err => console.error('Self-heal customer profile failed:', err))
+          }
+        }
+
         return {
           ...c,
-          debt_amount: stats?.debt_amount ?? '0',
-          loyalty_points: stats?.loyalty_points ?? '0',
-          prepaid_balance: stats?.prepaid_balance ?? '0',
-          note: stats?.note ?? '',
+          debt_amount: debt,
+          loyalty_points: points,
+          prepaid_balance: prepaid,
+          note,
         }
       })
       

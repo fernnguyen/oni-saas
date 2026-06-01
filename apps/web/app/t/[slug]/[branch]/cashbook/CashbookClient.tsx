@@ -568,6 +568,7 @@ export function CashbookClient({ shopId, shopName, permissions }: Props) {
     card: 'Thẻ (POS)',
     momo: 'Ví Momo',
     prepaid: 'Ví trả trước',
+    system: 'Hệ thống',
   }
 
   const columns = useMemo<Column<Record<string, string>>[]>(() => [

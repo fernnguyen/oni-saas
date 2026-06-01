@@ -15,7 +15,7 @@ export async function POST(
 ) {
   try {
     const { shopId } = await params
-    const { connector, user } = await requireShopAccess(shopId, 'customers.create')
+    const { connector, user } = await requireShopAccess(shopId, 'crm.manage')
 
     const body = await req.json() as {
       customers: any[]
@@ -134,9 +134,17 @@ export async function POST(
         const oldPoints = parseFloat(existingCustomer.loyalty_points || '0')
         const oldPrepaid = parseFloat(existingCustomer.prepaid_balance || '0')
 
-        let finalDebt = oldDebt
+        // If the database already contains a negative debt for this existing customer, let's auto-heal it first!
+        let cleanOldDebt = oldDebt
+        let cleanOldPrepaid = oldPrepaid
+        if (oldDebt < 0) {
+          cleanOldPrepaid = oldPrepaid + Math.abs(oldDebt)
+          cleanOldDebt = 0
+        }
+
+        let finalDebt = cleanOldDebt
         let finalPoints = oldPoints
-        let finalPrepaid = oldPrepaid
+        let finalPrepaid = cleanOldPrepaid
 
         let diffDebt = 0
         let diffPrepaid = 0
@@ -150,9 +158,9 @@ export async function POST(
           diffPrepaid = importPrepaid - oldPrepaid
         } else {
           // balance_strategy === 'accumulate'
-          finalDebt = oldDebt + importDebt
+          finalDebt = cleanOldDebt + importDebt
           finalPoints = oldPoints + importPoints
-          finalPrepaid = oldPrepaid + importPrepaid
+          finalPrepaid = cleanOldPrepaid + importPrepaid
 
           diffDebt = importDebt
           diffPrepaid = importPrepaid
@@ -191,16 +199,23 @@ export async function POST(
         })
 
         // Handle virtual cashbook entries to avoid duplicates and prevent clutter
-        let hasUpdatedVirtual = false
         try {
-          const oldVirtuals = await connector.list('cashbook', {
+          const oldVirtualsRes = await connector.list('cashbook', {
             filters: { reference_id: existingCustomer.id, is_virtual: 'TRUE' },
-            limit: 50
+            limit: 100
           })
-          if (oldVirtuals && Array.isArray(oldVirtuals.data) && oldVirtuals.data.length > 0) {
+          const oldVirtuals = (oldVirtualsRes?.data || []) as Record<string, string>[]
+
+          // Filter old virtual slips by category
+          const oldDebtVirtuals = oldVirtuals.filter(v => v.category === 'debt_collection')
+          const oldPrepaidVirtuals = oldVirtuals.filter(v => v.category === 'prepaid_deposit')
+
+          // --- 1. DEBT VIRTUAL SLIP MANAGEMENT ---
+          let hasUpdatedDebtVirtual = false
+          if (oldDebtVirtuals.length > 0) {
             if (finalDebt > 0) {
               // We have debt: Keep exactly ONE primary virtual slip and update it in-place
-              const primaryTx = oldVirtuals.data[0]
+              const primaryTx = oldDebtVirtuals[0]
               
               // Calculate new timestamp for debt age baseline
               let debtCreatedAt = nowTime
@@ -218,72 +233,100 @@ export async function POST(
                   ? `Số dư công nợ đầu kỳ ghi nhận khi chuyển đổi hệ thống (Cập nhật ghi đè: Nợ trước đó ${debtDays} ngày. Số dư cũ: ${oldDebt.toLocaleString('vi-VN')}đ, mới: ${finalDebt.toLocaleString('vi-VN')}đ)`
                   : `Số dư công nợ đầu kỳ ghi nhận khi chuyển đổi hệ thống (Cập nhật ghi đè: Import KiotViet. Số dư cũ: ${oldDebt.toLocaleString('vi-VN')}đ, mới: ${finalDebt.toLocaleString('vi-VN')}đ)`
               })
-              hasUpdatedVirtual = true
+              hasUpdatedDebtVirtual = true
 
               // Delete any duplicate/excess virtual entries to clean up database clutter
-              for (let i = 1; i < oldVirtuals.data.length; i++) {
-                const extraTx = oldVirtuals.data[i]
+              for (let i = 1; i < oldDebtVirtuals.length; i++) {
+                const extraTx = oldDebtVirtuals[i]
                 if (extraTx.id) {
                   await connector.delete('cashbook', extraTx.id)
                 }
               }
             } else {
-              // finalDebt === 0: Delete all old virtual slips as they are no longer needed (avoid clutter)
-              for (const tx of oldVirtuals.data) {
+              // finalDebt === 0: Delete all old virtual debt slips as they are no longer needed
+              for (const tx of oldDebtVirtuals) {
                 if (tx.id) {
                   await connector.delete('cashbook', tx.id)
                 }
               }
             }
           }
-        } catch (e) {
-          console.error('Failed to manage virtual transactions:', e)
-        }
 
-        // Create a new virtual cashbook log ONLY if no existing one was found and updated, and finalDebt > 0
-        if (!hasUpdatedVirtual && finalDebt > 0) {
-          let debtCreatedAt = nowTime
-          if (debtDays > 0) {
-            const pastDate = new Date()
-            pastDate.setDate(pastDate.getDate() - debtDays)
-            pastDate.setUTCHours(pastDate.getUTCHours() + 7)
-            debtCreatedAt = pastDate.toISOString().replace('Z', '')
+          // Create a new virtual debt log ONLY if no existing one was found and updated, and finalDebt > 0
+          if (!hasUpdatedDebtVirtual && finalDebt > 0) {
+            let debtCreatedAt = nowTime
+            if (debtDays > 0) {
+              const pastDate = new Date()
+              pastDate.setDate(pastDate.getDate() - debtDays)
+              pastDate.setUTCHours(pastDate.getUTCHours() + 7)
+              debtCreatedAt = pastDate.toISOString().replace('Z', '')
+            }
+
+            cashbookToCreate.push({
+              type:           'receipt',
+              amount:         String(finalDebt),
+              method:         'debt',
+              category:       'debt_collection',
+              reference_id:   existingCustomer.id,
+              reference_name: name,
+              note:           debtDays > 0 
+                ? `Số dư công nợ đầu kỳ ghi nhận khi chuyển đổi hệ thống (Nợ trước đó ${debtDays} ngày)`
+                : `Số dư công nợ đầu kỳ ghi nhận khi chuyển đổi hệ thống (Import KiotViet)`,
+              employee_id:    user.id,
+              is_virtual:     'TRUE',
+              created_at:     debtCreatedAt,
+            })
           }
 
-          cashbookToCreate.push({
-            type:           'receipt',
-            amount:         String(finalDebt),
-            method:         'debt',
-            category:       'debt_collection',
-            reference_id:   existingCustomer.id,
-            reference_name: name,
-            note:           debtDays > 0 
-              ? `Số dư công nợ đầu kỳ ghi nhận khi chuyển đổi hệ thống (Nợ trước đó ${debtDays} ngày)`
-              : `Số dư công nợ đầu kỳ ghi nhận khi chuyển đổi hệ thống (Import KiotViet)`,
-            employee_id:    user.id,
-            is_virtual:     'TRUE',
-            created_at:     debtCreatedAt,
-          })
-        }
+          // --- 2. PREPAID VIRTUAL SLIP MANAGEMENT ---
+          let hasUpdatedPrepaidVirtual = false
 
-        // Create virtual cashbook logs for diff balance ví trả trước
-        if (diffPrepaid !== 0) {
-          const wasNegativeDebt = rawImportDebt < 0
-          cashbookToCreate.push({
-            type:           'receipt',
-            amount:         String(Math.abs(diffPrepaid)),
-            method:         'bank_transfer',
-            category:       'sales',
-            reference_id:   existingCustomer.id,
-            reference_name: name,
-            note:           wasNegativeDebt && diffPrepaid > 0
-              ? `Điều chỉnh tăng ví trả trước đầu kỳ khi import (Chuyển đổi từ công nợ ${rawImportDebt.toLocaleString('vi-VN')}đ)`
-              : diffPrepaid > 0
-                ? `Điều chỉnh tăng ví trả trước đầu kỳ khi import (Chênh lệch: +${diffPrepaid.toLocaleString('vi-VN')}đ)`
-                : `Điều chỉnh giảm ví trả trước đầu kỳ khi import (Chênh lệch: ${diffPrepaid.toLocaleString('vi-VN')}đ)`,
-            employee_id:    user.id,
-            is_virtual:     'TRUE',
-          })
+          if (oldPrepaidVirtuals.length > 0) {
+            if (finalPrepaid > 0) {
+              // We have prepaid balance: Keep exactly ONE primary virtual slip and update it in-place
+              const primaryTx = oldPrepaidVirtuals[0]
+
+              await connector.update('cashbook', primaryTx.id, {
+                amount: String(finalPrepaid),
+                method: 'system',
+                note: `Số dư Ví trả trước đầu kỳ ghi nhận khi chuyển đổi hệ thống (Import KiotViet)`
+              })
+              hasUpdatedPrepaidVirtual = true
+
+              // Delete any duplicate/excess virtual entries to clean up database clutter
+              for (let i = 1; i < oldPrepaidVirtuals.length; i++) {
+                const extraTx = oldPrepaidVirtuals[i]
+                if (extraTx.id) {
+                  await connector.delete('cashbook', extraTx.id)
+                }
+              }
+            } else {
+              // finalPrepaid === 0: Delete all old virtual prepaid slips as they are no longer needed
+              for (const tx of oldPrepaidVirtuals) {
+                if (tx.id) {
+                  await connector.delete('cashbook', tx.id)
+                }
+              }
+            }
+          }
+
+          // Create a new virtual prepaid log ONLY if no existing one was found and updated, and finalPrepaid > 0
+          if (!hasUpdatedPrepaidVirtual && finalPrepaid > 0) {
+            cashbookToCreate.push({
+              type:           'receipt',
+              amount:         String(finalPrepaid),
+              method:         'system',
+              category:       'prepaid_deposit',
+              reference_id:   existingCustomer.id,
+              reference_name: name,
+              note:           `Số dư Ví trả trước đầu kỳ ghi nhận khi chuyển đổi hệ thống (Import KiotViet)`,
+              employee_id:    user.id,
+              is_virtual:     'TRUE',
+            })
+          }
+
+        } catch (e) {
+          console.error('Failed to manage virtual transactions:', e)
         }
 
         updatedCount++
@@ -364,17 +407,14 @@ export async function POST(
       }
 
       if (prepaid > 0) {
-        const wasNegativeDebt = importItem && parseFloat(String(importItem.debt_amount || '0')) < 0
         cashbookToCreate.push({
           type:           'receipt',
           amount:         String(prepaid),
-          method:         'bank_transfer',
-          category:       'sales',
+          method:         'system',
+          category:       'prepaid_deposit',
           reference_id:   cc.customer_id || cc.id,
           reference_name: cc.name,
-          note:           wasNegativeDebt
-            ? `Số dư Ví trả trước đầu kỳ ghi nhận khi chuyển đổi hệ thống (Chuyển đổi từ công nợ âm ${parseFloat(String(importItem.debt_amount)).toLocaleString('vi-VN')}đ)`
-            : `Số dư Ví trả trước đầu kỳ ghi nhận khi chuyển đổi hệ thống (Import KiotViet)`,
+          note:           `Số dư Ví trả trước đầu kỳ ghi nhận khi chuyển đổi hệ thống (Import KiotViet)`,
           employee_id:    user.id,
           is_virtual:     'TRUE',
         })

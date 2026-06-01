@@ -31,6 +31,34 @@ export async function GET(
       }
     } else {
       const all = await connector.list('customers', { limit: 5000 })
+      
+      // Self-healing for negative debt: convert negative debt to positive prepaid balance
+      let hasHealed = false
+      for (const c of all.data) {
+        const d = parseFloat(c.debt_amount || '0')
+        if (d < 0) {
+          const absD = Math.abs(d)
+          const currentPrepaid = parseFloat(c.prepaid_balance || '0')
+          const newPrepaid = currentPrepaid + absD
+          
+          c.debt_amount = '0'
+          c.prepaid_balance = String(newPrepaid)
+          
+          // Persist the correction to DB in the background
+          void connector.update('customers', c.id || c.customer_id, {
+            debt_amount: '0',
+            prepaid_balance: String(newPrepaid)
+          }).catch(err => console.error(`Self-healing debt route failed for customer ${c.id}:`, err))
+          
+          hasHealed = true
+        }
+      }
+      
+      if (hasHealed) {
+        const { invalidate } = await import('@/lib/server/cache')
+        invalidate(shopId, 'customers')
+      }
+
       const withDebt = all.data.filter(c => parseFloat(c.debt_amount || '0') > 0)
       withDebt.sort((a, b) => parseFloat(b.debt_amount || '0') - parseFloat(a.debt_amount || '0'))
       result = {
