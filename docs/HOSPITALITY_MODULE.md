@@ -165,6 +165,33 @@ Hàm `calculateHotelRoomBilling` hỗ trợ tính lũy tiến ngày lưu trú, s
 
 ---
 
-## 5. KẾ HOẠCH NÂNG CẤP & BẢO TRÌ TÀI LIỆU
+## 5. SƠ ĐỒ GANTT TIMELINE & TRỰC QUAN HÓA HIỆN TRẠNG PHÒNG REAL-TIME
+
+Để tối ưu hóa giao diện điều phối đặt phòng tại quầy lễ tân, giao diện Gantt Timeline hỗ trợ các cơ chế hiển thị thông minh và phân tách dữ liệu thời gian thực:
+
+### 5.1. Hiển thị Trạng thái Phòng thông qua Đèn chỉ báo (Occupancy Dots)
+Thay vì sử dụng các badge text lớn chiếm không gian, hiện trạng của từng phòng được thu gọn thành một đèn chỉ báo tròn (dot) nằm ngay sau tên phòng:
+*   **Màu Đỏ Nhấp Nháy (Pulsing Rose Dot - `#f43f5e`)**: Phòng hiện đang ở (In-house) hoặc đang có khách sử dụng. Trạng thái này được xác định tự động khi `room.status === 'occupied'` **hoặc** có một booking active (`status === 'checked_in'`) có thời gian bao trùm thời điểm hiện tại (`expected_checkin <= now <= expected_checkout`).
+*   **Màu Xanh Lá (Emerald Dot - `#10b981`)**: Phòng đang trống, sẵn sàng đón khách (Available).
+*   **Đèn Vàng Cảnh Báo (Cần dọn - `#f59e0b` / `amber-500`)**: Nếu phòng ở trạng thái dơ bẩn (`room.status === 'dirty'`), nhãn cảnh báo "CẦN DỌN" vẫn sẽ hiển thị phía dưới tên phòng để nhân viên vận hành phân biệt.
+
+### 5.2. Đường phân chia hiện tại (NOW Line Indicator) & Chống tràn Layout
+*   Đường chỉ thời gian thực tế (**NOW**) được vẽ xuyên suốt tất cả các dòng phòng để lễ tân đối chiếu trạng thái.
+*   Nhãn **"NOW"** màu đỏ ở tiêu đề cột được dịch chuyển xuống `top-2.5` thay vì sát mép để tránh bị che khuất hoặc cắt góc bởi thuộc tính `overflow-hidden` và đường viền bo cong của bảng thẻ gốc.
+*   Toàn bộ màn hình Gantt Timeline được tối ưu hóa hiển thị **Full Width** (bằng cách cấn trừ padding trùng lặp từ `ReservationsClient`), cho phép hiển thị rộng tối đa trên các màn hình máy tính trạm POS.
+
+### 5.3. Trực quan hóa tiến độ lưu trú qua dải Gradient thời gian thực (Stay Progress Gradient)
+Đối với các đặt phòng ở trạng thái đang sử dụng (`checked_in`), thanh biểu diễn đặt phòng trên sơ đồ được tự động tính toán tỷ lệ thời gian trôi qua dựa theo công thức:
+$$\text{Tỷ lệ trôi qua (\%)} = \frac{\text{Thời gian hiện tại} - \text{Thời gian Check-in}}{\text{Thời gian Check-out dự kiến} - \text{Thời gian Check-in}} \times 100$$
+
+*   **Thời gian đã trôi qua (Elapsed time)**: Được hiển thị bằng dải màu **Đỏ Rose (`#f43f5e`)** từ đầu thanh đặt phòng tới điểm mốc thời gian hiện tại.
+*   **Thời gian còn lại (Remaining time)**: Được hiển thị bằng dải màu **Xanh Emerald (`#10b981`)** từ điểm hiện tại tới lúc check-out.
+*   **Cảnh báo trễ Check-out (Overdue stay)**: Nếu thời gian hiện tại đã vượt quá giờ check-out dự tính nhưng phòng vẫn chưa làm thủ tục check-out, toàn bộ thanh đặt phòng sẽ tự động chuyển sang màu **Đỏ Rose hoàn toàn (100%)** để báo hiệu cho lễ tân làm thủ tục tính phụ thu trả trễ.
+*   **Font chữ tinh gọn**: Font chữ tên khách hàng lưu trú trên sơ đồ được giảm độ đậm xuống `font-normal text-xs` để tạo cảm giác trang nhã, dễ chịu cho mắt.
+
+---
+
+## 6. KẾ HOẠCH NÂNG CẤP & BẢO TRÌ TÀI LIỆU
 *   Tài liệu này được lưu trữ cố định tại đường dẫn [HOSPITALITY_MODULE.md](file:///Users/fern/Coding/ERP/oni-saas-starter/docs/HOSPITALITY_MODULE.md).
 *   Trong quá trình phát triển mã nguồn, nếu có bất kỳ sự thay đổi nào về tên cột, luồng API hoặc cấu trúc bảng dữ liệu, lập trình viên chịu trách nhiệm triển khai phải cập nhật ngay vào tài liệu này để làm cơ sở bảo trì hệ thống cho doanh nghiệp.
+
