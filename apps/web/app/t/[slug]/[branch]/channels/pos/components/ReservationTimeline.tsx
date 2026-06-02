@@ -50,6 +50,7 @@ interface RoomResource {
   status: string
   zone?: string
   hourly_rate?: string
+  current_order_id?: string
 }
 
 interface ReservationTimelineProps {
@@ -69,6 +70,7 @@ export function ReservationTimeline({
 }: ReservationTimelineProps) {
   const [startDate, setStartDate] = useState<Date>(startOfWeek(new Date(), { weekStartsOn: 1 }))
   const [reservations, setReservations] = useState<Reservation[]>([])
+  const [inProgressOrders, setInProgressOrders] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [selectedRes, setSelectedRes] = useState<Reservation | null>(null)
@@ -134,7 +136,8 @@ export function ReservationTimeline({
   }
 
   const isTrackOccupied = (roomId: string, track: number) => {
-    return reservations.some(r => {
+    const combined = [...reservations, ...virtualReservations]
+    return combined.some(r => {
       if (r.resource_id !== roomId || r.status === 'cancelled') return false
       const checkin = parseDateTime(r.expected_checkin)
       const checkout = parseDateTime(r.expected_checkout)
@@ -142,15 +145,23 @@ export function ReservationTimeline({
       const checkinIdx = getDayIdx(checkin)
       const checkoutIdx = getDayIdx(checkout)
       
-      const checkinTrack = 2 * checkinIdx + 3
-      const checkoutTrack = 2 * checkoutIdx + 2
+      const checkinTrack = 2 * checkinIdx + (checkin.getHours() >= 12 ? 3 : 2)
+      
+      let checkoutTrack: number
+      if (r.id.startsWith('virtual-')) {
+        const currentDayIdx = getDayIdx(new Date())
+        checkoutTrack = 2 * currentDayIdx + (new Date().getHours() >= 12 ? 3 : 2)
+      } else {
+        checkoutTrack = 2 * checkoutIdx + (checkout.getHours() >= 12 ? 3 : 2)
+      }
       
       return track >= checkinTrack && track <= checkoutTrack
     })
   }
 
   const getVisibleReservations = (roomId: string) => {
-    return reservations.filter(r => {
+    const combined = [...reservations, ...virtualReservations]
+    return combined.filter(r => {
       if (r.resource_id !== roomId || r.status === 'cancelled') return false
       const checkin = parseDateTime(r.expected_checkin)
       const checkout = parseDateTime(r.expected_checkout)
@@ -162,15 +173,101 @@ export function ReservationTimeline({
   // Generate 10 days array for the grid columns
   const daysToShow = Array.from({ length: 10 }).map((_, i) => addDays(startDate, i))
 
+  const virtualReservations = React.useMemo(() => {
+    const list: Reservation[] = []
+    allResources.forEach(room => {
+      if (room.status === 'occupied') {
+        // Check if there is already an active checked-in reservation for this room
+        const hasCheckedInResv = reservations.some(r => 
+          r.resource_id === room.id && 
+          r.status === 'checked_in'
+        )
+        
+        if (!hasCheckedInResv) {
+          // Find the in-progress order for this room
+          const activeOrder = inProgressOrders.find(o => {
+            if (room.current_order_id && o.id === room.current_order_id) return true
+            try {
+              const meta = typeof o.metadata === 'string' ? JSON.parse(o.metadata) : (o.metadata || {})
+              return meta.resource_id === room.id
+            } catch {
+              return false
+            }
+          })
+          
+          let checkInDate = new Date()
+          let orderNo = ''
+          let customerName = 'Khách vãng lai (Walk-in)'
+          let orderId = 'unknown'
+          let orderNote = 'Phòng đang sử dụng trực tiếp tại POS (Walk-in)'
+          
+          if (activeOrder) {
+            orderId = activeOrder.id
+            orderNo = activeOrder.order_no || activeOrder.id.slice(-6)
+            customerName = activeOrder.customer_name || 'Khách vãng lai (Walk-in)'
+            
+            try {
+              const meta = typeof activeOrder.metadata === 'string' ? JSON.parse(activeOrder.metadata) : (activeOrder.metadata || {})
+              if (meta.check_in) {
+                checkInDate = new Date(meta.check_in)
+              } else if (meta.check_in_time) {
+                checkInDate = new Date(activeOrder.created_at)
+                const [hh, mm] = meta.check_in_time.split(':').map(Number)
+                checkInDate.setHours(hh, mm, 0, 0)
+              } else {
+                checkInDate = new Date(activeOrder.created_at)
+              }
+              if (meta.note) {
+                orderNote = meta.note
+              }
+            } catch {
+              checkInDate = new Date(activeOrder.created_at)
+            }
+          } else {
+            // Fallback: 2 hours ago
+            checkInDate = new Date(Date.now() - 2 * 60 * 60 * 1000)
+          }
+          
+          list.push({
+            id: `virtual-${room.id}-${orderId}`,
+            reservation_no: orderNo ? `#${orderNo}` : `POS-${room.id.slice(-4)}`,
+            customer_id: 'walk-in',
+            customer_name: customerName,
+            customer_phone: '',
+            channel_id: 'direct',
+            expected_checkin: checkInDate.toISOString(),
+            expected_checkout: new Date().toISOString(), // end at NOW
+            resource_id: room.id,
+            num_guests: 1,
+            daily_rate: room.hourly_rate || '0',
+            deposit_amount: '0',
+            status: 'checked_in',
+            note: orderNote
+          })
+        }
+      }
+    })
+    return list
+  }, [allResources, reservations, inProgressOrders])
+
   const fetchReservations = async () => {
     setLoading(true)
     try {
-      const res = await fetch(`/api/shops/${shopId}/reservations?limit=100&t=${Date.now()}`)
-      if (!res.ok) throw new Error()
-      const data = await res.json()
-      setReservations(data.data || [])
+      const [resResv, resOrders] = await Promise.all([
+        fetch(`/api/shops/${shopId}/reservations?limit=100&t=${Date.now()}`),
+        fetch(`/api/shops/${shopId}/orders?status=in_progress&limit=100&t=${Date.now()}`)
+      ])
+      
+      if (!resResv.ok) throw new Error()
+      const dataResv = await resResv.json()
+      setReservations(dataResv.data || [])
+
+      if (resOrders.ok) {
+        const dataOrders = await resOrders.json()
+        setInProgressOrders(dataOrders.data || [])
+      }
     } catch {
-      toast.error('Lỗi khi tải danh sách đặt phòng')
+      toast.error('Lỗi khi tải dữ liệu sơ đồ đặt phòng')
     } finally {
       setLoading(false)
     }
@@ -187,8 +284,15 @@ export function ReservationTimeline({
           const data = await res.json()
           setReservations(data.data || [])
         })
+      const fetchOrdersPromise = fetch(`/api/shops/${shopId}/orders?status=in_progress&limit=100&t=${Date.now()}`)
+        .then(async (res) => {
+          if (res.ok) {
+            const data = await res.json()
+            setInProgressOrders(data.data || [])
+          }
+        })
 
-      await Promise.all([fetchRoomsPromise, fetchResPromise])
+      await Promise.all([fetchRoomsPromise, fetchResPromise, fetchOrdersPromise])
       toast.success('Đã cập nhật sơ đồ đặt phòng mới nhất!')
     } catch {
       toast.error('Lỗi khi làm mới sơ đồ đặt phòng')
@@ -340,6 +444,9 @@ export function ReservationTimeline({
 
   // Get status label badge styles
   const getStatusBadgeClass = (status: string) => {
+    if (selectedRes && selectedRes.id.startsWith('virtual-')) {
+      return 'bg-rose-100 text-rose-800 border-rose-200'
+    }
     switch (status) {
       case 'checked_in': return 'bg-emerald-100 text-emerald-800 border-emerald-200'
       case 'confirmed': return 'bg-blue-100 text-blue-800 border-blue-200'
@@ -350,6 +457,9 @@ export function ReservationTimeline({
   }
 
   const getStatusIcon = (status: string) => {
+    if (selectedRes && selectedRes.id.startsWith('virtual-')) {
+      return <CheckCircle2 className="w-3.5 h-3.5 text-rose-500 animate-pulse" />
+    }
     switch (status) {
       case 'checked_in': return <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
       case 'confirmed': return <CalendarCheck className="w-3.5 h-3.5 text-blue-500" />
@@ -360,6 +470,9 @@ export function ReservationTimeline({
   }
 
   const getStatusTextLabel = (status: string) => {
+    if (selectedRes && selectedRes.id.startsWith('virtual-')) {
+      return 'Đang ở (POS Walk-in)'
+    }
     switch (status) {
       case 'checked_in': return 'Đang ở (In-house)'
       case 'confirmed': return 'Xác nhận (Confirmed)'
@@ -444,197 +557,291 @@ export function ReservationTimeline({
       <div className="flex-1 overflow-x-auto">
         <div className="min-w-[1000px] relative">
           {/* Header Row: Days */}
-          <div 
-            className="border-b border-slate-100 bg-slate-50 text-slate-500 font-bold text-xs"
-            style={{ display: 'grid', gridTemplateColumns: '120px repeat(20, minmax(0, 1fr))' }}
-          >
-            <div className="p-3 border-r border-slate-100 text-slate-800 text-center" style={{ gridColumn: '1 / span 1', gridRow: '1' }}>Phòng</div>
-            {daysToShow.map((date, idx) => (
+          {(() => {
+            const currentDayIdx = getDayIdx(new Date())
+            const isNowVisible = currentDayIdx >= 0 && currentDayIdx < 10
+            return (
               <div 
-                key={idx} 
-                className="p-3 text-center border-r border-slate-100 flex flex-col justify-center items-center"
-                style={{ gridColumn: `${2 * idx + 2} / span 2`, gridRow: '1' }}
-              >
-                <span className="uppercase text-[10px] text-slate-400 font-extrabold">{format(date, 'eee', { locale: vi })}</span>
-                <span className="text-sm text-slate-800 mt-0.5">{format(date, 'dd/MM')}</span>
-              </div>
-            ))}
-
-            {/* Vertical NOW Indicator on Header */}
-            {getDayIdx(new Date()) >= 0 && getDayIdx(new Date()) < 10 && (
-              <div 
+                className="border-b border-slate-100 bg-slate-50 text-slate-500 font-bold text-xs"
                 style={{ 
-                  gridColumn: `${2 * getDayIdx(new Date()) + (new Date().getHours() >= 12 ? 3 : 2)}`,
-                  gridRow: '1',
-                  pointerEvents: 'none'
+                  display: 'grid', 
+                  gridTemplateColumns: '120px repeat(20, minmax(0, 1fr))',
+                  gridTemplateRows: isNowVisible ? '20px auto' : 'auto'
                 }}
-                className="border-l-2 border-red-500/80 z-20 h-full relative"
               >
-                <span className="absolute top-2.5 -left-3.5 bg-red-500 text-white font-extrabold text-[8px] px-1 py-0.5 rounded shadow-sm">
-                  NOW
-                </span>
+                <div 
+                  className="p-3 border-r border-slate-100 text-slate-800 text-center flex items-center justify-center" 
+                  style={{ 
+                    gridColumn: '1 / span 1', 
+                    gridRow: isNowVisible ? '1 / span 2' : '1 / span 1' 
+                  }}
+                >
+                  Phòng
+                </div>
+                {daysToShow.map((date, idx) => (
+                  <div 
+                    key={idx} 
+                    className="p-3 text-center border-r border-slate-100 flex flex-col justify-center items-center animate-in fade-in duration-200"
+                    style={{ 
+                      gridColumn: `${2 * idx + 2} / span 2`, 
+                      gridRow: isNowVisible ? '2 / span 1' : '1 / span 1' 
+                    }}
+                  >
+                    <span className="uppercase text-[10px] text-slate-400 font-extrabold">{format(date, 'eee', { locale: vi })}</span>
+                    <span className="text-sm text-slate-800 mt-0.5">{format(date, 'dd/MM')}</span>
+                  </div>
+                ))}
+
+                {/* Vertical NOW Indicator on Header */}
+                {isNowVisible && (
+                  <div 
+                    style={{ 
+                      gridColumn: `${2 * currentDayIdx + (new Date().getHours() >= 12 ? 3 : 2)}`,
+                      gridRow: '1 / span 1',
+                      pointerEvents: 'none'
+                    }}
+                    className="z-20 h-full relative"
+                  >
+                    <span className="absolute top-1 -left-3.5 bg-rose-500 text-white font-extrabold text-[8px] px-1 py-0.5 rounded shadow-sm z-30">
+                      NOW
+                    </span>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            )
+          })()}
 
-          {/* Body Rows: Rooms & Blocks */}
-          <div className="divide-y divide-slate-100">
-            {filteredResources.map(room => {
-              const currentDayIdx = getDayIdx(new Date())
-              const showNowIndicator = currentDayIdx >= 0 && currentDayIdx < 10
-              const nowTrack = showNowIndicator ? 2 * currentDayIdx + (new Date().getHours() >= 12 ? 3 : 2) : 0
-
-              const isOccupiedNow = room.status === 'occupied' || reservations.some(r => {
-                if (r.resource_id !== room.id || r.status === 'cancelled') return false
-                const checkin = parseDateTime(r.expected_checkin)
-                const checkout = parseDateTime(r.expected_checkout)
-                const now = new Date()
-                return now >= checkin && now <= checkout && r.status === 'checked_in'
+          {/* Body Rows: Rooms & Blocks grouped by zone */}
+          <div className="divide-y divide-slate-100 bg-white">
+            {(() => {
+              // 1. Group resources by zone
+              const grouped: Record<string, RoomResource[]> = {}
+              filteredResources.forEach(room => {
+                const zoneName = room.zone || 'Khu vực khác'
+                if (!grouped[zoneName]) grouped[zoneName] = []
+                grouped[zoneName].push(room)
               })
 
-              return (
-                <div key={room.id} className="items-stretch min-h-[64px]" style={{ display: 'grid', gridTemplateColumns: '120px repeat(20, minmax(0, 1fr))' }}>
-                  {/* Room Info Cell */}
-                  <div className="p-3 bg-slate-50/30 border-r border-slate-100 font-bold text-slate-800 text-sm flex flex-col justify-center items-center" style={{ gridColumn: '1 / span 1', gridRow: '1' }}>
-                    <div className="flex items-center gap-1.5 justify-center">
-                      <span>{room.name}</span>
-                      <span 
-                        className={`w-2 h-2 rounded-full block shadow-sm ${
-                          isOccupiedNow 
-                            ? 'bg-rose-500 animate-pulse' 
-                            : 'bg-emerald-500'
-                        }`} 
-                        title={isOccupiedNow ? 'Đang sử dụng' : 'Sẵn sàng'}
-                      />
+              // 2. Render each group with a beautiful compact divider
+              return Object.entries(grouped).map(([zoneName, rooms]) => (
+                <React.Fragment key={zoneName}>
+                  {/* Zone Separator Row */}
+                  <div 
+                    className="bg-slate-50/80 border-y border-slate-100 text-slate-500 font-extrabold text-[9px] uppercase tracking-wider py-1.5 px-3 flex items-center select-none animate-in fade-in duration-200"
+                    style={{ display: 'grid', gridTemplateColumns: '120px repeat(20, minmax(0, 1fr))' }}
+                  >
+                    <div className="text-left font-bold" style={{ gridColumn: '1 / span 21' }}>
+                      {zoneName}
                     </div>
-                    {room.zone && <span className="text-[10px] font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full mt-1">{room.zone}</span>}
-                    {room.status === 'dirty' && (
-                      <span className="text-[9px] font-extrabold bg-amber-50 text-amber-700 border border-amber-100 px-2 py-0.5 rounded-full mt-1 flex items-center gap-1">
-                        <span className="w-1 h-1 rounded-full bg-amber-500 block" />
-                        CẦN DỌN
-                      </span>
-                    )}
                   </div>
 
-                  {/* Thin vertical NOW line for this row */}
-                  {showNowIndicator && (
-                    <div 
-                      style={{ gridColumn: `${nowTrack}`, gridRow: '1', pointerEvents: 'none' }}
-                      className="border-l border-red-500/40 z-20 h-full"
-                    />
-                  )}
+                  {rooms.map(room => {
+                    const currentDayIdx = getDayIdx(new Date())
+                    const showNowIndicator = currentDayIdx >= 0 && currentDayIdx < 10
+                    const nowTrack = showNowIndicator ? 2 * currentDayIdx + (new Date().getHours() >= 12 ? 3 : 2) : 0
 
-                  {/* 1. Render Reservation Blocks */}
-                  {getVisibleReservations(room.id).map(resv => {
-                    const checkin = parseDateTime(resv.expected_checkin)
-                    const checkout = parseDateTime(resv.expected_checkout)
-                    
-                    const gridColStart = Math.max(2, 2 * getDayIdx(checkin) + 3)
-                    const gridColEnd = Math.min(22, 2 * getDayIdx(checkout) + 3)
-                    const duration = Math.max(1, differenceInCalendarDays(checkout, checkin))
-
-                    let blockBg = 'bg-blue-500 text-white hover:bg-blue-600'
-                    let blockStyle: React.CSSProperties = {}
-
-                    if (resv.status === 'checked_in') {
-                      blockBg = 'text-white hover:opacity-95'
-                      const checkinTime = checkin.getTime()
-                      const checkoutTime = checkout.getTime()
-                      const nowTime = Date.now()
-                      
-                      if (nowTime > checkinTime && nowTime < checkoutTime) {
-                        const pct = ((nowTime - checkinTime) / (checkoutTime - checkinTime)) * 100
-                        blockStyle = {
-                          background: `linear-gradient(to right, #f43f5e ${pct}%, #10b981 ${pct}%)`
-                        }
-                      } else if (nowTime >= checkoutTime) {
-                        blockStyle = {
-                          backgroundColor: '#f43f5e' // Overdue checkout
-                        }
-                      } else {
-                        blockStyle = {
-                          backgroundColor: '#10b981' // Checked in but stay hasn't hit checkin date yet
-                        }
-                      }
-                    }
-                    if (resv.status === 'pending_deposit') blockBg = 'bg-amber-500 text-slate-900 hover:bg-amber-600'
-                    if (resv.status === 'no_show') blockBg = 'bg-red-500 text-white hover:bg-red-600'
+                    const isOccupiedNow = room.status === 'occupied' || reservations.some(r => {
+                      if (r.resource_id !== room.id || r.status === 'cancelled') return false
+                      const checkin = parseDateTime(r.expected_checkin)
+                      const checkout = parseDateTime(r.expected_checkout)
+                      const now = new Date()
+                      return now >= checkin && now <= checkout && r.status === 'checked_in'
+                    })
 
                     return (
-                      <div 
-                        key={resv.id} 
-                        style={{ gridColumn: `${gridColStart} / ${gridColEnd}`, gridRow: '1', ...blockStyle }}
-                        onClick={() => setSelectedRes(resv)}
-                        className={`p-1.5 cursor-pointer z-10 flex flex-col justify-center rounded-xl m-1.5 transition-all shadow-md active:scale-95 ${blockBg}`}
-                      >
-                        <span className="text-xs font-normal truncate">{resv.customer_name}</span>
-                        <span className="text-[9px] font-bold opacity-80 truncate">
-                          {getChannelLabel(resv.channel_id)} • {duration}đêm
-                        </span>
-                        {resv.status === 'checked_in' && (
-                          <span className="text-[8px] font-medium bg-emerald-600/30 text-white px-1.5 py-0.5 rounded-full mt-0.5 w-fit flex items-center gap-1 animate-pulse">
-                            <span className="w-1 h-1 rounded-full bg-white block animate-ping" />
-                            Đang ở (Từ {format(checkin, 'HH:mm dd/MM')})
-                          </span>
+                      <div key={room.id} className="items-stretch min-h-[48px]" style={{ display: 'grid', gridTemplateColumns: '120px repeat(20, minmax(0, 1fr))' }}>
+                        {/* Room Info Cell */}
+                        <div className="p-2 bg-slate-50/20 border-r border-slate-100 font-bold text-slate-800 text-xs flex flex-col justify-center items-center animate-in fade-in duration-200" style={{ gridColumn: '1 / span 1', gridRow: '1' }}>
+                          <div className="flex items-center gap-1.5 justify-center">
+                            <span>{room.name}</span>
+                            <span 
+                              className={`w-1.5 h-1.5 rounded-full block shadow-sm ${
+                                isOccupiedNow 
+                                  ? 'bg-rose-500 animate-pulse' 
+                                  : 'bg-emerald-500'
+                              }`} 
+                              title={isOccupiedNow ? 'Đang sử dụng' : 'Sẵn sàng'}
+                            />
+                          </div>
+                          {room.status === 'dirty' && (
+                            <span className="text-[8px] font-extrabold bg-amber-50 text-amber-700 border border-amber-100/50 px-1.5 py-0.5 rounded-full mt-1 flex items-center gap-1 leading-none">
+                              <span className="w-1 h-1 rounded-full bg-amber-500 block" />
+                              CẦN DỌN
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Thin vertical NOW line for this row - softer dashed line */}
+                        {showNowIndicator && (
+                          <div 
+                            style={{ gridColumn: `${nowTrack}`, gridRow: '1', pointerEvents: 'none' }}
+                            className="border-l border-dashed border-rose-500/35 z-0 h-full w-[1px]"
+                          />
                         )}
+
+                        {/* 1. Render Reservation Blocks */}
+                        {getVisibleReservations(room.id).map(resv => {
+                          const checkin = parseDateTime(resv.expected_checkin)
+                          const checkout = parseDateTime(resv.expected_checkout)
+                          
+                          const isVirtual = resv.id.startsWith('virtual-')
+                          
+                          const checkinTrack = 2 * getDayIdx(checkin) + (checkin.getHours() >= 12 ? 3 : 2)
+                          const gridColStart = Math.max(2, checkinTrack)
+                          
+                          let gridColEnd: number
+                          if (isVirtual) {
+                            gridColEnd = Math.max(gridColStart + 1, Math.min(22, nowTrack))
+                          } else {
+                            const checkoutTrack = 2 * getDayIdx(checkout) + (checkout.getHours() >= 12 ? 3 : 2)
+                            gridColEnd = Math.min(22, checkoutTrack)
+                          }
+                          
+                          const duration = Math.max(1, differenceInCalendarDays(checkout, checkin))
+
+                          let blockBg = 'bg-blue-500 text-white hover:bg-blue-600'
+                          let blockStyle: React.CSSProperties = {}
+
+                          if (isVirtual) {
+                            blockBg = 'text-white animate-pulse shadow-md hover:opacity-95'
+                            blockStyle = {
+                              background: 'linear-gradient(135deg, #f43f5e 0%, #e11d48 100%)',
+                              boxShadow: '0 2px 8px rgba(244, 63, 94, 0.15)'
+                            }
+                          } else if (resv.status === 'checked_in') {
+                            blockBg = 'text-white hover:opacity-95'
+                            const checkinTime = checkin.getTime()
+                            const checkoutTime = checkout.getTime()
+                            const nowTime = Date.now()
+                            
+                            if (nowTime > checkinTime && nowTime < checkoutTime) {
+                              const pct = ((nowTime - checkinTime) / (checkoutTime - checkinTime)) * 100
+                              blockStyle = {
+                                background: `linear-gradient(to right, #f43f5e ${pct}%, #10b981 ${pct}%)`
+                              }
+                            } else if (nowTime >= checkoutTime) {
+                              blockStyle = {
+                                backgroundColor: '#f43f5e'
+                              }
+                            } else {
+                              blockStyle = {
+                                backgroundColor: '#10b981'
+                              }
+                            }
+                          }
+                          if (resv.status === 'pending_deposit') blockBg = 'bg-amber-500 text-slate-900 hover:bg-amber-600'
+                          if (resv.status === 'no_show') blockBg = 'bg-red-500 text-white hover:bg-red-600'
+
+                          const isSmallBlock = (gridColEnd - gridColStart) <= 2
+
+                          return (
+                            <div 
+                              key={resv.id} 
+                              style={{ gridColumn: `${gridColStart} / ${gridColEnd}`, gridRow: '1', ...blockStyle }}
+                              onClick={() => setSelectedRes(resv)}
+                              className={`p-1 cursor-pointer z-10 flex flex-col justify-center items-center rounded-xl my-1 ml-1 transition-all shadow-sm active:scale-95 relative group hover:z-30 ${
+                                isVirtual ? 'mr-0 rounded-r-none' : 'mr-1'
+                              } ${blockBg}`}
+                            >
+                              {/* Premium hover Tooltip - Light Glassmorphism with arrow pointing up */}
+                              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 hidden group-hover:block z-50 w-56 bg-white/95 backdrop-blur-[6px] text-slate-800 text-[11px] p-2.5 rounded-xl shadow-xl pointer-events-none border border-slate-200/80 animate-in fade-in slide-in-from-top-1 duration-150 text-left">
+                                <div className="font-bold text-xs mb-1 truncate text-slate-900">{resv.customer_name}</div>
+                                <div className="space-y-0.5 opacity-90 text-slate-600">
+                                  <div>Kênh: <span className="font-bold text-slate-900">{isVirtual ? 'POS (Phục vụ trực tiếp)' : getChannelLabel(resv.channel_id)}</span></div>
+                                  <div>Bắt đầu: <span className="font-bold text-slate-900">{format(checkin, 'dd/MM HH:mm')}</span></div>
+                                  <div>Kết thúc: <span className="font-bold text-slate-900">{isVirtual ? 'Chưa xác định' : format(checkout, 'dd/MM HH:mm')}</span></div>
+                                </div>
+                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 -mb-1.5 border-4 border-transparent border-b-white/95" />
+                              </div>
+
+                              {!isSmallBlock ? (
+                                <>
+                                  <span className="text-xs font-normal truncate w-full text-left">{resv.customer_name}</span>
+                                  <span className="text-[9px] font-normal opacity-75 truncate w-full text-left">
+                                    {isVirtual 
+                                      ? `Khách trực tiếp • POS` 
+                                      : `${getChannelLabel(resv.channel_id)} • ${duration}đêm`
+                                    }
+                                  </span>
+                                  {resv.status === 'checked_in' && (
+                                    <span className={`text-[8px] font-medium px-1.5 py-0.5 rounded-full mt-0.5 w-fit flex items-center gap-1 animate-pulse ${
+                                      isVirtual ? 'bg-rose-600/30 text-white' : 'bg-emerald-600/30 text-white'
+                                    }`}>
+                                      <span className="w-1 h-1 rounded-full bg-white block animate-ping" />
+                                      Đang ở (Từ {format(checkin, 'HH:mm dd/MM')})
+                                    </span>
+                                  )}
+                                </>
+                              ) : (
+                                <span className={`w-1.5 h-1.5 rounded-full bg-white/80 ${resv.status === 'checked_in' ? 'animate-pulse' : ''}`} />
+                              )}
+                            </div>
+                          )
+                        })}
+
+                        {/* 2. Render Empty/Clickable Cells */}
+                        {daysToShow.map((date, dayIdx) => {
+                          const isAmOccupied = isTrackOccupied(room.id, 2 * dayIdx + 2)
+                          const isPmOccupied = isTrackOccupied(room.id, 2 * dayIdx + 3)
+
+                          if (!isAmOccupied && !isPmOccupied) {
+                            return (
+                              <div 
+                                key={`free-${dayIdx}`}
+                                onClick={() => handleCellClick(room.id, date)}
+                                style={{ gridColumn: `${2 * dayIdx + 2} / span 2`, gridRow: '1' }}
+                                className="border-r border-slate-100 hover:bg-primary/5 transition-colors cursor-pointer flex items-center justify-center text-slate-300 font-light text-base select-none"
+                              >
+                                +
+                              </div>
+                            )
+                          }
+
+                          if (isAmOccupied && !isPmOccupied) {
+                            return (
+                              <div 
+                                key={`free-pm-${dayIdx}`}
+                                onClick={() => handleCellClick(room.id, date)}
+                                style={{ gridColumn: `${2 * dayIdx + 3}`, gridRow: '1' }}
+                                className="border-r border-slate-100 hover:bg-primary/5 transition-colors cursor-pointer flex items-center justify-center text-slate-300 font-light text-base select-none"
+                              >
+                                +
+                              </div>
+                            )
+                          }
+
+                          if (!isAmOccupied && isPmOccupied) {
+                            return (
+                              <div 
+                                key={`free-am-${dayIdx}`}
+                                style={{ gridColumn: `${2 * dayIdx + 2}`, gridRow: '1' }}
+                                className="border-r border-slate-100 bg-slate-50/20"
+                              />
+                            )
+                          }
+
+                          return null
+                        })}
                       </div>
                     )
                   })}
-
-                  {/* 2. Render Empty/Clickable Cells */}
-                  {daysToShow.map((date, dayIdx) => {
-                    const isAmOccupied = isTrackOccupied(room.id, 2 * dayIdx + 2)
-                    const isPmOccupied = isTrackOccupied(room.id, 2 * dayIdx + 3)
-
-                    if (!isAmOccupied && !isPmOccupied) {
-                      return (
-                        <div 
-                          key={`free-${dayIdx}`}
-                          onClick={() => handleCellClick(room.id, date)}
-                          style={{ gridColumn: `${2 * dayIdx + 2} / span 2`, gridRow: '1' }}
-                          className="border-r border-slate-100 hover:bg-primary/5 transition-colors cursor-pointer flex items-center justify-center text-slate-300 font-light text-base select-none"
-                        >
-                          +
-                        </div>
-                      )
-                    }
-
-                    if (isAmOccupied && !isPmOccupied) {
-                      return (
-                        <div 
-                          key={`free-pm-${dayIdx}`}
-                          onClick={() => handleCellClick(room.id, date)}
-                          style={{ gridColumn: `${2 * dayIdx + 3}`, gridRow: '1' }}
-                          className="border-r border-slate-100 hover:bg-primary/5 transition-colors cursor-pointer flex items-center justify-center text-slate-300 font-light text-base select-none"
-                        >
-                          +
-                        </div>
-                      )
-                    }
-
-                    if (!isAmOccupied && isPmOccupied) {
-                      return (
-                        <div 
-                          key={`free-am-${dayIdx}`}
-                          style={{ gridColumn: `${2 * dayIdx + 2}`, gridRow: '1' }}
-                          className="border-r border-slate-100 bg-slate-50/20"
-                        />
-                      )
-                    }
-
-                    return null
-                  })}
-                </div>
-              )
-            })}
+                </React.Fragment>
+              ))
+            })()}
           </div>
         </div>
       </div>
 
       {/* Reservation Detail Modal */}
       {selectedRes && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl p-6 border border-slate-100 animate-in fade-in zoom-in-95 duration-200">
+        <div 
+          onClick={() => setSelectedRes(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-3xl max-w-md w-full shadow-2xl p-6 border border-slate-100 animate-in fade-in zoom-in-95 duration-200"
+          >
             <div className="flex justify-between items-start mb-4">
               <div>
                 <span className={`text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-full border flex items-center gap-1 shadow-sm ${getStatusBadgeClass(selectedRes.status)}`}>
@@ -664,7 +871,7 @@ export function ReservationTimeline({
               )}
               <div className="flex justify-between">
                 <span className="font-medium">Kênh đặt phòng:</span>
-                <span className="font-bold text-slate-800">{getChannelLabel(selectedRes.channel_id)}</span>
+                <span className="font-bold text-slate-800">{selectedRes.id.startsWith('virtual-') ? 'POS (Phục vụ trực tiếp)' : getChannelLabel(selectedRes.channel_id)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="font-medium">Giờ Check-in dự kiến:</span>
@@ -672,10 +879,15 @@ export function ReservationTimeline({
               </div>
               <div className="flex justify-between">
                 <span className="font-medium">Giờ Check-out dự kiến:</span>
-                <span className="font-bold text-slate-800">{format(parseDateTime(selectedRes.expected_checkout), 'dd/MM/yyyy HH:mm')}</span>
+                <span className="font-bold text-slate-800">
+                  {selectedRes.id.startsWith('virtual-') 
+                    ? 'Theo giờ / Linh hoạt (POS)' 
+                    : format(parseDateTime(selectedRes.expected_checkout), 'dd/MM/yyyy HH:mm')
+                  }
+                </span>
               </div>
               <div className="flex justify-between border-t border-dashed border-slate-100 pt-3">
-                <span className="font-medium">Giá phòng/Đêm:</span>
+                <span className="font-medium">{selectedRes.id.startsWith('virtual-') ? 'Đơn giá phòng:' : 'Giá phòng/Đêm:'}</span>
                 <span className="font-bold text-slate-800">{Number(selectedRes.daily_rate).toLocaleString('vi-VN')}₫</span>
               </div>
               <div className="flex justify-between">
@@ -691,20 +903,31 @@ export function ReservationTimeline({
             </div>
 
             <div className="flex gap-2">
-              {selectedRes.status !== 'checked_in' && (
-                <button
-                  onClick={() => handleCheckIn(selectedRes)}
-                  className="flex-1 py-3 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-xl transition-all shadow-md shadow-emerald-200 flex items-center justify-center gap-1.5"
+              {selectedRes.id.startsWith('virtual-') ? (
+                <a
+                  href={`/t/${slug}/${branch}/channels/pos`}
+                  className="flex-1 py-3 bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold rounded-xl transition-all shadow-md shadow-rose-200 flex items-center justify-center gap-1.5"
                 >
-                  <Check className="w-4 h-4" /> Nhận phòng (Check-in)
-                </button>
+                  <Calendar className="w-4 h-4" /> Quản lý hóa đơn tại POS
+                </a>
+              ) : (
+                <>
+                  {selectedRes.status !== 'checked_in' && (
+                    <button
+                      onClick={() => handleCheckIn(selectedRes)}
+                      className="flex-1 py-3 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-xl transition-all shadow-md shadow-emerald-200 flex items-center justify-center gap-1.5"
+                    >
+                      <Check className="w-4 h-4" /> Nhận phòng (Check-in)
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleCancelReservation(selectedRes.id)}
+                    className="py-3 px-4 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-bold rounded-xl transition-colors border border-red-100 flex items-center justify-center gap-1"
+                  >
+                    <XCircle className="w-3.5 h-3.5" /> Hủy đặt phòng
+                  </button>
+                </>
               )}
-              <button
-                onClick={() => handleCancelReservation(selectedRes.id)}
-                className="py-3 px-4 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-bold rounded-xl transition-colors border border-red-100 flex items-center justify-center gap-1"
-              >
-                <XCircle className="w-3.5 h-3.5" /> Hủy đặt phòng
-              </button>
             </div>
           </div>
         </div>
@@ -712,8 +935,15 @@ export function ReservationTimeline({
 
       {/* Creation Modal */}
       {createModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <form onSubmit={handleCreateReservation} className="relative bg-white rounded-3xl max-w-md w-full shadow-2xl p-6 border border-slate-100 space-y-4 animate-in fade-in zoom-in-95 duration-200">
+        <div 
+          onClick={() => !submitting && setCreateModalOpen(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+        >
+          <form 
+            onSubmit={handleCreateReservation}
+            onClick={(e) => e.stopPropagation()}
+            className="relative bg-white rounded-3xl max-w-md w-full shadow-2xl p-6 border border-slate-100 space-y-4 animate-in fade-in zoom-in-95 duration-200"
+          >
             {submitting && (
               <div className="absolute inset-0 bg-white/80 backdrop-blur-[2px] z-50 flex flex-col items-center justify-center rounded-3xl animate-in fade-in duration-200">
                 <div className="flex flex-col items-center gap-3">
