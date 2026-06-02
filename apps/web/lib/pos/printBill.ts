@@ -307,11 +307,39 @@ ${items
   })
   .join('')}
 </table>
-<div class="sep"></div>
 <table>
 <tr><td>${isBilingual ? 'Tạm tính / Subtotal:' : 'Tạm tính:'}</td><td class="r">${fmtVND(subtotal)}</td></tr>
 ${discount > 0 ? `<tr><td>${isBilingual ? 'Giảm giá / Discount:' : 'Giảm giá:'}</td><td class="r">-${fmtVND(discount)}</td></tr>` : ''}
-<tr class="total-row"><td>${isBilingual ? 'TỔNG CỘNG / TOTAL:' : 'TỔNG CỘNG:'}</td><td class="r">${fmtVND(total)}</td></tr>
+
+${(() => {
+  const deposit = Number(orderMeta?.deposit_amount || 0)
+  const isOtaCollect = orderMeta?.payment_flow === 'OTA_COLLECT'
+  const otaAgency = orderMeta?.booking_channel_id || 'OTA'
+  
+  // Find F&B/Minibar room item totals to subtract if OTA prepaid room fee
+  let otaPrepaidAmount = 0
+  if (isOtaCollect) {
+    const roomFeeItem = items.find(it => it.product_id === 'TIME_CHARGE' || it.product_name.includes('Tiền phòng'))
+    otaPrepaidAmount = Number(roomFeeItem?.line_total || 0)
+  }
+
+  let rows = ''
+  if (deposit > 0) {
+    rows += `<tr><td>${isBilingual ? 'Đã đặt cọc / Deposit:' : 'Đã đặt cọc:'}</td><td class="r">-${fmtVND(deposit)}</td></tr>`
+  }
+  if (otaPrepaidAmount > 0) {
+    rows += `<tr><td>${isBilingual ? `Đã trả qua ${otaAgency} / Paid via ${otaAgency}:` : `Đã trả qua ${otaAgency}:`}</td><td class="r">-${fmtVND(otaPrepaidAmount)}</td></tr>`
+  }
+
+  const finalDue = Math.max(0, total - deposit - otaPrepaidAmount)
+  
+  rows += `<tr class="total-row"><td>${isBilingual ? 'TỔNG CỘNG / TOTAL:' : 'TỔNG CỘNG:'}</td><td class="r">${fmtVND(total)}</td></tr>`
+  
+  if (deposit > 0 || otaPrepaidAmount > 0) {
+    rows += `<tr class="total-row" style="color: #059669;"><td>${isBilingual ? 'THỰC THU TẠI QUẦY / REMAINING DUE:' : 'THỰC THU TẠI QUẦY:'}</td><td class="r">${fmtVND(finalDue)}</td></tr>`
+  }
+  return rows
+})()}
 </table>
 <div class="sep"></div>
 <table>

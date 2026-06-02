@@ -48,6 +48,12 @@ const ENTITY_PREFIXES: Record<string, string> = {
   'warehouses':                  'WH',
   'sepay-webhook-logs':          'SWL',
   'customer-branch-stats':       'CBS',
+  'reservations':               'RSV',
+  'minibar-setup':              'MBS',
+  'room-minibar-stock':         'RMS',
+  'housekeeping-logs':          'HKL',
+  'ota-bookings':               'OTA',
+  'booking-channels':           'BC',
 }
 
 // Shared pool cache to avoid creating a new pool per request
@@ -122,6 +128,7 @@ export class PostgresConnector implements IDataConnector {
     'user-departments',
     'asset-allocations',
     'asset_allocations',
+    'qr-session-carts',
   ]
 
   private readonly LEGACY_ID_MAP: Record<string, string> = {
@@ -162,6 +169,12 @@ export class PostgresConnector implements IDataConnector {
     'asset-depreciations':        'depreciation_id',
     'cost-allocation-templates':  'template_id',
     'warehouses':                 'warehouse_id',
+    'reservations':               'reservation_id',
+    'minibar-setup':              'setup_id',
+    'room-minibar-stock':         'stock_id',
+    'housekeeping-logs':          'log_id',
+    'ota-bookings':               'booking_id',
+    'booking-channels':           'channel_id',
   }
 
   private async generateSequentialId(entity: string): Promise<string> {

@@ -41,7 +41,9 @@ import {
   Sliders,
   HelpCircle,
   Trash2,
-  Truck
+  Truck,
+  CalendarCheck,
+  BedDouble
 } from 'lucide-react';
 
 export interface NavItem {
@@ -203,6 +205,7 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
       label: 'Bán hàng',
       items: [
         { href: joinPath(base, '/channels/pos'), label: vertical.posLabel || 'Bán tại quầy', icon: Store,      permission: 'pos.use', highlight: true },
+        { href: joinPath(base, '/reservations'), label: 'Đặt phòng trước', icon: CalendarCheck, permission: 'orders.view', featureGate: 'reservation' },
         { href: joinPath(base, '/orders'),   label: 'Đơn hàng',      icon: ShoppingBag, permission: 'orders.view' },
         { href: joinPath(base, '/returns'),  label: 'Đơn trả hàng',  icon: Undo2,    permission: 'returns.view' },
         { href: joinPath(base, '/customers'), label: 'Khách hàng',   icon: Users,     permission: 'customers.view' },
@@ -229,6 +232,7 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
     {
       label: 'Vận hành',
       items: [
+        { href: joinPath(base, '/housekeeping'), label: 'Buồng phòng & Minibar', icon: BedDouble, permission: 'inventory.view', featureGate: 'location_resource' },
         { href: joinPath(base, '/inventory'), label: 'Kho',             icon: Warehouse, permission: 'inventory.view' },
         // Tạm thời comment Vận chuyển vì chưa implement
         // { href: joinPath(base, '/shipping'),  label: 'Vận chuyển',      icon: Truck,     permission: 'shipping.view' },

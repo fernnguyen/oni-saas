@@ -34,6 +34,8 @@ export const orders = mysqlTable('orders', {
   reference_no: varchar('reference_no', { length: 255 }),
   print_count: varchar('print_count', { length: 10 }),
   resource_id: varchar('resource_id', { length: 255 }),
+  booking_channel_id: varchar('booking_channel_id', { length: 255 }),
+  override_reason: text('override_reason'),
   metadata: json('metadata'),
 });
 
@@ -595,4 +597,103 @@ export const customer_branch_stats = mysqlTable('customer_branch_stats', {
   idxBranch: index('idx_cbs_branch').on(table.branch_id),
   idxCustomerBranch: index('idx_cbs_customer_branch').on(table.customer_id, table.branch_id),
 }));
+
+// ── Bảng Đặt phòng / Giữ chỗ trước (Reservations Table)
+export const reservations = mysqlTable('reservations', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  reservation_no: varchar('reservation_no', { length: 255 }).notNull(),
+  branch_id: varchar('branch_id', { length: 255 }),
+  
+  // CRM & Guest Profile
+  customer_id: varchar('customer_id', { length: 255 }).notNull(),
+  customer_name: varchar('customer_name', { length: 255 }),
+  customer_phone: varchar('customer_phone', { length: 50 }),
+  
+  // Booking Source & OTA Details
+  channel_id: varchar('channel_id', { length: 255 }).default('direct'),
+  ota_booking_code: varchar('ota_booking_code', { length: 255 }),
+  
+  // Stay Duration
+  expected_checkin: timestamp('expected_checkin').notNull(),
+  expected_checkout: timestamp('expected_checkout').notNull(),
+  
+  // Block Room
+  room_category_id: varchar('room_category_id', { length: 255 }),
+  resource_id: varchar('resource_id', { length: 255 }),
+  
+  // Financials & Deposit
+  num_guests: int('num_guests').default(1),
+  daily_rate: varchar('daily_rate', { length: 50 }),
+  deposit_amount: varchar('deposit_amount', { length: 50 }).default('0'),
+  deposit_fund_id: varchar('deposit_fund_id', { length: 255 }),
+  
+  status: varchar('status', { length: 50 }).default('confirmed'),
+  note: text('note'),
+  created_by: varchar('created_by', { length: 255 }),
+  metadata: json('metadata'),
+});
+
+// ── Định mức vật tư tiêu chuẩn phòng minibar (Minibar Setup)
+export const minibar_setup = mysqlTable('minibar_setup', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  resource_id: varchar('resource_id', { length: 255 }).notNull(),
+  product_id: varchar('product_id', { length: 255 }).notNull(),
+  standard_qty: int('standard_qty').notNull().default(0),
+  branch_id: varchar('branch_id', { length: 255 }),
+});
+
+// ── Số lượng tồn thực tế trong phòng hiện tại (Room Stock Track)
+export const room_minibar_stock = mysqlTable('room_minibar_stock', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  resource_id: varchar('resource_id', { length: 255 }).notNull(),
+  product_id: varchar('product_id', { length: 255 }).notNull(),
+  current_qty: int('current_qty').notNull().default(0),
+  branch_id: varchar('branch_id', { length: 255 }),
+});
+
+// ── Nhật ký công việc và đếm tiêu hao buồng phòng (Housekeeping Logs)
+export const housekeeping_logs = mysqlTable('housekeeping_logs', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  resource_id: varchar('resource_id', { length: 255 }).notNull(),
+  employee_id: varchar('employee_id', { length: 255 }),
+  status: varchar('status', { length: 50 }),
+  check_type: varchar('check_type', { length: 50 }),
+  consumption_details: text('consumption_details'),
+  topup_status: varchar('topup_status', { length: 50 }),
+  note: text('note'),
+  branch_id: varchar('branch_id', { length: 255 }),
+});
+
+// ── Thẻ Đặt phòng OTA & Khấu khấu hoa hồng (OTA Bookings Mapping)
+export const ota_bookings = mysqlTable('ota_bookings', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  order_id: varchar('order_id', { length: 255 }).notNull(),
+  agency_id: varchar('agency_id', { length: 255 }).notNull(),
+  booking_code: varchar('booking_code', { length: 255 }),
+  payment_flow: varchar('payment_flow', { length: 50 }),
+  gross_amount: varchar('gross_amount', { length: 50 }),
+  commission_rate: varchar('commission_rate', { length: 50 }),
+  commission_amount: varchar('commission_amount', { length: 50 }),
+  net_payout: varchar('net_payout', { length: 50 }),
+  reconciliation_status: varchar('reconciliation_status', { length: 50 }),
+  branch_id: varchar('branch_id', { length: 255 }),
+});
+
+// ── Kênh đặt phòng lưu trú (Booking Channels)
+export const booking_channels = mysqlTable('booking_channels', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  name: varchar('name', { length: 255 }).notNull(),
+  code: varchar('code', { length: 100 }),
+  commission_rate: varchar('commission_rate', { length: 50 }).default('0'),
+  color: varchar('color', { length: 50 }).default('#3b82f6'),
+  notes: text('notes'),
+  branch_id: varchar('branch_id', { length: 255 }),
+});
+
 

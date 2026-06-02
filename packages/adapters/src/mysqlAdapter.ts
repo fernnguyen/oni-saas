@@ -48,6 +48,12 @@ const ENTITY_PREFIXES: Record<string, string> = {
   'warehouses':                  'WH',
   'sepay-webhook-logs':          'SWL',
   'customer-branch-stats':       'CBS',
+  'reservations':               'RSV',
+  'minibar-setup':              'MBS',
+  'room-minibar-stock':         'RMS',
+  'housekeeping-logs':          'HKL',
+  'ota-bookings':               'OTA',
+  'booking-channels':           'BC',
 }
 
 export class MysqlConnector implements IDataConnector {
@@ -80,6 +86,7 @@ export class MysqlConnector implements IDataConnector {
     'discounts',
     'suppliers',
     'product-bom',
+    'product-units',
     'product-purchase-history',
     'purchase-requisition-items',
     'purchase-order-items',
@@ -87,6 +94,7 @@ export class MysqlConnector implements IDataConnector {
     'user-departments',
     'asset-allocations',
     'asset_allocations',
+    'qr-session-carts',
   ]
 
   private async generateSequentialId(entity: string): Promise<string> {
@@ -168,6 +176,12 @@ export class MysqlConnector implements IDataConnector {
     'asset-depreciations':        'depreciation_id',
     'cost-allocation-templates':  'template_id',
     'warehouses':                 'warehouse_id',
+    'reservations':               'reservation_id',
+    'minibar-setup':              'setup_id',
+    'room-minibar-stock':         'stock_id',
+    'housekeeping-logs':          'log_id',
+    'ota-bookings':               'booking_id',
+    'booking-channels':           'channel_id',
   }
 
   private formatRow(entity: string, row: any): Record<string, string> {
