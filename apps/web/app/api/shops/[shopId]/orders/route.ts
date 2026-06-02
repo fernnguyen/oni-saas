@@ -7,12 +7,8 @@ import { cacheTTL } from '@/lib/env'
 import { handleApiError } from '../../_helpers'
 import { dispatchNotification } from '@/lib/server/notifications'
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
+import { getGMT7Time } from '@oni/core'
 
-function getGMT7Time() {
-  const d = new Date()
-  d.setUTCHours(d.getUTCHours() + 7)
-  return d.toISOString().replace('Z', '')
-}
 
 export async function GET(
   req: NextRequest,

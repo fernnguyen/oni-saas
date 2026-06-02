@@ -1,12 +1,8 @@
 import { Pool } from 'pg'
 import crypto from 'crypto'
 import type { IDataConnector, ListOptions, ListResult } from './DataSource'
+import { getGMT7Time } from '@oni/core'
 
-function getGMT7Time() {
-  const d = new Date()
-  d.setUTCHours(d.getUTCHours() + 7)
-  return d.toISOString().replace('Z', '')
-}
 
 const ENTITY_PREFIXES: Record<string, string> = {
   'categories':         'CAT',
@@ -229,7 +225,13 @@ export class PostgresConnector implements IDataConnector {
       const v = row[key]
       let valStr = ''
       if (v instanceof Date) {
-        valStr = v.toISOString()
+        if (key === 'expected_checkin' || key === 'expected_checkout') {
+          // Format as local ISO string to preserve the timezone-naive database hours/minutes
+          const pad = (n: number) => (n < 10 ? '0' : '') + n
+          valStr = `${v.getFullYear()}-${pad(v.getMonth() + 1)}-${pad(v.getDate())}T${pad(v.getHours())}:${pad(v.getMinutes())}:${pad(v.getSeconds())}`
+        } else {
+          valStr = v.toISOString()
+        }
       } else if (typeof v === 'object' && v !== null) {
         // JSONB → store as JSON string for IDataConnector compatibility
         valStr = JSON.stringify(v)

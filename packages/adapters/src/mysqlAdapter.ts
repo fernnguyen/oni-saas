@@ -3,12 +3,8 @@ import { drizzle } from 'drizzle-orm/mysql2'
 import mysql from 'mysql2/promise'
 import crypto from 'crypto'
 import type { IDataConnector, ListOptions, ListResult } from './DataSource'
+import { getGMT7Time } from '@oni/core'
 
-function getGMT7Time() {
-  const d = new Date()
-  d.setUTCHours(d.getUTCHours() + 7)
-  return d.toISOString().replace('Z', '')
-}
 
 const ENTITY_PREFIXES: Record<string, string> = {
   'categories':       'CAT',

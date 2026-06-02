@@ -3,11 +3,8 @@ import { requireShopAccess } from '@/lib/server/shopAccess'
 import { shopTag, invalidate } from '@/lib/server/cache'
 import { handleApiError } from '../../../../_helpers'
 
-function getGMT7Time() {
-  const d = new Date()
-  const utc = d.getTime() + d.getTimezoneOffset() * 60000
-  return new Date(utc + 3600000 * 7).toISOString()
-}
+import { getGMT7Time } from '@oni/core'
+
 
 export async function POST(
   req: NextRequest,

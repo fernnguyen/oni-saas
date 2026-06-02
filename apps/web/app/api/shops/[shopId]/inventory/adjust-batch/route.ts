@@ -9,11 +9,8 @@ import crypto from 'crypto'
 
 const MOVEMENT_NO_PREFIX = 'PDK'
 
-function getGMT7Time() {
-  const d = new Date()
-  d.setUTCHours(d.getUTCHours() + 7)
-  return d.toISOString().replace('Z', '')
-}
+import { getGMT7Time } from '@oni/core'
+
 
 async function generateMovementNo(connector: IDataConnector, tenantId: string): Promise<string> {
   const tenantHash = crypto.createHash('sha256').update(tenantId).digest('hex').substring(0, 8).toUpperCase()

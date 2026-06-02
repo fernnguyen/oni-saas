@@ -22,6 +22,8 @@ import {
   Save,
   HelpCircle
 } from 'lucide-react'
+import { parseGMT7Date } from '@oni/core'
+
 
 interface Reservation {
   id: string
@@ -114,25 +116,22 @@ export function ReservationTimeline({
   }
 
   const parseDateTime = (dateStr: string | any) => {
-    if (!dateStr) return new Date()
-    if (dateStr instanceof Date) return dateStr
-    if (typeof dateStr === 'string') {
-      if (dateStr.includes('T') && !dateStr.endsWith('Z') && !dateStr.includes('+')) {
-        return new Date(dateStr + 'Z')
-      }
-      if (!dateStr.includes('T') && dateStr.includes(' ')) {
-        const standardStr = dateStr.replace(' ', 'T')
-        if (!standardStr.endsWith('Z') && !standardStr.includes('+')) {
-          return new Date(standardStr + 'Z')
-        }
-        return new Date(standardStr)
-      }
-    }
-    return new Date(dateStr)
+    return parseGMT7Date(dateStr)
   }
 
   const getDayIdx = (d: Date) => {
     return differenceInCalendarDays(d, startDate)
+  }
+
+  const getGridCol = (date: Date): number => {
+    const dayIdx = getDayIdx(date)
+    if (dayIdx < 0) return 2 // Default to start of timeline
+    if (dayIdx >= 10) return 122 // Default to end of timeline
+    const hour = date.getHours()
+    const minute = date.getMinutes()
+    const blockWithinDay = (hour + minute / 60) / 2
+    const blockIdx = Math.round(blockWithinDay)
+    return 2 + dayIdx * 12 + blockIdx
   }
 
   const isTrackOccupied = (roomId: string, track: number) => {
@@ -142,20 +141,16 @@ export function ReservationTimeline({
       const checkin = parseDateTime(r.expected_checkin)
       const checkout = parseDateTime(r.expected_checkout)
       
-      const checkinIdx = getDayIdx(checkin)
-      const checkoutIdx = getDayIdx(checkout)
-      
-      const checkinTrack = 2 * checkinIdx + (checkin.getHours() >= 12 ? 3 : 2)
+      const checkinTrack = getGridCol(checkin)
       
       let checkoutTrack: number
       if (r.id.startsWith('virtual-')) {
-        const currentDayIdx = getDayIdx(new Date())
-        checkoutTrack = 2 * currentDayIdx + (new Date().getHours() >= 12 ? 3 : 2)
+        checkoutTrack = getGridCol(new Date())
       } else {
-        checkoutTrack = 2 * checkoutIdx + (checkout.getHours() >= 12 ? 3 : 2)
+        checkoutTrack = getGridCol(checkout)
       }
       
-      return track >= checkinTrack && track <= checkoutTrack
+      return track >= checkinTrack && track < checkoutTrack
     })
   }
 
@@ -316,10 +311,19 @@ export function ReservationTimeline({
     fetchChannels()
   }, [shopId, startDate])
 
-  const handleCellClick = (roomId: string, date: Date) => {
+  const handleCellClick = (roomId: string, date: Date, hourOffset?: number) => {
     setFormRoomId(roomId)
-    const checkinStr = format(date, "yyyy-MM-dd'T'14:00")
-    const checkoutStr = format(addDays(date, 1), "yyyy-MM-dd'T'12:00")
+    const checkinTime = new Date(date)
+    if (hourOffset !== undefined) {
+      checkinTime.setHours(hourOffset, 0, 0, 0)
+    } else {
+      checkinTime.setHours(14, 0, 0, 0)
+    }
+    const checkoutTime = addDays(checkinTime, 1)
+    checkoutTime.setHours(12, 0, 0, 0)
+    
+    const checkinStr = format(checkinTime, "yyyy-MM-dd'T'HH:mm")
+    const checkoutStr = format(checkoutTime, "yyyy-MM-dd'T'HH:mm")
     setFormCheckIn(checkinStr)
     setFormCheckOut(checkoutStr)
     
@@ -565,7 +569,7 @@ export function ReservationTimeline({
                 className="border-b border-slate-100 bg-slate-50 text-slate-500 font-bold text-xs"
                 style={{ 
                   display: 'grid', 
-                  gridTemplateColumns: '120px repeat(20, minmax(0, 1fr))',
+                  gridTemplateColumns: '120px repeat(120, minmax(0, 1fr))',
                   gridTemplateRows: isNowVisible ? '20px auto' : 'auto'
                 }}
               >
@@ -583,7 +587,7 @@ export function ReservationTimeline({
                     key={idx} 
                     className="p-3 text-center border-r border-slate-100 flex flex-col justify-center items-center animate-in fade-in duration-200"
                     style={{ 
-                      gridColumn: `${2 * idx + 2} / span 2`, 
+                      gridColumn: `${12 * idx + 2} / span 12`, 
                       gridRow: isNowVisible ? '2 / span 1' : '1 / span 1' 
                     }}
                   >
@@ -596,7 +600,7 @@ export function ReservationTimeline({
                 {isNowVisible && (
                   <div 
                     style={{ 
-                      gridColumn: `${2 * currentDayIdx + (new Date().getHours() >= 12 ? 3 : 2)}`,
+                      gridColumn: `${getGridCol(new Date())}`,
                       gridRow: '1 / span 1',
                       pointerEvents: 'none'
                     }}
@@ -628,9 +632,9 @@ export function ReservationTimeline({
                   {/* Zone Separator Row */}
                   <div 
                     className="bg-slate-50/80 border-y border-slate-100 text-slate-500 font-extrabold text-[9px] uppercase tracking-wider py-1.5 px-3 flex items-center select-none animate-in fade-in duration-200"
-                    style={{ display: 'grid', gridTemplateColumns: '120px repeat(20, minmax(0, 1fr))' }}
+                    style={{ display: 'grid', gridTemplateColumns: '120px repeat(120, minmax(0, 1fr))' }}
                   >
-                    <div className="text-left font-bold" style={{ gridColumn: '1 / span 21' }}>
+                    <div className="text-left font-bold" style={{ gridColumn: '1 / span 121' }}>
                       {zoneName}
                     </div>
                   </div>
@@ -638,7 +642,7 @@ export function ReservationTimeline({
                   {rooms.map(room => {
                     const currentDayIdx = getDayIdx(new Date())
                     const showNowIndicator = currentDayIdx >= 0 && currentDayIdx < 10
-                    const nowTrack = showNowIndicator ? 2 * currentDayIdx + (new Date().getHours() >= 12 ? 3 : 2) : 0
+                    const nowTrack = showNowIndicator ? getGridCol(new Date()) : 0
 
                     const isOccupiedNow = room.status === 'occupied' || reservations.some(r => {
                       if (r.resource_id !== room.id || r.status === 'cancelled') return false
@@ -649,7 +653,7 @@ export function ReservationTimeline({
                     })
 
                     return (
-                      <div key={room.id} className="items-stretch min-h-[48px]" style={{ display: 'grid', gridTemplateColumns: '120px repeat(20, minmax(0, 1fr))' }}>
+                      <div key={room.id} className="items-stretch min-h-[48px]" style={{ display: 'grid', gridTemplateColumns: '120px repeat(120, minmax(0, 1fr))' }}>
                         {/* Room Info Cell */}
                         <div className="p-2 bg-slate-50/20 border-r border-slate-100 font-bold text-slate-800 text-xs flex flex-col justify-center items-center animate-in fade-in duration-200" style={{ gridColumn: '1 / span 1', gridRow: '1' }}>
                           <div className="flex items-center gap-1.5 justify-center">
@@ -686,15 +690,15 @@ export function ReservationTimeline({
                           
                           const isVirtual = resv.id.startsWith('virtual-')
                           
-                          const checkinTrack = 2 * getDayIdx(checkin) + (checkin.getHours() >= 12 ? 3 : 2)
+                          const checkinTrack = getGridCol(checkin)
                           const gridColStart = Math.max(2, checkinTrack)
                           
                           let gridColEnd: number
                           if (isVirtual) {
-                            gridColEnd = Math.max(gridColStart + 1, Math.min(22, nowTrack))
+                            gridColEnd = Math.max(gridColStart + 1, Math.min(122, nowTrack))
                           } else {
-                            const checkoutTrack = 2 * getDayIdx(checkout) + (checkout.getHours() >= 12 ? 3 : 2)
-                            gridColEnd = Math.min(22, checkoutTrack)
+                            const checkoutTrack = getGridCol(checkout)
+                            gridColEnd = Math.min(122, checkoutTrack)
                           }
                           
                           const duration = Math.max(1, differenceInCalendarDays(checkout, checkin))
@@ -732,7 +736,7 @@ export function ReservationTimeline({
                           if (resv.status === 'pending_deposit') blockBg = 'bg-amber-500 text-slate-900 hover:bg-amber-600'
                           if (resv.status === 'no_show') blockBg = 'bg-red-500 text-white hover:bg-red-600'
 
-                          const isSmallBlock = (gridColEnd - gridColStart) <= 2
+                          const isSmallBlock = (gridColEnd - gridColStart) <= 8
 
                           return (
                             <div 
@@ -780,48 +784,66 @@ export function ReservationTimeline({
                         })}
 
                         {/* 2. Render Empty/Clickable Cells */}
-                        {daysToShow.map((date, dayIdx) => {
-                          const isAmOccupied = isTrackOccupied(room.id, 2 * dayIdx + 2)
-                          const isPmOccupied = isTrackOccupied(room.id, 2 * dayIdx + 3)
-
-                          if (!isAmOccupied && !isPmOccupied) {
-                            return (
-                              <div 
-                                key={`free-${dayIdx}`}
-                                onClick={() => handleCellClick(room.id, date)}
-                                style={{ gridColumn: `${2 * dayIdx + 2} / span 2`, gridRow: '1' }}
-                                className="border-r border-slate-100 hover:bg-primary/5 transition-colors cursor-pointer flex items-center justify-center text-slate-300 font-light text-base select-none"
-                              >
-                                +
-                              </div>
-                            )
+                        {(() => {
+                          const cells: React.ReactNode[] = []
+                          
+                          for (let dayIdx = 0; dayIdx < 10; dayIdx++) {
+                            const date = daysToShow[dayIdx]
+                            let segmentStart: number | null = null
+                            
+                            for (let blockIdx = 0; blockIdx < 12; blockIdx++) {
+                              const trackNum = 2 + dayIdx * 12 + blockIdx
+                              const isOccupied = isTrackOccupied(room.id, trackNum)
+                              
+                              if (!isOccupied) {
+                                if (segmentStart === null) {
+                                  segmentStart = blockIdx
+                                }
+                              } else {
+                                if (segmentStart !== null) {
+                                  // We have a contiguous free segment from segmentStart to blockIdx - 1
+                                  const startCol = 2 + dayIdx * 12 + segmentStart
+                                  const span = blockIdx - segmentStart
+                                  const hourOffset = segmentStart * 2
+                                  
+                                  cells.push(
+                                    <div 
+                                      key={`free-${dayIdx}-${segmentStart}-${blockIdx}`}
+                                      onClick={() => handleCellClick(room.id, date, segmentStart === 0 && span === 12 ? 14 : hourOffset)}
+                                      style={{ gridColumn: `${startCol} / span ${span}`, gridRow: '1' }}
+                                      className="border-r border-slate-100/40 hover:bg-primary/5 transition-colors cursor-pointer flex items-center justify-center text-slate-300 hover:text-primary font-bold text-sm select-none group"
+                                      title={`Đặt phòng từ ${hourOffset}:00`}
+                                    >
+                                      <span className="opacity-0 group-hover:opacity-100 transition-opacity font-extrabold">+</span>
+                                    </div>
+                                  )
+                                  segmentStart = null
+                                }
+                              }
+                            }
+                            
+                            // If the day ends and we still have an active free segment
+                            if (segmentStart !== null) {
+                              const startCol = 2 + dayIdx * 12 + segmentStart
+                              const span = 12 - segmentStart
+                              const hourOffset = segmentStart * 2
+                              
+                              cells.push(
+                                <div 
+                                  key={`free-${dayIdx}-${segmentStart}-12`}
+                                  onClick={() => handleCellClick(room.id, date, segmentStart === 0 && span === 12 ? 14 : hourOffset)}
+                                  style={{ gridColumn: `${startCol} / span ${span}`, gridRow: '1' }}
+                                  className="border-r border-slate-100 hover:bg-primary/5 transition-colors cursor-pointer flex items-center justify-center text-slate-300 hover:text-primary font-bold text-sm select-none group"
+                                  title={`Đặt phòng từ ${hourOffset}:00`}
+                                >
+                                  <span className="opacity-0 group-hover:opacity-100 transition-opacity font-extrabold">+</span>
+                                </div>
+                              )
+                            }
                           }
-
-                          if (isAmOccupied && !isPmOccupied) {
-                            return (
-                              <div 
-                                key={`free-pm-${dayIdx}`}
-                                onClick={() => handleCellClick(room.id, date)}
-                                style={{ gridColumn: `${2 * dayIdx + 3}`, gridRow: '1' }}
-                                className="border-r border-slate-100 hover:bg-primary/5 transition-colors cursor-pointer flex items-center justify-center text-slate-300 font-light text-base select-none"
-                              >
-                                +
-                              </div>
-                            )
-                          }
-
-                          if (!isAmOccupied && isPmOccupied) {
-                            return (
-                              <div 
-                                key={`free-am-${dayIdx}`}
-                                style={{ gridColumn: `${2 * dayIdx + 2}`, gridRow: '1' }}
-                                className="border-r border-slate-100 bg-slate-50/20"
-                              />
-                            )
-                          }
-
-                          return null
-                        })}
+                          
+                          return cells
+                        })()}
                       </div>
                     )
                   })}

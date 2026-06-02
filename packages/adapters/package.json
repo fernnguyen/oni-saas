@@ -5,6 +5,7 @@
   "main": "src/index.ts",
   "types": "src/index.ts",
   "dependencies": {
+    "@oni/core": "workspace:*",
     "@types/pg": "^8.20.0",
     "drizzle-orm": "^0.45.2",
     "ioredis": "^5.10.1",

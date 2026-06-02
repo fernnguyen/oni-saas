@@ -6,6 +6,8 @@ import { requireShopAccess } from '@/lib/server/shopAccess'
 import { getConnectorForShop } from '@/lib/server/connectorFactory'
 import { NotificationDispatcher } from '@/lib/server/notificationDispatcher'
 import crypto from 'crypto'
+import { getGMT7Time } from '@oni/core'
+
 
 export async function GET(
   req: NextRequest,
@@ -225,12 +227,6 @@ export async function PATCH(
 
       const requestItems = Array.isArray(items) ? items : (Array.isArray(request.items) ? request.items : [])
       let finalOrderId = ''
-
-      const getGMT7Time = () => {
-        const d = new Date()
-        d.setUTCHours(d.getUTCHours() + 7)
-        return d.toISOString().replace('Z', '')
-      }
 
       const existingOrderId = table.current_order_id || ''
       let currentOrder = null
