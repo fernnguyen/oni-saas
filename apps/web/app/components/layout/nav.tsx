@@ -226,13 +226,14 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
       items: [
         { href: joinPath(base, '/resources'),  label: `Quản lý ${vertical.resourceLabel || 'vị trí'}`, icon: MapPin, permission: 'products.view', featureGate: 'location_resource' },
         { href: joinPath(base, '/products'),   label: 'Sản phẩm',    icon: Package,       permission: 'products.view' },
-        { href: joinPath(base, '/categories'), label: 'Danh mục',    icon: FolderTree,      permission: 'products.view' },
+        { href: joinPath(base, '/categories'), label: 'Danh mục sản phẩm',    icon: FolderTree,      permission: 'products.view' },
+        { href: joinPath(base, '/settings/warehouses'), label: 'Danh mục kho', icon: Warehouse, permission: 'settings.view' },
       ],
     },
     {
       label: 'Vận hành',
       items: [
-        { href: joinPath(base, '/housekeeping'), label: 'Buồng phòng & Minibar', icon: BedDouble, permission: 'inventory.view', featureGate: 'location_resource' },
+        { href: joinPath(base, '/housekeeping'), label: 'Buồng phòng', icon: BedDouble, permission: 'inventory.view', featureGate: 'location_resource' },
         { href: joinPath(base, '/inventory'), label: 'Kho',             icon: Warehouse, permission: 'inventory.view' },
         // Tạm thời comment Vận chuyển vì chưa implement
         // { href: joinPath(base, '/shipping'),  label: 'Vận chuyển',      icon: Truck,     permission: 'shipping.view' },
@@ -276,6 +277,7 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
         { href: joinPath(base, '/settings/employees'),  label: 'Nhân viên',   icon: Contact,     permission: 'dashboard.view' },
         { href: joinPath(base, '/settings/cost-allocation'), label: 'Phân bổ chi phí', icon: Percent, permission: 'settings.view' },
         { href: joinPath(base, '/settings/assets'), label: 'Tài sản', icon: Landmark, permission: 'assets.view' },
+        { href: joinPath(base, '/settings/warehouses'), label: 'Danh mục kho', icon: Warehouse, permission: 'settings.view' },
       ],
     },
     {

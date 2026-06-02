@@ -19,7 +19,7 @@ export async function POST(
     const { connector, user } = await requireShopAccess(shopId, 'orders.edit')
 
     const body = await req.json()
-    const { resource_id, items } = body // items: array of { product_id, current_qty } (Remaining quantities in room)
+    const { resource_id, items, employee_id, employee_name } = body // items: array of { product_id, current_qty } (Remaining quantities in room)
 
     if (!resource_id || !items || !Array.isArray(items)) {
       return NextResponse.json({ error: 'Missing parameters resource_id or items array' }, { status: 400 })
@@ -166,8 +166,10 @@ export async function POST(
 
     // 6. Create Housekeeping log
     const hkLog = await connector.create('housekeeping-logs', {
+      branch_id: shopId,
       resource_id,
-      employee_id: user.email || 'system',
+      employee_id: employee_id || user.email || 'system',
+      employee_name: employee_name || user.email || 'System',
       status: 'clean_inspected',
       check_type: 'checkout_check',
       consumption_details: JSON.stringify(consumptionDetails),
