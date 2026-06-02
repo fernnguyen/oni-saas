@@ -95,6 +95,15 @@ export function ReservationTimeline({
   const [filterRoomName, setFilterRoomName] = useState('')
   const [filterZone, setFilterZone] = useState('all')
 
+  const headerRef = React.useRef<HTMLDivElement>(null)
+  const bodyRef = React.useRef<HTMLDivElement>(null)
+
+  const handleBodyScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    if (headerRef.current) {
+      headerRef.current.scrollLeft = e.currentTarget.scrollLeft
+    }
+  }
+
   const uniqueZones = Array.from(new Set(allResources.map(r => r.zone).filter(Boolean))) as string[]
   const filteredResources = allResources.filter(room => {
     const matchesName = room.name.toLowerCase().includes(filterRoomName.toLowerCase())
@@ -503,7 +512,7 @@ export function ReservationTimeline({
   }
 
   return (
-    <div className="w-full flex flex-col bg-white rounded-3xl border border-slate-100 shadow-xl overflow-hidden min-h-[500px]">
+    <div className="w-full flex flex-col bg-white rounded-3xl border border-slate-100 shadow-xl overflow-visible min-h-[500px]">
       {/* Navigation & Filter Header */}
       <div className="px-6 py-4 bg-slate-50/50 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
         {/* Navigation */}
@@ -557,64 +566,51 @@ export function ReservationTimeline({
         </div>
       </div>
 
-      {/* Grid Timeline Area */}
-      <div className="flex-1 overflow-x-auto">
+      {/* Sticky Header Area */}
+      <div 
+        ref={headerRef}
+        className="sticky top-[56px] z-20 overflow-hidden border-b border-slate-100 bg-slate-50 text-slate-500 font-bold text-xs shadow-xs"
+      >
+        <div 
+          className="min-w-[1000px]"
+          style={{ 
+            display: 'grid', 
+            gridTemplateColumns: '120px repeat(120, minmax(0, 1fr))'
+          }}
+        >
+          <div 
+            className="sticky left-0 bg-slate-50 p-3 border-r border-slate-100 text-slate-800 text-center flex items-center justify-center shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]" 
+            style={{ 
+              gridColumn: '1 / span 1', 
+              gridRow: '1',
+              zIndex: 25
+            }}
+          >
+            Phòng
+          </div>
+          {daysToShow.map((date, idx) => (
+            <div 
+              key={idx} 
+              className="p-3 text-center border-r border-slate-100 flex flex-col justify-center items-center animate-in fade-in duration-200"
+              style={{ 
+                gridColumn: `${12 * idx + 2} / span 12`, 
+                gridRow: '1' 
+              }}
+            >
+              <span className="uppercase text-[10px] text-slate-400 font-extrabold">{format(date, 'eee', { locale: vi })}</span>
+              <span className="text-sm text-slate-800 mt-0.5">{format(date, 'dd/MM')}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Grid Timeline Body Area */}
+      <div 
+        ref={bodyRef}
+        onScroll={handleBodyScroll}
+        className="flex-1 overflow-x-auto"
+      >
         <div className="min-w-[1000px] relative">
-          {/* Header Row: Days */}
-          {(() => {
-            const currentDayIdx = getDayIdx(new Date())
-            const isNowVisible = currentDayIdx >= 0 && currentDayIdx < 10
-            return (
-              <div 
-                className="border-b border-slate-100 bg-slate-50 text-slate-500 font-bold text-xs"
-                style={{ 
-                  display: 'grid', 
-                  gridTemplateColumns: '120px repeat(120, minmax(0, 1fr))',
-                  gridTemplateRows: isNowVisible ? '20px auto' : 'auto'
-                }}
-              >
-                <div 
-                  className="p-3 border-r border-slate-100 text-slate-800 text-center flex items-center justify-center" 
-                  style={{ 
-                    gridColumn: '1 / span 1', 
-                    gridRow: isNowVisible ? '1 / span 2' : '1 / span 1' 
-                  }}
-                >
-                  Phòng
-                </div>
-                {daysToShow.map((date, idx) => (
-                  <div 
-                    key={idx} 
-                    className="p-3 text-center border-r border-slate-100 flex flex-col justify-center items-center animate-in fade-in duration-200"
-                    style={{ 
-                      gridColumn: `${12 * idx + 2} / span 12`, 
-                      gridRow: isNowVisible ? '2 / span 1' : '1 / span 1' 
-                    }}
-                  >
-                    <span className="uppercase text-[10px] text-slate-400 font-extrabold">{format(date, 'eee', { locale: vi })}</span>
-                    <span className="text-sm text-slate-800 mt-0.5">{format(date, 'dd/MM')}</span>
-                  </div>
-                ))}
-
-                {/* Vertical NOW Indicator on Header */}
-                {isNowVisible && (
-                  <div 
-                    style={{ 
-                      gridColumn: `${getGridCol(new Date())}`,
-                      gridRow: '1 / span 1',
-                      pointerEvents: 'none'
-                    }}
-                    className="z-20 h-full relative"
-                  >
-                    <span className="absolute top-1 -left-3.5 bg-rose-500 text-white font-extrabold text-[8px] px-1 py-0.5 rounded shadow-sm z-30">
-                      NOW
-                    </span>
-                  </div>
-                )}
-              </div>
-            )
-          })()}
-
           {/* Body Rows: Rooms & Blocks grouped by zone */}
           <div className="divide-y divide-slate-100 bg-white">
             {(() => {
@@ -634,7 +630,7 @@ export function ReservationTimeline({
                     className="bg-slate-50/80 border-y border-slate-100 text-slate-500 font-extrabold text-[9px] uppercase tracking-wider py-1.5 px-3 flex items-center select-none animate-in fade-in duration-200"
                     style={{ display: 'grid', gridTemplateColumns: '120px repeat(120, minmax(0, 1fr))' }}
                   >
-                    <div className="text-left font-bold" style={{ gridColumn: '1 / span 121' }}>
+                    <div className="sticky left-3 text-left font-bold z-10" style={{ gridColumn: '1 / span 121' }}>
                       {zoneName}
                     </div>
                   </div>
@@ -655,7 +651,7 @@ export function ReservationTimeline({
                     return (
                       <div key={room.id} className="items-stretch min-h-[48px]" style={{ display: 'grid', gridTemplateColumns: '120px repeat(120, minmax(0, 1fr))' }}>
                         {/* Room Info Cell */}
-                        <div className="p-2 bg-slate-50/20 border-r border-slate-100 font-bold text-slate-800 text-xs flex flex-col justify-center items-center animate-in fade-in duration-200" style={{ gridColumn: '1 / span 1', gridRow: '1' }}>
+                        <div className="sticky left-0 bg-slate-50/95 backdrop-blur-[3px] p-2 border-r border-slate-100 font-bold text-slate-800 text-xs flex flex-col justify-center items-center animate-in fade-in duration-200 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]" style={{ gridColumn: '1 / span 1', gridRow: '1' }}>
                           <div className="flex items-center gap-1.5 justify-center">
                             <span>{room.name}</span>
                             <span 
@@ -743,12 +739,12 @@ export function ReservationTimeline({
                               key={resv.id} 
                               style={{ gridColumn: `${gridColStart} / ${gridColEnd}`, gridRow: '1', ...blockStyle }}
                               onClick={() => setSelectedRes(resv)}
-                              className={`p-1 cursor-pointer z-10 flex flex-col justify-center items-center rounded-xl my-1 ml-1 transition-all shadow-sm active:scale-95 relative group hover:z-30 ${
+                              className={`p-1 cursor-pointer z-0 flex flex-col justify-center items-center rounded-xl my-1 ml-1 transition-all shadow-sm active:scale-95 relative group hover:z-10 ${
                                 isVirtual ? 'mr-0 rounded-r-none' : 'mr-1'
                               } ${blockBg}`}
                             >
                               {/* Premium hover Tooltip - Light Glassmorphism with arrow pointing up */}
-                              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 hidden group-hover:block z-50 w-56 bg-white/95 backdrop-blur-[6px] text-slate-800 text-[11px] p-2.5 rounded-xl shadow-xl pointer-events-none border border-slate-200/80 animate-in fade-in slide-in-from-top-1 duration-150 text-left">
+                              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 hidden group-hover:block z-30 w-56 bg-white/95 backdrop-blur-[6px] text-slate-800 text-[11px] p-2.5 rounded-xl shadow-xl pointer-events-none border border-slate-200/80 animate-in fade-in slide-in-from-top-1 duration-150 text-left">
                                 <div className="font-bold text-xs mb-1 truncate text-slate-900">{resv.customer_name}</div>
                                 <div className="space-y-0.5 opacity-90 text-slate-600">
                                   <div>Kênh: <span className="font-bold text-slate-900">{isVirtual ? 'POS (Phục vụ trực tiếp)' : getChannelLabel(resv.channel_id)}</span></div>
@@ -786,59 +782,88 @@ export function ReservationTimeline({
                         {/* 2. Render Empty/Clickable Cells */}
                         {(() => {
                           const cells: React.ReactNode[] = []
+                          const nowTime = Date.now()
+
+                          const renderPastSegment = (dayIdx: number, date: Date, start: number, end: number) => {
+                            const startCol = 2 + dayIdx * 12 + start
+                            const span = end - start
+                            return (
+                              <div 
+                                key={`past-${dayIdx}-${start}-${end}`}
+                                style={{ gridColumn: `${startCol} / span ${span}`, gridRow: '1' }}
+                                className="border-r border-slate-100/40 bg-slate-50/15 text-slate-400/20 select-none cursor-not-allowed flex items-center justify-center"
+                                title="Đã quá giờ (Không thể đặt lịch)"
+                              >
+                                <Clock className="w-3.5 h-3.5 opacity-15" />
+                              </div>
+                            )
+                          }
+
+                          const renderFutureSegment = (dayIdx: number, date: Date, start: number, end: number) => {
+                            const startCol = 2 + dayIdx * 12 + start
+                            const span = end - start
+                            const hourOffset = start * 2
+                            return (
+                              <div 
+                                key={`free-${dayIdx}-${start}-${end}`}
+                                onClick={() => handleCellClick(room.id, date, start === 0 && span === 12 ? 14 : hourOffset)}
+                                style={{ gridColumn: `${startCol} / span ${span}`, gridRow: '1' }}
+                                className="border-r border-slate-100/40 hover:bg-primary/5 transition-colors cursor-pointer flex items-center justify-center text-slate-300 hover:text-primary font-bold text-sm select-none group"
+                                title={`Đặt phòng từ ${hourOffset}:00`}
+                              >
+                                <span className="opacity-0 group-hover:opacity-100 transition-opacity font-extrabold">+</span>
+                              </div>
+                            )
+                          }
                           
                           for (let dayIdx = 0; dayIdx < 10; dayIdx++) {
                             const date = daysToShow[dayIdx]
-                            let segmentStart: number | null = null
+                            let currentPastStart: number | null = null
+                            let currentFutureStart: number | null = null
                             
                             for (let blockIdx = 0; blockIdx < 12; blockIdx++) {
                               const trackNum = 2 + dayIdx * 12 + blockIdx
                               const isOccupied = isTrackOccupied(room.id, trackNum)
                               
-                              if (!isOccupied) {
-                                if (segmentStart === null) {
-                                  segmentStart = blockIdx
+                              const blockEndTime = new Date(date.getTime())
+                              blockEndTime.setHours((blockIdx + 1) * 2, 0, 0, 0)
+                              const isPast = blockEndTime.getTime() <= nowTime
+                              
+                              if (isOccupied) {
+                                if (currentPastStart !== null) {
+                                  cells.push(renderPastSegment(dayIdx, date, currentPastStart, blockIdx))
+                                  currentPastStart = null
+                                }
+                                if (currentFutureStart !== null) {
+                                  cells.push(renderFutureSegment(dayIdx, date, currentFutureStart, blockIdx))
+                                  currentFutureStart = null
                                 }
                               } else {
-                                if (segmentStart !== null) {
-                                  // We have a contiguous free segment from segmentStart to blockIdx - 1
-                                  const startCol = 2 + dayIdx * 12 + segmentStart
-                                  const span = blockIdx - segmentStart
-                                  const hourOffset = segmentStart * 2
-                                  
-                                  cells.push(
-                                    <div 
-                                      key={`free-${dayIdx}-${segmentStart}-${blockIdx}`}
-                                      onClick={() => handleCellClick(room.id, date, segmentStart === 0 && span === 12 ? 14 : hourOffset)}
-                                      style={{ gridColumn: `${startCol} / span ${span}`, gridRow: '1' }}
-                                      className="border-r border-slate-100/40 hover:bg-primary/5 transition-colors cursor-pointer flex items-center justify-center text-slate-300 hover:text-primary font-bold text-sm select-none group"
-                                      title={`Đặt phòng từ ${hourOffset}:00`}
-                                    >
-                                      <span className="opacity-0 group-hover:opacity-100 transition-opacity font-extrabold">+</span>
-                                    </div>
-                                  )
-                                  segmentStart = null
+                                if (isPast) {
+                                  if (currentFutureStart !== null) {
+                                    cells.push(renderFutureSegment(dayIdx, date, currentFutureStart, blockIdx))
+                                    currentFutureStart = null
+                                  }
+                                  if (currentPastStart === null) {
+                                    currentPastStart = blockIdx
+                                  }
+                                } else {
+                                  if (currentPastStart !== null) {
+                                    cells.push(renderPastSegment(dayIdx, date, currentPastStart, blockIdx))
+                                    currentPastStart = null
+                                  }
+                                  if (currentFutureStart === null) {
+                                    currentFutureStart = blockIdx
+                                  }
                                 }
                               }
                             }
                             
-                            // If the day ends and we still have an active free segment
-                            if (segmentStart !== null) {
-                              const startCol = 2 + dayIdx * 12 + segmentStart
-                              const span = 12 - segmentStart
-                              const hourOffset = segmentStart * 2
-                              
-                              cells.push(
-                                <div 
-                                  key={`free-${dayIdx}-${segmentStart}-12`}
-                                  onClick={() => handleCellClick(room.id, date, segmentStart === 0 && span === 12 ? 14 : hourOffset)}
-                                  style={{ gridColumn: `${startCol} / span ${span}`, gridRow: '1' }}
-                                  className="border-r border-slate-100 hover:bg-primary/5 transition-colors cursor-pointer flex items-center justify-center text-slate-300 hover:text-primary font-bold text-sm select-none group"
-                                  title={`Đặt phòng từ ${hourOffset}:00`}
-                                >
-                                  <span className="opacity-0 group-hover:opacity-100 transition-opacity font-extrabold">+</span>
-                                </div>
-                              )
+                            if (currentPastStart !== null) {
+                              cells.push(renderPastSegment(dayIdx, date, currentPastStart, 12))
+                            }
+                            if (currentFutureStart !== null) {
+                              cells.push(renderFutureSegment(dayIdx, date, currentFutureStart, 12))
                             }
                           }
                           
