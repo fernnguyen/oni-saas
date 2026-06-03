@@ -256,7 +256,7 @@ export async function POST(
       filters: { order_id: serverId },
     })
     const existingPayIds = new Set(
-      (existingPays.data as Record<string, string>[]).map((r) => r.id)
+      (existingPays.data as Record<string, string>[]).map((r) => r.payment_id || r.id)
     )
 
     // Fetch and resolve default payment funds for this branch

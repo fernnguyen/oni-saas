@@ -294,7 +294,7 @@ export function ReservationTimeline({
   const virtualReservations = React.useMemo(() => {
     const list: Reservation[] = []
     allResources.forEach(room => {
-      if (room.status === 'occupied') {
+      if (room.status === 'occupied' || room.status === 'checking_out') {
         // Check if there is already an active checked-in reservation for this room
         const hasCheckedInResv = reservations.some(r => 
           r.resource_id === room.id && 
@@ -865,7 +865,7 @@ export function ReservationTimeline({
                     const showNowIndicator = currentDayIdx >= 0 && currentDayIdx < 10
                     const nowTrack = showNowIndicator ? getGridCol(new Date()) : 0
 
-                    const isOccupiedNow = room.status === 'occupied' || reservations.some(r => {
+                    const isOccupiedNow = room.status === 'occupied' || room.status === 'checking_out' || reservations.some(r => {
                       if (r.resource_id !== room.id || r.status === 'cancelled') return false
                       const checkin = parseDateTime(r.expected_checkin)
                       const checkout = parseDateTime(r.expected_checkout)
@@ -881,17 +881,31 @@ export function ReservationTimeline({
                             <span>{room.name}</span>
                             <span 
                               className={`w-1.5 h-1.5 rounded-full block shadow-sm ${
-                                isOccupiedNow 
-                                  ? 'bg-rose-500 animate-pulse' 
-                                  : 'bg-emerald-500'
+                                room.status === 'checking_out'
+                                  ? 'bg-yellow-500 animate-pulse'
+                                  : isOccupiedNow 
+                                    ? 'bg-rose-500 animate-pulse' 
+                                    : 'bg-emerald-500'
                               }`} 
-                              title={isOccupiedNow ? 'Đang sử dụng' : 'Sẵn sàng'}
+                              title={room.status === 'checking_out' ? 'Đang kiểm phòng' : isOccupiedNow ? 'Đang sử dụng' : 'Sẵn sàng'}
                             />
                           </div>
+                          {room.status === 'checking_out' && (
+                            <span className="text-[8px] font-extrabold bg-yellow-50 text-yellow-700 border border-yellow-150 px-1.5 py-0.5 rounded-full mt-1 flex items-center gap-1 leading-none animate-pulse">
+                              <span className="w-1 h-1 rounded-full bg-yellow-500 block animate-ping" />
+                              KIỂM PHÒNG
+                            </span>
+                          )}
                           {room.status === 'dirty' && (
                             <span className="text-[8px] font-extrabold bg-amber-50 text-amber-700 border border-amber-100/50 px-1.5 py-0.5 rounded-full mt-1 flex items-center gap-1 leading-none">
                               <span className="w-1 h-1 rounded-full bg-amber-500 block" />
                               CẦN DỌN
+                            </span>
+                          )}
+                          {room.status === 'inspected' && (
+                            <span className="text-[8px] font-extrabold bg-emerald-50 text-emerald-750 border border-emerald-100 px-1.5 py-0.5 rounded-full mt-1 flex items-center gap-1 leading-none">
+                              <span className="w-1 h-1 rounded-full bg-emerald-500 block" />
+                              ĐÃ KIỂM
                             </span>
                           )}
                         </div>

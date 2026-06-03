@@ -71,9 +71,12 @@ interface Props {
 }
 
 const STATUS_CARDS: Record<string, { border: string; bg: string; dot: string; label: string; text?: string }> = {
-  available: { border: 'border-green-200 hover:border-green-400', bg: 'bg-white', dot: 'bg-green-500', label: 'Trống', text: 'text-green-600' },
+  available: { border: 'border-green-200 hover:border-green-400', bg: 'bg-white', dot: 'bg-green-500', label: 'Trống (Sạch)', text: 'text-green-600' },
   occupied:  { border: 'border-red-300', bg: 'bg-red-50/60', dot: 'bg-red-500', label: 'Đang sử dụng', text: 'text-red-700' },
-  cleaning:  { border: 'border-amber-200', bg: 'bg-amber-50/60', dot: 'bg-amber-500', label: 'Dọn dẹp', text: 'text-amber-700' },
+  checking_out: { border: 'border-yellow-300 animate-pulse', bg: 'bg-yellow-50/60', dot: 'bg-yellow-500', label: 'Chờ kiểm phòng', text: 'text-yellow-700' },
+  dirty:     { border: 'border-orange-200', bg: 'bg-orange-50/60', dot: 'bg-orange-500', label: 'Chưa dọn (Bẩn)', text: 'text-orange-700' },
+  cleaning:  { border: 'border-amber-200', bg: 'bg-amber-50/60', dot: 'bg-amber-550', label: 'Đang dọn', text: 'text-amber-700' },
+  inspected: { border: 'border-emerald-300', bg: 'bg-emerald-50/60', dot: 'bg-emerald-500', label: 'Đã nghiệm thu', text: 'text-emerald-700' },
   reserved:  { border: 'border-blue-200', bg: 'bg-blue-50/60', dot: 'bg-blue-500', label: 'Đã đặt', text: 'text-blue-700' },
   maintenance: { border: 'border-slate-300', bg: 'bg-slate-100', dot: 'bg-slate-400', label: 'Tạm ngừng', text: 'text-slate-600' },
 }
@@ -483,7 +486,7 @@ export function TableMapPOS({
   function handleResourceClick(r: Resource) {
     if (groupCheckoutMode) {
       if (selectedResourceIds.length === 0) {
-        if (r.status !== 'occupied' && r.status !== 'available') {
+        if (r.status !== 'occupied' && r.status !== 'available' && r.status !== 'checking_out') {
           toast.info('Chỉ có thể chọn phòng/bàn trống hoặc đang sử dụng để thao tác nhóm')
           return
         }
@@ -502,10 +505,15 @@ export function TableMapPOS({
         }
       }
     } else {
-      if (r.status === 'available' || r.status === 'occupied') {
+      if (r.status === 'available' || r.status === 'occupied' || r.status === 'checking_out' || r.status === 'inspected') {
         setActiveSlideResource(r)
-      } else if (r.status === 'cleaning') {
-        handleSetAvailable(r)
+      } else if (r.status === 'cleaning' || r.status === 'dirty') {
+        const housekeepingMode = shopSettings?.housekeeping_workflow_mode || 'SIMPLE'
+        if (housekeepingMode === 'SIMPLE') {
+          handleSetAvailable(r)
+        } else {
+          toast.info('Chế độ Enterprise: Chỉ buồng phòng mới có thể đổi trạng thái sạch phòng.')
+        }
       }
     }
   }
@@ -682,9 +690,9 @@ export function TableMapPOS({
   // Stats
   const stats = {
     total: activeResources.length,
-    available: activeResources.filter((r: Resource) => r.status === 'available').length,
-    occupied: activeResources.filter((r: Resource) => r.status === 'occupied').length,
-    cleaning: activeResources.filter((r: Resource) => r.status === 'cleaning').length,
+    available: activeResources.filter((r: Resource) => r.status === 'available' || r.status === 'inspected').length,
+    occupied: activeResources.filter((r: Resource) => r.status === 'occupied' || r.status === 'checking_out').length,
+    cleaning: activeResources.filter((r: Resource) => r.status === 'cleaning' || r.status === 'dirty').length,
   }
 
   return (
@@ -694,9 +702,9 @@ export function TableMapPOS({
         <div>
           <h1 className="text-xl font-semibold text-slate-900">{posLabel || `${resourceLabel} POS`}</h1>
           <div className="flex items-center gap-3 mt-1 text-xs text-slate-400">
-            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-green-500" />{stats.available} trống</span>
-            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500" />{stats.occupied} sử dụng</span>
-            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" />{stats.cleaning} dọn dẹp</span>
+            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-green-500" />{stats.available} sẵn sàng</span>
+            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500" />{stats.occupied} có khách</span>
+            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" />{stats.cleaning} chưa dọn/đang dọn</span>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -992,8 +1000,11 @@ export function TableMapPOS({
                       } ${
                         isSelected ? 'border-primary ring-2 ring-primary bg-primary/5'
                         : r.status === 'occupied' ? 'border-red-300 bg-gradient-to-br from-red-50 to-rose-50 shadow-sm hover:border-red-400'
-                        : r.status === 'reserved' ? 'border-blue-300 bg-gradient-to-br from-blue-50 to-indigo-50 shadow-sm hover:border-blue-400'
+                        : r.status === 'checking_out' ? 'border-yellow-300 bg-gradient-to-br from-yellow-50 to-amber-50 shadow-sm hover:border-yellow-450 animate-pulse'
+                        : r.status === 'dirty' ? 'border-orange-350 bg-gradient-to-br from-orange-50/50 to-amber-50/40 shadow-sm hover:border-orange-400'
                         : r.status === 'cleaning' ? 'border-amber-300 bg-gradient-to-br from-amber-50 to-yellow-50 shadow-sm hover:border-amber-400'
+                        : r.status === 'inspected' ? 'border-emerald-300 bg-gradient-to-br from-emerald-50 to-green-50 shadow-sm hover:border-emerald-400'
+                        : r.status === 'reserved' ? 'border-blue-300 bg-gradient-to-br from-blue-50 to-indigo-50 shadow-sm hover:border-blue-400'
                         : r.status === 'maintenance' ? 'border-slate-300 bg-slate-100 opacity-60 hover:border-slate-400'
                         : 'border-slate-200 bg-gradient-to-br from-white to-slate-50 hover:border-green-400'
                       }`}
@@ -1011,8 +1022,11 @@ export function TableMapPOS({
                       {/* Status indicator bar */}
                       <div className={`absolute top-0 left-0 right-0 h-1 ${
                         r.status === 'occupied' ? 'bg-gradient-to-r from-red-400 to-rose-500'
-                        : r.status === 'reserved' ? 'bg-gradient-to-r from-blue-400 to-indigo-500'
+                        : r.status === 'checking_out' ? 'bg-gradient-to-r from-yellow-400 to-amber-500'
+                        : r.status === 'dirty' ? 'bg-gradient-to-r from-orange-400 to-amber-500'
                         : r.status === 'cleaning' ? 'bg-gradient-to-r from-amber-400 to-yellow-500'
+                        : r.status === 'inspected' ? 'bg-gradient-to-r from-emerald-400 to-green-500'
+                        : r.status === 'reserved' ? 'bg-gradient-to-r from-blue-400 to-indigo-500'
                         : r.status === 'maintenance' ? 'bg-slate-400'
                         : 'bg-gradient-to-r from-green-400 to-emerald-500'
                       }`} />
@@ -1049,11 +1063,11 @@ export function TableMapPOS({
                       </div>
 
                       {/* Status label at the bottom */}
-                      <div className={`mt-auto mt-3.5 w-full rounded-lg px-2 py-1.5 text-center transition-colors ${r.status === 'cleaning' ? 'bg-amber-100 hover:bg-amber-200' : st.bg}`}>
+                      <div className={`mt-auto mt-3.5 w-full rounded-lg px-2 py-1.5 text-center transition-colors ${(r.status === 'cleaning' || r.status === 'dirty') && (shopSettings?.housekeeping_workflow_mode || 'SIMPLE') === 'SIMPLE' ? 'bg-amber-100 hover:bg-amber-200' : st.bg}`}>
                         <p className={`text-[12px] font-bold flex items-center justify-center gap-1.5 ${st.text}`}>
-                          {r.status === 'cleaning'
+                          {(r.status === 'cleaning' || r.status === 'dirty') && (shopSettings?.housekeeping_workflow_mode || 'SIMPLE') === 'SIMPLE'
                             ? '✓ Dọn xong'
-                            : r.status === 'occupied'
+                            : r.status === 'occupied' || r.status === 'checking_out'
                             ? (activeOrder?.customer_name || 'Khách lẻ')
                             : st.label}
                         </p>
@@ -1178,17 +1192,21 @@ export function TableMapPOS({
               label: 'Thao tác',
               align: 'right',
               className: 'w-[10%]',
-              render: (r) => (
-                <button
-                  onClick={(e) => { e.stopPropagation(); handleResourceClick(r); }}
-                  className={r.status === 'cleaning'
-                    ? "rounded-lg bg-white border border-amber-300 px-3 py-1.5 text-xs font-bold text-amber-600 hover:bg-amber-50 hover:text-amber-700 transition-colors shadow-sm whitespace-nowrap"
-                    : "rounded-lg bg-white border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors shadow-sm whitespace-nowrap"
-                  }
-                >
-                  {r.status === 'cleaning' ? '✓ Dọn xong' : 'Thao tác'}
-                </button>
-              )
+              render: (r) => {
+                const isSimple = (shopSettings?.housekeeping_workflow_mode || 'SIMPLE') === 'SIMPLE'
+                const canToggleClean = (r.status === 'cleaning' || r.status === 'dirty') && isSimple
+                return (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleResourceClick(r); }}
+                    className={canToggleClean
+                      ? "rounded-lg bg-white border border-amber-300 px-3 py-1.5 text-xs font-bold text-amber-600 hover:bg-amber-50 hover:text-amber-700 transition-colors shadow-sm whitespace-nowrap"
+                      : "rounded-lg bg-white border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors shadow-sm whitespace-nowrap"
+                    }
+                  >
+                    {canToggleClean ? '✓ Dọn xong' : 'Thao tác'}
+                  </button>
+                )
+              }
             }
           ]}
           groupedData={Array.from(zones.entries()).map(([zone, items]: [string, Resource[]]) => ({

@@ -46,30 +46,51 @@ export async function POST(
       return NextResponse.json({ error: 'Phòng này chưa được cài đặt định mức Minibar mặc định!' }, { status: 400 })
     }
 
-    // 3. Resolve warehouse via employee department link (strict - no fallback)
-    const resolvedEmpId = employee_id || user.id;
+    // 3. Resolve warehouse via employee department link or find default Buồng phòng department
+    let warehouseId = ''
+    const resolvedEmpId = employee_id || user.id
+    
+    // A. Check employee's department link first
     const userDeptRes = await connector.list('user-departments', {
       filters: { user_id: resolvedEmpId },
       limit: 1
-    });
-
-    const userDept = userDeptRes.data && userDeptRes.data[0];
-    if (!userDept || !userDept.department_id) {
-      return NextResponse.json(
-        { error: 'Nhân viên dọn phòng chưa được gán vào bộ phận nào. Vui lòng gán bộ phận trước.' },
-        { status: 400 }
-      );
+    })
+    const userDept = userDeptRes.data && userDeptRes.data[0]
+    if (userDept && userDept.department_id) {
+      const dept = await connector.findById('departments', userDept.department_id)
+      if (dept && dept.warehouse_id) {
+        warehouseId = dept.warehouse_id
+      }
     }
 
-    const dept = await connector.findById('departments', userDept.department_id);
-    if (!dept || !dept.warehouse_id) {
-      return NextResponse.json(
-        { error: `Bộ phận "${dept?.name || 'Không xác định'}" chưa được gán kho hàng liên kết để xuất vật tư minibar.` },
-        { status: 400 }
-      );
-    }
+    // B. Fallback: search for department named 'Buồng phòng' or 'Housekeeping'
+    if (!warehouseId) {
+      const deptList = await connector.list('departments', {
+        filters: { branch_id: shopId },
+        limit: 100
+      })
+      const depts = deptList.data || []
+      const hskpDept = depts.find((d: any) => {
+        const nameLower = (d.name || '').trim().toLowerCase()
+        return nameLower.includes('buồng phòng') || nameLower.includes('housekeeping') || nameLower === 'dọn phòng'
+      })
 
-    const warehouseId = dept.warehouse_id;
+      if (!hskpDept) {
+        return NextResponse.json(
+          { error: 'Không tìm thấy phòng ban "Buồng phòng" trong hệ thống. Vui lòng vào Thiết lập -> Phòng ban để tạo phòng ban này.' },
+          { status: 400 }
+        )
+      }
+
+      if (!hskpDept.warehouse_id) {
+        return NextResponse.json(
+          { error: `Phòng ban "${hskpDept.name}" chưa được cấu hình Kho liên kết. Vui lòng vào Thiết lập -> Phòng ban để chọn kho hàng tương ứng.` },
+          { status: 400 }
+        )
+      }
+
+      warehouseId = hskpDept.warehouse_id
+    }
 
     // 4. Calculate consumption & process
     const consumptionDetails: any[] = []
@@ -103,10 +124,10 @@ export async function POST(
           qty: String(consumedQty),
           unit_price: String(unitPrice),
           line_total: String(lineTotal),
-          variant_label: 'Tiêu hao Minibar'
+          variant_label: product.item_class === 'room_asset' ? 'Bồi thường tài sản' : 'Tiêu hao Minibar'
         })
 
-        // B. Create inventory stock movement (MINIBAR_CONSUMPTION)
+        // B. Create inventory stock movement (MINIBAR_CONSUMPTION or ASSET_LOSS)
         if (warehouseId) {
           await connector.create('stock-movements', {
             type: 'issue',
@@ -116,7 +137,9 @@ export async function POST(
             unit_cost: product.cost_price || '0',
             branch_id: shopId,
             warehouse_id: warehouseId,
-            reason: `Tiêu hao Minibar Phòng ${room.name}`,
+            reason: product.item_class === 'room_asset'
+              ? `Bồi thường hao hụt/hư hỏng tài sản Phòng ${room.name}`
+              : `Tiêu hao Minibar Phòng ${room.name}`,
             reference_no: order.order_no || '',
             workflow_status: 'COMPLETED'
           })

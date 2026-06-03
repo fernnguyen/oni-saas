@@ -165,6 +165,8 @@ export function HousekeepingClient({
   const [allRoomAllocations, setAllRoomAllocations] = useState<Record<string, MinibarSetupItem[]>>({})
   const [allocationsLoading, setAllocationsLoading] = useState(false)
   const [hskpWarehouse, setHskpWarehouse] = useState<WarehouseItem | null>(null)
+  const [hskpDeptStatus, setHskpDeptStatus] = useState<'no_dept' | 'no_wh' | 'ok'>('ok')
+  const [targetDeptName, setTargetDeptName] = useState('')
 
   // SLA Settings & Claim Confirm States
   const [slaSettingsModalOpen, setSlaSettingsModalOpen] = useState(false)
@@ -209,26 +211,54 @@ export function HousekeepingClient({
     } catch {}
   }
 
-  const fetchWarehouses = async () => {
+  const fetchWarehousesAndDepartment = async () => {
     try {
-      const res = await fetch(`/api/shops/${shopId}/warehouses?limit=200`)
-      if (res.ok) {
-        const json = await res.json()
-        const whs = json.data || []
+      const [whRes, deptRes] = await Promise.all([
+        fetch(`/api/shops/${shopId}/warehouses?limit=200`),
+        fetch(`/api/shops/${shopId}/departments?limit=200`)
+      ])
+      
+      if (whRes.ok && deptRes.ok) {
+        const whJson = await whRes.json()
+        const deptJson = await deptRes.json()
+        
+        const whs = whJson.data || []
+        const depts = deptJson.data || []
         setWarehouses(whs)
         
-        // Find housekeeping warehouse lodging_hskp
-        const hskpWh = whs.find((w: any) => w.code === 'lodging_hskp')
-        if (hskpWh) {
-          setHskpWarehouse(hskpWh)
-          fetchInventory(hskpWh.id)
+        // Find department named 'Buồng phòng' or 'Housekeeping' or 'Dọn phòng' (case-insensitive)
+        const hskpDept = depts.find((d: any) => {
+          const nameLower = (d.name || '').trim().toLowerCase()
+          return nameLower.includes('buồng phòng') || nameLower.includes('housekeeping') || nameLower === 'dọn phòng'
+        })
+        
+        if (!hskpDept) {
+          setHskpWarehouse(null)
+          setHskpDeptStatus('no_dept')
+          setInventory([])
         } else {
-          // Fallback to supply warehouse if any
-          const supplyWh = whs.find((w: any) => w.code === 'supply')
-          if (supplyWh) setHskpWarehouse(supplyWh)
+          setTargetDeptName(hskpDept.name)
+          if (!hskpDept.warehouse_id) {
+            setHskpWarehouse(null)
+            setHskpDeptStatus('no_wh')
+            setInventory([])
+          } else {
+            const wh = whs.find((w: any) => w.id === hskpDept.warehouse_id)
+            if (wh) {
+              setHskpWarehouse(wh)
+              setHskpDeptStatus('ok')
+              fetchInventory(wh.id)
+            } else {
+              setHskpWarehouse(null)
+              setHskpDeptStatus('no_wh')
+              setInventory([])
+            }
+          }
         }
       }
-    } catch {}
+    } catch (err) {
+      console.error('Lỗi tải cấu hình kho/phòng ban:', err)
+    }
   }
 
   const fetchInventory = async (warehouseId: string) => {
@@ -273,7 +303,7 @@ export function HousekeepingClient({
     fetchRooms()
     fetchProducts()
     fetchEmployees()
-    fetchWarehouses()
+    fetchWarehousesAndDepartment()
     fetchLogs()
 
     if (typeof window !== 'undefined') {
@@ -341,36 +371,7 @@ export function HousekeepingClient({
     setAllocationsLoading(false)
   }
 
-  // Seed lodging_hskp warehouse if missing
-  const handleSeedHskpWarehouse = async () => {
-    const loadToast = toast.loading('Đang khởi tạo Kho Buồng phòng...')
-    try {
-      const res = await fetch(`/api/shops/${shopId}/warehouses`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: 'Kho Buồng Phòng & Vật Tư',
-          code: 'lodging_hskp',
-          type: 'supply',
-          active: 'TRUE'
-        })
-      })
 
-      if (!res.ok) {
-        const json = await res.json()
-        throw new Error(json.error ?? 'Lỗi khởi tạo kho')
-      }
-
-      const newWh = await res.json()
-      toast.success('Khởi tạo kho buồng phòng thành công!')
-      setHskpWarehouse(newWh)
-      fetchWarehouses()
-    } catch (e: any) {
-      toast.error(e.message || 'Lỗi khi khởi tạo kho')
-    } finally {
-      toast.dismiss(loadToast)
-    }
-  }
 
   // 1. Assign / Claim dọn phòng
   const handleOpenAssign = (room: RoomResource) => {
@@ -1245,19 +1246,47 @@ export function HousekeepingClient({
                 <Warehouse className="w-4 h-4 text-primary" /> Bộ phận kho buồng phòng
               </h3>
               
-              {!hskpWarehouse ? (
-                <div className="p-4 border border-dashed border-slate-200 rounded-2xl bg-slate-50/50 text-center space-y-3">
+              {hskpDeptStatus === 'no_dept' ? (
+                <div className="p-4 border border-dashed border-red-200 rounded-2xl bg-red-50/30 text-center space-y-3">
+                  <AlertTriangle className="w-6 h-6 text-red-500 mx-auto animate-pulse" />
+                  <div>
+                    <h4 className="text-xs font-bold text-red-800">Chưa tạo Phòng ban Buồng phòng!</h4>
+                    <p className="text-[10px] text-red-600 mt-1 leading-normal">
+                      Hệ thống không tìm thấy phòng ban nào có tên là <strong>"Buồng phòng"</strong> hoặc <strong>"Housekeeping"</strong>. Vui lòng qua trang Thiết lập phòng ban để tạo phòng ban này.
+                    </p>
+                  </div>
+                  <a
+                    href={`/t/${slug}/${branch}/settings/departments`}
+                    className="w-full inline-block py-2.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl text-center transition-colors cursor-pointer"
+                  >
+                    Thiết lập Phòng ban
+                  </a>
+                </div>
+              ) : hskpDeptStatus === 'no_wh' ? (
+                <div className="p-4 border border-dashed border-amber-250 rounded-2xl bg-amber-50/30 text-center space-y-3">
                   <AlertTriangle className="w-6 h-6 text-amber-500 mx-auto animate-pulse" />
                   <div>
-                    <h4 className="text-xs font-bold text-slate-800">Chưa cấu hình Kho Buồng phòng!</h4>
-                    <p className="text-[10px] text-slate-400 mt-0.5">Khách sạn chưa có kho vật tư mang mã standard `lodging_hskp`.</p>
+                    <h4 className="text-xs font-bold text-amber-800">Chưa liên kết Kho cho bộ phận!</h4>
+                    <p className="text-[10px] text-amber-700 mt-1 leading-normal">
+                      Phòng ban <strong>"{targetDeptName}"</strong> chưa được liên kết với Kho vật tư nào để đối soát tiêu hao minibar/tài sản.
+                    </p>
                   </div>
-                  <button
-                    onClick={handleSeedHskpWarehouse}
-                    className="w-full py-2 bg-primary text-white text-xs font-medium rounded-xl hover:bg-primary-dark transition-colors cursor-pointer"
+                  <a
+                    href={`/t/${slug}/${branch}/settings/departments`}
+                    className="w-full inline-block py-2.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl text-center transition-colors cursor-pointer"
                   >
-                    Khởi tạo kho buồng phòng
-                  </button>
+                    Đi đến liên kết Kho
+                  </a>
+                </div>
+              ) : !hskpWarehouse ? (
+                <div className="p-4 border border-dashed border-slate-200 rounded-2xl bg-slate-50/50 text-center space-y-3">
+                  <AlertTriangle className="w-6 h-6 text-slate-400 mx-auto animate-pulse" />
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-800">Không tìm thấy Kho của bộ phận!</h4>
+                    <p className="text-[10px] text-slate-400 mt-1 leading-normal">
+                      Kho hàng được liên kết với bộ phận dọn phòng đã bị xóa hoặc không hợp lệ.
+                    </p>
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -1971,7 +2000,7 @@ export function HousekeepingClient({
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Thêm sản phẩm định mức:</p>
                 <div className="space-y-3">
                   <div>
-                    <label className="block font-bold mb-1">Chọn sản phẩm (Danh mục F&B) *</label>
+                    <label className="block font-bold mb-1">Chọn sản phẩm (Minibar hoặc Tài sản bồi thường) *</label>
                     <select
                       disabled={savingSetup}
                       value={setupProductId}
@@ -1979,9 +2008,18 @@ export function HousekeepingClient({
                       className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-xs outline-none focus:border-primary bg-white font-semibold text-slate-700"
                     >
                       <option value="">-- Chọn sản phẩm --</option>
-                      {allProducts.map(p => (
-                        <option key={p.id} value={p.id}>{p.name} - {Number(p.sell_price || 0).toLocaleString('vi-VN')}₫</option>
-                      ))}
+                      {allProducts.map(p => {
+                        const typeLabel = p.item_class === 'room_asset' 
+                          ? 'Tài sản' 
+                          : p.item_class === 'minibar' 
+                            ? 'Minibar' 
+                            : 'Dịch vụ'
+                        return (
+                          <option key={p.id} value={p.id}>
+                            {p.name} ({typeLabel}) - {Number(p.sell_price || 0).toLocaleString('vi-VN')}₫
+                          </option>
+                        )
+                      })}
                     </select>
                   </div>
 
