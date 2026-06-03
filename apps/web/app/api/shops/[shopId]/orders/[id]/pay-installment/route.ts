@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireShopAccess } from '@/lib/server/shopAccess'
 import { shopTag, invalidate } from '@/lib/server/cache'
 import { handleApiError } from '../../../../_helpers'
+import { updateCustomerStats } from '@/lib/server/customerStats'
 
 import { getGMT7Time } from '@oni/core'
 
@@ -48,13 +49,29 @@ export async function POST(
       type: 'receipt',
       amount: String(payAmount),
       method: method,
-      category: 'sales',
+      category: 'prepaid_deposit',
       reference_id: orderId,
       reference_name: order.customer_name || '',
-      note: `Thanh toán cho đơn ${order.order_no || orderId}${note ? ` - ${note}` : ''}`,
+      note: `Thanh toán trước cho đơn ${order.order_no || orderId}${note ? ` - ${note}` : ''}`,
       employee_id: order.employee_id || '',
       branch_id: order.branch_id || '',
       date: getGMT7Time().split('T')[0],
+    }
+
+    // Ghi nhận tăng ví trả trước (prepaid_balance) của khách hàng
+    const targetBranch = order.branch_id || shopId
+    const customerId = order.customer_id
+    if (customerId && !customerId.startsWith('virtual:')) {
+      const statsRes = await connector.list('customer-branch-stats', {
+        filters: { customer_id: customerId, branch_id: targetBranch }
+      })
+      const stats = statsRes.data[0]
+      const currentPrepaid = parseFloat(stats?.prepaid_balance || '0')
+      const newPrepaid = currentPrepaid + payAmount
+
+      await updateCustomerStats(connector, customerId, targetBranch, {
+        prepaid_balance: String(newPrepaid)
+      })
     }
 
     const [createdPay, createdCb] = await Promise.all([
@@ -69,6 +86,7 @@ export async function POST(
     invalidate(shopId, 'orders')
     invalidate(shopId, 'payments')
     invalidate(shopId, 'cashbook')
+    invalidate(shopId, 'customers')
 
     return NextResponse.json({ payment: createdPay, cashbook: createdCb, order: updatedOrder }, { status: 201 })
   } catch (e) {

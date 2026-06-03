@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { toast } from 'sonner'
 import { format, addDays, startOfWeek, differenceInDays, differenceInCalendarDays, isSameDay } from 'date-fns'
 import { vi } from 'date-fns/locale'
@@ -95,6 +95,14 @@ export function ReservationTimeline({
   const [selectedRoomIds, setSelectedRoomIds] = useState<string[]>([])
   const [selectedCustomer, setSelectedCustomer] = useState<LocalCustomer | null>(null)
   const [createConfirmOpen, setCreateConfirmOpen] = useState(false)
+  const [funds, setFunds] = useState<any[]>([])
+  const [depositPayments, setDepositPayments] = useState<Array<{
+    id: string
+    fund_id: string
+    amount: string
+    method: string
+    reference_no?: string
+  }>>([])
 
   const [channels, setChannels] = useState<any[]>([])
   const [mounted, setMounted] = useState(false)
@@ -421,9 +429,20 @@ export function ReservationTimeline({
     } catch {}
   }
 
+  const fetchFunds = async () => {
+    try {
+      const res = await fetch(`/api/shops/${shopId}/payment-funds?branch_id=${branch}&active=TRUE&t=${Date.now()}`)
+      if (res.ok) {
+        const json = await res.json()
+        setFunds(json.data || [])
+      }
+    } catch {}
+  }
+
   useEffect(() => {
     fetchReservations()
     fetchChannels()
+    fetchFunds()
   }, [shopId, startDate])
 
   const handleCellClick = (roomId: string, date: Date, hourOffset?: number) => {
@@ -453,6 +472,18 @@ export function ReservationTimeline({
     setSelectedCustomer(null)
     setFormChannel('direct')
     setFormDeposit('0')
+    
+    const defaultFund = funds.find(f => f.is_default === 'TRUE') || funds[0]
+    setDepositPayments([
+      {
+        id: String(Date.now()),
+        fund_id: defaultFund?.id || '',
+        amount: '0',
+        method: defaultFund?.type || 'cash',
+        reference_no: ''
+      }
+    ])
+    
     setFormNote('')
     setCreateModalOpen(true)
   }
@@ -485,6 +516,10 @@ export function ReservationTimeline({
     return !hasOverlapVirtual
   }
 
+  const totalDepositAmount = useMemo(() => {
+    return depositPayments.reduce((sum, p) => sum + (parseFloat(p.amount.replace(/\D/g, '')) || 0), 0)
+  }, [depositPayments])
+
   const handleFormSubmitClick = (e: React.FormEvent) => {
     e.preventDefault()
     if (!formCustName.trim()) {
@@ -510,26 +545,37 @@ export function ReservationTimeline({
     const loadToast = toast.loading('Đang xử lý đặt giữ phòng...')
     try {
       const rawRate = formRate.replace(/\D/g, '')
-      const rawDeposit = formDeposit.replace(/\D/g, '')
+      const rawDeposit = String(totalDepositAmount)
       const depositVal = parseFloat(rawDeposit) || 0
 
       // Generate a group booking ID if multiple rooms are selected
       const groupBookingId = selectedRoomIds.length > 1 ? 'GRP-' + Date.now().toString().slice(-6) : null
       const customerId = selectedCustomer?.customer_id || 'virtual:' + Date.now()
 
+      const paymentsPayload = depositPayments
+        .map(p => ({
+          fund_id: p.fund_id,
+          amount: parseFloat(p.amount.replace(/\D/g, '')) || 0,
+          method: p.method,
+          reference_no: p.reference_no
+        }))
+        .filter(p => p.amount > 0)
+
+      let activeCustomerId = customerId
       const results = []
       // Sequential loop to prevent concurrent database sequential ID race condition
       for (let idx = 0; idx < selectedRoomIds.length; idx++) {
         const roomId = selectedRoomIds[idx]
         const depositValRoom = idx === 0 ? rawDeposit : '0'
         const statusVal = idx === 0 && depositVal > 0 ? 'confirmed' : 'pending_deposit'
+        const payloadPayments = idx === 0 ? paymentsPayload : []
 
         const res = await fetch(`/api/shops/${shopId}/reservations`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             reservation_no: 'RSV-' + (Date.now() + idx).toString().slice(-6),
-            customer_id: customerId,
+            customer_id: activeCustomerId,
             customer_name: formCustName,
             customer_phone: formCustPhone,
             channel_id: formChannel,
@@ -538,11 +584,20 @@ export function ReservationTimeline({
             resource_id: roomId,
             daily_rate: rawRate,
             deposit_amount: depositValRoom,
+            deposit_fund_id: idx === 0 && paymentsPayload.length > 0 ? paymentsPayload[0].fund_id : undefined,
             status: statusVal,
             group_booking_id: groupBookingId,
-            note: formNote
+            note: formNote,
+            payments: payloadPayments
           })
         })
+
+        if (res.ok) {
+          const createdRes = await res.clone().json().catch(() => ({}))
+          if (createdRes && createdRes.customer_id) {
+            activeCustomerId = createdRes.customer_id
+          }
+        }
         results.push(res)
       }
 
@@ -1304,10 +1359,10 @@ export function ReservationTimeline({
           <form 
             onSubmit={handleFormSubmitClick}
             onClick={(e) => e.stopPropagation()}
-            className="relative bg-white rounded-3xl max-w-md w-full shadow-2xl p-6 border border-slate-100 space-y-4 animate-in fade-in zoom-in-95 duration-200"
+            className="relative bg-white rounded-3xl max-w-lg w-full max-h-[90vh] flex flex-col shadow-2xl p-6 border border-slate-100 animate-in fade-in zoom-in-95 duration-200"
           >
 
-            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3 shrink-0">
               <h3 className="text-lg font-bold text-slate-900 flex items-center gap-1.5">
                 <CalendarDays className="w-5 h-5 text-primary" /> Tạo Đặt phòng Mới
               </h3>
@@ -1316,120 +1371,223 @@ export function ReservationTimeline({
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-3.5 text-xs text-slate-600">
-              <div className="col-span-2">
-                <label className="block font-medium mb-1.5">Khách hàng *</label>
-                <CustomerSearch
-                  shopId={shopId}
-                  selected={selectedCustomer}
-                  onSelect={(cust) => {
-                    setSelectedCustomer(cust)
-                    if (cust) {
-                      setFormCustName(cust.name)
-                      setFormCustPhone(cust.phone || '')
-                    } else {
-                      setFormCustName('')
-                      setFormCustPhone('')
-                    }
-                  }}
-                />
-              </div>
-
-              <div>
-                <label className="block font-medium mb-1.5">Kênh đặt phòng</label>
-                <select 
-                  disabled={submitting} value={formChannel} onChange={e => setFormChannel(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary shadow-sm bg-white disabled:bg-slate-50"
-                >
-                  {channels.map(c => (
-                    <option key={c.id} value={c.code || c.id}>{c.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="col-span-2">
-                <label className="block font-medium mb-1.5">Phòng đặt giữ (Chọn thêm nếu đặt nhóm)</label>
-                <div className="flex flex-wrap gap-1.5 max-h-[120px] overflow-y-auto border border-slate-100 p-2.5 rounded-2xl bg-slate-50/50">
-                  {allResources.map(r => {
-                    const isChecked = selectedRoomIds.includes(r.id)
-                    const isFree = isRoomAvailable(r.id, formCheckIn, formCheckOut)
-                    return (
-                      <label key={r.id} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-bold cursor-pointer transition-colors ${
-                        !isFree
-                          ? 'bg-rose-50 border-rose-200 text-rose-500 hover:bg-rose-100'
-                          : isChecked 
-                          ? 'bg-primary/5 border-primary text-primary' 
-                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                      }`}>
-                        <input 
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => {
-                            if (!isFree && !isChecked) {
-                              toast.error(`Phòng ${r.name} đã được đặt hoặc đang có khách sử dụng trong khoảng thời gian này!`)
-                              return
-                            }
-                            if (isChecked) {
-                              if (selectedRoomIds.length > 1) {
-                                setSelectedRoomIds(selectedRoomIds.filter(id => id !== r.id))
-                              }
-                            } else {
-                              setSelectedRoomIds([...selectedRoomIds, r.id])
-                            }
-                          }}
-                          className="w-3.5 h-3.5 text-primary border-slate-200 rounded focus:ring-primary cursor-pointer"
-                        />
-                        <span>{r.name}</span>
-                        {!isFree && <span className="text-[9px] font-extrabold px-1 rounded-sm bg-rose-200 text-rose-800 uppercase leading-none">Bận</span>}
-                      </label>
-                    )
-                  })}
+            {/* Scrollable form body */}
+            <div className="flex-1 overflow-y-auto pr-1.5 min-h-0 py-2 space-y-4">
+              <div className="grid grid-cols-2 gap-3.5 text-xs text-slate-600">
+                <div className="col-span-2">
+                  <label className="block font-medium mb-1.5">Khách hàng *</label>
+                  <CustomerSearch
+                    shopId={shopId}
+                    selected={selectedCustomer}
+                    onSelect={(cust) => {
+                      setSelectedCustomer(cust)
+                      if (cust) {
+                        setFormCustName(cust.name)
+                        setFormCustPhone(cust.phone || '')
+                      } else {
+                        setFormCustName('')
+                        setFormCustPhone('')
+                      }
+                    }}
+                  />
                 </div>
-              </div>
 
-              <div>
-                <label className="block font-medium mb-1.5">Ngày nhận (Check-in)</label>
-                <input 
-                  type="datetime-local" required disabled={submitting} value={formCheckIn} onChange={e => setFormCheckIn(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary shadow-sm bg-white disabled:bg-slate-50"
-                />
-              </div>
+                <div>
+                  <label className="block font-medium mb-1.5">Kênh đặt phòng</label>
+                  <select 
+                    disabled={submitting} value={formChannel} onChange={e => setFormChannel(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary shadow-sm bg-white disabled:bg-slate-50"
+                  >
+                    {channels.map(c => (
+                      <option key={c.id} value={c.code || c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
 
-              <div>
-                <label className="block font-medium mb-1.5">Ngày trả (Check-out)</label>
-                <input 
-                  type="datetime-local" required disabled={submitting} value={formCheckOut} onChange={e => setFormCheckOut(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary shadow-sm bg-white disabled:bg-slate-50"
-                />
-              </div>
+                <div className="col-span-2">
+                  <label className="block font-medium mb-1.5">Phòng đặt giữ (Chọn thêm nếu đặt nhóm)</label>
+                  <div className="flex flex-wrap gap-1.5 max-h-[120px] overflow-y-auto border border-slate-100 p-2.5 rounded-2xl bg-slate-50/50">
+                    {allResources.map(r => {
+                      const isChecked = selectedRoomIds.includes(r.id)
+                      const isFree = isRoomAvailable(r.id, formCheckIn, formCheckOut)
+                      return (
+                        <label key={r.id} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-bold cursor-pointer transition-colors ${
+                          !isFree
+                            ? 'bg-rose-50 border-rose-200 text-rose-500 hover:bg-rose-100'
+                            : isChecked 
+                            ? 'bg-primary/5 border-primary text-primary' 
+                            : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                        }`}>
+                          <input 
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {
+                              if (!isFree && !isChecked) {
+                                toast.error(`Phòng ${r.name} đã được đặt hoặc đang có khách sử dụng trong khoảng thời gian này!`)
+                                  return
+                              }
+                              if (isChecked) {
+                                if (selectedRoomIds.length > 1) {
+                                  setSelectedRoomIds(selectedRoomIds.filter(id => id !== r.id))
+                                }
+                              } else {
+                                setSelectedRoomIds([...selectedRoomIds, r.id])
+                              }
+                            }}
+                            className="w-3.5 h-3.5 text-primary border-slate-200 rounded focus:ring-primary cursor-pointer"
+                          />
+                          <span>{r.name}</span>
+                          {!isFree && <span className="text-[9px] font-extrabold px-1 rounded-sm bg-rose-200 text-rose-800 uppercase leading-none">Bận</span>}
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
 
-              <div>
-                <label className="block font-medium mb-1.5">Giá thỏa thuận/Đêm</label>
-                <input 
-                  type="text" required disabled={submitting} value={formRate} onChange={e => handleAmountInputChange(e.target.value, setFormRate)}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary shadow-sm disabled:bg-slate-50"
-                />
-              </div>
+                <div>
+                  <label className="block font-medium mb-1.5">Ngày nhận (Check-in)</label>
+                  <input 
+                    type="datetime-local" required disabled={submitting} value={formCheckIn} onChange={e => setFormCheckIn(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary shadow-sm bg-white disabled:bg-slate-50"
+                  />
+                </div>
 
-              <div>
-                <label className="block font-medium mb-1.5">Số tiền đặt cọc trước (₫)</label>
-                <input 
-                  type="text" disabled={submitting} value={formDeposit} onChange={e => handleAmountInputChange(e.target.value, setFormDeposit)}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary shadow-sm disabled:bg-slate-50"
-                />
-              </div>
+                <div>
+                  <label className="block font-medium mb-1.5">Ngày trả (Check-out)</label>
+                  <input 
+                    type="datetime-local" required disabled={submitting} value={formCheckOut} onChange={e => setFormCheckOut(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary shadow-sm bg-white disabled:bg-slate-50"
+                  />
+                </div>
 
-              <div className="col-span-2">
-                <label className="block font-medium mb-1.5">Ghi chú thêm</label>
-                <textarea 
-                  disabled={submitting} value={formNote} onChange={e => setFormNote(e.target.value)} rows={2}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary shadow-sm disabled:bg-slate-50"
-                  placeholder="Yêu cầu dọn dẹp, xe đón..."
-                />
+                <div>
+                  <label className="block font-medium mb-1.5">Giá thỏa thuận/Đêm</label>
+                  <input 
+                    type="text" required disabled={submitting} value={formRate} onChange={e => handleAmountInputChange(e.target.value, setFormRate)}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary shadow-sm disabled:bg-slate-50"
+                  />
+                </div>
+
+                <div className="col-span-2 border-t border-slate-100 pt-3.5 space-y-3">
+                  <div className="flex justify-between items-center">
+                    <label className="block font-bold text-slate-700 text-xs">Thanh toán đặt cọc</label>
+                    <button
+                      type="button"
+                      disabled={submitting}
+                      onClick={() => {
+                        const defaultFund = funds.find(f => f.is_default === 'TRUE') || funds[0]
+                        setDepositPayments([
+                          ...depositPayments,
+                          {
+                            id: String(Date.now() + Math.random()),
+                            fund_id: defaultFund?.id || '',
+                            amount: '0',
+                            method: defaultFund?.type || 'cash',
+                            reference_no: ''
+                          }
+                        ])
+                      }}
+                      className="text-xs text-primary font-bold hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      + Thêm khoản cọc
+                    </button>
+                  </div>
+
+                  {depositPayments.length === 0 ? (
+                    <p className="text-[11px] text-slate-400 italic">Không có khoản đặt cọc nào.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {depositPayments.map((pay, idx) => (
+                        <div key={pay.id} className="p-3 bg-slate-50/70 rounded-2xl border border-slate-100 space-y-2.5 relative">
+                          {/* Dòng 1: Chọn sổ quỹ */}
+                          <div>
+                            <select
+                              disabled={submitting}
+                              value={pay.fund_id}
+                              onChange={(e) => {
+                                const next = [...depositPayments]
+                                const selectedFund = funds.find(f => f.id === e.target.value)
+                                next[idx].fund_id = e.target.value
+                                next[idx].method = selectedFund?.type || 'cash'
+                                setDepositPayments(next)
+                              }}
+                              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs outline-none bg-white text-slate-800 focus:border-primary transition-all"
+                            >
+                              <option value="">Chọn sổ quỹ nhận cọc...</option>
+                              {funds.map(f => (
+                                <option key={f.id} value={f.id}>{f.name} ({f.type === 'cash' ? 'Tiền mặt' : 'Ngân hàng'})</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {/* Dòng 2: Số tiền | Mã tham chiếu (tùy chọn) | Nút remove X có hình tròn */}
+                          <div className="flex gap-2 items-center">
+                            <div className="flex-1 relative">
+                              <input
+                                type="text"
+                                disabled={submitting}
+                                value={pay.amount}
+                                placeholder="Số tiền"
+                                onChange={(e) => {
+                                  const next = [...depositPayments]
+                                  const raw = e.target.value.replace(/\D/g, '')
+                                  next[idx].amount = raw ? Number(raw).toLocaleString('vi-VN') : '0'
+                                  setDepositPayments(next)
+                                }}
+                                className="w-full rounded-xl border border-slate-200 pl-3 pr-7 py-2 text-xs text-right text-slate-800 bg-white focus:border-primary transition-all"
+                              />
+                              <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-medium">₫</span>
+                            </div>
+
+                            <input
+                              type="text"
+                              disabled={submitting}
+                              value={pay.reference_no || ''}
+                              placeholder="Mã tham chiếu (tùy chọn)..."
+                              onChange={(e) => {
+                                const next = [...depositPayments]
+                                next[idx].reference_no = e.target.value
+                                setDepositPayments(next)
+                              }}
+                              className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-xs text-slate-800 bg-white focus:border-primary transition-all"
+                            />
+
+                            {depositPayments.length > 1 && (
+                              <button
+                                type="button"
+                                disabled={submitting}
+                                onClick={() => setDepositPayments(depositPayments.filter((_, i) => i !== idx))}
+                                className="w-8 h-8 rounded-full border border-slate-200 bg-white hover:border-rose-200 text-slate-500 hover:text-rose-500 flex items-center justify-center transition-all shadow-sm hover:shadow shrink-0 cursor-pointer"
+                                title="Xóa khoản cọc"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {depositPayments.length > 0 && (
+                    <div className="text-right text-xs font-bold text-slate-700 pt-1">
+                      Tổng số tiền đã đặt cọc: <span className="text-emerald-600 text-sm">{totalDepositAmount.toLocaleString('vi-VN')} đ</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="col-span-2">
+                  <label className="block font-medium mb-1.5">Ghi chú thêm</label>
+                  <textarea 
+                    disabled={submitting} value={formNote} onChange={e => setFormNote(e.target.value)} rows={2}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary shadow-sm disabled:bg-slate-50"
+                    placeholder="Yêu cầu dọn dẹp, xe đón..."
+                  />
+                </div>
               </div>
             </div>
 
-            <div className="flex gap-2 pt-2 border-t border-slate-100">
+            <div className="flex gap-2 pt-3 border-t border-slate-100 shrink-0">
               <button 
                 type="button" disabled={submitting} onClick={() => setCreateModalOpen(false)}
                 className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors disabled:opacity-50"
@@ -1492,6 +1650,28 @@ export function ReservationTimeline({
                 {formCheckOut ? format(new Date(formCheckOut), 'dd/MM/yyyy HH:mm') : ''}
               </span>
             </div>
+            {totalDepositAmount > 0 && (
+              <>
+                <div className="flex justify-between items-center border-t border-slate-200/60 pt-2.5">
+                  <span className="text-slate-550 font-medium">Tổng tiền đặt cọc:</span>
+                  <span className="font-bold text-emerald-600">{totalDepositAmount.toLocaleString('vi-VN')}₫</span>
+                </div>
+                <div className="text-[10px] text-slate-500 bg-white/60 border border-slate-100 rounded-xl p-2.5 mt-1 space-y-1">
+                  {depositPayments
+                    .filter(p => (parseFloat(p.amount.replace(/\D/g, '')) || 0) > 0)
+                    .map((p) => {
+                      const fundName = funds.find(f => f.id === p.fund_id)?.name || 'Quỹ chưa chọn'
+                      const amountVal = parseFloat(p.amount.replace(/\D/g, '')) || 0
+                      return (
+                        <div key={p.id} className="flex justify-between items-center">
+                          <span>• {fundName}:</span>
+                          <span className="font-semibold text-slate-700">{amountVal.toLocaleString('vi-VN')}₫</span>
+                        </div>
+                      )
+                    })}
+                </div>
+              </>
+            )}
           </div>
         </div>
       </ConfirmDialog>
