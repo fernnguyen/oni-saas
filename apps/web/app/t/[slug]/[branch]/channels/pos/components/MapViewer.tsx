@@ -109,6 +109,14 @@ export default function MapViewer({
     return resources.filter(r => r.status !== 'deleted' && (r.zone || 'Chưa phân vùng') === (selectedZone || 'Chưa phân vùng'))
   }, [resources, selectedZone])
 
+  // Calculate selection status based on first selected item
+  const selectionStatus = useMemo(() => {
+    if (selectedResourceIds.length === 0) return null
+    const firstSelectedId = selectedResourceIds[0]
+    const firstRes = resources.find(r => r.id === firstSelectedId)
+    return firstRes ? firstRes.status : null
+  }, [selectedResourceIds, resources])
+
   // Get resources in the current zone that are positioned
   const positionedTables = useMemo(() => {
     return activeZoneResources.filter(r => tableLayouts[r.id] !== undefined)
@@ -552,6 +560,11 @@ export default function MapViewer({
               const paxCount = activeOrder ? getPaxCount(activeOrder) : null
               const orderTotal = activeOrder ? Number(activeOrder.total_amount) : 0
 
+              const isDimmed = groupCheckoutMode && (
+                selectionStatus === 'occupied' ? r.status !== 'occupied' :
+                selectionStatus === 'available' ? r.status !== 'available' :
+                (r.status !== 'occupied' && r.status !== 'available')
+              )
               const isSelected = selectedResourceIds.includes(r.id)
 
               return (
@@ -571,7 +584,7 @@ export default function MapViewer({
                     onResourceClick(r)
                   }}
                   className="cursor-pointer"
-                  opacity={groupCheckoutMode && !isOccupied ? 0.45 : 1}
+                  opacity={isDimmed ? 0.45 : 1}
                 >
                   {/* Glowing light shadow */}
                   {layout.shape === 'circle' ? (
@@ -607,7 +620,7 @@ export default function MapViewer({
                         shadowBlur={isSelected ? 14 : (isOccupied ? 12 + pulseOpacity * 6 : 4)}
                         shadowOpacity={isSelected ? 0.6 : (isOccupied ? pulseOpacity * 0.35 : 0.08)}
                       />
-                      {groupCheckoutMode && isOccupied && (
+                      {groupCheckoutMode && (r.status === 'occupied' || r.status === 'available') && (
                         <Group x={layout.w / 2 + (Math.min(layout.w, layout.h) / 2) * 0.7 - 8} y={layout.h / 2 - (Math.min(layout.w, layout.h) / 2) * 0.7 - 8}>
                           <Rect
                             width={16}
@@ -689,7 +702,7 @@ export default function MapViewer({
                       />
 
                       {/* Checkbox for rect */}
-                      {groupCheckoutMode && isOccupied && (
+                      {groupCheckoutMode && (r.status === 'occupied' || r.status === 'available') && (
                         <Group x={layout.w - 24} y={8}>
                           <Rect
                             width={16}

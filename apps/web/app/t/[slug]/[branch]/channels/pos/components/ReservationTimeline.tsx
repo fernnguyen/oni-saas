@@ -23,6 +23,9 @@ import {
   HelpCircle
 } from 'lucide-react'
 import { parseGMT7Date } from '@oni/core'
+import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog'
+import { CustomerSearch } from './CustomerSearch'
+import { type LocalCustomer } from '@/lib/localDb/schema'
 
 
 interface Reservation {
@@ -90,6 +93,8 @@ export function ReservationTimeline({
   const [formNote, setFormNote] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [selectedRoomIds, setSelectedRoomIds] = useState<string[]>([])
+  const [selectedCustomer, setSelectedCustomer] = useState<LocalCustomer | null>(null)
+  const [createConfirmOpen, setCreateConfirmOpen] = useState(false)
 
   const [channels, setChannels] = useState<any[]>([])
   const [mounted, setMounted] = useState(false)
@@ -445,13 +450,42 @@ export function ReservationTimeline({
     
     setFormCustName('')
     setFormCustPhone('')
+    setSelectedCustomer(null)
     setFormChannel('direct')
     setFormDeposit('0')
     setFormNote('')
     setCreateModalOpen(true)
   }
 
-  const handleCreateReservation = async (e: React.FormEvent) => {
+  const isRoomAvailable = (roomId: string, checkIn: string, checkOut: string, excludeResvId?: string) => {
+    const start = new Date(checkIn).getTime()
+    const end = new Date(checkOut).getTime()
+    
+    if (isNaN(start) || isNaN(end)) return true
+    if (start >= end) return false
+
+    // 1. Check database reservations
+    const hasOverlapResv = reservations.some(r => {
+      if (r.resource_id !== roomId || r.status === 'cancelled' || r.id === excludeResvId) return false
+      const rStart = parseDateTime(r.expected_checkin).getTime()
+      const rEnd = parseDateTime(r.expected_checkout).getTime()
+      return start < rEnd && end > rStart
+    })
+
+    if (hasOverlapResv) return false
+
+    // 2. Check active POS occupied orders (virtual reservations)
+    const hasOverlapVirtual = virtualReservations.some(r => {
+      if (r.resource_id !== roomId || r.status === 'cancelled' || r.id === excludeResvId) return false
+      const rStart = parseDateTime(r.expected_checkin).getTime()
+      const rEnd = parseDateTime(r.expected_checkout).getTime()
+      return start < rEnd && end > rStart
+    })
+
+    return !hasOverlapVirtual
+  }
+
+  const handleFormSubmitClick = (e: React.FormEvent) => {
     e.preventDefault()
     if (!formCustName.trim()) {
       toast.error('Vui lòng nhập tên khách hàng')
@@ -461,7 +495,17 @@ export function ReservationTimeline({
       toast.error('Vui lòng chọn ít nhất một phòng')
       return
     }
+    for (const roomId of selectedRoomIds) {
+      if (!isRoomAvailable(roomId, formCheckIn, formCheckOut)) {
+        const room = allResources.find(r => r.id === roomId)
+        toast.error(`Phòng ${room?.name || roomId} đã có lịch trùng khớp trong khoảng thời gian chọn!`)
+        return
+      }
+    }
+    setCreateConfirmOpen(true)
+  }
 
+  const handleCreateReservation = async () => {
     setSubmitting(true)
     const loadToast = toast.loading('Đang xử lý đặt giữ phòng...')
     try {
@@ -471,14 +515,16 @@ export function ReservationTimeline({
 
       // Generate a group booking ID if multiple rooms are selected
       const groupBookingId = selectedRoomIds.length > 1 ? 'GRP-' + Date.now().toString().slice(-6) : null
-      const customerId = 'virtual:' + Date.now()
+      const customerId = selectedCustomer?.customer_id || 'virtual:' + Date.now()
 
-      const promises = selectedRoomIds.map((roomId, idx) => {
-        // Place deposit only on the first room of the group, others set 0
+      const results = []
+      // Sequential loop to prevent concurrent database sequential ID race condition
+      for (let idx = 0; idx < selectedRoomIds.length; idx++) {
+        const roomId = selectedRoomIds[idx]
         const depositValRoom = idx === 0 ? rawDeposit : '0'
         const statusVal = idx === 0 && depositVal > 0 ? 'confirmed' : 'pending_deposit'
 
-        return fetch(`/api/shops/${shopId}/reservations`, {
+        const res = await fetch(`/api/shops/${shopId}/reservations`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -497,9 +543,9 @@ export function ReservationTimeline({
             note: formNote
           })
         })
-      })
+        results.push(res)
+      }
 
-      const results = await Promise.all(promises)
       const hasError = results.some(res => !res.ok)
       if (hasError) throw new Error()
 
@@ -507,6 +553,7 @@ export function ReservationTimeline({
         ? `Đã tạo thành công đặt phòng đoàn (${selectedRoomIds.length} phòng)!` 
         : 'Đã tạo đặt phòng thành công!'
       )
+      setCreateConfirmOpen(false)
       setCreateModalOpen(false)
       fetchReservations()
       onRefresh?.()
@@ -1255,19 +1302,10 @@ export function ReservationTimeline({
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
         >
           <form 
-            onSubmit={handleCreateReservation}
+            onSubmit={handleFormSubmitClick}
             onClick={(e) => e.stopPropagation()}
             className="relative bg-white rounded-3xl max-w-md w-full shadow-2xl p-6 border border-slate-100 space-y-4 animate-in fade-in zoom-in-95 duration-200"
           >
-            {submitting && (
-              <div className="absolute inset-0 bg-white/80 backdrop-blur-[2px] z-50 flex flex-col items-center justify-center rounded-3xl animate-in fade-in duration-200">
-                <div className="flex flex-col items-center gap-3">
-                  <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-                  <span className="text-sm font-bold text-slate-700">Đang lưu thông tin đặt giữ phòng...</span>
-                  <span className="text-xs text-slate-500 font-medium">Vui lòng đợi trong giây lát</span>
-                </div>
-              </div>
-            )}
 
             <div className="flex justify-between items-center border-b border-slate-100 pb-3">
               <h3 className="text-lg font-bold text-slate-900 flex items-center gap-1.5">
@@ -1280,20 +1318,20 @@ export function ReservationTimeline({
 
             <div className="grid grid-cols-2 gap-3.5 text-xs text-slate-600">
               <div className="col-span-2">
-                <label className="block font-medium mb-1.5">Tên khách hàng *</label>
-                <input 
-                  type="text" required disabled={submitting} value={formCustName} onChange={e => setFormCustName(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary shadow-sm disabled:bg-slate-50"
-                  placeholder="Nhập họ tên khách hàng..."
-                />
-              </div>
-              
-              <div>
-                <label className="block font-medium mb-1.5">Số điện thoại</label>
-                <input 
-                  type="text" disabled={submitting} value={formCustPhone} onChange={e => setFormCustPhone(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary shadow-sm disabled:bg-slate-50"
-                  placeholder="09xx..."
+                <label className="block font-medium mb-1.5">Khách hàng *</label>
+                <CustomerSearch
+                  shopId={shopId}
+                  selected={selectedCustomer}
+                  onSelect={(cust) => {
+                    setSelectedCustomer(cust)
+                    if (cust) {
+                      setFormCustName(cust.name)
+                      setFormCustPhone(cust.phone || '')
+                    } else {
+                      setFormCustName('')
+                      setFormCustPhone('')
+                    }
+                  }}
                 />
               </div>
 
@@ -1314,9 +1352,12 @@ export function ReservationTimeline({
                 <div className="flex flex-wrap gap-1.5 max-h-[120px] overflow-y-auto border border-slate-100 p-2.5 rounded-2xl bg-slate-50/50">
                   {allResources.map(r => {
                     const isChecked = selectedRoomIds.includes(r.id)
+                    const isFree = isRoomAvailable(r.id, formCheckIn, formCheckOut)
                     return (
                       <label key={r.id} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-bold cursor-pointer transition-colors ${
-                        isChecked 
+                        !isFree
+                          ? 'bg-rose-50 border-rose-200 text-rose-500 hover:bg-rose-100'
+                          : isChecked 
                           ? 'bg-primary/5 border-primary text-primary' 
                           : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
                       }`}>
@@ -1324,6 +1365,10 @@ export function ReservationTimeline({
                           type="checkbox"
                           checked={isChecked}
                           onChange={() => {
+                            if (!isFree && !isChecked) {
+                              toast.error(`Phòng ${r.name} đã được đặt hoặc đang có khách sử dụng trong khoảng thời gian này!`)
+                              return
+                            }
                             if (isChecked) {
                               if (selectedRoomIds.length > 1) {
                                 setSelectedRoomIds(selectedRoomIds.filter(id => id !== r.id))
@@ -1334,7 +1379,8 @@ export function ReservationTimeline({
                           }}
                           className="w-3.5 h-3.5 text-primary border-slate-200 rounded focus:ring-primary cursor-pointer"
                         />
-                        {r.name}
+                        <span>{r.name}</span>
+                        {!isFree && <span className="text-[9px] font-extrabold px-1 rounded-sm bg-rose-200 text-rose-800 uppercase leading-none">Bận</span>}
                       </label>
                     )
                   })}
@@ -1400,6 +1446,55 @@ export function ReservationTimeline({
           </form>
         </div>
       )}
+
+      {/* Confirm create reservation */}
+      <ConfirmDialog
+        open={createConfirmOpen}
+        onClose={() => setCreateConfirmOpen(false)}
+        onConfirm={handleCreateReservation}
+        title="Xác nhận tạo đặt phòng"
+        confirmLabel={submitting ? 'Đang tạo...' : 'Xác nhận tạo phòng'}
+        cancelLabel="Hủy"
+      >
+        <div className="space-y-3.5 py-1 text-slate-800 text-xs">
+          <div className="text-center bg-indigo-50/50 p-4 rounded-2xl border border-indigo-100/30 space-y-1">
+            <div className="text-3xl">📅</div>
+            <h3 className="text-sm font-bold text-slate-800">Xác nhận lịch đặt phòng</h3>
+            <p className="text-slate-500 leading-normal text-[11px]">
+              Vui lòng rà soát lại thông tin trước khi lưu lên hệ thống.
+            </p>
+          </div>
+
+          <div className="border border-slate-200 rounded-2xl p-4 bg-slate-50 space-y-2.5">
+            <div className="flex justify-between items-center">
+              <span className="text-slate-550 font-medium">Khách hàng:</span>
+              <span className="font-bold text-slate-900">{formCustName}</span>
+            </div>
+            {formCustPhone && (
+              <div className="flex justify-between items-center">
+                <span className="text-slate-550 font-medium">Số điện thoại:</span>
+                <span className="font-bold text-slate-900">{formCustPhone}</span>
+              </div>
+            )}
+            <div className="flex justify-between items-center border-t border-slate-200/60 pt-2.5">
+              <span className="text-slate-550 font-medium">Số lượng phòng:</span>
+              <span className="font-bold text-primary">{selectedRoomIds.length} phòng</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-slate-550 font-medium">Ngày nhận (Check-in):</span>
+              <span className="font-bold text-slate-900">
+                {formCheckIn ? format(new Date(formCheckIn), 'dd/MM/yyyy HH:mm') : ''}
+              </span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-slate-550 font-medium">Ngày trả (Check-out):</span>
+              <span className="font-bold text-slate-900">
+                {formCheckOut ? format(new Date(formCheckOut), 'dd/MM/yyyy HH:mm') : ''}
+              </span>
+            </div>
+          </div>
+        </div>
+      </ConfirmDialog>
     </div>
   )
 }

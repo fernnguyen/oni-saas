@@ -131,6 +131,17 @@ export default function GroupCheckoutModal({
     setSelectedItemIds(next)
   }
 
+  const handleSelectAllItems = () => {
+    const allItemIds = Object.values(orderItemsMap).flat().map(item => item.id)
+    const isAllSelected = allItemIds.length > 0 && allItemIds.every(id => selectedItemIds.has(id))
+    
+    const next = new Set<string>()
+    if (!isAllSelected) {
+      allItemIds.forEach(id => next.add(id))
+    }
+    setSelectedItemIds(next)
+  }
+
   const handleDepositModeChange = (mode: 'hold' | 'even' | 'manual') => {
     setDepositMode(mode)
     const allocs: Record<string, string> = {}
@@ -393,7 +404,22 @@ export default function GroupCheckoutModal({
           {/* Hybrid Item Checklist Selector */}
           {actionType === 'hybrid' && (
             <div className="space-y-3 border-t border-slate-100 pt-4">
-              <label className="block text-xs font-bold text-slate-500">3. Chọn các khoản chuyển sang Bill tổng (Hóa đơn công ty)</label>
+              <div className="flex justify-between items-center">
+                <label className="block text-xs font-bold text-slate-500">3. Chọn các khoản chuyển sang Bill tổng (Hóa đơn công ty)</label>
+                {Object.keys(orderItemsMap).length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleSelectAllItems}
+                    className="text-primary hover:text-primary/80 font-bold text-xs bg-primary/5 px-2.5 py-1 rounded-lg border border-primary/10 transition-colors cursor-pointer select-none"
+                  >
+                    {(() => {
+                      const allItemIds = Object.values(orderItemsMap).flat().map(item => item.id)
+                      const isAllSelected = allItemIds.length > 0 && allItemIds.every(id => selectedItemIds.has(id))
+                      return isAllSelected ? 'Bỏ chọn tất cả' : 'Chọn tất cả'
+                    })()}
+                  </button>
+                )}
+              </div>
               
               {loadingItems ? (
                 <div className="text-center py-6 text-xs text-slate-400">Đang tải danh sách dịch vụ phát sinh...</div>

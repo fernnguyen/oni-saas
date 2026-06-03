@@ -17,6 +17,8 @@ import { format } from 'date-fns'
 import GroupCheckoutModal from './GroupCheckoutModal'
 import { Layers, Check, ArrowRight } from 'lucide-react'
 import { useParams } from 'next/navigation'
+import { CustomerSearch } from './CustomerSearch'
+import { type LocalCustomer } from '@/lib/localDb/schema'
 
 const MapViewer = dynamic(() => import('./MapViewer'), { ssr: false })
 
@@ -212,6 +214,16 @@ export function TableMapPOS({
   const [groupCheckoutMode, setGroupCheckoutMode] = useState(false)
   const [selectedResourceIds, setSelectedResourceIds] = useState<string[]>([])
   const [groupCheckoutModalOpen, setGroupCheckoutModalOpen] = useState(false)
+  const [groupCheckInModalOpen, setGroupCheckInModalOpen] = useState(false)
+  const [groupCheckInCust, setGroupCheckInCust] = useState<LocalCustomer | null>(null)
+  const [groupCheckInNote, setGroupCheckInNote] = useState('')
+  const [groupCheckInSaving, setGroupCheckInSaving] = useState(false)
+
+  const selectionStatus = useMemo(() => {
+    if (selectedResourceIds.length === 0) return null
+    const firstRes = resources.find(r => r.id === selectedResourceIds[0])
+    return firstRes ? firstRes.status : null
+  }, [selectedResourceIds, resources])
 
   const vertical = getVerticalConfig(industryType)
   const [viewMode, setViewMode] = useState<ViewMode>('map')
@@ -236,16 +248,19 @@ export function TableMapPOS({
 
   const selectedOrders = useMemo(() => {
     return selectedResourceIds.map(resId => {
-      const order = ordersMap.get(`res-${resId}`) || ordersMap.get(resId) || inProgressOrders.find(o => {
-        try {
-          const meta = typeof o.metadata === 'string' ? JSON.parse(o.metadata) : (o.metadata || {})
-          return meta.resource_id === resId
-        } catch {
-          return false
-        }
-      })
-      if (!order) return null
       const res = resources.find(r => r.id === resId)
+      const order = (res?.current_order_id ? ordersMap.get(res.current_order_id) : null) ||
+                    ordersMap.get(`res-${resId}`) ||
+                    ordersMap.get(resId) ||
+                    inProgressOrders.find(o => {
+                      try {
+                        const meta = typeof o.metadata === 'string' ? JSON.parse(o.metadata) : (o.metadata || {})
+                        return meta.resource_id === resId
+                      } catch {
+                        return false
+                      }
+                    })
+      if (!order) return null
       return {
         id: order.id,
         order_no: order.order_no,
@@ -467,14 +482,24 @@ export function TableMapPOS({
 
   function handleResourceClick(r: Resource) {
     if (groupCheckoutMode) {
-      if (r.status !== 'occupied') {
-        toast.info('Chỉ có thể chọn phòng/bàn đang có khách sử dụng để thanh toán nhóm')
-        return
-      }
-      if (selectedResourceIds.includes(r.id)) {
-        setSelectedResourceIds(selectedResourceIds.filter(id => id !== r.id))
+      if (selectedResourceIds.length === 0) {
+        if (r.status !== 'occupied' && r.status !== 'available') {
+          toast.info('Chỉ có thể chọn phòng/bàn trống hoặc đang sử dụng để thao tác nhóm')
+          return
+        }
+        setSelectedResourceIds([r.id])
       } else {
-        setSelectedResourceIds([...selectedResourceIds, r.id])
+        const firstRes = resources.find(res => res.id === selectedResourceIds[0])
+        const requiredStatus = firstRes?.status
+        if (r.status !== requiredStatus) {
+          toast.info(`Vui lòng chọn phòng/bàn có cùng trạng thái (${requiredStatus === 'occupied' ? 'Đang sử dụng' : 'Trống'})`)
+          return
+        }
+        if (selectedResourceIds.includes(r.id)) {
+          setSelectedResourceIds(selectedResourceIds.filter(id => id !== r.id))
+        } else {
+          setSelectedResourceIds([...selectedResourceIds, r.id])
+        }
       }
     } else {
       if (r.status === 'available' || r.status === 'occupied') {
@@ -482,6 +507,83 @@ export function TableMapPOS({
       } else if (r.status === 'cleaning') {
         handleSetAvailable(r)
       }
+    }
+  }
+
+  async function handleGroupCheckInConfirm() {
+    if (selectedResourceIds.length === 0) return
+    setGroupCheckInSaving(true)
+    const loadToast = toast.loading('Đang nhận phòng theo nhóm...')
+    try {
+      const customerName = groupCheckInCust?.name || 'Khách lẻ'
+      const groupBookingId = 'GRP-' + format(new Date(), 'yyyyMMdd') + '-' + Math.floor(1000 + Math.random() * 9000)
+      
+      let errors = 0
+      for (const resId of selectedResourceIds) {
+        const res = resources.find(r => r.id === resId)
+        if (!res) continue
+        
+        try {
+          const orderNoSeq = 'ORD-' + Date.now() + '-' + Math.floor(10 + Math.random() * 90)
+          const response = await fetch(`/api/shops/${shopId}/orders`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              status: 'in_progress',
+              order_no: orderNoSeq,
+              customer_id: groupCheckInCust?.customer_id?.startsWith('virtual:') ? '' : (groupCheckInCust?.customer_id || ''),
+              customer_name: customerName,
+              branch_id: branchId,
+              employee_id: userEmail,
+              subtotal: '0',
+              total_amount: '0',
+              paid_amount: '0',
+              resource_id: resId,
+              group_booking_id: groupBookingId,
+              metadata: JSON.stringify({
+                resource_id: resId,
+                resource_name: res.name,
+                check_in: new Date().toISOString(),
+                customer_phone: groupCheckInCust?.phone || '',
+                note: groupCheckInNote
+              })
+            })
+          })
+
+          if (!response.ok) {
+            errors++
+            continue
+          }
+
+          const createdOrder = await response.json()
+          const orderId = createdOrder.id || createdOrder.order_id
+
+          const patchRes = await fetch(`/api/shops/${shopId}/location-resources/${resId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'occupied', current_order_id: orderId }),
+          })
+          if (!patchRes.ok) errors++
+        } catch {
+          errors++
+        }
+      }
+
+      if (errors > 0) {
+        toast.error(`Hoàn tất nhận phòng nhóm với ${errors} lỗi phòng.`)
+      } else {
+        toast.success(`Đã nhận phòng nhóm thành công cho ${selectedResourceIds.length} phòng!`)
+      }
+      
+      setGroupCheckInModalOpen(false)
+      setGroupCheckoutMode(false)
+      setSelectedResourceIds([])
+      void fetchResources()
+    } catch {
+      toast.error('Có lỗi xảy ra khi nhận phòng nhóm')
+    } finally {
+      setGroupCheckInSaving(false)
+      toast.dismiss(loadToast)
     }
   }
 
@@ -646,11 +748,11 @@ export function TableMapPOS({
             className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold border transition-all active:scale-95 ${
               groupCheckoutMode
                 ? 'bg-primary/10 border-primary text-primary'
-                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 shadow-sm'
+                : 'bg-white border-slate-200 text-slate-650 hover:bg-slate-50 shadow-sm'
             }`}
           >
             <Layers className="w-3.5 h-3.5" />
-            <span>{groupCheckoutMode ? 'Hủy chọn nhóm' : 'Thanh toán nhóm'}</span>
+            <span>{groupCheckoutMode ? 'Hủy chọn nhóm' : 'Thao tác nhóm'}</span>
           </button>
 
           {isShiftEnabled && hasActiveShift && (
@@ -874,14 +976,19 @@ export function TableMapPOS({
                     : null
                   const isSelected = selectedResourceIds.includes(r.id)
                   const isOccupied = r.status === 'occupied'
+                  const isDimmed = groupCheckoutMode && (
+                    selectionStatus === 'occupied' ? r.status !== 'occupied' :
+                    selectionStatus === 'available' ? r.status !== 'available' :
+                    (r.status !== 'occupied' && r.status !== 'available')
+                  )
 
                   return (
                     <button
                       key={r.id}
                       onClick={() => handleResourceClick(r)}
-                      disabled={groupCheckoutMode && !isOccupied}
+                      disabled={isDimmed}
                       className={`group relative rounded-2xl border p-4 flex flex-col text-left transition-all hover:shadow-lg cursor-pointer overflow-hidden ${
-                        groupCheckoutMode && !isOccupied ? 'opacity-40 cursor-not-allowed' : ''
+                        isDimmed ? 'opacity-40 cursor-not-allowed' : ''
                       } ${
                         isSelected ? 'border-primary ring-2 ring-primary bg-primary/5'
                         : r.status === 'occupied' ? 'border-red-300 bg-gradient-to-br from-red-50 to-rose-50 shadow-sm hover:border-red-400'
@@ -892,7 +999,7 @@ export function TableMapPOS({
                       }`}
                     >
                       {/* Checkbox for group checkout */}
-                      {groupCheckoutMode && isOccupied && (
+                      {groupCheckoutMode && (isOccupied || r.status === 'available') && (
                         <div className="absolute top-3 right-3 z-10 flex items-center justify-center">
                           <div className={`w-5 h-5 rounded-md border flex items-center justify-center transition-colors ${
                             isSelected ? 'bg-primary border-primary text-white' : 'bg-white border-slate-300 text-transparent'
@@ -966,9 +1073,9 @@ export function TableMapPOS({
               label: '',
               className: 'w-[50px]',
               render: (r: Resource) => {
-                const isOccupied = r.status === 'occupied'
+                const isSelectable = r.status === 'occupied' || r.status === 'available'
                 const isSelected = selectedResourceIds.includes(r.id)
-                if (!isOccupied) return null
+                if (!isSelectable) return null
                 return (
                   <div className="flex items-center justify-center">
                     <div className={`w-4 h-4 rounded-md border flex items-center justify-center transition-colors ${
@@ -985,9 +1092,14 @@ export function TableMapPOS({
               label: 'Tên',
               className: 'w-[20%]',
               render: (r) => {
+                const isDimmed = groupCheckoutMode && (
+                  selectionStatus === 'occupied' ? r.status !== 'occupied' :
+                  selectionStatus === 'available' ? r.status !== 'available' :
+                  (r.status !== 'occupied' && r.status !== 'available')
+                )
                 return (
                   <button onClick={(e) => { e.stopPropagation(); handleResourceClick(r); }} className="text-left group">
-                    <span className="font-bold text-slate-800 group-hover:text-primary transition-colors">{r.name}</span>
+                    <span className={`font-bold text-slate-800 group-hover:text-primary transition-colors ${isDimmed ? 'opacity-40' : ''}`}>{r.name}</span>
                   </button>
                 )
               }
@@ -998,8 +1110,13 @@ export function TableMapPOS({
               className: 'w-[15%]',
               render: (r) => {
                 const st = STATUS_CARDS[r.status] ?? STATUS_CARDS.available
+                const isDimmed = groupCheckoutMode && (
+                  selectionStatus === 'occupied' ? r.status !== 'occupied' :
+                  selectionStatus === 'available' ? r.status !== 'available' :
+                  (r.status !== 'occupied' && r.status !== 'available')
+                )
                 return (
-                  <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ${st.bg} ${st.text}`}>
+                  <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ${st.bg} ${st.text} ${isDimmed ? 'opacity-40' : ''}`}>
                     {st.label}
                   </span>
                 )
@@ -1013,8 +1130,13 @@ export function TableMapPOS({
                 const activeOrder = r.status === 'occupied'
                   ? (ordersMap.get(r.current_order_id || '') || ordersMap.get(`res-${r.id}`))
                   : null
+                const isDimmed = groupCheckoutMode && (
+                  selectionStatus === 'occupied' ? r.status !== 'occupied' :
+                  selectionStatus === 'available' ? r.status !== 'available' :
+                  (r.status !== 'occupied' && r.status !== 'available')
+                )
                 return activeOrder ? (
-                  <span className="font-bold text-slate-700">
+                  <span className={`font-bold text-slate-700 ${isDimmed ? 'opacity-40' : ''}`}>
                     {activeOrder.customer_name || 'Khách lẻ'}
                   </span>
                 ) : (
@@ -1288,12 +1410,16 @@ export function TableMapPOS({
         )}
       </ConfirmDialog>
 
-      {/* Floating Control Bar for Group Checkout */}
+      {/* Floating Control Bar for Group Checkout / Check-in */}
       {groupCheckoutMode && (
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-40 bg-white/95 backdrop-blur-md border border-slate-200 px-6 py-4 rounded-3xl shadow-xl flex items-center gap-6 animate-in slide-in-from-bottom duration-300">
           <div className="flex flex-col">
-            <span className="text-xs font-bold text-slate-450 uppercase tracking-wider">Thanh toán nhóm</span>
-            <span className="text-sm font-black text-slate-800">Đã chọn: <span className="text-primary font-black">{selectedResourceIds.length}</span> vị trí</span>
+            <span className="text-xs font-bold text-slate-450 uppercase tracking-wider">
+              {selectionStatus === 'available' ? 'Nhận phòng nhóm' : 'Thanh toán nhóm'}
+            </span>
+            <span className="text-sm font-black text-slate-800">
+              Đã chọn: <span className="text-primary font-black">{selectedResourceIds.length}</span> vị trí
+            </span>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -1301,13 +1427,21 @@ export function TableMapPOS({
                 setGroupCheckoutMode(false)
                 setSelectedResourceIds([])
               }}
-              className="px-4 py-2 text-xs font-bold text-slate-650 hover:bg-slate-100 rounded-xl transition-all cursor-pointer"
+              className="px-4 py-2 text-xs font-bold text-slate-655 hover:bg-slate-100 rounded-xl transition-all cursor-pointer"
             >
               Hủy
             </button>
             <button
               disabled={selectedResourceIds.length === 0}
-              onClick={() => setGroupCheckoutModalOpen(true)}
+              onClick={() => {
+                if (selectionStatus === 'available') {
+                  setGroupCheckInCust(null)
+                  setGroupCheckInNote('')
+                  setGroupCheckInModalOpen(true)
+                } else {
+                  setGroupCheckoutModalOpen(true)
+                }
+              }}
               className="bg-primary hover:bg-primary/95 disabled:opacity-50 text-white px-5 py-2.5 rounded-xl text-xs font-black shadow-md shadow-primary/20 flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer"
             >
               Tiếp tục <ArrowRight className="w-3.5 h-3.5" />
@@ -1315,6 +1449,51 @@ export function TableMapPOS({
           </div>
         </div>
       )}
+
+      {/* DIALOG 4: NHẬN PHÒNG NHÓM (GROUP CHECK-IN) */}
+      <ConfirmDialog
+        open={groupCheckInModalOpen}
+        onClose={() => !groupCheckInSaving && setGroupCheckInModalOpen(false)}
+        onConfirm={handleGroupCheckInConfirm}
+        title="Nhận phòng theo nhóm"
+        confirmLabel={groupCheckInSaving ? 'Đang nhận phòng...' : 'Nhận phòng'}
+        cancelLabel="Hủy"
+        loading={groupCheckInSaving}
+      >
+        <div className="flex flex-col gap-4 py-1">
+          <div className="bg-indigo-50 border border-indigo-100/50 p-3.5 rounded-2xl text-xs text-indigo-850 space-y-1.5 font-medium leading-relaxed">
+            <p className="font-bold flex items-center gap-1.5 text-indigo-950">
+              <Layers className="w-4 h-4 text-indigo-600 animate-pulse" /> Nhận phòng nhóm ({selectedResourceIds.length} phòng)
+            </p>
+            <p>
+              Mỗi phòng sẽ được tự động kích hoạt phiên hoạt động mới ở chế độ POS có liên kết mã đoàn chung.
+            </p>
+            <p className="text-[10px] text-indigo-600 border-t border-indigo-200/50 pt-1.5 mt-1 font-semibold uppercase tracking-wider overflow-hidden text-ellipsis whitespace-nowrap">
+              Phòng chọn: {selectedResourceIds.map(id => resources.find(r => r.id === id)?.name || id).join(', ')}
+            </p>
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Chọn Trưởng đoàn (Khách hàng)</label>
+            <CustomerSearch 
+              shopId={shopId} 
+              selected={groupCheckInCust} 
+              onSelect={setGroupCheckInCust} 
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Ghi chú chung cho đoàn</label>
+            <textarea
+              value={groupCheckInNote}
+              onChange={(e) => setGroupCheckInNote(e.target.value)}
+              rows={2}
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs focus:border-indigo-500 focus:outline-none resize-none bg-white text-slate-800 shadow-sm"
+              placeholder="Nhập ghi chú đặt phòng đoàn..."
+            />
+          </div>
+        </div>
+      </ConfirmDialog>
 
       {/* Group Checkout Modal */}
       <GroupCheckoutModal
