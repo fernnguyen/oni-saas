@@ -28,6 +28,8 @@ import {
   Info
 } from 'lucide-react'
 
+import { usePermissions } from '@/app/components/ui/PermissionGate'
+
 interface RoomResource {
   id: string
   name: string
@@ -37,6 +39,22 @@ interface RoomResource {
   zone?: string
   hourly_rate?: string
   metadata?: string
+  updated_at?: string
+}
+
+const getRoomIdleTime = (updatedAt?: string) => {
+  if (!updatedAt) return '—'
+  const updatedTime = new Date(updatedAt).getTime()
+  const now = Date.now()
+  const diffMs = now - updatedTime
+  const diffMins = Math.max(0, Math.floor(diffMs / 60000))
+  if (diffMins < 60) {
+    return `${diffMins} phút`
+  } else {
+    const hours = Math.floor(diffMins / 60)
+    const mins = diffMins % 60
+    return `${hours}h ${mins}m`
+  }
 }
 
 interface MinibarSetupItem {
@@ -96,6 +114,9 @@ export function HousekeepingClient({
   slug,
   branch
 }: HousekeepingClientProps) {
+  const { hasPermission } = usePermissions()
+  const isManager = hasPermission('settings.manage') || hasPermission('products.edit')
+
   const [activeTab, setActiveTab] = useState<'rooms' | 'allocations' | 'logs'>('rooms')
   const [roomViewMode, setRoomViewMode] = useState<'grid' | 'list'>('grid')
   const [allocationViewMode, setAllocationViewMode] = useState<'list' | 'grid'>('list')
@@ -933,10 +954,17 @@ export function HousekeepingClient({
                 return (
                   <div 
                     key={room.id}
+                    onClick={() => {
+                      if (isManager && (isDirty || isAvailable)) {
+                        handleOpenAssign(room)
+                      }
+                    }}
                     className={`group relative rounded-2xl border p-4 flex flex-col justify-between transition-all duration-150 hover:shadow-md overflow-hidden ${
-                      isOccupied ? 'border-red-300 bg-red-50/60 shadow-sm hover:border-red-400'
-                      : (isCleaning || isDirty) ? 'border-amber-300 bg-amber-50/60 shadow-sm hover:border-amber-400'
-                      : 'border-slate-200 bg-gradient-to-br from-white to-slate-50 hover:border-green-400'
+                      (isManager && (isDirty || isAvailable)) ? 'cursor-pointer' : ''
+                    } ${
+                      isOccupied ? 'border-red-300 bg-red-50/60 shadow-sm hover:border-red-400 hover:bg-red-50/80'
+                      : (isCleaning || isDirty) ? 'border-amber-300 bg-amber-50/60 shadow-sm hover:border-amber-400 hover:bg-amber-50/85'
+                      : 'border-slate-200 bg-gradient-to-br from-white to-slate-50 hover:border-green-400 hover:bg-green-50/30'
                     }`}
                   >
                     {/* Top status indicator line */}
@@ -969,6 +997,17 @@ export function HousekeepingClient({
                       </div>
                     )}
 
+                    {/* Waiting time indicator for dirty rooms */}
+                    {isDirty && (
+                      <div className="mb-3 flex items-center gap-1.5 bg-rose-50 border border-rose-250/20 rounded-xl px-2.5 py-1 text-[10px] text-rose-700 font-bold">
+                        <Clock className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                        <div className="flex-1">
+                          <div>Chờ dọn dẹp</div>
+                          <div className="text-slate-400 text-[8px] mt-0.5 font-medium">Đã chờ: {getRoomIdleTime(room.updated_at)}</div>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Styled status block matching MapViewer/TableMapPOS exactly */}
                     <div className={`mt-auto w-full rounded-lg px-2 py-1.5 text-center transition-colors ${
                       isCleaning || isDirty ? 'bg-amber-100/60 text-amber-700'
@@ -992,7 +1031,7 @@ export function HousekeepingClient({
                     <div className="mt-3 flex flex-col gap-1 w-full pt-3 border-t border-slate-100/80">
                       {isOccupied && (
                         <button
-                          onClick={() => handleOpenInspection(room)}
+                          onClick={(e) => { e.stopPropagation(); handleOpenInspection(room); }}
                           className="w-full py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-bold rounded-xl transition-colors flex items-center justify-center gap-1 shadow-xs cursor-pointer"
                         >
                           <Wine className="w-3.5 h-3.5" /> Kiểm Minibar
@@ -1000,50 +1039,36 @@ export function HousekeepingClient({
                       )}
                       
                       {isDirty && (
-                        <div className="flex gap-1 w-full">
-                          <button
-                            onClick={() => setClaimConfirmRoom(room)}
-                            className="flex-1 py-1.5 bg-emerald-650 hover:bg-emerald-700 text-white text-[11px] font-bold rounded-xl transition-colors flex items-center justify-center gap-1 shadow-xs cursor-pointer"
-                          >
-                            <BrushCleaning className="w-3.5 h-3.5" /> Nhận dọn
-                          </button>
-                          <button
-                            onClick={() => handleOpenAssign(room)}
-                            className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 border border-slate-200/50 text-slate-700 text-[11px] font-bold rounded-xl transition-colors flex items-center justify-center gap-1 shadow-xs cursor-pointer"
-                          >
-                            Giao việc
-                          </button>
-                        </div>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setClaimConfirmRoom(room); }}
+                          className="w-full py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-[11px] font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+                        >
+                          <BrushCleaning className="w-4 h-4" /> Bắt đầu dọn dẹp
+                        </button>
                       )}
 
                       {isCleaning && (
                         <button
-                          onClick={() => handleMarkClean(room.id, room.name)}
-                          className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded-xl transition-colors flex items-center justify-center gap-1 shadow-xs cursor-pointer"
+                          onClick={(e) => { e.stopPropagation(); handleMarkClean(room.id, room.name); }}
+                          className="w-full py-1.5 bg-emerald-655 hover:bg-emerald-700 text-white text-[11px] font-bold rounded-xl transition-colors flex items-center justify-center gap-1 shadow-xs cursor-pointer"
                         >
                           <Check className="w-3.5 h-3.5" /> Báo sạch
                         </button>
                       )}
 
                       {isAvailable && (
-                        <div className="flex gap-1 w-full">
+                        <div className="flex gap-1.5 w-full">
                           <button
-                            onClick={() => handleOpenRoomCustomAllocation(room)}
+                            onClick={(e) => { e.stopPropagation(); handleOpenRoomCustomAllocation(room); }}
                             className="flex-1 py-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-650 text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
                           >
                             Định mức
                           </button>
                           <button
-                            onClick={() => setClaimConfirmRoom(room)}
-                            className="flex-1 py-1.5 bg-slate-950 hover:bg-slate-900 text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
+                            onClick={(e) => { e.stopPropagation(); setClaimConfirmRoom(room); }}
+                            className="flex-1 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1"
                           >
-                            Nhận dọn
-                          </button>
-                          <button
-                            onClick={() => handleOpenAssign(room)}
-                            className="flex-1 py-1.5 bg-slate-100 hover:bg-slate-200 border border-slate-250 text-slate-705 text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
-                          >
-                            Giao việc
+                            <BrushCleaning className="w-3.5 h-3.5" /> Bắt đầu dọn dẹp
                           </button>
                         </div>
                       )}
@@ -1098,8 +1123,22 @@ export function HousekeepingClient({
                           const activeLog = logs.find(l => l.resource_id === room.id && l.status === 'cleaning')
 
                           return (
-                            <tr key={room.id} className="hover:bg-slate-50/50">
-                              <td className="p-3 text-slate-900 font-bold text-sm pl-8">{room.name}</td>
+                            <tr 
+                              key={room.id}
+                              onClick={() => {
+                                if (isManager && (isDirty || isAvailable)) {
+                                  handleOpenAssign(room)
+                                }
+                              }}
+                              className={`hover:bg-slate-50/50 ${
+                                (isManager && (isDirty || isAvailable)) ? 'cursor-pointer' : ''
+                              }`}
+                            >
+                              <td className="p-3 text-slate-900 font-bold text-sm pl-8">
+                                <span className={(isManager && (isDirty || isAvailable)) ? 'hover:text-primary transition-colors' : ''}>
+                                  {room.name}
+                                </span>
+                              </td>
                               <td className="p-3">
                                 <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ${
                                   isOccupied ? 'bg-red-50 text-red-700'
@@ -1127,7 +1166,11 @@ export function HousekeepingClient({
                                 )}
                               </td>
                               <td className="p-3">
-                                {isCleaning && activeLog ? (
+                                {isDirty ? (
+                                  <span className="text-rose-600 flex items-center gap-1 font-bold">
+                                    <Clock className="w-3.5 h-3.5 text-rose-500 shrink-0" /> Chờ dọn: {getRoomIdleTime(room.updated_at)}
+                                  </span>
+                                ) : isCleaning && activeLog ? (
                                   <span className="text-amber-600 flex items-center gap-1 font-bold">
                                     <Clock className="w-3.5 h-3.5 animate-spin" /> Đang dọn dẹp
                                   </span>
@@ -1135,35 +1178,27 @@ export function HousekeepingClient({
                                   <span className="text-slate-400">—</span>
                                 )}
                               </td>
-                              <td className="p-3 text-right pr-6">
+                              <td className="p-3 text-right pr-6" onClick={(e) => e.stopPropagation()}>
                                 <div className="flex items-center justify-end gap-1.5">
                                   {isOccupied && (
                                     <button
-                                      onClick={() => handleOpenInspection(room)}
+                                      onClick={(e) => { e.stopPropagation(); handleOpenInspection(room); }}
                                       className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
                                     >
                                       Kiểm Minibar
                                     </button>
                                   )}
                                   {isDirty && (
-                                    <>
-                                      <button
-                                        onClick={() => setClaimConfirmRoom(room)}
-                                        className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
-                                      >
-                                        Nhận dọn
-                                      </button>
-                                      <button
-                                        onClick={() => handleOpenAssign(room)}
-                                        className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
-                                      >
-                                        Giao việc
-                                      </button>
-                                    </>
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); setClaimConfirmRoom(room); }}
+                                      className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                                    >
+                                      <BrushCleaning className="w-3.5 h-3.5" /> Bắt đầu dọn dẹp
+                                    </button>
                                   )}
                                   {isCleaning && (
                                     <button
-                                      onClick={() => handleMarkClean(room.id, room.name)}
+                                      onClick={(e) => { e.stopPropagation(); handleMarkClean(room.id, room.name); }}
                                       className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
                                     >
                                       Báo sạch
@@ -1172,22 +1207,16 @@ export function HousekeepingClient({
                                   {isAvailable && (
                                     <>
                                       <button
-                                        onClick={() => handleOpenRoomCustomAllocation(room)}
+                                        onClick={(e) => { e.stopPropagation(); handleOpenRoomCustomAllocation(room); }}
                                         className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-650 text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
                                       >
                                         Định mức
                                       </button>
                                       <button
-                                        onClick={() => setClaimConfirmRoom(room)}
-                                        className="px-2.5 py-1.5 bg-slate-955 hover:bg-slate-900 text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
+                                        onClick={(e) => { e.stopPropagation(); setClaimConfirmRoom(room); }}
+                                        className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer flex items-center gap-1"
                                       >
-                                        Nhận dọn
-                                      </button>
-                                      <button
-                                        onClick={() => handleOpenAssign(room)}
-                                        className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
-                                      >
-                                        Giao việc
+                                        <BrushCleaning className="w-3.5 h-3.5" /> Bắt đầu dọn dẹp
                                       </button>
                                     </>
                                   )}

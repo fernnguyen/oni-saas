@@ -24,6 +24,18 @@ $$\text{Thời gian dọn dẹp thực tế (phút)} = \frac{\text{Thời điể
 *   Nếu $\text{Thời gian dọn dẹp thực tế} \le \text{SLA của Phòng (hoặc SLA Hệ thống)}$, log dọn dẹp được đánh dấu là `ontime`.
 *   Nếu $\text{Thời gian dọn dẹp thực tế} > \text{SLA của Phòng (hoặc SLA Hệ thống)}$, log dọn dẹp được đánh dấu là `overtime`.
 
+### 1.3. Luồng Phân Quyền & Vai Trò (Role Gating & Permissions)
+*   **Nhân Viên Buồng Phòng (Housekeeping Staff):** Được cấp các quyền cơ bản `orders.view` và `orders.edit` để xem sơ đồ phòng và thực hiện bắt đầu dọn dẹp, kiểm minibar, báo sạch. Họ **không** có quyền `settings.manage` hoặc `products.edit`, do đó biến `isManager` là `false`. Điều này làm ẩn tất cả các tính năng quản trị: Giao việc, Cài đặt định mức, Cài đặt SLA.
+*   **Quản Lý Vận Hành (HK Manager):** Có các quyền quản lý (`settings.manage` hoặc `products.edit`), cho phép thực hiện phân công dọn dẹp, tùy biến định lượng, cài đặt SLA và các chức năng hệ thống nâng cao khác.
+
+### 1.4. Đếm Thời Gian Chờ Dọn Dẹp (Idle State Waiting Time Tracking)
+Khi lễ tân làm thủ tục Checkout và bấm hoàn tất đơn hàng, trạng thái phòng nghỉ tự động chuyển về `dirty` (chưa dọn dẹp) và cột `updated_at` trong cơ sở dữ liệu lưu lại mốc thời gian checkout này.
+*   **Công thức tính thời gian chờ dọn:**
+    $$\text{Thời gian đã chờ dọn dẹp} = \text{Thời điểm hiện tại} - \text{Mốc updated\_at của phòng}$$
+*   **Hiển thị trực quan:**
+    *   **Dạng lưới:** Thẻ phòng `dirty` hiển thị thêm một Badge cảnh báo màu đỏ với icon đồng hồ: `"Chờ dọn dẹp. Đã chờ: X phút / X giờ Y phút"`.
+    *   **Dạng bảng:** Trong cột "Tiến độ SLA", phòng chưa dọn hiển thị `"Chờ dọn: X phút / X giờ Y phút"` kèm biểu tượng đồng hồ màu đỏ, giúp quản lý biết chính xác phòng nào bị bỏ quên lâu nhất.
+
 ---
 
 ## 2. GIAO DIỆN SƠ ĐỒ VẬN HÀNH (OPERATIONS DASHBOARD LAYOUT)
@@ -35,12 +47,14 @@ Giao diện **Sơ đồ vận hành** (Tab 1) hỗ trợ hai chế độ hiển 
     *   **Trống sẵn sàng (Available):** Viền xám nhạt, nền chuyển sắc trắng sang xám siêu nhẹ, thanh trạng thái trên cùng màu Xanh lá.
     *   **Đang có khách ở (Occupied):** Viền đỏ Rose nhạt, nền đỏ Rose siêu nhẹ, thanh trạng thái trên cùng màu Đỏ Rose.
     *   **Chưa dọn dẹp (Dirty) / Đang dọn dẹp (Cleaning):** Viền vàng hổ phách nhạt, nền hổ phách siêu nhẹ, thanh trạng thái trên cùng màu Vàng hổ phách.
-*   Cung cấp các nút thao tác nhanh (Kiểm Minibar, Tự nhận dọn, Giao việc, Tùy biến định mức, Báo sạch) ngay trên thẻ phòng.
+*   **Quy trình Phân công Giao việc trực quan (Click-to-Assign):** Nút "Giao việc" thô sơ đã được ẩn khỏi card chung. Thay vào đó, khi người dùng có vai trò quản lý (`isManager === true`) click trực tiếp vào thẻ phòng (đang ở trạng thái `dirty` hoặc `available`), hệ thống sẽ mở ngay modal Phân công dọn dẹp. Các nút bấm hành động riêng lẻ (như Báo sạch, Bắt đầu dọn dẹp) sử dụng `e.stopPropagation()` để không kích hoạt nhầm modal giao việc.
+*   **Bắt đầu dọn dẹp (Quick Claim):** Nút "Nhận dọn" được đổi tên thành **"Bắt đầu dọn dẹp"** với thiết kế màu vàng hổ phách nổi bật (`bg-amber-500 hover:bg-amber-600`) kèm icon `BrushCleaning` để tăng độ tập trung trải nghiệm nhân viên.
 
 ### 2.2. Chế Độ Dạng Bảng Nhóm Vị Trí (Grouped Table View)
 *   Để tối ưu hóa không gian hiển thị danh sách phòng buồng, chế độ Dạng bảng **loại bỏ hoàn toàn cột vị trí/tầng** rời rạc kém thẩm mỹ.
 *   Thay vào đó, danh sách phòng được **nhóm trực tiếp (group) theo Tầng/Khu vực (Floor/Zone)** thành các hàng tiêu đề phân cách nằm ngang (Separator Rows) sắc nét.
 *   Mỗi hàng phân cách hiển thị biểu tượng Ghim bản đồ (`MapPin`), tên Tầng/Khu vực và tổng số lượng phòng thuộc tầng đó (ví dụ: `Tầng 1 (8 phòng)`).
+*   **Tương tác nhanh tại bảng:** Hỗ trợ nhấp chuột trực tiếp vào dòng của từng phòng để mở modal Phân công giao việc cho quản lý, và hiển thị nút **"Bắt đầu dọn dẹp"** màu vàng hổ phách kèm icon chổi dọn dẹp trực quan.
 *   Chế độ này giúp lễ tân dễ dàng theo dõi live-status dọn phòng theo luồng di chuyển vật lý của nhân viên.
 
 ---
@@ -66,6 +80,26 @@ Hệ thống cung cấp màn hình quản lý danh sách Kho hàng chi nhánh (T
     *   `asset` (Kho Tài sản chờ bàn giao)
 *   **Kho Buồng Phòng Chuyên Dụng (`lodging_hskp`):** Được sử dụng riêng cho bộ phận buồng phòng, lưu giữ tồn kho các loại nước giải khát, đồ ăn vặt minibar và vật tư tiêu hao (bàn chải, xà phòng, khăn tắm).
 *   **Chính Sách Bảo Vệ (Deletion Protection):** Backend chặn tuyệt đối hành vi XÓA hoặc SỬA MÃ các kho tiêu chuẩn hệ thống (`sale`, `supply`, `asset`, `default`). Chỉ cho phép tạo mới, sửa đổi hoặc xóa các kho hàng tự tạo (Custom Warehouses) của chi nhánh.
+
+> [!TIP]
+> **Khuyến nghị Thiết kế UX (System-Managed Identifier):** 
+> Để tối ưu hóa trải nghiệm người dùng, trường `code` (mã kho hoặc mã bộ phận) **không nên bắt người dùng nhập thủ công** mà nên được hệ thống tự động quản lý:
+> 1. *Đối với Kho/Bộ phận mặc định:* Mã hệ thống (`sale`, `supply`, `lodging_hskp`,...) được sinh tự động (auto-provision) và bị ẩn/khóa không cho người dùng sửa đổi. Người dùng chỉ có quyền đổi Tên hiển thị thân thiện.
+> 2. *Đối với Kho/Bộ phận tạo mới:* Trường `code` sẽ tự động sinh (Auto-generate unique slug) từ Tên hiển thị (ví dụ: "Kho Phụ Tầng 1" -> `kho-phu-tang-1`) hoặc sinh chuỗi UUID ngẫu nhiên. Người dùng chỉ làm việc bằng giao diện chọn Dropdown trực quan, không bao giờ cần biết mã định danh database này.
+
+### 3.3. Cơ chế phân chia Kho hàng theo Bộ phận (Department-Warehouse Mapping)
+Trong các mô hình vận hành không tách chi nhánh (nhưng có nhiều bộ phận độc lập cùng làm việc như Lễ tân, Buồng phòng, Nhà hàng/F&B), luồng dữ liệu kho được quản lý theo mô hình phân quyền **Phòng ban/Bộ phận (Departments)**:
+1.  **Thiết lập Liên kết (Association):** 
+    *   Mỗi kho hàng (Warehouse) có thể được bổ sung thuộc tính liên kết `department_code` (ví dụ: kho `lodging_hskp` liên kết với bộ phận `buong_phong`).
+2.  **Định danh Nhân sự theo Bộ phận (User-Department Link):**
+    *   Nhân viên khi đăng nhập sẽ có thông tin phòng ban từ bảng `user_departments` (ví dụ: Nhân sự A có vai trò thuộc phòng ban có code `buong_phong`).
+3.  **Tự động Lọc Phạm vi Kho (Automatic Scoping Filter):**
+    *   Khi nhân viên mở giao diện kiểm minibar hoặc xuất vật tư, hệ thống sẽ tự động đối chiếu mã phòng ban của nhân viên để lọc danh sách kho khả dụng:
+      ```typescript
+      // Chỉ cho phép nhân viên thao tác trên kho được gán cho bộ phận của họ
+      const allowedWarehouses = warehouses.filter(wh => wh.department_code === userDepartmentCode);
+      ```
+    *   Nhờ cơ chế này, nhân viên dọn dẹp thuộc bộ phận Buồng phòng sẽ mặc định thao tác trên đúng kho buồng phòng (`lodging_hskp`) mà không nhìn thấy hay sửa đổi nhầm số liệu của Kho Kinh doanh (`sale`) hay Kho tài sản (`asset`).
 
 ---
 
