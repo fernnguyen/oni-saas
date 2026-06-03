@@ -27,9 +27,9 @@ export async function POST(
     const body = await req.json();
     const data = assetCommissionSchema.parse(body);
 
-    // 1. Resolve standard warehouse WH-ASSET (code: 'asset') for the branch
+    // 1. Resolve standard warehouse WH-ASSET (type: 'asset') for the branch
     const whRes = await connector.list('warehouses', {
-      filters: { code: 'asset' },
+      filters: { type: 'asset' },
       limit: 1,
     });
     if (whRes.total === 0) {
@@ -97,7 +97,7 @@ export async function POST(
     // 5. Create the asset allocation record
     const allocationData = {
       asset_id: assetId,
-      department_code: data.department_code,
+      department_id: data.department_id,
       qty: String(reqQty),
       allocated_at: purchaseDate,
       created_by: userId,
@@ -120,7 +120,7 @@ export async function POST(
       branch_id: shopId,
       warehouse_id: assetWhId,
       reference_no: assetId,
-      reason: `Bàn giao tài sản 2 bước sang bộ phận Cost Center: ${data.department_code}. Mã TS: ${assetId}`,
+      reason: `Bàn giao tài sản 2 bước sang bộ phận Cost Center: ${data.department_id}. Mã TS: ${assetId}`,
     };
     await connector.create('stock-movements', movementData);
 

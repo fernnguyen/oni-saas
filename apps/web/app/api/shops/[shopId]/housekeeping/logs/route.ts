@@ -15,29 +15,29 @@ export async function GET(
   { params }: { params: Promise<{ shopId: string }> }
 ) {
   try {
-    const { shopId } = await params
-    const { connector } = await requireShopAccess(shopId, 'orders.view')
+    const { shopId } = await params;
+    const { connector } = await requireShopAccess(shopId, 'housekeeping.view');
 
-    const sp = req.nextUrl.searchParams
-    const page = Math.max(1, parseInt(sp.get('page') ?? '1'))
-    const limit = Math.min(200, Math.max(1, parseInt(sp.get('limit') ?? '50')))
-    const resource_id = sp.get('resource_id')
-    const employee_id = sp.get('employee_id')
+    const sp = req.nextUrl.searchParams;
+    const page = Math.max(1, parseInt(sp.get('page') ?? '1'));
+    const limit = Math.min(200, Math.max(1, parseInt(sp.get('limit') ?? '50')));
+    const resource_id = sp.get('resource_id');
+    const employee_id = sp.get('employee_id');
 
-    const filters: Record<string, string> = { branch_id: shopId }
-    if (resource_id) filters.resource_id = resource_id
-    if (employee_id) filters.employee_id = employee_id
+    const filters: Record<string, string> = { branch_id: shopId };
+    if (resource_id) filters.resource_id = resource_id;
+    if (employee_id) filters.employee_id = employee_id;
 
     const result = await connector.list('housekeeping-logs', {
       page,
       limit,
       filters,
       sortDesc: true
-    })
+    });
 
-    return NextResponse.json(result)
+    return NextResponse.json(result);
   } catch (e) {
-    return handleApiError(e, 'GET housekeeping-logs')
+    return handleApiError(e, 'GET housekeeping-logs');
   }
 }
 
@@ -46,8 +46,8 @@ export async function POST(
   { params }: { params: Promise<{ shopId: string }> }
 ) {
   try {
-    const { shopId } = await params
-    const { connector, user } = await requireShopAccess(shopId, 'orders.edit')
+    const { shopId } = await params;
+    const { connector, user } = await requireShopAccess(shopId, 'housekeeping.edit');
 
     const body = await req.json()
     const { action, resource_id, employee_id, employee_name, note, global_sla } = body

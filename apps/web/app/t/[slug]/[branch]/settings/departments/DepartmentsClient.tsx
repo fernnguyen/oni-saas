@@ -18,7 +18,7 @@ interface Props {
 
 const EMPTY_FORM = {
   name: '',
-  code: '',
+  warehouse_id: '',
   manager_id: '',
 };
 
@@ -41,6 +41,16 @@ export function DepartmentsClient({ shopId, shopName, canManage }: Props) {
     queryFn: async () => {
       const res = await fetch(`/api/shops/${shopId}/departments?limit=100`);
       if (!res.ok) throw new Error('Không tải được dữ liệu phòng ban');
+      return res.json() as Promise<{ data: Record<string, string>[]; total: number }>;
+    },
+  });
+
+  // 1b. Fetch warehouses for dropdown
+  const { data: whData } = useQuery({
+    queryKey: ['warehouses', shopId],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/warehouses?limit=100`);
+      if (!res.ok) throw new Error('Không tải được danh sách kho');
       return res.json() as Promise<{ data: Record<string, string>[]; total: number }>;
     },
   });
@@ -182,7 +192,7 @@ export function DepartmentsClient({ shopId, shopName, canManage }: Props) {
   function openEdit(row: Record<string, string>) {
     setFormData({
       name: row.name,
-      code: row.code,
+      warehouse_id: row.warehouse_id || '',
       manager_id: row.manager_id || '',
     });
     setEditingId(row.id);
@@ -210,14 +220,26 @@ export function DepartmentsClient({ shopId, shopName, canManage }: Props) {
     return deptData.data.filter(
       (d) =>
         d.name.toLowerCase().includes(s) ||
-        d.code.toLowerCase().includes(s) ||
         (d.manager_id && employeeMap.get(d.manager_id)?.toLowerCase().includes(s))
     );
   }, [deptData, debouncedSearch, employeeMap]);
 
   const columns = useMemo<Column<Record<string, string>>[]>(() => [
-    { key: 'code', label: 'Mã phòng ban (Cost Center)', render: (row) => <code className="px-2 py-1 bg-slate-100 text-slate-800 rounded font-mono text-xs">{row.code}</code> },
     { key: 'name', label: 'Tên phòng ban' },
+    {
+      key: 'warehouse_id',
+      label: 'Kho hàng liên kết',
+      render: (row) => {
+        const wh = whData?.data?.find(w => w.id === row.warehouse_id);
+        return wh ? (
+          <span className="text-xs font-semibold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-md">
+            {wh.name}
+          </span>
+        ) : (
+          <span className="text-slate-400 italic text-xs">Chưa liên kết</span>
+        );
+      }
+    },
     {
       key: 'manager_id',
       label: 'Trưởng bộ phận',
@@ -269,7 +291,7 @@ export function DepartmentsClient({ shopId, shopName, canManage }: Props) {
         </div>
       ),
     },
-  ], [employeeMap, canManage, deptData]);
+  ], [employeeMap, canManage, deptData, whData]);
 
   // Dropdown list of employees not in the selected department
   const nonMemberEmployees = useMemo(() => {
@@ -306,7 +328,7 @@ export function DepartmentsClient({ shopId, shopName, canManage }: Props) {
         <SearchBar
           value={search}
           onChange={setSearch}
-          placeholder="Tìm phòng ban, mã Cost Center hoặc trưởng bộ phận..."
+          placeholder="Tìm phòng ban hoặc trưởng bộ phận..."
         />
 
         <DataTable
@@ -342,10 +364,6 @@ export function DepartmentsClient({ shopId, shopName, canManage }: Props) {
                   toast.error('Vui lòng điền tên phòng ban');
                   return;
                 }
-                if (!formData.code.trim()) {
-                  toast.error('Vui lòng điền mã phòng ban');
-                  return;
-                }
                 saveDeptMutation.mutate(formData);
               }}
               disabled={saveDeptMutation.isPending}
@@ -368,18 +386,19 @@ export function DepartmentsClient({ shopId, shopName, canManage }: Props) {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Mã phòng ban (Cost Center) *</label>
-            <input
-              type="text"
-              value={formData.code}
-              onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '') }))}
-              disabled={!!editingId}
-              className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm focus:border-primary focus:outline-none font-mono disabled:bg-slate-50 disabled:text-slate-500"
-              placeholder="ví_dụ: lodging_hskp, fnb_kitchen"
-            />
-            <p className="mt-1 text-[11px] text-slate-400">
-              Chỉ được chứa chữ thường, số, dấu gạch dưới. Mã này dùng để bóc tách chi phí và hạch toán dòng chi.
-            </p>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Kho hàng liên kết</label>
+            <select
+              value={formData.warehouse_id || ''}
+              onChange={(e) => setFormData((prev) => ({ ...prev, warehouse_id: e.target.value }))}
+              className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm focus:border-primary focus:outline-none bg-white"
+            >
+              <option value="">-- Không liên kết kho --</option>
+              {whData?.data?.map((wh) => (
+                <option key={wh.id} value={wh.id}>
+                  {wh.name}
+                </option>
+              ))}
+            </select>
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Trưởng bộ phận</label>

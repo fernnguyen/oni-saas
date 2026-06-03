@@ -115,7 +115,7 @@ export function HousekeepingClient({
   branch
 }: HousekeepingClientProps) {
   const { hasPermission } = usePermissions()
-  const isManager = hasPermission('settings.manage') || hasPermission('products.edit')
+  const isManager = hasPermission('housekeeping.manage')
 
   const [activeTab, setActiveTab] = useState<'rooms' | 'allocations' | 'logs'>('rooms')
   const [roomViewMode, setRoomViewMode] = useState<'grid' | 'list'>('grid')

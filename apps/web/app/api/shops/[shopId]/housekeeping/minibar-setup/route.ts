@@ -9,24 +9,24 @@ export async function GET(
   { params }: { params: Promise<{ shopId: string }> }
 ) {
   try {
-    const { shopId } = await params
-    const { connector } = await requireShopAccess(shopId, 'orders.view')
+    const { shopId } = await params;
+    const { connector } = await requireShopAccess(shopId, 'housekeeping.view');
 
-    const sp = req.nextUrl.searchParams
-    const resource_id = sp.get('resource_id')
+    const sp = req.nextUrl.searchParams;
+    const resource_id = sp.get('resource_id');
 
     if (!resource_id) {
-      return NextResponse.json({ error: 'Missing resource_id parameter' }, { status: 400 })
+      return NextResponse.json({ error: 'Missing resource_id parameter' }, { status: 400 });
     }
 
     const result = await connector.list('minibar-setup', {
       filters: { resource_id, branch_id: shopId },
       limit: 100
-    })
+    });
 
-    return NextResponse.json(result)
+    return NextResponse.json(result);
   } catch (e) {
-    return handleApiError(e, 'GET minibar-setup')
+    return handleApiError(e, 'GET minibar-setup');
   }
 }
 
@@ -35,8 +35,8 @@ export async function POST(
   { params }: { params: Promise<{ shopId: string }> }
 ) {
   try {
-    const { shopId } = await params
-    const { connector } = await requireShopAccess(shopId, 'orders.edit')
+    const { shopId } = await params;
+    const { connector } = await requireShopAccess(shopId, 'housekeeping.edit');
 
     const body = await req.json() // Array of setup items
     const items = Array.isArray(body) ? body : [body]

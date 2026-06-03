@@ -233,7 +233,7 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
     {
       label: 'Vận hành',
       items: [
-        { href: joinPath(base, '/housekeeping'), label: 'Buồng phòng', icon: BedDouble, permission: 'inventory.view', featureGate: 'location_resource' },
+        { href: joinPath(base, '/housekeeping'), label: 'Buồng phòng', icon: BedDouble, permission: 'housekeeping.view', featureGate: 'location_resource' },
         { href: joinPath(base, '/inventory'), label: 'Kho',             icon: Warehouse, permission: 'inventory.view' },
         // Tạm thời comment Vận chuyển vì chưa implement
         // { href: joinPath(base, '/shipping'),  label: 'Vận chuyển',      icon: Truck,     permission: 'shipping.view' },

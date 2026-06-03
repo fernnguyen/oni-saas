@@ -19,16 +19,6 @@ export async function PATCH(
     // Enforce branch_id on update payload
     data.branch_id = shopId;
 
-    if (data.code) {
-      const existing = await connector.list('departments', {
-        filters: { code: data.code, branch_id: shopId }
-      });
-      const other = existing.data?.find((d: any) => d.id !== id);
-      if (other) {
-        return NextResponse.json({ error: 'Mã bộ phận đã tồn tại trong chi nhánh này. Vui lòng chọn mã khác.' }, { status: 400 });
-      }
-    }
-
     const updated = await connector.update('departments', id, data);
     invalidate(shopId, 'departments');
 

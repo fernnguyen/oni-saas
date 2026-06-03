@@ -18,7 +18,6 @@ interface Props {
 interface WarehouseItem {
   id: string
   name: string
-  code: string
   type: 'sale' | 'supply' | 'asset' | 'custom'
   active: 'TRUE' | 'FALSE'
   branch_id: string
@@ -26,7 +25,6 @@ interface WarehouseItem {
 
 const EMPTY_FORM = {
   name: '',
-  code: '',
   type: 'custom' as const,
   active: 'TRUE' as const,
 }
@@ -38,12 +36,10 @@ export function WarehouseClient({ shopId, shopName }: Props) {
   const [debouncedSearch] = useDebounce(search, 300)
   const [formData, setFormData] = useState<{
     name: string
-    code: string
     type: 'sale' | 'supply' | 'asset' | 'custom'
     active: 'TRUE' | 'FALSE'
   }>({
     name: '',
-    code: '',
     type: 'custom',
     active: 'TRUE',
   })
@@ -67,8 +63,7 @@ export function WarehouseClient({ shopId, shopName }: Props) {
     if (!debouncedSearch) return list
     const s = debouncedSearch.toLowerCase()
     return list.filter(w => 
-      w.name.toLowerCase().includes(s) || 
-      w.code.toLowerCase().includes(s)
+      w.name.toLowerCase().includes(s)
     )
   }, [data, debouncedSearch])
 
@@ -76,7 +71,6 @@ export function WarehouseClient({ shopId, shopName }: Props) {
   const saveMutation = useMutation({
     mutationFn: async (payload: {
       name: string
-      code: string
       type: 'sale' | 'supply' | 'asset' | 'custom'
       active: 'TRUE' | 'FALSE'
     }) => {
@@ -124,8 +118,8 @@ export function WarehouseClient({ shopId, shopName }: Props) {
     onSettled: () => setDeletingId(null)
   })
 
-  const isBuiltIn = (code: string) => {
-    return ['sale', 'supply', 'asset', 'default'].includes(code.toLowerCase())
+  const isBuiltInType = (type: string) => {
+    return ['sale', 'supply', 'asset'].includes(type)
   }
 
   const getWarehouseTypeLabel = (type: string) => {
@@ -140,7 +134,6 @@ export function WarehouseClient({ shopId, shopName }: Props) {
   function openEdit(row: WarehouseItem) {
     setFormData({
       name: row.name,
-      code: row.code,
       type: row.type,
       active: row.active,
     })
@@ -151,7 +144,6 @@ export function WarehouseClient({ shopId, shopName }: Props) {
   function openCreate() {
     setFormData({
       name: '',
-      code: '',
       type: 'custom',
       active: 'TRUE',
     })
@@ -160,12 +152,12 @@ export function WarehouseClient({ shopId, shopName }: Props) {
   }
 
   function handleDelete(row: WarehouseItem) {
-    if (isBuiltIn(row.code)) {
+    if (isBuiltInType(row.type)) {
       toast.error('Không thể xóa kho tiêu chuẩn hệ thống!')
       return
     }
 
-    if (confirm(`Bạn có chắc chắn muốn xóa kho "${row.name}" (${row.code}) không?`)) {
+    if (confirm(`Bạn có chắc chắn muốn xóa kho "${row.name}" không?`)) {
       setDeletingId(row.id)
       deleteMutation.mutate(row.id)
     }
@@ -173,21 +165,12 @@ export function WarehouseClient({ shopId, shopName }: Props) {
 
   const columns = useMemo<Column<WarehouseItem>[]>(() => [
     { 
-      key: 'code', 
-      label: 'Mã kho',
-      render: (row) => (
-        <span className="font-bold text-slate-800 bg-slate-100/80 px-2 py-1 rounded-md text-xs">
-          {row.code}
-        </span>
-      )
-    },
-    { 
       key: 'name', 
       label: 'Tên kho hàng',
       render: (row) => (
         <div className="flex flex-col">
           <span className="font-semibold text-slate-900 text-sm">{row.name}</span>
-          {isBuiltIn(row.code) && (
+          {isBuiltInType(row.type) && (
             <span className="text-[10px] font-semibold text-primary flex items-center gap-1 mt-0.5">
               <AlertCircle className="w-3 h-3" /> Kho hệ thống mặc định
             </span>
@@ -219,7 +202,7 @@ export function WarehouseClient({ shopId, shopName }: Props) {
       key: 'actions',
       label: '',
       render: (row) => {
-        const disabledDelete = isBuiltIn(row.code) || deletingId === row.id
+        const disabledDelete = isBuiltInType(row.type) || deletingId === row.id
         return (
           <div className="flex items-center justify-end gap-2">
             <button
@@ -228,7 +211,7 @@ export function WarehouseClient({ shopId, shopName }: Props) {
             >
               <Edit className="w-3.5 h-3.5" /> Sửa
             </button>
-            {!isBuiltIn(row.code) && (
+            {!isBuiltInType(row.type) && (
               <button
                 onClick={() => handleDelete(row)}
                 disabled={disabledDelete}
@@ -269,7 +252,7 @@ export function WarehouseClient({ shopId, shopName }: Props) {
         <SearchBar
           value={search}
           onChange={(v) => setSearch(v)}
-          placeholder="Tìm kiếm theo tên kho hoặc mã kho..."
+          placeholder="Tìm kiếm theo tên kho..."
         />
       </div>
 
@@ -305,7 +288,7 @@ export function WarehouseClient({ shopId, shopName }: Props) {
             </button>
             <button
               onClick={() => saveMutation.mutate(formData)}
-              disabled={saveMutation.isPending || !formData.name || !formData.code}
+              disabled={saveMutation.isPending || !formData.name}
               className="flex-1 sm:flex-none rounded-xl bg-primary px-4 py-2.5 text-xs font-bold text-white hover:bg-primary/95 disabled:opacity-50 shadow-md shadow-primary/20 flex items-center justify-center gap-1"
             >
               {saveMutation.isPending ? 'Đang lưu...' : 'Xác nhận & Lưu'}
@@ -314,10 +297,10 @@ export function WarehouseClient({ shopId, shopName }: Props) {
         }
       >
         <div className="space-y-5 p-1 text-xs">
-          {isBuiltIn(formData.code) && editingId && (
+          {isBuiltInType(formData.type) && editingId && (
             <div className="flex gap-2.5 bg-primary/10 border border-primary/20 p-4 rounded-2xl text-primary font-semibold leading-relaxed">
               <AlertCircle className="w-5 h-5 shrink-0" />
-              <span>Đây là kho mặc định của hệ thống. Bạn chỉ có thể đổi tên kho để dễ quản lý, không được sửa mã kho hoặc xóa kho này.</span>
+              <span>Đây là kho mặc định của hệ thống. Bạn chỉ có thể đổi tên kho để dễ quản lý, không được sửa phân loại kho hoặc xóa kho này.</span>
             </div>
           )}
 
@@ -334,23 +317,9 @@ export function WarehouseClient({ shopId, shopName }: Props) {
           </div>
 
           <div>
-            <label className="block text-slate-700 font-bold mb-1.5">Mã kho hàng *</label>
-            <input
-              type="text"
-              required
-              disabled={editingId !== null && isBuiltIn(formData.code)}
-              value={formData.code}
-              onChange={(e) => setFormData(prev => ({ ...prev, code: e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, '') }))}
-              className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none shadow-3xs disabled:bg-slate-50 font-semibold"
-              placeholder="ví_dụ: lodging_hskp"
-            />
-            <p className="text-[10px] text-slate-400 font-medium mt-1">Chỉ chứa chữ thường không dấu, số, dấu gạch dưới và gạch ngang.</p>
-          </div>
-
-          <div>
             <label className="block text-slate-700 font-bold mb-1.5">Phân loại kho</label>
             <select
-              disabled={editingId !== null && isBuiltIn(formData.code)}
+              disabled={editingId !== null && isBuiltInType(formData.type)}
               value={formData.type}
               onChange={(e) => setFormData(prev => ({ ...prev, type: e.target.value as any }))}
               className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none bg-white shadow-3xs disabled:bg-slate-50"

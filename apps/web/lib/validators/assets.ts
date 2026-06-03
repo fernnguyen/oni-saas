@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const departmentCreateSchema = z.object({
   name: z.string().min(1, 'Tên phòng ban không được để trống').max(100),
-  code: z.string().min(1, 'Mã bộ phận không được để trống').regex(/^[a-z0-9_]+$/, 'Mã bộ phận chỉ được chứa ký tự thường, số và dấu gạch dưới'),
+  warehouse_id: z.string().optional().nullable(),
   manager_id: z.string().optional().nullable(),
 }).transform((data) => {
   const result: Record<string, string> = {};
@@ -16,7 +16,7 @@ export const departmentCreateSchema = z.object({
 
 export const departmentUpdateSchema = z.object({
   name: z.string().min(1).max(100).optional(),
-  code: z.string().min(1).regex(/^[a-z0-9_]+$/).optional(),
+  warehouse_id: z.string().optional().nullable(),
   manager_id: z.string().optional().nullable(),
 }).transform((data) => {
   const result: Record<string, string> = {};
@@ -81,7 +81,7 @@ export const assetUpdateSchema = z.object({
 
 export const assetAllocationCreateSchema = z.object({
   asset_id: z.string().min(1, 'ID tài sản không được để trống'),
-  department_code: z.string().min(1, 'Mã bộ phận Cost Center không được để trống'),
+  department_id: z.string().min(1, 'ID bộ phận Cost Center không được để trống'),
   qty: z.string().min(1, 'Số lượng phân bổ không được để trống'),
   allocated_at: z.string().min(1, 'Ngày bàn giao không được để trống'),
   note: z.string().optional().nullable(),
@@ -103,7 +103,7 @@ export const costAllocationTemplateCreateSchema = z.object({
   rules: z.union([
     z.string(),
     z.array(z.object({
-      department_code: z.string().min(1),
+      department_id: z.string().min(1),
       percentage: z.number().min(0).max(100)
     }))
   ])
@@ -120,7 +120,7 @@ export const costAllocationTemplateUpdateSchema = z.object({
   rules: z.union([
     z.string(),
     z.array(z.object({
-      department_code: z.string().min(1),
+      department_id: z.string().min(1),
       percentage: z.number().min(0).max(100)
     }))
   ]).optional()
@@ -135,7 +135,6 @@ export const costAllocationTemplateUpdateSchema = z.object({
 
 export const warehouseCreateSchema = z.object({
   name: z.string().min(1, 'Tên kho không được để trống').max(255),
-  code: z.string().min(1, 'Mã kho không được để trống').regex(/^[a-zA-Z0-9_-]+$/, 'Mã kho chỉ được chứa chữ cái, số, gạch ngang và gạch dưới'),
   type: z.enum(['sale', 'supply', 'asset', 'custom']).optional().default('custom'),
   active: z.enum(['TRUE', 'FALSE']).optional().default('TRUE'),
 }).transform((data) => {
@@ -150,7 +149,6 @@ export const warehouseCreateSchema = z.object({
 
 export const warehouseUpdateSchema = z.object({
   name: z.string().min(1).max(255).optional(),
-  code: z.string().min(1).regex(/^[a-zA-Z0-9_-]+$/).optional(),
   type: z.enum(['sale', 'supply', 'asset', 'custom']).optional(),
   active: z.enum(['TRUE', 'FALSE']).optional(),
 }).transform((data) => {
@@ -166,7 +164,7 @@ export const warehouseUpdateSchema = z.object({
 export const assetCommissionSchema = z.object({
   product_id: z.string().min(1, 'ID sản phẩm không được để trống'),
   qty: z.string().min(1, 'Số lượng không được để trống'),
-  department_code: z.string().min(1, 'Mã bộ phận Cost Center không được để trống'),
+  department_id: z.string().min(1, 'ID bộ phận Cost Center không được để trống'),
   type: z.enum(['ccdc', 'tscd']).optional().default('ccdc'),
   depreciation_months: z.string().min(1, 'Số tháng khấu hao không được để trống'),
   serial_no: z.string().optional().nullable(),
@@ -193,7 +191,7 @@ export const assetDepreciationCreateSchema = z.object({
   amount: z.string().min(1, 'Số tiền trích khấu hao không được để trống'),
   depreciated_value_before: z.string().optional().default('0'),
   depreciated_value_after: z.string().optional().default('0'),
-  department_code: z.string().min(1, 'Mã bộ phận Cost Center không được để trống'),
+  department_id: z.string().min(1, 'ID bộ phận Cost Center không được để trống'),
   cashbook_id: z.string().optional().nullable(),
   created_by: z.string().optional().nullable(),
   updated_by: z.string().optional().nullable(),

@@ -225,7 +225,7 @@ export async function POST(
     // Resolve the branch's default warehouse if none is specified (backward-compatibility fallback)
     if (!resolvedWarehouseId) {
       const whRes = await connector.list('warehouses', {
-        filters: { code: 'sale' },
+        filters: { type: 'sale' },
         limit: 1
       });
       if (whRes.total > 0) {

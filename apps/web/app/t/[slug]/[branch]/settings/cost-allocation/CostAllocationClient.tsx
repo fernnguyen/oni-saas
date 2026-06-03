@@ -15,7 +15,7 @@ interface Props {
 }
 
 interface AllocationRule {
-  department_code: string;
+  department_id: string;
   percentage: number;
 }
 
@@ -33,7 +33,7 @@ export function CostAllocationClient({ shopId, shopName, canManage }: Props) {
   const [slideOpen, setSlideOpen] = useState(false);
   const [templateName, setTemplateName] = useState('');
   
-  // Track percentages for each department: Record<deptCode, percentageValue>
+  // Track percentages for each department: Record<deptId, percentageValue>
   const [rulePercentages, setRulePercentages] = useState<Record<string, number>>({});
 
   // 1. Fetch templates
@@ -80,7 +80,7 @@ export function CostAllocationClient({ shopId, shopName, canManage }: Props) {
 
   const departmentMap = useMemo(() => {
     const map = new Map<string, string>();
-    departments.forEach(d => map.set(d.code, d.name));
+    departments.forEach(d => map.set(d.id, d.name));
     return map;
   }, [departments]);
 
@@ -139,7 +139,7 @@ export function CostAllocationClient({ shopId, shopName, canManage }: Props) {
     setTemplateName('');
     setEditingId(null);
     const initialPct: Record<string, number> = {};
-    departments.forEach(d => { initialPct[d.code] = 0; });
+    departments.forEach(d => { initialPct[d.id] = 0; });
     setRulePercentages(initialPct);
     setSlideOpen(true);
   }
@@ -149,8 +149,8 @@ export function CostAllocationClient({ shopId, shopName, canManage }: Props) {
     setEditingId(row.id);
     const initialPct: Record<string, number> = {};
     departments.forEach(d => {
-      const rule = row.parsedRules.find(r => r.department_code === d.code);
-      initialPct[d.code] = rule ? rule.percentage : 0;
+      const rule = row.parsedRules.find(r => r.department_id === d.id);
+      initialPct[d.id] = rule ? rule.percentage : 0;
     });
     setRulePercentages(initialPct);
     setSlideOpen(true);
@@ -164,7 +164,7 @@ export function CostAllocationClient({ shopId, shopName, canManage }: Props) {
     const newPct: Record<string, number> = {};
     departments.forEach((d, idx) => {
       // Add remainder to the first department to ensure total = 100
-      newPct[d.code] = idx === 0 ? share + remainder : share;
+      newPct[d.id] = idx === 0 ? share + remainder : share;
     });
     setRulePercentages(newPct);
     toast.info('Đã tự động phân bổ đều 100% cho các bộ phận!');
@@ -181,7 +181,7 @@ export function CostAllocationClient({ shopId, shopName, canManage }: Props) {
     }
 
     const rules = Object.entries(rulePercentages)
-      .map(([deptCode, pct]) => ({ department_code: deptCode, percentage: pct }))
+      .map(([deptId, pct]) => ({ department_id: deptId, percentage: pct }))
       .filter(r => r.percentage > 0);
 
     saveMutation.mutate({ name: templateName, rules });
@@ -204,9 +204,9 @@ export function CostAllocationClient({ shopId, shopName, canManage }: Props) {
       render: (row) => (
         <div className="flex flex-wrap gap-1.5 py-1">
           {row.parsedRules.map((rule) => {
-            const deptName = departmentMap.get(rule.department_code) || rule.department_code;
+            const deptName = departmentMap.get(rule.department_id) || rule.department_id;
             return (
-              <span key={rule.department_code} className="inline-flex items-center gap-1 text-xs bg-slate-100 border border-slate-200 text-slate-700 font-medium px-2 py-0.5 rounded-md">
+              <span key={rule.department_id} className="inline-flex items-center gap-1 text-xs bg-slate-100 border border-slate-200 text-slate-700 font-medium px-2 py-0.5 rounded-md">
                 <span>{deptName}:</span>
                 <span className="font-bold text-primary">{rule.percentage}%</span>
               </span>
@@ -347,11 +347,11 @@ export function CostAllocationClient({ shopId, shopName, canManage }: Props) {
             {/* List of departments to slide/input */}
             <div className="space-y-3 pt-2">
               {departments.map((d) => {
-                const currentVal = rulePercentages[d.code] || 0;
+                const currentVal = rulePercentages[d.id] || 0;
                 return (
                   <div key={d.id} className="p-3 bg-slate-50 border border-slate-200/60 rounded-xl space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-700">{d.name} ({d.code})</span>
+                      <span className="text-xs font-bold text-slate-700">{d.name}</span>
                       <div className="flex items-center gap-1">
                         <input
                           type="number"
@@ -360,7 +360,7 @@ export function CostAllocationClient({ shopId, shopName, canManage }: Props) {
                           value={currentVal}
                           onChange={(e) => {
                             const val = Math.min(100, Math.max(0, parseInt(e.target.value) || 0));
-                            setRulePercentages(prev => ({ ...prev, [d.code]: val }));
+                            setRulePercentages(prev => ({ ...prev, [d.id]: val }));
                           }}
                           className="w-16 text-center text-xs font-bold text-slate-800 border border-slate-200 rounded-lg px-1.5 py-1 bg-white focus:outline-none focus:border-primary"
                         />
@@ -376,7 +376,7 @@ export function CostAllocationClient({ shopId, shopName, canManage }: Props) {
                       value={currentVal}
                       onChange={(e) => {
                         const val = parseInt(e.target.value);
-                        setRulePercentages(prev => ({ ...prev, [d.code]: val }));
+                        setRulePercentages(prev => ({ ...prev, [d.id]: val }));
                       }}
                       className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-primary"
                     />

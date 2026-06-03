@@ -16,7 +16,7 @@ export async function POST(
 ) {
   try {
     const { shopId } = await params
-    const { connector, user } = await requireShopAccess(shopId, 'orders.edit')
+    const { connector, user } = await requireShopAccess(shopId, 'housekeeping.edit')
 
     const body = await req.json()
     const { resource_id, items, employee_id, employee_name } = body // items: array of { product_id, current_qty } (Remaining quantities in room)
@@ -46,21 +46,30 @@ export async function POST(
       return NextResponse.json({ error: 'Phòng này chưa được cài đặt định mức Minibar mặc định!' }, { status: 400 })
     }
 
-    // 3. Find Housekeeping warehouse
-    const warehouseRes = await connector.list('warehouses', {
-      filters: { branch_id: shopId, code: 'lodging_hskp' },
+    // 3. Resolve warehouse via employee department link (strict - no fallback)
+    const resolvedEmpId = employee_id || user.id;
+    const userDeptRes = await connector.list('user-departments', {
+      filters: { user_id: resolvedEmpId },
       limit: 1
-    })
-    let warehouseId = ''
-    if (warehouseRes.total > 0) {
-      warehouseId = warehouseRes.data[0].id
-    } else {
-      // Fallback to default or any warehouse
-      const defaultWh = await connector.list('warehouses', { filters: { branch_id: shopId }, limit: 1 })
-      if (defaultWh.total > 0) {
-        warehouseId = defaultWh.data[0].id
-      }
+    });
+
+    const userDept = userDeptRes.data && userDeptRes.data[0];
+    if (!userDept || !userDept.department_id) {
+      return NextResponse.json(
+        { error: 'Nhân viên dọn phòng chưa được gán vào bộ phận nào. Vui lòng gán bộ phận trước.' },
+        { status: 400 }
+      );
     }
+
+    const dept = await connector.findById('departments', userDept.department_id);
+    if (!dept || !dept.warehouse_id) {
+      return NextResponse.json(
+        { error: `Bộ phận "${dept?.name || 'Không xác định'}" chưa được gán kho hàng liên kết để xuất vật tư minibar.` },
+        { status: 400 }
+      );
+    }
+
+    const warehouseId = dept.warehouse_id;
 
     // 4. Calculate consumption & process
     const consumptionDetails: any[] = []

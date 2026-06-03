@@ -40,15 +40,6 @@ export async function POST(
     const data = departmentCreateSchema.parse(body);
     data.branch_id = shopId; // Force the department to belong to the active shop!
 
-    // Kiểm tra tính độc nhất của mã phòng ban trong chi nhánh
-    const existing = await connector.list('departments', {
-      filters: { code: data.code, branch_id: shopId }
-    });
-
-    if (existing.data && existing.data.length > 0) {
-      return NextResponse.json({ error: 'Mã bộ phận đã tồn tại trong chi nhánh này. Vui lòng chọn mã khác.' }, { status: 400 });
-    }
-
     const created = await connector.create('departments', data);
     invalidate(shopId, 'departments');
     

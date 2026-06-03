@@ -165,6 +165,7 @@ export const cashbook = pgTable('cashbook', {
   fund_id: varchar('fund_id', { length: 255 }),
   balance_after_transaction: varchar('balance_after_transaction', { length: 50 }),
   department_code: varchar('department_code', { length: 50 }),
+  department_id: varchar('department_id', { length: 255 }),
   parent_transaction_id: varchar('parent_transaction_id', { length: 255 }),
   is_virtual: varchar('is_virtual', { length: 10 }).default('FALSE'),
 });
@@ -520,7 +521,7 @@ export const departments = pgTable('departments', {
   id: varchar('id', { length: 255 }).primaryKey(),
   branch_id: varchar('branch_id', { length: 255 }).notNull(),
   name: varchar('name', { length: 255 }).notNull(), // Lễ tân, Buồng phòng, Bếp...
-  code: varchar('code', { length: 50 }).notNull(), // lodging_hskp, fnb_kitchen...
+  warehouse_id: varchar('warehouse_id', { length: 255 }), // Kho liên kết của bộ phận
   manager_id: varchar('manager_id', { length: 255 }), // Trưởng bộ phận (user_id)
 }, (table) => ({
   deptTenantBranchIdx: index('idx_dept_tenant_branch').on(table.tenant_id, table.branch_id),
@@ -567,7 +568,8 @@ export const asset_allocations = pgTable('asset_allocations', {
   ...getBaseColumns(),
   id: varchar('id', { length: 255 }).primaryKey(),
   asset_id: varchar('asset_id', { length: 255 }).notNull(),
-  department_code: varchar('department_code', { length: 50 }).notNull(), // Map trực tiếp sang departments.code (Cost Center)
+  department_id: varchar('department_id', { length: 255 }).notNull(), // Map trực tiếp sang departments.id (Cost Center)
+  department_code: varchar('department_code', { length: 50 }), // Tương thích dữ liệu cũ
   qty: varchar('qty', { length: 50 }).notNull(),
   allocated_at: varchar('allocated_at', { length: 50 }).notNull(),
   note: text('note'),
@@ -588,7 +590,8 @@ export const asset_depreciations = pgTable('asset_depreciations', {
   amount: varchar('amount', { length: 50 }).notNull(), // Số tiền trích khấu hao kỳ này
   depreciated_value_before: varchar('depreciated_value_before', { length: 50 }).default('0'), // Giá trị lũy kế trước khi trích
   depreciated_value_after: varchar('depreciated_value_after', { length: 50 }).default('0'), // Giá trị lũy kế sau khi trích
-  department_code: varchar('department_code', { length: 50 }).notNull(), // Bộ phận gán chi phí (Cost Center), hoặc 'general_management'
+  department_id: varchar('department_id', { length: 255 }).notNull(), // Bộ phận gán chi phí (Cost Center)
+  department_code: varchar('department_code', { length: 50 }), // Tương thích dữ liệu cũ
   cashbook_id: varchar('cashbook_id', { length: 255 }), // Mã phiếu chi trong Sổ quỹ liên kết
   created_by: varchar('created_by', { length: 255 }),
   updated_by: varchar('updated_by', { length: 255 }),
@@ -602,7 +605,7 @@ export const cost_allocation_templates = pgTable('cost_allocation_templates', {
   id: varchar('id', { length: 255 }).primaryKey(),
   branch_id: varchar('branch_id', { length: 255 }).notNull(),
   name: varchar('name', { length: 255 }).notNull(), // Tên mẫu (ví dụ: "Phân bổ Điện nước")
-  rules: jsonb('rules').notNull(), // Mảng JSON chứa [{ department_code: string, percentage: number }]
+  rules: jsonb('rules').notNull(), // Mảng JSON chứa [{ department_id: string, percentage: number }]
 }, (table) => ({
   catTenantBranchIdx: index('idx_cat_tenant_branch').on(table.tenant_id, table.branch_id),
 }));
@@ -613,7 +616,6 @@ export const warehouses = pgTable('warehouses', {
   id: varchar('id', { length: 255 }).primaryKey(),
   branch_id: varchar('branch_id', { length: 255 }).notNull(),
   name: varchar('name', { length: 255 }).notNull(),
-  code: varchar('code', { length: 50 }).notNull(),
   type: varchar('type', { length: 50 }).default('custom'), // 'sale' | 'supply' | 'asset' | 'custom'
   active: varchar('active', { length: 10 }).default('TRUE'),
 }, (table) => ({
