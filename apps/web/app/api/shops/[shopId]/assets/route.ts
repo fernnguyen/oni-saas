@@ -38,7 +38,7 @@ export async function GET(
       ]);
 
       const departmentNameMap = new Map(
-        departmentsRes?.data?.map((d: any) => [d.code, d.name]) || []
+        departmentsRes?.data?.map((d: any) => [d.id, d.name]) || []
       );
 
       if (allocationsRes && Array.isArray(allocationsRes.data)) {
@@ -51,8 +51,8 @@ export async function GET(
 
         sortedAllocs.forEach((alloc: any) => {
           const assetId = alloc.asset_id;
-          const deptCode = alloc.department_code;
-          const deptName = departmentNameMap.get(deptCode) || deptCode;
+          const deptId = alloc.department_id;
+          const deptName = departmentNameMap.get(deptId) || deptId;
           if (!allocationMap.has(assetId) && deptName) {
             allocationMap.set(assetId, deptName);
           }

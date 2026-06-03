@@ -26,7 +26,7 @@ export async function POST(
 
     if (!warehouse_id) {
       const whRes = await connector.list('warehouses', {
-        filters: { code: 'sale' },
+        filters: { type: 'sale' },
         limit: 1
       });
       if (whRes.total > 0) {

@@ -21,14 +21,27 @@ export async function GET(
     const search = sp.get('search') ?? ''
     const branch_id = sp.get('branch_id') ?? ''
     const product_id = sp.get('product_id') ?? ''
+    
+    const hasWarehouseParam = sp.has('warehouse_id')
     let warehouse_id = sp.get('warehouse_id') ?? ''
+
+    // If warehouse_id was explicitly passed but is empty, undefined or null (unlinked department/warehouse in frontend),
+    // return empty data immediately instead of falling back to SALE warehouse.
+    if (hasWarehouseParam && (!warehouse_id || warehouse_id === 'undefined' || warehouse_id === 'null')) {
+      return NextResponse.json({
+        data: [],
+        total: 0,
+        page,
+        limit
+      })
+    }
 
     let isPrimarySalesWarehouse = true
 
-    // Auto-fallback: if warehouse_id is not specified, resolve the branch's primary sales warehouse ID (code: 'sale')
+    // Auto-fallback: if warehouse_id is not specified, resolve the branch's primary sales warehouse ID (type: 'sale')
     if (!warehouse_id) {
       const whRes = await connector.list('warehouses', {
-        filters: { code: 'sale' },
+        filters: { type: 'sale' },
         limit: 1
       });
       if (whRes.total > 0) {
@@ -42,7 +55,7 @@ export async function GET(
         limit: 1
       });
       if (whRes.total > 0) {
-        isPrimarySalesWarehouse = whRes.data[0].code === 'sale';
+        isPrimarySalesWarehouse = whRes.data[0].type === 'sale';
       } else {
         isPrimarySalesWarehouse = false;
       }

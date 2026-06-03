@@ -23,7 +23,8 @@ export interface AssetAllocation {
   id: string;
   tenant_id: string;
   asset_id: string;
-  department_code: string;
+  department_id: string;
+  department_code?: string;
   qty: string;
   allocated_at: string;
 }
@@ -42,6 +43,8 @@ export interface CashbookEntryInput {
   date: string;
   fund_id: string;
   employee_id: string;
+  department_id?: string;
+  department_code?: string;
 }
 
 /**
@@ -173,8 +176,9 @@ export class AssetEngine {
         const tenantHash = parts.length >= 3 ? parts[1] : (asset.tenant_id ? crypto.createHash('sha256').update(asset.tenant_id).digest('hex').substring(0, 8).toUpperCase() : 'SYSTEM');
         const assetPrefix = parts[0] || 'AST';
         const assetSeq = parts.slice(2).join('-') || '00000';
-        const cashbookId = `CSB-DEP-${tenantHash}-${assetPrefix}-${assetSeq}-${allocation.department_code}-${Date.now().toString().slice(-6)}`;
-        const note = `[Khấu hao ${assetTypeName} - Kỳ ${periodStr}] Phân bổ tài sản "${asset.name}" cho Bộ phận ${allocation.department_code.toUpperCase()} (SL bàn giao: ${allocQty}/${totalAllocatedQty} chiếc)`;
+        const deptIdOrCode = allocation.department_id || allocation.department_code || 'unknown';
+        const cashbookId = `CSB-DEP-${tenantHash}-${assetPrefix}-${assetSeq}-${deptIdOrCode}-${Date.now().toString().slice(-6)}`;
+        const note = `[Khấu hao ${assetTypeName} - Kỳ ${periodStr}] Phân bổ tài sản "${asset.name}" cho Bộ phận ID: ${deptIdOrCode} (SL bàn giao: ${allocQty}/${totalAllocatedQty} chiếc)`;
 
         const cashbookEntry: CashbookEntryInput = {
           id: cashbookId,
@@ -190,6 +194,8 @@ export class AssetEngine {
           date: todayStr,
           fund_id: 'SYSTEM',
           employee_id: executingEmployeeId,
+          department_id: allocation.department_id,
+          department_code: allocation.department_code,
         };
 
         // Ghi nhận trực tiếp vào cơ sở dữ liệu qua connector
@@ -198,7 +204,7 @@ export class AssetEngine {
 
         // Ghi lịch sử khấu hao chi tiết
         await connector.create('asset-depreciations', {
-          id: `DEP-LOG-${asset.id}-${allocation.department_code}-${Date.now().toString().slice(-6)}`,
+          id: `DEP-LOG-${asset.id}-${deptIdOrCode}-${Date.now().toString().slice(-6)}`,
           tenant_id: asset.tenant_id,
           branch_id: asset.branch_id,
           asset_id: asset.id,
@@ -206,6 +212,7 @@ export class AssetEngine {
           amount: String(allocatedAmount),
           depreciated_value_before: String(currentDepreciated),
           depreciated_value_after: String(nextDepreciatedValue),
+          department_id: allocation.department_id,
           department_code: allocation.department_code,
           cashbook_id: cashbookId,
           created_by: executingEmployeeId,
@@ -235,6 +242,8 @@ export class AssetEngine {
         date: todayStr,
         fund_id: 'SYSTEM',
         employee_id: executingEmployeeId,
+        department_id: 'general_management',
+        department_code: 'general_management',
       };
 
       await connector.create('cashbook', cashbookEntry);
@@ -250,6 +259,7 @@ export class AssetEngine {
         amount: String(depreciationAmount),
         depreciated_value_before: String(currentDepreciated),
         depreciated_value_after: String(nextDepreciatedValue),
+        department_id: 'general_management',
         department_code: 'general_management',
         cashbook_id: cashbookId,
         created_by: executingEmployeeId,

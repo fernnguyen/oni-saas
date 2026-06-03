@@ -196,7 +196,7 @@ export function ResourceSlideOver({
 
   const meta = safeParse(resource.metadata)
   const isRoom = resource.type === 'room'
-  const isOccupied = resource.status === 'occupied'
+  const isOccupied = resource.status === 'occupied' || resource.status === 'checking_out'
   const showGuests = sec.guestRegistration && !resource.id.startsWith('takeaway')
 
   const fetchingRef = useRef('')
@@ -921,7 +921,7 @@ export function ResourceSlideOver({
         await fetch(`/api/shops/${shopId}/location-resources/${resource.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: settings?.skip_cleaning_process ? 'available' : 'cleaning', current_order_id: '' }),
+          body: JSON.stringify({ status: settings?.skip_cleaning_process ? 'available' : 'dirty', current_order_id: '' }),
         })
       } catch {
         // ignore
@@ -930,6 +930,40 @@ export function ResourceSlideOver({
     setCheckoutOpen(false)
     onSessionClosed()
     onClose()
+  }
+
+  async function handleRequestCheckout() {
+    if (!order) return
+    const nowStr = new Date().toISOString()
+    const currentMeta = orderMeta || {}
+    currentMeta.actual_checkout_requested_at = nowStr
+    
+    try {
+      // 1. Update order metadata
+      const orderRes = await fetch(`/api/shops/${shopId}/orders/${order.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          metadata: JSON.stringify(currentMeta)
+        })
+      })
+      
+      if (orderRes.ok) {
+        // 2. Update resource status to checking_out
+        await fetch(`/api/shops/${shopId}/location-resources/${resource.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'checking_out' }),
+        })
+        toast.success('Đã khóa giờ tính tiền & báo kiểm phòng!')
+        fetchOrder()
+        onRefresh?.()
+      } else {
+        toast.error('Lỗi khi khóa giờ checkout')
+      }
+    } catch {
+      toast.error('Lỗi kết nối khi khóa giờ checkout')
+    }
   }
 
   async function handleTransfer(targetId: string) {
@@ -948,7 +982,7 @@ export function ResourceSlideOver({
       await fetch(`/api/shops/${shopId}/location-resources/${resource.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: settings?.skip_cleaning_process ? 'available' : 'cleaning', current_order_id: '' }),
+        body: JSON.stringify({ status: settings?.skip_cleaning_process ? 'available' : 'dirty', current_order_id: '' }),
       })
       // 2. Occupy target resource
       await fetch(`/api/shops/${shopId}/location-resources/${targetId}`, {
@@ -1110,7 +1144,7 @@ export function ResourceSlideOver({
       await fetch(`/api/shops/${shopId}/location-resources/${sourceId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: settings?.skip_cleaning_process ? 'available' : 'cleaning', current_order_id: '' }),
+        body: JSON.stringify({ status: settings?.skip_cleaning_process ? 'available' : 'dirty', current_order_id: '' }),
       })
 
       toast.success(`Đã gộp từ ${sourceResource.name}`)
@@ -1222,6 +1256,27 @@ export function ResourceSlideOver({
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {!isOccupied && !resource.id.startsWith('takeaway') && (resource.status === 'available' || resource.status === 'inspected') && (
+              <button
+                onClick={async () => {
+                  try {
+                    await fetch(`/api/shops/${shopId}/location-resources/${resource.id}`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ status: 'dirty', current_order_id: '' }),
+                    })
+                    toast.success(`Đã báo bẩn phòng ${resource.name}`)
+                    onRefresh?.()
+                    onClose()
+                  } catch {
+                    toast.error('Lỗi khi cập nhật trạng thái phòng')
+                  }
+                }}
+                className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-700 hover:bg-amber-100 transition-colors shadow-sm"
+              >
+                Báo bẩn (Dirty)
+              </button>
+            )}
             {isOccupied && !resource.id.startsWith('takeaway') && (
               <div className="relative">
                 <button
@@ -1894,17 +1949,40 @@ export function ResourceSlideOver({
         {/* Footer Actions */}
         <div className="p-4 border-t border-slate-100 bg-white shrink-0">
           {!isOccupied ? (
-            <button
-              onClick={handleCheckInSubmit}
-              disabled={saving}
-              className="w-full rounded-xl bg-primary py-3.5 text-sm font-bold text-white shadow-sm hover:bg-primary-dark disabled:opacity-50 transition-all"
-            >
-              {saving ? `Đang ${tpl.actions.checkIn.toLowerCase()}...` : tpl.actions.checkIn}
-            </button>
+            (() => {
+              const housekeepingMode = settings?.housekeeping_workflow_mode || 'SIMPLE'
+              const needsInspection = housekeepingMode === 'ENTERPRISE' && resource.type === 'room'
+              const isReady = !needsInspection || resource.status === 'inspected'
+              
+              return (
+                <div className="flex flex-col gap-2 w-full">
+                  {!isReady && (
+                    <p className="text-xs font-semibold text-rose-600 text-center bg-rose-50 py-2.5 rounded-xl border border-rose-100 mb-1">
+                      Chế độ Enterprise: Phòng cần được nghiệm thu (Inspected) trước khi nhận phòng!
+                    </p>
+                  )}
+                  <button
+                    onClick={handleCheckInSubmit}
+                    disabled={saving || !isReady}
+                    className="w-full rounded-xl bg-primary py-3.5 text-sm font-bold text-white shadow-sm hover:bg-primary-dark disabled:opacity-50 transition-all"
+                  >
+                    {saving ? `Đang ${tpl.actions.checkIn.toLowerCase()}...` : tpl.actions.checkIn}
+                  </button>
+                </div>
+              )
+            })()
           ) : (
             <div className="flex flex-col gap-3">
               <div className="flex gap-3">
                 <div className="flex gap-3 w-full">
+                  {resource.status === 'occupied' && !resource.id.startsWith('takeaway') && (
+                    <button
+                      onClick={handleRequestCheckout}
+                      className="rounded-xl bg-amber-500 hover:bg-amber-600 px-4 py-3.5 text-sm font-bold text-white shadow-sm transition-all"
+                    >
+                      Khóa giờ & Kiểm phòng
+                    </button>
+                  )}
                   <button
                     onClick={handlePayAndCloseClick}
                     className="flex-1 rounded-xl bg-slate-900 py-3.5 text-sm font-bold text-white shadow-sm hover:bg-slate-800 transition-all"

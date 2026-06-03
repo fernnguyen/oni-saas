@@ -258,7 +258,7 @@ export function AssetsClient({ shopId, shopName, canManage }: Props) {
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [selectedAssetName, setSelectedAssetName] = useState<string | null>(null);
   const [allocationsOpen, setAllocationsOpen] = useState(false);
-  const [allocDeptCode, setAllocDeptCode] = useState('');
+  const [allocDeptId, setAllocDeptId] = useState('');
   const [allocQty, setAllocQty] = useState('1');
   const [allocDate, setAllocDate] = useState(new Date().toISOString().split('T')[0]);
   const [allocNote, setAllocNote] = useState('');
@@ -269,7 +269,7 @@ export function AssetsClient({ shopId, shopName, canManage }: Props) {
   const [commissionForm, setCommissionForm] = useState({
     product_id: '',
     qty: '1',
-    department_code: '',
+    department_id: '',
     type: 'ccdc' as 'ccdc' | 'tscd',
     depreciation_months: '12',
     serial_no: '',
@@ -290,7 +290,7 @@ export function AssetsClient({ shopId, shopName, canManage }: Props) {
   });
 
   const assetWhId = useMemo(() => {
-    return whData?.data?.find((w) => w.code === 'asset')?.id || '';
+    return whData?.data?.find((w) => w.type === 'asset')?.id || '';
   }, [whData]);
 
   // Fetch inventory stock in WH-ASSET for commissioning
@@ -382,7 +382,7 @@ export function AssetsClient({ shopId, shopName, canManage }: Props) {
   const departmentMap = useMemo(() => {
     const map = new Map<string, string>();
     if (deptData?.data) {
-      deptData.data.forEach((d) => map.set(d.code, d.name));
+      deptData.data.forEach((d) => map.set(d.id, d.name));
     }
     return map;
   }, [deptData]);
@@ -476,7 +476,7 @@ export function AssetsClient({ shopId, shopName, canManage }: Props) {
 
   // Create allocation mutation (Di chuyển tài sản)
   const addAllocMutation = useMutation({
-    mutationFn: async (payload: { asset_id: string; department_code: string; qty: string; allocated_at: string; note?: string; recipient_name?: string }) => {
+    mutationFn: async (payload: { asset_id: string; department_id: string; qty: string; allocated_at: string; note?: string; recipient_name?: string }) => {
       const res = await fetch(`/api/shops/${shopId}/assets/allocations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -491,7 +491,7 @@ export function AssetsClient({ shopId, shopName, canManage }: Props) {
     onSuccess: () => {
       toast.success('Điều chuyển tài sản thành công!');
       setAllocQty('1');
-      setAllocDeptCode('');
+      setAllocDeptId('');
       setAllocNote('');
       setAllocRecipient('');
       queryClient.invalidateQueries({ queryKey: ['asset-allocations', shopId, selectedAssetId] });
@@ -566,7 +566,7 @@ export function AssetsClient({ shopId, shopName, canManage }: Props) {
   function openAllocations(row: Record<string, string>) {
     setSelectedAssetId(row.id);
     setSelectedAssetName(row.name);
-    setAllocDeptCode('');
+    setAllocDeptId('');
     setAllocQty('1');
     setAllocDate(new Date().toISOString().split('T')[0]);
     setAllocNote('');
@@ -788,7 +788,7 @@ export function AssetsClient({ shopId, shopName, canManage }: Props) {
                 setCommissionForm({
                   product_id: '',
                   qty: '1',
-                  department_code: '',
+                  department_id: '',
                   type: 'ccdc',
                   depreciation_months: '12',
                   serial_no: '',
@@ -1267,7 +1267,7 @@ export function AssetsClient({ shopId, shopName, canManage }: Props) {
                 ) : (
                   <div className="divide-y divide-slate-100 border border-slate-200/80 rounded-xl overflow-hidden bg-white">
                     {allocationsData.data.map((alloc) => {
-                      const deptName = departmentMap.get(alloc.department_code) || alloc.department_code;
+                      const deptName = departmentMap.get(alloc.department_id) || alloc.department_id;
                       return (
                         <div key={alloc.id} className="p-3 hover:bg-slate-50 transition-colors text-xs space-y-1.5">
                           <div className="flex items-center justify-between font-bold text-slate-800">
@@ -1320,9 +1320,9 @@ export function AssetsClient({ shopId, shopName, canManage }: Props) {
                 ) : (
                   <div className="divide-y divide-slate-100 border border-slate-200/80 rounded-xl overflow-hidden bg-white">
                     {depreciationsData.data.map((deprec, index, arr) => {
-                      const deptName = deprec.department_code === 'general_management' 
+                      const deptName = deprec.department_id === 'general_management' 
                         ? 'Chi phí quản lý chung' 
-                        : (departmentMap.get(deprec.department_code) || deprec.department_code);
+                        : (departmentMap.get(deprec.department_id) || deprec.department_id);
                       const periodIndex = arr.length - index;
                       return (
                         <div key={deprec.id} className="p-3 hover:bg-slate-50 transition-colors text-xs space-y-2">
@@ -1384,14 +1384,14 @@ export function AssetsClient({ shopId, shopName, canManage }: Props) {
                 <div>
                   <label className="block text-[11px] font-medium text-slate-500 mb-1">Phòng ban nhận thiết bị *</label>
                   <select
-                    value={allocDeptCode}
-                    onChange={(e) => setAllocDeptCode(e.target.value)}
+                    value={allocDeptId}
+                    onChange={(e) => setAllocDeptId(e.target.value)}
                     className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:border-primary focus:outline-none"
                   >
                     <option value="">-- Chọn phòng ban nhận --</option>
                     {deptData?.data?.map((dept) => (
-                      <option key={dept.id} value={dept.code}>
-                        {dept.name} ({dept.code})
+                      <option key={dept.id} value={dept.id}>
+                        {dept.name}
                       </option>
                     ))}
                   </select>
@@ -1443,7 +1443,7 @@ export function AssetsClient({ shopId, shopName, canManage }: Props) {
                 <div className="flex justify-end pt-1">
                   <button
                     onClick={() => {
-                      if (!allocDeptCode) {
+                      if (!allocDeptId) {
                         toast.error('Vui lòng chọn phòng ban nhận');
                         return;
                       }
@@ -1453,14 +1453,14 @@ export function AssetsClient({ shopId, shopName, canManage }: Props) {
                       }
                       addAllocMutation.mutate({
                         asset_id: selectedAssetId!,
-                        department_code: allocDeptCode,
+                        department_id: allocDeptId,
                         qty: allocQty,
                         allocated_at: allocDate,
                         note: allocNote,
                         recipient_name: allocRecipient,
                       });
                     }}
-                    disabled={addAllocMutation.isPending || !allocDeptCode}
+                    disabled={addAllocMutation.isPending || !allocDeptId}
                     className="rounded-xl bg-primary px-4 py-2 text-xs font-semibold text-white hover:bg-primary-dark transition-all cursor-pointer active:scale-95 disabled:opacity-50"
                   >
                     {addAllocMutation.isPending ? 'Đang di chuyển...' : 'Di chuyển'}
@@ -1485,7 +1485,7 @@ export function AssetsClient({ shopId, shopName, canManage }: Props) {
             ) : (
               <div className="divide-y divide-slate-100 border border-slate-200 rounded-2xl overflow-hidden bg-white">
                 {allocationsData.data.map((alloc) => {
-                  const deptName = departmentMap.get(alloc.department_code) || alloc.department_code;
+                  const deptName = departmentMap.get(alloc.department_id) || alloc.department_id;
                   return (
                     <div key={alloc.id} className="flex items-start justify-between p-3.5 hover:bg-slate-50 transition-colors">
                       <div className="space-y-1.5">
@@ -1565,7 +1565,7 @@ export function AssetsClient({ shopId, shopName, canManage }: Props) {
                   toast.error('Vui lòng chọn sản phẩm trong kho');
                   return;
                 }
-                if (!commissionForm.department_code) {
+                if (!commissionForm.department_id) {
                   toast.error('Vui lòng chọn phòng ban Cost Center nhận bàn giao');
                   return;
                 }
@@ -1649,14 +1649,14 @@ export function AssetsClient({ shopId, shopName, canManage }: Props) {
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Phòng ban (Cost Center) *</label>
               <select
-                value={commissionForm.department_code}
-                onChange={(e) => setCommissionForm((prev) => ({ ...prev, department_code: e.target.value }))}
+                value={commissionForm.department_id}
+                onChange={(e) => setCommissionForm((prev) => ({ ...prev, department_id: e.target.value }))}
                 className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm focus:border-primary focus:outline-none"
               >
                 <option value="">-- Chọn phòng ban nhận --</option>
                 {deptData?.data?.map((dept) => (
-                  <option key={dept.id} value={dept.code}>
-                    {dept.name} ({dept.code})
+                  <option key={dept.id} value={dept.id}>
+                    {dept.name}
                   </option>
                 ))}
               </select>

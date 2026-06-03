@@ -27,7 +27,7 @@ export async function GET(
     const to_date = searchParams.get('to_date')
     const search = searchParams.get('search')
     const is_virtual_query = searchParams.get('is_virtual') // 'TRUE' | 'FALSE' | 'all'
-    const department_code = searchParams.get('department_code')
+    const department_id = searchParams.get('department_id')
 
     // --- TÍNH TOÁN SỐ DƯ ĐỘNG (Đầu kỳ, phát sinh, cuối kỳ) ---
     // 1. Lấy tất cả tài khoản quỹ để tính tổng initial_balance
@@ -100,7 +100,7 @@ export async function GET(
         matchesVirtual = tx.is_virtual !== 'TRUE';
       }
 
-      const matchesDept = !department_code || tx.department_code === department_code;
+      const matchesDept = !department_id || tx.department_id === department_id;
 
       return inDateRange && matchesType && matchesReference && matchesSearch && matchesVirtual && matchesDept
     })
@@ -242,7 +242,7 @@ export async function POST(
       employee_id: payload.employee_id ?? user.email ?? '',
       fund_id: selectedFundId!,
       balance_after_transaction: String(newFundBalance),
-      department_code: payload.department_code ?? '',
+      department_id: payload.department_id ?? '',
       is_virtual: 'FALSE',
     })
     tx.add(async () => {
@@ -253,7 +253,7 @@ export async function POST(
 
     // --- XỬ LÝ PHÂN BỔ CHI PHÍ DÙNG CHUNG ---
     if (payload.apply_allocation) {
-      let rules: Array<{ department_code: string; percentage: number }> = [];
+      let rules: Array<{ department_id: string; percentage: number }> = [];
 
       if (payload.custom_rules && payload.custom_rules.length > 0) {
         rules = payload.custom_rules;
@@ -280,12 +280,12 @@ export async function POST(
               category: payload.category,
               reference_id: payload.reference_id ?? '',
               reference_name: payload.reference_name ?? '',
-              note: `${payload.note ?? ''} (Phân bổ ${rule.percentage}% cho ${rule.department_code})`,
+              note: `${payload.note ?? ''} (Phân bổ ${rule.percentage}% cho ${rule.department_id})`,
               branch_id: branchId,
               employee_id: payload.employee_id ?? user.email ?? '',
               fund_id: selectedFundId!,
               balance_after_transaction: String(newFundBalance),
-              department_code: rule.department_code,
+              department_id: rule.department_id,
               parent_transaction_id: parentId,
               is_virtual: 'TRUE',
             });

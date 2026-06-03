@@ -25,19 +25,6 @@ export async function PATCH(
     const body = await req.json();
     const data = warehouseUpdateSchema.parse(body);
 
-    if (data.code) {
-      const existing = await connector.list('warehouses', {
-        filters: { code: data.code, branch_id: shopId }
-      });
-      const other = existing.data?.find((w: any) => w.id !== id);
-      if (other) {
-        return NextResponse.json(
-          { error: 'Mã kho đã tồn tại trong chi nhánh này. Vui lòng chọn mã khác.' },
-          { status: 400 }
-        );
-      }
-    }
-
     // Force active branch binding
     data.branch_id = shopId;
 
@@ -66,8 +53,8 @@ export async function DELETE(
       );
     }
 
-    // Prevent deletion of standard warehouses (sale, supply, asset, default) to preserve database reference integrity
-    if (['sale', 'supply', 'asset', 'default'].includes(warehouse.code)) {
+    // Prevent deletion of standard warehouses (sale, supply, asset) to preserve database reference integrity
+    if (['sale', 'supply', 'asset'].includes(warehouse.type)) {
       return NextResponse.json(
         { error: 'Không thể xóa kho tiêu chuẩn của hệ thống (sale, supply, asset).' },
         { status: 400 }

@@ -18,7 +18,7 @@ export const productCreateSchema = z.object({
   active:          z.string().optional().default('TRUE'),
   has_bom:         z.string().optional().default('FALSE'),
   metadata:        z.any().optional(),
-  item_class:      z.string().optional().default('commercial'),
+  item_class:      z.enum(['commercial', 'minibar', 'room_asset']).optional().default('commercial'),
   // ── Variant / Modifier System (Sprint 1) ────────────────────────
   product_type:    z.string().optional().default('simple'),
   // 'simple' | 'variant_parent' | 'variant_child' | 'modifier'

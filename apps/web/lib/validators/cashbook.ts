@@ -12,11 +12,11 @@ export const cashbookCreateSchema = z.object({
   employee_id: z.string().optional(), // usually injected by server
   fund_id: z.string().optional(),
   // Cost allocation fields
-  department_code: z.string().optional(),
+  department_id: z.string().optional(),
   apply_allocation: z.boolean().optional(),
   allocation_template_id: z.string().optional(),
   custom_rules: z.array(z.object({
-    department_code: z.string(),
+    department_id: z.string(),
     percentage: z.number()
   })).optional(),
 })

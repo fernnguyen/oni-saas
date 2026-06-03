@@ -11,11 +11,7 @@ import { updateCustomerStats } from '@/lib/server/customerStats'
 const INBOUND_TYPES = ['purchase_in', 'p2p_purchase_in', 'return_in', 'transfer_in']
 const OUTBOUND_TYPES = ['sale_out', 'transfer_out']
 
-function getGMT7Time() {
-  const d = new Date()
-  d.setUTCHours(d.getUTCHours() + 7)
-  return d.toISOString().replace('Z', '')
-}
+import { getGMT7Time } from '@oni/core'
 
 function calcDelta(type: string, qty: number): number {
   if (INBOUND_TYPES.includes(type)) return Math.abs(qty)
@@ -260,7 +256,7 @@ export async function POST(
       filters: { order_id: serverId },
     })
     const existingPayIds = new Set(
-      (existingPays.data as Record<string, string>[]).map((r) => r.id)
+      (existingPays.data as Record<string, string>[]).map((r) => r.payment_id || r.id)
     )
 
     // Fetch and resolve default payment funds for this branch

@@ -53,6 +53,8 @@ interface Props {
   inProgressOrders: OrderData[]
   onResourceClick: (resource: Resource) => void
   onRefresh?: () => void
+  groupCheckoutMode?: boolean
+  selectedResourceIds?: string[]
 }
 
 export default function MapViewer({
@@ -64,6 +66,8 @@ export default function MapViewer({
   inProgressOrders,
   onResourceClick,
   onRefresh,
+  groupCheckoutMode = false,
+  selectedResourceIds = [],
 }: Props) {
   const [decorations, setDecorations] = useState<DecorationShape[]>([])
   const [tableLayouts, setTableLayouts] = useState<Record<string, { x: number; y: number; w: number; h: number; shape: 'rect' | 'circle'; rotation?: number }>>({})
@@ -104,6 +108,14 @@ export default function MapViewer({
   const activeZoneResources = useMemo(() => {
     return resources.filter(r => r.status !== 'deleted' && (r.zone || 'Chưa phân vùng') === (selectedZone || 'Chưa phân vùng'))
   }, [resources, selectedZone])
+
+  // Calculate selection status based on first selected item
+  const selectionStatus = useMemo(() => {
+    if (selectedResourceIds.length === 0) return null
+    const firstSelectedId = selectedResourceIds[0]
+    const firstRes = resources.find(r => r.id === firstSelectedId)
+    return firstRes ? firstRes.status : null
+  }, [selectedResourceIds, resources])
 
   // Get resources in the current zone that are positioned
   const positionedTables = useMemo(() => {
@@ -548,6 +560,13 @@ export default function MapViewer({
               const paxCount = activeOrder ? getPaxCount(activeOrder) : null
               const orderTotal = activeOrder ? Number(activeOrder.total_amount) : 0
 
+              const isDimmed = groupCheckoutMode && (
+                selectionStatus === 'occupied' ? r.status !== 'occupied' :
+                selectionStatus === 'available' ? r.status !== 'available' :
+                (r.status !== 'occupied' && r.status !== 'available')
+              )
+              const isSelected = selectedResourceIds.includes(r.id)
+
               return (
                 <Group
                   key={r.id}
@@ -565,6 +584,7 @@ export default function MapViewer({
                     onResourceClick(r)
                   }}
                   className="cursor-pointer"
+                  opacity={isDimmed ? 0.45 : 1}
                 >
                   {/* Glowing light shadow */}
                   {layout.shape === 'circle' ? (
@@ -594,12 +614,34 @@ export default function MapViewer({
                         x={layout.w / 2}
                         y={layout.h / 2}
                         radius={Math.min(layout.w, layout.h) / 2}
-                        stroke={theme.cardBorder || '#e2e8f0'}
-                        strokeWidth={1}
-                        shadowColor={theme.glowColor}
-                        shadowBlur={isOccupied ? 12 + pulseOpacity * 6 : 4}
-                        shadowOpacity={isOccupied ? pulseOpacity * 0.35 : 0.08}
+                        stroke={isSelected ? '#4f46e5' : (theme.cardBorder || '#e2e8f0')}
+                        strokeWidth={isSelected ? 3 : 1}
+                        shadowColor={isSelected ? '#4f46e5' : theme.glowColor}
+                        shadowBlur={isSelected ? 14 : (isOccupied ? 12 + pulseOpacity * 6 : 4)}
+                        shadowOpacity={isSelected ? 0.6 : (isOccupied ? pulseOpacity * 0.35 : 0.08)}
                       />
+                      {groupCheckoutMode && (r.status === 'occupied' || r.status === 'available') && (
+                        <Group x={layout.w / 2 + (Math.min(layout.w, layout.h) / 2) * 0.7 - 8} y={layout.h / 2 - (Math.min(layout.w, layout.h) / 2) * 0.7 - 8}>
+                          <Rect
+                            width={16}
+                            height={16}
+                            cornerRadius={4}
+                            fill={isSelected ? '#4f46e5' : '#ffffff'}
+                            stroke={isSelected ? '#4f46e5' : '#cbd5e1'}
+                            strokeWidth={1.5}
+                          />
+                          {isSelected && (
+                            <Text
+                              text="✓"
+                              x={3.5}
+                              y={2.5}
+                              fontSize={11}
+                              fontStyle="bold"
+                              fill="#ffffff"
+                            />
+                          )}
+                        </Group>
+                      )}
                     </>
                   ) : (
                     <>
@@ -609,9 +651,9 @@ export default function MapViewer({
                         height={layout.h}
                         cornerRadius={16}
                         fill="#ffffff"
-                        shadowColor={theme.glowColor}
-                        shadowBlur={isOccupied ? 12 + pulseOpacity * 6 : 4}
-                        shadowOpacity={isOccupied ? pulseOpacity * 0.35 : 0.08}
+                        shadowColor={isSelected ? '#4f46e5' : theme.glowColor}
+                        shadowBlur={isSelected ? 14 : (isOccupied ? 12 + pulseOpacity * 6 : 4)}
+                        shadowOpacity={isSelected ? 0.6 : (isOccupied ? pulseOpacity * 0.35 : 0.08)}
                       />
 
                       {/* Clipped Group for beautiful rounded card with top status stripe */}
@@ -655,9 +697,33 @@ export default function MapViewer({
                         width={layout.w}
                         height={layout.h}
                         cornerRadius={16}
-                        stroke={theme.cardBorder || '#e2e8f0'}
-                        strokeWidth={1}
+                        stroke={isSelected ? '#4f46e5' : (theme.cardBorder || '#e2e8f0')}
+                        strokeWidth={isSelected ? 3 : 1}
                       />
+
+                      {/* Checkbox for rect */}
+                      {groupCheckoutMode && (r.status === 'occupied' || r.status === 'available') && (
+                        <Group x={layout.w - 24} y={8}>
+                          <Rect
+                            width={16}
+                            height={16}
+                            cornerRadius={4}
+                            fill={isSelected ? '#4f46e5' : '#ffffff'}
+                            stroke={isSelected ? '#4f46e5' : '#cbd5e1'}
+                            strokeWidth={1.5}
+                          />
+                          {isSelected && (
+                            <Text
+                              text="✓"
+                              x={3.5}
+                              y={2.5}
+                              fontSize={11}
+                              fontStyle="bold"
+                              fill="#ffffff"
+                            />
+                          )}
+                        </Group>
+                      )}
                     </>
                   )}
 

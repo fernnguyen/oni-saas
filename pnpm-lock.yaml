@@ -217,6 +217,9 @@ importers:
 
   packages/adapters:
     dependencies:
+      '@oni/core':
+        specifier: workspace:*
+        version: link:../core
       '@types/pg':
         specifier: ^8.20.0
         version: 8.20.0

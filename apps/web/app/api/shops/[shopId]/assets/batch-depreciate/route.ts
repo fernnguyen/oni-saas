@@ -62,11 +62,11 @@ export async function POST(
 
     const allocations = allocationsRes.data || [];
     const departmentNameMap = new Map(
-      departmentsRes?.data?.map((d: any) => [d.code, d.name]) || []
+      departmentsRes?.data?.map((d: any) => [d.id, d.name]) || []
     );
 
-    // Group expenses by department code
-    // Map: department_code -> { totalAmount: number, items: Array<{ name: string, serial: string, amount: number }> }
+    // Group expenses by department ID
+    // Map: department_id -> { totalAmount: number, items: Array<{ name: string, serial: string, amount: number }> }
     const departmentGroup = new Map<string, { totalAmount: number, items: Array<{ name: string, serial: string, amount: number }> }>();
 
     let processedCount = 0;
@@ -125,11 +125,11 @@ export async function POST(
 
           if (allocatedAmount <= 0) return;
 
-          const deptCode = alloc.department_code;
-          if (!departmentGroup.has(deptCode)) {
-            departmentGroup.set(deptCode, { totalAmount: 0, items: [] });
+          const deptId = alloc.department_id;
+          if (!departmentGroup.has(deptId)) {
+            departmentGroup.set(deptId, { totalAmount: 0, items: [] });
           }
-          const group = departmentGroup.get(deptCode)!;
+          const group = departmentGroup.get(deptId)!;
           group.totalAmount += allocatedAmount;
           group.items.push({
             name: asset.name,
@@ -139,7 +139,7 @@ export async function POST(
 
           // Accumulate logs in memory to save with the cashbook ID later
           logsToCreate.push({
-            id: `DEP-LOG-${asset.id}-${deptCode}-${Date.now().toString().slice(-6)}-${Math.random().toString(36).slice(-3)}`,
+            id: `DEP-LOG-${asset.id}-${deptId}-${Date.now().toString().slice(-6)}-${Math.random().toString(36).slice(-3)}`,
             tenant_id: asset.tenant_id,
             branch_id: asset.branch_id,
             asset_id: asset.id,
@@ -147,18 +147,18 @@ export async function POST(
             amount: String(allocatedAmount),
             depreciated_value_before: String(asset.depreciated_value || '0'),
             depreciated_value_after: String(nextDepreciatedValue),
-            department_code: deptCode,
+            department_id: deptId,
             created_by: userId,
             updated_by: userId,
           });
         });
       } else {
         // Put in general management
-        const deptCode = 'general_management';
-        if (!departmentGroup.has(deptCode)) {
-          departmentGroup.set(deptCode, { totalAmount: 0, items: [] });
+        const deptId = 'general_management';
+        if (!departmentGroup.has(deptId)) {
+          departmentGroup.set(deptId, { totalAmount: 0, items: [] });
         }
-        const group = departmentGroup.get(deptCode)!;
+        const group = departmentGroup.get(deptId)!;
         group.totalAmount += depreciationAmount;
         group.items.push({
           name: asset.name,
@@ -176,7 +176,7 @@ export async function POST(
           amount: String(depreciationAmount),
           depreciated_value_before: String(asset.depreciated_value || '0'),
           depreciated_value_after: String(nextDepreciatedValue),
-          department_code: deptCode,
+          department_id: deptId,
           created_by: userId,
           updated_by: userId,
         });
@@ -198,12 +198,12 @@ export async function POST(
     // Keep track of department cashbook IDs
     const departmentCashbookIds = new Map<string, string>();
 
-    for (const [deptCode, group] of departmentGroup.entries()) {
+    for (const [deptId, group] of departmentGroup.entries()) {
       if (group.totalAmount <= 0) continue;
 
-      const deptName = departmentNameMap.get(deptCode) || (deptCode === 'general_management' ? 'Quản lý chung' : deptCode);
-      const cashbookId = `CSB-DEP-BATCH-${tenantHash}-${deptCode.toUpperCase()}-${Date.now().toString().slice(-6)}`;
-      departmentCashbookIds.set(deptCode, cashbookId);
+      const deptName = departmentNameMap.get(deptId) || (deptId === 'general_management' ? 'Quản lý chung' : deptId);
+      const cashbookId = `CSB-DEP-BATCH-${tenantHash}-${deptId.toUpperCase()}-${Date.now().toString().slice(-6)}`;
+      departmentCashbookIds.set(deptId, cashbookId);
 
       // Build a beautiful, high-fidelity list of equipment
       let note = `[Khấu hao hàng loạt - Kỳ ${periodStr}] Chi phí hao mòn tài sản phân bổ cho Bộ phận: ${deptName.toUpperCase()}.\n\n`;
@@ -228,7 +228,7 @@ export async function POST(
         date: todayStr,
         fund_id: 'SYSTEM',
         employee_id: userId,
-        department_code: deptCode,
+        department_id: deptId,
         is_virtual: 'FALSE', // Set to FALSE so it is visible in Sổ quỹ (Cashbook) by default!
       };
 
@@ -239,7 +239,7 @@ export async function POST(
     if (logsToCreate.length > 0) {
       const logsWithCashbook = logsToCreate.map(log => ({
         ...log,
-        cashbook_id: departmentCashbookIds.get(log.department_code) || null,
+        cashbook_id: departmentCashbookIds.get(log.department_id) || null,
       }));
       await connector.batchCreate('asset-depreciations', logsWithCashbook);
     }

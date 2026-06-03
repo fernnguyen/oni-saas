@@ -12,26 +12,21 @@ async function unifyLegacyWarehouses(connector: any, shopId: string) {
     const whs = whRes.data as any[];
 
     const standardWarehouses = [
-      { code: 'sale', name: 'Kho Kinh doanh (Bán lẻ)', type: 'sale' },
-      { code: 'supply', name: 'Kho Vật tư & Tiêu hao', type: 'supply' },
-      { code: 'asset', name: 'Kho Tài sản chờ bàn giao', type: 'asset' }
+      { name: 'Kho Kinh doanh (Bán lẻ)', type: 'sale' },
+      { name: 'Kho Vật tư & Tiêu hao', type: 'supply' },
+      { name: 'Kho Tài sản chờ bàn giao', type: 'asset' }
     ];
 
     // Provision any missing standard warehouses
     const createdWhs: any[] = [];
     for (const sw of standardWarehouses) {
-      let found = whs.find((w: any) => w.code === sw.code);
-      if (!found && sw.code === 'sale') {
-        // Fallback check by type for sale warehouse
-        found = whs.find((w: any) => w.type === 'sale');
-      }
+      const found = whs.find((w: any) => w.type === sw.type);
 
       if (!found) {
-        console.log(`[SELF-HEALING] Standard warehouse ${sw.code} not found for shop ${shopId}. Creating...`);
+        console.log(`[SELF-HEALING] Standard warehouse ${sw.type} not found for shop ${shopId}. Creating...`);
         const newWh = await connector.create('warehouses', {
           branch_id: shopId,
           name: sw.name,
-          code: sw.code,
           type: sw.type,
           active: 'TRUE',
         });
@@ -42,18 +37,15 @@ async function unifyLegacyWarehouses(connector: any, shopId: string) {
     }
 
     // Resolve active saleWhId
-    const saleWh = createdWhs.find((w: any) => w.code === 'sale') || whs.find((w: any) => w.code === 'sale' || w.type === 'sale');
+    const saleWh = createdWhs.find((w: any) => w.type === 'sale') || whs.find((w: any) => w.type === 'sale');
     if (!saleWh) return;
     const saleWhId = saleWh.id;
 
-    // 3. Find any legacy/duplicate warehouses (code 'default', 'Default', or name containing 'mặc định' or 'default')
+    // 3. Find any legacy/duplicate warehouses (name containing 'mặc định' or 'default')
     const legacyWarehouses = whs.filter((w: any) => {
-      if (w.id === saleWhId || w.code === 'sale') return false;
-      const codeLower = (w.code || '').toLowerCase();
+      if (w.id === saleWhId || w.type === 'sale') return false;
       const nameLower = (w.name || '').toLowerCase();
       return (
-        codeLower === 'default' ||
-        codeLower === 'default_warehouse' ||
         nameLower.includes('mặc định') ||
         nameLower.includes('default')
       );
@@ -175,19 +167,18 @@ export async function POST(
       const existing = existingRes.data as any[];
 
       const standardWarehouses = [
-        { code: 'sale', name: 'Kho Kinh doanh (Bán lẻ)', type: 'sale' },
-        { code: 'supply', name: 'Kho Vật tư & Tiêu hao', type: 'supply' },
-        { code: 'asset', name: 'Kho Tài sản chờ bàn giao', type: 'asset' }
+        { name: 'Kho Kinh doanh (Bán lẻ)', type: 'sale' },
+        { name: 'Kho Vật tư & Tiêu hao', type: 'supply' },
+        { name: 'Kho Tài sản chờ bàn giao', type: 'asset' }
       ];
 
       const created: any[] = [];
       for (const sw of standardWarehouses) {
-        const found = existing.find((w: any) => w.code === sw.code);
+        const found = existing.find((w: any) => w.type === sw.type);
         if (!found) {
           const newWh = await connector.create('warehouses', {
             branch_id: shopId,
             name: sw.name,
-            code: sw.code,
             type: sw.type,
             active: 'TRUE',
           });
@@ -204,18 +195,6 @@ export async function POST(
     const body = await req.json();
     const data = warehouseCreateSchema.parse(body);
     data.branch_id = shopId; // Force the warehouse to belong to the active shop!
-
-    // Ensure unique warehouse code within the branch
-    const existing = await connector.list('warehouses', {
-      filters: { code: data.code, branch_id: shopId }
-    });
-
-    if (existing.data && existing.data.length > 0) {
-      return NextResponse.json(
-        { error: 'Mã kho đã tồn tại trong chi nhánh này. Vui lòng chọn mã khác.' },
-        { status: 400 }
-      );
-    }
 
     const created = await connector.create('warehouses', data);
     invalidate(shopId, 'warehouses');

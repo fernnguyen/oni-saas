@@ -45,7 +45,7 @@ const EMPTY_FORM = {
   fund_id: '',
   apply_allocation: false,
   allocation_template_id: '',
-  department_code: '',
+  department_id: '',
 }
 
 const EMPTY_FUND_FORM = {
@@ -1403,7 +1403,7 @@ export function CashbookClient({ shopId, shopName, permissions }: Props) {
                     setFormData(prev => ({
                       ...prev,
                       apply_allocation: checked,
-                      department_code: checked ? '' : (prev as any).department_code,
+                      department_id: checked ? '' : (prev as any).department_id,
                       allocation_template_id: checked ? (templatesList[0]?.id || '') : '',
                     }));
                   }}
@@ -1432,7 +1432,7 @@ export function CashbookClient({ shopId, shopName, permissions }: Props) {
                     const tId = (formData as any).allocation_template_id;
                     const selectedTemplate = templatesList.find(t => t.id === tId);
                     if (!selectedTemplate) return null;
-                    let rules: Array<{ department_code: string; percentage: number }> = [];
+                    let rules: Array<{ department_id: string; percentage: number }> = [];
                     if (typeof selectedTemplate.rules === 'string') {
                       try { rules = JSON.parse(selectedTemplate.rules); } catch {}
                     } else if (Array.isArray(selectedTemplate.rules)) {
@@ -1445,9 +1445,10 @@ export function CashbookClient({ shopId, shopName, permissions }: Props) {
                         <div className="flex flex-wrap gap-1.5">
                           {rules.map(r => {
                             const amt = Math.round((formData.amount * r.percentage) / 100);
+                            const deptName = deptsList.find(d => d.id === r.department_id)?.name || r.department_id;
                             return (
-                              <span key={r.department_code} className="inline-flex text-[10px] bg-white border border-slate-200 px-2 py-0.5 rounded text-slate-600">
-                                <strong>{r.department_code}:</strong> {r.percentage}% ({amt.toLocaleString('vi-VN')}đ)
+                              <span key={r.department_id} className="inline-flex text-[10px] bg-white border border-slate-200 px-2 py-0.5 rounded text-slate-600">
+                                <strong>{deptName}:</strong> {r.percentage}% ({amt.toLocaleString('vi-VN')}đ)
                               </span>
                             );
                           })}
@@ -1460,13 +1461,13 @@ export function CashbookClient({ shopId, shopName, permissions }: Props) {
                 <div>
                   <label className="block text-xs font-semibold text-slate-500 mb-1">Gắn riêng cho bộ phận (Cost Center đơn)</label>
                   <select
-                    value={(formData as any).department_code || ''}
-                    onChange={(e) => setFormData(prev => ({ ...prev, department_code: e.target.value }))}
+                    value={(formData as any).department_id || ''}
+                    onChange={(e) => setFormData(prev => ({ ...prev, department_id: e.target.value }))}
                     className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs focus:border-indigo-500 focus:outline-none bg-white shadow-sm"
                   >
                     <option value="">-- Chi chung toàn chi nhánh --</option>
                     {deptsList.map(d => (
-                      <option key={d.id} value={d.code}>{d.name} ({d.code})</option>
+                      <option key={d.id} value={d.id}>{d.name}</option>
                     ))}
                   </select>
                 </div>

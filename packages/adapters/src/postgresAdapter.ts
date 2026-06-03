@@ -1,12 +1,8 @@
 import { Pool } from 'pg'
 import crypto from 'crypto'
 import type { IDataConnector, ListOptions, ListResult } from './DataSource'
+import { getGMT7Time } from '@oni/core'
 
-function getGMT7Time() {
-  const d = new Date()
-  d.setUTCHours(d.getUTCHours() + 7)
-  return d.toISOString().replace('Z', '')
-}
 
 const ENTITY_PREFIXES: Record<string, string> = {
   'categories':         'CAT',
@@ -48,6 +44,12 @@ const ENTITY_PREFIXES: Record<string, string> = {
   'warehouses':                  'WH',
   'sepay-webhook-logs':          'SWL',
   'customer-branch-stats':       'CBS',
+  'reservations':               'RSV',
+  'minibar-setup':              'MBS',
+  'room-minibar-stock':         'RMS',
+  'housekeeping-logs':          'HKL',
+  'ota-bookings':               'OTA',
+  'booking-channels':           'BC',
 }
 
 // Shared pool cache to avoid creating a new pool per request
@@ -122,6 +124,7 @@ export class PostgresConnector implements IDataConnector {
     'user-departments',
     'asset-allocations',
     'asset_allocations',
+    'qr-session-carts',
   ]
 
   private readonly LEGACY_ID_MAP: Record<string, string> = {
@@ -162,6 +165,12 @@ export class PostgresConnector implements IDataConnector {
     'asset-depreciations':        'depreciation_id',
     'cost-allocation-templates':  'template_id',
     'warehouses':                 'warehouse_id',
+    'reservations':               'reservation_id',
+    'minibar-setup':              'setup_id',
+    'room-minibar-stock':         'stock_id',
+    'housekeeping-logs':          'log_id',
+    'ota-bookings':               'booking_id',
+    'booking-channels':           'channel_id',
   }
 
   private async generateSequentialId(entity: string): Promise<string> {
@@ -216,7 +225,13 @@ export class PostgresConnector implements IDataConnector {
       const v = row[key]
       let valStr = ''
       if (v instanceof Date) {
-        valStr = v.toISOString()
+        if (key === 'expected_checkin' || key === 'expected_checkout') {
+          // Format as local ISO string to preserve the timezone-naive database hours/minutes
+          const pad = (n: number) => (n < 10 ? '0' : '') + n
+          valStr = `${v.getFullYear()}-${pad(v.getMonth() + 1)}-${pad(v.getDate())}T${pad(v.getHours())}:${pad(v.getMinutes())}:${pad(v.getSeconds())}`
+        } else {
+          valStr = v.toISOString()
+        }
       } else if (typeof v === 'object' && v !== null) {
         // JSONB → store as JSON string for IDataConnector compatibility
         valStr = JSON.stringify(v)

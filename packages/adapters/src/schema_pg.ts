@@ -1,4 +1,4 @@
-import { pgTable, varchar, text, timestamp, jsonb, index, primaryKey } from 'drizzle-orm/pg-core';
+import { pgTable, varchar, text, timestamp, jsonb, index, primaryKey, integer } from 'drizzle-orm/pg-core';
 
 // Base columns for all tables
 const getBaseColumns = () => ({
@@ -34,6 +34,10 @@ export const orders = pgTable('orders', {
   reference_no: varchar('reference_no', { length: 255 }),
   print_count: varchar('print_count', { length: 10 }),
   resource_id: varchar('resource_id', { length: 255 }),
+  booking_channel_id: varchar('booking_channel_id', { length: 255 }),
+  parent_order_id: varchar('parent_order_id', { length: 255 }),
+  group_booking_id: varchar('group_booking_id', { length: 255 }),
+  override_reason: text('override_reason'),
   metadata: jsonb('metadata'),
 });
 
@@ -163,6 +167,7 @@ export const cashbook = pgTable('cashbook', {
   fund_id: varchar('fund_id', { length: 255 }),
   balance_after_transaction: varchar('balance_after_transaction', { length: 50 }),
   department_code: varchar('department_code', { length: 50 }),
+  department_id: varchar('department_id', { length: 255 }),
   parent_transaction_id: varchar('parent_transaction_id', { length: 255 }),
   is_virtual: varchar('is_virtual', { length: 10 }).default('FALSE'),
 });
@@ -518,7 +523,7 @@ export const departments = pgTable('departments', {
   id: varchar('id', { length: 255 }).primaryKey(),
   branch_id: varchar('branch_id', { length: 255 }).notNull(),
   name: varchar('name', { length: 255 }).notNull(), // Lễ tân, Buồng phòng, Bếp...
-  code: varchar('code', { length: 50 }).notNull(), // lodging_hskp, fnb_kitchen...
+  warehouse_id: varchar('warehouse_id', { length: 255 }), // Kho liên kết của bộ phận
   manager_id: varchar('manager_id', { length: 255 }), // Trưởng bộ phận (user_id)
 }, (table) => ({
   deptTenantBranchIdx: index('idx_dept_tenant_branch').on(table.tenant_id, table.branch_id),
@@ -565,7 +570,8 @@ export const asset_allocations = pgTable('asset_allocations', {
   ...getBaseColumns(),
   id: varchar('id', { length: 255 }).primaryKey(),
   asset_id: varchar('asset_id', { length: 255 }).notNull(),
-  department_code: varchar('department_code', { length: 50 }).notNull(), // Map trực tiếp sang departments.code (Cost Center)
+  department_id: varchar('department_id', { length: 255 }).notNull(), // Map trực tiếp sang departments.id (Cost Center)
+  department_code: varchar('department_code', { length: 50 }), // Tương thích dữ liệu cũ
   qty: varchar('qty', { length: 50 }).notNull(),
   allocated_at: varchar('allocated_at', { length: 50 }).notNull(),
   note: text('note'),
@@ -586,7 +592,8 @@ export const asset_depreciations = pgTable('asset_depreciations', {
   amount: varchar('amount', { length: 50 }).notNull(), // Số tiền trích khấu hao kỳ này
   depreciated_value_before: varchar('depreciated_value_before', { length: 50 }).default('0'), // Giá trị lũy kế trước khi trích
   depreciated_value_after: varchar('depreciated_value_after', { length: 50 }).default('0'), // Giá trị lũy kế sau khi trích
-  department_code: varchar('department_code', { length: 50 }).notNull(), // Bộ phận gán chi phí (Cost Center), hoặc 'general_management'
+  department_id: varchar('department_id', { length: 255 }).notNull(), // Bộ phận gán chi phí (Cost Center)
+  department_code: varchar('department_code', { length: 50 }), // Tương thích dữ liệu cũ
   cashbook_id: varchar('cashbook_id', { length: 255 }), // Mã phiếu chi trong Sổ quỹ liên kết
   created_by: varchar('created_by', { length: 255 }),
   updated_by: varchar('updated_by', { length: 255 }),
@@ -600,7 +607,7 @@ export const cost_allocation_templates = pgTable('cost_allocation_templates', {
   id: varchar('id', { length: 255 }).primaryKey(),
   branch_id: varchar('branch_id', { length: 255 }).notNull(),
   name: varchar('name', { length: 255 }).notNull(), // Tên mẫu (ví dụ: "Phân bổ Điện nước")
-  rules: jsonb('rules').notNull(), // Mảng JSON chứa [{ department_code: string, percentage: number }]
+  rules: jsonb('rules').notNull(), // Mảng JSON chứa [{ department_id: string, percentage: number }]
 }, (table) => ({
   catTenantBranchIdx: index('idx_cat_tenant_branch').on(table.tenant_id, table.branch_id),
 }));
@@ -611,7 +618,6 @@ export const warehouses = pgTable('warehouses', {
   id: varchar('id', { length: 255 }).primaryKey(),
   branch_id: varchar('branch_id', { length: 255 }).notNull(),
   name: varchar('name', { length: 255 }).notNull(),
-  code: varchar('code', { length: 50 }).notNull(),
   type: varchar('type', { length: 50 }).default('custom'), // 'sale' | 'supply' | 'asset' | 'custom'
   active: varchar('active', { length: 10 }).default('TRUE'),
 }, (table) => ({
@@ -649,6 +655,127 @@ export const customer_branch_stats = pgTable('customer_branch_stats', {
   idxBranch: index('idx_cbs_branch').on(table.branch_id),
   idxCustomerBranch: index('idx_cbs_customer_branch').on(table.customer_id, table.branch_id),
 }));
+
+// ── Bảng Đặt phòng / Giữ chỗ trước (Reservations Table)
+export const reservations = pgTable('reservations', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  reservation_no: varchar('reservation_no', { length: 255 }).notNull(),
+  branch_id: varchar('branch_id', { length: 255 }),
+  group_booking_id: varchar('group_booking_id', { length: 255 }),
+  
+  // CRM & Guest Profile
+  customer_id: varchar('customer_id', { length: 255 }).notNull(),
+  customer_name: varchar('customer_name', { length: 255 }),
+  customer_phone: varchar('customer_phone', { length: 50 }),
+  
+  // Booking Source & OTA Details
+  channel_id: varchar('channel_id', { length: 255 }).default('direct'),
+  ota_booking_code: varchar('ota_booking_code', { length: 255 }),
+  
+  // Stay Duration
+  expected_checkin: timestamp('expected_checkin').notNull(),
+  expected_checkout: timestamp('expected_checkout').notNull(),
+  
+  // Block Room
+  room_category_id: varchar('room_category_id', { length: 255 }),
+  resource_id: varchar('resource_id', { length: 255 }),
+  
+  // Financials & Deposit
+  num_guests: integer('num_guests').default(1),
+  daily_rate: varchar('daily_rate', { length: 50 }),
+  deposit_amount: varchar('deposit_amount', { length: 50 }).default('0'),
+  deposit_fund_id: varchar('deposit_fund_id', { length: 255 }),
+  
+  status: varchar('status', { length: 50 }).default('confirmed'),
+  note: text('note'),
+  created_by: varchar('created_by', { length: 255 }),
+  metadata: jsonb('metadata'),
+});
+
+// ── Định mức vật tư tiêu chuẩn phòng minibar (Minibar Setup)
+export const minibar_setup = pgTable('minibar_setup', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  resource_id: varchar('resource_id', { length: 255 }).notNull(),
+  product_id: varchar('product_id', { length: 255 }).notNull(),
+  standard_qty: integer('standard_qty').notNull().default(0),
+  branch_id: varchar('branch_id', { length: 255 }),
+});
+
+// ── Số lượng tồn thực tế trong phòng hiện tại (Room Stock Track)
+export const room_minibar_stock = pgTable('room_minibar_stock', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  resource_id: varchar('resource_id', { length: 255 }).notNull(),
+  product_id: varchar('product_id', { length: 255 }).notNull(),
+  current_qty: integer('current_qty').notNull().default(0),
+  branch_id: varchar('branch_id', { length: 255 }),
+});
+
+// ── Nhật ký công việc và đếm tiêu hao buồng phòng (Housekeeping Logs)
+export const housekeeping_logs = pgTable('housekeeping_logs', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  resource_id: varchar('resource_id', { length: 255 }).notNull(),
+  employee_id: varchar('employee_id', { length: 255 }),
+  status: varchar('status', { length: 50 }),
+  check_type: varchar('check_type', { length: 50 }),
+  consumption_details: text('consumption_details'),
+  topup_status: varchar('topup_status', { length: 50 }),
+  note: text('note'),
+  branch_id: varchar('branch_id', { length: 255 }),
+});
+
+// ── Thẻ Đặt phòng OTA & Khấu khấu hoa hồng (OTA Bookings Mapping)
+export const ota_bookings = pgTable('ota_bookings', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  order_id: varchar('order_id', { length: 255 }).notNull(),
+  agency_id: varchar('agency_id', { length: 255 }).notNull(),
+  booking_code: varchar('booking_code', { length: 255 }),
+  payment_flow: varchar('payment_flow', { length: 50 }),
+  gross_amount: varchar('gross_amount', { length: 50 }),
+  commission_rate: varchar('commission_rate', { length: 50 }),
+  commission_amount: varchar('commission_amount', { length: 50 }),
+  net_payout: varchar('net_payout', { length: 50 }),
+  reconciliation_status: varchar('reconciliation_status', { length: 50 }),
+  branch_id: varchar('branch_id', { length: 255 }),
+});
+
+// ── Kênh đặt phòng lưu trú (Booking Channels)
+export const booking_channels = pgTable('booking_channels', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  name: varchar('name', { length: 255 }).notNull(), // e.g. Direct, Booking.com, Agoda
+  code: varchar('code', { length: 100 }), // e.g. direct, booking_com, agoda
+  commission_rate: varchar('commission_rate', { length: 50 }).default('0'), // Default commission pct, e.g. '15'
+  color: varchar('color', { length: 50 }).default('#3b82f6'), // Hex color for Gantt timeline blocks
+  notes: text('notes'),
+  branch_id: varchar('branch_id', { length: 255 }),
+});
+
+// ── Bảng Khách lưu trú thực tế tại phòng / bàn (Resource Occupants)
+export const resource_occupants = pgTable('resource_occupants', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  branch_id: varchar('branch_id', { length: 255 }).notNull(),
+  order_id: varchar('order_id', { length: 255 }),
+  reservation_id: varchar('reservation_id', { length: 255 }),
+  resource_id: varchar('resource_id', { length: 255 }).notNull(),
+  
+  guest_name: varchar('guest_name', { length: 255 }).notNull(),
+  guest_phone: varchar('guest_phone', { length: 50 }),
+  identity_card: varchar('identity_card', { length: 100 }),       // CCCD/Passport
+  nationality: varchar('nationality', { length: 100 }).default('Vietnam'),
+  birthday: varchar('birthday', { length: 50 }),
+  gender: varchar('gender', { length: 20 }),
+  is_primary: varchar('is_primary', { length: 10 }).default('FALSE'), // Khách đại diện
+  note: text('note'),                                              // Ghi chú phòng
+  metadata: jsonb('metadata'),                                     // Mở rộng sau này
+});
+
+
 
 
 

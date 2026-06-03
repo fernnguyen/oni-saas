@@ -29,6 +29,8 @@ export const orderCreateSchema = z.object({
   // Session-based POS fields
   resource_id:       z.string().optional().default(''),
   metadata:          z.string().optional().default('{}'),
+  group_booking_id:  z.string().optional(),
+  parent_order_id:   z.string().optional(),
 })
 
 export const orderUpdateSchema = orderCreateSchema.partial()

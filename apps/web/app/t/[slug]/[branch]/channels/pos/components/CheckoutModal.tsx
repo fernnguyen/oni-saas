@@ -248,17 +248,43 @@ export function CheckoutModal({
   const createdLocalItemsRef = useRef<any>(null)
   const createdLocalPaymentsRef = useRef<any>(null)
 
+  // --- Folio Splitting State & Logic ---
+  const [productClasses, setProductClasses] = useState<Record<string, 'commercial' | 'minibar' | 'room_asset'>>({})
+  const [isSplitActive, setIsSplitActive] = useState(false)
+  const [folioAIndices, setFolioAIndices] = useState<Set<number>>(new Set())
+  const [paymentsA, setPaymentsA] = useState<PaymentRow[]>([])
+  const [paymentsB, setPaymentsB] = useState<PaymentRow[]>([])
+  const [activeFolioTab, setActiveFolioTab] = useState<'A' | 'B'>('A')
+
   const bankTransferAmt = useMemo(() => {
+    if (isSplitActive) {
+      const amtA = paymentsA
+        .filter((p) => p.method === 'bank_transfer')
+        .reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
+      const amtB = paymentsB
+        .filter((p) => p.method === 'bank_transfer')
+        .reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
+      return amtA + amtB
+    }
     return payments
       .filter((p) => p.method === 'bank_transfer')
       .reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
-  }, [payments])
+  }, [isSplitActive, payments, paymentsA, paymentsB])
 
   const debtAmount = useMemo(() => {
+    if (isSplitActive) {
+      const amtA = paymentsA
+        .filter((p) => p.method === 'debt')
+        .reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
+      const amtB = paymentsB
+        .filter((p) => p.method === 'debt')
+        .reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
+      return amtA + amtB
+    }
     return payments
       .filter((p) => p.method === 'debt')
       .reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
-  }, [payments])
+  }, [isSplitActive, payments, paymentsA, paymentsB])
 
   // Recalculate time charge when checkout time or rental type changes
   const computedItems = useMemo(() => {
@@ -280,7 +306,9 @@ export function CheckoutModal({
 
     if (!metadata?.check_in || hourlyRate <= 0) return items
     const checkInDate = new Date(metadata.check_in)
-    const effectiveCheckout = localCheckoutTime ? new Date(localCheckoutTime) : (customCheckoutTime ? new Date(customCheckoutTime) : new Date())
+    const effectiveCheckout = metadata?.actual_checkout_requested_at 
+      ? new Date(metadata.actual_checkout_requested_at)
+      : (localCheckoutTime ? new Date(localCheckoutTime) : (customCheckoutTime ? new Date(customCheckoutTime) : new Date()))
 
     const pricingResult = calculateHourlyBilling({
       checkIn: checkInDate,
@@ -456,16 +484,7 @@ export function CheckoutModal({
     return Number(pointsRedeemed) * Number(settings?.loyalty_point_to_money || 1000)
   }, [pointsRedeemed, settings])
 
-  const finalTotal = useMemo(() => {
-    return Math.max(0, totalAfterDiscounts - redemptionValue)
-  }, [totalAfterDiscounts, redemptionValue])
 
-  const earnedPoints = useMemo(() => {
-    if (!settings?.has_crm_access || !localCustomer || settings?.loyalty_points_enabled === false) return 0
-    const moneyToPoint = Number(settings?.loyalty_money_to_point || 100000)
-    if (moneyToPoint <= 0) return 0
-    return Math.floor(finalTotal / moneyToPoint)
-  }, [localCustomer, finalTotal, settings])
 
   useEffect(() => {
     if (open) {
@@ -552,23 +571,169 @@ export function CheckoutModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, localCustomer?.customer_id, isOnline, shopId])
 
-  // When checkout time, rental type, or finalTotal changes → recalculate payment
+  // Load item_class for each product
+  useEffect(() => {
+    if (!open || !localDb) return
+    const productIds = computedItems.map(it => it.product_id).filter(id => id && id !== 'TIME_CHARGE')
+    if (productIds.length === 0) return
+
+    localDb.products.bulkGet(productIds).then(prods => {
+      const mapping: Record<string, 'commercial' | 'minibar' | 'room_asset'> = {}
+      prods.forEach(p => {
+        if (p) {
+          mapping[p.product_id] = (p as any).item_class || 'commercial'
+        }
+      })
+      setProductClasses(mapping)
+    }).catch(err => {
+      console.error('Lỗi lấy item_class từ localDb', err)
+    })
+  }, [open, computedItems])
+
+  const groupedItems = useMemo(() => {
+    const roomItems: any[] = []
+    const minibarItems: any[] = []
+    const assetItems: any[] = []
+
+    computedItems.forEach((item) => {
+      if (item.product_id === 'TIME_CHARGE') {
+        roomItems.push(item)
+      } else {
+        const cls = productClasses[item.product_id] || 'commercial'
+        if (cls === 'minibar') {
+          minibarItems.push(item)
+        } else if (cls === 'room_asset') {
+          assetItems.push(item)
+        } else {
+          roomItems.push(item)
+        }
+      }
+    })
+
+    return { roomItems, minibarItems, assetItems }
+  }, [computedItems, productClasses])
+
+  // Initialize folioAIndices when split is active or items change
+  useEffect(() => {
+    if (isSplitActive) {
+      const defaultA = new Set<number>()
+      computedItems.forEach((item, idx) => {
+        if (item.product_id === 'TIME_CHARGE') {
+          defaultA.add(idx)
+        } else {
+          const cls = productClasses[item.product_id] || 'commercial'
+          if (cls === 'commercial') {
+            defaultA.add(idx)
+          }
+        }
+      })
+      setFolioAIndices(defaultA)
+    } else {
+      setFolioAIndices(new Set())
+    }
+  }, [isSplitActive, computedItems, productClasses])
+
+  const subtotalA = useMemo(() => {
+    return computedItems.reduce((sum, item, idx) => {
+      return folioAIndices.has(idx) ? sum + (item.line_total || 0) : sum
+    }, 0)
+  }, [computedItems, folioAIndices])
+
+  const subtotalB = useMemo(() => {
+    return computedItems.reduce((sum, item, idx) => {
+      return !folioAIndices.has(idx) ? sum + (item.line_total || 0) : sum
+    }, 0)
+  }, [computedItems, folioAIndices])
+
+  const tierDiscountAmountA = useMemo(() => {
+    return Math.max(0, Math.floor((subtotalA - localDiscount) * (tierDiscountPct / 100)))
+  }, [subtotalA, localDiscount, tierDiscountPct])
+
+  const finalTotalA = useMemo(() => {
+    return Math.max(0, subtotalA - localDiscount - tierDiscountAmountA - redemptionValue)
+  }, [subtotalA, localDiscount, tierDiscountAmountA, redemptionValue])
+
+  const finalTotalB = useMemo(() => {
+    return subtotalB
+  }, [subtotalB])
+
+  const finalTotal = useMemo(() => {
+    if (isSplitActive) {
+      return finalTotalA + finalTotalB
+    }
+    return Math.max(0, totalAfterDiscounts - redemptionValue)
+  }, [isSplitActive, finalTotalA, finalTotalB, totalAfterDiscounts, redemptionValue])
+
+  const earnedPoints = useMemo(() => {
+    if (!settings?.has_crm_access || !localCustomer || settings?.loyalty_points_enabled === false) return 0
+    const moneyToPoint = Number(settings?.loyalty_money_to_point || 100000)
+    if (moneyToPoint <= 0) return 0
+    return Math.floor(finalTotal / moneyToPoint)
+  }, [localCustomer, finalTotal, settings])
+
+  // When checkout time, rental type, finalTotal, or active tab changes → recalculate payment
   useEffect(() => {
     if (existingOrder && paymentsLoaded) return
     if (existingOrder && !paymentsLoaded) return
 
-    const newRemaining = Math.max(0, finalTotal - orderPaidAmount)
-    const autoFund = getAutoMatchedFund('cash', fundsList)
-    setPayments([{ id: nextId(), method: 'cash', amount: String(newRemaining), fund_id: autoFund?.id || '' }])
+    if (isSplitActive) {
+      const remainingTotalA = Math.max(0, finalTotalA - orderPaidAmount)
+      const remainingTotalB = finalTotalB
+      const autoFund = getAutoMatchedFund('cash', fundsList)
+      setPaymentsA([{ id: nextId(), method: 'cash', amount: String(remainingTotalA), fund_id: autoFund?.id || '' }])
+      setPaymentsB([{ id: nextId(), method: 'cash', amount: String(remainingTotalB), fund_id: autoFund?.id || '' }])
+    } else {
+      const newRemaining = Math.max(0, finalTotal - orderPaidAmount)
+      const autoFund = getAutoMatchedFund('cash', fundsList)
+      setPayments([{ id: nextId(), method: 'cash', amount: String(newRemaining), fund_id: autoFund?.id || '' }])
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [localCheckoutTime, localRentalType, finalTotal, fundsList.length, paymentsLoaded, existingOrder])
+  }, [localCheckoutTime, localRentalType, finalTotal, finalTotalA, finalTotalB, isSplitActive, fundsList.length, paymentsLoaded, existingOrder])
 
   const overPaid = Math.max(0, orderPaidAmount - finalTotal)
-  const remainingTotal = Math.max(0, finalTotal - orderPaidAmount)
-  const totalPaid = payments.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
-  const remaining = remainingTotal - totalPaid
-  const cashRows = payments.filter((p) => p.method === 'cash')
-  const cashChange = overPaid + cashRows.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0) - (remainingTotal - payments.filter((p) => p.method !== 'cash').reduce((s, p) => s + (parseFloat(p.amount) || 0), 0))
+  
+  const remainingTotal = useMemo(() => {
+    if (isSplitActive) {
+      return Math.max(0, finalTotalA - orderPaidAmount) + finalTotalB
+    }
+    return Math.max(0, finalTotal - orderPaidAmount)
+  }, [isSplitActive, finalTotal, finalTotalA, finalTotalB, orderPaidAmount])
+
+  const totalPaid = useMemo(() => {
+    if (isSplitActive) {
+      return (
+        paymentsA.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0) +
+        paymentsB.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
+      )
+    }
+    return payments.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
+  }, [isSplitActive, payments, paymentsA, paymentsB])
+
+  const remaining = useMemo(() => {
+    return remainingTotal - totalPaid
+  }, [remainingTotal, totalPaid])
+
+  const totalPaidA = useMemo(() => {
+    return paymentsA.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0)
+  }, [paymentsA])
+  const remainingTotalA = Math.max(0, finalTotalA - orderPaidAmount)
+  const remainingA = remainingTotalA - totalPaidA
+
+  const totalPaidB = useMemo(() => {
+    return paymentsB.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0)
+  }, [paymentsB])
+  const remainingTotalB = finalTotalB
+  const remainingB = remainingTotalB - totalPaidB
+
+  const isRemainingInvalid = useMemo(() => {
+    return isSplitActive ? (remainingA > 0 || remainingB > 0) : (remaining > 0)
+  }, [isSplitActive, remainingA, remainingB, remaining])
+
+  const cashRows = isSplitActive
+    ? [...paymentsA, ...paymentsB].filter((p) => p.method === 'cash')
+    : payments.filter((p) => p.method === 'cash')
+    
+  const cashChange = overPaid + cashRows.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0) - (remainingTotal - (isSplitActive ? [...paymentsA, ...paymentsB] : payments).filter((p) => p.method !== 'cash').reduce((s, p) => s + (parseFloat(p.amount) || 0), 0))
 
   function updatePayment(id: string, field: 'method' | 'amount' | 'fund_id', value: string) {
     setPayments((prev) => prev.map((p) => {
@@ -1002,20 +1167,35 @@ export function CheckoutModal({
       toast.error('Giao dịch bị chặn do khách hàng vượt quá giới hạn công nợ.')
       return
     }
-    if (totalPaid < remainingTotal) {
-      toast.error(`Còn thiếu ${fmtVND(remainingTotal - totalPaid)}`)
+
+    const isRemainingInvalid = isSplitActive ? (remainingA > 0 || remainingB > 0) : (remaining > 0)
+    if (isRemainingInvalid) {
+      if (isSplitActive) {
+        if (remainingA > 0) {
+          toast.error(`Folio A còn thiếu ${fmtVND(remainingA)}`)
+        } else {
+          toast.error(`Folio B còn thiếu ${fmtVND(remainingB)}`)
+        }
+      } else {
+        toast.error(`Còn thiếu ${fmtVND(remaining)}`)
+      }
       return
     }
 
-    const hasDebt = payments.some((p) => p.method === 'debt' && parseFloat(p.amount) > 0)
+    const hasDebt = isSplitActive
+      ? [...paymentsA, ...paymentsB].some((p) => p.method === 'debt' && parseFloat(p.amount) > 0)
+      : payments.some((p) => p.method === 'debt' && parseFloat(p.amount) > 0)
+
     if (hasDebt && !localCustomer) {
       toast.error('Phương thức Ghi nợ yêu cầu phải chọn Khách hàng')
       return
     }
 
-    const prepaidSpent = payments
-      .filter((p) => p.method === 'prepaid')
-      .reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
+    const prepaidSpent = isSplitActive
+      ? paymentsA.filter(p => p.method === 'prepaid').reduce((s, p) => s + (parseFloat(p.amount) || 0), 0) +
+        paymentsB.filter(p => p.method === 'prepaid').reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
+      : payments.filter(p => p.method === 'prepaid').reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
+
     if (prepaidSpent > 0) {
       if (!localCustomer) {
         toast.error('Phương thức Ví trả trước yêu cầu phải chọn Khách hàng')
@@ -1031,9 +1211,11 @@ export function CheckoutModal({
     const isWaitingForQr = bankTransferAmt > 0 && !options?.bypassQr
     setSaving(true)
     try {
-      const debtAmount = payments
-        .filter((p) => p.method === 'debt')
-        .reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
+      const debtAmount = isSplitActive
+        ? paymentsA.filter(p => p.method === 'debt').reduce((s, p) => s + (parseFloat(p.amount) || 0), 0) +
+          paymentsB.filter(p => p.method === 'debt').reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
+        : payments.filter(p => p.method === 'debt').reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
+
       const actualPaid = Math.max(0, finalTotal - debtAmount)
 
       const local_id = existingOrder ? existingOrder.local_id : crypto.randomUUID()
@@ -1058,7 +1240,13 @@ export function CheckoutModal({
         conversion_rate: item.conversion_rate,
       }))
 
-      const actualPayments = payments.filter((p) => parseFloat(p.amount) > 0)
+      const actualPayments = isSplitActive
+        ? [
+            ...paymentsA.filter(p => parseFloat(p.amount) > 0).map(p => ({ ...p, folio: 'A' })),
+            ...paymentsB.filter(p => parseFloat(p.amount) > 0).map(p => ({ ...p, folio: 'B' }))
+          ]
+        : payments.filter(p => parseFloat(p.amount) > 0).map(p => ({ ...p, folio: 'unified' }))
+
       const nonQrPayments = isWaitingForQr ? actualPayments.filter((p) => p.method !== 'bank_transfer') : actualPayments
 
       const localPayments: any[] = nonQrPayments.map((p) => {
@@ -1077,7 +1265,7 @@ export function CheckoutModal({
           method: p.method,
           amount: parseFloat(p.amount),
           reference_no: '',
-          note: '',
+          note: p.folio ? `[Folio ${p.folio}]` : '',
           fund_id: resolvedFundId,
         }
       })
@@ -1091,7 +1279,7 @@ export function CheckoutModal({
           method: 'cash',
           amount: -cashChange,
           reference_no: '',
-          note: 'Tiền thừa trả khách',
+          note: isSplitActive ? `[Folio ${activeFolioTab}] Tiền thừa trả khách` : 'Tiền thừa trả khách',
         })
       }
 
@@ -1125,7 +1313,6 @@ export function CheckoutModal({
         })
       }
 
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { items: _embedded, ...orderWithoutItems } = order
 
       const orderData: any = { ...orderWithoutItems }
@@ -1193,11 +1380,9 @@ export function CheckoutModal({
         [localDb.orders, localDb.orderItems, localDb.payments, localDb.syncQueue, localDb.inventory, localDb.inventoryBatches],
         async () => {
           if (existingOrder) {
-            // Delete old items and payments to avoid duplication or conflicts
             await localDb.orderItems.where('order_local_id').equals(local_id).delete()
             await localDb.payments.where('order_local_id').equals(local_id).delete()
             
-            // Delete from syncQueue if there was a pending sync
             const qItems = await localDb.syncQueue.toArray()
             const targetQ = qItems.find((item) => item.local_order_id === local_id)
             if (targetQ) {
@@ -1232,10 +1417,10 @@ export function CheckoutModal({
                 })
               }
 
-            const batches = await localDb.inventoryBatches
-              .where('[product_id+branch_id]')
-              .equals([item.product_id, branchId])
-              .toArray()
+              const batches = await localDb.inventoryBatches
+                .where('[product_id+branch_id]')
+                .equals([item.product_id, branchId])
+                .toArray()
 
               if (batches && batches.length > 0) {
                 const activeBatches = batches.filter((b) => Number(b.stock_qty) > 0)
@@ -1276,21 +1461,80 @@ export function CheckoutModal({
 
       if (autoPrintReceipt) {
         try {
-          await printBill({
-            order,
-            items: orderItems,
-            payments: localPayments,
-            shopName,
-            settings: {
-              ...settings,
-              bank_code: activeBankCode,
-              bank_account_number: activeBankAccountNumber,
-              bank_account_name: activeBankAccountName,
-              qr_template: activeTemplate,
-            },
-            printCount: 1,
-            shopId
-          })
+          if (isSplitActive) {
+            // Print Folio A
+            const orderA = {
+              ...order,
+              subtotal: subtotalA,
+              discount_amount: localDiscount + tierDiscountAmount,
+              total_amount: finalTotalA,
+              paid_amount: totalPaidA,
+              note: '[Folio A] ' + (order.note || ''),
+            }
+            const orderItemsA = orderItems.filter((_, idx) => folioAIndices.has(idx))
+            const paymentsAWithMeta = localPayments.filter(p => p.note && p.note.startsWith('[Folio A]'))
+
+            await printBill({
+              order: orderA,
+              items: orderItemsA,
+              payments: paymentsAWithMeta,
+              shopName,
+              settings: {
+                ...settings,
+                bank_code: activeBankCode,
+                bank_account_number: activeBankAccountNumber,
+                bank_account_name: activeBankAccountName,
+                qr_template: activeTemplate,
+              },
+              printCount: 1,
+              shopId
+            })
+
+            // Print Folio B
+            const orderB = {
+              ...order,
+              order_no: order.order_no ? order.order_no + '-B' : undefined,
+              subtotal: subtotalB,
+              discount_amount: 0,
+              total_amount: finalTotalB,
+              paid_amount: totalPaidB,
+              note: '[Folio B] ' + (order.note || ''),
+            }
+            const orderItemsB = orderItems.filter((_, idx) => !folioAIndices.has(idx))
+            const paymentsBWithMeta = localPayments.filter(p => p.note && p.note.startsWith('[Folio B]'))
+
+            await printBill({
+              order: orderB,
+              items: orderItemsB,
+              payments: paymentsBWithMeta,
+              shopName,
+              settings: {
+                ...settings,
+                bank_code: activeBankCode,
+                bank_account_number: activeBankAccountNumber,
+                bank_account_name: activeBankAccountName,
+                qr_template: activeTemplate,
+              },
+              printCount: 1,
+              shopId
+            })
+          } else {
+            await printBill({
+              order,
+              items: orderItems,
+              payments: localPayments,
+              shopName,
+              settings: {
+                ...settings,
+                bank_code: activeBankCode,
+                bank_account_number: activeBankAccountNumber,
+                bank_account_name: activeBankAccountName,
+                qr_template: activeTemplate,
+              },
+              printCount: 1,
+              shopId
+            })
+          }
         } catch (err) {
           console.error('Print failed:', err)
         }
@@ -1319,6 +1563,222 @@ export function CheckoutModal({
     return () => document.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, payments, items, showQrGate, isBlocked])
+
+  const renderItemRow = (item: any, idx: number) => {
+    const isSelectedInA = folioAIndices.has(idx)
+    return (
+      <div key={`${item.product_id}-${idx}`} className="flex flex-col py-1.5 border-b border-slate-200/40 last:border-0">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            {isSplitActive && (
+              <input
+                type="checkbox"
+                checked={isSelectedInA}
+                onChange={() => {
+                  setFolioAIndices((prev) => {
+                    const next = new Set(prev)
+                    if (next.has(idx)) {
+                      next.delete(idx)
+                    } else {
+                      next.add(idx)
+                    }
+                    return next
+                  })
+                }}
+                className="h-3.5 w-3.5 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer shrink-0"
+              />
+            )}
+            <span className="text-slate-800 font-medium text-sm leading-tight truncate">
+              {item.product_name}
+              <span className="text-slate-400 text-xs font-normal ml-1.5 whitespace-nowrap">× {item.qty}</span>
+            </span>
+          </div>
+          <span className="text-slate-950 font-bold text-sm shrink-0">{fmtVND(item.line_total)}</span>
+        </div>
+        {/* Variant or Modifier details underneath */}
+        {(item.variant_label || (item.modifiers && item.modifiers.length > 0)) && (
+          <div className="pl-6 mt-0.5 text-[10px] text-slate-500 space-y-0.5">
+            {item.variant_label && !item.modifiers?.length && (
+              <span className="text-violet-600 font-semibold block">{item.variant_label}</span>
+            )}
+            {item.modifiers && item.modifiers.length > 0 && (
+              <div className="text-amber-600 font-semibold block">
+                <span>{item.modifiers.map((m: any) => m.option).join(' · ')}</span>
+                {(item.modifier_total ?? 0) > 0 && (
+                  <span className="ml-1 text-emerald-600 font-bold">+{item.modifier_total?.toLocaleString('vi-VN')}đ</span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  function renderPaymentFormSection(
+    paymentRows: PaymentRow[],
+    rem: number,
+    remTotal: number,
+    change: number,
+    isSplit: boolean
+  ) {
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">PHƯƠNG THỨC THANH TOÁN</p>
+          <button
+            type="button"
+            onClick={addPayment}
+            disabled={paymentRows.length >= METHODS.length}
+            className="text-xs text-primary hover:underline font-bold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+          >
+            + Thêm
+          </button>
+        </div>
+
+        {paymentRows.map((p, idx) => {
+          const isPrepaid = p.method === 'prepaid'
+          const isDebt = p.method === 'debt'
+
+          let fundType = 'bank'
+          if (p.method === 'cash') fundType = 'cash'
+          else if (['momo', 'zalopay', 'vnpay', 'wallet'].includes(p.method)) fundType = 'wallet'
+
+          const matchingFunds = fundsList.filter((f) => f.type === fundType)
+          const selectedFundObj = fundsList.find((f) => f.id === p.fund_id) || matchingFunds[0]
+
+          return (
+            <div key={p.id} className="space-y-1.5 animate-in fade-in-50 duration-200">
+              <div className="flex gap-2">
+                <select
+                  value={p.method}
+                  onChange={(e) => updatePayment(p.id, 'method', e.target.value)}
+                  className="w-32 shrink-0 rounded-lg border border-slate-200 px-2 py-2 text-sm focus:border-primary focus:outline-none bg-white font-medium text-slate-800"
+                >
+                  {METHODS.filter(
+                    (m) => m.value === p.method || !paymentRows.some((other) => other.id !== p.id && other.method === m.value)
+                  ).map((m) => (
+                    <option key={m.value} value={m.value}>{m.label}</option>
+                  ))}
+                </select>
+
+                {/* Specific Fund selection */}
+                {matchingFunds.length > 1 && p.method !== 'debt' && p.method !== 'prepaid' && (
+                  <select
+                    value={p.fund_id || selectedFundObj?.id || ''}
+                    onChange={(e) => updatePayment(p.id, 'fund_id', e.target.value)}
+                    className="w-36 shrink-0 rounded-lg border border-orange-200 bg-orange-50/20 px-2 py-2 text-xs font-semibold text-orange-850 focus:border-primary focus:outline-none cursor-pointer"
+                  >
+                    {matchingFunds.map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {f.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <div className="relative flex-1">
+                  <input
+                    type="text"
+                    value={p.amount ? Number(String(p.amount).replace(/\D/g, '')).toLocaleString('vi-VN') : ''}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, '')
+                      updatePayment(p.id, 'amount', val)
+                    }}
+                    placeholder="0"
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-right text-sm focus:border-primary focus:outline-none font-semibold text-slate-900"
+                  />
+                  {idx === paymentRows.length - 1 && rem > 0 && (
+                    <button
+                      type="button"
+                      onClick={distributeRemaining}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-primary hover:underline font-bold"
+                      title="Điền số tiền còn thiếu"
+                    >
+                      Điền
+                    </button>
+                  )}
+                </div>
+                {paymentRows.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removePayment(p.id)}
+                    className="shrink-0 rounded-lg border border-slate-200 px-2.5 text-slate-400 hover:border-red-200 hover:text-red-550 hover:bg-red-50 transition-colors"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+
+              {selectedFundObj && p.method !== 'debt' && p.method !== 'prepaid' && (
+                <div className="w-full flex items-center gap-2 rounded-lg bg-orange-50/50 border border-orange-100/60 px-3 py-1.5 text-xs text-orange-850 animate-in fade-in slide-in-from-top-1 duration-200">
+                  <svg className="h-3.5 w-3.5 text-orange-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 12h15" />
+                  </svg>
+                  <div className="flex-1 min-w-0">
+                    <span className="text-slate-550 font-medium">Quỹ: </span>
+                    <strong className="text-orange-950 font-bold">{selectedFundObj.name}</strong>
+                    {selectedFundObj.bank_name && (
+                      <span className="text-[10px] text-orange-600 font-medium ml-1">({selectedFundObj.bank_name})</span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {isPrepaid && (
+                <div className="flex justify-between items-center text-xs px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 font-semibold border border-emerald-100">
+                  <span>Số dư ví trả trước khả dụng:</span>
+                  <span>
+                    {localCustomer ? `${fmtVND(Number(localCustomer.prepaid_balance || 0))}` : 'Khách lẻ (0đ)'}
+                  </span>
+                </div>
+              )}
+              {isDebt && (
+                <div className="flex justify-between items-center text-xs px-2.5 py-1.5 rounded-lg bg-red-50 text-red-700 font-semibold border border-red-100">
+                  <span>Nợ hiện tại / Hạn mức nợ:</span>
+                  <span>
+                    {localCustomer ? `${fmtVND(Number(localCustomer.debt_amount || 0))} / ${fmtVND(Number(localCustomer.credit_limit || 0))}` : 'Khách lẻ (Không nợ)'}
+                  </span>
+                </div>
+              )}
+            </div>
+          )
+        })}
+
+        {/* Summary rows */}
+        <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm space-y-1">
+          <div className="flex items-center justify-between">
+            <span className="text-slate-500">{isSplit ? 'Đã thiết lập:' : 'Số tiền nhận:'}</span>
+            <span className={rem > 0 ? 'font-bold text-red-500' : 'font-bold text-green-600'}>
+              {fmtVND(paymentRows.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0))}
+              {rem > 0 && (
+                <span className="ml-2 text-xs font-medium">còn thiếu {fmtVND(rem)}</span>
+              )}
+            </span>
+          </div>
+          {!isSplit && rem < 0 && paymentRows.filter(p => p.method === 'cash').length > 0 && change > 0 && (
+            <div className="flex items-center justify-between border-t border-slate-200 pt-1">
+              <span className="text-slate-500">Trả lại tiền thừa:</span>
+              <span className="font-bold text-red-500">{fmtVND(change)}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  function renderUnifiedPaymentForm() {
+    return renderPaymentFormSection(payments, remaining, remainingTotal, cashChange, false)
+  }
+
+  function renderFolioPaymentForm(folio: 'A' | 'B') {
+    const isA = folio === 'A'
+    const targetPayments = isA ? paymentsA : paymentsB
+    const targetRemaining = isA ? remainingA : remainingB
+    const targetTotal = isA ? remainingTotalA : remainingTotalB
+    const targetCashChange = cashChange
+
+    return renderPaymentFormSection(targetPayments, targetRemaining, targetTotal, targetCashChange, true)
+  }
 
   if (!open) return null
 
@@ -1507,7 +1967,7 @@ export function CheckoutModal({
           </div>
         ) : (
           <>
-            <div className="p-4 space-y-3 overflow-y-auto">
+            <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-4">
               {/* Customer */}
               <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
                 <div className="mb-1.5 flex items-center justify-between">
@@ -1560,19 +2020,20 @@ export function CheckoutModal({
                 </div>
               )}
 
-              {/* Resource Info */}
+
+              {/* Hotel / Hourly rate details */}
               {metadata?.check_in && (
-                <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-3 text-sm space-y-1.5 mb-4">
-                  {metadata.overnight_rate && (
-                    <div className="pb-2 mb-2 border-b border-blue-100/50 flex flex-col gap-1.5">
-                      <span className="text-[10px] font-bold text-slate-500 tracking-wide uppercase">Hình thức tính tiền</span>
-                      <div className="flex gap-2">
+                <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-xs text-slate-600 space-y-1.5">
+                  <div className="font-bold text-slate-800 text-[10px] uppercase tracking-wider mb-1 flex items-center justify-between">
+                    <span>🏨 Chi tiết thời gian thuê</span>
+                    {!metadata?.actual_checkout_requested_at && (
+                      <div className="flex border border-slate-200 rounded-lg overflow-hidden shrink-0">
                         <button
                           type="button"
                           onClick={() => setLocalRentalType('hourly')}
-                          className={`flex-1 py-1.5 px-2.5 rounded-lg border text-xs font-bold transition-all text-center ${localRentalType === 'hourly'
+                          className={`flex-1 py-1.5 px-2.5 rounded-l-lg text-xs font-bold transition-all text-center border-r border-slate-200 ${localRentalType === 'hourly'
                             ? 'border-primary bg-primary/10 text-primary ring-1 ring-primary'
-                            : 'border-slate-300 text-slate-500 bg-white hover:border-slate-350 hover:bg-slate-50'
+                            : 'border-slate-350 text-slate-500 bg-white hover:border-slate-350 hover:bg-slate-50'
                             }`}
                         >
                           ⏱️ Theo giờ
@@ -1580,7 +2041,7 @@ export function CheckoutModal({
                         <button
                           type="button"
                           onClick={() => setLocalRentalType('overnight')}
-                          className={`flex-1 py-1.5 px-2.5 rounded-lg border text-xs font-bold transition-all text-center ${localRentalType === 'overnight'
+                          className={`flex-1 py-1.5 px-2.5 rounded-r-lg text-xs font-bold transition-all text-center ${localRentalType === 'overnight'
                             ? 'border-primary bg-primary/10 text-primary ring-1 ring-primary'
                             : 'border-slate-300 text-slate-500 bg-white hover:border-slate-350 hover:bg-slate-50'
                             }`}
@@ -1588,15 +2049,19 @@ export function CheckoutModal({
                           🌙 Qua đêm ({Number(metadata.overnight_rate).toLocaleString('vi-VN')}₫)
                         </button>
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
                   <div className="flex justify-between">
                     <span className="text-slate-600">Giờ vào:</span>
                     <span className="font-medium text-slate-900">{fmtDateTimeVN(new Date(metadata.check_in))}</span>
                   </div>
                   <div className="flex justify-between items-center mt-1">
-                    <span className="text-slate-600">{localCheckoutTime || customCheckoutTime ? 'Giờ ra:' : 'Giờ ra (Hiện tại):'}</span>
-                    {isEditingCheckout ? (
+                    <span className="text-slate-600">{metadata?.actual_checkout_requested_at ? 'Khóa giờ ra lúc:' : (localCheckoutTime || customCheckoutTime ? 'Giờ ra:' : 'Giờ ra (Hiện tại):')}</span>
+                    {metadata?.actual_checkout_requested_at ? (
+                      <span className="font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-250/65 font-bold">
+                        {fmtDateTimeVN(new Date(metadata.actual_checkout_requested_at))}
+                      </span>
+                    ) : isEditingCheckout ? (
                       <div className="flex items-center gap-2">
                         <input
                           type="datetime-local"
@@ -1629,35 +2094,74 @@ export function CheckoutModal({
 
               {/* Order summary */}
               <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-                <div className="max-h-[260px] overflow-y-auto space-y-1 pr-1 scrollbar-thin">
-                  {computedItems.map((item, idx) => (
-                    <div key={`${item.product_id}-${idx}`} className="flex flex-col py-1.5 border-b border-slate-200/40 last:border-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-slate-800 font-medium text-sm leading-tight">
-                          {item.product_name}
-                          <span className="text-slate-400 text-xs font-normal ml-1.5 whitespace-nowrap">× {item.qty}</span>
-                        </span>
-                        <span className="text-slate-950 font-bold text-sm shrink-0">{fmtVND(item.line_total)}</span>
-                      </div>
-                      {/* Variant or Modifier details underneath */}
-                      {(item.variant_label || (item.modifiers && item.modifiers.length > 0)) && (
-                        <div className="pl-2 mt-0.5 text-[10px] text-slate-500 space-y-0.5">
-                          {item.variant_label && !item.modifiers?.length && (
-                            <span className="text-violet-600 font-semibold block">{item.variant_label}</span>
-                          )}
-                          {item.modifiers && item.modifiers.length > 0 && (
-                            <div className="text-amber-600 font-semibold block">
-                              <span>{item.modifiers.map(m => m.option).join(' · ')}</span>
-                              {(item.modifier_total ?? 0) > 0 && (
-                                <span className="ml-1 text-emerald-600 font-bold">+{item.modifier_total?.toLocaleString('vi-VN')}đ</span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                {/* Splitting Toggle */}
+                <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-200/60">
+                  <span className="text-xs font-bold text-slate-700">Tách hóa đơn (Folio Splitting)</span>
+                  <button
+                    type="button"
+                    onClick={() => setIsSplitActive(!isSplitActive)}
+                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                      isSplitActive ? 'bg-primary' : 'bg-slate-200'
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                        isSplitActive ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
                 </div>
+
+                <div className="max-h-[280px] overflow-y-auto space-y-3 pr-1 scrollbar-thin">
+                  {/* Group 1: Tiền phòng & Dịch vụ */}
+                  {groupedItems.roomItems.length > 0 && (
+                    <div>
+                      <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-between">
+                        <span>🏨 Tiền phòng & Dịch vụ</span>
+                        {isSplitActive && <span className="text-[9px] font-semibold text-primary lowercase">(chọn để đưa vào Folio A)</span>}
+                      </div>
+                      <div className="space-y-1.5 pl-1">
+                        {groupedItems.roomItems.map((item) => {
+                          const idx = computedItems.indexOf(item)
+                          return renderItemRow(item, idx)
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Group 2: Tiêu hao Minibar */}
+                  {groupedItems.minibarItems.length > 0 && (
+                    <div>
+                      <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-between">
+                        <span>🥤 Tiêu hao Minibar</span>
+                        {isSplitActive && <span className="text-[9px] font-semibold text-primary lowercase">(chọn để đưa vào Folio A)</span>}
+                      </div>
+                      <div className="space-y-1.5 pl-1">
+                        {groupedItems.minibarItems.map((item) => {
+                          const idx = computedItems.indexOf(item)
+                          return renderItemRow(item, idx)
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Group 3: Bồi thường tài sản */}
+                  {groupedItems.assetItems.length > 0 && (
+                    <div>
+                      <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-between">
+                        <span>⚠️ Bồi thường hỏng hóc/mất mát</span>
+                        {isSplitActive && <span className="text-[9px] font-semibold text-primary lowercase">(chọn để đưa vào Folio A)</span>}
+                      </div>
+                      <div className="space-y-1.5 pl-1">
+                        {groupedItems.assetItems.map((item) => {
+                          const idx = computedItems.indexOf(item)
+                          return renderItemRow(item, idx)
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <div className="mt-2 space-y-2 border-t border-slate-200 pt-3 text-sm">
                   <div className="flex items-center justify-between">
                     <span className="text-slate-500">Giảm giá:</span>
@@ -1753,6 +2257,26 @@ export function CheckoutModal({
                       <span className="text-primary">{fmtVND(remainingTotal)}</span>
                     </div>
                   )}
+
+                  {isSplitActive && (
+                    <div className="mt-2 pt-2 border-t border-dashed border-slate-200 text-xs space-y-1.5 bg-primary/5 p-2.5 rounded-xl">
+                      <div className="font-bold text-slate-800 uppercase tracking-wide">Chi tiết hóa đơn tách:</div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-650">Hóa đơn A (Phòng & Dịch vụ):</span>
+                        <span className="font-bold text-slate-900">{fmtVND(finalTotalA)}</span>
+                      </div>
+                      {orderPaidAmount > 0 && (
+                        <div className="flex justify-between pl-2 text-slate-500">
+                          <span>Đã cọc/thu trước (Hóa đơn A):</span>
+                          <span>-{fmtVND(orderPaidAmount)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between">
+                        <span className="text-slate-650">Hóa đơn B (Bồi thường & Cá nhân):</span>
+                        <span className="font-bold text-slate-900">{fmtVND(finalTotalB)}</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1817,145 +2341,36 @@ export function CheckoutModal({
                 </div>
               )}
 
-              {/* Payments */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-medium text-slate-500">PHƯƠNG THỨC THANH TOÁN</p>
-                  <button
-                    onClick={addPayment}
-                    disabled={payments.length >= METHODS.length}
-                    className="text-xs text-primary hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    + Thêm
-                  </button>
-                </div>
-
-                {payments.map((p, idx) => {
-                  const isPrepaid = p.method === 'prepaid'
-                  const isDebt = p.method === 'debt'
-
-                  let fundType = 'bank'
-                  if (p.method === 'cash') fundType = 'cash'
-                  else if (['momo', 'zalopay', 'vnpay', 'wallet'].includes(p.method)) fundType = 'wallet'
-
-                  const matchingFunds = fundsList.filter((f) => f.type === fundType)
-                  const selectedFundObj = fundsList.find((f) => f.id === p.fund_id) || matchingFunds[0]
-
-                  return (
-                    <div key={p.id} className="space-y-1.5">
-                      <div className="flex gap-2">
-                        <select
-                          value={p.method}
-                          onChange={(e) => updatePayment(p.id, 'method', e.target.value)}
-                          className="w-32 shrink-0 rounded-lg border border-slate-200 px-2 py-2 text-sm focus:border-primary focus:outline-none"
-                        >
-                          {METHODS.filter(
-                            (m) => m.value === p.method || !payments.some((other) => other.id !== p.id && other.method === m.value)
-                          ).map((m) => (
-                            <option key={m.value} value={m.value}>{m.label}</option>
-                          ))}
-                        </select>
-
-                        {/* Lựa chọn Quỹ cụ thể nếu có từ 2 quỹ trở lên cùng loại */}
-                        {matchingFunds.length > 1 && p.method !== 'debt' && p.method !== 'prepaid' && (
-                          <select
-                            value={p.fund_id || selectedFundObj?.id || ''}
-                            onChange={(e) => updatePayment(p.id, 'fund_id', e.target.value)}
-                            className="w-36 shrink-0 rounded-lg border border-orange-200 bg-orange-50/20 px-2 py-2 text-xs font-semibold text-orange-850 focus:border-primary focus:outline-none cursor-pointer"
-                          >
-                            {matchingFunds.map((f) => (
-                              <option key={f.id} value={f.id}>
-                                {f.name}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                        <div className="relative flex-1">
-                          <input
-                            type="text"
-                            value={p.amount ? Number(String(p.amount).replace(/\D/g, '')).toLocaleString('vi-VN') : ''}
-                            onChange={(e) => {
-                              const val = e.target.value.replace(/\D/g, '')
-                              updatePayment(p.id, 'amount', val)
-                            }}
-                            placeholder="0"
-                            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-right text-sm focus:border-primary focus:outline-none"
-                          />
-                          {idx === payments.length - 1 && remaining > 0 && (
-                            <button
-                              onClick={distributeRemaining}
-                              className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-primary hover:underline"
-                              title="Điền số tiền còn thiếu"
-                            >
-                              Điền
-                            </button>
-                          )}
-                        </div>
-                        {payments.length > 1 && (
-                          <button
-                            onClick={() => removePayment(p.id)}
-                            className="shrink-0 rounded-lg border border-slate-200 px-2 text-slate-400 hover:border-red-200 hover:text-red-400"
-                          >
-                            ✕
-                          </button>
-                        )}
-                      </div>
-
-                      {/* Label chỉ dẫn rõ ràng dòng tiền sẽ được đưa vào quỹ nào */}
-                      {selectedFundObj && p.method !== 'debt' && p.method !== 'prepaid' && (
-                        <div className="w-full flex items-center gap-2 rounded-lg bg-orange-50/50 border border-orange-100/60 px-3 py-1.5 text-xs text-orange-850 animate-in fade-in slide-in-from-top-1 duration-200">
-                          <svg className="h-3.5 w-3.5 text-orange-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 12h15" />
-                          </svg>
-                          <div className="flex-1 min-w-0">
-                            <span className="text-slate-500 font-medium">Dòng tiền sẽ được đưa vào quỹ: </span>
-                            <strong className="text-orange-950 font-bold">{selectedFundObj.name}</strong>
-                            {selectedFundObj.bank_name && (
-                              <span className="text-[10px] text-orange-600 font-medium ml-1">({selectedFundObj.bank_name})</span>
-                            )}
-                          </div>
-                        </div>
-                      )}
-
-                      {isPrepaid && (
-                        <div className="flex justify-between items-center text-xs px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 font-semibold border border-emerald-100">
-                          <span>Số dư ví trả trước khả dụng:</span>
-                          <span>
-                            {localCustomer ? `${fmtVND(Number(localCustomer.prepaid_balance || 0))}` : 'Khách lẻ (0đ)'}
-                          </span>
-                        </div>
-                      )}
-                      {isDebt && (
-                        <div className="flex justify-between items-center text-xs px-2.5 py-1.5 rounded-lg bg-red-50 text-red-700 font-semibold border border-red-100">
-                          <span>Nợ hiện tại / Hạn mức nợ:</span>
-                          <span>
-                            {localCustomer ? `${fmtVND(Number(localCustomer.debt_amount || 0))} / ${fmtVND(Number(localCustomer.credit_limit || 0))}` : 'Khách lẻ (Không nợ)'}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-
-                {/* Summary rows */}
-                <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-500">Số tiền nhận:</span>
-                    <span className={remaining > 0 ? 'font-medium text-red-500' : 'font-medium text-green-600'}>
-                      {fmtVND(totalPaid)}
-                      {remaining > 0 && (
-                        <span className="ml-2 text-xs">còn thiếu {fmtVND(remaining)}</span>
-                      )}
-                    </span>
+              {/* Payments Form */}
+              {isSplitActive ? (
+                <div className="space-y-3">
+                  <div className="flex border-b border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => setActiveFolioTab('A')}
+                      className={`flex-1 py-2 text-center text-xs font-bold border-b-2 transition-all ${
+                        activeFolioTab === 'A'
+                          ? 'border-primary text-primary border-b-primary'
+                          : 'border-transparent text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      Hóa đơn A (Phòng & Dịch vụ) ({fmtVND(remainingTotalA)})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveFolioTab('B')}
+                      className={`flex-1 py-2 text-center text-xs font-bold border-b-2 transition-all ${
+                        activeFolioTab === 'B'
+                          ? 'border-primary text-primary border-b-primary'
+                          : 'border-transparent text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      Hóa đơn B (Bồi thường & Cá nhân) ({fmtVND(remainingTotalB)})
+                    </button>
                   </div>
-                  {remaining < 0 && cashRows.length > 0 && cashChange > 0 && (
-                    <div className="flex items-center justify-between border-t border-slate-200 pt-1">
-                      <span className="text-slate-500">Trả lại tiền thừa:</span>
-                      <span className="font-semibold text-red-500">{fmtVND(cashChange)}</span>
-                    </div>
-                  )}
+                  {activeFolioTab === 'A' ? renderFolioPaymentForm('A') : renderFolioPaymentForm('B')}
                 </div>
-              </div>
+              ) : renderUnifiedPaymentForm()}
             </div>
 
             {/* Footer */}
@@ -1972,7 +2387,7 @@ export function CheckoutModal({
                 {/* Green button: Lưu & xác nhận (Đã thu) */}
                 <button
                   onClick={() => handleSubmit({ bypassQr: true })}
-                  disabled={saving || items.length === 0 || remaining > 0 || isBlocked}
+                  disabled={saving || items.length === 0 || isRemainingInvalid || isBlocked}
                   className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 py-2.5 px-4 text-sm font-bold text-white shadow-xs disabled:opacity-40 transition-all active:scale-98"
                 >
                   <svg className="h-4.5 w-4.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
@@ -1985,7 +2400,7 @@ export function CheckoutModal({
                 {bankTransferAmt > 0 && (
                   <button
                     onClick={() => handleSubmit({ bypassQr: false })}
-                    disabled={saving || items.length === 0 || remaining > 0 || isBlocked}
+                    disabled={saving || items.length === 0 || isRemainingInvalid || isBlocked}
                     className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-primary hover:bg-primary-dark py-2.5 px-4 text-sm font-bold text-white shadow-xs disabled:opacity-40 transition-all active:scale-98 animate-in fade-in slide-in-from-right-1 duration-200"
                   >
                     Lưu & chờ thanh toán

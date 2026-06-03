@@ -25,11 +25,8 @@ function calcDelta(type: string, qty: number): number {
   return qty // adjustment: signed
 }
 
-function getGMT7Time() {
-  const d = new Date()
-  d.setUTCHours(d.getUTCHours() + 7)
-  return d.toISOString().replace('Z', '')
-}
+import { getGMT7Time } from '@oni/core'
+
 
 async function generateMovementNo(connector: IDataConnector, type: string, tenantId: string): Promise<string> {
   const prefix = MOVEMENT_NO_PREFIX[type] ?? 'PKH'
@@ -228,7 +225,7 @@ export async function POST(
     // Resolve the branch's default warehouse if none is specified (backward-compatibility fallback)
     if (!resolvedWarehouseId) {
       const whRes = await connector.list('warehouses', {
-        filters: { code: 'sale' },
+        filters: { type: 'sale' },
         limit: 1
       });
       if (whRes.total > 0) {
