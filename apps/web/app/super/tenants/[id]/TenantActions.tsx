@@ -15,9 +15,24 @@ export function TenantActions({ tenantId, tenantName, editHref }: TenantActionsP
 
   async function postAction(action: string) {
     setLoading(action);
-    await fetch(`/api/super/tenants/${tenantId}/${action}`, { method: 'POST' });
-    setLoading(null);
-    router.refresh();
+    try {
+      const res = await fetch(`/api/super/tenants/${tenantId}/${action}`, { method: 'POST' });
+      if (res.ok) {
+        if (action === 'delete') {
+          router.push('/super/tenants');
+          return;
+        }
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || err.message || `Thao tác thất bại (${res.status})`);
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Đã xảy ra lỗi kết nối');
+    } finally {
+      setLoading(null);
+      router.refresh();
+    }
   }
 
   function handleDelete() {

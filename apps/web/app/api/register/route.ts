@@ -208,6 +208,7 @@ export async function POST(req: NextRequest) {
     p_name:      name,
     p_slug:      slug,
     p_address:   null,
+    p_industry_type: industry_type,
   });
   if (shopError) {
     await admin.auth.admin.deleteUser(userId).catch(() => {});
