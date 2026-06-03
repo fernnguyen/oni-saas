@@ -92,6 +92,7 @@ export function ReservationsClient({
   const [occupantsModalOpen, setOccupantsModalOpen] = useState(false)
   const [occSelectedRes, setOccSelectedRes] = useState<Reservation | null>(null)
   const [occupantsList, setOccupantsList] = useState<any[]>([])
+  const [allOccupants, setAllOccupants] = useState<any[]>([])
   const [loadingOccList, setLoadingOccList] = useState(false)
   
   // Occupant form states
@@ -113,7 +114,8 @@ export function ReservationsClient({
   const [loadingGroupOccs, setLoadingGroupOccs] = useState(false)
   const [importModalOpen, setImportModalOpen] = useState(false)
   const [importText, setImportText] = useState('')
-  const [assigningGuestId, setAssigningGuestId] = useState<string | null>(null)
+  const [assigningGuest, setAssigningGuest] = useState<any | null>(null)
+  const [assignRoomSearch, setAssignRoomSearch] = useState('')
 
   // Single guest manual form states inside group
   const [showAddGuestForm, setShowAddGuestForm] = useState(false)
@@ -161,7 +163,7 @@ export function ReservationsClient({
     setSelectedGroupId(groupId)
     setSelectedGroupResvs(resvs)
     setGroupRoomingModalOpen(true)
-    setAssigningGuestId(null)
+    setAssigningGuest(null)
     setShowAddGuestForm(false)
     void fetchGroupOccupants(groupId, resvs)
   }
@@ -200,6 +202,7 @@ export function ReservationsClient({
       setGFormNote('')
       setShowAddGuestForm(false)
       void fetchGroupOccupants(selectedGroupId, selectedGroupResvs)
+      void fetchAllOccupants()
     } catch {
       toast.error('Lỗi khi thêm khách')
     }
@@ -220,6 +223,7 @@ export function ReservationsClient({
           toast.success('Đã xóa khách')
           if (selectedGroupId) {
             void fetchGroupOccupants(selectedGroupId, selectedGroupResvs)
+            void fetchAllOccupants()
           }
         } catch {
           toast.error('Lỗi khi xóa khách')
@@ -249,8 +253,8 @@ export function ReservationsClient({
         })
         if (!res.ok) throw new Error()
         toast.success(`Đã gán vào ${getRoomName(resv.resource_id)}`)
-        setAssigningGuestId(null)
         void fetchGroupOccupants(selectedGroupId, selectedGroupResvs)
+        void fetchAllOccupants()
       } catch {
         toast.error('Lỗi khi gán phòng')
       }
@@ -285,6 +289,7 @@ export function ReservationsClient({
       if (!res.ok) throw new Error()
       toast.success('Đã bỏ gán phòng')
       void fetchGroupOccupants(selectedGroupId, selectedGroupResvs)
+      void fetchAllOccupants()
     } catch {
       toast.error('Lỗi khi bỏ gán phòng')
     }
@@ -382,6 +387,7 @@ export function ReservationsClient({
       if (assignedCount > 0) {
         toast.success(`Đã tự động gán thông minh thành công ${assignedCount} khách! (Tách biệt Nam/Nữ)`)
         void fetchGroupOccupants(selectedGroupId, selectedGroupResvs)
+        void fetchAllOccupants()
       } else {
         toast.info('Không thể tự động gán thêm khách nào phù hợp với quy tắc giới tính phòng.')
       }
@@ -451,6 +457,7 @@ export function ReservationsClient({
       setImportText('')
       setImportModalOpen(false)
       void fetchGroupOccupants(selectedGroupId, selectedGroupResvs)
+      void fetchAllOccupants()
     } catch {
       toast.error('Lỗi khi import danh sách')
     } finally {
@@ -506,11 +513,13 @@ export function ReservationsClient({
 
   useEffect(() => {
     fetchRooms()
+    void fetchAllOccupants()
   }, [shopId])
 
   useEffect(() => {
     if (activeTab === 'list') {
       void fetchReservations()
+      void fetchAllOccupants()
     }
   }, [activeTab, shopId])
 
@@ -675,6 +684,59 @@ export function ReservationsClient({
     return room ? room.name : `Phòng ${roomId.slice(-4)}`
   }
 
+  const formatBirthdayAndAge = (birthdayStr?: string) => {
+    if (!birthdayStr) return ''
+    try {
+      const parts = birthdayStr.split('-')
+      if (parts.length === 3) {
+        const y = parseInt(parts[0])
+        const m = parseInt(parts[1])
+        const d = parseInt(parts[2])
+        if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
+          const formattedDate = `${d.toString().padStart(2, '0')}/${m.toString().padStart(2, '0')}/${y}`
+          const today = new Date()
+          let age = today.getFullYear() - y
+          const birthMonth = m - 1
+          if (today.getMonth() < birthMonth || (today.getMonth() === birthMonth && today.getDate() < d)) {
+            age--
+          }
+          return `${formattedDate} (${age} tuổi)`
+        }
+      }
+      const slashParts = birthdayStr.split('/')
+      if (slashParts.length === 3) {
+        const d = parseInt(slashParts[0])
+        const m = parseInt(slashParts[1])
+        const y = parseInt(slashParts[2])
+        if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
+          const formattedDate = `${d.toString().padStart(2, '0')}/${m.toString().padStart(2, '0')}/${y}`
+          const today = new Date()
+          let age = today.getFullYear() - y
+          const birthMonth = m - 1
+          if (today.getMonth() < birthMonth || (today.getMonth() === birthMonth && today.getDate() < d)) {
+            age--
+          }
+          return `${formattedDate} (${age} tuổi)`
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return birthdayStr
+  }
+
+  const fetchAllOccupants = async () => {
+    try {
+      const res = await fetch(`/api/shops/${shopId}/occupants?t=${Date.now()}`)
+      if (res.ok) {
+        const json = await res.json()
+        setAllOccupants(json.data || [])
+      }
+    } catch (e) {
+      console.error('Error fetching occupants:', e)
+    }
+  }
+
   const fetchOccupantsForRes = async (resvId: string) => {
     setLoadingOccList(true)
     try {
@@ -738,6 +800,7 @@ export function ReservationsClient({
       setFormOccBirthday('')
       setFormOccNote('')
       void fetchOccupantsForRes(occSelectedRes.id)
+      void fetchAllOccupants()
     } catch {
       toast.error('Lỗi khi thêm khách lưu trú')
     } finally {
@@ -761,6 +824,7 @@ export function ReservationsClient({
           toast.success('Đã xóa khách lưu trú')
           if (occSelectedRes) {
             void fetchOccupantsForRes(occSelectedRes.id)
+            void fetchAllOccupants()
           }
         } catch {
           toast.error('Lỗi khi xóa khách lưu trú')
@@ -857,7 +921,7 @@ export function ReservationsClient({
             </div>
           ) : Object.keys(groupedData.groups).length === 0 && groupedData.individuals.length === 0 ? (
             <div className="min-h-[250px] flex flex-col items-center justify-center bg-white rounded-2xl border border-slate-100 shadow-sm p-6 text-center">
-              <Building className="w-12 h-12 text-slate-350 mb-3" />
+              <Building className="w-12 h-12 text-slate-400 mb-3" />
               <p className="text-sm font-bold text-slate-700">Chưa có lịch đặt phòng nào khớp bộ lọc</p>
               <p className="text-xs text-slate-400 mt-1 max-w-sm font-medium">Lịch đặt phòng đoàn được tạo bằng cách chọn nhiều phòng cùng lúc tại màn hình Sơ đồ Gantt.</p>
             </div>
@@ -870,9 +934,9 @@ export function ReservationsClient({
                 const isAllCheckedIn = resvs.every(r => r.status === 'checked_in')
                 
                 return (
-                  <div key={groupId} className="bg-white border border-slate-150 rounded-3xl shadow-sm hover:shadow-md transition-shadow overflow-hidden">
+                  <div key={groupId} className="bg-white border border-slate-200 rounded-3xl shadow-sm hover:shadow-md transition-shadow overflow-hidden">
                     {/* Group Header Card */}
-                    <div className="bg-slate-50/70 border-b border-slate-150 px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div className="bg-slate-50/70 border-b border-slate-200 px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
                       <div className="space-y-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="bg-indigo-50 border border-indigo-100 text-indigo-700 px-2.5 py-1 text-[10px] font-semibold rounded-lg uppercase tracking-wider flex items-center gap-1 shadow-2xs">
@@ -901,21 +965,21 @@ export function ReservationsClient({
                         {!isAllCheckedIn && (
                           <button
                             onClick={() => handleCheckInGroup(groupId, resvs)}
-                            className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-md shadow-emerald-250 flex items-center gap-1 transition-all active:scale-95 cursor-pointer"
+                            className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-md shadow-emerald-500/20 flex items-center gap-1 transition-all active:scale-95 cursor-pointer"
                           >
                             <Check className="w-3.5 h-3.5 stroke-[2.5]" /> Check-in Đoàn
                           </button>
                         )}
                         <button
                           onClick={() => triggerGroupRoomingList(groupId, resvs)}
-                          className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 hover:border-indigo-300 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-sm shadow-indigo-100"
+                          className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 hover:border-indigo-300 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-sm shadow-indigo-500/10"
                         >
                           <Users className="w-3.5 h-3.5" />
                           Khách đoàn & Phân phòng
                         </button>
                         <button
                           onClick={() => handleCancelGroup(groupId, resvs)}
-                          className="bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 hover:border-rose-300 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-sm shadow-rose-100"
+                          className="bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 hover:border-rose-300 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-sm shadow-rose-500/10"
                         >
                           <XCircle className="w-3.5 h-3.5" />
                           Hủy toàn bộ đoàn
@@ -931,7 +995,7 @@ export function ReservationsClient({
                           <div>Phòng</div>
                           <div>Mã lẻ</div>
                           <div>Thời gian</div>
-                          <div>Tiền cọc lẻ / Giá</div>
+                          <div>Tiền cọc / Giá</div>
                         </div>
                         <div className="w-[260px] text-right">Thao tác</div>
                       </div>
@@ -954,7 +1018,7 @@ export function ReservationsClient({
                               </span>
                             </div>
                             <div className="flex flex-col text-left">
-                              <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider md:hidden">Tiền cọc lẻ / Giá</span>
+                              <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider md:hidden">Tiền cọc / Giá</span>
                               <span className="font-bold text-slate-800">
                                 {Number(r.deposit_amount).toLocaleString('vi-VN')}₫ / {Number(r.daily_rate).toLocaleString('vi-VN')}₫
                               </span>
@@ -965,9 +1029,9 @@ export function ReservationsClient({
                           <div className="flex items-center justify-end gap-1.5 shrink-0 w-[260px] self-start md:self-center">
                             <button
                               onClick={() => triggerOccupantsModal(r)}
-                              className="bg-white hover:bg-indigo-50 text-indigo-655 hover:text-indigo-755 px-2.5 py-1.5 border border-indigo-200 hover:border-indigo-300 rounded-lg font-bold text-[11px] transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                              className="bg-white hover:bg-indigo-50 text-indigo-600 hover:text-indigo-700 px-2.5 py-1.5 border border-indigo-200 hover:border-indigo-300 rounded-lg font-bold text-[11px] transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
                             >
-                              <Users className="w-3.5 h-3.5" /> Khách ở
+                              <Users className="w-3.5 h-3.5" /> Khách ({allOccupants.filter(occ => occ.reservation_id === r.id).length})
                             </button>
                             {r.status !== 'checked_in' ? (
                               <button
@@ -998,8 +1062,8 @@ export function ReservationsClient({
 
               {/* Individual/Retail Bookings Section */}
               {groupedData.individuals.length > 0 && (
-                <div className="bg-white border border-slate-150 rounded-3xl shadow-sm overflow-hidden">
-                  <div className="bg-slate-50/50 border-b border-slate-150 px-6 py-3 flex items-center justify-between">
+                <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
+                  <div className="bg-slate-50/50 border-b border-slate-200 px-6 py-3 flex items-center justify-between">
                     <h3 className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
                       <Grid className="w-4 h-4 text-slate-400" /> Đặt lẻ không theo đoàn ({groupedData.individuals.length})
                     </h3>
@@ -1062,14 +1126,14 @@ export function ReservationsClient({
                         <div className="flex items-center justify-end gap-2 shrink-0 w-[280px] self-start md:self-center">
                           <button
                             onClick={() => triggerOccupantsModal(r)}
-                            className="bg-white hover:bg-indigo-50 text-indigo-650 hover:text-indigo-750 px-2.5 py-2 border border-indigo-200 hover:border-indigo-300 rounded-xl font-bold text-xs transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                            className="bg-white hover:bg-indigo-50 text-indigo-600 hover:text-indigo-700 px-2.5 py-2 border border-indigo-200 hover:border-indigo-300 rounded-xl font-bold text-xs transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
                           >
-                            <Users className="w-3.5 h-3.5" /> Khách ở
+                            <Users className="w-3.5 h-3.5" /> Khách ({allOccupants.filter(occ => occ.reservation_id === r.id).length})
                           </button>
                           {r.status !== 'checked_in' ? (
                             <button
                               onClick={() => handleCheckInResv(r)}
-                              className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-md shadow-emerald-250 transition-all active:scale-95 cursor-pointer flex items-center gap-1"
+                              className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-md shadow-emerald-500/20 transition-all active:scale-95 cursor-pointer flex items-center gap-1"
                             >
                               <Check className="w-3.5 h-3.5 stroke-[2.5]" /> Check-in
                             </button>
@@ -1113,7 +1177,7 @@ export function ReservationsClient({
           <div className="mx-4 w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl flex flex-col max-h-[90vh] overflow-hidden">
             <div className="flex justify-between items-center pb-3 border-b border-slate-100 shrink-0">
               <h2 className="text-base font-bold text-slate-900 flex items-center gap-1.5">
-                <Users className="w-5 h-5 text-indigo-650 animate-pulse" /> Khách lưu trú thực tế: {getRoomName(occSelectedRes.resource_id)}
+                <Users className="w-5 h-5 text-indigo-600 animate-pulse" /> Khách lưu trú thực tế: {getRoomName(occSelectedRes.resource_id)}
               </h2>
               <button 
                 onClick={() => setOccupantsModalOpen(false)}
@@ -1128,7 +1192,7 @@ export function ReservationsClient({
             <div className="flex-1 overflow-y-auto py-4 space-y-4 pr-1 scrollbar-thin">
               
               {/* Form thêm khách mới */}
-              <div className="bg-slate-50 border border-slate-150 p-4 rounded-xl space-y-3">
+              <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl space-y-3">
                 <h3 className="text-xs font-bold text-slate-700">Thêm khách lưu trú mới</h3>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
@@ -1233,21 +1297,21 @@ export function ReservationsClient({
                 ) : occupantsList.length === 0 ? (
                   <p className="text-xs text-slate-400 text-center py-6 border border-dashed border-slate-200 rounded-xl">Chưa có khách nào được phân bổ vào phòng này.</p>
                 ) : (
-                  <div className="border border-slate-150 rounded-xl divide-y divide-slate-100 bg-white overflow-hidden max-h-[220px] overflow-y-auto">
+                  <div className="border border-slate-200 rounded-xl divide-y divide-slate-100 bg-white overflow-hidden max-h-[220px] overflow-y-auto">
                     {occupantsList.map(occ => (
                       <div key={occ.id} className="p-3 flex items-center justify-between gap-3 text-xs">
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="font-semibold text-slate-850">{occ.guest_name}</span>
+                            <span className="font-semibold text-slate-800">{occ.guest_name}</span>
                             {occ.guest_phone && <span className="text-slate-500 font-medium">({occ.guest_phone})</span>}
                             {occ.is_primary === 'TRUE' && (
-                              <span className="bg-indigo-50 text-indigo-700 border border-indigo-150 px-1.5 py-0.5 text-[9px] font-bold rounded">Đại diện</span>
+                              <span className="bg-indigo-50 text-indigo-700 border border-indigo-100 px-1.5 py-0.5 text-[9px] font-bold rounded">Đại diện</span>
                             )}
                           </div>
                           <div className="text-[10px] text-slate-400 mt-0.5 space-x-2 font-medium">
                             {occ.identity_card && <span>CCCD: {occ.identity_card}</span>}
                             {occ.nationality && <span>• Quốc tịch: {occ.nationality}</span>}
-                            {occ.birthday && <span>• Ngày sinh: {occ.birthday}</span>}
+                            {occ.birthday && <span>• Ngày sinh: {formatBirthdayAndAge(occ.birthday)}</span>}
                             {occ.gender && <span>• Giới tính: {occ.gender === 'male' ? 'Nam' : occ.gender === 'female' ? 'Nữ' : 'Khác'}</span>}
                           </div>
                           {occ.note && (
@@ -1431,7 +1495,7 @@ export function ReservationsClient({
                     <div className="flex gap-2 justify-end">
                       <button 
                         onClick={() => setShowAddGuestForm(false)}
-                        className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-655 rounded-md text-[11px] font-semibold transition-colors cursor-pointer"
+                        className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-md text-[11px] font-semibold transition-colors cursor-pointer"
                       >
                         Hủy
                       </button>
@@ -1469,7 +1533,7 @@ export function ReservationsClient({
                               <div className="text-[10px] text-slate-400 mt-0.5 space-y-0.5 font-medium">
                                 {occ.identity_card && <div>CCCD/Passport: {occ.identity_card}</div>}
                                 {occ.nationality && <div>Quốc tịch: {occ.nationality} • Giới tính: {occ.gender === 'female' ? 'Nữ' : 'Nam'}</div>}
-                                {occ.birthday && <div>Ngày sinh: {occ.birthday}</div>}
+                                {occ.birthday && <div>Ngày sinh: {formatBirthdayAndAge(occ.birthday)}</div>}
                               </div>
                               {occ.note && (
                                 <div className="text-[10px] text-indigo-600 mt-1 font-semibold flex items-center gap-1">
@@ -1479,7 +1543,7 @@ export function ReservationsClient({
                             </div>
                             <button
                               onClick={() => handleDeleteGroupGuest(occ.id)}
-                              className="text-slate-350 hover:text-red-600 p-1 hover:bg-red-50 rounded transition-colors cursor-pointer shrink-0"
+                              className="text-slate-400 hover:text-red-600 p-1 hover:bg-red-50 rounded transition-colors cursor-pointer shrink-0"
                               title="Xóa khỏi đoàn"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -1499,42 +1563,22 @@ export function ReservationsClient({
 
                             <div className="relative shrink-0">
                               {isUnassigned ? (
-                                <>
-                                  <button
-                                    onClick={() => setAssigningGuestId(assigningGuestId === occ.id ? null : occ.id)}
-                                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-[10px] px-2.5 py-1 rounded transition-colors cursor-pointer shadow-3xs"
-                                  >
-                                    {assigningGuestId === occ.id ? 'Đang gán...' : 'Gán phòng'}
-                                  </button>
-                                  {assigningGuestId === occ.id && (
-                                    <div className="absolute right-0 bottom-full mb-1 z-[90] w-48 bg-white border border-slate-100 rounded-xl shadow-xl p-1.5 space-y-1 max-h-[160px] overflow-y-auto">
-                                      <p className="text-[9px] font-bold text-slate-500 px-2 py-0.5 uppercase border-b border-slate-100">Chọn phòng gán:</p>
-                                      {selectedGroupResvs.map(resv => {
-                                        const occCount = groupOccupants.filter(o => o.reservation_id === resv.id).length
-                                        const capacity = getRoomCapacityNum(resv)
-                                        const isFull = occCount >= capacity
-                                        return (
-                                          <button
-                                            key={resv.id}
-                                            onClick={() => handleAssignGuest(occ.id, resv)}
-                                            className="w-full text-left px-2.5 py-1 text-[11px] rounded hover:bg-indigo-50 hover:text-indigo-700 flex justify-between items-center font-semibold text-slate-700 transition-colors cursor-pointer"
-                                          >
-                                            <span>{getRoomName(resv.resource_id)}</span>
-                                            <span className={`text-[9px] ${isFull ? 'text-red-500 font-bold' : 'text-slate-400'}`}>
-                                              {occCount}/{capacity} {isFull ? '(Đầy)' : ''}
-                                            </span>
-                                          </button>
-                                        )
-                                      })}
-                                    </div>
-                                  )}
-                                </>
+                                <button
+                                  onClick={() => {
+                                    setAssigningGuest(occ)
+                                    setAssignRoomSearch('')
+                                  }}
+                                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-[10px] px-2.5 py-1 rounded transition-colors cursor-pointer shadow-3xs"
+                                >
+                                  Gán phòng
+                                </button>
                               ) : (
                                 <button
                                   onClick={() => handleUnassignGuest(occ.id)}
-                                  className="bg-white hover:bg-red-50 text-red-600 border border-slate-100 hover:border-red-100 text-[10px] px-2.5 py-1 rounded font-semibold transition-all cursor-pointer"
+                                  className="text-slate-400 hover:text-red-500 p-1 hover:bg-red-50 rounded-full transition-colors cursor-pointer shrink-0"
+                                  title="Bỏ gán phòng"
                                 >
-                                  Bỏ gán phòng
+                                  <XCircle className="w-5 h-5" />
                                 </button>
                               )}
                             </div>
@@ -1574,10 +1618,10 @@ export function ReservationsClient({
                           </div>
                           <span className={`text-xs font-semibold px-2.5 py-1 rounded-lg border ${
                             isOverLimit 
-                              ? 'bg-amber-100 border-amber-250 text-amber-800' 
+                              ? 'bg-amber-100 border-amber-200 text-amber-800' 
                               : resvOccs.length === capacity 
                                 ? 'bg-emerald-50 border-emerald-100 text-emerald-600' 
-                                : 'bg-slate-50 border-slate-100 text-slate-550'
+                                : 'bg-slate-50 border-slate-100 text-slate-500'
                           }`}>
                             Đã gán: {resvOccs.length}/{capacity}
                           </span>
@@ -1600,10 +1644,10 @@ export function ReservationsClient({
                                   </div>
                                   <button
                                     onClick={() => handleUnassignGuest(occ.id)}
-                                    className="text-slate-400 hover:text-red-500 hover:bg-red-50 px-2 py-1 rounded transition-colors cursor-pointer text-[10px] font-semibold border border-slate-100 hover:border-red-100 shrink-0"
+                                    className="text-slate-400 hover:text-red-500 p-1 hover:bg-red-50 rounded-full transition-colors cursor-pointer shrink-0"
                                     title="Bỏ gán khách khỏi phòng này"
                                   >
-                                    Bỏ
+                                    <XCircle className="w-5 h-5" />
                                   </button>
                                 </div>
                               ))}
@@ -1647,7 +1691,7 @@ export function ReservationsClient({
           <div className="mx-4 w-full max-w-lg bg-white rounded-3xl p-6 shadow-2xl space-y-4 border border-slate-100 animate-in fade-in zoom-in-95 duration-200">
             <div className="flex justify-between items-center border-b border-slate-100 pb-3">
               <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
-                <FileText className="w-5 h-5 text-indigo-650" /> Import danh sách khách từ CSV
+                <FileText className="w-5 h-5 text-indigo-600" /> Import danh sách khách từ CSV
               </h3>
               <button 
                 onClick={() => setImportModalOpen(false)}
@@ -1669,10 +1713,10 @@ export function ReservationsClient({
                   <Download className="w-3 h-3" /> Tải mẫu CSV
                 </button>
               </div>
-              <code className="block bg-slate-100 p-2 rounded text-[10px] select-all overflow-x-auto text-slate-650 font-mono">
+              <code className="block bg-slate-100 p-2 rounded text-[10px] select-all overflow-x-auto text-slate-600 font-mono">
                 Họ và tên, Số điện thoại, Số CCCD, Quốc tịch, Ngày sinh (YYYY-MM-DD), Giới tính (Nam/Nữ), Ghi chú
               </code>
-              <p className="text-slate-450">Copy nội dung danh sách từ Excel rồi dán trực tiếp vào khung văn bản dưới đây, hệ thống sẽ tự động phân tích và import.</p>
+              <p className="text-slate-400">Copy nội dung danh sách từ Excel rồi dán trực tiếp vào khung văn bản dưới đây, hệ thống sẽ tự động phân tích và import.</p>
             </div>
 
             <textarea
@@ -1686,15 +1730,136 @@ export function ReservationsClient({
             <div className="flex justify-end gap-2 pt-2">
               <button
                 onClick={() => setImportModalOpen(false)}
-                className="bg-slate-150 hover:bg-slate-200 text-slate-700 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all cursor-pointer"
+                className="bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all cursor-pointer"
               >
                 Hủy bỏ
               </button>
               <button
                 onClick={() => handleImportCSV(importText)}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl px-4 py-2.5 text-xs font-bold shadow-md shadow-indigo-250 transition-all active:scale-95 cursor-pointer"
+                className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl px-4 py-2.5 text-xs font-bold shadow-md shadow-indigo-500/20 transition-all active:scale-95 cursor-pointer"
               >
                 Import ngay
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* MODAL GÁN PHÒNG CHO KHÁCH ĐOÀN */}
+      {assigningGuest && (
+        <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/45 backdrop-blur-xs">
+          <div className="mx-4 w-full max-w-md bg-white rounded-3xl p-6 shadow-2xl space-y-4 border border-slate-100 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+              <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                <Building className="w-5 h-5 text-indigo-600" /> Gán phòng cho khách
+              </h3>
+              <button 
+                onClick={() => setAssigningGuest(null)}
+                className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 p-2 rounded-full transition-colors cursor-pointer"
+                title="Đóng"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Guest info card */}
+            <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-2xl">
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-slate-800 text-sm">{assigningGuest.guest_name}</span>
+                {assigningGuest.guest_phone && (
+                  <span className="text-slate-500 text-xs font-semibold">({assigningGuest.guest_phone})</span>
+                )}
+              </div>
+              <div className="text-[10px] text-slate-400 mt-1 font-medium">
+                {assigningGuest.identity_card && <span>CCCD: {assigningGuest.identity_card}</span>}
+                {assigningGuest.nationality && <span> • Quốc tịch: {assigningGuest.nationality}</span>}
+                {assigningGuest.gender && <span> • Giới tính: {assigningGuest.gender === 'male' ? 'Nam' : 'Nữ'}</span>}
+              </div>
+            </div>
+
+            {/* Search Input */}
+            <div className="relative flex items-center">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3" />
+              <input
+                type="text"
+                placeholder="Tìm nhanh tên phòng hoặc mã đặt phòng..."
+                value={assignRoomSearch}
+                onChange={e => setAssignRoomSearch(e.target.value)}
+                className="w-full pl-9 pr-8 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-indigo-500 bg-slate-50/50"
+              />
+              {assignRoomSearch && (
+                <button
+                  onClick={() => setAssignRoomSearch('')}
+                  className="absolute right-3 p-1 rounded-full text-slate-400 hover:bg-slate-100 transition-colors cursor-pointer"
+                >
+                  <XCircle className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* Rooms List */}
+            <div className="space-y-1.5 max-h-[220px] overflow-y-auto pr-1 scrollbar-thin">
+              {(() => {
+                const query = assignRoomSearch.toLowerCase().trim()
+                const filtered = selectedGroupResvs.filter(resv => {
+                  const name = getRoomName(resv.resource_id).toLowerCase()
+                  const no = resv.reservation_no.toLowerCase()
+                  return name.includes(query) || no.includes(query)
+                })
+
+                if (filtered.length === 0) {
+                  return (
+                    <p className="text-xs text-slate-400 text-center py-8">
+                      Không tìm thấy phòng nào khớp với "{assignRoomSearch}"
+                    </p>
+                  )
+                }
+
+                return filtered.map(resv => {
+                  const occCount = groupOccupants.filter(o => o.reservation_id === resv.id).length
+                  const capacity = getRoomCapacityNum(resv)
+                  const isFull = occCount >= capacity
+                  const roomName = getRoomName(resv.resource_id)
+
+                  return (
+                    <div
+                      key={resv.id}
+                      className="flex items-center justify-between p-2.5 hover:bg-slate-100 bg-slate-50/30 border border-slate-100 rounded-xl transition-colors"
+                    >
+                      <div className="min-w-0">
+                        <div className="font-semibold text-slate-800 text-xs">{roomName}</div>
+                        <div className="text-[9px] text-slate-400 mt-0.5">Mã: #{resv.reservation_no}</div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${
+                          isFull 
+                            ? 'bg-red-50 border-red-100 text-red-500' 
+                            : 'bg-slate-50 border-slate-100 text-slate-500'
+                        }`}>
+                          {occCount}/{capacity} {isFull ? 'Đầy' : 'Trống'}
+                        </span>
+                        <button
+                          onClick={async () => {
+                            await handleAssignGuest(assigningGuest.id, resv)
+                            setAssigningGuest(null)
+                          }}
+                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] px-3 py-1.5 rounded-lg transition-colors cursor-pointer shadow-3xs active:scale-95"
+                        >
+                          Gán
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })
+              })()}
+            </div>
+
+            {/* Footer */}
+            <div className="flex justify-end pt-2 border-t border-slate-100">
+              <button
+                onClick={() => setAssigningGuest(null)}
+                className="bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl px-4 py-2 text-xs font-semibold transition-all cursor-pointer"
+              >
+                Đóng lại
               </button>
             </div>
           </div>
