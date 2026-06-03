@@ -82,8 +82,24 @@ export async function PUT(
         paid_amount: '0',
         resource_id: roomResourceId,
         booking_channel_id: body.channel_id || original.channel_id || 'direct',
+        group_booking_id: body.group_booking_id || original.group_booking_id || null,
         metadata: JSON.stringify(orderMeta)
       })
+
+      // 2.1. Link all reservation occupants to the new order
+      try {
+        const occResult = await connector.list('resource_occupants', {
+          filters: { reservation_id: id }
+        })
+        const occupants = occResult.data || []
+        for (const occ of occupants) {
+          await connector.update('resource_occupants', occ.id, {
+            order_id: createdOrder.id
+          })
+        }
+      } catch (occErr) {
+        console.error('Lỗi liên kết khách lưu trú vào đơn hàng:', occErr)
+      }
 
       // 3. Mark the room resource as occupied
       await connector.update('location-resources', roomResourceId, {
@@ -94,6 +110,7 @@ export async function PUT(
       body.resource_id = roomResourceId
       invalidate(shopId, 'location-resources')
       invalidate(shopId, 'orders')
+      invalidate(shopId, 'resource_occupants')
     }
 
     const updated = await connector.update('reservations', id, body)

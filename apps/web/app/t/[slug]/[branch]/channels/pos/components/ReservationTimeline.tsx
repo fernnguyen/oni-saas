@@ -89,11 +89,112 @@ export function ReservationTimeline({
   const [formDeposit, setFormDeposit] = useState('0')
   const [formNote, setFormNote] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [selectedRoomIds, setSelectedRoomIds] = useState<string[]>([])
 
   const [channels, setChannels] = useState<any[]>([])
   const [mounted, setMounted] = useState(false)
   const [filterRoomName, setFilterRoomName] = useState('')
   const [filterZone, setFilterZone] = useState('all')
+
+  // Occupants (Rooming List) state
+  const [occupants, setOccupants] = useState<any[]>([])
+  const [loadingOccupants, setLoadingOccupants] = useState(false)
+  const [showAddOccupant, setShowAddOccupant] = useState(false)
+  
+  // Occupant form states
+  const [occName, setOccName] = useState('')
+  const [occPhone, setOccPhone] = useState('')
+  const [occIdentity, setOccIdentity] = useState('')
+  const [occNationality, setOccNationality] = useState('Vietnam')
+  const [occBirthday, setOccBirthday] = useState('')
+  const [occGender, setOccGender] = useState('male')
+  const [occIsPrimary, setOccIsPrimary] = useState('FALSE')
+  const [occNote, setOccNote] = useState('')
+
+  const fetchOccupants = async (resvId: string) => {
+    setLoadingOccupants(true)
+    try {
+      const res = await fetch(`/api/shops/${shopId}/occupants?reservation_id=${resvId}&t=${Date.now()}`)
+      if (res.ok) {
+        const json = await res.json()
+        setOccupants(json.data || [])
+      }
+    } catch {
+      toast.error('Lỗi khi tải danh sách khách lưu trú')
+    } finally {
+      setLoadingOccupants(false)
+    }
+  }
+
+  const resetOccForm = () => {
+    setOccName('')
+    setOccPhone('')
+    setOccIdentity('')
+    setOccNationality('Vietnam')
+    setOccBirthday('')
+    setOccGender('male')
+    setOccIsPrimary('FALSE')
+    setOccNote('')
+  }
+
+  const handleAddOccupantSubmit = async () => {
+    if (!occName.trim()) {
+      toast.error('Vui lòng nhập tên khách')
+      return
+    }
+    if (!selectedRes) return
+
+    try {
+      const res = await fetch(`/api/shops/${shopId}/occupants`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reservation_id: selectedRes.id,
+          resource_id: selectedRes.resource_id,
+          guest_name: occName,
+          guest_phone: occPhone,
+          identity_card: occIdentity,
+          nationality: occNationality,
+          birthday: occBirthday,
+          gender: occGender,
+          is_primary: occIsPrimary,
+          note: occNote
+        })
+      })
+
+      if (!res.ok) throw new Error()
+      toast.success('Đã thêm khách lưu trú')
+      setShowAddOccupant(false)
+      resetOccForm()
+      fetchOccupants(selectedRes.id)
+    } catch {
+      toast.error('Lỗi khi thêm khách lưu trú')
+    }
+  }
+
+  const handleDeleteOccupant = async (occId: string) => {
+    if (!confirm('Bạn có chắc chắn muốn xóa khách này khỏi danh sách lưu trú?')) return
+    try {
+      const res = await fetch(`/api/shops/${shopId}/occupants/${occId}`, {
+        method: 'DELETE'
+      })
+
+      if (!res.ok) throw new Error()
+      toast.success('Đã xóa khách lưu trú')
+      if (selectedRes) {
+        fetchOccupants(selectedRes.id)
+      }
+    } catch {
+      toast.error('Lỗi khi xóa khách lưu trú')
+    }
+  }
+
+  useEffect(() => {
+    if (selectedRes) {
+      fetchOccupants(selectedRes.id)
+      setShowAddOccupant(false)
+    }
+  }, [selectedRes])
 
   const headerRef = React.useRef<HTMLDivElement>(null)
   const bodyRef = React.useRef<HTMLDivElement>(null)
@@ -322,6 +423,7 @@ export function ReservationTimeline({
 
   const handleCellClick = (roomId: string, date: Date, hourOffset?: number) => {
     setFormRoomId(roomId)
+    setSelectedRoomIds([roomId])
     const checkinTime = new Date(date)
     if (hourOffset !== undefined) {
       checkinTime.setHours(hourOffset, 0, 0, 0)
@@ -355,6 +457,10 @@ export function ReservationTimeline({
       toast.error('Vui lòng nhập tên khách hàng')
       return
     }
+    if (selectedRoomIds.length === 0) {
+      toast.error('Vui lòng chọn ít nhất một phòng')
+      return
+    }
 
     setSubmitting(true)
     const loadToast = toast.loading('Đang xử lý đặt giữ phòng...')
@@ -363,27 +469,44 @@ export function ReservationTimeline({
       const rawDeposit = formDeposit.replace(/\D/g, '')
       const depositVal = parseFloat(rawDeposit) || 0
 
-      const res = await fetch(`/api/shops/${shopId}/reservations`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          reservation_no: 'RSV-' + Date.now().toString().slice(-6),
-          customer_id: 'virtual:' + Date.now(),
-          customer_name: formCustName,
-          customer_phone: formCustPhone,
-          channel_id: formChannel,
-          expected_checkin: new Date(formCheckIn).toISOString(),
-          expected_checkout: new Date(formCheckOut).toISOString(),
-          resource_id: formRoomId,
-          daily_rate: rawRate,
-          deposit_amount: rawDeposit,
-          status: depositVal > 0 ? 'confirmed' : 'pending_deposit',
-          note: formNote
+      // Generate a group booking ID if multiple rooms are selected
+      const groupBookingId = selectedRoomIds.length > 1 ? 'GRP-' + Date.now().toString().slice(-6) : null
+      const customerId = 'virtual:' + Date.now()
+
+      const promises = selectedRoomIds.map((roomId, idx) => {
+        // Place deposit only on the first room of the group, others set 0
+        const depositValRoom = idx === 0 ? rawDeposit : '0'
+        const statusVal = idx === 0 && depositVal > 0 ? 'confirmed' : 'pending_deposit'
+
+        return fetch(`/api/shops/${shopId}/reservations`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reservation_no: 'RSV-' + (Date.now() + idx).toString().slice(-6),
+            customer_id: customerId,
+            customer_name: formCustName,
+            customer_phone: formCustPhone,
+            channel_id: formChannel,
+            expected_checkin: new Date(formCheckIn).toISOString(),
+            expected_checkout: new Date(formCheckOut).toISOString(),
+            resource_id: roomId,
+            daily_rate: rawRate,
+            deposit_amount: depositValRoom,
+            status: statusVal,
+            group_booking_id: groupBookingId,
+            note: formNote
+          })
         })
       })
 
-      if (!res.ok) throw new Error()
-      toast.success('Đã tạo đặt phòng thành công!')
+      const results = await Promise.all(promises)
+      const hasError = results.some(res => !res.ok)
+      if (hasError) throw new Error()
+
+      toast.success(selectedRoomIds.length > 1 
+        ? `Đã tạo thành công đặt phòng đoàn (${selectedRoomIds.length} phòng)!` 
+        : 'Đã tạo đặt phòng thành công!'
+      )
       setCreateModalOpen(false)
       fetchReservations()
       onRefresh?.()
@@ -947,9 +1070,154 @@ export function ReservationTimeline({
                   <p className="bg-slate-50 p-2.5 rounded-xl text-xs border border-slate-100 italic">{selectedRes.note}</p>
                 </div>
               )}
+
+              {/* Rooming List / Guest Occupants Section */}
+              <div className="border-t border-slate-100 pt-4 mt-4">
+                <div className="flex justify-between items-center mb-3">
+                  <span className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
+                    <User className="w-4 h-4 text-primary" /> Khách lưu trú thực tế ({occupants.length})
+                  </span>
+                  {!showAddOccupant && (
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        setShowAddOccupant(true)
+                        resetOccForm()
+                      }}
+                      className="text-primary hover:text-primary/80 font-bold text-xs flex items-center gap-0.5 bg-primary/5 px-2 py-1.5 rounded-lg border border-primary/10 transition-colors"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Thêm khách
+                    </button>
+                  )}
+                </div>
+
+                {/* Add Occupant Sub-Form */}
+                {showAddOccupant && (
+                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 space-y-3 mb-3 animate-in slide-in-from-top-2 duration-200">
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="col-span-2">
+                        <label className="block font-medium mb-1 text-slate-500">Tên khách hàng *</label>
+                        <input 
+                          type="text" required value={occName} onChange={e => setOccName(e.target.value)}
+                          className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none bg-white focus:border-primary"
+                          placeholder="Nguyễn Văn A"
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-medium mb-1 text-slate-500">SĐT</label>
+                        <input 
+                          type="text" value={occPhone} onChange={e => setOccPhone(e.target.value)}
+                          className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none bg-white focus:border-primary"
+                          placeholder="09xx..."
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-medium mb-1 text-slate-500">CCCD/Passport</label>
+                        <input 
+                          type="text" value={occIdentity} onChange={e => setOccIdentity(e.target.value)}
+                          className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none bg-white focus:border-primary"
+                          placeholder="Số định danh..."
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-medium mb-1 text-slate-500">Quốc tịch</label>
+                        <input 
+                          type="text" value={occNationality} onChange={e => setOccNationality(e.target.value)}
+                          className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none bg-white focus:border-primary"
+                          placeholder="Việt Nam"
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-medium mb-1 text-slate-500">Ngày sinh</label>
+                        <input 
+                          type="text" value={occBirthday} onChange={e => setOccBirthday(e.target.value)}
+                          className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none bg-white focus:border-primary"
+                          placeholder="Ngày sinh..."
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-medium mb-1 text-slate-500">Giới tính</label>
+                        <select 
+                          value={occGender} onChange={e => setOccGender(e.target.value)}
+                          className="w-full rounded-lg border border-slate-200 px-2 py-1 text-xs outline-none bg-white focus:border-primary"
+                        >
+                          <option value="male">Nam</option>
+                          <option value="female">Nữ</option>
+                          <option value="other">Khác</option>
+                        </select>
+                      </div>
+                      <div className="flex items-center gap-1.5 pt-4">
+                        <input 
+                          type="checkbox" id="isPrimaryOcc" checked={occIsPrimary === 'TRUE'} onChange={e => setOccIsPrimary(e.target.checked ? 'TRUE' : 'FALSE')}
+                          className="w-3.5 h-3.5 text-primary border-slate-200 rounded"
+                        />
+                        <label htmlFor="isPrimaryOcc" className="font-medium text-slate-600">Đại diện</label>
+                      </div>
+                      <div className="col-span-2">
+                        <label className="block font-medium mb-1 text-slate-500">Ghi chú</label>
+                        <input 
+                          type="text" value={occNote} onChange={e => setOccNote(e.target.value)}
+                          className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none bg-white focus:border-primary"
+                          placeholder="Ghi chú thêm cho khách..."
+                        />
+                      </div>
+                    </div>
+                    <div className="flex gap-2 justify-end pt-1">
+                      <button 
+                        type="button" onClick={() => setShowAddOccupant(false)}
+                        className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 text-[10px] font-bold rounded-lg transition-colors"
+                      >
+                        Hủy
+                      </button>
+                      <button 
+                        type="button" onClick={handleAddOccupantSubmit}
+                        className="px-3 py-1.5 bg-primary hover:bg-primary/90 text-white text-[10px] font-bold rounded-lg transition-colors flex items-center gap-1"
+                      >
+                        <Check className="w-3 h-3" /> Lưu khách
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Occupant List */}
+                {loadingOccupants ? (
+                  <div className="text-center py-3 text-xs text-slate-400">Đang tải danh sách khách...</div>
+                ) : occupants.length === 0 ? (
+                  <div className="text-center py-4 text-xs text-slate-400 border border-dashed border-slate-100 rounded-2xl italic">Chưa khai báo khách lưu trú thực tế.</div>
+                ) : (
+                  <div className="max-h-[160px] overflow-y-auto space-y-1.5 pr-1 divide-y divide-slate-50">
+                    {occupants.map((occ) => (
+                      <div key={occ.id} className="flex justify-between items-center py-2 text-xs">
+                        <div className="flex flex-col gap-0.5 text-left">
+                          <span className="font-bold text-slate-800 flex items-center gap-1">
+                            {occ.guest_name} 
+                            {occ.is_primary === 'TRUE' && (
+                              <span className="bg-primary/10 text-primary text-[8px] px-1.5 py-0.5 rounded-full font-extrabold">Đại diện</span>
+                            )}
+                          </span>
+                          <span className="text-[10px] text-slate-500">
+                            {occ.guest_phone && `SĐT: ${occ.guest_phone}`} 
+                            {occ.identity_card && ` • CCCD: ${occ.identity_card}`}
+                          </span>
+                          {occ.note && (
+                            <span className="text-[9px] text-slate-400 italic font-medium">Ghi chú: {occ.note}</span>
+                          )}
+                        </div>
+                        <button 
+                          type="button"
+                          onClick={() => handleDeleteOccupant(occ.id)}
+                          className="text-rose-500 hover:bg-rose-50 p-1.5 rounded-lg border border-transparent hover:border-rose-100 transition-all"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex gap-2 pt-4">
               {selectedRes.id.startsWith('virtual-') ? (
                 <a
                   href={`/t/${slug}/${branch}/channels/pos`}
@@ -1039,6 +1307,38 @@ export function ReservationTimeline({
                     <option key={c.id} value={c.code || c.id}>{c.name}</option>
                   ))}
                 </select>
+              </div>
+
+              <div className="col-span-2">
+                <label className="block font-medium mb-1.5">Phòng đặt giữ (Chọn thêm nếu đặt nhóm)</label>
+                <div className="flex flex-wrap gap-1.5 max-h-[120px] overflow-y-auto border border-slate-100 p-2.5 rounded-2xl bg-slate-50/50">
+                  {allResources.map(r => {
+                    const isChecked = selectedRoomIds.includes(r.id)
+                    return (
+                      <label key={r.id} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-bold cursor-pointer transition-colors ${
+                        isChecked 
+                          ? 'bg-primary/5 border-primary text-primary' 
+                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                      }`}>
+                        <input 
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => {
+                            if (isChecked) {
+                              if (selectedRoomIds.length > 1) {
+                                setSelectedRoomIds(selectedRoomIds.filter(id => id !== r.id))
+                              }
+                            } else {
+                              setSelectedRoomIds([...selectedRoomIds, r.id])
+                            }
+                          }}
+                          className="w-3.5 h-3.5 text-primary border-slate-200 rounded focus:ring-primary cursor-pointer"
+                        />
+                        {r.name}
+                      </label>
+                    )
+                  })}
+                </div>
               </div>
 
               <div>

@@ -35,6 +35,8 @@ export const orders = mysqlTable('orders', {
   print_count: varchar('print_count', { length: 10 }),
   resource_id: varchar('resource_id', { length: 255 }),
   booking_channel_id: varchar('booking_channel_id', { length: 255 }),
+  parent_order_id: varchar('parent_order_id', { length: 255 }),
+  group_booking_id: varchar('group_booking_id', { length: 255 }),
   override_reason: text('override_reason'),
   metadata: json('metadata'),
 });
@@ -606,6 +608,7 @@ export const reservations = mysqlTable('reservations', {
   id: varchar('id', { length: 255 }).primaryKey(),
   reservation_no: varchar('reservation_no', { length: 255 }).notNull(),
   branch_id: varchar('branch_id', { length: 255 }),
+  group_booking_id: varchar('group_booking_id', { length: 255 }),
   
   // CRM & Guest Profile
   customer_id: varchar('customer_id', { length: 255 }).notNull(),
@@ -697,5 +700,26 @@ export const booking_channels = mysqlTable('booking_channels', {
   notes: text('notes'),
   branch_id: varchar('branch_id', { length: 255 }),
 });
+
+// ── Bảng Khách lưu trú thực tế tại phòng / bàn (Resource Occupants)
+export const resource_occupants = mysqlTable('resource_occupants', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  branch_id: varchar('branch_id', { length: 255 }).notNull(),
+  order_id: varchar('order_id', { length: 255 }),
+  reservation_id: varchar('reservation_id', { length: 255 }),
+  resource_id: varchar('resource_id', { length: 255 }).notNull(),
+  
+  guest_name: varchar('guest_name', { length: 255 }).notNull(),
+  guest_phone: varchar('guest_phone', { length: 50 }),
+  identity_card: varchar('identity_card', { length: 100 }),       // CCCD/Passport
+  nationality: varchar('nationality', { length: 100 }).default('Vietnam'),
+  birthday: varchar('birthday', { length: 50 }),
+  gender: varchar('gender', { length: 20 }),
+  is_primary: varchar('is_primary', { length: 10 }).default('FALSE'), // Khách đại diện
+  note: text('note'),                                              // Ghi chú phòng
+  metadata: json('metadata'),                                      // Mở rộng sau này
+});
+
 
 
