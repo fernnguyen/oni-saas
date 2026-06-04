@@ -15,6 +15,7 @@ interface Branch {
   address: string;
   phone: string;
   isActive: boolean;
+  industry_type: string;
 }
 
 export default function SelectBranchScreen() {
@@ -70,6 +71,7 @@ export default function SelectBranchScreen() {
           address: shop.address || 'Địa chỉ đang cập nhật',
           phone: shop.phone || 'SĐT đang cập nhật',
           isActive: shop.is_active !== false,
+          industry_type: shop.industry_type || 'retail',
         }));
 
         setBranches(mappedBranches);
@@ -134,6 +136,7 @@ export default function SelectBranchScreen() {
       // Lưu lại thông tin chi nhánh vào AsyncStorage
       await AsyncStorage.setItem('active_shop_id', branch.id);
       await AsyncStorage.setItem('active_shop_name', branch.name);
+      await AsyncStorage.setItem('active_shop_industry', branch.industry_type);
 
       // Kích hoạt Sync toàn phần tải dữ liệu từ Cloud về ghi SQLite offline
       const syncSuccess = await SyncManager.pullFullDatabase(

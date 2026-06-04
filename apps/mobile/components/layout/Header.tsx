@@ -96,6 +96,7 @@ export function Header({ onPressMenu, syncStatus, onPressSync, isSyncing = false
           name: s.name || 'Chi nhánh',
           address: s.address || 'Địa chỉ đang cập nhật',
           isActive: s.is_active !== false,
+          industry_type: s.industry_type || 'retail',
         }));
         setBranchList(mapped);
       } else {
@@ -171,6 +172,7 @@ export function Header({ onPressMenu, syncStatus, onPressSync, isSyncing = false
       // 3. Ghi đè thông tin chi nhánh mới vào AsyncStorage
       await AsyncStorage.setItem('active_shop_id', newShopId);
       await AsyncStorage.setItem('active_shop_name', newShopName);
+      await AsyncStorage.setItem('active_shop_industry', selectedBranchToSwitch.industry_type);
 
       setActiveBranchId(newShopId);
       setActiveBranchName(newShopName);

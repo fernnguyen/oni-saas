@@ -556,7 +556,7 @@ export default function PosScreen() {
   }, []);
 
   const [activeVertical, setActiveVertical] = useState('retail'); // retail, billiards
-  const [shopVertical, setShopVertical] = useState<'retail' | 'billiards' | 'cafe' | 'court' | 'room'>('retail');
+  const [shopVertical, setShopVertical] = useState<string>('retail');
   const [cart, setCart] = useState<{ [key: string]: { name: string; price: number; quantity: number } }>({});
   const [activeTable, setActiveTable] = useState<any>(null);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
@@ -791,18 +791,8 @@ export default function PosScreen() {
       if (isMounted) setIsLoading(true);
 
       const activeShopName = await AsyncStorage.getItem('active_shop_name') || 'Tạp hóa Linh Ka';
-      const nameLower = activeShopName.toLowerCase();
-      
-      let vertical: 'retail' | 'billiards' | 'cafe' | 'court' | 'room' = 'retail';
-      if (nameLower.includes('bida') || nameLower.includes('billiard') || nameLower.includes('bi-a')) {
-        vertical = 'billiards';
-      } else if (nameLower.includes('cafe') || nameLower.includes('cà phê') || nameLower.includes('trà') || nameLower.includes('nhà hàng') || nameLower.includes('restaurant')) {
-        vertical = 'cafe';
-      } else if (nameLower.includes('sân') || nameLower.includes('court') || nameLower.includes('bóng') || nameLower.includes('cầu lông') || nameLower.includes('sport')) {
-        vertical = 'court';
-      } else if (nameLower.includes('phòng') || nameLower.includes('room') || nameLower.includes('hotel') || nameLower.includes('homestay') || nameLower.includes('motel') || nameLower.includes('karaoke')) {
-        vertical = 'room';
-      }
+      const activeShopIndustry = await AsyncStorage.getItem('active_shop_industry') || 'retail';
+      let vertical = activeShopIndustry;
       
       if (isMounted) {
         // Tránh cập nhật state phân hệ ngay lập tức trong chu kỳ focus đầu tiên để không làm mất navigation context
@@ -1701,9 +1691,9 @@ export default function PosScreen() {
 
       // Hiển thị Toast thông báo thành công sang trọng giống WebUI
       if (syncSucceeded) {
-        showToast(`Đã nhận ${shopVertical === 'room' ? 'Phòng' : shopVertical === 'court' ? 'Sân' : 'Bàn'} & Đồng bộ thành công!`, 'success');
+        showToast(`Đã nhận ${shopVertical === 'lodging' ? 'Phòng' : shopVertical === 'sports_court' ? 'Sân' : 'Bàn'} & Đồng bộ thành công!`, 'success');
       } else {
-        showToast(`Nhận ${shopVertical === 'room' ? 'Phòng' : shopVertical === 'court' ? 'Sân' : 'Bàn'} ngoại tuyến thành công!`, 'info');
+        showToast(`Nhận ${shopVertical === 'lodging' ? 'Phòng' : shopVertical === 'sports_court' ? 'Sân' : 'Bàn'} ngoại tuyến thành công!`, 'info');
       }
     } catch (err) {
       console.error('Không thể mở bàn bi-a:', err);
@@ -1783,7 +1773,7 @@ export default function PosScreen() {
       } else {
         await db.insert(schema.orders).values({
           id: orderId,
-          order_no: `HD-${shopVertical === 'room' ? '🏩' : '🎱'}-${Date.now().toString().substring(9)}`,
+          order_no: `HD-${shopVertical === 'lodging' ? '🏩' : '🎱'}-${Date.now().toString().substring(9)}`,
           status: 'completed',
           customer_name: customer?.name || 'Khách lẻ',
           customer_id: customer?.id || null,
@@ -2194,13 +2184,13 @@ export default function PosScreen() {
               shadowRadius: 3,
               elevation: 2,
             } : undefined}
-            onPress={() => setActiveVertical(shopVertical !== 'retail' ? shopVertical : 'billiards')}
+            onPress={() => setActiveVertical(!['retail', 'fashion'].includes(shopVertical) ? shopVertical : 'billiards')}
           >
             <Ionicons 
               name={
-                shopVertical === 'cafe' ? 'cafe-outline' :
-                shopVertical === 'court' ? 'football-outline' :
-                shopVertical === 'room' ? 'bed-outline' :
+                shopVertical === 'fnb' ? 'cafe-outline' :
+                shopVertical === 'sports_court' ? 'football-outline' :
+                shopVertical === 'lodging' ? 'bed-outline' :
                 'play-circle-outline'
               } 
               size={14} 
@@ -2209,9 +2199,9 @@ export default function PosScreen() {
             />
             <Text className={`font-black text-[10px] uppercase tracking-wider ${activeVertical !== 'retail' ? 'text-white' : 'text-slate-600'}`}>
               {
-                shopVertical === 'cafe' ? 'Bàn Cafe' :
-                shopVertical === 'court' ? 'Sơ đồ Sân' :
-                shopVertical === 'room' ? 'Sơ đồ Phòng' :
+                shopVertical === 'fnb' ? 'Bàn Cafe' :
+                shopVertical === 'sports_court' ? 'Sơ đồ Sân' :
+                shopVertical === 'lodging' ? 'Sơ đồ Phòng' :
                 'Bàn Bi-a (Giờ)'
               }
             </Text>
@@ -2458,9 +2448,9 @@ export default function PosScreen() {
         <ScrollView className="flex-1 px-4 pt-3" showsVerticalScrollIndicator={false}>
           <Text className="text-[9px] font-black uppercase tracking-widest text-slate-450 mb-3 px-1">
             {
-              shopVertical === 'cafe' ? 'Sơ đồ bàn Cafe hoạt động' :
-              shopVertical === 'court' ? 'Sơ đồ sân thể thao / sân bóng' :
-              shopVertical === 'room' ? 'Sơ đồ phòng homestay / khách sạn' :
+              shopVertical === 'fnb' ? 'Sơ đồ bàn Cafe hoạt động' :
+              shopVertical === 'sports_court' ? 'Sơ đồ sân thể thao / sân bóng' :
+              shopVertical === 'lodging' ? 'Sơ đồ phòng homestay / khách sạn' :
               'Sơ đồ bàn bi-a ngoại tuyến'
             }
           </Text>
@@ -2480,7 +2470,7 @@ export default function PosScreen() {
                       🏢 {zoneName}
                     </Text>
                     <Text className="text-[10px] text-slate-400 font-bold">
-                      {zoneTables.length} {shopVertical === 'cafe' ? 'vị trí' : shopVertical === 'court' ? 'sân' : shopVertical === 'room' ? 'phòng' : 'bàn'}
+                      {zoneTables.length} {shopVertical === 'fnb' ? 'vị trí' : shopVertical === 'sports_court' ? 'sân' : shopVertical === 'lodging' ? 'phòng' : 'bàn'}
                     </Text>
                   </View>
                   
@@ -2541,7 +2531,7 @@ export default function PosScreen() {
                                 </Text>
                               </View>
 
-                              {shopVertical === 'room' && (
+                              {shopVertical === 'lodging' && (
                                 <View className="flex-row items-center">
                                   <Ionicons name="moon-outline" size={10} color="#94a3b8" />
                                   <Text className="text-[9px] text-slate-455 font-bold ml-1">
@@ -2616,7 +2606,7 @@ export default function PosScreen() {
                   onPress={handleRefresh}
                 >
                   <Ionicons name="refresh-circle-outline" size={20} color="#fa5908" />
-                  <Text className="text-xs font-black text-slate-700 ml-2">Đồng bộ lại sơ đồ {shopVertical === 'room' ? 'phòng nghỉ' : shopVertical === 'court' ? 'sân chơi' : shopVertical === 'cafe' ? 'bàn cafe' : 'bàn bi-a'}</Text>
+                  <Text className="text-xs font-black text-slate-700 ml-2">Đồng bộ lại sơ đồ {shopVertical === 'lodging' ? 'phòng nghỉ' : shopVertical === 'sports_court' ? 'sân chơi' : shopVertical === 'fnb' ? 'bàn cafe' : 'bàn bi-a'}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -2692,7 +2682,7 @@ export default function PosScreen() {
                 <Ionicons name="enter-outline" size={20} color="#fa5908" />
                 <Text className="text-sm font-black text-slate-800 ml-2">
                   {selectedTableForOpen 
-                    ? `Nhận ${shopVertical === 'cafe' ? 'Bàn' : shopVertical === 'court' ? 'Sân' : shopVertical === 'room' ? 'Phòng' : 'Bàn'} - ${selectedTableForOpen.name}`
+                    ? `Nhận ${shopVertical === 'fnb' ? 'Bàn' : shopVertical === 'sports_court' ? 'Sân' : shopVertical === 'lodging' ? 'Phòng' : 'Bàn'} - ${selectedTableForOpen.name}`
                     : 'Nhận vị trí mới'}
                 </Text>
               </View>
@@ -2702,7 +2692,7 @@ export default function PosScreen() {
             </View>
 
             {/* TAB SELECTOR (Crash-Proof Style without shadow-sm/border-opacity) */}
-            {shopVertical === 'room' && (
+            {shopVertical === 'lodging' && (
               <View className="flex-row bg-slate-100 p-1 rounded-xl my-4">
                 <TouchableOpacity
                   activeOpacity={0.8}
@@ -2730,7 +2720,7 @@ export default function PosScreen() {
             )}
 
             <ScrollView className="flex-1 my-2" nestedScrollEnabled={true} keyboardShouldPersistTaps="handled">
-              {checkInTab === 'info' || shopVertical !== 'room' ? (
+              {checkInTab === 'info' || shopVertical !== 'lodging' ? (
                 <View>
                   {/* Bảng giá giờ */}
                   {selectedTableForOpen && (
@@ -2740,7 +2730,7 @@ export default function PosScreen() {
                         Tính phí theo thời gian sử dụng
                       </Text>
                       <Text className="text-[10px] text-slate-500 mt-2 font-semibold">
-                        💵 Đơn giá: {formatCurrency(selectedTableForOpen.hourly_rate)}/{shopVertical === 'room' ? 'ngày' : 'giờ'}
+                        💵 Đơn giá: {formatCurrency(selectedTableForOpen.hourly_rate)}/{shopVertical === 'lodging' ? 'ngày' : 'giờ'}
                       </Text>
                     </View>
                   )}
@@ -2820,7 +2810,7 @@ export default function PosScreen() {
                   </View>
 
                   {/* THÔNG TIN LOẠI THUÊ (Dành riêng cho khách sạn) */}
-                  {shopVertical === 'room' && (
+                  {shopVertical === 'lodging' && (
                     <View className="mt-2">
                       <Text className="text-[10px] text-slate-400 font-extrabold uppercase mb-1.5">Hình thức thuê:</Text>
                       <View className="flex-row bg-slate-100 p-0.5 rounded-lg border border-slate-200">
@@ -2862,7 +2852,7 @@ export default function PosScreen() {
 
               <Button
                 variant="primary"
-                title={shopVertical === 'room' ? 'Nhận phòng' : 'Bắt đầu sử dụng'}
+                title={shopVertical === 'lodging' ? 'Nhận phòng' : 'Bắt đầu sử dụng'}
                 onPress={handleConfirmOpenTable}
                 className="flex-[2] py-3 rounded-xl"
               />
@@ -2923,9 +2913,9 @@ export default function PosScreen() {
                   <Ionicons name="time" size={18} color="#fa5908" />
                   <Text className="text-base font-black text-slate-800 ml-2">
                     {activeTable.name} ({
-                      shopVertical === 'cafe' ? 'Có khách' :
-                      shopVertical === 'court' ? 'Sân đang đá' :
-                      shopVertical === 'room' ? 'Phòng đang ở' :
+                      shopVertical === 'fnb' ? 'Có khách' :
+                      shopVertical === 'sports_court' ? 'Sân đang đá' :
+                      shopVertical === 'lodging' ? 'Phòng đang ở' :
                       'Bàn đang chơi'
                     })
                   </Text>
@@ -2936,7 +2926,7 @@ export default function PosScreen() {
               </View>
 
               {/* TAB SELECTOR FOR ACTIVE ROOM */}
-              {shopVertical === 'room' && (
+              {shopVertical === 'lodging' && (
                 <View className="flex-row bg-slate-100 p-1 rounded-xl mb-4">
                   <TouchableOpacity
                     activeOpacity={0.8}
@@ -2964,13 +2954,13 @@ export default function PosScreen() {
               )}
 
               <ScrollView className="flex-1 my-2" nestedScrollEnabled={true} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-                {activeTableTab === 'billing' || shopVertical !== 'room' ? (
+                {activeTableTab === 'billing' || shopVertical !== 'lodging' ? (
                   <View>
                     {/* Tình trạng tiền giờ */}
                     <View className="bg-orange-50 border border-orange-100 p-4 rounded-xl mb-4">
                       <View className="flex-row justify-between items-center">
                         <Text className="text-[9px] text-slate-455 uppercase tracking-widest font-black">Phí dịch vụ giờ lẻ:</Text>
-                        <Badge variant="primary" label={formatCurrency(activeTable.hourly_rate) + '/' + (shopVertical === 'room' ? 'ngày' : 'giờ')} size="sm" />
+                        <Badge variant="primary" label={formatCurrency(activeTable.hourly_rate) + '/' + (shopVertical === 'lodging' ? 'ngày' : 'giờ')} size="sm" />
                       </View>
                       <Text className="text-orange-500 text-3xl font-black mt-1.5">
                         {formatCurrency(calculateBilling(activeTable).cost)}
@@ -3022,12 +3012,12 @@ export default function PosScreen() {
                         activeOpacity={0.8}
                         className="w-[47%] bg-slate-50 border border-slate-200 p-2.5 rounded-xl flex-row items-center active:bg-slate-100"
                         onPress={() => {
-                          const label = shopVertical === 'room' ? 'Phòng' : shopVertical === 'court' ? 'Sân' : shopVertical === 'cafe' ? 'Bàn' : 'Bàn';
+                          const label = shopVertical === 'lodging' ? 'Phòng' : shopVertical === 'sports_court' ? 'Sân' : shopVertical === 'fnb' ? 'Bàn' : 'Bàn';
                           alert(`Chức năng Đổi ${label} đang đồng bộ với Cloud.`);
                         }}
                       >
                         <Ionicons name="swap-horizontal" size={16} color="#0284c7" />
-                        <Text className="text-[10px] font-black text-slate-700 ml-2">Đổi {shopVertical === 'room' ? 'Phòng' : shopVertical === 'court' ? 'Sân' : shopVertical === 'cafe' ? 'Bàn' : 'Bàn'}</Text>
+                        <Text className="text-[10px] font-black text-slate-700 ml-2">Đổi {shopVertical === 'lodging' ? 'Phòng' : shopVertical === 'sports_court' ? 'Sân' : shopVertical === 'fnb' ? 'Bàn' : 'Bàn'}</Text>
                       </TouchableOpacity>
 
                       {/* 3. Gộp phòng/bàn */}
@@ -3035,12 +3025,12 @@ export default function PosScreen() {
                         activeOpacity={0.8}
                         className="w-[47%] bg-slate-50 border border-slate-200 p-2.5 rounded-xl flex-row items-center active:bg-slate-100"
                         onPress={() => {
-                          const label = shopVertical === 'room' ? 'Phòng' : shopVertical === 'court' ? 'Sân' : shopVertical === 'cafe' ? 'Bàn' : 'Bàn';
+                          const label = shopVertical === 'lodging' ? 'Phòng' : shopVertical === 'sports_court' ? 'Sân' : shopVertical === 'fnb' ? 'Bàn' : 'Bàn';
                           alert(`Chức năng Gộp ${label} đang đồng bộ với Cloud.`);
                         }}
                       >
                         <Ionicons name="git-merge-outline" size={16} color="#059669" />
-                        <Text className="text-[10px] font-black text-slate-700 ml-2">Gộp {shopVertical === 'room' ? 'Phòng' : shopVertical === 'court' ? 'Sân' : shopVertical === 'cafe' ? 'Bàn' : 'Bàn'}</Text>
+                        <Text className="text-[10px] font-black text-slate-700 ml-2">Gộp {shopVertical === 'lodging' ? 'Phòng' : shopVertical === 'sports_court' ? 'Sân' : shopVertical === 'fnb' ? 'Bàn' : 'Bàn'}</Text>
                       </TouchableOpacity>
 
                        {/* 4. Hủy đơn / Trả phòng trống */}
@@ -3152,7 +3142,7 @@ export default function PosScreen() {
 
               {/* Hàng nút thanh toán chính */}
               <View className="flex-row justify-between gap-3 border-t border-slate-100 pt-4 bg-white">
-                {activeTableTab === 'billing' || shopVertical !== 'room' ? (
+                {activeTableTab === 'billing' || shopVertical !== 'lodging' ? (
                   <Button 
                     variant="primary"
                     title="Thanh toán & Trả phòng"
