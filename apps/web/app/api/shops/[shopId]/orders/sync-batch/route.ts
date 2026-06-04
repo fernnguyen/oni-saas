@@ -432,15 +432,14 @@ export async function POST(
     const whList = await connector.list('warehouses', { limit: 100 })
     const whs = whList.data as any[]
 
-    let saleWhId = whs.find(w => w.code === 'sale')?.id
-    let supplyWhId = whs.find(w => w.code === 'supply')?.id
+    let saleWhId = whs.find(w => w.type === 'sale')?.id
+    let supplyWhId = whs.find(w => w.type === 'supply')?.id
 
     // Self-healing: auto-seed standard warehouses on-the-fly if missing
     if (!saleWhId && branchId) {
       const newWh = await connector.create('warehouses', {
         branch_id: branchId,
         name: 'Kho Kinh doanh (Bán lẻ)',
-        code: 'sale',
         type: 'sale',
         active: 'TRUE'
       })
@@ -450,7 +449,6 @@ export async function POST(
       const newWh = await connector.create('warehouses', {
         branch_id: branchId,
         name: 'Kho Vật tư & Tiêu hao',
-        code: 'supply',
         type: 'supply',
         active: 'TRUE'
       })
