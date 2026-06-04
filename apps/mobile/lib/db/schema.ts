@@ -64,6 +64,7 @@ export const orders = sqliteTable('orders', {
   sync_status: text('sync_status').notNull().default('synced'), // synced | pending (đóng offline chờ mạng)
   note: text('note'),
   discount_amount: integer('discount_amount').default(0),
+  metadata: text('metadata'),
 });
 
 // 6. CHI TIẾT DÒNG HÓA ĐƠN (Order Items)

@@ -217,6 +217,7 @@ export function initializeLocalDatabase() {
     try { expoDb.execSync(`ALTER TABLE orders ADD COLUMN note TEXT;`); } catch (e) {}
     try { expoDb.execSync(`ALTER TABLE orders ADD COLUMN discount_amount INTEGER DEFAULT 0;`); } catch (e) {}
     try { expoDb.execSync(`ALTER TABLE location_resources ADD COLUMN metadata TEXT;`); } catch (e) {}
+    try { expoDb.execSync(`ALTER TABLE orders ADD COLUMN metadata TEXT;`); } catch (e) {}
     
     console.log('ONI SQLite Database: Khởi tạo các bảng offline-first thành công!');
   } catch (error) {

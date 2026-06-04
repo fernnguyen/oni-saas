@@ -251,6 +251,7 @@ export class SyncManager {
               paid_amount: order.paid_amount,
               debt_amount: order.total_amount - order.paid_amount,
               note: order.note || `Hóa đơn offline từ di động. Tạo lúc ${order.created_at}`,
+              metadata: (order as any).metadata,
             },
             items: items.map((it: any) => ({
               product_id: it.product_id,

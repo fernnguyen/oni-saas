@@ -1,547 +1,563 @@
-import React, { useState, useCallback } from 'react';
-import { Text, View, ScrollView, TouchableOpacity, TextInput, Modal, Platform } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect } from 'expo-router';
+import React, {useState, useCallback} from 'react';
+import {Text, View, ScrollView, TouchableOpacity, TextInput, Modal, Platform} from 'react-native';
+import {Ionicons} from '@expo/vector-icons';
+import {SafeAreaView} from 'react-native-safe-area-context';
+import {useFocusEffect} from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { db } from '../../lib/db/client';
+import {db} from '../../lib/db/client';
 import * as schema from '../../lib/db/schema';
-import { eq } from 'drizzle-orm';
-import { SyncManager } from '../../lib/sync/SyncManager';
-import { getApiBaseUrl, getApiHeaders } from '../../lib/api/config';
+import {eq} from 'drizzle-orm';
+import {SyncManager} from '../../lib/sync/SyncManager';
+import {getApiBaseUrl, getApiHeaders} from '../../lib/api/config';
 import * as Haptics from 'expo-haptics';
-import { formatCurrency, formatDateTime } from '../../lib/utils/format';
+import {formatCurrency, formatDateTime} from '../../lib/utils/format';
+
+const getPaymentMethodDisplay = (pm: string) => {
+ if (!pm) return 'Tiền mặt';
+ if (pm.startsWith('[') || pm.startsWith('{')) {
+ try {
+ const parsed = JSON.parse(pm);
+ if (Array.isArray(parsed) && parsed.length > 0) {
+ return parsed.map((p: any) => p.METHOD || p.method).join(' + ');
+}
+} catch (e) {
+ return 'Thanh toán hỗn hợp';
+}
+}
+ return pm;
+};
 
 // Import hệ thống UI dùng chung cao cấp
-import { Header } from '../../components/layout/Header';
-import { Badge } from '../../components/ui/Badge';
-import { Button } from '../../components/ui/Button';
-import { Dialog } from '../../components/ui/Dialog';
-import { Skeleton } from '../../components/ui/Skeleton';
-import { DrawerMenu } from '../../components/erp/DrawerMenu';
+import {Header} from '../../components/layout/Header';
+import {Badge} from '../../components/ui/Badge';
+import {Button} from '../../components/ui/Button';
+import {Dialog} from '../../components/ui/Dialog';
+import {Skeleton} from '../../components/ui/Skeleton';
+import {DrawerMenu} from '../../components/erp/DrawerMenu';
 
 export default function OrdersScreen() {
-  const [ordersList, setOrdersList] = useState<any[]>([]);
-  const [shiftsList, setShiftsList] = useState<any[]>([{ id: 'all', label: 'Tất cả ca' }]);
-  const [isLoading, setIsLoading] = useState(true);
+ const [ordersList, setOrdersList] = useState<any[]>([]);
+ const [shiftsList, setShiftsList] = useState<any[]>([{id: 'all', label: 'Tất cả ca'}]);
+ const [isLoading, setIsLoading] = useState(true);
 
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedShift, setSelectedShift] = useState('all');
-  const [selectedStatus, setSelectedStatus] = useState('all'); // all, synced, pending
-  
-  const [selectedOrder, setSelectedOrder] = useState<any>(null);
-  const [selectedOrderItems, setSelectedOrderItems] = useState<any[]>([]);
-  const [isSyncingOrder, setIsSyncingOrder] = useState<string | null>(null);
-  const [isReprinting, setIsReprinting] = useState(false);
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+ const [searchQuery, setSearchQuery] = useState('');
+ const [selectedShift, setSelectedShift] = useState('all');
+ const [selectedStatus, setSelectedStatus] = useState('all'); // all, synced, pending
+ 
+ const [selectedOrder, setSelectedOrder] = useState<any>(null);
+ const [selectedOrderItems, setSelectedOrderItems] = useState<any[]>([]);
+ const [isSyncingOrder, setIsSyncingOrder] = useState<string | null>(null);
+ const [isReprinting, setIsReprinting] = useState(false);
+ const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
-  // Dialog xác nhận in và sync thay Alert.alert
-  const [isReprintSuccessVisible, setIsReprintSuccessVisible] = useState(false);
-  const [isSyncSuccessVisible, setIsSyncSuccessVisible] = useState(false);
-  const [isSyncErrorVisible, setIsSyncErrorVisible] = useState(false);
+ // Dialog xác nhận in và sync thay Alert.alert
+ const [isReprintSuccessVisible, setIsReprintSuccessVisible] = useState(false);
+ const [isSyncSuccessVisible, setIsSyncSuccessVisible] = useState(false);
+ const [isSyncErrorVisible, setIsSyncErrorVisible] = useState(false);
 
-  // Tải dữ liệu SQLite hoặc Cloud
-  const loadOrdersData = async () => {
-    try {
-      setIsLoading(true);
-      let ordersData = [];
-      let shiftsData = [];
+ // Tải dữ liệu SQLite hoặc Cloud
+ const loadOrdersData = async () => {
+ try {
+ setIsLoading(true);
+ let ordersData = [];
+ let shiftsData = [];
 
-      if (Platform.OS === 'web') {
-        const headers = await getApiHeaders();
-        const url = getApiBaseUrl();
-        const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
-        
-        const res = await fetch(`${url}/api/shops/${shopId}/orders?limit=1000`, { headers });
-        if (res.ok) {
-          const resJson = await res.json();
-          const cloudOrders = resJson.data || [];
-          ordersData = cloudOrders.map((o: any) => ({
-            id: o.id || o.order_id,
-            order_no: o.order_no || 'HD',
-            status: o.status || 'completed',
-            customer_name: o.customer_name || 'Khách lẻ',
-            total_amount: parseInt(o.total_amount || '0', 10),
-            paid_amount: parseInt(o.paid_amount || '0', 10),
-            payment_method: o.payment_method || 'Tiền mặt',
-            created_at: o.created_at || new Date().toISOString(),
-            shift_id: o.shift_id || 'default-shift',
-            sync_status: 'synced',
-          }));
-        }
-      } else {
-        ordersData = await db.select().from(schema.orders);
-        shiftsData = await db.select().from(schema.shop_shifts);
-      }
+ if (Platform.OS === 'web') {
+ const headers = await getApiHeaders();
+ const url = getApiBaseUrl();
+ const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+ 
+ const res = await fetch(`${url}/api/shops/${shopId}/orders?limit=1000`, {headers});
+ if (res.ok) {
+ const resJson = await res.json();
+ const cloudOrders = resJson.data || [];
+ ordersData = cloudOrders.map((o: any) => ({
+ id: o.id || o.order_id,
+ order_no: o.order_no || 'HD',
+ status: o.status || 'completed',
+ customer_name: o.customer_name || 'Khách lẻ',
+ total_amount: parseInt(o.total_amount || '0', 10),
+ paid_amount: parseInt(o.paid_amount || '0', 10),
+ payment_method: o.payment_method || 'Tiền mặt',
+ created_at: o.created_at || new Date().toISOString(),
+ shift_id: o.shift_id || 'default-shift',
+ sync_status: 'synced',
+}));
+}
+} else {
+ ordersData = await db.select().from(schema.orders);
+ shiftsData = await db.select().from(schema.shop_shifts);
+}
 
-      const mappedShifts = [
-        { id: 'all', label: 'Tất cả ca' },
-        ...shiftsData.map((s: any) => ({
-          id: s.id,
-          label: `Ca ${s.employee_name || 'Thu ngân'} (${s.opened_at.substring(11, 16)} - ${s.closed_at ? s.closed_at.substring(11, 16) : 'Đang mở'})`
-        }))
-      ];
-      
-      setOrdersList(ordersData);
-      setShiftsList(mappedShifts);
-      setIsLoading(false);
-    } catch (err) {
-      console.error('Lỗi khi tải lịch sử hóa đơn:', err);
-      setIsLoading(false);
-    }
-  };
+ const mappedShifts = [
+ {id: 'all', label: 'Tất cả ca'},
+ ...shiftsData.map((s: any) => ({
+ id: s.id,
+ label: `Ca ${s.employee_name || 'Thu ngân'} (${s.opened_at.substring(11, 16)} - ${s.closed_at ? s.closed_at.substring(11, 16) : 'Đang mở'})`
+}))
+ ];
+ 
+ setOrdersList(ordersData);
+ setShiftsList(mappedShifts);
+ setIsLoading(false);
+} catch (err) {
+ console.error('Lỗi khi tải lịch sử hóa đơn:', err);
+ setIsLoading(false);
+}
+};
 
-  useFocusEffect(
-    useCallback(() => {
-      loadOrdersData();
-    }, [])
-  );
+ useFocusEffect(
+ useCallback(() => {
+ loadOrdersData();
+}, [])
+ );
 
-  // Xem chi tiết
-  const handleViewOrderDetails = async (order: any) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    try {
-      let items = [];
-      if (Platform.OS === 'web') {
-        items = [
-          { id: 'it1', product_name: 'Cà phê Phin Sữa Đá', qty: 2, unit_price: 29000, line_total: 58000 },
-          { id: 'it2', product_name: 'Trà Đào Cam Sả', qty: 1, unit_price: 39000, line_total: 39000 }
-        ];
-      } else {
-        items = await db
-          .select()
-          .from(schema.order_items)
-          .where(eq(schema.order_items.order_id, order.id));
-      }
-      
-      setSelectedOrderItems(items);
-      setSelectedOrder(order);
-    } catch (err) {
-      console.error('Lỗi tải chi tiết dòng sản phẩm:', err);
-    }
-  };
+ // Xem chi tiết
+ const handleViewOrderDetails = async (order: any) => {
+ Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+ try {
+ let items = [];
+ if (Platform.OS === 'web') {
+ items = [
+ {id: 'it1', product_name: 'Cà phê Phin Sữa Đá', qty: 2, unit_price: 29000, line_total: 58000},
+ {id: 'it2', product_name: 'Trà Đào Cam Sả', qty: 1, unit_price: 39000, line_total: 39000}
+ ];
+} else {
+ items = await db
+ .select()
+ .from(schema.order_items)
+ .where(eq(schema.order_items.order_id, order.id));
+}
+ 
+ setSelectedOrderItems(items);
+ setSelectedOrder(order);
+} catch (err) {
+ console.error('Lỗi tải chi tiết dòng sản phẩm:', err);
+}
+};
 
-  // Đồng bộ
-  const handleSyncSingleOrder = async (orderId: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-    setIsSyncingOrder(orderId);
-    try {
-      const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
-      const results = await SyncManager.pushOfflineOrders(shopId);
-      
-      await loadOrdersData();
-      
-      if (results.successCount > 0) {
-        setIsSyncSuccessVisible(true);
-      } else {
-        setIsSyncErrorVisible(true);
-      }
-    } catch (err: any) {
-      console.error('Lỗi khi đồng bộ hóa đơn:', err);
-      setIsSyncErrorVisible(true);
-    } finally {
-      setIsSyncingOrder(null);
-      setSelectedOrder(null);
-    }
-  };
+ // Đồng bộ
+ const handleSyncSingleOrder = async (orderId: string) => {
+ Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+ setIsSyncingOrder(orderId);
+ try {
+ const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+ const results = await SyncManager.pushOfflineOrders(shopId);
+ 
+ await loadOrdersData();
+ 
+ if (results.successCount > 0) {
+ setIsSyncSuccessVisible(true);
+} else {
+ setIsSyncErrorVisible(true);
+}
+} catch (err: any) {
+ console.error('Lỗi khi đồng bộ hóa đơn:', err);
+ setIsSyncErrorVisible(true);
+} finally {
+ setIsSyncingOrder(null);
+ setSelectedOrder(null);
+}
+};
 
-  // In lại bill
-  const handleReprint = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-    setIsReprinting(true);
-    setTimeout(() => {
-      setIsReprinting(false);
-      setIsReprintSuccessVisible(true);
-    }, 1200);
-  };
+ // In lại bill
+ const handleReprint = () => {
+ Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+ setIsReprinting(true);
+ setTimeout(() => {
+ setIsReprinting(false);
+ setIsReprintSuccessVisible(true);
+}, 1200);
+};
 
-  const filteredOrders = ordersList.filter(order => {
-    const matchesSearch = 
-      (order.id && order.id.toLowerCase().includes(searchQuery.toLowerCase())) || 
-      (order.order_no && order.order_no.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (order.customer_name && order.customer_name.toLowerCase().includes(searchQuery.toLowerCase()));
-    
-    const matchesShift = selectedShift === 'all' || order.shift_id === selectedShift;
-    const matchesStatus = selectedStatus === 'all' || order.sync_status === selectedStatus;
-    
-    return matchesSearch && matchesShift && matchesStatus;
-  });
+ const filteredOrders = ordersList.filter(order => {
+ const matchesSearch = 
+ (order.id && order.id.toLowerCase().includes(searchQuery.toLowerCase())) || 
+ (order.order_no && order.order_no.toLowerCase().includes(searchQuery.toLowerCase())) ||
+ (order.customer_name && order.customer_name.toLowerCase().includes(searchQuery.toLowerCase()));
+ 
+ const matchesShift = selectedShift === 'all' || order.shift_id === selectedShift;
+ const matchesStatus = selectedStatus === 'all' || order.sync_status === selectedStatus;
+ 
+ return matchesSearch && matchesShift && matchesStatus;
+});
 
-  const totalRevenue = filteredOrders.reduce((sum, order) => sum + order.total_amount, 0);
-  const syncedCount = filteredOrders.filter(o => o.sync_status === 'synced').length;
-  const pendingCount = filteredOrders.filter(o => o.sync_status === 'pending').length;
+ const totalRevenue = filteredOrders.reduce((sum, order) => sum + order.total_amount, 0);
+ const syncedCount = filteredOrders.filter(o => o.sync_status === 'synced').length;
+ const pendingCount = filteredOrders.filter(o => o.sync_status === 'pending').length;
 
-  return (
-    <SafeAreaView edges={['top', 'left', 'right']} className="flex-1 bg-slate-50">
-      
-      {/* 1. SHARED HEADER - Thống nhất 100% */}
-      <Header onPressMenu={() => setIsDrawerOpen(true)} syncStatus={pendingCount > 0 ? 'pending' : 'synced'} />
+ return (
+ <SafeAreaView edges={['top', 'left', 'right']} className="flex-1 bg-slate-50">
+ 
+ {/* 1. SHARED HEADER - Thống nhất 100% */}
+ <Header onPressMenu={() => setIsDrawerOpen(true)} syncStatus={pendingCount > 0 ? 'pending' : 'synced'} />
 
-      {isLoading ? (
-        <View className="flex-1 px-4 pt-4">
-          <View className="flex-row justify-between mb-6">
-            <Skeleton width="30%" height={70} borderRadius={12} />
-            <Skeleton width="30%" height={70} borderRadius={12} />
-            <Skeleton width="30%" height={70} borderRadius={12} />
-          </View>
-          <Skeleton.Text lines={5} gap={16} height={20} />
-        </View>
-      ) : (
-        <View className="flex-1">
-          
-          {/* 2. THỐNG KÊ DOANH THU NHANH CA - Giảm góc bo về rounded-2xl */}
-          <View className="p-4 flex-row justify-between">
-            <View className="flex-1 mr-2 p-3 rounded-2xl border bg-white border-slate-100 shadow-sm justify-between">
-              <Text className="text-[8px] font-black text-slate-400 uppercase tracking-wider">Tổng doanh số ca</Text>
-              <Text className="text-orange-500 font-black text-[13px] mt-1.5">{formatCurrency(totalRevenue)}</Text>
-              <Text className="text-[8px] text-slate-455 font-bold mt-0.5">{filteredOrders.length} hóa đơn</Text>
-            </View>
+ {isLoading ? (
+ <View className="flex-1 px-4 pt-4">
+ <View className="flex-row justify-between mb-6">
+ <Skeleton width="30%" height={70} borderRadius={12} />
+ <Skeleton width="30%" height={70} borderRadius={12} />
+ <Skeleton width="30%" height={70} borderRadius={12} />
+ </View>
+ <Skeleton.Text lines={5} gap={16} height={20} />
+ </View>
+ ) : (
+ <View className="flex-1">
+ 
+ {/* 2. THỐNG KÊ DOANH THU NHANH CA - Giảm góc bo về rounded-2xl */}
+ <View className="p-4 flex-row justify-between">
+ <View className="flex-1 mr-2 p-3 rounded-2xl border bg-white border-slate-100 shadow-sm justify-between">
+ <Text className="text-xxs font-extrabold text-slate-400">Tổng doanh số ca</Text>
+ <Text className="text-orange-500 font-extrabold text-xs mt-1.5">{formatCurrency(totalRevenue)}</Text>
+ <Text className="text-xxs text-slate-455 font-bold mt-0.5">{filteredOrders.length} hóa đơn</Text>
+ </View>
 
-            <View className="flex-1 mx-1 p-3 rounded-2xl border bg-white border-slate-100 shadow-sm justify-between">
-              <Text className="text-[8px] font-black text-emerald-600 uppercase tracking-wider">Đã đồng bộ</Text>
-              <Text className="text-emerald-700 font-black text-[13px] mt-1.5">{syncedCount}</Text>
-              <Text className="text-[8px] text-slate-455 font-bold mt-0.5">Lưu đám mây</Text>
-            </View>
+ <View className="flex-1 mx-1 p-3 rounded-2xl border bg-white border-slate-100 shadow-sm justify-between">
+ <Text className="text-xxs font-extrabold text-emerald-600">Đã đồng bộ</Text>
+ <Text className="text-emerald-700 font-extrabold text-xs mt-1.5">{syncedCount}</Text>
+ <Text className="text-xxs text-slate-455 font-bold mt-0.5">Lưu đám mây</Text>
+ </View>
 
-            <View className="flex-1 ml-2 p-3 rounded-2xl border bg-white border-slate-100 shadow-sm justify-between">
-              <Text className="text-[8px] font-black text-amber-600 uppercase tracking-wider">Chờ đồng bộ</Text>
-              <Text className="text-amber-700 font-black text-[13px] mt-1.5">{pendingCount}</Text>
-              <Text className="text-[8px] text-slate-455 font-bold mt-0.5">Pending offline</Text>
-            </View>
-          </View>
+ <View className="flex-1 ml-2 p-3 rounded-2xl border bg-white border-slate-100 shadow-sm justify-between">
+ <Text className="text-xxs font-extrabold text-amber-600">Chờ đồng bộ</Text>
+ <Text className="text-amber-700 font-extrabold text-xs mt-1.5">{pendingCount}</Text>
+ <Text className="text-xxs text-slate-455 font-bold mt-0.5">Pending offline</Text>
+ </View>
+ </View>
 
-          {/* 3. TÌM KIẾM & BỘ LỌC */}
-          <View className="px-4 pb-3">
-            <View className="flex-row items-center px-3 py-1.5 rounded-xl border bg-white border-slate-200 mb-3 shadow-sm">
-              <Ionicons name="search-outline" size={16} color="#94a3b8" />
-              <TextInput
-                placeholder="Tìm mã hóa đơn, tên khách hàng..."
-                placeholderTextColor="#94a3b8"
-                className="flex-1 ml-2 text-xs text-slate-800 py-1"
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                style={Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : undefined}
-              />
-              {searchQuery !== '' && (
-                <TouchableOpacity onPress={() => setSearchQuery('')}>
-                  <Ionicons name="close-circle" size={16} color="#94a3b8" />
-                </TouchableOpacity>
-              )}
-            </View>
+ {/* 3. TÌM KIẾM & BỘ LỌC */}
+ <View className="px-4 pb-3">
+ <View className="flex-row items-center px-3 py-1.5 rounded-xl border bg-white border-slate-200 mb-3 shadow-sm">
+ <Ionicons name="search-outline" size={16} color="#94a3b8" />
+ <TextInput
+ placeholder="Tìm mã hóa đơn, tên khách hàng..."
+ placeholderTextColor="#94a3b8"
+ className="flex-1 ml-2 text-xs text-slate-800 py-1"
+ value={searchQuery}
+ onChangeText={setSearchQuery}
+ style={Platform.OS === 'web' ? ({outlineStyle: 'none'} as any) : undefined}
+ />
+ {searchQuery !== '' && (
+ <TouchableOpacity onPress={() => setSearchQuery('')}>
+ <Ionicons name="close-circle" size={16} color="#94a3b8" />
+ </TouchableOpacity>
+ )}
+ </View>
 
-            {/* Lọc theo Ca */}
-            {shiftsList.length > 1 && (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} className="flex-row mb-3">
-                {shiftsList.map(shift => (
-                  <TouchableOpacity
-                    key={shift.id}
-                    className={`mr-2 px-3 py-1.5 rounded-xl border ${
-                      selectedShift === shift.id
-                        ? 'bg-orange-500 border-orange-500'
-                        : 'bg-white border-slate-200'
-                    }`}
-                    onPress={() => setSelectedShift(shift.id)}
-                  >
-                    <Text className={`text-[8px] font-black uppercase tracking-wider ${
-                      selectedShift === shift.id ? 'text-white' : 'text-slate-500'
-                    }`}>
-                      {shift.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            )}
+ {/* Lọc theo Ca */}
+ {shiftsList.length > 1 && (
+ <ScrollView horizontal showsHorizontalScrollIndicator={false} className="flex-row mb-3">
+ {shiftsList.map(shift => (
+ <TouchableOpacity
+ key={shift.id}
+ className={`mr-2 px-3 py-1.5 rounded-xl border ${
+ selectedShift === shift.id
+ ? 'bg-orange-500 border-orange-500'
+ : 'bg-white border-slate-200'
+}`}
+ onPress={() => setSelectedShift(shift.id)}
+ >
+ <Text className={`text-xxs font-extrabold ${
+ selectedShift === shift.id ? 'text-white' : 'text-slate-500'
+}`}>
+ {shift.label}
+ </Text>
+ </TouchableOpacity>
+ ))}
+ </ScrollView>
+ )}
 
-            {/* Lọc theo Trạng thái Sync */}
-            <View className="flex-row mb-1">
-              <TouchableOpacity
-                className={`mr-2 px-3 py-1.5 rounded-xl border ${
-                  selectedStatus === 'all'
-                    ? 'bg-orange-500 border-orange-500'
-                    : 'bg-white border-slate-200'
-                }`}
-                onPress={() => setSelectedStatus('all')}
-              >
-                <Text className={`text-[8px] font-black uppercase tracking-wider ${
-                  selectedStatus === 'all' ? 'text-white' : 'text-slate-500'
-                }`}>
-                  Tất cả
-                </Text>
-              </TouchableOpacity>
+ {/* Lọc theo Trạng thái Sync */}
+ <View className="flex-row mb-1">
+ <TouchableOpacity
+ className={`mr-2 px-3 py-1.5 rounded-xl border ${
+ selectedStatus === 'all'
+ ? 'bg-orange-500 border-orange-500'
+ : 'bg-white border-slate-200'
+}`}
+ onPress={() => setSelectedStatus('all')}
+ >
+ <Text className={`text-xxs font-extrabold ${
+ selectedStatus === 'all' ? 'text-white' : 'text-slate-500'
+}`}>
+ Tất cả
+ </Text>
+ </TouchableOpacity>
 
-              <TouchableOpacity
-                className={`mr-2 px-3 py-1.5 rounded-xl border ${
-                  selectedStatus === 'synced'
-                    ? 'bg-emerald-600 border-emerald-600'
-                    : 'bg-emerald-50 border-emerald-300'
-                }`}
-                onPress={() => setSelectedStatus('synced')}
-              >
-                <Text className={`text-[8px] font-black uppercase tracking-wider ${
-                  selectedStatus === 'synced' ? 'text-white' : 'text-emerald-700'
-                }`}>
-                  Đã sync ({syncedCount})
-                </Text>
-              </TouchableOpacity>
+ <TouchableOpacity
+ className={`mr-2 px-3 py-1.5 rounded-xl border ${
+ selectedStatus === 'synced'
+ ? 'bg-emerald-600 border-emerald-600'
+ : 'bg-emerald-50 border-emerald-300'
+}`}
+ onPress={() => setSelectedStatus('synced')}
+ >
+ <Text className={`text-xxs font-extrabold ${
+ selectedStatus === 'synced' ? 'text-white' : 'text-emerald-700'
+}`}>
+ Đã sync ({syncedCount})
+ </Text>
+ </TouchableOpacity>
 
-              <TouchableOpacity
-                className={`px-3 py-1.5 rounded-xl border ${
-                  selectedStatus === 'pending'
-                    ? 'bg-amber-600 border-amber-600'
-                    : 'bg-amber-50 border-amber-300'
-                }`}
-                onPress={() => setSelectedStatus('pending')}
-              >
-                <Text className={`text-[8px] font-black uppercase tracking-wider ${
-                  selectedStatus === 'pending' ? 'text-white' : 'text-amber-700'
-                }`}>
-                  Chờ sync ({pendingCount})
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+ <TouchableOpacity
+ className={`px-3 py-1.5 rounded-xl border ${
+ selectedStatus === 'pending'
+ ? 'bg-amber-600 border-amber-600'
+ : 'bg-amber-50 border-amber-300'
+}`}
+ onPress={() => setSelectedStatus('pending')}
+ >
+ <Text className={`text-xxs font-extrabold ${
+ selectedStatus === 'pending' ? 'text-white' : 'text-amber-700'
+}`}>
+ Chờ sync ({pendingCount})
+ </Text>
+ </TouchableOpacity>
+ </View>
+ </View>
 
-          {/* 4. DANH SÁCH LỚP PHÂN CẤP - Giảm bo card dòng xuống rounded-2xl */}
-          <ScrollView className="flex-1 px-4" showsVerticalScrollIndicator={false}>
-            {filteredOrders.length === 0 ? (
-              <View className="py-12 items-center justify-center bg-white rounded-2xl border border-slate-100 mt-2 shadow-sm">
-                <Ionicons name="receipt-outline" size={36} color="#cbd5e1" />
-                <Text className="text-xs text-slate-455 font-bold mt-3">Không tìm thấy hóa đơn nào phù hợp</Text>
-              </View>
-            ) : (
-              filteredOrders.map(order => {
-                const isPending = order.sync_status === 'pending';
+ {/* 4. DANH SÁCH LỚP PHÂN CẤP - Giảm bo card dòng xuống rounded-2xl */}
+ <ScrollView className="flex-1 px-4" showsVerticalScrollIndicator={false}>
+ {filteredOrders.length === 0 ? (
+ <View className="py-12 items-center justify-center bg-white rounded-2xl border border-slate-100 mt-2 shadow-sm">
+ <Ionicons name="receipt-outline" size={36} color="#cbd5e1" />
+ <Text className="text-xs text-slate-455 font-bold mt-3">Không tìm thấy hóa đơn nào phù hợp</Text>
+ </View>
+ ) : (
+ filteredOrders.map(order => {
+ const isPending = order.sync_status === 'pending';
 
-                return (
-                  <TouchableOpacity
-                    key={order.id}
-                    activeOpacity={0.8}
-                    className="mb-3 p-4 rounded-2xl border bg-white border-slate-100 shadow-sm flex-row justify-between items-center"
-                    onPress={() => handleViewOrderDetails(order)}
-                  >
-                    <View className="flex-1 mr-3">
-                      <View className="flex-row items-center">
-                        <Text className="text-xs font-black text-slate-800">
-                          {order.order_no || order.id.substring(0, 12)}
-                        </Text>
-                        <View className="mx-1.5 w-1 h-1 bg-slate-300 rounded-full" />
-                        <Text className="text-[10px] text-slate-500 font-extrabold" numberOfLines={1}>
-                          {order.customer_name || 'Khách mua lẻ'}
-                        </Text>
-                      </View>
+ return (
+ <TouchableOpacity
+ key={order.id}
+ activeOpacity={0.8}
+ className="mb-3 p-4 rounded-2xl border bg-white border-slate-100 flex-row justify-between items-center"
+ style={{shadowColor: '#000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2}}
+ onPress={() => handleViewOrderDetails(order)}
+ >
+ <View className="flex-1 mr-3">
+ <View className="flex-row items-center">
+ <Text className="text-xs font-extrabold text-slate-800">
+ {order.order_no || order.id.substring(0, 12)}
+ </Text>
+ <View className="mx-1.5 w-1 h-1 bg-slate-300 rounded-full" />
+ <Text className="text-tiny text-slate-500 font-bold" numberOfLines={1}>
+ {order.customer_name || 'Khách mua lẻ'}
+ </Text>
+ </View>
 
-                      <Text className="text-[8px] text-slate-400 font-semibold mt-1">
-                        ⏱️ {order.created_at ? formatDateTime(order.created_at) : 'Ngoại tuyến'}
-                      </Text>
+ <Text className="text-xxs text-slate-400 font-semibold mt-1">
+ ⏱️ {order.created_at ? formatDateTime(order.created_at) : 'Ngoại tuyến'}
+ </Text>
 
-                      <View className="flex-row items-center mt-3">
-                        <Badge 
-                          variant={isPending ? 'warning' : 'success'} 
-                          label={isPending ? 'Chờ sync' : 'Đã sync'} 
-                          size="sm" 
-                        />
+ <View className="flex-row items-center mt-3">
+ <Badge 
+ variant={isPending ? 'warning' : 'success'} 
+ label={isPending ? 'Chờ sync' : 'Đã sync'} 
+ size="sm" 
+ />
 
-                        <Text className="text-[9px] text-slate-500 font-bold ml-3.5 uppercase tracking-wider">
-                          💳 {order.payment_method.startsWith('{') ? 'Thanh toán lẻ' : order.payment_method}
-                        </Text>
-                      </View>
-                    </View>
+ <Text className="text-xxs text-slate-500 font-bold ml-3.5">
+ 💳 {getPaymentMethodDisplay(order.payment_method)}
+ </Text>
+ </View>
+ </View>
 
-                    <View className="items-end">
-                      <Text className="text-orange-500 font-black text-xs">
-                        {formatCurrency(order.total_amount)}
-                      </Text>
-                      
-                      {isPending ? (
-                        <TouchableOpacity
-                          activeOpacity={0.7}
-                          className="bg-amber-500 px-3 py-1 rounded-xl mt-2 flex-row items-center shadow-sm"
-                          onPress={(e) => {
-                            e.stopPropagation();
-                            handleSyncSingleOrder(order.id);
-                          }}
-                          disabled={isSyncingOrder === order.id}
-                        >
-                          <Ionicons 
-                            name={isSyncingOrder === order.id ? 'sync' : 'cloud-upload-outline'} 
-                            size={11} 
-                            color="white" 
-                          />
-                          <Text className="text-white text-[8px] font-black ml-1.5 uppercase tracking-wider">
-                            {isSyncingOrder === order.id ? 'Sync...' : 'Sync'}
-                          </Text>
-                        </TouchableOpacity>
-                      ) : (
-                        <Ionicons name="chevron-forward-outline" size={14} color="#cbd5e1" className="mt-3" />
-                      )}
-                    </View>
-                  </TouchableOpacity>
-                );
-              })
-            )}
-            <View className="h-20" />
-          </ScrollView>
+ <View className="items-end">
+ <Text className="text-orange-500 font-extrabold text-xs">
+ {formatCurrency(order.total_amount)}
+ </Text>
+ 
+ {isPending ? (
+ <TouchableOpacity
+ activeOpacity={0.7}
+ className="bg-amber-500 px-3 py-1 rounded-xl mt-2 flex-row items-center shadow-sm"
+ onPress={(e) => {
+ e.stopPropagation();
+ handleSyncSingleOrder(order.id);
+}}
+ disabled={isSyncingOrder === order.id}
+ >
+ <Ionicons 
+ name={isSyncingOrder === order.id ? 'sync' : 'cloud-upload-outline'} 
+ size={11} 
+ color="white" 
+ />
+ <Text className="text-white text-xxs font-extrabold ml-1.5">
+ {isSyncingOrder === order.id ? 'Sync...' : 'Sync'}
+ </Text>
+ </TouchableOpacity>
+ ) : (
+ <Ionicons name="chevron-forward-outline" size={14} color="#cbd5e1" className="mt-3" />
+ )}
+ </View>
+ </TouchableOpacity>
+ );
+})
+ )}
+ <View className="h-20" />
+ </ScrollView>
 
-          {/* 5. MODAL CHI TIẾT HÓA ĐƠN - Giảm bo rounded-t-2xl */}
-          <Modal
-            visible={!!selectedOrder}
-            animationType="slide"
-            transparent={true}
-            onRequestClose={() => setSelectedOrder(null)}
-          >
-            <View className="flex-1 justify-end bg-black/60">
-              {selectedOrder && (
-                <View className="h-[75%] rounded-t-2xl p-6 justify-between bg-white shadow-2xl">
-                  
-                  {/* Header Modal */}
-                  <View className="flex-row justify-between items-center border-b border-slate-100 pb-4">
-                    <View>
-                      <View className="flex-row items-center">
-                        <Text className="text-sm font-black text-slate-800">
-                          {selectedOrder.order_no || selectedOrder.id.substring(0, 12)}
-                        </Text>
-                        <Badge 
-                          variant={selectedOrder.sync_status === 'pending' ? 'warning' : 'success'} 
-                          label={selectedOrder.sync_status === 'pending' ? 'Chờ sync' : 'Đã sync'} 
-                          size="sm"
-                          className="ml-2"
-                        />
-                      </View>
-                      <Text className="text-[10px] text-slate-450 mt-1 font-bold">
-                        Khách hàng: {selectedOrder.customer_name || 'Khách lẻ'}
-                      </Text>
-                    </View>
+ {/* 5. MODAL CHI TIẾT HÓA ĐƠN - Giảm bo rounded-t-2xl */}
+ <Modal
+ visible={!!selectedOrder}
+ animationType="slide"
+ transparent={true}
+ onRequestClose={() => setSelectedOrder(null)}
+ >
+ <View className="flex-1 justify-end bg-black/60">
+ {selectedOrder && (
+ <View className="h-[75%] rounded-t-2xl p-6 justify-between bg-white shadow-2xl">
+ 
+ {/* Header Modal */}
+ <View className="flex-row justify-between items-center border-b border-slate-100 pb-4">
+ <View>
+ <View className="flex-row items-center">
+ <Text className="text-sm font-extrabold text-slate-800">
+ {selectedOrder.order_no || selectedOrder.id.substring(0, 12)}
+ </Text>
+ <Badge 
+ variant={selectedOrder.sync_status === 'pending' ? 'warning' : 'success'} 
+ label={selectedOrder.sync_status === 'pending' ? 'Chờ sync' : 'Đã sync'} 
+ size="sm"
+ className="ml-2"
+ />
+ </View>
+ <Text className="text-tiny text-slate-450 mt-1 font-bold">
+ Khách hàng: {selectedOrder.customer_name || 'Khách lẻ'}
+ </Text>
+ </View>
 
-                    <TouchableOpacity onPress={() => setSelectedOrder(null)} className="p-1">
-                      <Ionicons name="close" size={24} color="#64748b" />
-                    </TouchableOpacity>
-                  </View>
+ <TouchableOpacity onPress={() => setSelectedOrder(null)} className="p-1">
+ <Ionicons name="close" size={24} color="#64748b" />
+ </TouchableOpacity>
+ </View>
 
-                  {/* Body Modal */}
-                  <ScrollView className="flex-1 my-4" showsVerticalScrollIndicator={false}>
-                    <Text className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2.5 px-1">Thông tin chi tiết</Text>
-                    <View className="p-4 rounded-xl bg-slate-50 border border-slate-200/60 mb-4">
-                      <View className="flex-row justify-between py-1">
-                        <Text className="text-[11px] text-slate-500 font-bold">Mốc thời gian:</Text>
-                        <Text className="text-[11px] font-black text-slate-800">
-                          {selectedOrder.created_at ? formatDateTime(selectedOrder.created_at) : 'Offline'}
-                        </Text>
-                      </View>
-                      <View className="flex-row justify-between py-1">
-                        <Text className="text-[11px] text-slate-500 font-bold">Hình thức thanh toán:</Text>
-                        <Text className="text-[11px] font-black text-slate-800">
-                          {selectedOrder.payment_method.startsWith('{') ? 'Thanh toán hỗn hợp' : selectedOrder.payment_method}
-                        </Text>
-                      </View>
-                      <View className="flex-row justify-between py-1">
-                        <Text className="text-[11px] text-slate-500 font-bold">Mã số SQLite ID:</Text>
-                        <Text className="text-[10px] font-black text-slate-700">{selectedOrder.id}</Text>
-                      </View>
-                      {selectedOrder.note && (
-                        <View className="border-t border-slate-200 mt-2 pt-2">
-                          <Text className="text-[10px] text-slate-450 font-bold">Ghi chú đơn:</Text>
-                          <Text className="text-xs text-slate-700 mt-1 font-semibold">{selectedOrder.note}</Text>
-                        </View>
-                      )}
-                    </View>
+ {/* Body Modal */}
+ <ScrollView className="flex-1 my-4" showsVerticalScrollIndicator={false}>
+ <Text className="text-xxs font-extrabold text-slate-400 mb-2.5 px-1">Thông tin chi tiết</Text>
+ <View className="p-4 rounded-xl bg-slate-50 border border-slate-200/60 mb-4">
+ <View className="flex-row justify-between py-1">
+ <Text className="text-tiny text-slate-500 font-bold">Mốc thời gian:</Text>
+ <Text className="text-tiny font-extrabold text-slate-800">
+ {selectedOrder.created_at ? formatDateTime(selectedOrder.created_at) : 'Offline'}
+ </Text>
+ </View>
+ <View className="flex-row justify-between py-1">
+ <Text className="text-tiny text-slate-500 font-bold">Hình thức thanh toán:</Text>
+ <Text className="text-tiny font-extrabold text-slate-800">
+ {getPaymentMethodDisplay(selectedOrder.payment_method)}
+ </Text>
+ </View>
+ <View className="flex-row justify-between py-1">
+ <Text className="text-tiny text-slate-500 font-bold">Mã số SQLite ID:</Text>
+ <Text className="text-tiny font-extrabold text-slate-700">{selectedOrder.id}</Text>
+ </View>
+ {selectedOrder.note && (
+ <View className="border-t border-slate-200 mt-2 pt-2">
+ <Text className="text-tiny text-slate-450 font-bold">Ghi chú đơn:</Text>
+ <Text className="text-xs text-slate-700 mt-1 font-semibold">{selectedOrder.note}</Text>
+ </View>
+ )}
+ </View>
 
-                    <Text className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2.5 px-1">Mặt hàng đã mua</Text>
-                    {selectedOrderItems.map((item: any, idx: number) => (
-                      <View 
-                        key={idx} 
-                        className="flex-row justify-between py-3 border-b border-slate-100 items-center"
-                      >
-                        <View className="flex-1 mr-3">
-                          <Text className="text-xs font-extrabold text-slate-800">{item.product_name}</Text>
-                          <Text className="text-[10px] text-slate-500 font-bold mt-0.5">
-                            {item.qty} cái x {formatCurrency(item.unit_price)}
-                          </Text>
-                        </View>
-                        <Text className="text-xs font-black text-slate-800">
-                          {formatCurrency(item.line_total)}
-                        </Text>
-                      </View>
-                    ))}
+ <Text className="text-xxs font-extrabold text-slate-400 mb-2.5 px-1">Mặt hàng đã mua</Text>
+ {selectedOrderItems.map((item: any, idx: number) => (
+ <View 
+ key={idx} 
+ className="flex-row justify-between py-3 border-b border-slate-100 items-center"
+ >
+ <View className="flex-1 mr-3">
+ <Text className="text-xs font-bold text-slate-800">{item.product_name}</Text>
+ <Text className="text-tiny text-slate-500 font-bold mt-0.5">
+ {item.qty} cái x {formatCurrency(item.unit_price)}
+ </Text>
+ </View>
+ <Text className="text-xs font-extrabold text-slate-800">
+ {formatCurrency(item.line_total)}
+ </Text>
+ </View>
+ ))}
 
-                    <View className="flex-row justify-between py-4 border-t border-slate-200 mt-4 items-center">
-                      <Text className="text-xs font-black text-slate-800">TỔNG THANH TOÁN</Text>
-                      <Text className="text-orange-500 text-base font-black">{formatCurrency(selectedOrder.total_amount)}</Text>
-                    </View>
-                  </ScrollView>
+ <View className="flex-row justify-between py-4 border-t border-slate-200 mt-4 items-center">
+ <Text className="text-xs font-extrabold text-slate-800">Tổng thanh toán</Text>
+ <Text className="text-orange-500 text-base font-extrabold">{formatCurrency(selectedOrder.total_amount)}</Text>
+ </View>
+ </ScrollView>
 
-                  {/* Actions Footer */}
-                  <View className="flex-row border-t border-slate-100 pt-4 justify-between gap-3">
-                    {selectedOrder.sync_status === 'pending' ? (
-                      <Button
-                        variant="primary"
-                        title="Sync ngay"
-                        icon={<Ionicons name="cloud-upload" size={14} color="white" />}
-                        onPress={() => handleSyncSingleOrder(selectedOrder.id)}
-                        loading={isSyncingOrder === selectedOrder.id}
-                        className="flex-1 py-3.5 rounded-xl"
-                      />
-                    ) : (
-                      <View className="flex-1 bg-emerald-50 py-3.5 rounded-xl items-center flex-row justify-center border border-emerald-200 opacity-80">
-                        <Ionicons name="checkmark-done-circle-outline" size={14} color="#10b981" />
-                        <Text className="font-extrabold text-[10px] ml-1 text-emerald-700">ĐÃ LÊN CLOUD</Text>
-                      </View>
-                    )}
+ {/* Actions Footer */}
+ <View className="flex-row border-t border-slate-100 pt-4 justify-between gap-3">
+ {selectedOrder.sync_status === 'pending' ? (
+ <Button
+ variant="primary"
+ title="Sync ngay"
+ icon={<Ionicons name="cloud-upload" size={14} color="white" />}
+ onPress={() => handleSyncSingleOrder(selectedOrder.id)}
+ loading={isSyncingOrder === selectedOrder.id}
+ className="flex-1 py-3.5 rounded-xl"
+ />
+ ) : (
+ <View className="flex-1 bg-emerald-50 py-3.5 rounded-xl items-center flex-row justify-center border border-emerald-200 opacity-80">
+ <Ionicons name="checkmark-done-circle-outline" size={14} color="#10b981" />
+ <Text className="font-bold text-tiny ml-1 text-emerald-700">ĐÃ LÊN CLOUD</Text>
+ </View>
+ )}
 
-                    <Button
-                      variant={selectedOrder.sync_status === 'pending' ? 'outline' : 'primary'}
-                      title="In lại bill"
-                      icon={<Ionicons name="print" size={14} color={selectedOrder.sync_status === 'pending' ? '#475569' : 'white'} />}
-                      onPress={handleReprint}
-                      loading={isReprinting}
-                      className="flex-1 py-3.5 rounded-xl"
-                    />
-                  </View>
+ <Button
+ variant={selectedOrder.sync_status === 'pending' ? 'outline' : 'primary'}
+ title="In lại bill"
+ icon={<Ionicons name="print" size={14} color={selectedOrder.sync_status === 'pending' ? '#475569' : 'white'} />}
+ onPress={handleReprint}
+ loading={isReprinting}
+ className="flex-1 py-3.5 rounded-xl"
+ />
+ </View>
 
-                </View>
-              )}
-            </View>
-          </Modal>
-        </View>
-      )}
+ </View>
+ )}
+ </View>
+ </Modal>
+ </View>
+ )}
 
-      {/* CÁC DIALOG THÔNG BÁO XÁC NHẬN SANG TRỌNG */}
-      <Dialog
-        visible={isReprintSuccessVisible}
-        onClose={() => setIsReprintSuccessVisible(false)}
-        onConfirm={() => setIsReprintSuccessVisible(false)}
-        title="Đã gửi lệnh in"
-        description="Lệnh in lại đã được gửi đến máy in K80 Bluetooth thành công!"
-        confirmLabel="Hoàn tất"
-        variant="success"
-      />
+ {/* CÁC DIALOG THÔNG BÁO XÁC NHẬN SANG TRỌNG */}
+ <Dialog
+ visible={isReprintSuccessVisible}
+ onClose={() => setIsReprintSuccessVisible(false)}
+ onConfirm={() => setIsReprintSuccessVisible(false)}
+ title="Đã gửi lệnh in"
+ description="Lệnh in lại đã được gửi đến máy in K80 Bluetooth thành công!"
+ confirmLabel="Hoàn tất"
+ variant="success"
+ />
 
-      <Dialog
-        visible={isSyncSuccessVisible}
-        onClose={() => setIsSyncSuccessVisible(false)}
-        onConfirm={() => setIsSyncSuccessVisible(false)}
-        title="Đồng bộ thành công"
-        description="Đơn hàng ngoại tuyến đã được đồng bộ lên Next.js Cloud thành công!"
-        confirmLabel="Đóng"
-        variant="success"
-      />
+ <Dialog
+ visible={isSyncSuccessVisible}
+ onClose={() => setIsSyncSuccessVisible(false)}
+ onConfirm={() => setIsSyncSuccessVisible(false)}
+ title="Đồng bộ thành công"
+ description="Đơn hàng ngoại tuyến đã được đồng bộ lên Next.js Cloud thành công!"
+ confirmLabel="Đóng"
+ variant="success"
+ />
 
-      <Dialog
-        visible={isSyncErrorVisible}
-        onClose={() => setIsSyncErrorVisible(false)}
-        onConfirm={() => setIsSyncErrorVisible(false)}
-        title="Đồng bộ thất bại"
-        description="Không thể kết nối đến Next.js Server. Vui lòng thử lại sau khi có mạng ổn định."
-        confirmLabel="Xác nhận"
-        variant="danger"
-      />
+ <Dialog
+ visible={isSyncErrorVisible}
+ onClose={() => setIsSyncErrorVisible(false)}
+ onConfirm={() => setIsSyncErrorVisible(false)}
+ title="Đồng bộ thất bại"
+ description="Không thể kết nối đến Next.js Server. Vui lòng thử lại sau khi có mạng ổn định."
+ confirmLabel="Xác nhận"
+ variant="danger"
+ />
 
-      {/* Drawer Hamburger Sidebar */}
-      <DrawerMenu 
-        visible={isDrawerOpen} 
-        onClose={() => setIsDrawerOpen(false)} 
-        branchName="Chi nhánh chính"
-      />
+ {/* Drawer Hamburger Sidebar */}
+ <DrawerMenu 
+ visible={isDrawerOpen} 
+ onClose={() => setIsDrawerOpen(false)} 
+ branchName="Chi nhánh chính"
+ />
 
-    </SafeAreaView>
-  );
+ </SafeAreaView>
+ );
 }

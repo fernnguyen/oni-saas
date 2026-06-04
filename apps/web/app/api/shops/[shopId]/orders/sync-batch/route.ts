@@ -751,6 +751,30 @@ export async function POST(
       }
     }
 
+    // --- Auto Release Table Logic ---
+    if (order.status === 'completed' && order.metadata) {
+      try {
+        const metaObj = typeof order.metadata === 'string' ? JSON.parse(order.metadata) : order.metadata
+        const resourceId = metaObj?.resource_id
+        if (resourceId && !resourceId.startsWith('takeaway')) {
+          const resource = await connector.findById('location-resources', resourceId)
+          if (resource) {
+            const currentOrderId = resource.current_order_id
+            if (!currentOrderId || currentOrderId === serverId || currentOrderId === order.id) {
+              const releaseStatus = settings?.skip_cleaning_process ? 'available' : 'dirty'
+              await connector.update('location-resources', resourceId, {
+                status: releaseStatus,
+                current_order_id: ''
+              })
+              invalidate(shopId, 'location-resources')
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to auto-release location resource:', err)
+      }
+    }
+
     invalidate(shopId, 'orders')
     invalidate(shopId, 'order-items')
     invalidate(shopId, 'payments')
