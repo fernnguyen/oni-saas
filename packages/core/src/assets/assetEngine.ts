@@ -1,4 +1,4 @@
-import * as crypto from 'crypto';
+import { getTenantHash } from '../utils/tenant';
 
 export interface Asset {
   id: string;
@@ -173,7 +173,7 @@ export class AssetEngine {
         if (allocatedAmount <= 0) continue;
 
         const parts = asset.id.split('-');
-        const tenantHash = parts.length >= 3 ? parts[1] : (asset.tenant_id ? crypto.createHash('sha256').update(asset.tenant_id).digest('hex').substring(0, 8).toUpperCase() : 'SYSTEM');
+        const tenantHash = parts.length >= 3 ? parts[1] : (asset.tenant_id ? getTenantHash(asset.tenant_id) : 'SYSTEM');
         const assetPrefix = parts[0] || 'AST';
         const assetSeq = parts.slice(2).join('-') || '00000';
         const deptIdOrCode = allocation.department_id || allocation.department_code || 'unknown';
@@ -222,7 +222,7 @@ export class AssetEngine {
     } else {
       // Trường hợp tài sản chưa bàn giao sử dụng, khấu hao mặc định tính vào chi phí quản lý chi nhánh
       const parts = asset.id.split('-');
-      const tenantHash = parts.length >= 3 ? parts[1] : (asset.tenant_id ? crypto.createHash('sha256').update(asset.tenant_id).digest('hex').substring(0, 8).toUpperCase() : 'SYSTEM');
+      const tenantHash = parts.length >= 3 ? parts[1] : (asset.tenant_id ? getTenantHash(asset.tenant_id) : 'SYSTEM');
       const assetPrefix = parts[0] || 'AST';
       const assetSeq = parts.slice(2).join('-') || '00000';
       const cashbookId = `CSB-DEP-${tenantHash}-${assetPrefix}-${assetSeq}-${Date.now().toString().slice(-6)}`;

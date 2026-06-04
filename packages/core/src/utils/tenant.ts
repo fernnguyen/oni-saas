@@ -1,4 +1,4 @@
-import crypto from 'crypto';
+import { sha256 } from 'js-sha256';
 
 /**
  * Generates a consistent 8-character uppercase tenant hash from a tenant ID.
@@ -6,5 +6,5 @@ import crypto from 'crypto';
  */
 export function getTenantHash(tenantId: string): string {
   if (!tenantId) return '';
-  return crypto.createHash('sha256').update(tenantId).digest('hex').substring(0, 8).toUpperCase();
+  return sha256(tenantId).substring(0, 8).toUpperCase();
 }
