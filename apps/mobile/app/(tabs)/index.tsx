@@ -179,7 +179,7 @@ export default function DashboardScreen() {
  
  {/* 2. ERP LỐI TẮT NHANH - Thay thế Emoji bằng Ionicons & Thu gọn card bo tròn (rounded-2xl) */}
  <View className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm mb-4">
- <Text className="text-xxs font-extrabold text-slate-450 mb-3 px-1">
+ <Text className="text-xxs font-semibold text-slate-450 mb-3 px-1">
  ⚡ Lối tắt phân hệ ERP
  </Text>
  <View className="flex-row justify-between">
@@ -191,7 +191,7 @@ export default function DashboardScreen() {
  <View className="bg-orange-50 w-11 h-11 rounded-xl items-center justify-center border border-orange-100 mb-2 active:scale-95">
  <Ionicons name="cart-outline" size={20} color="#fa5908" />
  </View>
- <Text className="text-xxs font-extrabold text-slate-700 text-center">POS</Text>
+ <Text className="text-xxs font-semibold text-slate-700 text-center">POS</Text>
  </TouchableOpacity>
 
  <TouchableOpacity 
@@ -202,7 +202,7 @@ export default function DashboardScreen() {
  <View className="bg-slate-50 w-11 h-11 rounded-xl items-center justify-center border border-slate-100 mb-2 active:scale-95">
  <Ionicons name="cube-outline" size={20} color="#fa5908" />
  </View>
- <Text className="text-xxs font-extrabold text-slate-500 text-center">Kho hàng</Text>
+ <Text className="text-xxs font-semibold text-slate-500 text-center">Kho hàng</Text>
  </TouchableOpacity>
 
  <TouchableOpacity 
@@ -213,7 +213,7 @@ export default function DashboardScreen() {
  <View className="bg-slate-50 w-11 h-11 rounded-xl items-center justify-center border border-slate-100 mb-2 active:scale-95">
  <Ionicons name="wallet-outline" size={20} color="#fa5908" />
  </View>
- <Text className="text-xxs font-extrabold text-slate-500 text-center">Sổ Quỹ</Text>
+ <Text className="text-xxs font-semibold text-slate-500 text-center">Sổ Quỹ</Text>
  </TouchableOpacity>
 
  <TouchableOpacity 
@@ -224,7 +224,7 @@ export default function DashboardScreen() {
  <View className="bg-slate-50 w-11 h-11 rounded-xl items-center justify-center border border-slate-100 mb-2 active:scale-95">
  <Ionicons name="people-outline" size={20} color="#fa5908" />
  </View>
- <Text className="text-xxs font-extrabold text-slate-500 text-center">Nhân Sự</Text>
+ <Text className="text-xxs font-semibold text-slate-500 text-center">Nhân Sự</Text>
  </TouchableOpacity>
  </View>
  </View>
@@ -247,16 +247,16 @@ export default function DashboardScreen() {
  {/* Card 1: Doanh thu ca/ngày */}
  <View className="w-[48%] mb-4 p-4 rounded-2xl bg-white border border-slate-100 shadow-sm justify-between">
  <View className="flex-row justify-between items-center">
- <Text className="text-xxs font-extrabold text-slate-455">Báo cáo ngày</Text>
+ <Text className="text-xxs font-semibold text-slate-455">Báo cáo ngày</Text>
  <View className="bg-orange-50 p-1.5 rounded-lg border border-orange-100">
  <Ionicons name="card-outline" size={11} color="#fa5908" />
  </View>
  </View>
  <View className="mt-4">
- <Text className="text-xxs font-bold text-slate-400">Doanh thu hôm nay</Text>
- <Text className="text-slate-800 font-bold text-sm mt-1">{formatCurrency(stats.todayRevenue)}</Text>
+ <Text className="text-xxs font-medium text-slate-400">Doanh thu hôm nay</Text>
+ <Text className="text-slate-800 font-medium text-sm mt-1">{formatCurrency(stats.todayRevenue)}</Text>
  <View className="flex-row justify-between items-center mt-2.5">
- <Text className="text-xxs text-slate-455 font-bold">{stats.todayOrders} hóa đơn</Text>
+ <Text className="text-xxs text-slate-455 font-medium">{stats.todayOrders} hóa đơn</Text>
  <Badge variant="success" label="LIVE" size="sm" />
  </View>
  </View>
@@ -265,16 +265,16 @@ export default function DashboardScreen() {
  {/* Card 2: Lũy kế ca SQLite */}
  <View className="w-[48%] mb-4 p-4 rounded-2xl bg-white border border-slate-100 shadow-sm justify-between">
  <View className="flex-row justify-between items-center">
- <Text className="text-xxs font-extrabold text-slate-455">Doanh thu ca</Text>
+ <Text className="text-xxs font-semibold text-slate-455">Doanh thu ca</Text>
  <View className="bg-emerald-50 p-1.5 rounded-lg border border-emerald-100">
  <Ionicons name="analytics-outline" size={11} color="#10b981" />
  </View>
  </View>
  <View className="mt-4">
- <Text className="text-xxs font-bold text-slate-400">Tích lũy offline</Text>
- <Text className="text-slate-800 font-bold text-sm mt-1">{formatCurrency(stats.monthRevenue)}</Text>
+ <Text className="text-xxs font-medium text-slate-400">Tích lũy offline</Text>
+ <Text className="text-slate-800 font-medium text-sm mt-1">{formatCurrency(stats.monthRevenue)}</Text>
  <View className="flex-row justify-between items-center mt-2.5">
- <Text className="text-xxs text-slate-455 font-bold">{stats.monthOrders} đơn</Text>
+ <Text className="text-xxs text-slate-455 font-medium">{stats.monthOrders} đơn</Text>
  <Badge variant="info" label="SQLITE" size="sm" />
  </View>
  </View>
@@ -283,16 +283,16 @@ export default function DashboardScreen() {
  {/* Card 3: AOV */}
  <View className="w-[48%] mb-4 p-4 rounded-2xl bg-white border border-slate-100 shadow-sm justify-between">
  <View className="flex-row justify-between items-center">
- <Text className="text-xxs font-extrabold text-slate-455">Giao dịch AOV</Text>
+ <Text className="text-xxs font-semibold text-slate-455">Giao dịch AOV</Text>
  <View className="bg-blue-50 p-1.5 rounded-lg border border-blue-100">
  <Ionicons name="receipt-outline" size={11} color="#3b82f6" />
  </View>
  </View>
  <View className="mt-4">
- <Text className="text-xxs font-bold text-slate-400">Đơn trung bình</Text>
- <Text className="text-slate-800 font-bold text-sm mt-1">{formatCurrency(stats.aov)}</Text>
+ <Text className="text-xxs font-medium text-slate-400">Đơn trung bình</Text>
+ <Text className="text-slate-800 font-medium text-sm mt-1">{formatCurrency(stats.aov)}</Text>
  <View className="flex-row justify-between items-center mt-2.5">
- <Text className="text-xxs text-slate-455 font-bold">Bình quân ca</Text>
+ <Text className="text-xxs text-slate-455 font-medium">Bình quân ca</Text>
  <Badge variant="secondary" label="INFO" size="sm" />
  </View>
  </View>
@@ -301,16 +301,16 @@ export default function DashboardScreen() {
  {/* Card 4: Hoàn tiền */}
  <View className="w-[48%] mb-4 p-4 rounded-2xl bg-white border border-slate-100 shadow-sm justify-between">
  <View className="flex-row justify-between items-center">
- <Text className="text-xxs font-extrabold text-slate-455">Đổi trả hàng</Text>
+ <Text className="text-xxs font-semibold text-slate-455">Đổi trả hàng</Text>
  <View className="bg-rose-50 p-1.5 rounded-lg border border-rose-100">
  <Ionicons name="refresh-outline" size={11} color="#f43f5e" />
  </View>
  </View>
  <View className="mt-4">
- <Text className="text-xxs font-bold text-slate-400">Hủy & hoàn tiền</Text>
- <Text className="text-slate-800 font-bold text-sm mt-1">{formatCurrency(0)}</Text>
+ <Text className="text-xxs font-medium text-slate-400">Hủy & hoàn tiền</Text>
+ <Text className="text-slate-800 font-medium text-sm mt-1">{formatCurrency(0)}</Text>
  <View className="flex-row justify-between items-center mt-2.5">
- <Text className="text-xxs text-slate-455 font-bold">0 phiếu lỗi</Text>
+ <Text className="text-xxs text-slate-455 font-medium">0 phiếu lỗi</Text>
  <Badge variant="danger" label="0.0%" size="sm" />
  </View>
  </View>
@@ -323,13 +323,13 @@ export default function DashboardScreen() {
  <View className="p-4 rounded-2xl border bg-white border-slate-100 shadow-sm mb-4">
  <View className="flex-row justify-between items-start mb-4">
  <View>
- <Text className="text-xs font-extrabold text-slate-800">Biến động doanh thu ca</Text>
- <Text className="text-xxs text-slate-400 font-bold mt-0.5">Biểu đồ đối chiếu 7 ngày kinh doanh gần nhất</Text>
+ <Text className="text-xs font-semibold text-slate-800">Biến động doanh thu ca</Text>
+ <Text className="text-xxs text-slate-400 font-medium mt-0.5">Biểu đồ đối chiếu 7 ngày kinh doanh gần nhất</Text>
  </View>
  
  <View className="flex-row items-center bg-orange-50 px-2 py-0.5 rounded-xl border border-orange-100">
  <View className="w-1.5 h-1.5 rounded-full bg-orange-500 mr-1.5" />
- <Text className="text-xxs text-orange-700 font-extrabold">Doanh thu</Text>
+ <Text className="text-xxs text-orange-700 font-semibold">Doanh thu</Text>
  </View>
  </View>
 
@@ -346,7 +346,7 @@ export default function DashboardScreen() {
  <View key={idx} className="flex-1 items-center mx-[3px] h-full justify-end">
  {col.isPeak && (
  <View className="bg-slate-800 px-1.5 py-0.5 rounded-md absolute -top-4 z-10">
- <Text className="text-micro text-white font-bold">PEAK</Text>
+ <Text className="text-micro text-white font-medium">PEAK</Text>
  </View>
  )}
  
@@ -361,7 +361,7 @@ export default function DashboardScreen() {
  backgroundColor: col.isPeak ? '#fa5908' : '#fb923c'
 }} 
  />
- <Text className="text-micro text-slate-400 font-extrabold mt-1.5">{col.day}</Text>
+ <Text className="text-micro text-slate-400 font-semibold mt-1.5">{col.day}</Text>
  </View>
  ))}
  </View>
@@ -371,7 +371,7 @@ export default function DashboardScreen() {
  </View>
 
  {/* 5. TOP SẢN PHẨM BÁN CHẠY - Thay thế Emoji bằng Ionicons vector, Bo góc card rounded-2xl */}
- <Text className="text-xxs font-extrabold text-slate-455 mb-3 px-1">
+ <Text className="text-xxs font-semibold text-slate-455 mb-3 px-1">
  Top sản phẩm & dịch vụ bán chạy
  </Text>
  <View className="p-4 rounded-2xl border bg-white border-slate-100 shadow-sm mb-6">
@@ -385,11 +385,11 @@ export default function DashboardScreen() {
  <View className="bg-slate-50 w-7 h-7 rounded-lg items-center justify-center mr-2 border border-slate-100">
  <Ionicons name={p.icon as any} size={13} color="#fa5908" />
  </View>
- <Text className="text-xs font-bold text-slate-800" numberOfLines={1}>
+ <Text className="text-xs font-medium text-slate-800" numberOfLines={1}>
  {p.name}
  </Text>
  </View>
- <Text className="text-xs font-extrabold text-[#fa5908]">{p.qty} lần</Text>
+ <Text className="text-xs font-semibold text-[#fa5908]">{p.qty} lần</Text>
  </View>
  <View className="h-1.5 w-full bg-slate-50 rounded-full overflow-hidden border border-slate-100">
  <View 
@@ -413,7 +413,7 @@ export default function DashboardScreen() {
  style={{backgroundColor: '#fa5908'}}
  >
  <Ionicons name="calculator-outline" size={15} color="white" />
- <Text className="text-white font-bold text-xs ml-2">Bán hàng POS ngay</Text>
+ <Text className="text-white font-medium text-xs ml-2">Bán hàng POS ngay</Text>
  </TouchableOpacity>
 
  </ScrollView>

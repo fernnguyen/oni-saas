@@ -23,7 +23,7 @@ export function Badge({
  
  // Thiết lập màu sắc nền & viền mờ cao cấp HSL tương ứng
  let bgStyles = 'flex-row items-center justify-center border ';
- let textStyles = 'font-bold ';
+ let textStyles = 'font-medium ';
  let dotStyles = 'w-1.5 h-1.5 rounded-full mr-1.5 ';
 
  switch (variant) {

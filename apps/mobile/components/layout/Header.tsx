@@ -191,6 +191,14 @@ export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false}
 }
 };
 
+  const handleSyncPress = () => {
+    if (onPressSync) {
+      onPressSync();
+    } else {
+      alert('Dữ liệu đang được đồng bộ tự động ngầm. Không cần thao tác thủ công.');
+    }
+  };
+
  return (
  <View className="px-4 py-2.5 bg-white border-b border-slate-100 flex-row justify-between items-center relative z-50" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2}}>
  
@@ -212,8 +220,8 @@ export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false}
  className="flex-row items-center flex-1 max-w-[200px]"
  >
  <View className="flex-1 mr-1">
- <Text className="text-[6.5px] font-extrabold text-slate-450 leading-none">CHI NHÁNH</Text>
- <Text className="text-sm font-extrabold text-slate-800 mt-1 leading-tight" numberOfLines={1}>
+ <Text className="text-[6.5px] font-semibold text-slate-450 leading-none">CHI NHÁNH</Text>
+ <Text className="text-sm font-semibold text-slate-800 mt-1 leading-tight" numberOfLines={1}>
  {activeBranchName}
  </Text>
  </View>
@@ -229,7 +237,7 @@ export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false}
 
  {/* SyncStatusBar và Chuông thông báo Right */}
  <View className="flex-row items-center gap-2">
- <SyncBanner forceStatus={syncStatus} onPressSync={onPressSync} isSyncing={isSyncing} />
+ <SyncBanner forceStatus={syncStatus} onPressSync={handleSyncPress} isSyncing={isSyncing} />
  
  <TouchableOpacity 
  activeOpacity={0.7}
@@ -260,9 +268,9 @@ export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false}
  
  {/* Header Dropdown */}
  <View className="flex-row justify-between items-center mb-3">
- <Text className="text-xxs font-extrabold text-slate-450">CHUYỂN CHI NHÁNH</Text>
+ <Text className="text-xxs font-semibold text-slate-450">CHUYỂN CHI NHÁNH</Text>
  <View className="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
- <Text className="text-micro text-slate-500 font-bold">{branchList.length}/{branchList.length}</Text>
+ <Text className="text-micro text-slate-500 font-medium">{branchList.length}/{branchList.length}</Text>
  </View>
  </View>
 
@@ -291,10 +299,10 @@ export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false}
  </View>
  
  <View className="flex-1">
- <Text className={`text-xs font-extrabold ${isSelected ? 'text-orange-500' : 'text-slate-800'}`}>
+ <Text className={`text-xs font-semibold ${isSelected ? 'text-orange-500' : 'text-slate-800'}`}>
  {branch.name}
  </Text>
- <Text className="text-xxs text-slate-450 font-bold mt-0.5" numberOfLines={1}>
+ <Text className="text-xxs text-slate-450 font-medium mt-0.5" numberOfLines={1}>
  {branch.address}
  </Text>
  </View>
@@ -329,9 +337,9 @@ export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false}
  {/* Header */}
  <View className="flex-row justify-between items-center mb-3">
  <View>
- <Text className="text-tiny font-extrabold text-slate-450">THÔNG BÁO</Text>
+ <Text className="text-tiny font-semibold text-slate-450">THÔNG BÁO</Text>
  {unreadCount > 0 && (
- <Text className="text-xxs text-orange-500 font-bold mt-0.5">Bạn có {unreadCount} tin chưa đọc</Text>
+ <Text className="text-xxs text-orange-500 font-medium mt-0.5">Bạn có {unreadCount} tin chưa đọc</Text>
  )}
  </View>
  
@@ -343,7 +351,7 @@ export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false}
 }}
  className="bg-slate-50 border border-slate-150 px-2 py-1 rounded-lg active:bg-slate-100"
  >
- <Text className="text-[7.5px] text-slate-500 font-extrabold">ĐỌC TẤT CẢ</Text>
+ <Text className="text-[7.5px] text-slate-500 font-semibold">ĐỌC TẤT CẢ</Text>
  </TouchableOpacity>
  )}
  </View>
@@ -369,7 +377,7 @@ export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false}
  : 'active:bg-slate-100/60'
 }`}
  >
- <Text className={`text-xxs font-extrabold ${isActive ? 'text-orange-500' : 'text-slate-500'}`}>
+ <Text className={`text-xxs font-semibold ${isActive ? 'text-orange-500' : 'text-slate-500'}`}>
  {tab.label}
  </Text>
  </TouchableOpacity>
@@ -436,14 +444,14 @@ export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false}
 
  <View className="flex-1">
  <View className="flex-row justify-between items-center">
- <Text className={`text-tiny font-extrabold ${isUnread ? 'text-slate-800' : 'text-slate-500'}`}>
+ <Text className={`text-tiny font-semibold ${isUnread ? 'text-slate-800' : 'text-slate-500'}`}>
  {n.title}
  </Text>
- <Text className="text-[7.5px] text-slate-400 font-bold">
+ <Text className="text-[7.5px] text-slate-400 font-medium">
  {new Date(n.createdAt).toLocaleTimeString('vi-VN', {hour: '2-digit', minute: '2-digit'})}
  </Text>
  </View>
- <Text className={`text-xxs mt-0.5 font-bold ${isUnread ? 'text-slate-660' : 'text-slate-450'}`} numberOfLines={2}>
+ <Text className={`text-xxs mt-0.5 font-medium ${isUnread ? 'text-slate-660' : 'text-slate-450'}`} numberOfLines={2}>
  {n.description}
  </Text>
  </View>
@@ -458,7 +466,7 @@ export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false}
 }).length === 0 && (
  <View className="py-8 items-center justify-center">
  <Ionicons name="notifications-off-outline" size={24} color="#cbd5e1" />
- <Text className="text-tiny text-slate-400 font-extrabold mt-2">Hộp thư thông báo trống</Text>
+ <Text className="text-tiny text-slate-400 font-semibold mt-2">Hộp thư thông báo trống</Text>
  </View>
  )}
  </ScrollView>

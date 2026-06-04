@@ -147,7 +147,7 @@ export function BarcodeScannerModal({
  return (
  <View className="flex-1 justify-center items-center py-10 bg-slate-50">
  <ActivityIndicator size="large" color="#fa5908" />
- <Text className="text-xs text-slate-500 font-bold mt-3">Đang kết nối camera...</Text>
+ <Text className="text-xs text-slate-500 font-medium mt-3">Đang kết nối camera...</Text>
  </View>
  );
 }
@@ -159,7 +159,7 @@ export function BarcodeScannerModal({
  <View className="bg-orange-50 p-5 rounded-full mb-4 border border-orange-100">
  <Ionicons name="camera-outline" size={48} color="#fa5908" />
  </View>
- <Text className="text-base font-bold text-slate-800 text-center mb-2">
+ <Text className="text-base font-medium text-slate-800 text-center mb-2">
  Yêu cầu quyền truy cập Camera
  </Text>
  <Text className="text-xs text-slate-500 text-center mb-6 leading-relaxed">
@@ -172,7 +172,7 @@ export function BarcodeScannerModal({
  className="bg-orange-500 px-6 py-3 rounded-xl flex-row items-center justify-center active:scale-95"
  >
  <Ionicons name="shield-checkmark-outline" size={18} color="white" />
- <Text className="text-xs font-extrabold text-white ml-2">Cấp quyền Camera</Text>
+ <Text className="text-xs font-semibold text-white ml-2">Cấp quyền Camera</Text>
  </TouchableOpacity>
  </View>
  );
@@ -204,7 +204,7 @@ export function BarcodeScannerModal({
  <View className="bg-orange-50 p-1.5 rounded-lg border border-orange-100 mr-2">
  <Ionicons name="scan-outline" size={18} color="#fa5908" />
  </View>
- <Text className="text-base font-extrabold text-slate-800">
+ <Text className="text-base font-semibold text-slate-800">
  {title}
  </Text>
  </View>
@@ -248,7 +248,7 @@ export function BarcodeScannerModal({
  >
  {/* Top Mask */}
  <View pointerEvents="none" className="w-full flex-1 bg-black/60 justify-center items-center px-4">
- <Text className="text-tiny text-white/90 font-bold bg-orange-600 px-3.5 py-1.5 rounded-full mb-1">
+ <Text className="text-tiny text-white/90 font-medium bg-orange-600 px-3.5 py-1.5 rounded-full mb-1">
  Đặt mã vạch vào khung ngắm
  </Text>
  <Text className="text-[8.5px] text-slate-300 font-semibold text-center mt-1">
@@ -311,7 +311,7 @@ export function BarcodeScannerModal({
  onPress={toggleZoom}
  className={`w-12 h-12 rounded-full items-center justify-center border bg-black/45 border-white/20 active:scale-95`}
  >
- <Text className="text-white text-xs font-extrabold">
+ <Text className="text-white text-xs font-semibold">
  {zoom === 0 ? '1x' : zoom === 0.08 ? '1.5x' : '2x'}
  </Text>
  </TouchableOpacity>
@@ -324,7 +324,7 @@ export function BarcodeScannerModal({
  className="flex-row items-center bg-black/45 border border-white/20 px-4 py-2.5 rounded-xl mb-4"
  >
  <Ionicons name="keypad-outline" size={14} color="white" />
- <Text className="text-tiny font-bold text-white ml-2">
+ <Text className="text-tiny font-medium text-white ml-2">
  {showManualInput ? "Ẩn bàn phím nhập tay" : "Không quét được? Nhập tay"}
  </Text>
  </TouchableOpacity>
@@ -344,7 +344,7 @@ export function BarcodeScannerModal({
  <View className="bg-orange-50 p-4.5 rounded-full border border-orange-100 mb-3">
  <Ionicons name="desktop-outline" size={32} color="#fa5908" />
  </View>
- <Text className="text-sm font-bold text-slate-800 text-center mb-1">
+ <Text className="text-sm font-medium text-slate-800 text-center mb-1">
  Chế độ giả lập & Web
  </Text>
  <Text className="text-[10.5px] text-slate-455 text-center mb-6 max-w-xs leading-relaxed">
@@ -352,7 +352,7 @@ export function BarcodeScannerModal({
  </Text>
  
  <View className="w-full bg-white border border-slate-200 rounded-2xl p-4.5" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 2}, shadowOpacity: 0.04, shadowRadius: 4, elevation: 2}}>
- <Text className="text-[9.5px] text-slate-400 font-bold mb-2">Nhập mã vạch thủ công:</Text>
+ <Text className="text-[9.5px] text-slate-400 font-medium mb-2">Nhập mã vạch thủ công:</Text>
  <View className="flex-row items-center border border-slate-200 rounded-xl px-3 py-1 bg-slate-50 focus-within:border-orange-400">
  <Ionicons name="barcode-outline" size={16} color="#94a3b8" />
  <TextInput
@@ -385,7 +385,7 @@ export function BarcodeScannerModal({
  size={16} 
  color={manualBarcode.trim() ? "white" : "#94a3b8"} 
  />
- <Text className={`text-xs font-extrabold ml-2 ${
+ <Text className={`text-xs font-semibold ml-2 ${
  manualBarcode.trim() ? 'text-white' : 'text-slate-400'
 }`}>
  Xác nhận mã vạch
@@ -401,9 +401,9 @@ export function BarcodeScannerModal({
  {isCameraReady && showManualInput && (
  <View className="absolute bottom-0 left-0 right-0 p-4.5 bg-white border-t border-slate-100 rounded-t-2xl z-20" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: -4}, shadowOpacity: 0.08, shadowRadius: 8, elevation: 10}}>
  <View className="flex-row justify-between items-center mb-2">
- <Text className="text-[9.5px] text-slate-400 font-bold">Nhập mã vạch sản phẩm:</Text>
+ <Text className="text-[9.5px] text-slate-400 font-medium">Nhập mã vạch sản phẩm:</Text>
  <TouchableOpacity onPress={() => setShowManualInput(false)}>
- <Text className="text-tiny text-orange-600 font-bold">Đóng</Text>
+ <Text className="text-tiny text-orange-600 font-medium">Đóng</Text>
  </TouchableOpacity>
  </View>
  <View className="flex-row items-center border border-slate-200 rounded-xl px-3 py-0.5 bg-slate-50">
@@ -431,7 +431,7 @@ export function BarcodeScannerModal({
  manualBarcode.trim() ? 'bg-orange-500' : 'bg-slate-200'
 }`}
  >
- <Text className={`text-tiny font-extrabold ${
+ <Text className={`text-tiny font-semibold ${
  manualBarcode.trim() ? 'text-white' : 'text-slate-450'
 }`}>
  Xác nhận mã

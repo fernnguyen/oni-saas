@@ -173,7 +173,7 @@ export default function CustomersScreen() {
 }`}
  onPress={() => setSelectedFilter('all')}
  >
- <Text className={`text-tiny font-bold ${selectedFilter === 'all' ? 'text-white' : 'text-slate-600'}`}>
+ <Text className={`text-tiny font-medium ${selectedFilter === 'all' ? 'text-white' : 'text-slate-600'}`}>
  Tất cả ({customersList.length})
  </Text>
  </TouchableOpacity>
@@ -188,7 +188,7 @@ export default function CustomersScreen() {
 }`}
  onPress={() => setSelectedFilter(tier)}
  >
- <Text className={`text-tiny font-bold ${selectedFilter === tier ? 'text-white' : 'text-slate-600'}`}>
+ <Text className={`text-tiny font-medium ${selectedFilter === tier ? 'text-white' : 'text-slate-600'}`}>
  {tier}
  </Text>
  </TouchableOpacity>
@@ -200,14 +200,14 @@ export default function CustomersScreen() {
  {isLoading ? (
  <View className="flex-1 justify-center items-center">
  <ActivityIndicator size="large" color="#fa5908" />
- <Text className="text-xs text-slate-450 font-bold mt-2">Đang tải khách hàng...</Text>
+ <Text className="text-xs text-slate-450 font-medium mt-2">Đang tải khách hàng...</Text>
  </View>
  ) : (
  <ScrollView className="flex-1 px-4 pt-4" showsVerticalScrollIndicator={false}>
  {filteredCustomers.length === 0 ? (
  <View className="items-center justify-center py-16 bg-white border border-slate-200 rounded-3xl mt-2">
  <Ionicons name="people-outline" size={48} color="#cbd5e1" />
- <Text className="text-slate-400 font-bold text-xs mt-3">Không tìm thấy khách hàng</Text>
+ <Text className="text-slate-400 font-medium text-xs mt-3">Không tìm thấy khách hàng</Text>
  </View>
  ) : (
  filteredCustomers.map(customer => {
@@ -221,17 +221,17 @@ export default function CustomersScreen() {
  >
  <View className="flex-row items-center flex-1 mr-3">
  <View className="w-11 h-11 rounded-2xl items-center justify-center border-2 mr-3 bg-orange-50 border-orange-200 text-orange-600">
- <Text className="font-bold text-base text-orange-600">{avatarChar}</Text>
+ <Text className="font-medium text-base text-orange-600">{avatarChar}</Text>
  </View>
 
  <View className="flex-shrink-1">
  <View className="flex-row items-center flex-wrap">
- <Text className="font-bold text-sm text-slate-800 mr-2">
+ <Text className="font-medium text-sm text-slate-800 mr-2">
  {customer.name}
  </Text>
  
  <View className="px-1.5 py-0.5 rounded-md border bg-slate-100 border-slate-200">
- <Text className="text-micro font-bold text-slate-500">
+ <Text className="text-micro font-medium text-slate-500">
  {customer.customer_type || 'Thành viên'}
  </Text>
  </View>
@@ -244,19 +244,19 @@ export default function CustomersScreen() {
  </View>
 
  <View className="items-end">
- <Text className="text-xxs font-bold text-slate-400">Tích lũy</Text>
- <Text className="text-slate-800 font-bold text-xs mt-0.5">
+ <Text className="text-xxs font-medium text-slate-400">Tích lũy</Text>
+ <Text className="text-slate-800 font-medium text-xs mt-0.5">
  {formatCurrency(customer.total_spent || 0)}
  </Text>
  
  <View className="flex-row items-center mt-2.5">
  {isPending ? (
  <View className="bg-amber-50 px-2 py-0.5 rounded border border-amber-300 mr-2">
- <Text className="text-micro font-extrabold text-amber-700">Offline</Text>
+ <Text className="text-micro font-semibold text-amber-700">Offline</Text>
  </View>
  ) : (
  <View className="bg-emerald-50 px-2 py-0.5 rounded border border-emerald-300 mr-2">
- <Text className="text-micro font-extrabold text-emerald-700">Synced</Text>
+ <Text className="text-micro font-semibold text-emerald-700">Synced</Text>
  </View>
  )}
 
@@ -294,14 +294,14 @@ export default function CustomersScreen() {
  <View className="flex-1 justify-end bg-black/60">
  <View className="h-[55%] rounded-t-[32px] p-6 justify-between bg-white">
  <View className="flex-row justify-between items-center border-b border-slate-100 pb-3">
- <Text className="text-lg font-bold text-slate-800">Thêm khách hàng mới</Text>
+ <Text className="text-lg font-medium text-slate-800">Thêm khách hàng mới</Text>
  <TouchableOpacity onPress={() => setIsAddModalOpen(false)} className="p-1">
  <Ionicons name="close" size={24} color="#64748b" />
  </TouchableOpacity>
  </View>
 
  <ScrollView className="flex-1 my-4">
- <Text className="text-xs text-slate-500 font-bold mb-1.5">Tên khách hàng</Text>
+ <Text className="text-xs text-slate-500 font-medium mb-1.5">Tên khách hàng</Text>
  <TextInput
  placeholder="Nguyễn Văn A"
  placeholderTextColor="#cbd5e1"
@@ -311,7 +311,7 @@ export default function CustomersScreen() {
  style={{outlineStyle: 'none'} as any}
  />
 
- <Text className="text-xs text-slate-500 font-bold mb-1.5">Số điện thoại</Text>
+ <Text className="text-xs text-slate-500 font-medium mb-1.5">Số điện thoại</Text>
  <TextInput
  placeholder="0909xxxxxx"
  placeholderTextColor="#cbd5e1"
@@ -322,7 +322,7 @@ export default function CustomersScreen() {
  style={{outlineStyle: 'none'} as any}
  />
 
- <Text className="text-xs text-slate-500 font-bold mb-1.5">Hạng thành viên</Text>
+ <Text className="text-xs text-slate-500 font-medium mb-1.5">Hạng thành viên</Text>
  <View className="flex-row justify-between">
  {['Thành viên', 'Thân thiết', 'VIP'].map(tier => (
  <TouchableOpacity
@@ -332,7 +332,7 @@ export default function CustomersScreen() {
 }`}
  onPress={() => setNewCustType(tier)}
  >
- <Text className={`text-tiny font-extrabold ${
+ <Text className={`text-tiny font-semibold ${
  newCustType === tier ? 'text-orange-500' : 'text-slate-500'
 }`}>
  {tier}
@@ -352,7 +352,7 @@ export default function CustomersScreen() {
  ) : (
  <>
  <Ionicons name="checkmark-circle-outline" size={16} color="white" />
- <Text className="text-white font-bold text-sm ml-1.5">Lưu khách hàng (Offline & Sync)</Text>
+ <Text className="text-white font-medium text-sm ml-1.5">Lưu khách hàng (Offline & Sync)</Text>
  </>
  )}
  </TouchableOpacity>

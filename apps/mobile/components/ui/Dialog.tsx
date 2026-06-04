@@ -75,7 +75,7 @@ export function Dialog({
  
  {renderIcon()}
  
- <Text className="text-base font-extrabold text-slate-800 text-center mb-2 leading-tight">
+ <Text className="text-base font-semibold text-slate-800 text-center mb-2 leading-tight">
  {title}
  </Text>
  

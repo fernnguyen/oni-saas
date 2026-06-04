@@ -19,17 +19,18 @@ export function SyncBanner({shopId, forceStatus, onPressSync, isSyncing = false}
 
  // Lắng nghe trạng thái internet trên di động/web đơn giản
  useEffect(() => {
- // Trình duyệt Web hoặc Android/iOS mặc định bắt trạng thái online
- const checkConnectivity = () => {
- if (typeof navigator !== 'undefined') {
- setIsOnline(navigator.onLine);
-}
-};
- 
- checkConnectivity();
- const interval = setInterval(checkConnectivity, 5000);
- return () => clearInterval(interval);
-}, []);
+   const checkConnectivity = () => {
+     if (Platform.OS === 'web' && typeof navigator !== 'undefined') {
+       setIsOnline(navigator.onLine);
+     } else {
+       setIsOnline(true); // Default to true on mobile without NetInfo
+     }
+   };
+   
+   checkConnectivity();
+   const interval = setInterval(checkConnectivity, 5000);
+   return () => clearInterval(interval);
+ }, []);
 
  // Truy vấn SQLite liên tục (mỗi 4 giây) để đếm số đơn hàng chưa đồng bộ
  useEffect(() => {
@@ -60,7 +61,7 @@ export function SyncBanner({shopId, forceStatus, onPressSync, isSyncing = false}
  return (
  <View className="flex-row items-center bg-orange-50 border border-orange-200 px-2.5 py-1 rounded-xl">
  <Ionicons name="sync-outline" size={11} color="#fa5908" className="animate-spin" />
- <Text className="text-xxs font-extrabold text-orange-600 ml-1">
+ <Text className="text-xxs font-semibold text-orange-600 ml-1">
  Đang tải...
  </Text>
  </View>
@@ -98,7 +99,7 @@ export function SyncBanner({shopId, forceStatus, onPressSync, isSyncing = false}
  className="flex-row items-center bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-xl"
  >
  <Ionicons name="cloud-offline-outline" size={11} color="#d97706" />
- <Text className="text-xxs font-bold text-amber-700 ml-1">
+ <Text className="text-xxs font-medium text-amber-700 ml-1">
  Ngoại tuyến {pendingCount > 0 ? `• Hoạt động (${pendingCount} đơn chờ)` : ''}
  </Text>
  </TouchableOpacity>
@@ -113,7 +114,7 @@ export function SyncBanner({shopId, forceStatus, onPressSync, isSyncing = false}
  className="flex-row items-center bg-orange-50 border border-orange-200 px-2.5 py-1 rounded-xl"
  >
  <Ionicons name="sync-outline" size={11} color="#fa5908" className="animate-spin" />
- <Text className="text-xxs font-extrabold text-orange-600 ml-1">
+ <Text className="text-xxs font-semibold text-orange-600 ml-1">
  Chờ đồng bộ ({pendingCount} đơn)
  </Text>
  </TouchableOpacity>
@@ -127,7 +128,7 @@ export function SyncBanner({shopId, forceStatus, onPressSync, isSyncing = false}
  className="flex-row items-center bg-rose-50 border border-rose-200 px-2.5 py-1 rounded-xl"
  >
  <Ionicons name="alert-circle-outline" size={11} color="#e11d48" />
- <Text className="text-xxs font-extrabold text-rose-600 ml-1">
+ <Text className="text-xxs font-semibold text-rose-600 ml-1">
  Lỗi kết nối
  </Text>
  </TouchableOpacity>

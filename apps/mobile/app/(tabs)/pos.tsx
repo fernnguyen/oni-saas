@@ -86,7 +86,7 @@ export function LodgingGuestsForm({
  return (
  <View key={index} className="mb-6 pb-6 border-b border-slate-100 last:border-b-0 animate-fade-in">
  <View className="flex-row justify-between items-center mb-3">
- <Text className="text-sm font-extrabold text-orange-600">Khách lưu trú #{index + 1}:</Text>
+ <Text className="text-sm font-semibold text-orange-600">Khách lưu trú #{index + 1}:</Text>
  {index > 0 && (
  <TouchableOpacity 
  activeOpacity={0.7}
@@ -104,7 +104,7 @@ export function LodgingGuestsForm({
 
  {/* Field 1: Họ và tên */}
  <View className="mt-3">
- <Text className="text-xs text-slate-500 font-bold mb-1.5">Họ và tên:</Text>
+ <Text className="text-xs text-slate-500 font-medium mb-1.5">Họ và tên:</Text>
  <TextInput
  className="bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-800 font-semibold h-[44px]"
  placeholder="Nhập họ và tên..."
@@ -117,7 +117,7 @@ export function LodgingGuestsForm({
 
  {/* Field 2: Loại giấy tờ */}
  <View className="mt-3">
- <Text className="text-xs text-slate-500 font-bold mb-1.5">Loại giấy tờ:</Text>
+ <Text className="text-xs text-slate-500 font-medium mb-1.5">Loại giấy tờ:</Text>
  <View className="flex-row bg-slate-100 p-1 rounded-xl border border-slate-200 mt-1 h-[44px] items-center">
  {idTypes.map(type => {
  const isSelected = (guest.id_type || 'CCCD') === type;
@@ -131,7 +131,7 @@ export function LodgingGuestsForm({
 }`}
  style={isSelected ? {shadowColor: '#000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.05, shadowRadius: 1, elevation: 1} : undefined}
  >
- <Text className={`text-xs font-extrabold ${isSelected ? 'text-slate-850' : 'text-slate-500'}`}>
+ <Text className={`text-xs font-semibold ${isSelected ? 'text-slate-850' : 'text-slate-500'}`}>
  {type}
  </Text>
  </TouchableOpacity>
@@ -142,7 +142,7 @@ export function LodgingGuestsForm({
 
  {/* Field 3: Số giấy tờ */}
  <View className="mt-3">
- <Text className="text-xs text-slate-500 font-bold mb-1.5">Số giấy tờ (CCCD/CMND/Hộ chiếu):</Text>
+ <Text className="text-xs text-slate-500 font-medium mb-1.5">Số giấy tờ (CCCD/CMND/Hộ chiếu):</Text>
  <TextInput
  className="bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-800 font-semibold h-[44px]"
  placeholder="Nhập số giấy tờ..."
@@ -156,7 +156,7 @@ export function LodgingGuestsForm({
  {/* Field 4 & 5 Row: Ngày hết hạn & Quốc tịch */}
  <View className="flex-row gap-3 mt-3">
  <View className="flex-1">
- <Text className="text-xs text-slate-500 font-bold mb-1.5">Ngày hết hạn:</Text>
+ <Text className="text-xs text-slate-500 font-medium mb-1.5">Ngày hết hạn:</Text>
  <TouchableOpacity
  activeOpacity={0.8}
  onPress={() => onPressDateInput(index, 'expiry_date', guest.expiry_date || '')}
@@ -169,7 +169,7 @@ export function LodgingGuestsForm({
  </TouchableOpacity>
  </View>
  <View className="flex-1">
- <Text className="text-xs text-slate-500 font-bold mb-1.5">Quốc tịch:</Text>
+ <Text className="text-xs text-slate-500 font-medium mb-1.5">Quốc tịch:</Text>
  <TextInput
  className="bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-800 font-semibold h-[44px]"
  placeholder="Quốc tịch..."
@@ -184,7 +184,7 @@ export function LodgingGuestsForm({
  {/* Field 6 & 7 Row: Ngày sinh & Giới tính */}
  <View className="flex-row gap-3 mt-3">
  <View className="flex-1">
- <Text className="text-xs text-slate-500 font-bold mb-1.5">Ngày sinh:</Text>
+ <Text className="text-xs text-slate-500 font-medium mb-1.5">Ngày sinh:</Text>
  <TouchableOpacity
  activeOpacity={0.8}
  onPress={() => onPressDateInput(index, 'dob', guest.dob || '')}
@@ -197,7 +197,7 @@ export function LodgingGuestsForm({
  </TouchableOpacity>
  </View>
  <View className="flex-1">
- <Text className="text-xs text-slate-500 font-bold mb-1.5">Giới tính:</Text>
+ <Text className="text-xs text-slate-500 font-medium mb-1.5">Giới tính:</Text>
  {Platform.OS === 'web' ? (
  <View className="bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 flex-row justify-between items-center h-[44px] relative">
  <select
@@ -230,7 +230,7 @@ export function LodgingGuestsForm({
 
  {/* Field 8: Ghi chú */}
  <View className="mt-3">
- <Text className="text-xs text-slate-500 font-bold mb-1.5">Ghi chú:</Text>
+ <Text className="text-xs text-slate-500 font-medium mb-1.5">Ghi chú:</Text>
  <TextInput
  className="bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-800 font-semibold h-[44px]"
  placeholder="Ghi chú thêm..."
@@ -255,7 +255,7 @@ export function LodgingGuestsForm({
  className="flex-row items-center justify-center bg-orange-50 border border-orange-100 py-3.5 rounded-xl mt-2 active:bg-orange-100"
  >
  <Ionicons name="add-circle" size={18} color="#fa5908" />
- <Text className="text-xs font-extrabold text-orange-600 ml-2">Thêm khách lưu trú</Text>
+ <Text className="text-xs font-semibold text-orange-600 ml-2">Thêm khách lưu trú</Text>
  </TouchableOpacity>
  </View>
  );
@@ -326,7 +326,7 @@ export default function PosScreen() {
  size={18} 
  color="white" 
  />
- <Text className="flex-1 ml-2.5 text-white font-bold text-xs">
+ <Text className="flex-1 ml-2.5 text-white font-medium text-xs">
  {toastMsg.message}
  </Text>
  </Animated.View>
@@ -339,26 +339,26 @@ export default function PosScreen() {
  <View style={{position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.5)', zIndex: 999999, justifyContent: 'center', alignItems: 'center'}}>
  <View className="w-full max-w-[340px] bg-white rounded-3xl p-5 shadow-2xl items-center border border-slate-100 overflow-hidden">
  {/* Modal Title */}
- <Text className="text-xs font-extrabold text-slate-400 mb-3">
+ <Text className="text-xs font-semibold text-slate-400 mb-3">
  {pickerTargetField === 'dob' ? 'Chọn ngày sinh' : 'Chọn ngày hết hạn'}
  </Text>
 
  {/* Premium Header Display */}
  <View className="flex-row items-center justify-center bg-orange-50/50 rounded-2xl w-full py-3 mb-4 border border-orange-100/50">
- <Text className="text-orange-500 text-2xl font-extrabold">
+ <Text className="text-orange-500 text-2xl font-semibold">
  {pickerDay.toString().padStart(2, '0')}
  </Text>
- <Text className="text-slate-300 text-xl font-bold mx-2">/</Text>
- <Text className="text-orange-500 text-2xl font-extrabold">
+ <Text className="text-slate-300 text-xl font-medium mx-2">/</Text>
+ <Text className="text-orange-500 text-2xl font-semibold">
  {pickerMonth.toString().padStart(2, '0')}
  </Text>
- <Text className="text-slate-300 text-xl font-bold mx-2">/</Text>
+ <Text className="text-slate-300 text-xl font-medium mx-2">/</Text>
  <TouchableOpacity 
  activeOpacity={0.7}
  onPress={() => setDatePickerView(prev => prev === 'calendar' ? 'year' : 'calendar')}
  className="bg-orange-100 px-2 py-0.5 rounded-lg border border-orange-200"
  >
- <Text className="text-orange-600 text-xl font-extrabold">
+ <Text className="text-orange-600 text-xl font-semibold">
  {pickerYear} ⚙️
  </Text>
  </TouchableOpacity>
@@ -387,7 +387,7 @@ export default function PosScreen() {
  activeOpacity={0.7}
  onPress={() => setDatePickerView('year')}
  >
- <Text className="text-xs font-extrabold text-slate-700">
+ <Text className="text-xs font-semibold text-slate-700">
  Tháng {pickerMonth.toString().padStart(2, '0')}, {pickerYear}
  </Text>
  </TouchableOpacity>
@@ -412,7 +412,7 @@ export default function PosScreen() {
  <View className="flex-row justify-start w-full mb-1">
  {['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'].map((w, wi) => (
  <View key={wi} className="w-[14.28%] items-center justify-center py-1">
- <Text className="text-tiny text-slate-400 font-bold">{w}</Text>
+ <Text className="text-tiny text-slate-400 font-medium">{w}</Text>
  </View>
  ))}
  </View>
@@ -442,8 +442,8 @@ export default function PosScreen() {
  <View className={`w-full h-full items-center justify-center rounded-full ${
  isSelected ? 'bg-orange-500' : 'bg-transparent active:bg-slate-100'
 }`}>
- <Text className={`text-xs font-bold ${
- isSelected ? 'text-white font-extrabold' : 'text-slate-700'
+ <Text className={`text-xs font-medium ${
+ isSelected ? 'text-white font-semibold' : 'text-slate-700'
 }`}>
  {d}
  </Text>
@@ -459,13 +459,13 @@ export default function PosScreen() {
  <View className="w-full">
  {/* Header for Year Picker */}
  <View className="flex-row justify-between items-center mb-3.5 px-2">
- <Text className="text-xs font-extrabold text-slate-700">Chọn năm sinh/hạn giấy tờ:</Text>
+ <Text className="text-xs font-semibold text-slate-700">Chọn năm sinh/hạn giấy tờ:</Text>
  <TouchableOpacity 
  activeOpacity={0.7}
  onPress={() => setDatePickerView('calendar')}
  className="bg-orange-50 border border-orange-100 px-2 py-1 rounded-lg"
  >
- <Text className="text-orange-600 text-tiny font-extrabold">← Lịch</Text>
+ <Text className="text-orange-600 text-tiny font-semibold">← Lịch</Text>
  </TouchableOpacity>
  </View>
 
@@ -491,8 +491,8 @@ export default function PosScreen() {
  <View className={`py-2 rounded-xl items-center justify-center ${
  isSelected ? 'bg-orange-500' : 'bg-white border border-slate-200 active:bg-orange-50'
 }`}>
- <Text className={`text-xs font-bold ${
- isSelected ? 'text-white font-extrabold' : 'text-slate-700'
+ <Text className={`text-xs font-medium ${
+ isSelected ? 'text-white font-semibold' : 'text-slate-700'
 }`}>
  {y}
  </Text>
@@ -515,7 +515,7 @@ export default function PosScreen() {
  onPress={() => setIsDatePickerOpen(false)}
  className="flex-1 py-3 bg-slate-100 rounded-xl items-center justify-center border border-slate-200"
  >
- <Text className="text-slate-600 text-xs font-extrabold">Hủy bỏ</Text>
+ <Text className="text-slate-600 text-xs font-semibold">Hủy bỏ</Text>
  </TouchableOpacity>
  <TouchableOpacity
  activeOpacity={0.8}
@@ -531,7 +531,7 @@ export default function PosScreen() {
 }}
  className="flex-1 py-3 bg-orange-500 rounded-xl items-center justify-center shadow-lg shadow-orange-500/20"
  >
- <Text className="text-white text-xs font-extrabold">Xác nhận</Text>
+ <Text className="text-white text-xs font-semibold">Xác nhận</Text>
  </TouchableOpacity>
  </View>
  </View>
@@ -560,9 +560,11 @@ export default function PosScreen() {
  const [cart, setCart] = useState<{[key: string]: {name: string; price: number; quantity: number}}>({});
  const [activeTable, setActiveTable] = useState<any>(null);
  const [isScannerOpen, setIsScannerOpen] = useState(false);
- const [syncStatus, setSyncStatus] = useState<'synced' | 'pending'>('synced');
- const [isSavingCart, setIsSavingCart] = useState(false);
- const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+
+  const [isSavingCart, setIsSavingCart] = useState(false);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  
+
 
  // Tìm kiếm Nhanh & Phân trang Lazy Load
  const [productSearchQuery, setProductSearchQuery] = useState('');
@@ -808,7 +810,6 @@ export default function PosScreen() {
  let cats = [];
  let resources = [];
  let customers = [];
- let hasPending = false;
 
  if (Platform.OS === 'web') {
  // Tải dữ liệu thực tế từ REST API (Next.js) trên môi trường Web để tránh placeholder mock
@@ -944,12 +945,6 @@ export default function PosScreen() {
  cats = await db.select().from(schema.categories);
  resources = await db.select().from(schema.location_resources);
  customers = await db.select().from(schema.customers);
-
- const pendingOrdersCount = await db
- .select()
- .from(schema.orders)
- .where(eq(schema.orders.sync_status, 'pending'));
- hasPending = pendingOrdersCount.length > 0;
 }
 
  if (isMounted) {
@@ -957,7 +952,6 @@ export default function PosScreen() {
  setCategoriesList(cats);
  setTables(resources);
  setCustomersList(customers);
- setSyncStatus(hasPending ? 'pending' : 'synced');
  setIsLoading(false);
 }
 } catch (error) {
@@ -1821,7 +1815,6 @@ export default function PosScreen() {
 
  const updated = await db.select().from(schema.location_resources);
  setTables(updated);
- setSyncStatus('pending');
 }
 
  // B. Đồng bộ trực tiếp lên Cloud Next.js Server nếu đang có mạng
@@ -1914,12 +1907,6 @@ export default function PosScreen() {
  .update(schema.orders)
  .set({sync_status: 'synced'})
  .where(eq(schema.orders.id, orderId));
- 
- const pendingOrdersCount = await db
- .select()
- .from(schema.orders)
- .where(eq(schema.orders.sync_status, 'pending'));
- setSyncStatus(pendingOrdersCount.length > 0 ? 'pending' : 'synced');
 }
 }
 }
@@ -2034,7 +2021,6 @@ export default function PosScreen() {
 
  const updatedProds = await db.select().from(schema.products);
  setProductsList(updatedProds);
- setSyncStatus('pending');
 
  SyncManager.pushOfflineOrders(shopId);
 }
@@ -2055,7 +2041,7 @@ export default function PosScreen() {
  setQrPayload({amount: transferAmount, orderNo: orderNo});
  setIsQrModalOpen(true);
 } else {
- alert(`Thanh toán đơn hàng ${orderNo} thành công và đang đồng bộ lên server.`);
+ showToast(`Đã thanh toán Hóa đơn ${orderNo} thành công! Đang đồng bộ...`);
 }
 } catch (err) {
  console.error('Lỗi khi thanh toán đơn lẻ SQLite:', err);
@@ -2102,7 +2088,7 @@ export default function PosScreen() {
  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
  setIsScanSuccessDialogVisible(true);
 } else {
- Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+ Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Warning).catch(() => {});
  if (Platform.OS === 'web') {
  alert(`Không tìm thấy sản phẩm có mã vạch hoặc SKU: "${barcodeData}"`);
 } else {
@@ -2134,16 +2120,17 @@ export default function PosScreen() {
 });
 
  const displayedProducts = filteredProducts.slice(0, displayLimit);
-
- if (!isNavReady) {
+if (!isNavReady) {
  return <View style={{flex: 1, backgroundColor: '#f8fafc'}} />;
 }
+
+
 
  return (
  <SafeAreaView edges={['top', 'left', 'right']} className="flex-1 bg-slate-50">
  
  {/* 1. SHARED HEADER - Thống nhất 100% */}
- <Header onPressMenu={() => setIsDrawerOpen(true)} syncStatus={syncStatus === 'synced' ? 'synced' : 'pending'} />
+ <Header onPressMenu={() => setIsDrawerOpen(true)} />
 
  {/* 2. CHỌN NGÀNH HÀNG/TAB DỌC - Giảm bo góc về rounded-xl, thay thế Emoji bằng Ionicons */}
  <View className="py-2.5 px-4 bg-slate-50 border-b border-slate-100">
@@ -2165,7 +2152,7 @@ export default function PosScreen() {
  onPress={() => setActiveVertical('retail')}
  >
  <Ionicons name="cart-outline" size={14} color={activeVertical === 'retail' ? 'white' : '#fa5908'} className="mr-1.5" />
- <Text className={`font-extrabold text-tiny ${activeVertical === 'retail' ? 'text-white' : 'text-slate-600'}`}>
+ <Text className={`font-semibold text-tiny ${activeVertical === 'retail' ? 'text-white' : 'text-slate-600'}`}>
  Bán lẻ & Món ăn
  </Text>
  </TouchableOpacity>
@@ -2197,7 +2184,7 @@ export default function PosScreen() {
  color={activeVertical !== 'retail' ? 'white' : '#fa5908'} 
  className="mr-1.5" 
  />
- <Text className={`font-extrabold text-tiny ${activeVertical !== 'retail' ? 'text-white' : 'text-slate-600'}`}>
+ <Text className={`font-semibold text-tiny ${activeVertical !== 'retail' ? 'text-white' : 'text-slate-600'}`}>
  {
  shopVertical === 'fnb' ? 'Bàn Cafe' :
  shopVertical === 'sports_court' ? 'Sơ đồ Sân' :
@@ -2252,8 +2239,8 @@ export default function PosScreen() {
  <View className="bg-orange-50 border border-orange-200 p-3.5 rounded-xl flex-row justify-between items-center mb-3">
  <View className="flex-row items-center flex-1 mr-4">
  <Ionicons name="fast-food" size={16} color="#fa5908" />
- <Text className="text-xs font-extrabold text-slate-800 ml-2" numberOfLines={1}>
- Đang chọn món cho: <Text className="text-orange-600 font-bold">{cartOwnerTable.name}</Text>
+ <Text className="text-xs font-semibold text-slate-800 ml-2" numberOfLines={1}>
+ Đang chọn món cho: <Text className="text-orange-600 font-medium">{cartOwnerTable.name}</Text>
  </Text>
  </View>
  
@@ -2268,7 +2255,7 @@ export default function PosScreen() {
  setActiveVertical(shopVertical);
 }}
  >
- <Text className="text-xxs font-extrabold text-slate-600">Hủy</Text>
+ <Text className="text-xxs font-semibold text-slate-600">Hủy</Text>
  </TouchableOpacity>
 
  <TouchableOpacity 
@@ -2296,7 +2283,7 @@ export default function PosScreen() {
  showToast("Đã lưu và đồng bộ món thành công!", "success");
 }}
  >
- <Text className="text-xxs font-extrabold text-white">Lưu món</Text>
+ <Text className="text-xxs font-semibold text-white">Lưu món</Text>
  </TouchableOpacity>
  </View>
  </View>
@@ -2342,7 +2329,7 @@ export default function PosScreen() {
  setDisplayLimit(20);
 }}
  >
- <Text className={`text-xxs font-extrabold ${selectedCategoryId === 'all' ? 'text-orange-500' : 'text-slate-500'}`}>
+ <Text className={`text-xxs font-semibold ${selectedCategoryId === 'all' ? 'text-orange-500' : 'text-slate-500'}`}>
  Tất cả ({productsList.length})
  </Text>
  </TouchableOpacity>
@@ -2361,7 +2348,7 @@ export default function PosScreen() {
  setDisplayLimit(20);
 }}
  >
- <Text className={`text-xxs font-extrabold ${selectedCategoryId === cat.id ? 'text-orange-500' : 'text-slate-500'}`}>
+ <Text className={`text-xxs font-semibold ${selectedCategoryId === cat.id ? 'text-orange-500' : 'text-slate-500'}`}>
  {cat.name}
  </Text>
  </TouchableOpacity>
@@ -2395,7 +2382,7 @@ export default function PosScreen() {
  {filteredProducts.length === 0 ? (
  <View className="items-center justify-center py-16 bg-white border border-slate-100 rounded-2xl mt-2">
  <Ionicons name="basket-outline" size={32} color="#cbd5e1" />
- <Text className="text-xs text-slate-400 font-bold mt-2">Không tìm thấy sản phẩm nào.</Text>
+ <Text className="text-xs text-slate-400 font-medium mt-2">Không tìm thấy sản phẩm nào.</Text>
  </View>
  ) : (
  <View className="flex-row flex-wrap justify-between pb-28">
@@ -2421,15 +2408,15 @@ export default function PosScreen() {
  )}
  </View>
  
- <Text className="font-extrabold text-xs text-slate-900" numberOfLines={1}>
+ <Text className="font-semibold text-xs text-slate-800" numberOfLines={1}>
  {p.name}
  </Text>
- <Text className="text-xxs text-slate-400 font-bold mt-0.5">
+ <Text className="text-xxs text-slate-400 font-medium mt-0.5">
  Kho: {p.stock_qty} | {p.unit || 'cái'}
  </Text>
  
  <View className="flex-row justify-between items-center mt-2.5">
- <Text className="text-orange-500 font-extrabold text-xs">
+ <Text className="text-orange-500 font-semibold text-xs">
  {formatCurrency(p.sell_price)}
  </Text>
  
@@ -2446,7 +2433,7 @@ export default function PosScreen() {
  ) : (
  // 🎱 PHÂN HỆ ĐẶC THÙ PHÒNG BÀN (BI-A / CAFE / SÂN / PHÒNG NGHỈ)
  <ScrollView className="flex-1 px-4 pt-3" showsVerticalScrollIndicator={false}>
- <Text className="text-xxs font-extrabold text-slate-450 mb-3 px-1">
+ <Text className="text-xxs font-semibold text-slate-450 mb-3 px-1">
  {
  shopVertical === 'fnb' ? 'Sơ đồ bàn Cafe hoạt động' :
  shopVertical === 'sports_court' ? 'Sơ đồ sân thể thao / sân bóng' :
@@ -2458,7 +2445,7 @@ export default function PosScreen() {
  {tables.length === 0 ? (
  <View className="items-center justify-center py-16 bg-white border border-slate-100 rounded-2xl">
  <Ionicons name="football-outline" size={36} color="#cbd5e1" />
- <Text className="text-xs text-slate-400 font-bold mt-2">Không tìm thấy bàn nào.</Text>
+ <Text className="text-xs text-slate-400 font-medium mt-2">Không tìm thấy bàn nào.</Text>
  </View>
  ) : (
  <View className="pb-28">
@@ -2466,10 +2453,10 @@ export default function PosScreen() {
  <View key={zoneName} className="mb-6">
  {/* Tiêu đề Khu vực/Tầng */}
  <View className="flex-row items-center justify-between mb-3 px-1">
- <Text className="text-xs font-extrabold text-slate-700">
+ <Text className="text-xs font-semibold text-slate-700">
  🏢 {zoneName}
  </Text>
- <Text className="text-tiny text-slate-400 font-bold">
+ <Text className="text-tiny text-slate-400 font-medium">
  {zoneTables.length} {shopVertical === 'fnb' ? 'vị trí' : shopVertical === 'sports_court' ? 'sân' : shopVertical === 'lodging' ? 'phòng' : 'bàn'}
  </Text>
  </View>
@@ -2511,7 +2498,7 @@ export default function PosScreen() {
 
  <View className="p-3.5 flex-1 justify-between">
  {/* Tiêu đề vị trí */}
- <Text className="font-bold text-xs text-slate-800 mb-1.5">
+ <Text className="font-medium text-xs text-slate-800 mb-1.5">
  {t.name}
  </Text>
 
@@ -2519,14 +2506,14 @@ export default function PosScreen() {
  <View className="mb-2">
  <View className="flex-row items-center mb-0.5">
  <Ionicons name="person-outline" size={10} color="#94a3b8" />
- <Text className="text-xxs text-slate-455 font-bold ml-1">
+ <Text className="text-xxs text-slate-455 font-medium ml-1">
  {t.capacity || '4'} người
  </Text>
  </View>
 
  <View className="flex-row items-center mb-0.5">
  <Ionicons name="time-outline" size={10} color="#94a3b8" />
- <Text className="text-xxs text-slate-455 font-bold ml-1">
+ <Text className="text-xxs text-slate-455 font-medium ml-1">
  {formatCurrency(t.hourly_rate)}/h
  </Text>
  </View>
@@ -2534,7 +2521,7 @@ export default function PosScreen() {
  {shopVertical === 'lodging' && (
  <View className="flex-row items-center">
  <Ionicons name="moon-outline" size={10} color="#94a3b8" />
- <Text className="text-xxs text-slate-455 font-bold ml-1">
+ <Text className="text-xxs text-slate-455 font-medium ml-1">
  {formatCurrency(t.hourly_rate * 3 || 200000)}/đêm
  </Text>
  </View>
@@ -2544,13 +2531,13 @@ export default function PosScreen() {
  {/* Tiện ích tags */}
  <View className="flex-row flex-wrap gap-1 mb-2.5">
  <View className="bg-slate-50 border border-slate-100 px-1 py-0.5 rounded">
- <Text className="text-[7.5px] font-bold text-slate-400">Điều hòa</Text>
+ <Text className="text-[7.5px] font-medium text-slate-400">Điều hòa</Text>
  </View>
  <View className="bg-slate-50 border border-slate-100 px-1 py-0.5 rounded">
- <Text className="text-[7.5px] font-bold text-slate-400">WiFi</Text>
+ <Text className="text-[7.5px] font-medium text-slate-400">WiFi</Text>
  </View>
  <View className="bg-slate-50 border border-slate-100 px-1 py-0.5 rounded">
- <Text className="text-[7.5px] font-extrabold text-slate-400">+4</Text>
+ <Text className="text-[7.5px] font-semibold text-slate-400">+4</Text>
  </View>
  </View>
 
@@ -2563,15 +2550,15 @@ export default function PosScreen() {
  borderColor: 'rgba(244, 63, 94, 0.15)', // border-rose-200 mờ nhạt
 }}
  >
- <Text className="text-[8.5px] text-rose-700 font-extrabold">
+ <Text className="text-[8.5px] text-rose-700 font-semibold">
  ⏱️ Đã dùng: {billing.hours}h {billing.minutes}m
  </Text>
- <Text className="text-xxs text-rose-700 font-extrabold mt-0.5">
+ <Text className="text-xxs text-rose-700 font-semibold mt-0.5">
  💵 Tiền giờ: {formatCurrency(billing.cost)}
  </Text>
  {cartItemsCount > 0 && (
  <Text 
- className="text-xxs text-slate-550 font-extrabold mt-0.5 pt-0.5 border-t"
+ className="text-xxs text-slate-550 font-semibold mt-0.5 pt-0.5 border-t"
  style={{borderTopColor: 'rgba(244, 63, 94, 0.15)'}}
  >
  🍴 Đã gọi: {cartItemsCount} món
@@ -2584,7 +2571,7 @@ export default function PosScreen() {
  <View className={`w-full py-2 rounded-lg items-center justify-center border ${
  isActive ? 'bg-rose-100/30 border-rose-200' : 'bg-slate-50 border-slate-200'
 }`}>
- <Text className={`text-tiny font-extrabold ${
+ <Text className={`text-tiny font-semibold ${
  isActive ? 'text-rose-600' : 'text-emerald-600'
 }`} numberOfLines={1}>
  {isActive ? guestName : 'Trống'}
@@ -2606,7 +2593,7 @@ export default function PosScreen() {
  onPress={handleRefresh}
  >
  <Ionicons name="refresh-circle-outline" size={20} color="#fa5908" />
- <Text className="text-xs font-extrabold text-slate-700 ml-2">Đồng bộ lại sơ đồ {shopVertical === 'lodging' ? 'phòng nghỉ' : shopVertical === 'sports_court' ? 'sân chơi' : shopVertical === 'fnb' ? 'bàn cafe' : 'bàn bi-a'}</Text>
+ <Text className="text-xs font-semibold text-slate-700 ml-2">Đồng bộ lại sơ đồ {shopVertical === 'lodging' ? 'phòng nghỉ' : shopVertical === 'sports_court' ? 'sân chơi' : shopVertical === 'fnb' ? 'bàn cafe' : 'bàn bi-a'}</Text>
  </TouchableOpacity>
  </View>
  </View>
@@ -2621,12 +2608,12 @@ export default function PosScreen() {
  <View className="bg-orange-50 p-2.5 rounded-xl mr-3 relative border border-orange-100">
  <Ionicons name="cart" size={18} color="#fa5908" />
  <View className="absolute -top-1 -right-1 items-center justify-center border border-white" style={{width: 16, height: 16, borderRadius: 8, backgroundColor: '#fa5908'}}>
- <Text className="text-xxs text-white font-extrabold text-center leading-none">{getCartCount()}</Text>
+ <Text className="text-xxs text-white font-semibold text-center leading-none">{getCartCount()}</Text>
  </View>
  </View>
  <View>
- <Text className="text-xxs font-extrabold text-slate-455">Tổng cộng</Text>
- <Text className="text-orange-500 font-extrabold text-base">{formatCurrency(getCartTotal())}</Text>
+ <Text className="text-xxs font-semibold text-slate-455">Tổng cộng</Text>
+ <Text className="text-orange-500 font-semibold text-base">{formatCurrency(getCartTotal())}</Text>
  </View>
  </View>
 
@@ -2680,7 +2667,7 @@ export default function PosScreen() {
  <View className="flex-row justify-between items-center border-b border-slate-100 pb-4">
  <View className="flex-row items-center">
  <Ionicons name="enter-outline" size={20} color="#fa5908" />
- <Text className="text-sm font-extrabold text-slate-800 ml-2">
+ <Text className="text-sm font-semibold text-slate-800 ml-2">
  {selectedTableForOpen 
  ? `Nhận ${shopVertical === 'fnb' ? 'Bàn' : shopVertical === 'sports_court' ? 'Sân' : shopVertical === 'lodging' ? 'Phòng' : 'Bàn'} - ${selectedTableForOpen.name}`
  : 'Nhận vị trí mới'}
@@ -2701,7 +2688,7 @@ export default function PosScreen() {
  checkInTab === 'info' ? 'bg-white border border-slate-200' : 'bg-transparent'
 }`}
  >
- <Text className={`text-xs font-extrabold ${checkInTab === 'info' ? 'text-slate-800' : 'text-slate-500'}`}>
+ <Text className={`text-xs font-semibold ${checkInTab === 'info' ? 'text-slate-800' : 'text-slate-500'}`}>
  Thông tin nhận
  </Text>
  </TouchableOpacity>
@@ -2712,7 +2699,7 @@ export default function PosScreen() {
  checkInTab === 'guests' ? 'bg-white border border-slate-200' : 'bg-transparent'
 }`}
  >
- <Text className={`text-xs font-extrabold ${checkInTab === 'guests' ? 'text-slate-800' : 'text-slate-500'}`}>
+ <Text className={`text-xs font-semibold ${checkInTab === 'guests' ? 'text-slate-800' : 'text-slate-500'}`}>
  {`Khách lưu trú (${lodgingGuests.filter(g => g.name || g.id_number || g.idCard).length})`}
  </Text>
  </TouchableOpacity>
@@ -2725,8 +2712,8 @@ export default function PosScreen() {
  {/* Bảng giá giờ */}
  {selectedTableForOpen && (
  <View className="bg-orange-50 border border-orange-100 p-4 rounded-2xl mb-4">
- <Text className="text-tiny text-orange-700 font-bold">Hình thức hoạt động:</Text>
- <Text className="text-orange-950 font-extrabold text-sm mt-1">
+ <Text className="text-tiny text-orange-700 font-medium">Hình thức hoạt động:</Text>
+ <Text className="text-orange-950 font-semibold text-sm mt-1">
  Tính phí theo thời gian sử dụng
  </Text>
  <Text className="text-tiny text-slate-500 mt-2 font-semibold">
@@ -2736,13 +2723,13 @@ export default function PosScreen() {
  )}
 
  {/* CHỌN KHÁCH HÀNG CRM (Premium component replicated) */}
- <Text className="text-tiny text-slate-400 font-bold mb-2">Thông tin Khách hàng (CRM):</Text>
+ <Text className="text-tiny text-slate-400 font-medium mb-2">Thông tin Khách hàng (CRM):</Text>
  <View className="mb-4">
  {selectedCustomer ? (
  <View className="flex-row justify-between items-center bg-slate-50 border border-slate-200 p-3 rounded-xl">
  <View className="flex-1 mr-4">
- <Text className="text-xs font-extrabold text-slate-800">{selectedCustomer.name}</Text>
- <Text className="text-tiny text-slate-500 font-bold mt-0.5">📞 {selectedCustomer.phone}</Text>
+ <Text className="text-xs font-semibold text-slate-800">{selectedCustomer.name}</Text>
+ <Text className="text-tiny text-slate-500 font-medium mt-0.5">📞 {selectedCustomer.phone}</Text>
  {selectedCustomer.address ? (
  <Text className="text-[9.5px] text-slate-400 font-semibold mt-1">📍 {selectedCustomer.address}</Text>
  ) : null}
@@ -2798,7 +2785,7 @@ export default function PosScreen() {
 }}
  >
  <View>
- <Text className="text-xs font-bold text-slate-800">{cust.name}</Text>
+ <Text className="text-xs font-medium text-slate-800">{cust.name}</Text>
  <Text className="text-tiny text-slate-400 mt-0.5">{cust.phone}</Text>
  </View>
  <Badge variant="primary" label={cust.customer_type || 'Thành viên'} size="sm" />
@@ -2812,19 +2799,19 @@ export default function PosScreen() {
  {/* THÔNG TIN LOẠI THUÊ (Dành riêng cho khách sạn) */}
  {shopVertical === 'lodging' && (
  <View className="mt-2">
- <Text className="text-tiny text-slate-400 font-bold mb-1.5">Hình thức thuê:</Text>
+ <Text className="text-tiny text-slate-400 font-medium mb-1.5">Hình thức thuê:</Text>
  <View className="flex-row bg-slate-100 p-0.5 rounded-lg border border-slate-200">
  <TouchableOpacity 
  onPress={() => setRoomRentalType('hourly')}
  className={`flex-1 py-1.5 items-center justify-center rounded-md ${roomRentalType === 'hourly' ? 'bg-white' : ''}`}
  >
- <Text className="text-tiny font-extrabold text-slate-700">Theo giờ</Text>
+ <Text className="text-tiny font-semibold text-slate-700">Theo giờ</Text>
  </TouchableOpacity>
  <TouchableOpacity 
  onPress={() => setRoomRentalType('daily')}
  className={`flex-1 py-1.5 items-center justify-center rounded-md ${roomRentalType === 'daily' ? 'bg-white' : ''}`}
  >
- <Text className="text-tiny font-extrabold text-slate-700">Theo ngày</Text>
+ <Text className="text-tiny font-semibold text-slate-700">Theo ngày</Text>
  </TouchableOpacity>
  </View>
  </View>
@@ -2911,7 +2898,7 @@ export default function PosScreen() {
  <View className="flex-row justify-between items-center mb-4 border-b border-slate-100 pb-2">
  <View className="flex-row items-center">
  <Ionicons name="time" size={18} color="#fa5908" />
- <Text className="text-base font-extrabold text-slate-800 ml-2">
+ <Text className="text-base font-semibold text-slate-800 ml-2">
  {activeTable.name} ({
  shopVertical === 'fnb' ? 'Có khách' :
  shopVertical === 'sports_court' ? 'Sân đang đá' :
@@ -2935,7 +2922,7 @@ export default function PosScreen() {
  activeTableTab === 'billing' ? 'bg-white border border-slate-200' : 'bg-transparent'
 }`}
  >
- <Text className={`text-xs font-extrabold ${activeTableTab === 'billing' ? 'text-slate-800' : 'text-slate-500'}`}>
+ <Text className={`text-xs font-semibold ${activeTableTab === 'billing' ? 'text-slate-800' : 'text-slate-500'}`}>
  Dịch vụ phòng
  </Text>
  </TouchableOpacity>
@@ -2946,7 +2933,7 @@ export default function PosScreen() {
  activeTableTab === 'guests' ? 'bg-white border border-slate-200' : 'bg-transparent'
 }`}
  >
- <Text className={`text-xs font-extrabold ${activeTableTab === 'guests' ? 'text-slate-800' : 'text-slate-500'}`}>
+ <Text className={`text-xs font-semibold ${activeTableTab === 'guests' ? 'text-slate-800' : 'text-slate-500'}`}>
  {`Khách lưu trú (${lodgingGuests.filter(g => g.name || g.id_number || g.idCard).length})`}
  </Text>
  </TouchableOpacity>
@@ -2959,10 +2946,10 @@ export default function PosScreen() {
  {/* Tình trạng tiền giờ */}
  <View className="bg-orange-50 border border-orange-100 p-4 rounded-xl mb-4">
  <View className="flex-row justify-between items-center">
- <Text className="text-xxs text-slate-455 font-extrabold">Phí dịch vụ giờ lẻ:</Text>
+ <Text className="text-xxs text-slate-455 font-semibold">Phí dịch vụ giờ lẻ:</Text>
  <Badge variant="primary" label={formatCurrency(activeTable.hourly_rate) + '/' + (shopVertical === 'lodging' ? 'ngày' : 'giờ')} size="sm" />
  </View>
- <Text className="text-orange-500 text-3xl font-extrabold mt-1.5">
+ <Text className="text-orange-500 text-3xl font-semibold mt-1.5">
  {formatCurrency(calculateBilling(activeTable).cost)}
  </Text>
  <Text className="text-[9.5px] text-slate-500 mt-3 font-semibold leading-relaxed">
@@ -2973,14 +2960,14 @@ export default function PosScreen() {
  {/* CHI TIẾT MÓN / DỊCH VỤ ĐÃ GỌI KÈM */}
  {tableCarts[activeTable.id] && Object.keys(tableCarts[activeTable.id]).length > 0 ? (
  <View className="mb-4">
- <Text className="text-tiny text-slate-400 font-bold mb-2">Món ăn / Dịch vụ đã gọi:</Text>
+ <Text className="text-tiny text-slate-400 font-medium mb-2">Món ăn / Dịch vụ đã gọi:</Text>
  <View className="bg-slate-50 border border-slate-200 rounded-xl p-3 max-h-32 overflow-hidden">
  <ScrollView nestedScrollEnabled={true}>
  {Object.entries(tableCarts[activeTable.id]).map(([pId, item]) => (
  <View key={pId} className="flex-row justify-between items-center py-1.5 border-b border-slate-100 last:border-0">
  <Text className="text-xs font-semibold text-slate-700 flex-1 mr-2" numberOfLines={1}>{item.name}</Text>
- <Text className="text-tiny text-slate-500 font-bold mr-3">x{item.quantity}</Text>
- <Text className="text-xs font-extrabold text-slate-800">{formatCurrency(item.price * item.quantity)}</Text>
+ <Text className="text-tiny text-slate-500 font-medium mr-3">x{item.quantity}</Text>
+ <Text className="text-xs font-semibold text-slate-800">{formatCurrency(item.price * item.quantity)}</Text>
  </View>
  ))}
  </ScrollView>
@@ -2989,7 +2976,7 @@ export default function PosScreen() {
  ) : null}
 
  {/* MENU CHỨC NĂNG PHỤ TRỢ (Như Web) */}
- <Text className="text-tiny text-slate-400 font-bold mb-2">Thao tác nghiệp vụ:</Text>
+ <Text className="text-tiny text-slate-400 font-medium mb-2">Thao tác nghiệp vụ:</Text>
  <View className="flex-row flex-wrap gap-2.5 mb-5 justify-between">
  {/* 1. Gọi món / dịch vụ */}
  <TouchableOpacity 
@@ -3004,7 +2991,7 @@ export default function PosScreen() {
 }}
  >
  <Ionicons name="fast-food-outline" size={16} color="#fa5908" />
- <Text className="text-tiny font-extrabold text-slate-700 ml-2">Gọi món / Dịch vụ</Text>
+ <Text className="text-tiny font-semibold text-slate-700 ml-2">Gọi món / Dịch vụ</Text>
  </TouchableOpacity>
 
  {/* 2. Đổi phòng/bàn */}
@@ -3013,11 +3000,11 @@ export default function PosScreen() {
  className="w-[47%] bg-slate-50 border border-slate-200 p-2.5 rounded-xl flex-row items-center active:bg-slate-100"
  onPress={() => {
  const label = shopVertical === 'lodging' ? 'Phòng' : shopVertical === 'sports_court' ? 'Sân' : shopVertical === 'fnb' ? 'Bàn' : 'Bàn';
- alert(`Chức năng Đổi ${label} đang đồng bộ với Cloud.`);
+ showToast(`Chức năng Đổi ${label} đang đồng bộ với Cloud.`);
 }}
  >
  <Ionicons name="swap-horizontal" size={16} color="#0284c7" />
- <Text className="text-tiny font-extrabold text-slate-700 ml-2">Đổi {shopVertical === 'lodging' ? 'Phòng' : shopVertical === 'sports_court' ? 'Sân' : shopVertical === 'fnb' ? 'Bàn' : 'Bàn'}</Text>
+ <Text className="text-tiny font-semibold text-slate-700 ml-2">Đổi {shopVertical === 'lodging' ? 'Phòng' : shopVertical === 'sports_court' ? 'Sân' : shopVertical === 'fnb' ? 'Bàn' : 'Bàn'}</Text>
  </TouchableOpacity>
 
  {/* 3. Gộp phòng/bàn */}
@@ -3026,11 +3013,11 @@ export default function PosScreen() {
  className="w-[47%] bg-slate-50 border border-slate-200 p-2.5 rounded-xl flex-row items-center active:bg-slate-100"
  onPress={() => {
  const label = shopVertical === 'lodging' ? 'Phòng' : shopVertical === 'sports_court' ? 'Sân' : shopVertical === 'fnb' ? 'Bàn' : 'Bàn';
- alert(`Chức năng Gộp ${label} đang đồng bộ với Cloud.`);
+ showToast(`Chức năng Gộp ${label} đang đồng bộ với Cloud.`);
 }}
  >
  <Ionicons name="git-merge-outline" size={16} color="#059669" />
- <Text className="text-tiny font-extrabold text-slate-700 ml-2">Gộp {shopVertical === 'lodging' ? 'Phòng' : shopVertical === 'sports_court' ? 'Sân' : shopVertical === 'fnb' ? 'Bàn' : 'Bàn'}</Text>
+ <Text className="text-tiny font-semibold text-slate-700 ml-2">Gộp {shopVertical === 'lodging' ? 'Phòng' : shopVertical === 'sports_court' ? 'Sân' : shopVertical === 'fnb' ? 'Bàn' : 'Bàn'}</Text>
  </TouchableOpacity>
 
  {/* 4. Hủy đơn / Trả phòng trống */}
@@ -3123,7 +3110,7 @@ export default function PosScreen() {
 }}
  >
  <Ionicons name="close-circle-outline" size={16} color="#e11d48" />
- <Text className="text-tiny font-extrabold text-rose-700 ml-2">Hủy / Trả trống</Text>
+ <Text className="text-tiny font-semibold text-rose-700 ml-2">Hủy / Trả trống</Text>
  </TouchableOpacity>
  </View>
  </View>
@@ -3181,7 +3168,7 @@ export default function PosScreen() {
  <View className="flex-row justify-between items-center border-b border-slate-100 pb-4">
  <View className="flex-row items-center">
  <Ionicons name="wallet-outline" size={20} color="#fa5908" />
- <Text className="text-sm font-extrabold text-slate-800 ml-2">
+ <Text className="text-sm font-semibold text-slate-800 ml-2">
  Thanh toán đơn hàng ({getCartCount()} món)
  </Text>
  </View>
@@ -3196,17 +3183,17 @@ export default function PosScreen() {
  {/* 1. KHÁCH HÀNG (CRM) */}
  <View className="bg-slate-50 border rounded-xl p-4 mb-4">
  <View className="flex-row justify-between items-center mb-2">
- <Text className="text-xxs font-extrabold text-slate-400">Khách hàng</Text>
+ <Text className="text-xxs font-semibold text-slate-400">Khách hàng</Text>
  {!selectedCustomer && (
- <Text className="text-xs font-bold text-slate-600">Khách lẻ</Text>
+ <Text className="text-xs font-medium text-slate-600">Khách lẻ</Text>
  )}
  </View>
 
  {selectedCustomer ? (
  <View className="bg-white border border-slate-200 rounded-xl p-3.5 flex-row justify-between items-center" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2}}>
  <View className="flex-1 mr-4">
- <Text className="text-xs font-extrabold text-slate-800">{selectedCustomer.name}</Text>
- <Text className="text-tiny text-slate-500 font-bold mt-1">📞 {selectedCustomer.phone}</Text>
+ <Text className="text-xs font-semibold text-slate-800">{selectedCustomer.name}</Text>
+ <Text className="text-tiny text-slate-500 font-medium mt-1">📞 {selectedCustomer.phone}</Text>
  {selectedCustomer.address ? (
  <Text className="text-[9.5px] text-slate-400 font-semibold mt-1">📍 {selectedCustomer.address}</Text>
  ) : null}
@@ -3265,7 +3252,7 @@ export default function PosScreen() {
 }}
  >
  <View>
- <Text className="text-xs font-bold text-slate-800">{cust.name}</Text>
+ <Text className="text-xs font-medium text-slate-800">{cust.name}</Text>
  <Text className="text-tiny text-slate-400 mt-0.5">{cust.phone}</Text>
  </View>
  <Badge variant="primary" label={cust.customer_type || 'Thành viên'} size="sm" />
@@ -3281,12 +3268,12 @@ export default function PosScreen() {
  {Object.entries(cart).map(([prodId, item], idx) => (
  <View key={prodId} className={`flex-row justify-between items-center py-2.5 ${idx > 0 ? 'border-t border-slate-100' : ''}`}>
  <View className="flex-1 mr-4">
- <Text className="font-bold text-xs text-slate-800" numberOfLines={1}>{item.name}</Text>
- <Text className="text-tiny text-slate-500 font-bold mt-0.5">
+ <Text className="font-medium text-xs text-slate-800" numberOfLines={1}>{item.name}</Text>
+ <Text className="text-tiny text-slate-500 font-medium mt-0.5">
  {formatCurrency(item.price)} x {item.quantity} {productsList.find(pr => pr.id === prodId)?.unit || 'cái'}
  </Text>
  </View>
- <Text className="font-extrabold text-xs text-slate-850">
+ <Text className="font-semibold text-xs text-slate-850">
  {formatCurrency(item.price * item.quantity)}
  </Text>
  </View>
@@ -3297,11 +3284,11 @@ export default function PosScreen() {
  className="flex-row justify-between items-center py-2.5 border-t border-dashed border-slate-200 mt-2 active:opacity-60"
  onPress={() => setIsEditingDiscount(prev => !prev)}
  >
- <Text className="text-xs text-slate-450 font-bold">Giảm giá (Chạm để sửa):</Text>
+ <Text className="text-xs text-slate-450 font-medium">Giảm giá (Chạm để sửa):</Text>
  {isEditingDiscount ? (
  <View className="flex-row items-center bg-slate-50 border border-slate-200 rounded-xl px-2 py-0.5">
  <TextInput
- className="text-right text-xs font-extrabold text-slate-800 w-28 py-0.5"
+ className="text-right text-xs font-semibold text-slate-800 w-28 py-0.5"
  keyboardType="numeric"
  placeholder="0"
  placeholderTextColor="#cbd5e1"
@@ -3316,7 +3303,7 @@ export default function PosScreen() {
  />
  </View>
  ) : (
- <Text className="text-xs text-rose-500 font-extrabold">
+ <Text className="text-xs text-rose-500 font-semibold">
  -{formatCurrency(discountAmount)}
  </Text>
  )}
@@ -3324,8 +3311,8 @@ export default function PosScreen() {
 
  {/* Hàng Tổng cộng */}
  <View className="flex-row justify-between items-center py-2.5 border-t border-slate-200">
- <Text className="text-xs text-slate-800 font-extrabold">Tổng cộng:</Text>
- <Text className="text-orange-500 font-extrabold text-base">
+ <Text className="text-xs text-slate-800 font-semibold">Tổng cộng:</Text>
+ <Text className="text-orange-500 font-semibold text-base">
  {formatCurrency(Math.max(0, getCartTotal() - discountAmount))}
  </Text>
  </View>
@@ -3349,7 +3336,7 @@ export default function PosScreen() {
  {/* 4. CHIA PHƯƠNG THỨC THANH TOÁN (SPLIT PAYMENT) */}
  <View className="bg-white border border-slate-100 rounded-xl p-4 mb-4" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2}}>
  <View className="flex-row justify-between items-center mb-3">
- <Text className="text-xxs font-extrabold text-slate-455">Phương thức thanh toán</Text>
+ <Text className="text-xxs font-semibold text-slate-455">Phương thức thanh toán</Text>
  <TouchableOpacity 
  className="flex-row items-center"
  onPress={() => {
@@ -3363,7 +3350,7 @@ export default function PosScreen() {
 }}
  >
  <Ionicons name="add-circle-outline" size={13} color="#fa5908" />
- <Text className="text-xs font-extrabold text-orange-500 ml-1">+ Thêm</Text>
+ <Text className="text-xs font-semibold text-orange-500 ml-1">+ Thêm</Text>
  </TouchableOpacity>
  </View>
 
@@ -3378,7 +3365,7 @@ export default function PosScreen() {
  setOpenDropdownRowId(openDropdownRowId === row.id ? null : row.id);
 }}
  >
- <Text className="text-tiny font-extrabold text-slate-700">{row.method}</Text>
+ <Text className="text-tiny font-semibold text-slate-700">{row.method}</Text>
  <Ionicons name="chevron-down" size={11} color="#fa5908" />
  </TouchableOpacity>
 
@@ -3406,7 +3393,7 @@ export default function PosScreen() {
  setOpenDropdownRowId(null);
 }}
  >
- <Text className={`text-tiny ${m === row.method ? 'font-extrabold text-orange-500' : 'font-bold text-slate-700'}`}>
+ <Text className={`text-tiny ${m === row.method ? 'font-semibold text-orange-500' : 'font-medium text-slate-700'}`}>
  {m}
  </Text>
  </TouchableOpacity>
@@ -3418,7 +3405,7 @@ export default function PosScreen() {
  {/* Số tiền với nút tự điền tiền còn lại */}
  <View className="w-[52%] bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 flex-row items-center">
  <TextInput
- className="flex-1 text-right text-xs font-extrabold text-slate-800"
+ className="flex-1 text-right text-xs font-semibold text-slate-800"
  keyboardType="numeric"
  value={row.amount === 0 ? '' : maskCurrencyInput(row.amount.toString())}
  onChangeText={(val) => {
@@ -3438,7 +3425,7 @@ export default function PosScreen() {
  setPaymentRows(prev => prev.map((r, i) => i === idx ? {...r, amount: remaining} : r));
 }}
  >
- <Text className="text-xxs font-extrabold text-orange-600">Còn lại</Text>
+ <Text className="text-xxs font-semibold text-orange-600">Còn lại</Text>
  </TouchableOpacity>
  </View>
 
@@ -3459,8 +3446,8 @@ export default function PosScreen() {
  {/* Dòng tiền chi tiết */}
  <View className="w-full flex-row items-center border border-orange-100 px-3 py-1 rounded-xl mt-1.5">
  <Ionicons name="chevron-forward-circle-outline" size={11} color="#fa5908" />
- <Text className="text-xxs text-slate-500 font-bold ml-1.5">
- Dẫn vào: <Text className="font-bold text-orange-700">{
+ <Text className="text-xxs text-slate-500 font-medium ml-1.5">
+ Dẫn vào: <Text className="font-medium text-orange-700">{
  row.method === 'Tiền mặt' ? 'Két tiền tại quầy' :
  row.method === 'Chuyển khoản' ? 'MB Bank (ONI ERP)' :
  row.method === 'Thẻ ATM' ? 'Vietcombank (POS)' :
@@ -3474,8 +3461,8 @@ export default function PosScreen() {
  </View>
 
  <View className="bg-emerald-50 border border-emerald-100 rounded-xl p-4 mb-4 flex-row justify-between items-center" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2}}>
- <Text className="text-xs text-emerald-800 font-extrabold">Khách trả:</Text>
- <Text className="text-emerald-700 text-sm font-extrabold">
+ <Text className="text-xs text-emerald-800 font-semibold">Khách trả:</Text>
+ <Text className="text-emerald-700 text-sm font-semibold">
  {formatCurrency(paymentRows.reduce((sum, p) => sum + p.amount, 0))}
  </Text>
  </View>
@@ -3541,7 +3528,7 @@ export default function PosScreen() {
  
  {/* Header */}
  <View className="w-full flex-row justify-between items-center mb-4">
- <Text className="text-sm font-extrabold text-slate-800">Dynamic QR Code</Text>
+ <Text className="text-sm font-semibold text-slate-800">Dynamic QR Code</Text>
  <TouchableOpacity onPress={() => setIsQrModalOpen(false)} className="p-1">
  <Ionicons name="close" size={22} color="#64748b" />
  </TouchableOpacity>
@@ -3550,9 +3537,9 @@ export default function PosScreen() {
  {/* MB Bank Card Graphic */}
  <View className="w-full bg-slate-900 p-4 rounded-xl mb-4 relative overflow-hidden" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2}}>
  <View className="absolute w-24 h-24 rounded-full -top-10 -left-10" />
- <Text className="text-micro font-extrabold">MB BANK INTERCONNECT</Text>
- <Text className="text-white text-xs font-bold mt-2">CONG TY TNHH ONI ERP</Text>
- <Text className="text-sm font-extrabold mt-0.5">8888 9999 6666</Text>
+ <Text className="text-micro font-semibold">MB BANK INTERCONNECT</Text>
+ <Text className="text-white text-xs font-medium mt-2">CONG TY TNHH ONI ERP</Text>
+ <Text className="text-sm font-semibold mt-0.5">8888 9999 6666</Text>
  </View>
 
  {/* QR Image Frame */}
@@ -3564,20 +3551,20 @@ export default function PosScreen() {
  />
  
  <View className="absolute bg-orange-500 px-3 py-1 rounded-full border-2 border-white -bottom-2.5" style={{backgroundColor: '#fa5908'}}>
- <Text className="text-white text-micro font-extrabold">VietQR ONIPay</Text>
+ <Text className="text-white text-micro font-semibold">VietQR ONIPay</Text>
  </View>
  </View>
 
  {/* Details */}
  <View className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3.5 mb-5">
  <View className="flex-row justify-between mb-1.5">
- <Text className="text-xxs text-slate-400 font-bold">Số tiền thanh toán:</Text>
- <Text className="text-orange-500 text-xs font-extrabold">{formatCurrency(qrPayload.amount)}</Text>
+ <Text className="text-xxs text-slate-400 font-medium">Số tiền thanh toán:</Text>
+ <Text className="text-orange-500 text-xs font-semibold">{formatCurrency(qrPayload.amount)}</Text>
  </View>
 
  <View className="flex-row justify-between">
- <Text className="text-xxs text-slate-400 font-bold">Nội dung chuyển:</Text>
- <Text className="text-slate-800 text-xs font-extrabold">{qrPayload.orderNo}</Text>
+ <Text className="text-xxs text-slate-400 font-medium">Nội dung chuyển:</Text>
+ <Text className="text-slate-800 text-xs font-semibold">{qrPayload.orderNo}</Text>
  </View>
  </View>
 
@@ -3606,7 +3593,7 @@ export default function PosScreen() {
  <View style={{position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255, 255, 255, 0.65)', zIndex: 99999, justifyContent: 'center', alignItems: 'center'}}>
  <View className="bg-slate-900 border border-slate-800 px-6 py-4 rounded-2xl flex-row items-center shadow-2xl">
  <ActivityIndicator size="small" color="#f97316" />
- <Text className="text-white text-xs font-extrabold ml-3">Đang đồng bộ món ăn lên Cloud...</Text>
+ <Text className="text-white text-xs font-semibold ml-3">Đang đồng bộ món ăn lên Cloud...</Text>
  </View>
  </View>
  )}

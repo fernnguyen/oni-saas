@@ -192,7 +192,7 @@ export default function SelectBranchScreen() {
  onPress={() => router.back()}
  >
  <Ionicons name="arrow-back" size={20} color="#64748b" />
- <Text className="text-slate-500 text-xs font-bold ml-1">Quay lại</Text>
+ <Text className="text-slate-500 text-xs font-medium ml-1">Quay lại</Text>
  </TouchableOpacity>
 
  {/* Nút bật tắt cấu hình API thủ công */}
@@ -204,7 +204,7 @@ export default function SelectBranchScreen() {
  </TouchableOpacity>
  </View>
 
- <Text className="text-xl font-bold text-slate-800">Chọn chi nhánh làm việc</Text>
+ <Text className="text-xl font-medium text-slate-800">Chọn chi nhánh làm việc</Text>
  <Text className="text-xs text-slate-450 mt-1 font-semibold leading-relaxed">
  Vui lòng chọn cơ sở kinh doanh để tải dữ liệu SQLite ngoại tuyến đầu ca làm việc.
  </Text>
@@ -215,9 +215,9 @@ export default function SelectBranchScreen() {
  <View className="bg-white p-4.5 rounded-3xl border border-slate-200 shadow-sm mt-4">
  <View className="flex-row items-center mb-2">
  <Ionicons name="settings" size={16} color="#fa5908" />
- <Text className="text-xs font-bold text-slate-800 ml-1.5">Cấu hình Địa chỉ REST API</Text>
+ <Text className="text-xs font-medium text-slate-800 ml-1.5">Cấu hình Địa chỉ REST API</Text>
  </View>
- <Text className="text-tiny text-slate-400 font-bold mb-3 leading-relaxed">
+ <Text className="text-tiny text-slate-400 font-medium mb-3 leading-relaxed">
  Nếu chạy cổng khác (như 3001) hoặc Expo Go trên thiết bị thật, hãy nhập IP LAN của máy tính chạy webapp (ví dụ: http://192.168.1.5:3001) thay cho localhost.
  </Text>
  <View className="flex-row">
@@ -226,7 +226,7 @@ export default function SelectBranchScreen() {
  onChangeText={setApiUrlInput}
  placeholder="http://localhost:3000"
  placeholderTextColor="#94a3b8"
- className="flex-1 bg-slate-50 border border-slate-200 px-3.5 py-2 rounded-xl text-xs font-bold text-slate-800 mr-2"
+ className="flex-1 bg-slate-50 border border-slate-200 px-3.5 py-2 rounded-xl text-xs font-medium text-slate-800 mr-2"
  autoCapitalize="none"
  keyboardType="url"
  style={{outlineStyle: 'none'} as any}
@@ -235,7 +235,7 @@ export default function SelectBranchScreen() {
  className="bg-orange-500 px-4 py-2 rounded-xl justify-center shadow-sm"
  onPress={handleSaveApiUrl}
  >
- <Text className="text-white text-xs font-extrabold">Lưu & Thử lại</Text>
+ <Text className="text-white text-xs font-semibold">Lưu & Thử lại</Text>
  </TouchableOpacity>
  </View>
  </View>
@@ -245,17 +245,17 @@ export default function SelectBranchScreen() {
  {isLoading ? (
  <View className="flex-1 justify-center items-center">
  <ActivityIndicator size="large" color="#fa5908" />
- <Text className="text-xs text-slate-500 font-bold mt-3">Đang kết nối API tìm chi nhánh...</Text>
+ <Text className="text-xs text-slate-500 font-medium mt-3">Đang kết nối API tìm chi nhánh...</Text>
  </View>
  ) : branches.length === 0 ? (
  <View className="flex-1 justify-center items-center">
  <Ionicons name="storefront-outline" size={48} color="#cbd5e1" />
- <Text className="text-xs text-slate-450 font-bold mt-3 text-center">Không tìm thấy chi nhánh hoạt động nào.</Text>
+ <Text className="text-xs text-slate-450 font-medium mt-3 text-center">Không tìm thấy chi nhánh hoạt động nào.</Text>
  <TouchableOpacity 
  className="mt-4 bg-orange-500 px-4 py-2 rounded-xl"
  onPress={() => setRefreshTrigger(p => p + 1)}
  >
- <Text className="text-white text-xs font-bold">Thử lại</Text>
+ <Text className="text-white text-xs font-medium">Thử lại</Text>
  </TouchableOpacity>
  </View>
  ) : (
@@ -289,12 +289,12 @@ export default function SelectBranchScreen() {
  />
  </View>
  <View>
- <Text className={`text-xs font-bold ${
+ <Text className={`text-xs font-medium ${
  isSelected ? 'text-orange-500' : 'text-slate-800'
 }`}>
  {branch.name}
  </Text>
- <Text className="text-xxs text-slate-455 font-bold mt-0.5">
+ <Text className="text-xxs text-slate-455 font-medium mt-0.5">
  SĐT: {branch.phone}
  </Text>
  </View>
@@ -308,12 +308,12 @@ export default function SelectBranchScreen() {
  )
  ) : (
  <View className="bg-slate-200 px-2 py-0.5 rounded-lg">
- <Text className="text-xxs font-bold text-slate-500">TẠM KHÓA</Text>
+ <Text className="text-xxs font-medium text-slate-500">TẠM KHÓA</Text>
  </View>
  )}
  </View>
 
- <Text className="text-tiny text-slate-400 font-bold leading-relaxed ml-11">
+ <Text className="text-tiny text-slate-400 font-medium leading-relaxed ml-11">
  📍 {branch.address}
  </Text>
  </TouchableOpacity>
@@ -327,7 +327,7 @@ export default function SelectBranchScreen() {
  {isSyncing ? (
  <View className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm mb-2 items-center w-full" style={{alignSelf: 'stretch'}}>
  <ActivityIndicator size="small" color="#fa5908" className="mb-2" />
- <Text className="text-slate-700 font-bold text-xs">Đang nạp dữ liệu SQLite: {Math.round(syncProgress * 100)}%</Text>
+ <Text className="text-slate-700 font-medium text-xs">Đang nạp dữ liệu SQLite: {Math.round(syncProgress * 100)}%</Text>
  <View style={{alignSelf: 'stretch', height: 6, backgroundColor: '#f1f5f9', borderRadius: 3, overflow: 'hidden', marginTop: 8}}>
  <View style={{height: '100%', backgroundColor: '#fa5908', width: `${Math.min(100, Math.max(0, syncProgress * 100))}%`}} />
  </View>
@@ -339,7 +339,7 @@ export default function SelectBranchScreen() {
  onPress={handleStartSession}
  disabled={isLoading || branches.length === 0}
  >
- <Text className="text-white font-bold text-sm mr-1.5">Bắt đầu ca làm việc</Text>
+ <Text className="text-white font-medium text-sm mr-1.5">Bắt đầu ca làm việc</Text>
  <Ionicons name="play" size={16} color="white" />
  </TouchableOpacity>
  )}

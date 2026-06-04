@@ -72,13 +72,13 @@ export function DrawerMenu({visible, onClose, branchName = 'Chi nhánh chính'}:
  </View>
  <View className="flex-1">
  {/* Tăng kích cỡ chữ lớn hơn, in đậm sắc nét */}
- <Text className="font-extrabold text-xs text-slate-800">
+ <Text className="font-semibold text-xs text-slate-800">
  {label}
  </Text>
  </View>
  {isComingSoon ? (
  <View className="bg-amber-50 border border-amber-200 px-1 rounded-md">
- <Text className="text-micro text-amber-700 font-bold">COMING</Text>
+ <Text className="text-micro text-amber-700 font-medium">COMING</Text>
  </View>
  ) : (
  <Ionicons name="chevron-forward" size={11} color="#94a3b8" />
@@ -120,8 +120,8 @@ export function DrawerMenu({visible, onClose, branchName = 'Chi nhánh chính'}:
  style={{width: 38, height: 38, resizeMode: 'contain', marginRight: 10}} 
  />
  <View>
- <Text className="text-xs font-extrabold text-slate-800">ONI miniERP</Text>
- <Text className="text-xxs font-bold text-slate-400 mt-0.5" numberOfLines={1}>
+ <Text className="text-xs font-semibold text-slate-800">ONI miniERP</Text>
+ <Text className="text-xxs font-medium text-slate-400 mt-0.5" numberOfLines={1}>
  {branchName}
  </Text>
  </View>
@@ -130,7 +130,7 @@ export function DrawerMenu({visible, onClose, branchName = 'Chi nhánh chính'}:
  <View className="h-0.5 w-full bg-slate-100 my-3" />
 
  {/* Danh sách phân hệ ERP */}
- <Text className="text-xxs font-extrabold text-slate-400 mb-2 px-1.5">
+ <Text className="text-xxs font-semibold text-slate-400 mb-2 px-1.5">
  Phân hệ quản trị
  </Text>
  
@@ -150,8 +150,8 @@ export function DrawerMenu({visible, onClose, branchName = 'Chi nhánh chính'}:
  <Ionicons name="person-outline" size={13} color="#fa5908" />
  </View>
  <View className="flex-1">
- <Text className="font-bold text-xxs text-slate-700">Staff Thu Ngân</Text>
- <Text className="text-micro text-slate-400 font-bold mt-0.5">Mobile Cashier</Text>
+ <Text className="font-medium text-xxs text-slate-700">Staff Thu Ngân</Text>
+ <Text className="text-micro text-slate-400 font-medium mt-0.5">Mobile Cashier</Text>
  </View>
  </View>
  
@@ -161,7 +161,7 @@ export function DrawerMenu({visible, onClose, branchName = 'Chi nhánh chính'}:
  className="mt-3 flex-row items-center justify-center border border-slate-200 py-2.5 rounded-lg active:bg-slate-50"
  >
  <Ionicons name="close" size={12} color="#64748b" />
- <Text className="text-slate-500 font-bold text-xxs ml-1.5">Đóng Menu</Text>
+ <Text className="text-slate-500 font-medium text-xxs ml-1.5">Đóng Menu</Text>
  </TouchableOpacity>
  </View>
 

@@ -49,7 +49,7 @@ export function Button({
 
  // Xác định các lớp CSS NativeWind tương ứng
  let containerStyles = 'flex-row items-center justify-center rounded-2xl active:scale-[0.98] transition-transform ';
- let textStyles = 'font-bold ';
+ let textStyles = 'font-medium ';
 
  // Cấu hình Biến thể màu sắc
  if (disabled) {

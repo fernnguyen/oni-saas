@@ -207,21 +207,21 @@ export default function OrdersScreen() {
  {/* 2. THỐNG KÊ DOANH THU NHANH CA - Giảm góc bo về rounded-2xl */}
  <View className="p-4 flex-row justify-between">
  <View className="flex-1 mr-2 p-3 rounded-2xl border bg-white border-slate-100 shadow-sm justify-between">
- <Text className="text-xxs font-extrabold text-slate-400">Tổng doanh số ca</Text>
- <Text className="text-orange-500 font-extrabold text-xs mt-1.5">{formatCurrency(totalRevenue)}</Text>
- <Text className="text-xxs text-slate-455 font-bold mt-0.5">{filteredOrders.length} hóa đơn</Text>
+ <Text className="text-xxs font-semibold text-slate-400">Tổng doanh số ca</Text>
+ <Text className="text-orange-500 font-semibold text-xs mt-1.5">{formatCurrency(totalRevenue)}</Text>
+ <Text className="text-xxs text-slate-455 font-medium mt-0.5">{filteredOrders.length} hóa đơn</Text>
  </View>
 
  <View className="flex-1 mx-1 p-3 rounded-2xl border bg-white border-slate-100 shadow-sm justify-between">
- <Text className="text-xxs font-extrabold text-emerald-600">Đã đồng bộ</Text>
- <Text className="text-emerald-700 font-extrabold text-xs mt-1.5">{syncedCount}</Text>
- <Text className="text-xxs text-slate-455 font-bold mt-0.5">Lưu đám mây</Text>
+ <Text className="text-xxs font-semibold text-emerald-600">Đã đồng bộ</Text>
+ <Text className="text-emerald-700 font-semibold text-xs mt-1.5">{syncedCount}</Text>
+ <Text className="text-xxs text-slate-455 font-medium mt-0.5">Lưu đám mây</Text>
  </View>
 
  <View className="flex-1 ml-2 p-3 rounded-2xl border bg-white border-slate-100 shadow-sm justify-between">
- <Text className="text-xxs font-extrabold text-amber-600">Chờ đồng bộ</Text>
- <Text className="text-amber-700 font-extrabold text-xs mt-1.5">{pendingCount}</Text>
- <Text className="text-xxs text-slate-455 font-bold mt-0.5">Pending offline</Text>
+ <Text className="text-xxs font-semibold text-amber-600">Chờ đồng bộ</Text>
+ <Text className="text-amber-700 font-semibold text-xs mt-1.5">{pendingCount}</Text>
+ <Text className="text-xxs text-slate-455 font-medium mt-0.5">Pending offline</Text>
  </View>
  </View>
 
@@ -257,7 +257,7 @@ export default function OrdersScreen() {
 }`}
  onPress={() => setSelectedShift(shift.id)}
  >
- <Text className={`text-xxs font-extrabold ${
+ <Text className={`text-xxs font-semibold ${
  selectedShift === shift.id ? 'text-white' : 'text-slate-500'
 }`}>
  {shift.label}
@@ -277,7 +277,7 @@ export default function OrdersScreen() {
 }`}
  onPress={() => setSelectedStatus('all')}
  >
- <Text className={`text-xxs font-extrabold ${
+ <Text className={`text-xxs font-semibold ${
  selectedStatus === 'all' ? 'text-white' : 'text-slate-500'
 }`}>
  Tất cả
@@ -292,7 +292,7 @@ export default function OrdersScreen() {
 }`}
  onPress={() => setSelectedStatus('synced')}
  >
- <Text className={`text-xxs font-extrabold ${
+ <Text className={`text-xxs font-semibold ${
  selectedStatus === 'synced' ? 'text-white' : 'text-emerald-700'
 }`}>
  Đã sync ({syncedCount})
@@ -307,7 +307,7 @@ export default function OrdersScreen() {
 }`}
  onPress={() => setSelectedStatus('pending')}
  >
- <Text className={`text-xxs font-extrabold ${
+ <Text className={`text-xxs font-semibold ${
  selectedStatus === 'pending' ? 'text-white' : 'text-amber-700'
 }`}>
  Chờ sync ({pendingCount})
@@ -321,7 +321,7 @@ export default function OrdersScreen() {
  {filteredOrders.length === 0 ? (
  <View className="py-12 items-center justify-center bg-white rounded-2xl border border-slate-100 mt-2 shadow-sm">
  <Ionicons name="receipt-outline" size={36} color="#cbd5e1" />
- <Text className="text-xs text-slate-455 font-bold mt-3">Không tìm thấy hóa đơn nào phù hợp</Text>
+ <Text className="text-xs text-slate-455 font-medium mt-3">Không tìm thấy hóa đơn nào phù hợp</Text>
  </View>
  ) : (
  filteredOrders.map(order => {
@@ -337,11 +337,11 @@ export default function OrdersScreen() {
  >
  <View className="flex-1 mr-3">
  <View className="flex-row items-center">
- <Text className="text-xs font-extrabold text-slate-800">
+ <Text className="text-xs font-semibold text-slate-800">
  {order.order_no || order.id.substring(0, 12)}
  </Text>
  <View className="mx-1.5 w-1 h-1 bg-slate-300 rounded-full" />
- <Text className="text-tiny text-slate-500 font-bold" numberOfLines={1}>
+ <Text className="text-tiny text-slate-500 font-medium" numberOfLines={1}>
  {order.customer_name || 'Khách mua lẻ'}
  </Text>
  </View>
@@ -357,14 +357,14 @@ export default function OrdersScreen() {
  size="sm" 
  />
 
- <Text className="text-xxs text-slate-500 font-bold ml-3.5">
+ <Text className="text-xxs text-slate-500 font-medium ml-3.5">
  💳 {getPaymentMethodDisplay(order.payment_method)}
  </Text>
  </View>
  </View>
 
  <View className="items-end">
- <Text className="text-orange-500 font-extrabold text-xs">
+ <Text className="text-orange-500 font-semibold text-xs">
  {formatCurrency(order.total_amount)}
  </Text>
  
@@ -383,7 +383,7 @@ export default function OrdersScreen() {
  size={11} 
  color="white" 
  />
- <Text className="text-white text-xxs font-extrabold ml-1.5">
+ <Text className="text-white text-xxs font-semibold ml-1.5">
  {isSyncingOrder === order.id ? 'Sync...' : 'Sync'}
  </Text>
  </TouchableOpacity>
@@ -413,7 +413,7 @@ export default function OrdersScreen() {
  <View className="flex-row justify-between items-center border-b border-slate-100 pb-4">
  <View>
  <View className="flex-row items-center">
- <Text className="text-sm font-extrabold text-slate-800">
+ <Text className="text-sm font-semibold text-slate-800">
  {selectedOrder.order_no || selectedOrder.id.substring(0, 12)}
  </Text>
  <Badge 
@@ -423,7 +423,7 @@ export default function OrdersScreen() {
  className="ml-2"
  />
  </View>
- <Text className="text-tiny text-slate-450 mt-1 font-bold">
+ <Text className="text-tiny text-slate-450 mt-1 font-medium">
  Khách hàng: {selectedOrder.customer_name || 'Khách lẻ'}
  </Text>
  </View>
@@ -435,53 +435,53 @@ export default function OrdersScreen() {
 
  {/* Body Modal */}
  <ScrollView className="flex-1 my-4" showsVerticalScrollIndicator={false}>
- <Text className="text-xxs font-extrabold text-slate-400 mb-2.5 px-1">Thông tin chi tiết</Text>
+ <Text className="text-xxs font-semibold text-slate-400 mb-2.5 px-1">Thông tin chi tiết</Text>
  <View className="p-4 rounded-xl bg-slate-50 border border-slate-200/60 mb-4">
  <View className="flex-row justify-between py-1">
- <Text className="text-tiny text-slate-500 font-bold">Mốc thời gian:</Text>
- <Text className="text-tiny font-extrabold text-slate-800">
+ <Text className="text-tiny text-slate-500 font-medium">Mốc thời gian:</Text>
+ <Text className="text-tiny font-semibold text-slate-800">
  {selectedOrder.created_at ? formatDateTime(selectedOrder.created_at) : 'Offline'}
  </Text>
  </View>
  <View className="flex-row justify-between py-1">
- <Text className="text-tiny text-slate-500 font-bold">Hình thức thanh toán:</Text>
- <Text className="text-tiny font-extrabold text-slate-800">
+ <Text className="text-tiny text-slate-500 font-medium">Hình thức thanh toán:</Text>
+ <Text className="text-tiny font-semibold text-slate-800">
  {getPaymentMethodDisplay(selectedOrder.payment_method)}
  </Text>
  </View>
  <View className="flex-row justify-between py-1">
- <Text className="text-tiny text-slate-500 font-bold">Mã số SQLite ID:</Text>
- <Text className="text-tiny font-extrabold text-slate-700">{selectedOrder.id}</Text>
+ <Text className="text-tiny text-slate-500 font-medium">Mã số SQLite ID:</Text>
+ <Text className="text-tiny font-semibold text-slate-700">{selectedOrder.id}</Text>
  </View>
  {selectedOrder.note && (
  <View className="border-t border-slate-200 mt-2 pt-2">
- <Text className="text-tiny text-slate-450 font-bold">Ghi chú đơn:</Text>
+ <Text className="text-tiny text-slate-450 font-medium">Ghi chú đơn:</Text>
  <Text className="text-xs text-slate-700 mt-1 font-semibold">{selectedOrder.note}</Text>
  </View>
  )}
  </View>
 
- <Text className="text-xxs font-extrabold text-slate-400 mb-2.5 px-1">Mặt hàng đã mua</Text>
+ <Text className="text-xxs font-semibold text-slate-400 mb-2.5 px-1">Mặt hàng đã mua</Text>
  {selectedOrderItems.map((item: any, idx: number) => (
  <View 
  key={idx} 
  className="flex-row justify-between py-3 border-b border-slate-100 items-center"
  >
  <View className="flex-1 mr-3">
- <Text className="text-xs font-bold text-slate-800">{item.product_name}</Text>
- <Text className="text-tiny text-slate-500 font-bold mt-0.5">
+ <Text className="text-xs font-medium text-slate-800">{item.product_name}</Text>
+ <Text className="text-tiny text-slate-500 font-medium mt-0.5">
  {item.qty} cái x {formatCurrency(item.unit_price)}
  </Text>
  </View>
- <Text className="text-xs font-extrabold text-slate-800">
+ <Text className="text-xs font-semibold text-slate-800">
  {formatCurrency(item.line_total)}
  </Text>
  </View>
  ))}
 
  <View className="flex-row justify-between py-4 border-t border-slate-200 mt-4 items-center">
- <Text className="text-xs font-extrabold text-slate-800">Tổng thanh toán</Text>
- <Text className="text-orange-500 text-base font-extrabold">{formatCurrency(selectedOrder.total_amount)}</Text>
+ <Text className="text-xs font-semibold text-slate-800">Tổng thanh toán</Text>
+ <Text className="text-orange-500 text-base font-semibold">{formatCurrency(selectedOrder.total_amount)}</Text>
  </View>
  </ScrollView>
 
@@ -499,7 +499,7 @@ export default function OrdersScreen() {
  ) : (
  <View className="flex-1 bg-emerald-50 py-3.5 rounded-xl items-center flex-row justify-center border border-emerald-200 opacity-80">
  <Ionicons name="checkmark-done-circle-outline" size={14} color="#10b981" />
- <Text className="font-bold text-tiny ml-1 text-emerald-700">ĐÃ LÊN CLOUD</Text>
+ <Text className="font-medium text-tiny ml-1 text-emerald-700">ĐÃ LÊN CLOUD</Text>
  </View>
  )}
 

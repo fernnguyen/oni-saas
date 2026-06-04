@@ -248,10 +248,10 @@ export default function SettingsScreen() {
  <Ionicons name="person-outline" size={18} color="#fa5908" />
  </View>
  <View>
- <Text className="font-bold text-xs text-slate-800">
+ <Text className="font-medium text-xs text-slate-800">
  Nhân viên thu ngân di động
  </Text>
- <Text className="text-xxs text-slate-400 font-bold mt-0.5">
+ <Text className="text-xxs text-slate-400 font-medium mt-0.5">
  Quyền hạn: Bán hàng SQLite
  </Text>
  </View>
@@ -262,8 +262,8 @@ export default function SettingsScreen() {
 
  <View className="border-t border-slate-100 my-4 pt-4 flex-row justify-between items-center">
  <View>
- <Text className="text-xxs text-slate-400 font-bold">Chi nhánh hoạt động</Text>
- <Text className="text-xs font-extrabold mt-0.5 text-slate-700">
+ <Text className="text-xxs text-slate-400 font-medium">Chi nhánh hoạt động</Text>
+ <Text className="text-xs font-semibold mt-0.5 text-slate-700">
  {branchName}
  </Text>
  </View>
@@ -279,7 +279,7 @@ export default function SettingsScreen() {
  </View>
 
  {/* 3. CÀI ĐẶT MÁY IN NHIỆT K80 - Giảm bo về rounded-2xl */}
- <Text className="text-xxs font-extrabold text-slate-450 mb-3 px-1">
+ <Text className="text-xxs font-semibold text-slate-450 mb-3 px-1">
  Cấu hình máy in hóa đơn (K80 / K57)
  </Text>
  <View className="p-4 rounded-2xl border bg-white border-slate-100 shadow-sm mb-4">
@@ -293,7 +293,7 @@ export default function SettingsScreen() {
  onPress={() => setPrinterConnType('bluetooth')}
  >
  <Ionicons name="bluetooth" size={13} color={printerConnType === 'bluetooth' ? '#fa5908' : '#94a3b8'} />
- <Text className={`text-xxs font-extrabold ml-1.5 ${
+ <Text className={`text-xxs font-semibold ml-1.5 ${
  printerConnType === 'bluetooth' ? 'text-slate-800' : 'text-slate-400'
 }`}>
  Bluetooth (BLE)
@@ -308,7 +308,7 @@ export default function SettingsScreen() {
  onPress={() => setPrinterConnType('lan')}
  >
  <Ionicons name="wifi" size={13} color={printerConnType === 'lan' ? '#fa5908' : '#94a3b8'} />
- <Text className={`text-xxs font-extrabold ml-1.5 ${
+ <Text className={`text-xxs font-semibold ml-1.5 ${
  printerConnType === 'lan' ? 'text-slate-800' : 'text-slate-400'
 }`}>
  LAN / Wifi (IP)
@@ -319,11 +319,11 @@ export default function SettingsScreen() {
  {/* Form cấu hình */}
  {printerConnType === 'bluetooth' ? (
  <View className="mb-4">
- <Text className="text-xxs text-slate-450 font-extrabold mb-2">Chọn thiết bị Bluetooth</Text>
+ <Text className="text-xxs text-slate-450 font-semibold mb-2">Chọn thiết bị Bluetooth</Text>
  <View className="flex-row items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200/80">
  <View className="flex-row items-center">
  <Ionicons name="print-outline" size={16} color="#fa5908" />
- <Text className="text-xs font-extrabold ml-2 text-slate-800">
+ <Text className="text-xs font-semibold ml-2 text-slate-800">
  {selectedBleDevice}
  </Text>
  </View>
@@ -337,7 +337,7 @@ export default function SettingsScreen() {
  setIsPrinterConnected(!isPrinterConnected);
 }}
  >
- <Text className={`text-xxs font-extrabold ${
+ <Text className={`text-xxs font-semibold ${
  isPrinterConnected ? 'text-emerald-700' : 'text-white'
 }`}>
  {isPrinterConnected ? 'Đã kết nối' : 'Kết nối'}
@@ -347,7 +347,7 @@ export default function SettingsScreen() {
  </View>
  ) : (
  <View className="mb-4">
- <Text className="text-xxs text-slate-455 font-extrabold mb-2">Thông tin địa chỉ IP máy in LAN</Text>
+ <Text className="text-xxs text-slate-455 font-semibold mb-2">Thông tin địa chỉ IP máy in LAN</Text>
  <View className="flex-row justify-between items-center">
  <TextInput
  value={printerIp}
@@ -381,30 +381,30 @@ export default function SettingsScreen() {
  </View>
 
  {/* 4. ĐỒNG BỘ SQLITE CỰC BỘ - Giảm bo về rounded-2xl */}
- <Text className="text-xxs font-extrabold text-slate-450 mb-3 px-1">
+ <Text className="text-xxs font-semibold text-slate-450 mb-3 px-1">
  Chiến lược đồng bộ SQLite (Offline-First)
  </Text>
  <View className="p-4 rounded-2xl border bg-white border-slate-100 shadow-sm mb-4">
  
  <View className="mb-4">
  <View className="flex-row justify-between py-1.5 items-center border-b border-slate-100 pb-2">
- <Text className="text-xxs text-slate-450 font-extrabold">SQLite Row Stats:</Text>
- <Text className="text-xxs font-extrabold text-[#fa5908]">
+ <Text className="text-xxs text-slate-450 font-semibold">SQLite Row Stats:</Text>
+ <Text className="text-xxs font-semibold text-[#fa5908]">
  {productCount} SP | {resourceCount} Bàn | {customerCount} KH
  </Text>
  </View>
  
  <View className="flex-row justify-between py-2 items-center border-b border-slate-100">
- <Text className="text-xxs text-slate-455 font-extrabold">Full Sync gần nhất:</Text>
- <Text className="text-xxs font-bold text-slate-600">{lastFullSync}</Text>
+ <Text className="text-xxs text-slate-455 font-semibold">Full Sync gần nhất:</Text>
+ <Text className="text-xxs font-medium text-slate-600">{lastFullSync}</Text>
  </View>
  <View className="flex-row justify-between py-2 items-center border-b border-slate-100">
- <Text className="text-xxs text-slate-455 font-extrabold">Delta Sync gần nhất:</Text>
- <Text className="text-xxs font-bold text-slate-600">{lastDeltaSync}</Text>
+ <Text className="text-xxs text-slate-455 font-semibold">Delta Sync gần nhất:</Text>
+ <Text className="text-xxs font-medium text-slate-600">{lastDeltaSync}</Text>
  </View>
 
  <View className="mt-3.5 bg-slate-50 p-3 rounded-xl border border-slate-100">
- <Text className="text-xxs font-bold text-slate-500 leading-relaxed text-center">
+ <Text className="text-xxs font-medium text-slate-500 leading-relaxed text-center">
  💡 Trạng thái: {syncStatusText}
  </Text>
  </View>
@@ -413,8 +413,8 @@ export default function SettingsScreen() {
  {syncProgress !== null && (
  <View className="mb-4 bg-slate-50 p-3 rounded-xl border border-slate-200">
  <View className="flex-row justify-between mb-1.5">
- <Text className="text-xxs font-extrabold text-slate-700">Đang đồng bộ SQLite...</Text>
- <Text className="text-xxs text-orange-500 font-extrabold">{syncProgress}%</Text>
+ <Text className="text-xxs font-semibold text-slate-700">Đang đồng bộ SQLite...</Text>
+ <Text className="text-xxs text-orange-500 font-semibold">{syncProgress}%</Text>
  </View>
  <View className="h-1.5 bg-slate-200 rounded-full overflow-hidden" style={{alignSelf: 'stretch'}}>
  <View className="h-full bg-orange-500" style={{width: `${Math.min(100, Math.max(0, syncProgress))}%`, backgroundColor: '#fa5908'}} />
@@ -447,17 +447,17 @@ export default function SettingsScreen() {
  </View>
 
  {/* 5. TÙY CHỌN HỆ THỐNG */}
- <Text className="text-xxs font-extrabold text-slate-450 mb-3 px-1">
+ <Text className="text-xxs font-semibold text-slate-450 mb-3 px-1">
  Tùy chọn hệ thống
  </Text>
  <View className="p-4 rounded-2xl border bg-white border-slate-100 shadow-sm mb-10">
  
  <View className="flex-row justify-between items-center py-3 border-b border-slate-100">
  <View className="flex-1 mr-4">
- <Text className="font-bold text-slate-800">
+ <Text className="font-medium text-slate-800">
  Tự động sync sau thanh toán
  </Text>
- <Text className="text-xxs text-slate-400 font-bold mt-0.5">Giảm thiểu tối đa độ trễ dữ liệu</Text>
+ <Text className="text-xxs text-slate-400 font-medium mt-0.5">Giảm thiểu tối đa độ trễ dữ liệu</Text>
  </View>
  <Switch
  value={autoSyncOnPrint}
@@ -467,10 +467,10 @@ export default function SettingsScreen() {
 
  <View className="flex-row justify-between items-center py-3">
  <View className="flex-1 mr-4">
- <Text className="text-xs font-bold text-slate-800">
+ <Text className="text-xs font-medium text-slate-800">
  Phản hồi âm thanh (Beep!)
  </Text>
- <Text className="text-xxs text-slate-400 font-bold mt-0.5">Phát tiếng Beep khi quét barcode thành công</Text>
+ <Text className="text-xxs text-slate-400 font-medium mt-0.5">Phát tiếng Beep khi quét barcode thành công</Text>
  </View>
  <Switch
  value={soundFeedback}
