@@ -8,6 +8,20 @@ export const categories = sqliteTable('categories', {
   description: text('description'),
 });
 
+// BẢNG QUỸ/TÀI KHOẢN THANH TOÁN (PAYMENT FUNDS)
+export const paymentFunds = sqliteTable('payment_funds', {
+  id: text('id').primaryKey(), // Kế thừa từ backend
+  name: text('name').notNull(),
+  type: text('type').notNull(), // cash, bank, wallet
+  branch_id: text('branch_id').notNull(),
+  account_number: text('account_number'),
+  account_name: text('account_name'),
+  bank_name: text('bank_name'),
+  is_default: integer('is_default', { mode: 'boolean' }).notNull().default(false),
+  qr_template: text('qr_template').default('compact2'),
+  initial_balance: integer('initial_balance').notNull().default(0),
+});
+
 // 2. SẢN PHẨM & DỊCH VỤ (Products)
 export const products = sqliteTable('products', {
   id: text('id').primaryKey(),

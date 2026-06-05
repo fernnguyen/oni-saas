@@ -72,6 +72,17 @@ export class SyncManager {
       const custData = await custRes.json();
       const rawCustomers = custData.data || [];
 
+      // --- BƯỚC D2: TẢI DANH SÁCH QUỸ THANH TOÁN (PAYMENT FUNDS) ---
+      onProgress(0.85);
+      // We don't have the exact branchId available as an argument in pullFullDatabase, 
+      // but the API endpoint `/api/shops/${shopId}/payment-funds?active=TRUE` returns all funds.
+      // Usually mobile app is bound to a single shop so we just fetch all active funds.
+      const fundsRes = await fetch(`${getApiBaseUrl()}/api/shops/${shopId}/payment-funds?active=TRUE`, { headers });
+      if (!fundsRes.ok) throw new Error('Không thể tải danh sách Quỹ thanh toán từ Cloud');
+      const fundsData = await fundsRes.json();
+      const rawFunds = fundsData.data || [];
+
+
       // --- BƯỚC E: LƯU TRỮ VÀO SQLITE NỘI ĐỊA CỦA ĐIỆN THOẠI (Drizzle Transaction) ---
       console.log('Đang ghi dữ liệu đồng bộ vào SQLite nội địa...');
       
@@ -81,6 +92,7 @@ export class SyncManager {
         DELETE FROM products;
         DELETE FROM location_resources;
         DELETE FROM customers;
+        DELETE FROM payment_funds;
       `);
 
       // 1. Ghi Categories
@@ -196,6 +208,24 @@ export class SyncManager {
         }
       }
 
+      // 5. Ghi Danh sách Quỹ/Tài khoản thanh toán
+      if (rawFunds.length > 0) {
+        for (const fund of rawFunds) {
+          await db.insert(schema.paymentFunds).values({
+            id: fund.id,
+            name: fund.name || '',
+            type: fund.type || 'cash',
+            branch_id: fund.branch_id || '',
+            account_number: fund.account_number || null,
+            account_name: fund.account_name || null,
+            bank_name: fund.bank_name || null,
+            is_default: fund.is_default === true,
+            qr_template: fund.qr_template || 'compact2',
+            initial_balance: isNaN(parseInt(fund.initial_balance)) ? 0 : parseInt(fund.initial_balance),
+          }).onConflictDoNothing();
+        }
+      }
+
       onProgress(1.0);
       console.log('Đồng bộ tải dữ liệu Cloud về SQLite thành công mỹ mãn!');
       return true;
@@ -265,6 +295,9 @@ export class SyncManager {
               try {
                 const parsed = JSON.parse(order.payment_method);
                 if (Array.isArray(parsed)) {
+                  if (parsed.length > 0 && parsed[0].meta) {
+                    return parsed;
+                  }
                   return parsed.map((p: any) => ({
                     method: p.method === 'Chuyển khoản' ? 'bank_transfer' :
                             p.method === 'Thẻ ATM' ? 'card' :

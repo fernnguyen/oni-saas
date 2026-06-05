@@ -215,6 +215,19 @@ export function initializeLocalDatabase() {
         employee_name TEXT,
         sync_status TEXT NOT NULL DEFAULT 'synced'
       );
+
+      CREATE TABLE IF NOT EXISTS payment_funds (
+        id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL,
+        branch_id TEXT NOT NULL,
+        account_number TEXT,
+        account_name TEXT,
+        bank_name TEXT,
+        is_default INTEGER NOT NULL DEFAULT 0,
+        qr_template TEXT DEFAULT 'compact2',
+        initial_balance INTEGER NOT NULL DEFAULT 0
+      );
     `);
     
     // Nâng cấp bổ sung cột cho các DB đã chạy trước đó để không bị mất dữ liệu

@@ -21,6 +21,8 @@ import {Skeleton} from '../../components/ui/Skeleton';
 import {DrawerMenu} from '../../components/erp/DrawerMenu';
 import {BarcodeScannerModal} from '../../components/ui/BarcodeScannerModal';
 import {ProductPreviewModal} from '../../components/pos/ProductPreviewModal';
+import CartCheckoutModal from '../../components/pos/CartCheckoutModal';
+import QRTransferModal from '../../components/pos/QRTransferModal';
 
 export interface LodgingGuest {
  id?: string | number;
@@ -556,6 +558,7 @@ export default function PosScreen() {
  const [productsList, setProductsList] = useState<any[]>([]);
  const [categoriesList, setCategoriesList] = useState<any[]>([]);
  const [customersList, setCustomersList] = useState<any[]>([]);
+  const [paymentFundsList, setPaymentFundsList] = useState<any[]>([]);
  const [selectedCategoryId, setSelectedCategoryId] = useState<string>('all');
  const [tables, setTables] = useState<any[]>([]);
  const [isLoading, setIsLoading] = useState(true);
@@ -597,11 +600,9 @@ export default function PosScreen() {
  const [discountAmount, setDiscountAmount] = useState<number>(0);
  const [isEditingDiscount, setIsEditingDiscount] = useState(false);
  const [orderNote, setOrderNote] = useState('');
- const [paymentRows, setPaymentRows] = useState<{id: string; method: 'Tiền mặt' | 'Chuyển khoản' | 'Thẻ ATM' | 'Ví MoMo' | 'Ghi nợ'; amount: number}[]>([
- {id: '1', method: 'Tiền mặt', amount: 0}
- ]);
+ const [paymentRows, setPaymentRows] = useState<{id: string; fund_id: string; amount: number}[]>([]);
  const [isQrModalOpen, setIsQrModalOpen] = useState(false);
- const [qrPayload, setQrPayload] = useState<{amount: number; orderNo: string} | null>(null);
+ const [qrPayload, setQrPayload] = useState<{amount: number; orderNo: string; fund_id: string} | null>(null);
  const [openDropdownRowId, setOpenDropdownRowId] = useState<string | null>(null);
 
  // Hộp thoại xác nhận thay Alert.alert
@@ -737,9 +738,9 @@ export default function PosScreen() {
  useEffect(() => {
  if (!isNavReady) return;
  const finalTotal = Math.max(0, getCartTotal() - discountAmount);
- setPaymentRows([
- {id: '1', method: 'Tiền mặt', amount: finalTotal}
- ]);
+    setPaymentRows([
+    {id: '1', fund_id: 'cash', amount: finalTotal}
+    ]);
 }, [cart, discountAmount, isNavReady]);
 
  // 1. Tải lại giỏ hàng và các thông tin tạm thời khi Mount component (Giữ giỏ hàng khi chuyển tab/reload)
@@ -828,6 +829,7 @@ export default function PosScreen() {
  let cats = [];
  let resources = [];
  let customers = [];
+  let funds: any[] = [];
 
  if (Platform.OS === 'web') {
  // Tải dữ liệu thực tế từ REST API (Next.js) trên môi trường Web để tránh placeholder mock
@@ -967,6 +969,7 @@ export default function PosScreen() {
  cats = await db.select().from(schema.categories);
  resources = await db.select().from(schema.location_resources);
  customers = await db.select().from(schema.customers);
+      funds = await db.select().from(schema.paymentFunds);
 }
 
  if (isMounted) {
@@ -974,6 +977,7 @@ export default function PosScreen() {
  setCategoriesList(cats);
  setTables(resources);
  setCustomersList(customers);
+      setPaymentFundsList(funds);
  setIsLoading(false);
 }
 } catch (error) {
@@ -1799,7 +1803,7 @@ export default function PosScreen() {
  
  // 4. Thiết lập phương thức thanh toán mặc định tương đương tổng tiền giỏ hàng
  const totalCartValue = Math.max(0, Object.values(newCart).reduce((sum: number, item: any) => sum + ((item.price + (item.modifier_total || 0)) * item.quantity), 0));
- setPaymentRows([{id: 'pay-cash', method: 'Tiền mặt', amount: totalCartValue}]);
+ setPaymentRows([{id: 'pay-cash', fund_id: 'cash', amount: totalCartValue}]);
  
  // 5. Mở modal giỏ hàng chính để thanh toán hệ thống
  setIsCartModalOpen(true);
@@ -1811,7 +1815,7 @@ export default function PosScreen() {
  customer: any,
  discount: number,
  note: string,
- payments: {id: string; method: 'Tiền mặt' | 'Chuyển khoản' | 'Thẻ ATM' | 'Ví MoMo' | 'Ghi nợ'; amount: number}[]
+ payments: {id: string; fund_id: string; amount: number}[]
  ) => {
  if (!cartOwnerTable) return;
  setIsPayingTableLoading(true);
@@ -1831,7 +1835,17 @@ export default function PosScreen() {
  const nowStr = new Date().toISOString();
  let syncSucceeded = false;
 
- const paymentMethodString = JSON.stringify(payments.map(p => ({method: p.method, amount: p.amount})));
+ const paymentMethodString = JSON.stringify(payments.map(p => {
+    const fund = paymentFundsList.find(f => f.id === p.fund_id);
+    return {
+      method: fund ? fund.type : 'cash',
+      amount: p.amount,
+      meta: {
+        fund_id: p.fund_id,
+        fund_name: fund ? fund.name : ''
+      }
+    };
+  }));
 
  // A. Lưu vào cơ sở dữ liệu SQLite cục bộ (Offline-First)
  if (Platform.OS === 'web') {
@@ -1939,13 +1953,17 @@ export default function PosScreen() {
  line_total: (item.price + (item.modifier_total || 0)) * item.quantity,
 }))
  ],
- payments: payments.map(p => ({
- method: p.method === 'Chuyển khoản' ? 'bank_transfer' :
- p.method === 'Thẻ ATM' ? 'card' :
- p.method === 'Ví MoMo' ? 'momo' :
- p.method === 'Ghi nợ' ? 'debt' : 'cash',
- amount: p.amount,
-})),
+ payments: payments.map(p => {
+  const fund = paymentFundsList.find(f => f.id === p.fund_id);
+  return {
+    method: fund ? fund.type : 'cash',
+    amount: p.amount,
+    meta: {
+      fund_id: p.fund_id,
+      fund_name: fund ? fund.name : ''
+    }
+  };
+ }),
  stock_movements: Object.entries(tableCartItems).map(([prodId, item]: [string, any]) => ({
  type: 'sale_out',
  product_id: item.productId,
@@ -2035,7 +2053,7 @@ export default function PosScreen() {
  customer: any,
  discount: number,
  note: string,
- payments: {id: string; method: 'Tiền mặt' | 'Chuyển khoản' | 'Thẻ ATM' | 'Ví MoMo' | 'Ghi nợ'; amount: number}[]
+ payments: {id: string; fund_id: string; amount: number}[]
  ) => {
  if (cartOwnerTable) {
  await handlePayTableConfirmUnified(customer, discount, note, payments);
@@ -2047,7 +2065,17 @@ export default function PosScreen() {
  const finalTotal = Math.max(0, originalTotal - discount);
  const paidSum = payments.reduce((sum, p) => sum + p.amount, 0);
 
- const paymentMethodString = JSON.stringify(payments.map(p => ({method: p.method, amount: p.amount})));
+ const paymentMethodString = JSON.stringify(payments.map(p => {
+    const fund = paymentFundsList.find(f => f.id === p.fund_id);
+    return {
+      method: fund ? fund.type : 'cash',
+      amount: p.amount,
+      meta: {
+        fund_id: p.fund_id,
+        fund_name: fund ? fund.name : ''
+      }
+    };
+  }));
 
  const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
  const shiftId = await AsyncStorage.getItem('active_shift_id') || 'default-shift';
@@ -2109,10 +2137,11 @@ export default function PosScreen() {
 
  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
 
- const hasTransfer = payments.some(p => p.method === 'Chuyển khoản' && p.amount > 0);
+ const hasTransfer = payments.some(p => p.fund_id !== 'cash' && p.fund_id !== 'debt' && p.amount > 0);
  if (hasTransfer) {
- const transferAmount = payments.filter(p => p.method === 'Chuyển khoản').reduce((sum, p) => sum + p.amount, 0);
- setQrPayload({amount: transferAmount, orderNo: orderNo});
+ const transferAmount = payments.filter(p => p.fund_id !== 'cash' && p.fund_id !== 'debt').reduce((sum, p) => sum + p.amount, 0);
+ const transferP = payments.find(p => p.fund_id !== 'cash' && p.fund_id !== 'debt' && p.amount > 0);
+        setQrPayload({amount: transferAmount, orderNo: orderNo, fund_id: transferP ? transferP.fund_id : 'bank'});
  setIsQrModalOpen(true);
 } else {
  showToast(`Đã thanh toán Hóa đơn ${orderNo} thành công! Đang đồng bộ...`);
@@ -2162,7 +2191,7 @@ export default function PosScreen() {
  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
  setIsScanSuccessDialogVisible(true);
 } else {
- Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Warning).catch(() => {});
+ Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
  if (Platform.OS === 'web') {
  alert(`Không tìm thấy sản phẩm có mã vạch hoặc SKU: "${barcodeData}"`);
 } else {
@@ -3243,436 +3272,53 @@ if (!isNavReady) {
  </Modal>
 
  {/* 7. MODAL GIỎ HÀNG & THANH TOÁN CHI TIẾT */}
- <Modal
- visible={isCartModalOpen}
- animationType="slide"
- transparent={true}
- onRequestClose={() => setIsCartModalOpen(false)}
- >
- <View className="flex-1 justify-end" style={{backgroundColor: 'rgba(0, 0, 0, 0.6)'}}>
- <View className="h-[90%] rounded-t-2xl p-6 bg-white justify-between" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 10}, shadowOpacity: 0.12, shadowRadius: 16, elevation: 12}}>
- {renderToast(true)}
- {/* Header */}
- <View className="flex-row justify-between items-center border-b border-slate-100 pb-4">
- <View className="flex-row items-center">
- <Ionicons name="wallet-outline" size={20} color="#fa5908" />
- <Text className="text-sm font-semibold text-slate-800 ml-2">
- Thanh toán đơn hàng ({getCartCount()} món)
- </Text>
- </View>
- <TouchableOpacity onPress={() => setIsCartModalOpen(false)} className="p-1">
- <Ionicons name="close" size={24} color="#64748b" />
- </TouchableOpacity>
- </View>
+      <CartCheckoutModal
+        visible={isCartModalOpen}
+        onClose={() => setIsCartModalOpen(false)}
+        cart={cart}
+        updateCartItemQuantity={updateCartItemQuantity}
+        removeFromCart={removeFromCart}
+        getCartTotal={getCartTotal}
+        discountAmount={discountAmount}
+        setDiscountAmount={setDiscountAmount}
+        orderNote={orderNote}
+        setOrderNote={setOrderNote}
+        selectedCustomer={selectedCustomer}
+        setSelectedCustomer={setSelectedCustomer}
+        customersList={customersList}
+        paymentRows={paymentRows}
+        setPaymentRows={setPaymentRows}
+        paymentFundsList={paymentFundsList}
+        productsList={productsList}
+        getCartCount={getCartCount}
+        onCheckout={(qrFundId, qrAmount) => {
+          if (qrFundId) {
+            setQrPayload({
+              amount: qrAmount,
+              orderNo: `ORD${Date.now().toString().slice(-5)}`,
+              fund_id: qrFundId
+            });
+            setIsCartModalOpen(false);
+            setIsQrModalOpen(true);
+          } else {
+            handlePayCart(selectedCustomer, discountAmount, orderNote, paymentRows);
+          }
+        }}
+      />
 
- {/* Thân Modal */}
- <ScrollView className="flex-1 my-4" showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
- 
- {/* 1. KHÁCH HÀNG (CRM) */}
- <View className="bg-slate-50 border rounded-xl p-4 mb-4">
- <View className="flex-row justify-between items-center mb-2">
- <Text className="text-xxs font-semibold text-slate-400">Khách hàng</Text>
- {!selectedCustomer && (
- <Text className="text-xs font-medium text-slate-600">Khách lẻ</Text>
- )}
- </View>
+      {/* 8. MODAL DYNAMIC QR CODE THANH TOÁN CHUYỂN KHOẢN */}
+      <QRTransferModal
+        visible={isQrModalOpen}
+        onClose={() => setIsQrModalOpen(false)}
+        qrPayload={qrPayload as any}
+        paymentFundsList={paymentFundsList}
+        onConfirm={async () => {
+          setIsQrModalOpen(false);
+          await handlePayCart(selectedCustomer, discountAmount, orderNote, paymentRows);
+        }}
+      />
 
- {selectedCustomer ? (
- <View className="bg-white border border-slate-200 rounded-xl p-3.5 flex-row justify-between items-center" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2}}>
- <View className="flex-1 mr-4">
- <Text className="text-xs font-semibold text-slate-800">{selectedCustomer.name}</Text>
- <Text className="text-tiny text-slate-500 font-medium mt-1">📞 {selectedCustomer.phone}</Text>
- {selectedCustomer.address ? (
- <Text className="text-[9.5px] text-slate-400 font-semibold mt-1">📍 {selectedCustomer.address}</Text>
- ) : null}
- </View>
- <TouchableOpacity 
- activeOpacity={0.7}
- className="bg-rose-50 p-2 rounded-xl border border-rose-100 items-center justify-center active:scale-95"
- onPress={() => {
- setSelectedCustomer(null);
- setCustomerSearchQuery('');
-}}
- >
- <Ionicons name="trash-outline" size={14} color="#f43f5e" />
- </TouchableOpacity>
- </View>
- ) : (
- <>
- {/* Input tìm kiếm khách hàng */}
- <View className="flex-row items-center bg-white border border-slate-200 rounded-xl px-3 py-1.5" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2}}>
- <Ionicons name="search-outline" size={14} color="#94a3b8" />
- <TextInput
- className="flex-1 ml-2 text-xs text-slate-800 py-1"
- placeholder="Tìm khách hàng theo tên hoặc SĐT..."
- placeholderTextColor="#cbd5e1"
- value={customerSearchQuery}
- onChangeText={setCustomerSearchQuery}
- style={Platform.OS === 'web' ? ({outlineStyle: 'none'} as any) : undefined}
- />
- {customerSearchQuery.length > 0 && (
- <TouchableOpacity onPress={() => setCustomerSearchQuery('')}>
- <Ionicons name="close" size={14} color="#cbd5e1" />
- </TouchableOpacity>
- )}
- </View>
- </>
- )}
-
- {/* Danh sách gợi ý */}
- {customerSearchQuery.trim().length > 0 && (
- <View className="bg-white border border-slate-200 rounded-xl mt-2 max-h-40 overflow-hidden z-50" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 4}, shadowOpacity: 0.08, shadowRadius: 8, elevation: 5}}>
- <ScrollView nestedScrollEnabled={true}>
- {customersList
- .filter(c => {
- const nameStr = (c.name || '').toLowerCase();
- const phoneStr = (c.phone || '');
- const queryStr = customerSearchQuery.toLowerCase();
- return nameStr.includes(queryStr) || phoneStr.includes(queryStr);
-})
- .map(cust => (
- <TouchableOpacity 
- key={cust.id} 
- className="p-3 border-b border-slate-100 flex-row justify-between items-center active:bg-slate-50"
- onPress={() => {
- setSelectedCustomer(cust);
- setCustomerSearchQuery('');
-}}
- >
- <View>
- <Text className="text-xs font-medium text-slate-800">{cust.name}</Text>
- <Text className="text-tiny text-slate-400 mt-0.5">{cust.phone}</Text>
- </View>
- <Badge variant="primary" label={cust.customer_type || 'Thành viên'} size="sm" />
- </TouchableOpacity>
- ))}
- </ScrollView>
- </View>
- )}
- </View>
-
- {/* 2. CHI TIẾT SẢN PHẨM */}
- <View className="bg-white border border-slate-100 rounded-xl p-4 mb-4" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2}}>
- {Object.entries(cart).map(([prodId, item], idx) => (
- <View key={prodId} className={`flex-row justify-between items-center py-2.5 ${idx > 0 ? 'border-t border-slate-100' : ''}`}>
- <View className="flex-1 mr-4">
- <Text className="font-medium text-xs text-slate-800" numberOfLines={1}>{item.name}</Text>
- <Text className="text-tiny text-slate-500 font-medium mt-0.5">
- {formatCurrency(item.price)} x {item.quantity} {productsList.find(pr => pr.id === prodId)?.unit || 'cái'}
- </Text>
- </View>
- <Text className="font-semibold text-xs text-slate-850">
- {formatCurrency(item.price * item.quantity)}
- </Text>
- </View>
- ))}
-
- {/* Hàng Giảm giá */}
- <TouchableOpacity 
- className="flex-row justify-between items-center py-2.5 border-t border-dashed border-slate-200 mt-2 active:opacity-60"
- onPress={() => setIsEditingDiscount(prev => !prev)}
- >
- <Text className="text-xs text-slate-450 font-medium">Giảm giá (Chạm để sửa):</Text>
- {isEditingDiscount ? (
- <View className="flex-row items-center bg-slate-50 border border-slate-200 rounded-xl px-2 py-0.5">
- <TextInput
- className="text-right text-xs font-semibold text-slate-800 w-28 py-0.5"
- keyboardType="numeric"
- placeholder="0"
- placeholderTextColor="#cbd5e1"
- value={discountAmount === 0 ? '' : maskCurrencyInput(discountAmount.toString())}
- onChangeText={(val) => {
- const masked = maskCurrencyInput(val);
- const amt = parseCurrencyToNumber(masked);
- setDiscountAmount(amt);
-}}
- autoFocus={true}
- style={Platform.OS === 'web' ? ({outlineStyle: 'none'} as any) : undefined}
- />
- </View>
- ) : (
- <Text className="text-xs text-rose-500 font-semibold">
- -{formatCurrency(discountAmount)}
- </Text>
- )}
- </TouchableOpacity>
-
- {/* Hàng Tổng cộng */}
- <View className="flex-row justify-between items-center py-2.5 border-t border-slate-200">
- <Text className="text-xs text-slate-800 font-semibold">Tổng cộng:</Text>
- <Text className="text-orange-500 font-semibold text-base">
- {formatCurrency(Math.max(0, getCartTotal() - discountAmount))}
- </Text>
- </View>
- </View>
-
- {/* 3. GHI CHÚ ĐƠN HÀNG */}
- <View className="bg-white border border-slate-100 rounded-xl p-4 mb-4" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2}}>
- <View className="flex-row items-center bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
- <Ionicons name="document-text-outline" size={14} color="#94a3b8" />
- <TextInput
- className="flex-1 ml-2 text-xs text-slate-800 py-1"
- placeholder="Ghi chú đơn hàng ngoại tuyến..."
- placeholderTextColor="#cbd5e1"
- value={orderNote}
- onChangeText={setOrderNote}
- style={Platform.OS === 'web' ? ({outlineStyle: 'none'} as any) : undefined}
- />
- </View>
- </View>
-
- {/* 4. CHIA PHƯƠNG THỨC THANH TOÁN (SPLIT PAYMENT) */}
- <View className="bg-white border border-slate-100 rounded-xl p-4 mb-4" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2}}>
- <View className="flex-row justify-between items-center mb-3">
- <Text className="text-xxs font-semibold text-slate-455">Phương thức thanh toán</Text>
- <TouchableOpacity 
- className="flex-row items-center"
- onPress={() => {
- const finalTotal = Math.max(0, getCartTotal() - discountAmount);
- const paidSum = paymentRows.reduce((sum, p) => sum + p.amount, 0);
- const remaining = Math.max(0, finalTotal - paidSum);
- setPaymentRows(prev => [
- ...prev,
- {id: Date.now().toString(), method: 'Chuyển khoản', amount: remaining}
- ]);
-}}
- >
- <Ionicons name="add-circle-outline" size={13} color="#fa5908" />
- <Text className="text-xs font-semibold text-orange-500 ml-1">+ Thêm</Text>
- </TouchableOpacity>
- </View>
-
- {paymentRows.map((row, idx) => (
- <View key={row.id} className="mb-3.5" style={{zIndex: openDropdownRowId === row.id ? 100 : 1}}>
- <View className="flex-row items-center justify-between">
- {/* Chọn phương thức - Dropdown list */}
- <View style={{width: '38%', position: 'relative', zIndex: openDropdownRowId === row.id ? 100 : 1}}>
- <TouchableOpacity 
- className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2.5 flex-row justify-between items-center"
- onPress={() => {
- setOpenDropdownRowId(openDropdownRowId === row.id ? null : row.id);
-}}
- >
- <Text className="text-tiny font-semibold text-slate-700">{row.method}</Text>
- <Ionicons name="chevron-down" size={11} color="#fa5908" />
- </TouchableOpacity>
-
- {/* Dropdown list absolute overlay (ẩn các phương thức đã được chọn) */}
- {openDropdownRowId === row.id && (
- <View 
- className="absolute left-0 right-0 bg-white border border-slate-200 rounded-xl mt-1.5 py-1 z-50"
- style={{
- top: '100%', 
- elevation: 10,
- shadowColor: '#000000',
- shadowOffset: {width: 0, height: 6},
- shadowOpacity: 0.1,
- shadowRadius: 10,
-}}
- >
- {['Tiền mặt', 'Chuyển khoản', 'Thẻ ATM', 'Ví MoMo', 'Ghi nợ']
- .filter(m => m === row.method || !paymentRows.some(r => r.method === m))
- .map(m => (
- <TouchableOpacity
- key={m}
- className="px-3 py-2 border-b border-slate-50 active:bg-slate-50"
- onPress={() => {
- setPaymentRows(prev => prev.map((r, i) => i === idx ? {...r, method: m as any} : r));
- setOpenDropdownRowId(null);
-}}
- >
- <Text className={`text-tiny ${m === row.method ? 'font-semibold text-orange-500' : 'font-medium text-slate-700'}`}>
- {m}
- </Text>
- </TouchableOpacity>
- ))}
- </View>
- )}
- </View>
-
- {/* Số tiền với nút tự điền tiền còn lại */}
- <View className="w-[52%] bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 flex-row items-center">
- <TextInput
- className="flex-1 text-right text-xs font-semibold text-slate-800"
- keyboardType="numeric"
- value={row.amount === 0 ? '' : maskCurrencyInput(row.amount.toString())}
- onChangeText={(val) => {
- const masked = maskCurrencyInput(val);
- const amt = parseCurrencyToNumber(masked);
- setPaymentRows(prev => prev.map((r, i) => i === idx ? {...r, amount: amt} : r));
-}}
- style={Platform.OS === 'web' ? ({outlineStyle: 'none'} as any) : undefined}
- />
- <TouchableOpacity 
- activeOpacity={0.7}
- className="bg-orange-50 border border-orange-200 px-1.5 py-0.5 rounded-md ml-1.5 active:scale-95"
- onPress={() => {
- const finalTotal = Math.max(0, getCartTotal() - discountAmount);
- const paidSumOfOthers = paymentRows.filter((_, i) => i !== idx).reduce((sum, p) => sum + p.amount, 0);
- const remaining = Math.max(0, finalTotal - paidSumOfOthers);
- setPaymentRows(prev => prev.map((r, i) => i === idx ? {...r, amount: remaining} : r));
-}}
- >
- <Text className="text-xxs font-semibold text-orange-600">Còn lại</Text>
- </TouchableOpacity>
- </View>
-
- {/* Nút xóa */}
- {paymentRows.length > 1 && (
- <TouchableOpacity 
- onPress={() => {
- setPaymentRows(prev => prev.filter(r => r.id !== row.id));
- if (openDropdownRowId === row.id) setOpenDropdownRowId(null);
-}}
- className="p-1 ml-1"
- >
- <Ionicons name="trash-outline" size={16} color="#ef4444" />
- </TouchableOpacity>
- )}
- </View>
-
- {/* Dòng tiền chi tiết */}
- <View className="w-full flex-row items-center border border-orange-100 px-3 py-1 rounded-xl mt-1.5">
- <Ionicons name="chevron-forward-circle-outline" size={11} color="#fa5908" />
- <Text className="text-xxs text-slate-500 font-medium ml-1.5">
- Dẫn vào: <Text className="font-medium text-orange-700">{
- row.method === 'Tiền mặt' ? 'Két tiền tại quầy' :
- row.method === 'Chuyển khoản' ? 'MB Bank (ONI ERP)' :
- row.method === 'Thẻ ATM' ? 'Vietcombank (POS)' :
- row.method === 'Ví MoMo' ? 'Ví Doanh nghiệp MoMo' :
- 'Sổ công nợ phải thu'
-}</Text>
- </Text>
- </View>
- </View>
- ))}
- </View>
-
- <View className="bg-emerald-50 border border-emerald-100 rounded-xl p-4 mb-4 flex-row justify-between items-center" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2}}>
- <Text className="text-xs text-emerald-800 font-semibold">Khách trả:</Text>
- <Text className="text-emerald-700 text-sm font-semibold">
- {formatCurrency(paymentRows.reduce((sum, p) => sum + p.amount, 0))}
- </Text>
- </View>
- </ScrollView>
-
- {/* Thanh nút Hoàn tất */}
- <View className="flex-row justify-between items-center border-t border-slate-100 pt-4 bg-white gap-3">
- <Button
- variant="outline"
- title="Hủy bỏ"
- onPress={() => setIsCartModalOpen(false)}
- className="flex-1 py-3.5 rounded-xl"
- />
-
- <Button
- variant="primary"
- title="Thanh toán"
- icon={<Ionicons name="checkmark-done" size={14} color="white" />}
- iconPosition="right"
- onPress={() => {
- const finalTotal = Math.max(0, getCartTotal() - discountAmount);
- const paidSum = paymentRows.reduce((sum, p) => sum + p.amount, 0);
- if (paidSum < finalTotal) {
- alert(`Tổng tiền khách trả (${formatCurrency(paidSum)}) chưa đủ hóa đơn (${formatCurrency(finalTotal)}).`);
- return;
-}
- setIsCheckoutConfirmVisible(true);
-}}
- className="flex-[2] py-3.5 rounded-xl"
- />
- </View>
-
- {/* HỘP THOẠI XÁC NHẬN THANH TOÁN (z-index fix: Tọa lạc tuyệt đối bên trong Modal) */}
- <Dialog
- visible={isCheckoutConfirmVisible}
- onClose={() => setIsCheckoutConfirmVisible(false)}
- onConfirm={async () => {
- await handlePayCart(selectedCustomer, discountAmount, orderNote, paymentRows);
-}}
- loading={isPayingCartLoading}
- title="Xác nhận Thanh toán"
- description={`Bạn có chắc chắn muốn hoàn tất hóa đơn này?\nTổng thanh toán: ${formatCurrency(Math.max(0, getCartTotal() - discountAmount))}`}
- confirmLabel="Xác nhận & Lưu"
- cancelLabel="Quay lại"
- variant="success"
- />
- </View>
- </View>
- </Modal>
-
- {/* ========================================================== */}
- {/* 8. MODAL DYNAMIC QR CODE THANH TOÁN CHUYỂN KHOẢN */}
- {/* ========================================================== */}
- <Modal
- visible={isQrModalOpen}
- animationType="fade"
- transparent={true}
- onRequestClose={() => setIsQrModalOpen(false)}
- >
- <View className="flex-1 justify-center items-center px-6" style={{backgroundColor: 'rgba(0, 0, 0, 0.6)'}}>
- {qrPayload && (
- <View className="w-full max-w-sm p-6 rounded-2xl bg-white border border-slate-100 items-center" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 10}, shadowOpacity: 0.12, shadowRadius: 16, elevation: 12}}>
- 
- {/* Header */}
- <View className="w-full flex-row justify-between items-center mb-4">
- <Text className="text-sm font-semibold text-slate-800">Dynamic QR Code</Text>
- <TouchableOpacity onPress={() => setIsQrModalOpen(false)} className="p-1">
- <Ionicons name="close" size={22} color="#64748b" />
- </TouchableOpacity>
- </View>
-
- {/* MB Bank Card Graphic */}
- <View className="w-full bg-slate-900 p-4 rounded-xl mb-4 relative overflow-hidden" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2}}>
- <View className="absolute w-24 h-24 rounded-full -top-10 -left-10" />
- <Text className="text-micro font-semibold">MB BANK INTERCONNECT</Text>
- <Text className="text-white text-xs font-medium mt-2">CONG TY TNHH ONI ERP</Text>
- <Text className="text-sm font-semibold mt-0.5">8888 9999 6666</Text>
- </View>
-
- {/* QR Image Frame */}
- <View className="p-4 bg-slate-50 border border-slate-200 rounded-2xl mb-4 items-center justify-center relative">
- <Image
- source={{uri: `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`STK:888899996666|ND:${qrPayload.orderNo}|ST:${qrPayload.amount}`)}`}}
- className="w-48 h-48 rounded-xl"
- resizeMode="contain"
- />
- 
- <View className="absolute bg-orange-500 px-3 py-1 rounded-full border-2 border-white -bottom-2.5" style={{backgroundColor: '#fa5908'}}>
- <Text className="text-white text-micro font-semibold">VietQR ONIPay</Text>
- </View>
- </View>
-
- {/* Details */}
- <View className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3.5 mb-5">
- <View className="flex-row justify-between mb-1.5">
- <Text className="text-xxs text-slate-400 font-medium">Số tiền thanh toán:</Text>
- <Text className="text-orange-500 text-xs font-semibold">{formatCurrency(qrPayload.amount)}</Text>
- </View>
-
- <View className="flex-row justify-between">
- <Text className="text-xxs text-slate-400 font-medium">Nội dung chuyển:</Text>
- <Text className="text-slate-800 text-xs font-semibold">{qrPayload.orderNo}</Text>
- </View>
- </View>
-
- {/* Confirm */}
- <Button
- variant="primary"
- title="Xác nhận đã nhận tiền"
- icon={<Ionicons name="checkmark-circle" size={14} color="white" />}
- onPress={() => {
- setIsQrModalOpen(false);
- showToast(`Đơn hàng ${qrPayload.orderNo} chuyển khoản đã được hệ thống duyệt thành công!`, 'success');
-}}
- className="w-full py-3.5 rounded-xl" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2}}
- />
- </View>
- )}
- </View>
- </Modal>
-
- {/* Toast Notification Overlay */}
+      {/* Toast Notification Overlay */}
  {renderToast()}
 
 
