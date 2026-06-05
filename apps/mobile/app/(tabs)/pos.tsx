@@ -600,7 +600,7 @@ export default function PosScreen() {
  const [discountAmount, setDiscountAmount] = useState<number>(0);
  const [isEditingDiscount, setIsEditingDiscount] = useState(false);
  const [orderNote, setOrderNote] = useState('');
- const [paymentRows, setPaymentRows] = useState<{id: string; fund_id: string; amount: number}[]>([]);
+ const [paymentRows, setPaymentRows] = useState<{id: string; method: string; fund_id: string; amount: number}[]>([]);
  const [isQrModalOpen, setIsQrModalOpen] = useState(false);
  const [qrPayload, setQrPayload] = useState<{amount: number; orderNo: string; fund_id: string} | null>(null);
  const [openDropdownRowId, setOpenDropdownRowId] = useState<string | null>(null);
@@ -739,7 +739,7 @@ export default function PosScreen() {
  if (!isNavReady) return;
  const finalTotal = Math.max(0, getCartTotal() - discountAmount);
     setPaymentRows([
-    {id: '1', fund_id: 'cash', amount: finalTotal}
+    {id: '1', method: 'cash', fund_id: paymentFundsList.find(f => f.type === 'cash')?.id || 'cash', amount: finalTotal}
     ]);
 }, [cart, discountAmount, isNavReady]);
 
@@ -1803,7 +1803,7 @@ export default function PosScreen() {
  
  // 4. Thiết lập phương thức thanh toán mặc định tương đương tổng tiền giỏ hàng
  const totalCartValue = Math.max(0, Object.values(newCart).reduce((sum: number, item: any) => sum + ((item.price + (item.modifier_total || 0)) * item.quantity), 0));
- setPaymentRows([{id: 'pay-cash', fund_id: 'cash', amount: totalCartValue}]);
+ setPaymentRows([{id: 'pay-cash', method: 'cash', fund_id: paymentFundsList.find(f => f.type === 'cash')?.id || 'cash', amount: totalCartValue}]);
  
  // 5. Mở modal giỏ hàng chính để thanh toán hệ thống
  setIsCartModalOpen(true);
@@ -3291,18 +3291,8 @@ if (!isNavReady) {
         paymentFundsList={paymentFundsList}
         productsList={productsList}
         getCartCount={getCartCount}
-        onCheckout={(qrFundId, qrAmount) => {
-          if (qrFundId) {
-            setQrPayload({
-              amount: qrAmount,
-              orderNo: `ORD${Date.now().toString().slice(-5)}`,
-              fund_id: qrFundId
-            });
-            setIsCartModalOpen(false);
-            setIsQrModalOpen(true);
-          } else {
-            handlePayCart(selectedCustomer, discountAmount, orderNote, paymentRows);
-          }
+        onCheckout={() => {
+          handlePayCart(selectedCustomer, discountAmount, orderNote, paymentRows);
         }}
       />
 

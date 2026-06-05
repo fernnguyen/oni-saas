@@ -19,12 +19,12 @@ interface CartCheckoutModalProps {
   selectedCustomer: any;
   setSelectedCustomer: (val: any) => void;
   customersList: any[];
-  paymentRows: {id: string; fund_id: string; amount: number}[];
+  paymentRows: {id: string; method: string; fund_id: string; amount: number}[];
   setPaymentRows: React.Dispatch<React.SetStateAction<any[]>>;
   paymentFundsList: any[];
   productsList: any[];
   getCartCount: () => number;
-  onCheckout: (qrFundId: string | null, qrAmount: number) => void; // Called to trigger final payment or show QR
+  onCheckout: () => void; // Called to trigger final payment or show QR
 }
 
 export function formatCurrency(value: number): string {
@@ -62,18 +62,8 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
       alert(`Tổng tiền khách trả (${formatCurrency(paidSum)}) chưa đủ hóa đơn (${formatCurrency(finalTotal)}).`);
       return;
     }
-
-    // Kiểm tra xem có thanh toán bằng chuyển khoản không (loại 'bank')
-    const transferRow = paymentRows.find(p => {
-      const fund = paymentFundsList.find(f => f.id === p.fund_id);
-      return fund?.type === 'bank' && p.amount > 0;
-    });
-
-    if (transferRow) {
-      onCheckout(transferRow.fund_id, transferRow.amount);
-    } else {
-      setIsCheckoutConfirmVisible(true);
-    }
+    // Mobile always uses pos.tsx's checkout logic which will handle QR if needed.
+    setIsCheckoutConfirmVisible(true);
   };
 
   return (
@@ -188,32 +178,46 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
               {/* 2. CHI TIẾT SẢN PHẨM */}
               <View className="bg-white border border-slate-100 rounded-xl p-4 mb-4" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2}}>
                 {Object.entries(cart).map(([cartItemId, item], idx) => (
-                  <View key={cartItemId} className={`flex-row justify-between items-start py-3 ${idx > 0 ? 'border-t border-slate-100' : ''}`}>
-                    <View className="flex-1 mr-3">
-                      <Text className="font-medium text-sm text-slate-800 leading-tight">{item.name}</Text>
-                      {item.variant_label && (!item.modifiers || item.modifiers.length === 0) && (
-                        <Text className="text-xs text-violet-600 font-medium mt-0.5">{item.variant_label}</Text>
-                      )}
-                      {item.modifiers && item.modifiers.length > 0 && (
-                        <Text className="text-xs text-amber-600 mt-0.5">
-                          {item.modifiers.map((m: any) => m.option).join(' · ')}
-                          {(item.modifier_total || 0) > 0 && (
-                            <Text className="text-emerald-600 font-medium"> +{formatCurrency(item.modifier_total || 0)}</Text>
-                          )}
-                        </Text>
-                      )}
-                      <Text className="text-xs text-slate-400 mt-1">
-                        {formatCurrency(item.price + (item.modifier_total || 0))} {productsList.find(pr => pr.id === item.productId)?.unit ? `/ ${productsList.find(pr => pr.id === item.productId)?.unit}` : ''}
-                      </Text>
-                    </View>
-                    <View className="items-end">
-                      <View className="flex-row items-center bg-slate-50 border border-slate-200 rounded-lg overflow-hidden">
+                  <View key={cartItemId} className={`py-3 ${idx > 0 ? 'border-t border-slate-100' : ''}`}>
+                    {/* Top Row: Name, Quantity, Total Price */}
+                    <View className="flex-row justify-between items-start mb-1">
+                      {/* Name & Modifiers */}
+                      <View className="flex-1 pr-2">
+                        <Text className="font-medium text-sm text-slate-800 leading-tight">{item.name}</Text>
+                        {item.variant_label && (!item.modifiers || item.modifiers.length === 0) && (
+                          <Text className="text-xs text-violet-600 font-medium mt-0.5">{item.variant_label}</Text>
+                        )}
+                        {item.modifiers && item.modifiers.length > 0 && (
+                          <Text className="text-xs text-amber-600 mt-0.5">
+                            {item.modifiers.map((m: any) => m.option).join(' · ')}
+                            {(item.modifier_total || 0) > 0 && (
+                              <Text className="text-emerald-600 font-medium"> +{formatCurrency(item.modifier_total || 0)}</Text>
+                            )}
+                          </Text>
+                        )}
+                      </View>
+
+                      {/* Quantity Control */}
+                      <View className="flex-row items-center bg-slate-50 border border-slate-200 rounded-md overflow-hidden mx-2">
                         <TouchableOpacity onPress={() => updateCartItemQuantity(cartItemId, item.quantity - 1)} className="w-7 h-7 items-center justify-center border-r border-slate-200 bg-white active:bg-slate-100"><Text className="text-slate-600 font-medium">-</Text></TouchableOpacity>
                         <Text className="w-8 text-center text-xs font-semibold text-slate-800 bg-white" style={{lineHeight: 28}}>{item.quantity}</Text>
                         <TouchableOpacity onPress={() => updateCartItemQuantity(cartItemId, item.quantity + 1)} className="w-7 h-7 items-center justify-center border-l border-slate-200 bg-white active:bg-slate-100"><Text className="text-slate-600 font-medium">+</Text></TouchableOpacity>
                       </View>
-                      <Text className="font-semibold text-sm text-slate-850 mt-1.5">{formatCurrency((item.price + (item.modifier_total || 0)) * item.quantity)}</Text>
-                      <TouchableOpacity onPress={() => removeFromCart(cartItemId)} className="mt-1"><Text className="text-rose-500 text-[11px] font-medium px-2 py-1 bg-rose-50 rounded-md">Xóa</Text></TouchableOpacity>
+
+                      {/* Total Price */}
+                      <View className="w-[85px] items-end justify-center h-7">
+                         <Text className="font-bold text-sm text-slate-800">{formatCurrency((item.price + (item.modifier_total || 0)) * item.quantity)}</Text>
+                      </View>
+                    </View>
+
+                    {/* Bottom Row: Unit Price, Delete */}
+                    <View className="flex-row justify-between items-center mt-1">
+                      <Text className="text-xs text-slate-500 font-medium">
+                        Đơn giá: {formatCurrency(item.price + (item.modifier_total || 0))} {productsList.find(pr => pr.id === item.productId)?.unit ? `/ ${productsList.find(pr => pr.id === item.productId)?.unit}` : ''}
+                      </Text>
+                      <TouchableOpacity onPress={() => removeFromCart(cartItemId)} className="p-1">
+                        <Ionicons name="trash-outline" size={16} color="#f43f5e" />
+                      </TouchableOpacity>
                     </View>
                   </View>
                 ))}
@@ -272,24 +276,37 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                 </View>
               </View>
 
-              {/* 4. CHIA PHƯƠNG THỨC THANH TOÁN (SPLIT PAYMENT) - ĐÃ ĐỒNG BỘ FUNDS */}
-              <View className="bg-white border border-slate-100 rounded-xl p-4 mb-4" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2}}>
+                            <View className="bg-white border border-slate-100 rounded-xl p-4 mb-4 z-10" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2, zIndex: 10}}>
                 <View className="flex-row justify-between items-center mb-3">
                   <Text className="text-xxs font-semibold text-slate-455">Phương thức thanh toán</Text>
                   {paymentFundsList.length > 0 && (
                     <TouchableOpacity 
                       className="flex-row items-center"
                       onPress={() => {
+                        const METHODS = [
+                          { value: 'cash', label: 'Tiền mặt' },
+                          { value: 'bank_transfer', label: 'Chuyển khoản' },
+                          { value: 'card', label: 'Thẻ ATM / POS' },
+                          { value: 'momo', label: 'Ví MoMo' },
+                          { value: 'debt', label: 'Ghi nợ' },
+                          { value: 'prepaid', label: 'Ví trả trước' },
+                        ];
                         const paidSum = paymentRows.reduce((sum, p) => sum + p.amount, 0);
                         const remaining = Math.max(0, finalTotal - paidSum);
                         
-                        // Tìm fund chưa được chọn, ưu tiên cash
-                        let availableFund = paymentFundsList.find(f => !paymentRows.some(r => r.fund_id === f.id));
-                        if (!availableFund) availableFund = paymentFundsList[0];
+                        const usedMethods = new Set(paymentRows.map((p) => p.method));
+                        const nextMethod = METHODS.find((m) => !usedMethods.has(m.value)) || METHODS[0];
+                        
+                        let fundType = 'bank';
+                        if (nextMethod.value === 'cash') fundType = 'cash';
+                        else if (['momo', 'zalopay', 'vnpay', 'wallet'].includes(nextMethod.value)) fundType = 'wallet';
+                        
+                        const matchingFunds = paymentFundsList.filter(f => f.type === fundType);
+                        const defaultFund = matchingFunds.find(f => f.is_default === 'TRUE') || matchingFunds[0];
 
                         setPaymentRows(prev => [
                           ...prev,
-                          {id: Date.now().toString(), fund_id: availableFund.id, amount: remaining}
+                          {id: Date.now().toString(), method: nextMethod.value, fund_id: defaultFund?.id || '', amount: remaining}
                         ]);
                       }}
                     >
@@ -303,96 +320,172 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                   <Text className="text-xs text-slate-500 italic">Vui lòng đồng bộ dữ liệu để lấy danh sách Quỹ.</Text>
                 ) : (
                   paymentRows.map((row, idx) => {
+                    const METHODS = [
+                      { value: 'cash', label: 'Tiền mặt' },
+                      { value: 'bank_transfer', label: 'Chuyển khoản' },
+                      { value: 'card', label: 'Thẻ ATM / POS' },
+                      { value: 'momo', label: 'Ví MoMo' },
+                      { value: 'debt', label: 'Ghi nợ' },
+                      { value: 'prepaid', label: 'Ví trả trước' },
+                    ];
+                    
                     const paidSumOfOthers = paymentRows.filter((_, i) => i !== idx).reduce((sum, p) => sum + p.amount, 0);
                     const remaining = Math.max(0, finalTotal - paidSumOfOthers);
-                    const activeFund = paymentFundsList.find(f => f.id === row.fund_id);
+                    
+                    let fundType = 'bank';
+                    if (row.method === 'cash') fundType = 'cash';
+                    else if (['momo', 'zalopay', 'vnpay', 'wallet'].includes(row.method)) fundType = 'wallet';
+                    
+                    const matchingFunds = paymentFundsList.filter(f => f.type === fundType);
+                    const activeFund = paymentFundsList.find(f => f.id === row.fund_id) || matchingFunds[0];
 
                     return (
-                    <View key={row.id} className="mb-3.5">
-                      <View className="flex-row items-center justify-between">
-                        {/* Chọn quỹ - Dropdown list */}
-                        <View style={{width: '45%'}}>
+                    <View key={row.id} className="mb-3.5 bg-slate-50 p-2.5 rounded-xl border border-slate-200" style={{zIndex: paymentRows.length - idx}}>
+                      
+                      <View className="flex-row items-center justify-between z-20">
+                        {/* Chọn Method */}
+                        <View style={{width: '45%'}} className="relative">
                           <TouchableOpacity 
-                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2.5 flex-row justify-between items-center"
-                          onPress={() => {
-                            setOpenDropdownRowId(openDropdownRowId === row.id ? null : row.id);
-                          }}
+                            className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-2.5 flex-row justify-between items-center"
+                            onPress={() => {
+                              setOpenDropdownRowId(openDropdownRowId === `method-${row.id}` ? null : `method-${row.id}`);
+                            }}
                           >
-                          <Text className="text-tiny font-semibold text-slate-700" numberOfLines={1}>
-                            {activeFund ? activeFund.name : 'Chọn quỹ...'}
-                          </Text>
-                          <Ionicons name="chevron-down" size={11} color="#fa5908" />
+                            <Text className="text-xs font-semibold text-slate-700" numberOfLines={1}>
+                              {METHODS.find(m => m.value === row.method)?.label || 'Chọn...'}
+                            </Text>
+                            <Ionicons name="chevron-down" size={12} color="#94a3b8" />
                           </TouchableOpacity>
+                          
+                          {openDropdownRowId === `method-${row.id}` && (
+                            <View className="absolute bg-white border border-slate-200 rounded-xl py-1 w-44 shadow-lg top-[40px] left-0" style={{shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 8, elevation: 5}}>
+                              <ScrollView nestedScrollEnabled={true} style={{maxHeight: 200}}>
+                                {METHODS.map(m => (
+                                  <TouchableOpacity
+                                    key={m.value}
+                                    className="px-3 py-2 border-b border-slate-50"
+                                    onPress={() => {
+                                      let newFundType = 'bank';
+                                      if (m.value === 'cash') newFundType = 'cash';
+                                      else if (['momo', 'zalopay', 'vnpay', 'wallet'].includes(m.value)) newFundType = 'wallet';
+                                      
+                                      const mFunds = paymentFundsList.filter(f => f.type === newFundType);
+                                      const dFund = mFunds.find(f => f.is_default === 'TRUE') || mFunds[0];
+                                      
+                                      setPaymentRows(prev => prev.map((r, i) => i === idx ? {...r, method: m.value, fund_id: dFund?.id || ''} : r));
+                                      setOpenDropdownRowId(null);
+                                    }}
+                                  >
+                                    <Text className={`text-xs ${m.value === row.method ? 'font-semibold text-orange-500' : 'text-slate-700'}`}>{m.label}</Text>
+                                  </TouchableOpacity>
+                                ))}
+                              </ScrollView>
+                            </View>
+                          )}
                         </View>
 
-                        {/* Số tiền với nút tự điền tiền còn lại */}
-                        <View className="w-[52%] bg-slate-50 border border-slate-200 rounded-xl px-3 py-1 flex-row items-center">
+                        {/* Số tiền với nút điền */}
+                        <View className="w-[52%] bg-white border border-slate-200 rounded-lg px-3 py-1.5 flex-row items-center h-10">
                           <TextInput
-                          className="flex-1 text-right text-xs font-semibold text-slate-800"
-                          keyboardType="numeric"
-                          value={row.amount === 0 ? '' : maskCurrencyInput(row.amount.toString())}
-                          onChangeText={(val) => {
-                            const masked = maskCurrencyInput(val);
-                            const amt = parseCurrencyToNumber(masked);
-                            setPaymentRows(prev => prev.map((r, i) => i === idx ? {...r, amount: amt} : r));
-                          }}
-                          style={Platform.OS === 'web' ? ({outlineStyle: 'none'} as any) : undefined}
+                            className="flex-1 text-right text-[15px] font-bold text-slate-800"
+                            keyboardType="numeric"
+                            value={row.amount === 0 ? '' : maskCurrencyInput(row.amount.toString())}
+                            onChangeText={(val) => {
+                              const masked = maskCurrencyInput(val);
+                              const amt = parseCurrencyToNumber(masked);
+                              setPaymentRows(prev => prev.map((r, i) => i === idx ? {...r, amount: amt} : r));
+                            }}
+                            placeholder="0"
+                            style={Platform.OS === 'web' ? ({outlineStyle: 'none', padding: 0} as any) : {padding: 0, paddingVertical: 0}}
                           />
                           {remaining > 0 && row.amount < remaining && (
                           <TouchableOpacity 
                             activeOpacity={0.7}
-                            className="bg-orange-50 border border-orange-200 px-1.5 py-1 rounded-md ml-1.5 active:scale-95"
+                            className="ml-2 py-0.5"
                             onPress={() => {
-                            setPaymentRows(prev => prev.map((r, i) => i === idx ? {...r, amount: remaining} : r));
+                              setPaymentRows(prev => prev.map((r, i) => i === idx ? {...r, amount: remaining} : r));
                             }}
                           >
-                            <Text className="text-xxs font-semibold text-orange-600">Còn lại</Text>
+                            <Text className="text-[10px] font-bold text-orange-600 uppercase">Điền</Text>
                           </TouchableOpacity>
                           )}
                         </View>
                       </View>
 
-                      {/* Dropdown list */}
-                      {openDropdownRowId === row.id && (
-                      <View className="bg-white border border-slate-200 rounded-xl mt-1.5 py-1 w-[60%] shadow-sm z-50 absolute top-[44px]">
-                        {paymentFundsList
-                          .filter(f => f.id === row.fund_id || !paymentRows.some(r => r.fund_id === f.id))
-                          .map(f => (
-                          <TouchableOpacity
-                            key={f.id}
-                            className="px-3 py-2 border-b border-slate-50 active:bg-slate-50"
+                      {/* Chọn Quỹ (Nếu có >1 quỹ) */}
+                      {matchingFunds.length > 1 && row.method !== 'debt' && row.method !== 'prepaid' && (
+                        <View className="mt-2 flex-row items-center z-10 relative">
+                          <View className="w-6 items-center justify-center">
+                            <View className="w-px h-full bg-slate-300 absolute" />
+                            <View className="w-1.5 h-1.5 rounded-full bg-slate-300" />
+                          </View>
+                          <TouchableOpacity 
+                            className="flex-1 ml-1 bg-orange-50/50 border border-orange-100/80 rounded-lg px-2.5 py-2 flex-row justify-between items-center"
                             onPress={() => {
-                              setPaymentRows(prev => prev.map((r, i) => i === idx ? {...r, fund_id: f.id} : r));
-                              setOpenDropdownRowId(null);
+                              setOpenDropdownRowId(openDropdownRowId === `fund-${row.id}` ? null : `fund-${row.id}`);
                             }}
                           >
-                            <Text className={`text-tiny ${f.id === row.fund_id ? 'font-semibold text-orange-500' : 'font-medium text-slate-700'}`}>
-                              {f.name}
-                            </Text>
+                            <View className="flex-row items-center flex-1 pr-2">
+                              <Text className="text-[10px] text-orange-800 font-semibold uppercase mr-1">Quỹ:</Text>
+                              <Text className="text-xs font-bold text-orange-900" numberOfLines={1}>{activeFund?.name || 'Chọn quỹ...'}</Text>
+                            </View>
+                            <Ionicons name="chevron-down" size={12} color="#c2410c" />
                           </TouchableOpacity>
-                          ))}
-                      </View>
+
+                          {openDropdownRowId === `fund-${row.id}` && (
+                            <View className="absolute bg-white border border-slate-200 rounded-xl py-1 w-56 shadow-lg top-[36px] left-8" style={{shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 8, elevation: 5}}>
+                              <ScrollView nestedScrollEnabled={true} style={{maxHeight: 150}}>
+                                {matchingFunds.map(f => (
+                                  <TouchableOpacity
+                                    key={f.id}
+                                    className="px-3 py-2 border-b border-slate-50"
+                                    onPress={() => {
+                                      setPaymentRows(prev => prev.map((r, i) => i === idx ? {...r, fund_id: f.id} : r));
+                                      setOpenDropdownRowId(null);
+                                    }}
+                                  >
+                                    <Text className={`text-xs ${f.id === row.fund_id ? 'font-bold text-orange-600' : 'text-slate-700 font-medium'}`}>{f.name}</Text>
+                                    {f.bank_name && <Text className="text-[10px] text-slate-500 mt-0.5">{f.bank_name}</Text>}
+                                  </TouchableOpacity>
+                                ))}
+                              </ScrollView>
+                            </View>
+                          )}
+                        </View>
                       )}
 
-                      {/* Nút xóa */}
+                      {/* Info for PrePaid / Debt */}
+                      {row.method === 'prepaid' && (
+                        <View className="mt-2 flex-row justify-between bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-100">
+                          <Text className="text-xs font-medium text-emerald-800">Ví khả dụng:</Text>
+                          <Text className="text-xs font-bold text-emerald-700">{selectedCustomer ? formatCurrency(selectedCustomer.prepaid_balance || 0) : '0 ₫'}</Text>
+                        </View>
+                      )}
+                      {row.method === 'debt' && (
+                        <View className="mt-2 flex-row justify-between bg-rose-50 px-2.5 py-1.5 rounded-lg border border-rose-100">
+                          <Text className="text-xs font-medium text-rose-800">Nợ hiện tại:</Text>
+                          <Text className="text-xs font-bold text-rose-700">{selectedCustomer ? formatCurrency(selectedCustomer.debt_amount || 0) : '0 ₫'}</Text>
+                        </View>
+                      )}
+
+                      {/* Xóa */}
                       {paymentRows.length > 1 && (
-                      <TouchableOpacity 
-                      onPress={() => {
-                      setPaymentRows(prev => prev.filter(r => r.id !== row.id));
-                      if (openDropdownRowId === row.id) setOpenDropdownRowId(null);
-                      }}
-                      className="p-1 mt-1.5 items-end"
-                      >
-                        <Text className="text-xxs text-rose-500 font-medium">Xóa phương thức này</Text>
-                      </TouchableOpacity>
+                        <TouchableOpacity 
+                          onPress={() => {
+                            setPaymentRows(prev => prev.filter(r => r.id !== row.id));
+                            if (openDropdownRowId === `method-${row.id}` || openDropdownRowId === `fund-${row.id}`) setOpenDropdownRowId(null);
+                          }}
+                          className="absolute -top-2 -right-2 bg-white border border-rose-200 rounded-full p-1"
+                        >
+                          <Ionicons name="close" size={12} color="#f43f5e" />
+                        </TouchableOpacity>
                       )}
                     </View>
                     );
                   })
                 )}
               </View>
-
-              <View className="bg-emerald-50 border border-emerald-100 rounded-xl p-4 mb-4 flex-row justify-between items-center" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2}}>
+<View className="bg-emerald-50 border border-emerald-100 rounded-xl p-4 mb-4 flex-row justify-between items-center relative z-0" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2}}>
                 <Text className="text-xs text-emerald-800 font-semibold">Khách trả:</Text>
                 <Text className="text-emerald-700 text-sm font-semibold">
                   {formatCurrency(paidSum)}
@@ -428,7 +521,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
         onClose={() => setIsCheckoutConfirmVisible(false)}
         onConfirm={() => {
           setIsCheckoutConfirmVisible(false);
-          onCheckout(null, 0); // null means no QR
+          onCheckout();
         }}
         loading={false}
         title="Xác nhận Thanh toán"
