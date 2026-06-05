@@ -6,7 +6,7 @@ import {useFocusEffect} from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {db} from '../../lib/db/client';
 import * as schema from '../../lib/db/schema';
-import {eq} from 'drizzle-orm';
+import {eq, desc} from 'drizzle-orm';
 import {SyncManager} from '../../lib/sync/SyncManager';
 import {getApiBaseUrl, getApiHeaders} from '../../lib/api/config';
 import * as Haptics from 'expo-haptics';
@@ -85,7 +85,7 @@ export default function OrdersScreen() {
 }));
 }
 } else {
- ordersData = await db.select().from(schema.orders);
+ ordersData = await db.select().from(schema.orders).orderBy(desc(schema.orders.created_at));
  shiftsData = await db.select().from(schema.shop_shifts);
 }
 

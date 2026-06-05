@@ -3311,9 +3311,9 @@ if (!isNavReady) {
         onClose={() => setIsQrModalOpen(false)}
         qrPayload={qrPayload as any}
         paymentFundsList={paymentFundsList}
-        onConfirm={async () => {
+        onConfirm={() => {
           setIsQrModalOpen(false);
-          await handlePayCart(selectedCustomer, discountAmount, orderNote, paymentRows);
+          showToast('Đã xác nhận thanh toán chuyển khoản thành công!', 'success');
         }}
       />
 
