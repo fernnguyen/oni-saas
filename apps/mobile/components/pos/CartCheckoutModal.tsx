@@ -197,16 +197,18 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                         )}
                       </View>
 
-                      {/* Quantity Control */}
-                      <View className="flex-row items-center bg-slate-50 border border-slate-200 rounded-md overflow-hidden mx-2">
-                        <TouchableOpacity onPress={() => updateCartItemQuantity(cartItemId, item.quantity - 1)} className="w-7 h-7 items-center justify-center border-r border-slate-200 bg-white active:bg-slate-100"><Text className="text-slate-600 font-medium">-</Text></TouchableOpacity>
-                        <Text className="w-8 text-center text-xs font-semibold text-slate-800 bg-white" style={{lineHeight: 28}}>{item.quantity}</Text>
-                        <TouchableOpacity onPress={() => updateCartItemQuantity(cartItemId, item.quantity + 1)} className="w-7 h-7 items-center justify-center border-l border-slate-200 bg-white active:bg-slate-100"><Text className="text-slate-600 font-medium">+</Text></TouchableOpacity>
-                      </View>
+                      <View className="flex-row items-center">
+                        {/* Quantity Control */}
+                        <View className="flex-row items-center bg-slate-50 border border-slate-200 rounded-md overflow-hidden mr-2">
+                          <TouchableOpacity onPress={() => updateCartItemQuantity(cartItemId, item.quantity - 1)} className="w-7 h-7 items-center justify-center border-r border-slate-200 bg-white active:bg-slate-100"><Text className="text-slate-600 font-medium">-</Text></TouchableOpacity>
+                          <Text className="w-8 text-center text-xs font-semibold text-slate-800 bg-white" style={{lineHeight: 28}}>{item.quantity}</Text>
+                          <TouchableOpacity onPress={() => updateCartItemQuantity(cartItemId, item.quantity + 1)} className="w-7 h-7 items-center justify-center border-l border-slate-200 bg-white active:bg-slate-100"><Text className="text-slate-600 font-medium">+</Text></TouchableOpacity>
+                        </View>
 
-                      {/* Total Price */}
-                      <View className="w-[85px] items-end justify-center h-7">
-                         <Text className="font-bold text-sm text-slate-800">{formatCurrency((item.price + (item.modifier_total || 0)) * item.quantity)}</Text>
+                        {/* Total Price */}
+                        <View className="w-[85px] items-end">
+                           <Text className="font-bold text-[15px] text-slate-800">{formatCurrency((item.price + (item.modifier_total || 0)) * item.quantity)}</Text>
+                        </View>
                       </View>
                     </View>
 
