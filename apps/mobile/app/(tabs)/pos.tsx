@@ -563,6 +563,13 @@ export default function PosScreen() {
  const [tables, setTables] = useState<any[]>([]);
  const [isLoading, setIsLoading] = useState(true);
  const [isNavReady, setIsNavReady] = useState(false);
+ const [currentUserEmail, setCurrentUserEmail] = useState<string>('mobile-app');
+
+ useEffect(() => {
+  AsyncStorage.getItem('saved_email').then(email => {
+    if (email) setCurrentUserEmail(email);
+  }).catch(() => {});
+ }, []);
 
  useEffect(() => {
  const timer = setTimeout(() => {
@@ -1630,10 +1637,11 @@ export default function PosScreen() {
  headers: {...headers, 'Content-Type': 'application/json'},
  body: JSON.stringify({
  status: 'in_progress',
+ channel: 'pos-mobile',
  customer_id: selectedCustomer?.id || '',
  customer_name: selectedCustomer?.name || 'Khách lẻ',
  branch_id: shopId,
- employee_id: 'mobile-cashier',
+ employee_id: currentUserEmail,
  subtotal: '0',
  total_amount: '0',
  paid_amount: '0',
@@ -1914,10 +1922,11 @@ export default function PosScreen() {
  server_order_id: selectedTableForPay.current_order_id || '', 
  order: {
  status: 'completed',
+ channel: 'pos-mobile',
  customer_id: customer?.id || '',
  customer_name: customer?.name || 'Khách lẻ',
  branch_id: shopId,
- employee_id: 'mobile-app',
+ employee_id: currentUserEmail,
  subtotal: subtotal,
  discount_amount: discount,
  tax_amount: 0,

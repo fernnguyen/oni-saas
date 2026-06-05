@@ -56,6 +56,7 @@ interface SyncMovement {
 
 interface SyncOrder {
   status: string
+  channel?: string
   customer_id?: string
   customer_name?: string
   branch_id?: string
@@ -145,7 +146,7 @@ export async function POST(
       isNewOrder = true
       const createData: Record<string, string> = {
         status:          order.status,
-        channel:         'pos',
+        channel:         order.channel ?? 'pos',
         customer_id:     finalCustomerId,
         customer_name:   order.customer_name ?? '',
         branch_id:       order.branch_id     ?? '',

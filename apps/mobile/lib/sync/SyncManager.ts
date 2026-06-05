@@ -1,6 +1,7 @@
 import { db, expoDb } from '../db/client';
 import * as schema from '../db/schema';
 import { getApiBaseUrl, getApiHeaders } from '../api/config';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { eq } from 'drizzle-orm';
 
 export class SyncManager {
@@ -257,6 +258,14 @@ export class SyncManager {
       console.log(`Phát hiện ${pendingOrders.length} hóa đơn offline. Đang bắt đầu đẩy lên Cloud...`);
       const headers = await getApiHeaders();
 
+      // Lấy email user thực tế đang đăng nhập (đã lưu lúc login)
+      let userEmail = 'mobile-app';
+      try {
+        const savedEmail = await AsyncStorage.getItem('saved_email');
+        if (savedEmail) userEmail = savedEmail;
+      } catch {}
+
+
       for (const order of pendingOrders) {
         try {
           // Lấy chi tiết các dòng sản phẩm của hóa đơn này từ SQLite
@@ -270,10 +279,11 @@ export class SyncManager {
             local_order_id: order.id,
             order: {
               status: order.status,
+              channel: 'pos-mobile',
               customer_id: order.customer_id || '',
               customer_name: order.customer_name || 'Khách lẻ',
               branch_id: shopId,
-              employee_id: 'mobile-app', // Đánh dấu nguồn gốc di động
+              employee_id: userEmail,
               subtotal: order.total_amount + (order.discount_amount || 0),
               discount_amount: order.discount_amount || 0,
               tax_amount: 0,
