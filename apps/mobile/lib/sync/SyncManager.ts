@@ -333,14 +333,26 @@ export class SyncManager {
           });
 
           if (response.ok) {
-            // Cập nhật trạng thái trong SQLite nội địa thành 'synced' khi thành công
-            await db
-              .update(schema.orders)
-              .set({ sync_status: 'synced' })
-              .where(eq(schema.orders.id, order.id));
+            const resData = await response.json().catch(() => ({}));
+            const serverId = resData.order_id;
+            const serverNo = resData.order_no;
+
+            if (serverId && serverId !== order.id) {
+              await db.update(schema.order_items)
+                .set({ order_id: serverId })
+                .where(eq(schema.order_items.order_id, order.id));
+                
+              await db.update(schema.orders)
+                .set({ id: serverId, order_no: serverNo || order.order_no, sync_status: 'synced' })
+                .where(eq(schema.orders.id, order.id));
+            } else {
+              await db.update(schema.orders)
+                .set({ sync_status: 'synced', order_no: serverNo || order.order_no })
+                .where(eq(schema.orders.id, order.id));
+            }
             
             successCount++;
-            console.log(`Đồng bộ hóa đơn #${order.id} lên Cloud thành công!`);
+            console.log(`Đồng bộ hóa đơn #${order.id} lên Cloud thành công! Server ID: ${serverId}`);
           } else {
             failedCount++;
             const errorJson = await response.json().catch(() => ({}));

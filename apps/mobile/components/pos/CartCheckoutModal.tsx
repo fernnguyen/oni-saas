@@ -1,9 +1,8 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, ScrollView, Platform, Modal } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, ScrollView, Platform, Modal, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
-import { Dialog } from '../ui/Dialog';
 
 interface CartCheckoutModalProps {
   visible: boolean;
@@ -52,18 +51,20 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
   const [isEditingDiscount, setIsEditingDiscount] = useState(false);
   const [openDropdownRowId, setOpenDropdownRowId] = useState<string | null>(null);
-  const [isCheckoutConfirmVisible, setIsCheckoutConfirmVisible] = useState(false);
 
   const finalTotal = Math.max(0, getCartTotal() - discountAmount);
   const paidSum = paymentRows.reduce((sum, p) => sum + p.amount, 0);
 
   const handlePressCheckout = () => {
     if (paidSum < finalTotal) {
-      alert(`Tổng tiền khách trả (${formatCurrency(paidSum)}) chưa đủ hóa đơn (${formatCurrency(finalTotal)}).`);
+      Alert.alert(
+        'Chưa đủ tiền',
+        `Tổng tiền khách trả (${formatCurrency(paidSum)}) chưa đủ hóa đơn (${formatCurrency(finalTotal)}).`
+      );
       return;
     }
-    // Mobile always uses pos.tsx's checkout logic which will handle QR if needed.
-    setIsCheckoutConfirmVisible(true);
+    // Gọi thẳng onCheckout – không cần Dialog xác nhận (vì checkout modal đã là bước confirm)
+    onCheckout();
   };
 
   return (
@@ -516,22 +517,6 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
           </View>
         </View>
       </Modal>
-
-      {/* HỘP THOẠI XÁC NHẬN THANH TOÁN KHI KHÔNG CÓ QR */}
-      <Dialog
-        visible={isCheckoutConfirmVisible}
-        onClose={() => setIsCheckoutConfirmVisible(false)}
-        onConfirm={() => {
-          setIsCheckoutConfirmVisible(false);
-          onCheckout();
-        }}
-        loading={false}
-        title="Xác nhận Thanh toán"
-        description={`Bạn có chắc chắn muốn hoàn tất hóa đơn này?\nTổng thanh toán: ${formatCurrency(Math.max(0, getCartTotal() - discountAmount))}`}
-        confirmLabel="Xác nhận & Lưu"
-        cancelLabel="Quay lại"
-        variant="success"
-      />
     </>
   );
 }

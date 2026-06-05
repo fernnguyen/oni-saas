@@ -1815,7 +1815,7 @@ export default function PosScreen() {
  customer: any,
  discount: number,
  note: string,
- payments: {id: string; fund_id: string; amount: number}[]
+ payments: {id: string; method: string; fund_id: string; amount: number}[]
  ) => {
  if (!cartOwnerTable) return;
  setIsPayingTableLoading(true);
@@ -1832,13 +1832,14 @@ export default function PosScreen() {
  const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
  const shiftId = await AsyncStorage.getItem('active_shift_id') || 'default-shift';
  const orderId = `ORD-T-${Date.now()}`;
+ const orderNo = `HD-${shopVertical === 'lodging' ? '🏩' : '🎱'}-${Date.now().toString().substring(9)}`;
  const nowStr = new Date().toISOString();
  let syncSucceeded = false;
 
  const paymentMethodString = JSON.stringify(payments.map(p => {
     const fund = paymentFundsList.find(f => f.id === p.fund_id);
     return {
-      method: fund ? fund.type : 'cash',
+      method: p.method,
       amount: p.amount,
       meta: {
         fund_id: p.fund_id,
@@ -1853,7 +1854,7 @@ export default function PosScreen() {
 } else {
  await db.insert(schema.orders).values({
  id: orderId,
- order_no: `HD-${shopVertical === 'lodging' ? '🏩' : '🎱'}-${Date.now().toString().substring(9)}`,
+ order_no: orderNo,
  status: 'completed',
  customer_name: customer?.name || 'Khách lẻ',
  customer_id: customer?.id || null,
@@ -1954,16 +1955,16 @@ export default function PosScreen() {
 }))
  ],
  payments: payments.map(p => {
-  const fund = paymentFundsList.find(f => f.id === p.fund_id);
-  return {
-    method: fund ? fund.type : 'cash',
-    amount: p.amount,
-    meta: {
-      fund_id: p.fund_id,
-      fund_name: fund ? fund.name : ''
-    }
-  };
- }),
+    const fund = paymentFundsList.find(f => f.id === p.fund_id);
+    return {
+      method: p.method,
+      amount: p.amount,
+      meta: {
+        fund_id: p.fund_id,
+        fund_name: fund ? fund.name : ''
+      }
+    };
+  }),
  stock_movements: Object.entries(tableCartItems).map(([prodId, item]: [string, any]) => ({
  type: 'sale_out',
  product_id: item.productId,
@@ -2029,11 +2030,19 @@ export default function PosScreen() {
  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
 
  // Hiển thị Toast thông báo kết quả sang trọng giống WebUI
- if (syncSucceeded) {
- showToast("Thanh toán & Giải phóng thành công!", "success");
-} else {
- showToast("Thanh toán ngoại tuyến thành công! Sẽ sync sau.", "info");
-}
+ const hasTransfer = payments.some(p => ['bank_transfer', 'momo', 'card'].includes(p.method) && p.amount > 0);
+ if (hasTransfer) {
+   const transferAmount = payments.filter(p => ['bank_transfer', 'momo', 'card'].includes(p.method)).reduce((sum, p) => sum + p.amount, 0);
+   const transferP = payments.find(p => ['bank_transfer', 'momo', 'card'].includes(p.method) && p.amount > 0);
+   setQrPayload({amount: transferAmount, orderNo: orderNo, fund_id: transferP ? transferP.fund_id : 'bank'});
+   setIsQrModalOpen(true);
+ } else {
+   if (syncSucceeded) {
+     showToast("Thanh toán & Giải phóng thành công!", "success");
+   } else {
+     showToast("Thanh toán ngoại tuyến thành công! Sẽ sync sau.", "info");
+   }
+ }
 
   if (Platform.OS !== 'web') {
     setTimeout(() => {
@@ -2053,7 +2062,7 @@ export default function PosScreen() {
  customer: any,
  discount: number,
  note: string,
- payments: {id: string; fund_id: string; amount: number}[]
+ payments: {id: string; method: string; fund_id: string; amount: number}[]
  ) => {
  if (cartOwnerTable) {
  await handlePayTableConfirmUnified(customer, discount, note, payments);
@@ -2068,7 +2077,7 @@ export default function PosScreen() {
  const paymentMethodString = JSON.stringify(payments.map(p => {
     const fund = paymentFundsList.find(f => f.id === p.fund_id);
     return {
-      method: fund ? fund.type : 'cash',
+      method: p.method,
       amount: p.amount,
       meta: {
         fund_id: p.fund_id,
@@ -2137,10 +2146,10 @@ export default function PosScreen() {
 
  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
 
- const hasTransfer = payments.some(p => p.fund_id !== 'cash' && p.fund_id !== 'debt' && p.amount > 0);
+ const hasTransfer = payments.some(p => ['bank_transfer', 'momo', 'card'].includes(p.method) && p.amount > 0);
  if (hasTransfer) {
- const transferAmount = payments.filter(p => p.fund_id !== 'cash' && p.fund_id !== 'debt').reduce((sum, p) => sum + p.amount, 0);
- const transferP = payments.find(p => p.fund_id !== 'cash' && p.fund_id !== 'debt' && p.amount > 0);
+ const transferAmount = payments.filter(p => ['bank_transfer', 'momo', 'card'].includes(p.method)).reduce((sum, p) => sum + p.amount, 0);
+ const transferP = payments.find(p => ['bank_transfer', 'momo', 'card'].includes(p.method) && p.amount > 0);
         setQrPayload({amount: transferAmount, orderNo: orderNo, fund_id: transferP ? transferP.fund_id : 'bank'});
  setIsQrModalOpen(true);
 } else {
