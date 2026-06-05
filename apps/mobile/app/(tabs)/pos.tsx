@@ -20,6 +20,7 @@ import {Badge} from '../../components/ui/Badge';
 import {Skeleton} from '../../components/ui/Skeleton';
 import {DrawerMenu} from '../../components/erp/DrawerMenu';
 import {BarcodeScannerModal} from '../../components/ui/BarcodeScannerModal';
+import {ProductPreviewModal} from '../../components/pos/ProductPreviewModal';
 
 export interface LodgingGuest {
  id?: string | number;
@@ -33,6 +34,18 @@ export interface LodgingGuest {
  gender?: string;
  note?: string;
 }
+
+export type SelectedModifier = { option: string; price_adj: number };
+export type CartItem = {
+  productId: string;
+  name: string;
+  price: number;
+  quantity: number;
+  variant_label?: string;
+  modifiers?: SelectedModifier[];
+  modifier_total?: number;
+};
+
 
 interface LodgingGuestsFormProps {
  guests: LodgingGuest[];
@@ -557,7 +570,12 @@ export default function PosScreen() {
 
  const [activeVertical, setActiveVertical] = useState('retail'); // retail, billiards
  const [shopVertical, setShopVertical] = useState<string>('retail');
- const [cart, setCart] = useState<{[key: string]: {name: string; price: number; quantity: number}}>({});
+ const [cart, setCart] = useState<{[cartItemId: string]: CartItem}>({});
+ const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
+ const [previewProduct, setPreviewProduct] = useState<any>(null);
+ const [previewQuantity, setPreviewQuantity] = useState<number>(1);
+ const [selectedVariant, setSelectedVariant] = useState<any>(null);
+ const [selectedModifiers, setSelectedModifiers] = useState<any[]>([]);
  const [activeTable, setActiveTable] = useState<any>(null);
  const [isScannerOpen, setIsScannerOpen] = useState(false);
 
@@ -615,7 +633,7 @@ export default function PosScreen() {
  const [checkInTab, setCheckInTab] = useState<'info' | 'guests'>('info');
  const [roomRentalType, setRoomRentalType] = useState<'hourly' | 'daily'>('hourly');
  const [roomGuestCount, setRoomGuestCount] = useState<number>(1);
- const [tableCarts, setTableCarts] = useState<{[tableId: string]: {[prodId: string]: {name: string; price: number; quantity: number}}}>({});
+ const [tableCarts, setTableCarts] = useState<{[tableId: string]: {[cartItemId: string]: CartItem}}>({});
  const [cartOwnerTable, setCartOwnerTable] = useState<any | null>(null);
  const [tableCustomers, setTableCustomers] = useState<{[tableId: string]: any}>({});
 
@@ -848,6 +866,10 @@ export default function PosScreen() {
  stock_qty: isNaN(stockQty) ? 0 : stockQty,
  image_url: prod.image_url || null,
  description: prod.description || null,
+ product_type: prod.product_type || 'simple',
+ parent_id: prod.parent_id || null,
+ variant_options: typeof prod.variant_options === 'string' ? prod.variant_options : JSON.stringify(prod.variant_options || null),
+ modifier_groups: typeof prod.modifier_groups === 'string' ? prod.modifier_groups : JSON.stringify(prod.modifier_groups || null),
 };
 });
 }
@@ -1051,27 +1073,74 @@ export default function PosScreen() {
 
  // Thêm vào giỏ
  const addToCart = (product: any) => {
- Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
- setCart(prev => {
- const existing = prev[product.id];
- return {
- ...prev,
- [product.id]: {
- name: product.name,
- price: product.sell_price,
- quantity: existing ? existing.quantity + 1 : 1
-}
-};
-});
-};
+  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+  setPreviewProduct(product);
+  setPreviewQuantity(1);
+  setSelectedVariant(null);
+  setSelectedModifiers([]);
+  setIsPreviewModalOpen(true);
+ };
+
+ const handleConfirmAddToCart = () => {
+  if (!previewProduct) return;
+  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+  
+  const variantLabel = selectedVariant ? selectedVariant.option : undefined;
+  const modifierTotal = selectedModifiers.reduce((sum, m) => sum + (Number(m.price_adj) || 0), 0);
+  const modifiersHash = selectedModifiers.map(m => m.option).sort().join(',');
+  
+  const cartItemId = `${previewProduct.id}_${variantLabel || 'none'}_${modifiersHash || 'none'}`;
+  
+  setCart(prev => {
+   const existing = prev[cartItemId];
+   return {
+    ...prev,
+    [cartItemId]: {
+     productId: previewProduct.id,
+     name: previewProduct.name,
+     price: previewProduct.sell_price,
+     quantity: existing ? existing.quantity + previewQuantity : previewQuantity,
+     variant_label: variantLabel,
+     modifiers: selectedModifiers,
+     modifier_total: modifierTotal
+    }
+   };
+  });
+  setIsPreviewModalOpen(false);
+ };
+
+ const removeFromCart = (cartItemId: string) => {
+  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+  setCart(prev => {
+   const newCart = { ...prev };
+   delete newCart[cartItemId];
+   return newCart;
+  });
+ };
+
+ const updateCartItemQuantity = (cartItemId: string, newQty: number) => {
+  if (newQty < 1) return;
+  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+  setCart(prev => {
+   const existing = prev[cartItemId];
+   if (!existing) return prev;
+   return {
+    ...prev,
+    [cartItemId]: {
+     ...existing,
+     quantity: newQty
+    }
+   };
+  });
+ };
 
  // Tính tổng
  const getCartTotal = () => {
- return Object.values(cart).reduce((sum, item) => sum + (item.price * item.quantity), 0);
-};
+  return Object.values(cart).reduce((sum, item) => sum + ((item.price + (item.modifier_total || 0)) * item.quantity), 0);
+ };
  const getCartCount = () => {
- return Object.values(cart).reduce((sum, item) => sum + item.quantity, 0);
-};
+  return Object.values(cart).reduce((sum, item) => sum + item.quantity, 0);
+ };
 
  // Các hàm tiện ích đồng bộ hóa thời gian thực trực tuyến cho phòng/bàn
  const fetchActiveTableSessionOnline = async (tableId: string, orderId: string | null) => {
@@ -1349,6 +1418,7 @@ export default function PosScreen() {
  if (items) {
  for (const item of items) {
  mappedCart[item.product_id] = {
+ productId: item.product_id,
  name: item.product_name,
  price: parseInt(item.unit_price || '0', 10),
  quantity: parseInt(item.qty || '1', 10)
@@ -1712,9 +1782,11 @@ export default function PosScreen() {
  
  if (billing.cost > 0) {
  newCart['TIME_CHARGE'] = {
+ productId: 'TIME_CHARGE',
  name: billingName,
  price: billing.cost,
- quantity: 1
+ quantity: 1,
+ modifier_total: 0
 };
 }
  
@@ -1726,7 +1798,7 @@ export default function PosScreen() {
  setOrderNote('');
  
  // 4. Thiết lập phương thức thanh toán mặc định tương đương tổng tiền giỏ hàng
- const totalCartValue = Math.max(0, Object.values(newCart).reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0));
+ const totalCartValue = Math.max(0, Object.values(newCart).reduce((sum: number, item: any) => sum + ((item.price + (item.modifier_total || 0)) * item.quantity), 0));
  setPaymentRows([{id: 'pay-cash', method: 'Tiền mặt', amount: totalCartValue}]);
  
  // 5. Mở modal giỏ hàng chính để thanh toán hệ thống
@@ -1748,7 +1820,7 @@ export default function PosScreen() {
  const billing = calculateBilling(selectedTableForPay);
  const tableCartItems = tableCarts[selectedTableForPay.id] || {};
  
- const itemsCost = Object.values(tableCartItems).reduce((sum, item) => sum + (item.price * item.quantity), 0);
+ const itemsCost = Object.values(tableCartItems).reduce((sum, item) => sum + ((item.price + (item.modifier_total || 0)) * item.quantity), 0);
  const subtotal = billing.cost + itemsCost;
  const totalAmount = Math.max(0, subtotal - discount);
  const paidSum = payments.reduce((sum, p) => sum + p.amount, 0);
@@ -1804,7 +1876,7 @@ export default function PosScreen() {
  product_name: item.name,
  qty: item.quantity,
  unit_price: item.price,
- line_total: item.price * item.quantity,
+ line_total: (item.price + (item.modifier_total || 0)) * item.quantity,
 });
 }
 
@@ -1859,12 +1931,12 @@ export default function PosScreen() {
  line_total: billing.cost,
 }] : []),
  ...Object.entries(tableCartItems).map(([prodId, item]: [string, any]) => ({
- product_id: prodId,
+ product_id: item.productId,
  product_name: item.name,
  qty: item.quantity,
- unit_price: item.price,
+ unit_price: (item.price + (item.modifier_total || 0)),
  discount_amount: 0,
- line_total: item.price * item.quantity,
+ line_total: (item.price + (item.modifier_total || 0)) * item.quantity,
 }))
  ],
  payments: payments.map(p => ({
@@ -1876,7 +1948,7 @@ export default function PosScreen() {
 })),
  stock_movements: Object.entries(tableCartItems).map(([prodId, item]: [string, any]) => ({
  type: 'sale_out',
- product_id: prodId,
+ product_id: item.productId,
  qty: -item.quantity,
  branch_id: shopId,
 }))
@@ -1945,9 +2017,11 @@ export default function PosScreen() {
  showToast("Thanh toán ngoại tuyến thành công! Sẽ sync sau.", "info");
 }
 
- if (Platform.OS !== 'web') {
- SyncManager.pushOfflineOrders(shopId);
-}
+  if (Platform.OS !== 'web') {
+    setTimeout(() => {
+      SyncManager.pushOfflineOrders(shopId);
+    }, 800); // Trì hoãn 800ms để nhường luồng cho UI Animation đóng Modal mượt mà
+  }
 } catch (err) {
  console.error('Lỗi thanh toán phòng bàn:', err);
  setIsPayingTableLoading(false);
@@ -1998,24 +2072,24 @@ export default function PosScreen() {
  discount_amount: discount,
 });
 
- for (const [prodId, item] of Object.entries(cart)) {
+ for (const [cartItemId, item] of Object.entries(cart)) {
  await db.insert(schema.order_items).values({
- id: `ORDI-${orderId}-${prodId}`,
+ id: `ORDI-${orderId}-${cartItemId}`,
  order_id: orderId,
- product_id: prodId,
+ product_id: item.productId,
  product_name: item.name,
  qty: item.quantity,
- unit_price: item.price,
- line_total: item.price * item.quantity,
+ unit_price: (item.price + (item.modifier_total || 0)),
+ line_total: (item.price + (item.modifier_total || 0)) * item.quantity,
 });
 
- const originalProd = productsList.find(p => p.id === prodId);
+ const originalProd = productsList.find(p => p.id === item.productId);
  if (originalProd) {
  const newStock = Math.max(0, originalProd.stock_qty - item.quantity);
  await db
  .update(schema.products)
  .set({stock_qty: newStock})
- .where(eq(schema.products.id, prodId));
+ .where(eq(schema.products.id, item.productId));
 }
 }
 
@@ -2124,10 +2198,24 @@ if (!isNavReady) {
  return <View style={{flex: 1, backgroundColor: '#f8fafc'}} />;
 }
 
-
-
  return (
  <SafeAreaView edges={['top', 'left', 'right']} className="flex-1 bg-slate-50">
+ 
+ {/* Product Preview Modal (NEW) */}
+ {previewProduct && (
+ <ProductPreviewModal
+ visible={isPreviewModalOpen}
+ onClose={() => setIsPreviewModalOpen(false)}
+ product={previewProduct}
+ quantity={previewQuantity}
+ setQuantity={setPreviewQuantity}
+ selectedVariant={selectedVariant}
+ setSelectedVariant={setSelectedVariant}
+ selectedModifiers={selectedModifiers}
+ setSelectedModifiers={setSelectedModifiers}
+ onConfirm={handleConfirmAddToCart}
+ />
+ )}
  
  {/* 1. SHARED HEADER - Thống nhất 100% */}
  <Header onPressMenu={() => setIsDrawerOpen(true)} />
@@ -2963,11 +3051,11 @@ if (!isNavReady) {
  <Text className="text-tiny text-slate-400 font-medium mb-2">Món ăn / Dịch vụ đã gọi:</Text>
  <View className="bg-slate-50 border border-slate-200 rounded-xl p-3 max-h-32 overflow-hidden">
  <ScrollView nestedScrollEnabled={true}>
- {Object.entries(tableCarts[activeTable.id]).map(([pId, item]) => (
- <View key={pId} className="flex-row justify-between items-center py-1.5 border-b border-slate-100 last:border-0">
+ {Object.entries(tableCarts[activeTable.id]).map(([cartItemId, item]) => (
+ <View key={cartItemId} className="flex-row justify-between items-center py-1.5 border-b border-slate-100 last:border-0">
  <Text className="text-xs font-semibold text-slate-700 flex-1 mr-2" numberOfLines={1}>{item.name}</Text>
  <Text className="text-tiny text-slate-500 font-medium mr-3">x{item.quantity}</Text>
- <Text className="text-xs font-semibold text-slate-800">{formatCurrency(item.price * item.quantity)}</Text>
+ <Text className="text-xs font-semibold text-slate-800">{formatCurrency((item.price + (item.modifier_total || 0)) * item.quantity)}</Text>
  </View>
  ))}
  </ScrollView>
@@ -3575,7 +3663,7 @@ if (!isNavReady) {
  icon={<Ionicons name="checkmark-circle" size={14} color="white" />}
  onPress={() => {
  setIsQrModalOpen(false);
- alert(`Đơn hàng ${qrPayload.orderNo} chuyển khoản đã được hệ thống duyệt thành công!`);
+ showToast(`Đơn hàng ${qrPayload.orderNo} chuyển khoản đã được hệ thống duyệt thành công!`, 'success');
 }}
  className="w-full py-3.5 rounded-xl" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2}}
  />

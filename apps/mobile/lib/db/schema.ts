@@ -20,6 +20,10 @@ export const products = sqliteTable('products', {
   stock_qty: integer('stock_qty').notNull().default(0),
   image_url: text('image_url'),
   description: text('description'),
+  product_type: text('product_type').default('simple'), // simple | variant_parent | variant_child | modifier
+  parent_id: text('parent_id'),
+  variant_options: text('variant_options'), // JSON string
+  modifier_groups: text('modifier_groups'), // JSON string
 });
 
 // 3. SƠ ĐỒ PHÒNG BÀN (Location Resources / Billiards Tables)

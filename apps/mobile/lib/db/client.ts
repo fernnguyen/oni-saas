@@ -147,7 +147,11 @@ export function initializeLocalDatabase() {
         sell_price INTEGER NOT NULL DEFAULT 0,
         stock_qty INTEGER NOT NULL DEFAULT 0,
         image_url TEXT,
-        description TEXT
+        description TEXT,
+        product_type TEXT DEFAULT 'simple',
+        parent_id TEXT,
+        variant_options TEXT,
+        modifier_groups TEXT
       );
 
       CREATE TABLE IF NOT EXISTS location_resources (
@@ -218,6 +222,10 @@ export function initializeLocalDatabase() {
     try { expoDb.execSync(`ALTER TABLE orders ADD COLUMN discount_amount INTEGER DEFAULT 0;`); } catch (e) {}
     try { expoDb.execSync(`ALTER TABLE location_resources ADD COLUMN metadata TEXT;`); } catch (e) {}
     try { expoDb.execSync(`ALTER TABLE orders ADD COLUMN metadata TEXT;`); } catch (e) {}
+    try { expoDb.execSync(`ALTER TABLE products ADD COLUMN product_type TEXT DEFAULT 'simple';`); } catch (e) {}
+    try { expoDb.execSync(`ALTER TABLE products ADD COLUMN parent_id TEXT;`); } catch (e) {}
+    try { expoDb.execSync(`ALTER TABLE products ADD COLUMN variant_options TEXT;`); } catch (e) {}
+    try { expoDb.execSync(`ALTER TABLE products ADD COLUMN modifier_groups TEXT;`); } catch (e) {}
     
     console.log('ONI SQLite Database: Khởi tạo các bảng offline-first thành công!');
   } catch (error) {
