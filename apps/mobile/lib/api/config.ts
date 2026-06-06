@@ -7,7 +7,7 @@ import { router } from 'expo-router';
 const DEFAULT_HOST = Platform.OS === 'android' ? '10.0.2.2' : 'localhost';
 const DEFAULT_PORT = '3000'; // Có thể cấu hình đổi sang 3001 hoặc IP LAN ngoại vi
 
-let cachedApiUrl = `http://${DEFAULT_HOST}:${DEFAULT_PORT}`;
+let cachedApiUrl = 'https://oni.vn';
 
 // 2. Hàm lấy URL động thời gian thực (Tránh lỗi copy-by-value của string primitive)
 export function getApiBaseUrl(): string {

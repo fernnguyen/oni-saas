@@ -8,6 +8,7 @@ import {getApiBaseUrl, saveApiBaseUrl, getApiHeaders, loadApiBaseUrl} from '../.
 import {SyncManager} from '../../lib/sync/SyncManager';
 import {db, switchDatabaseScope} from '../../lib/db/client';
 import * as schema from '../../lib/db/schema';
+import {supabase} from '../../lib/supabase';
 
 interface Branch {
  id: string;
@@ -36,6 +37,40 @@ export default function SelectBranchScreen() {
  const [showConfig, setShowConfig] = useState(false);
  const [apiUrlInput, setApiUrlInput] = useState('');
  const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+ const handleBackPress = () => {
+   Alert.alert(
+     'Đăng xuất',
+     'Bạn có chắc chắn muốn đăng xuất khỏi tài khoản này và quay lại màn hình đăng nhập?',
+     [
+       {
+         text: 'Hủy',
+         style: 'cancel',
+       },
+       {
+         text: 'Đăng xuất',
+         style: 'destructive',
+         onPress: async () => {
+           try {
+             setIsLoading(true);
+             await supabase.auth.signOut();
+             await AsyncStorage.removeItem('active_tenant_code');
+             await AsyncStorage.removeItem('active_tenant_id');
+             await AsyncStorage.removeItem('active_shop_id');
+             await AsyncStorage.removeItem('active_shop_name');
+             router.replace('/(auth)/login');
+           } catch (err) {
+             console.error('Lỗi khi đăng xuất:', err);
+             router.replace('/(auth)/login');
+           } finally {
+             setIsLoading(false);
+           }
+         },
+       },
+     ],
+     { cancelable: true }
+   );
+ };
 
  // 1. Tải danh sách chi nhánh thực tế từ Next.js REST API
  useEffect(() => {
@@ -307,7 +342,7 @@ export default function SelectBranchScreen() {
  <View className="flex-row justify-between items-center mb-6">
  <TouchableOpacity 
  className="flex-row items-center"
- onPress={() => router.back()}
+ onPress={handleBackPress}
  >
  <Ionicons name="arrow-back" size={20} color="#64748b" />
  <Text className="text-slate-500 text-xs font-medium ml-1">Quay lại</Text>
@@ -335,14 +370,14 @@ export default function SelectBranchScreen() {
  <Ionicons name="settings" size={16} color="#fa5908" />
  <Text className="text-xs font-medium text-slate-800 ml-1.5">Cấu hình Địa chỉ REST API</Text>
  </View>
- <Text className="text-tiny text-slate-400 font-medium mb-3 leading-relaxed">
- Nếu chạy cổng khác (như 3001) hoặc Expo Go trên thiết bị thật, hãy nhập IP LAN của máy tính chạy webapp (ví dụ: http://192.168.1.5:3001) thay cho localhost.
- </Text>
- <View className="flex-row">
- <TextInput
- value={apiUrlInput}
- onChangeText={setApiUrlInput}
- placeholder="http://localhost:3000"
+  <Text className="text-tiny text-slate-400 font-medium mb-3 leading-relaxed">
+  Mặc định là https://oni.vn. Bạn có thể cấu hình tên miền đám mây hoặc máy chủ cục bộ riêng của doanh nghiệp (ví dụ: http://192.168.1.5:3001).
+  </Text>
+  <View className="flex-row">
+  <TextInput
+  value={apiUrlInput}
+  onChangeText={setApiUrlInput}
+  placeholder="https://oni.vn"
  placeholderTextColor="#94a3b8"
  className="flex-1 bg-slate-50 border border-slate-200 px-3.5 py-2 rounded-xl text-xs font-medium text-slate-800 mr-2"
  autoCapitalize="none"
@@ -395,45 +430,41 @@ export default function SelectBranchScreen() {
  onPress={() => isActive && setSelectedBranchId(branch.id)}
  disabled={isSyncing}
  >
- <View className="flex-row justify-between items-start mb-2">
- <View className="flex-row items-center">
- <View className={`p-2 rounded-xl mr-3 ${
- isSelected ? 'bg-orange-100' : 'bg-slate-100'
-}`}>
- <Ionicons 
- name="storefront" 
- size={18} 
- color={isSelected ? '#fa5908' : '#64748b'} 
- />
- </View>
- <View>
- <Text className={`text-xs font-medium ${
- isSelected ? 'text-orange-500' : 'text-slate-800'
-}`}>
- {branch.name}
- </Text>
- <Text className="text-xxs text-slate-455 font-medium mt-0.5">
- SĐT: {branch.phone}
- </Text>
- </View>
- </View>
+  <View className="flex-row justify-between items-start">
+  <View className="flex-row items-center flex-1 mr-4">
+  <View className={`p-2 rounded-xl mr-3 ${
+  isSelected ? 'bg-orange-100' : 'bg-slate-100'
+  }`}>
+  <Ionicons 
+  name="storefront" 
+  size={18} 
+  color={isSelected ? '#fa5908' : '#64748b'} 
+  />
+  </View>
+  <View className="flex-1">
+  <Text className={`text-xs font-medium ${
+  isSelected ? 'text-orange-500' : 'text-slate-800'
+  }`}>
+  {branch.name}
+  </Text>
+  <Text className="text-xs text-slate-455 mt-0.5">
+  {branch.address}
+  </Text>
+  </View>
+  </View>
 
- {isActive ? (
- isSelected && (
- <View className="bg-orange-500 w-5 h-5 rounded-full items-center justify-center">
- <Ionicons name="checkmark" size={12} color="white" />
- </View>
- )
- ) : (
- <View className="bg-slate-200 px-2 py-0.5 rounded-lg">
- <Text className="text-xxs font-medium text-slate-500">TẠM KHÓA</Text>
- </View>
- )}
- </View>
-
- <Text className="text-tiny text-slate-400 font-medium leading-relaxed ml-11">
- 📍 {branch.address}
- </Text>
+  {isActive ? (
+  isSelected && (
+  <View className="bg-orange-500 w-5 h-5 rounded-full items-center justify-center">
+  <Ionicons name="checkmark" size={12} color="white" />
+  </View>
+  )
+  ) : (
+  <View className="bg-slate-200 px-2 py-0.5 rounded-lg">
+  <Text className="text-xxs font-medium text-slate-500">TẠM KHÓA</Text>
+  </View>
+  )}
+  </View>
  </TouchableOpacity>
  );
 })}

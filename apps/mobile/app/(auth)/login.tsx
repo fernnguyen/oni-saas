@@ -175,8 +175,8 @@ export default function LoginScreen() {
  style={{width: 76, height: 76, resizeMode: 'contain', marginBottom: 12}} 
  />
  {/* Tên thương hiệu và khẩu hiệu cực kỳ thân thiện với hộ kinh doanh */}
- <Text style={{fontSize: 26, fontWeight: '900', color: '#1e293b', letterSpacing: 0.5}}>Oni - Bạn đồng hành</Text>
- <Text style={{fontSize: 12, color: '#64748b', marginTop: 8, fontWeight: '700', textAlign: 'center', lineHeight: 18, paddingHorizontal: 16}}>
+ <Text style={{fontSize: 26, fontWeight: '800', color: '#1e293b', letterSpacing: 0.5}}>Bán hàng với ONI</Text>
+ <Text style={{fontSize: 13, color: '#64748b', marginTop: 8, fontWeight: '500', textAlign: 'center', lineHeight: 18, paddingHorizontal: 16}}>
  Giải pháp bán hàng và quản trị đơn giản, hiệu quả
  </Text>
  </View>
@@ -195,10 +195,10 @@ export default function LoginScreen() {
  elevation: 4,
  marginVertical: 20
 }}>
- <Text style={{fontSize: 20, fontWeight: '900', color: '#1e293b', marginBottom: 20}}>Đăng nhập</Text>
+ <Text style={{fontSize: 20, fontWeight: '700', color: '#1e293b', marginBottom: 20}}>Đăng nhập</Text>
 
  {/* Gian hàng (Mã Tenant) */}
- <Text style={{fontSize: 10, color: '#64748b', fontWeight: '900', letterSpacing: 0.5, marginBottom: 6}}>
+ <Text style={{fontSize: 16, color: '#64748b', fontWeight: '600', letterSpacing: 0.5, marginBottom: 6}}>
  Gian hàng
  </Text>
  <View style={{
@@ -209,7 +209,7 @@ export default function LoginScreen() {
  borderRadius: 12, 
  backgroundColor: '#ffffff', 
  paddingHorizontal: 14, 
- height: 48, 
+ height: 52, 
  marginBottom: 16 
 }}>
  <Ionicons name="storefront-outline" size={16} color="#94a3b8" />
@@ -220,15 +220,15 @@ export default function LoginScreen() {
  onChangeText={setTenantCode}
  autoCapitalize="none"
  style={Platform.OS === 'web' 
- ? ({flex: 1, marginLeft: 10, fontSize: 14, fontWeight: '700', color: '#1e293b', outlineStyle: 'none', borderStyle: 'none', borderWidth: 0, padding: 0} as any)
- : {flex: 1, marginLeft: 10, fontSize: 14, fontWeight: '700', color: '#1e293b', padding: 0}
+ ? ({flex: 1, marginLeft: 10, fontSize: 16, fontWeight: '600', color: '#1e293b', outlineStyle: 'none', borderStyle: 'none', borderWidth: 0, padding: 0} as any)
+ : {flex: 1, marginLeft: 10, fontSize: 16, fontWeight: '600', color: '#1e293b', padding: 0}
 }
  />
- <Text style={{fontSize: 14, fontWeight: '800', color: '#94a3b8', marginLeft: 8}}>.oni.vn</Text>
+ <Text style={{fontSize: 16, fontWeight: '600', color: '#94a3b8', marginLeft: 8}}>.oni.vn</Text>
  </View>
 
  {/* Tên Đăng nhập / Email */}
- <Text style={{fontSize: 10, color: '#64748b', fontWeight: '900', letterSpacing: 0.5, marginBottom: 6}}>
+ <Text style={{fontSize: 16, color: '#64748b', fontWeight: '600', letterSpacing: 0.5, marginBottom: 6}}>
  Tên đăng nhập / Email
  </Text>
  <View style={{
@@ -239,7 +239,7 @@ export default function LoginScreen() {
  borderRadius: 12, 
  backgroundColor: '#ffffff', 
  paddingHorizontal: 14, 
- height: 48, 
+ height: 52, 
  marginBottom: 16 
 }}>
  <Ionicons name="mail-outline" size={16} color="#94a3b8" />
@@ -251,14 +251,14 @@ export default function LoginScreen() {
  keyboardType="email-address"
  autoCapitalize="none"
  style={Platform.OS === 'web' 
- ? ({flex: 1, marginLeft: 10, fontSize: 14, fontWeight: '700', color: '#1e293b', outlineStyle: 'none', borderStyle: 'none', borderWidth: 0, padding: 0} as any)
- : {flex: 1, marginLeft: 10, fontSize: 14, fontWeight: '700', color: '#1e293b', padding: 0}
+ ? ({flex: 1, marginLeft: 10, fontSize: 16, fontWeight: '600', color: '#1e293b', outlineStyle: 'none', borderStyle: 'none', borderWidth: 0, padding: 0} as any)
+ : {flex: 1, marginLeft: 10, fontSize: 16, fontWeight: '600', color: '#1e293b', padding: 0}
 }
  />
  </View>
 
  {/* Mật khẩu */}
- <Text style={{fontSize: 10, color: '#64748b', fontWeight: '900', letterSpacing: 0.5, marginBottom: 6}}>
+ <Text style={{fontSize: 16, color: '#64748b', fontWeight: '600', letterSpacing: 0.5, marginBottom: 6}}>
  Mật khẩu
  </Text>
  <View style={{
@@ -269,7 +269,7 @@ export default function LoginScreen() {
  borderRadius: 12, 
  backgroundColor: '#ffffff', 
  paddingHorizontal: 14, 
- height: 48, 
+ height: 52, 
  marginBottom: 20 
 }}>
  <Ionicons name="lock-closed-outline" size={16} color="#94a3b8" />
@@ -281,8 +281,8 @@ export default function LoginScreen() {
  secureTextEntry={!showPassword}
  autoCapitalize="none"
  style={Platform.OS === 'web' 
- ? ({flex: 1, marginLeft: 10, fontSize: 14, fontWeight: '700', color: '#1e293b', outlineStyle: 'none', borderStyle: 'none', borderWidth: 0, padding: 0} as any)
- : {flex: 1, marginLeft: 10, fontSize: 14, fontWeight: '700', color: '#1e293b', padding: 0}
+ ? ({flex: 1, marginLeft: 10, fontSize: 16, fontWeight: '500', color: '#1e293b', outlineStyle: 'none', borderStyle: 'none', borderWidth: 0, padding: 0} as any)
+ : {flex: 1, marginLeft: 10, fontSize: 16, fontWeight: '500', color: '#1e293b', padding: 0}
 }
  />
  <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={{padding: 4}}>
@@ -299,8 +299,8 @@ export default function LoginScreen() {
  style={{
  backgroundColor: '#fa5908', 
  flex: 1, 
- height: 48, 
- borderRadius: 24, 
+ height: 52, 
+ borderRadius: 26, 
  alignItems: 'center', 
  justifyContent: 'center', 
  flexDirection: 'row',
@@ -316,8 +316,8 @@ export default function LoginScreen() {
  <ActivityIndicator size="small" color="white" />
  ) : (
  <>
- <Text style={{color: '#ffffff', fontWeight: '900', fontSize: 13, letterSpacing: 0.8, marginRight: 6}}>ĐĂNG NHẬP</Text>
- <Ionicons name="arrow-forward" size={14} color="white" />
+ <Text style={{color: '#ffffff', fontWeight: '500', fontSize: 16, letterSpacing: 0.8, marginRight: 6}}>ĐĂNG NHẬP</Text>
+ <Ionicons name="arrow-forward" size={16} color="white" />
  </>
  )}
  </TouchableOpacity>
@@ -328,9 +328,9 @@ export default function LoginScreen() {
  onPress={handleBiometricLogin}
  disabled={isLoading}
  style={{
- width: 48, 
- height: 48, 
- borderRadius: 24, 
+ width: 52, 
+ height: 52, 
+ borderRadius: 26, 
  borderWidth: 1, 
  borderColor: '#fa5908', 
  backgroundColor: '#ffffff', 
@@ -346,7 +346,7 @@ export default function LoginScreen() {
  {/* 3. CHÂN TRANG FOOTER - Loại bỏ Hotline */}
  <View style={{alignItems: 'center', marginBottom: 10}}>
  <TouchableOpacity activeOpacity={0.6} style={{marginVertical: 10, alignSelf: 'center'}}>
- <Text style={{fontSize: 12, color: '#64748b', fontWeight: '900', letterSpacing: 0.5}}>
+ <Text style={{fontSize: 12, color: '#64748b', fontWeight: '700', letterSpacing: 0.5}}>
  QUÊN MẬT KHẨU?
  </Text>
  </TouchableOpacity>
@@ -375,7 +375,7 @@ export default function LoginScreen() {
  <View style={{flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 12, backgroundColor: '#ffffff', paddingHorizontal: 14, height: 48}}>
  <Ionicons name="link-outline" size={16} color="#fa5908" style={{marginRight: 8}} />
  <TextInput
- placeholder="http://192.168.1.5:3000"
+ placeholder="https://oni.vn"
  placeholderTextColor="#cbd5e1"
  value={customServerUrl}
  onChangeText={setCustomServerUrl}
@@ -387,7 +387,7 @@ export default function LoginScreen() {
  />
  </View>
  <Text style={{fontSize: 9, color: '#94a3b8', fontWeight: '600', marginTop: 10, lineHeight: 14}}>
- * Mặc định là http://localhost:3000 (iOS) hoặc http://10.0.2.2:3000 (Android). Bạn có thể cấu hình tên miền đám mây riêng của doanh nghiệp.
+ * Mặc định là https://oni.vn. Bạn có thể cấu hình tên miền đám mây hoặc máy chủ cục bộ riêng của doanh nghiệp.
  </Text>
  </View>
 
