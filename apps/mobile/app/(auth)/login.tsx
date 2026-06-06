@@ -198,7 +198,7 @@ export default function LoginScreen() {
  <Text style={{fontSize: 20, fontWeight: '900', color: '#1e293b', marginBottom: 20}}>Đăng nhập</Text>
 
  {/* Gian hàng (Mã Tenant) */}
- <Text style={{fontSize: 10, color: '#64748b', fontWeight: '900', textTransform: '', letterSpacing: 0.5, marginBottom: 6}}>
+ <Text style={{fontSize: 10, color: '#64748b', fontWeight: '900', letterSpacing: 0.5, marginBottom: 6}}>
  Gian hàng
  </Text>
  <View style={{
@@ -228,7 +228,7 @@ export default function LoginScreen() {
  </View>
 
  {/* Tên Đăng nhập / Email */}
- <Text style={{fontSize: 10, color: '#64748b', fontWeight: '900', textTransform: '', letterSpacing: 0.5, marginBottom: 6}}>
+ <Text style={{fontSize: 10, color: '#64748b', fontWeight: '900', letterSpacing: 0.5, marginBottom: 6}}>
  Tên đăng nhập / Email
  </Text>
  <View style={{
@@ -258,7 +258,7 @@ export default function LoginScreen() {
  </View>
 
  {/* Mật khẩu */}
- <Text style={{fontSize: 10, color: '#64748b', fontWeight: '900', textTransform: '', letterSpacing: 0.5, marginBottom: 6}}>
+ <Text style={{fontSize: 10, color: '#64748b', fontWeight: '900', letterSpacing: 0.5, marginBottom: 6}}>
  Mật khẩu
  </Text>
  <View style={{
@@ -316,7 +316,7 @@ export default function LoginScreen() {
  <ActivityIndicator size="small" color="white" />
  ) : (
  <>
- <Text style={{color: '#ffffff', fontWeight: '900', fontSize: 13, textTransform: '', letterSpacing: 0.8, marginRight: 6}}>ĐĂNG NHẬP</Text>
+ <Text style={{color: '#ffffff', fontWeight: '900', fontSize: 13, letterSpacing: 0.8, marginRight: 6}}>ĐĂNG NHẬP</Text>
  <Ionicons name="arrow-forward" size={14} color="white" />
  </>
  )}
@@ -346,7 +346,7 @@ export default function LoginScreen() {
  {/* 3. CHÂN TRANG FOOTER - Loại bỏ Hotline */}
  <View style={{alignItems: 'center', marginBottom: 10}}>
  <TouchableOpacity activeOpacity={0.6} style={{marginVertical: 10, alignSelf: 'center'}}>
- <Text style={{fontSize: 12, color: '#64748b', fontWeight: '900', textTransform: '', letterSpacing: 0.5}}>
+ <Text style={{fontSize: 12, color: '#64748b', fontWeight: '900', letterSpacing: 0.5}}>
  QUÊN MẬT KHẨU?
  </Text>
  </TouchableOpacity>
@@ -369,7 +369,7 @@ export default function LoginScreen() {
  </View>
 
  <View style={{flex: 1, marginBottom: 24}}>
- <Text style={{fontSize: 10, color: '#64748b', fontWeight: '900', textTransform: '', letterSpacing: 0.5, marginBottom: 8}}>
+ <Text style={{fontSize: 10, color: '#64748b', fontWeight: '900', letterSpacing: 0.5, marginBottom: 8}}>
  ĐỊA CHỈ SERVER API (HOST URL)
  </Text>
  <View style={{flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 12, backgroundColor: '#ffffff', paddingHorizontal: 14, height: 48}}>
@@ -408,7 +408,7 @@ export default function LoginScreen() {
 }}
  >
  <Ionicons name="checkmark-circle-outline" size={16} color="white" style={{marginRight: 6}} />
- <Text style={{color: '#ffffff', fontWeight: '900', fontSize: 13, textTransform: '', letterSpacing: 0.8}}>Lưu cấu hình</Text>
+ <Text style={{color: '#ffffff', fontWeight: '900', fontSize: 13, letterSpacing: 0.8}}>Lưu cấu hình</Text>
  </TouchableOpacity>
  </View>
  </View>

@@ -1,8 +1,8 @@
 import React, {useState, useCallback} from 'react';
-import {Text, View, ScrollView, TouchableOpacity, TextInput, Modal, Platform} from 'react-native';
+import {Text, View, ScrollView, TouchableOpacity, TextInput, Modal, Platform, Alert, ActivityIndicator} from 'react-native';
 import {Ionicons} from '@expo/vector-icons';
 import {SafeAreaView} from 'react-native-safe-area-context';
-import {useFocusEffect, useRouter} from 'expo-router';
+import {useFocusEffect, router} from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {db, switchDatabaseScope} from '../../lib/db/client';
 import * as schema from '../../lib/db/schema';
@@ -10,6 +10,8 @@ import {eq} from 'drizzle-orm';
 import {SyncManager} from '../../lib/sync/SyncManager';
 import {supabase} from '../../lib/supabase';
 import * as Haptics from 'expo-haptics';
+import {getApiBaseUrl, getApiHeaders} from '../../lib/api/config';
+import {formatCurrency} from '../../lib/utils/format';
 
 // Import các UI dùng chung
 import {Header} from '../../components/layout/Header';
@@ -20,7 +22,6 @@ import {Badge} from '../../components/ui/Badge';
 import {DrawerMenu} from '../../components/erp/DrawerMenu';
 
 export default function SettingsScreen() {
- const router = useRouter();
 
  // 1. Cấu hình máy in
  const [printerConnType, setPrinterConnType] = useState<'bluetooth' | 'lan'>('bluetooth');
@@ -59,6 +60,14 @@ export default function SettingsScreen() {
  const [isSyncErrorVisible, setIsSyncErrorVisible] = useState(false);
  const [isDeltaSyncSuccessVisible, setIsDeltaSyncSuccessVisible] = useState(false);
  const [deltaSyncResult, setDeltaSyncResult] = useState({success: 0, failed: 0});
+
+ // States chốt ca làm việc
+ const [showCloseShiftModal, setShowCloseShiftModal] = useState(false);
+ const [actualClosingCashInput, setActualClosingCashInput] = useState('0');
+ const [closingShiftNote, setClosingShiftNote] = useState('');
+ const [openingCashVal, setOpeningCashVal] = useState(0);
+ const [expectedClosingCashVal, setExpectedClosingCashVal] = useState(0);
+ const [isClosingShift, setIsClosingShift] = useState(false);
 
  // Tải thống kê
  const loadSettingsData = async () => {
@@ -213,50 +222,192 @@ export default function SettingsScreen() {
 }
 };
 
- // Đóng ca
- const handleCloseShift = async () => {
- Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
- try {
- setIsLogoutModalOpen(false);
- const shopId = await AsyncStorage.getItem('active_shop_id');
- const activeShiftId = await AsyncStorage.getItem('active_shift_id');
- 
- if (activeShiftId && Platform.OS !== 'web') {
- const nowStr = new Date().toISOString();
- await db
- .update(schema.shop_shifts)
- .set({closed_at: nowStr, status: 'closed', sync_status: 'pending'})
- .where(eq(schema.shop_shifts.id, activeShiftId));
-}
+  // Helper tính tiền mặt thu từ hóa đơn
+  const getOrderCashAmount = (paymentMethod: string, paidAmount: number): number => {
+    if (!paymentMethod) return paidAmount;
+    if (paymentMethod.startsWith('[') || paymentMethod.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(paymentMethod);
+        if (Array.isArray(parsed)) {
+          return parsed.reduce((sum: number, p: any) => {
+            const methodStr = (p.method || p.METHOD || '').toLowerCase();
+            if (methodStr === 'cash' || methodStr === 'tiền mặt') {
+              return sum + (p.amount || 0);
+            }
+            return sum;
+          }, 0);
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+    const normalized = paymentMethod.toLowerCase();
+    if (normalized === 'cash' || normalized === 'tiền mặt') {
+      return paidAmount;
+    }
+    return 0;
+  };
 
- if (shopId && Platform.OS !== 'web') {
- await SyncManager.pushOfflineShifts(shopId);
- await SyncManager.pushOfflineOrders(shopId);
-}
+  // Khai báo chốt ca trước khi đóng
+  const handleTriggerCloseShift = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    try {
+      const activeShiftId = await AsyncStorage.getItem('active_shift_id');
+      if (!activeShiftId) {
+        setIsLogoutModalOpen(true);
+        return;
+      }
 
- await AsyncStorage.removeItem('active_shift_id');
- await AsyncStorage.removeItem('active_shop_id');
- await AsyncStorage.removeItem('active_shop_name');
- await AsyncStorage.removeItem('active_tenant_id');
+      // 1. Lấy thông tin ca hiện tại từ SQLite
+      const shiftRecord = await db
+        .select()
+        .from(schema.shop_shifts)
+        .where(eq(schema.shop_shifts.id, activeShiftId))
+        .limit(1);
 
- // Xóa sạch giỏ hàng tạm và thông tin CRM của ca làm việc cũ
- await AsyncStorage.removeItem('temp_cart');
- await AsyncStorage.removeItem('temp_discount');
- await AsyncStorage.removeItem('temp_note');
- await AsyncStorage.removeItem('temp_customer');
+      const openingCash = shiftRecord[0]?.opening_cash || 0;
+      setOpeningCashVal(openingCash);
 
- // Trả lại kết nối CSDL về file mặc định sau khi đăng xuất
- switchDatabaseScope(null);
+      // 2. Tính expected closing cash
+      const shiftOrders = await db
+        .select()
+        .from(schema.orders)
+        .where(eq(schema.orders.shift_id, activeShiftId));
 
- await supabase.auth.signOut();
- 
- Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
- alert('Đã đóng ca làm việc và đăng xuất thành công.');
- router.replace('/(auth)/login');
-} catch (err: any) {
- console.error('Lỗi khi kết thúc ca làm việc:', err);
-}
-};
+      let totalCashReceived = 0;
+      for (const order of shiftOrders) {
+        totalCashReceived += getOrderCashAmount(order.payment_method, order.paid_amount || 0);
+      }
+
+      const expectedCash = openingCash + totalCashReceived;
+      setExpectedClosingCashVal(expectedCash);
+      setActualClosingCashInput(expectedCash.toString());
+      setClosingShiftNote('');
+      setShowCloseShiftModal(true);
+    } catch (err) {
+      console.error('Lỗi khi tính toán chốt ca:', err);
+      setIsLogoutModalOpen(true);
+    }
+  };
+
+  // Xác nhận đóng ca và kết ca hoàn chỉnh
+  const handleCloseShiftConfirm = async () => {
+    if (isClosingShift) return;
+    setIsClosingShift(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
+    try {
+      const shopId = await AsyncStorage.getItem('active_shop_id');
+      const activeShiftId = await AsyncStorage.getItem('active_shift_id');
+      const actualClosingCash = parseInt(actualClosingCashInput.replace(/\D/g, ''), 10) || 0;
+      const nowStr = new Date().toISOString();
+
+      if (activeShiftId && Platform.OS !== 'web') {
+        // Cập nhật SQLite
+        await db
+          .update(schema.shop_shifts)
+          .set({
+            closed_at: nowStr,
+            status: 'closed',
+            actual_closing_cash: actualClosingCash,
+            sync_status: 'pending'
+          })
+          .where(eq(schema.shop_shifts.id, activeShiftId));
+
+        // PUT lên server
+        if (shopId) {
+          try {
+            const currentUrl = await getApiBaseUrl();
+            const headers = await getApiHeaders();
+            await fetch(`${currentUrl}/api/shops/${shopId}/shifts/${activeShiftId}`, {
+              method: 'PUT',
+              headers: { ...headers, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                closed_at: nowStr,
+                actual_closing_cash: actualClosingCash,
+                note: closingShiftNote,
+              }),
+            });
+          } catch (err) {
+            console.warn('Lỗi đồng bộ đóng ca lên server:', err);
+          }
+        }
+      }
+
+      // Đẩy offline
+      if (shopId && Platform.OS !== 'web') {
+        try {
+          await SyncManager.pushOfflineShifts(shopId);
+          await SyncManager.pushOfflineOrders(shopId);
+        } catch (syncErr) {
+          console.warn('Lỗi push offline chốt ca:', syncErr);
+        }
+      }
+
+      // Xóa Session
+      await AsyncStorage.removeItem('active_shift_id');
+      await AsyncStorage.removeItem('active_shop_id');
+      await AsyncStorage.removeItem('active_shop_name');
+      await AsyncStorage.removeItem('active_tenant_id');
+      await AsyncStorage.removeItem('temp_cart');
+      await AsyncStorage.removeItem('temp_discount');
+      await AsyncStorage.removeItem('temp_note');
+      await AsyncStorage.removeItem('temp_customer');
+
+      switchDatabaseScope(null);
+      await supabase.auth.signOut();
+
+      setShowCloseShiftModal(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      Alert.alert('Đã kết ca', 'Đã đóng ca làm việc và đăng xuất thành công.');
+      router.replace('/(auth)/login');
+    } catch (err: any) {
+      console.error('Lỗi khi đóng ca:', err);
+      Alert.alert('Lỗi', `Không thể đóng ca: ${err.message || err}`);
+    } finally {
+      setIsClosingShift(false);
+    }
+  };
+
+  // Fallback đóng ca không cần két hoặc lỗi
+  const handleCloseShift = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
+    try {
+      setIsLogoutModalOpen(false);
+      const shopId = await AsyncStorage.getItem('active_shop_id');
+      const activeShiftId = await AsyncStorage.getItem('active_shift_id');
+      
+      if (activeShiftId && Platform.OS !== 'web') {
+        const nowStr = new Date().toISOString();
+        await db
+          .update(schema.shop_shifts)
+          .set({closed_at: nowStr, status: 'closed', sync_status: 'pending'})
+          .where(eq(schema.shop_shifts.id, activeShiftId));
+      }
+
+      if (shopId && Platform.OS !== 'web') {
+        await SyncManager.pushOfflineShifts(shopId);
+        await SyncManager.pushOfflineOrders(shopId);
+      }
+
+      await AsyncStorage.removeItem('active_shift_id');
+      await AsyncStorage.removeItem('active_shop_id');
+      await AsyncStorage.removeItem('active_shop_name');
+      await AsyncStorage.removeItem('active_tenant_id');
+      await AsyncStorage.removeItem('temp_cart');
+      await AsyncStorage.removeItem('temp_discount');
+      await AsyncStorage.removeItem('temp_note');
+      await AsyncStorage.removeItem('temp_customer');
+
+      switchDatabaseScope(null);
+      await supabase.auth.signOut();
+      
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      Alert.alert('Đã đóng ca', 'Đã đóng ca làm việc và đăng xuất thành công.');
+      router.replace('/(auth)/login');
+    } catch (err: any) {
+      console.error('Lỗi khi kết thúc ca làm việc:', err);
+    }
+  };
 
  return (
  <SafeAreaView edges={['top', 'left', 'right']} className="flex-1 bg-slate-50">
@@ -298,7 +449,7 @@ export default function SettingsScreen() {
  variant="danger"
  size="sm"
  title="Đóng ca / Kết ca"
- onPress={() => setIsLogoutModalOpen(true)}
+ onPress={handleTriggerCloseShift}
  className="rounded-xl px-3.5 py-2"
  />
  </View>
@@ -313,9 +464,23 @@ export default function SettingsScreen() {
   <View className="flex-row bg-slate-50 p-1 rounded-xl mb-4 border border-slate-200">
   <TouchableOpacity 
   activeOpacity={0.7}
-  className={`flex-1 py-2 rounded-lg items-center flex-row justify-center ${
-  printerConnType === 'bluetooth' ? 'bg-white shadow-sm border border-slate-200/50' : ''
- }`}
+  className="flex-1 py-2 rounded-lg items-center flex-row justify-center"
+  style={printerConnType === 'bluetooth' ? {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: 'rgba(226, 232, 240, 0.5)',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
+      },
+      android: {
+        elevation: 1,
+      },
+    }),
+  } : undefined}
   onPress={() => setPrinterConnType('bluetooth')}
   >
   <Ionicons name="bluetooth" size={13} color={printerConnType === 'bluetooth' ? '#fa5908' : '#94a3b8'} />
@@ -328,9 +493,23 @@ export default function SettingsScreen() {
   
   <TouchableOpacity 
   activeOpacity={0.7}
-  className={`flex-1 py-2 rounded-lg items-center flex-row justify-center ${
-  printerConnType === 'lan' ? 'bg-white shadow-sm border border-slate-200/50' : ''
- }`}
+  className="flex-1 py-2 rounded-lg items-center flex-row justify-center"
+  style={printerConnType === 'lan' ? {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: 'rgba(226, 232, 240, 0.5)',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
+      },
+      android: {
+        elevation: 1,
+      },
+    }),
+  } : undefined}
   onPress={() => setPrinterConnType('lan')}
   >
   <Ionicons name="wifi" size={13} color={printerConnType === 'lan' ? '#fa5908' : '#94a3b8'} />
@@ -581,6 +760,114 @@ export default function SettingsScreen() {
  cancelLabel="Hủy"
  variant="danger"
  />
+
+  {/* Modal Chốt Ca và Đóng Ca */}
+  <Modal
+    visible={showCloseShiftModal}
+    animationType="fade"
+    transparent={true}
+    onRequestClose={() => setShowCloseShiftModal(false)}
+  >
+    <View className="flex-1 bg-black/60 justify-center items-center px-6">
+      <View className="bg-white w-full rounded-3xl p-6 shadow-2xl border border-slate-100 max-h-[90%]">
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 10 }}>
+          <View className="items-center mb-4">
+            <View className="bg-orange-50 p-3 rounded-full mb-3 border border-orange-100">
+              <Ionicons name="lock-closed-outline" size={24} color="#fa5908" />
+            </View>
+            <Text className="text-base font-bold text-slate-800 text-center">Xác nhận Kết ca & Đóng ca</Text>
+            <Text className="text-xxs text-slate-400 text-center mt-1 leading-relaxed">
+              Vui lòng kiểm kê tiền mặt thực tế trong két trước khi bàn giao và đóng ca.
+            </Text>
+          </View>
+
+          {/* Chi tiết ca */}
+          <View className="bg-slate-50 p-4 rounded-2xl border border-slate-150 mb-4">
+            <View className="flex-row justify-between items-center py-1">
+              <Text className="text-xxs text-slate-500 font-semibold">Tiền mặt bàn giao đầu ca:</Text>
+              <Text className="text-xs font-bold text-slate-700">{formatCurrency(openingCashVal)}</Text>
+            </View>
+            <View className="flex-row justify-between items-center py-1 border-t border-slate-200/50 mt-2 pt-2">
+              <Text className="text-xxs text-slate-500 font-semibold">Lý thuyết cuối ca (tiền mặt):</Text>
+              <Text className="text-xs font-bold text-slate-800">{formatCurrency(expectedClosingCashVal)}</Text>
+            </View>
+          </View>
+
+          {/* Form nhập thực tế */}
+          <View className="mb-4">
+            <Text className="text-xxs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+              Tiền mặt thực tế cuối ca
+            </Text>
+            <View className="relative flex-row items-center bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5">
+              <TextInput
+                value={actualClosingCashInput ? Number(actualClosingCashInput.replace(/\D/g, '')).toLocaleString('vi-VN') : '0'}
+                onChangeText={(val) => {
+                  const num = val.replace(/\D/g, '');
+                  setActualClosingCashInput(num || '0');
+                }}
+                keyboardType="numeric"
+                className="flex-1 text-center text-lg font-bold text-slate-800"
+                placeholder="0"
+                style={Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : undefined}
+              />
+              <Text className="text-sm font-semibold text-slate-400 ml-2">đ</Text>
+            </View>
+          </View>
+
+          {/* Tính chênh lệch */}
+          {(() => {
+            const actualCash = parseInt(actualClosingCashInput.replace(/\D/g, ''), 10) || 0;
+            const diff = actualCash - expectedClosingCashVal;
+            return (
+              <View className="flex-row justify-between items-center bg-slate-50 p-3.5 rounded-xl border border-slate-200 mb-4">
+                <Text className="text-xxs text-slate-500 font-semibold">Chênh lệch két:</Text>
+                <Text className={`text-xs font-bold ${diff === 0 ? 'text-emerald-600' : diff > 0 ? 'text-blue-600' : 'text-red-500'}`}>
+                  {diff > 0 ? '+' : ''}{formatCurrency(diff)}
+                </Text>
+              </View>
+            );
+          })()}
+
+          {/* Ghi chú */}
+          <View className="mb-6">
+            <Text className="text-xxs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+              Ghi chú chốt ca (Không bắt buộc)
+            </Text>
+            <TextInput
+              value={closingShiftNote}
+              onChangeText={setClosingShiftNote}
+              className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-800 h-20"
+              placeholder="Nhập ghi chú bàn giao hoặc lý do chênh lệch két..."
+              multiline={true}
+              textAlignVertical="top"
+              style={Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : undefined}
+            />
+          </View>
+
+          <View className="flex-row gap-3">
+            <TouchableOpacity
+              className="flex-1 py-3 rounded-xl border border-slate-200 bg-slate-50 items-center justify-center"
+              onPress={() => setShowCloseShiftModal(false)}
+              disabled={isClosingShift}
+            >
+              <Text className="text-slate-500 font-semibold text-xs">Hủy bỏ</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              className="flex-1 py-3 rounded-xl bg-orange-500 items-center justify-center flex-row"
+              onPress={handleCloseShiftConfirm}
+              disabled={isClosingShift}
+            >
+              {isClosingShift ? (
+                <ActivityIndicator size="small" color="white" />
+              ) : (
+                <Text className="text-white font-semibold text-xs">Xác nhận đóng ca</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </View>
+    </View>
+  </Modal>
 
  {/* Drawer Hamburger Sidebar */}
  <DrawerMenu 

@@ -661,6 +661,83 @@ export default function PosScreen() {
  const [isPayingCartLoading, setIsPayingCartLoading] = useState(false);
  const [isUpdatingGuestsLoading, setIsUpdatingGuestsLoading] = useState(false);
 
+  // States quản lý ca làm việc (Shift Management)
+  const [isShiftEnabled, setIsShiftEnabled] = useState(false);
+  const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
+  const [openingCashInput, setOpeningCashInput] = useState('0');
+  const [isShiftLoading, setIsShiftLoading] = useState(false);
+  const [pendingCheckoutAction, setPendingCheckoutAction] = useState<(() => void) | null>(null);
+
+  const handleCheckoutPress = async (action: () => void) => {
+    const enabled = (await AsyncStorage.getItem('enable_shift_management')) === 'true';
+    const activeShiftId = await AsyncStorage.getItem('active_shift_id');
+    if (enabled && !activeShiftId) {
+      setPendingCheckoutAction(() => action);
+      setOpeningCashInput('0');
+      setIsShiftModalOpen(true);
+    } else {
+      action();
+    }
+  };
+
+  const handleShiftOpenConfirm = async () => {
+    setIsShiftLoading(true);
+    try {
+      const activeShopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+      const currentUrl = await getApiBaseUrl();
+      const headers = await getApiHeaders();
+      const userEmail = await AsyncStorage.getItem('saved_email') || 'mobile-app';
+      const cash = parseInt(openingCashInput.replace(/\D/g, ''), 10) || 0;
+      const nowStr = new Date().toISOString();
+
+      let shiftId = `shift-${activeShopId}-${Date.now()}`;
+      let syncStatus = 'pending';
+
+      try {
+        const res = await fetch(`${currentUrl}/api/shops/${activeShopId}/shifts`, {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            branch_id: activeShopId,
+            opening_cash: cash,
+          }),
+        });
+        if (res.ok) {
+          const resJson = await res.json();
+          if (resJson.id) {
+            shiftId = resJson.id;
+            syncStatus = 'synced';
+          }
+        }
+      } catch (err) {
+        console.warn('Không thể gửi ca mở lên server:', err);
+      }
+
+      await db.insert(schema.shop_shifts).values({
+        id: shiftId,
+        opened_at: nowStr,
+        status: 'open',
+        opening_cash: cash,
+        actual_closing_cash: 0,
+        employee_name: userEmail.split('@')[0],
+        sync_status: syncStatus,
+      }).onConflictDoNothing();
+
+      await AsyncStorage.setItem('active_shift_id', shiftId);
+      setIsShiftModalOpen(false);
+
+      if (pendingCheckoutAction) {
+        pendingCheckoutAction();
+        setPendingCheckoutAction(null);
+      }
+    } catch (err: any) {
+      console.error('Lỗi khi mở ca làm việc:', err);
+      Alert.alert('Lỗi', `Không thể mở ca làm việc: ${err.message || err}`);
+    } finally {
+      setIsShiftLoading(false);
+    }
+  };
+
  // Custom Date Picker Modal States
  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
  const [pickerTargetIndex, setPickerTargetIndex] = useState<number>(0);
@@ -826,6 +903,9 @@ useEffect(() => {
   const activeShopName = await AsyncStorage.getItem('active_shop_name') || 'Tạp hóa Linh Ka';
   const activeShopIndustry = await AsyncStorage.getItem('active_shop_industry') || 'retail';
   let vertical = activeShopIndustry;
+
+  const enabled = (await AsyncStorage.getItem('enable_shift_management')) === 'true';
+  if (isMounted) setIsShiftEnabled(enabled);
   
   if (isMounted) {
   // Tránh cập nhật state phân hệ ngay lập tức trong chu kỳ focus đầu tiên để không làm mất navigation context
@@ -1859,8 +1939,10 @@ useEffect(() => {
  setPaymentRows([{id: 'pay-cash', method: 'cash', fund_id: paymentFundsList.find(f => f.type === 'cash')?.id || 'cash', amount: totalCartValue}]);
  
  // 5. Mở modal giỏ hàng chính để thanh toán hệ thống
- setIsCartModalOpen(true);
- setActiveTable(null); // Đóng modal sơ đồ phòng bàn hiện tại
+ handleCheckoutPress(() => {
+   setIsCartModalOpen(true);
+   setActiveTable(null); // Đóng modal sơ đồ phòng bàn hiện tại
+ });
 };
 
  // Xác nhận Thanh toán bàn chơi / phòng lưu trú (Unified Flow)
@@ -2931,7 +3013,9 @@ if (!isNavReady) {
  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
  showToast("Đã lưu và đồng bộ món thành công!", "success");
 } else {
- setIsCartModalOpen(true);
+ handleCheckoutPress(() => {
+   setIsCartModalOpen(true);
+ });
 }
 }}
  icon={<Ionicons name={cartOwnerTable ? "save" : "arrow-forward"} size={12} color="white" />}
@@ -3505,6 +3589,70 @@ if (!isNavReady) {
  onClose={() => setIsDrawerOpen(false)} 
  branchName="Chi nhánh chính"
  />
+
+  {/* Modal Mở ca làm việc POS khi Checkout */}
+  <Modal
+    visible={isShiftModalOpen}
+    animationType="fade"
+    transparent={true}
+    onRequestClose={() => setIsShiftModalOpen(false)}
+  >
+    <View className="flex-1 bg-black/60 justify-center items-center px-6">
+      <View className="bg-white w-full rounded-3xl p-6 shadow-2xl border border-slate-100">
+        <View className="items-center mb-4">
+          <View className="bg-orange-50 p-3 rounded-full mb-3 border border-orange-100">
+            <Ionicons name="wallet-outline" size={24} color="#fa5908" />
+          </View>
+          <Text className="text-base font-bold text-slate-800 text-center">Mở ca làm việc POS</Text>
+          <Text className="text-xxs text-slate-400 text-center mt-1 leading-relaxed">
+            Hệ thống đang bật chế độ Quản lý ca. Bạn cần khai báo số tiền mặt hiện có trong két trước khi thanh toán.
+          </Text>
+        </View>
+
+        <View className="mb-6">
+          <Text className="text-xxs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+            Số tiền mặt đầu ca
+          </Text>
+          <View className="relative flex-row items-center bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5">
+            <TextInput
+              value={openingCashInput}
+              onChangeText={(val) => {
+                const num = val.replace(/\D/g, '');
+                setOpeningCashInput(num ? Number(num).toLocaleString('vi-VN') : '0');
+              }}
+              keyboardType="numeric"
+              className="flex-1 text-center text-lg font-bold text-slate-800"
+              placeholder="0"
+              style={Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : undefined}
+            />
+            <Text className="text-sm font-semibold text-slate-400 ml-2">đ</Text>
+          </View>
+        </View>
+
+        <View className="flex-row gap-3">
+          <TouchableOpacity
+            className="flex-1 py-3 rounded-xl border border-slate-200 bg-slate-50 items-center"
+            onPress={() => setIsShiftModalOpen(false)}
+            disabled={isShiftLoading}
+          >
+            <Text className="text-slate-500 font-semibold text-xs">Hủy bỏ</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            className="flex-1 py-3 rounded-xl bg-orange-500 items-center justify-center flex-row"
+            onPress={handleShiftOpenConfirm}
+            disabled={isShiftLoading}
+          >
+            {isShiftLoading ? (
+              <ActivityIndicator size="small" color="white" />
+            ) : (
+              <Text className="text-white font-semibold text-xs">Xác nhận</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  </Modal>
+
  </SafeAreaView>
  );
 }

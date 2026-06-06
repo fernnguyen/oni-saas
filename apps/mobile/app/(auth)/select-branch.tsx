@@ -1,5 +1,5 @@
 import React, {useState, useEffect} from 'react';
-import {Text, View, ScrollView, TouchableOpacity, ActivityIndicator, Alert, TextInput} from 'react-native';
+import {Text, View, ScrollView, TouchableOpacity, ActivityIndicator, Alert, TextInput, Modal, Platform} from 'react-native';
 import {useRouter} from 'expo-router';
 import {Ionicons} from '@expo/vector-icons';
 import {SafeAreaView} from 'react-native-safe-area-context';
@@ -26,6 +26,11 @@ export default function SelectBranchScreen() {
  const [isSyncing, setIsSyncing] = useState(false);
  const [syncProgress, setSyncProgress] = useState(0);
  const [tenantId, setTenantId] = useState('');
+
+ // States quản lý ca làm việc (Shift Management)
+ const [showShiftModal, setShowShiftModal] = useState(false);
+ const [openingCashInput, setOpeningCashInput] = useState('0');
+ const [isShiftLoading, setIsShiftLoading] = useState(false);
 
  // Cấu hình linh hoạt URL API
  const [showConfig, setShowConfig] = useState(false);
@@ -158,30 +163,141 @@ export default function SelectBranchScreen() {
  return;
 }
 
- // Tạo một ca làm việc di động mặc định trong SQLite nội địa
- const nowStr = new Date().toISOString();
- const shiftId = `shift-${branch.id}-${Date.now()}`;
- await AsyncStorage.setItem('active_shift_id', shiftId);
+  // Xóa active_shift_id cũ trước khi kiểm tra ca mới
+  await AsyncStorage.removeItem('active_shift_id');
 
- await db.insert(schema.shop_shifts).values({
- id: shiftId,
- opened_at: nowStr,
- status: 'open',
- opening_cash: 0,
- actual_closing_cash: 0,
- employee_name: 'Thu ngân viên chính',
- sync_status: 'pending', // Ca mở ngoại tuyến chờ đồng bộ
-}).onConflictDoNothing();
+  // Kiểm tra Cài đặt Quản lý ca (Settings) từ server
+  const currentUrl = await loadApiBaseUrl();
+  const headers = await getApiHeaders();
+  
+  let isShiftEnabled = false;
+  try {
+    const settingsRes = await fetch(`${currentUrl}/api/shops/${branch.id}/settings`, { headers });
+    if (settingsRes.ok) {
+      const settingsJson = await settingsRes.json();
+      isShiftEnabled = settingsJson.enable_shift_management ?? false;
+    }
+  } catch (err) {
+    console.warn('Lỗi khi tải cài đặt ca từ server, mặc định tắt:', err);
+  }
 
- setIsSyncing(false);
- // Chuyển sang Trang Tổng quan tab
- router.replace('/(tabs)');
-} catch (err: any) {
- console.error('Lỗi khi khởi chạy ca làm việc:', err);
- Alert.alert('Lỗi mở ca', `Không thể mở ca làm việc di động: ${err.message}`);
- setIsSyncing(false);
-}
-};
+  // Lưu cấu hình Quản lý ca vào AsyncStorage để POS/Checkout sử dụng offline
+  await AsyncStorage.setItem('enable_shift_management', isShiftEnabled ? 'true' : 'false');
+
+  if (isShiftEnabled) {
+    let activeShiftOnServer = null;
+    try {
+      const userEmail = await AsyncStorage.getItem('saved_email') || '';
+      const shiftsRes = await fetch(`${currentUrl}/api/shops/${branch.id}/shifts?status=open&branch_id=${branch.id}&user_id=${userEmail}`, { headers });
+      if (shiftsRes.ok) {
+        const shiftsJson = await shiftsRes.json();
+        if (shiftsJson.total > 0 && shiftsJson.data && shiftsJson.data.length > 0) {
+          activeShiftOnServer = shiftsJson.data[0];
+        }
+      }
+    } catch (err) {
+      console.warn('Lỗi kiểm tra ca mở trên server:', err);
+    }
+
+    if (activeShiftOnServer) {
+      // Đã có ca mở trên server -> dùng luôn ca này
+      await AsyncStorage.setItem('active_shift_id', activeShiftOnServer.id);
+      
+      // Lưu ca vào SQLite cục bộ
+      await db.insert(schema.shop_shifts).values({
+        id: activeShiftOnServer.id,
+        opened_at: activeShiftOnServer.opened_at,
+        status: 'open',
+        opening_cash: parseFloat(activeShiftOnServer.opening_cash || '0'),
+        actual_closing_cash: 0,
+        employee_name: activeShiftOnServer.employee_name || 'Thu ngân',
+        sync_status: 'synced',
+      }).onConflictDoNothing();
+
+      setIsSyncing(false);
+      router.replace('/(tabs)');
+    } else {
+      // Chưa có ca mở -> Hiện modal nhập tiền đầu ca
+      setIsSyncing(false);
+      setOpeningCashInput('0');
+      setShowShiftModal(true);
+    }
+  } else {
+    // Không bật ca kíp -> Bỏ qua ca
+    await AsyncStorage.removeItem('active_shift_id');
+    setIsSyncing(false);
+    router.replace('/(tabs)');
+  }
+ } catch (err: any) {
+  console.error('Lỗi khi khởi chạy ca làm việc:', err);
+  Alert.alert('Lỗi mở ca', `Không thể mở ca làm việc di động: ${err.message}`);
+  setIsSyncing(false);
+ }
+ };
+
+  const handleSkipShift = async () => {
+    setShowShiftModal(false);
+    router.replace('/(tabs)');
+  };
+
+  const handleConfirmShift = async () => {
+    const branch = branches.find(b => b.id === selectedBranchId);
+    if (!branch) return;
+    setIsShiftLoading(true);
+    try {
+      const currentUrl = await loadApiBaseUrl();
+      const headers = await getApiHeaders();
+      const userEmail = await AsyncStorage.getItem('saved_email') || 'mobile-app';
+      const cash = parseInt(openingCashInput.replace(/\D/g, ''), 10) || 0;
+      const nowStr = new Date().toISOString();
+
+      let shiftId = `shift-${branch.id}-${Date.now()}`;
+      let syncStatus = 'pending';
+
+      // 1. Gửi POST lên server nếu có mạng
+      try {
+        const res = await fetch(`${currentUrl}/api/shops/${branch.id}/shifts`, {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            branch_id: branch.id,
+            opening_cash: cash,
+          }),
+        });
+        if (res.ok) {
+          const resJson = await res.json();
+          if (resJson.id) {
+            shiftId = resJson.id;
+            syncStatus = 'synced';
+          }
+        }
+      } catch (err) {
+        console.warn('Không thể gửi ca mở lên server, dùng SQLite offline:', err);
+      }
+
+      // 2. Lưu vào SQLite cục bộ
+      await db.insert(schema.shop_shifts).values({
+        id: shiftId,
+        opened_at: nowStr,
+        status: 'open',
+        opening_cash: cash,
+        actual_closing_cash: 0,
+        employee_name: userEmail.split('@')[0],
+        sync_status: syncStatus,
+      }).onConflictDoNothing();
+
+      // 3. Thiết lập active_shift_id
+      await AsyncStorage.setItem('active_shift_id', shiftId);
+
+      setShowShiftModal(false);
+      router.replace('/(tabs)');
+    } catch (err: any) {
+      console.error('Lỗi khi mở ca làm việc:', err);
+      Alert.alert('Lỗi', `Không thể mở ca làm việc: ${err.message || err}`);
+    } finally {
+      setIsShiftLoading(false);
+    }
+  };
 
  return (
  <SafeAreaView className="flex-1 bg-slate-50 justify-between px-6 py-8">
@@ -346,6 +462,68 @@ export default function SelectBranchScreen() {
  </TouchableOpacity>
  )}
  </View>
+
+ <Modal
+    visible={showShiftModal}
+    animationType="fade"
+    transparent={true}
+    onRequestClose={() => setShowShiftModal(false)}
+  >
+    <View className="flex-1 bg-black/60 justify-center items-center px-6">
+      <View className="bg-white w-full rounded-3xl p-6 shadow-2xl border border-slate-100">
+        <View className="items-center mb-4">
+          <View className="bg-orange-50 p-3 rounded-full mb-3 border border-orange-100">
+            <Ionicons name="wallet-outline" size={24} color="#fa5908" />
+          </View>
+          <Text className="text-base font-bold text-slate-800 text-center">Mở ca làm việc POS</Text>
+          <Text className="text-xxs text-slate-400 text-center mt-1 leading-relaxed">
+            Hệ thống đang bật chế độ Quản lý ca. Bạn cần khai báo số tiền mặt hiện có trong két trước khi tiếp tục.
+          </Text>
+        </View>
+
+        <View className="mb-6">
+          <Text className="text-xxs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+            Số tiền mặt đầu ca
+          </Text>
+          <View className="relative flex-row items-center bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5">
+            <TextInput
+              value={openingCashInput}
+              onChangeText={(val) => {
+                const num = val.replace(/\D/g, '');
+                setOpeningCashInput(num ? Number(num).toLocaleString('vi-VN') : '0');
+              }}
+              keyboardType="numeric"
+              className="flex-1 text-center text-lg font-bold text-slate-800"
+              placeholder="0"
+              style={Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : undefined}
+            />
+            <Text className="text-sm font-semibold text-slate-400 ml-2">đ</Text>
+          </View>
+        </View>
+
+        <View className="flex-row gap-3">
+          <TouchableOpacity
+            className="flex-1 py-3 rounded-xl border border-slate-200 bg-slate-50 items-center"
+            onPress={handleSkipShift}
+            disabled={isShiftLoading}
+          >
+            <Text className="text-slate-500 font-semibold text-xs">Bỏ qua</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            className="flex-1 py-3 rounded-xl bg-orange-500 items-center justify-center flex-row"
+            onPress={handleConfirmShift}
+            disabled={isShiftLoading}
+          >
+            {isShiftLoading ? (
+              <ActivityIndicator size="small" color="white" />
+            ) : (
+              <Text className="text-white font-semibold text-xs">Xác nhận</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  </Modal>
 
  </SafeAreaView>
  );
