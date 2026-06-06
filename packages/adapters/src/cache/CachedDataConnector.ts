@@ -8,7 +8,8 @@ import crypto from 'crypto'
  * để áp dụng tính năng Caching mà không làm thay đổi hay ô nhiễm logic nghiệp vụ gốc.
  */
 export class CachedDataConnector implements IDataConnector {
-  // Danh sách các thực thể giao dịch có tần suất biến động cực cao, KHÔNG được phép cache để bảo vệ tính toàn vẹn dữ liệu
+  // Danh sách các thực thể có tần suất biến động cao hoặc chứa dữ liệu tài chính nhạy cảm,
+  // KHÔNG được phép cache để bảo vệ tính toàn vẹn dữ liệu
   private readonly EXCLUDED_ENTITIES = new Set([
     'cashbook',
     'orders',
@@ -18,7 +19,11 @@ export class CachedDataConnector implements IDataConnector {
     'shop-shifts',
     'fund-audits',
     'returns',
-    'return-items'
+    'return-items',
+    // Dữ liệu tài chính khách hàng: nợ, điểm tích lũy, ví trả trước thay đổi thường xuyên
+    // Cache 30 phút có thể hiển thị nợ đã trả hoặc số dư sai trong POS
+    'customers',
+    'customer-branch-stats'
   ])
 
   constructor(

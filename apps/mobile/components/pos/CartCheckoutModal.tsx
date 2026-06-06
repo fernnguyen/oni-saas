@@ -24,6 +24,11 @@ interface CartCheckoutModalProps {
   productsList: any[];
   getCartCount: () => number;
   onCheckout: () => void; // Called to trigger final payment or show QR
+  // Tích hợp realtime khách hàng
+  shopId?: string;
+  isOnline?: boolean;
+  apiBaseUrl?: string;
+  apiHeaders?: Record<string, string>;
 }
 
 export function formatCurrency(value: number): string {
@@ -45,15 +50,87 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
     visible, onClose, cart, updateCartItemQuantity, removeFromCart, getCartTotal,
     discountAmount, setDiscountAmount, orderNote, setOrderNote,
     selectedCustomer, setSelectedCustomer, customersList,
-    paymentRows, setPaymentRows, paymentFundsList, productsList, getCartCount, onCheckout
+    paymentRows, setPaymentRows, paymentFundsList, productsList, getCartCount, onCheckout,
+    shopId, isOnline = true, apiBaseUrl, apiHeaders
   } = props;
 
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
   const [isEditingDiscount, setIsEditingDiscount] = useState(false);
   const [openDropdownRowId, setOpenDropdownRowId] = useState<string | null>(null);
+  const [hidePrepaidSuggest, setHidePrepaidSuggest] = useState(false);
+  // Dữ liệu realtime khách hàng (chứa debt_amount, prepaid_balance cập nhật mới nhất)
+  const [enrichedCustomer, setEnrichedCustomer] = useState<any>(null);
+  const [isLoadingCustomer, setIsLoadingCustomer] = useState(false);
+
+  // Reset khi đổi khách
+  React.useEffect(() => {
+    setHidePrepaidSuggest(false);
+    setEnrichedCustomer(null);
+  }, [selectedCustomer?.id]);
+
+  // Fetch realtime khi chọn khách và đang online
+  React.useEffect(() => {
+    if (!selectedCustomer?.id || !isOnline || !apiBaseUrl) return;
+    let cancelled = false;
+    setIsLoadingCustomer(true);
+    // Đọc shopId trực tiếp từ AsyncStorage để tránh race condition với prop
+    const doFetch = async () => {
+      let resolvedShopId = shopId;
+      if (!resolvedShopId) {
+        try {
+          resolvedShopId = (await AsyncStorage.getItem('active_shop_id')) || '';
+        } catch {}
+      }
+      if (!resolvedShopId) {
+        console.log('[CartCheckoutModal] shopId not available, skipping fetch');
+        setIsLoadingCustomer(false);
+        return;
+      }
+      const url = `${apiBaseUrl}/api/shops/${resolvedShopId}/customers/${selectedCustomer.id}`;
+      console.log('[CartCheckoutModal] Fetching customer detail:', url);
+      try {
+        const res = await fetch(url, {
+          headers: { ...(apiHeaders || {}), 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+          cache: 'no-store' as RequestCache,
+        });
+        console.log('[CartCheckoutModal] Response status:', res.status);
+        if (!res.ok || cancelled) { setIsLoadingCustomer(false); return; }
+        const data = await res.json();
+        console.log('[CartCheckoutModal] Customer data:', JSON.stringify({ debt: data.debt_amount, prepaid: data.prepaid_balance }));
+        if (cancelled) return;
+        const debt = data.debt_amount != null ? parseFloat(String(data.debt_amount)) : 0;
+        const prepaid = data.prepaid_balance != null ? parseFloat(String(data.prepaid_balance)) : 0;
+        setEnrichedCustomer({
+          ...selectedCustomer,
+          debt_amount: isNaN(debt) ? 0 : debt,
+          prepaid_balance: isNaN(prepaid) ? 0 : prepaid,
+          loyalty_points: parseFloat(String(data.loyalty_points ?? 0)) || 0,
+        });
+      } catch (err) {
+        console.log('[CartCheckoutModal] Fetch error:', err);
+      } finally {
+        if (!cancelled) setIsLoadingCustomer(false);
+      }
+    };
+    doFetch();
+    return () => { cancelled = true; };
+  }, [selectedCustomer?.id, isOnline, shopId, apiBaseUrl]);
+
+  // Customer thực tế dùng cho hiển thị: ưu tiên enriched (realtime), fallback local
+  const activeCustomer = enrichedCustomer || selectedCustomer;
 
   const finalTotal = Math.max(0, getCartTotal() - discountAmount);
   const paidSum = paymentRows.reduce((sum, p) => sum + p.amount, 0);
+
+  // --- Debt & prepaid logic ---
+  const customerDebt = Number(activeCustomer?.debt_amount || 0);
+  const currentOrderDebtAmount = paymentRows
+    .filter(p => p.method === 'debt')
+    .reduce((s, p) => s + p.amount, 0);
+  const prepaidBalance = Number(activeCustomer?.prepaid_balance || 0);
+
+  // Cảnh báo khi khách có nợ cũ hoặc đơn này ghi nợ
+  const hasDebtWarning = !!activeCustomer && (customerDebt > 0 || currentOrderDebtAmount > 0);
 
   const handlePressCheckout = () => {
     if (paidSum < finalTotal) {
@@ -104,24 +181,55 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                 </View>
 
                 {selectedCustomer ? (
-                  <View className="bg-white border border-slate-200 rounded-xl p-3.5 flex-row justify-between items-center" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2}}>
-                    <View className="flex-1 mr-4">
-                      <Text className="text-xs font-semibold text-slate-800">{selectedCustomer.name}</Text>
-                      <Text className="text-tiny text-slate-500 font-medium mt-1">📞 {selectedCustomer.phone}</Text>
-                      {selectedCustomer.address ? (
-                        <Text className="text-[9.5px] text-slate-400 font-semibold mt-1">📍 {selectedCustomer.address}</Text>
-                      ) : null}
+                  <View>
+                    <View className="bg-white border border-slate-200 rounded-xl p-3.5 flex-row justify-between items-center" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2}}>
+                      <View className="flex-1 mr-4">
+                        <Text className="text-xs font-semibold text-slate-800">{selectedCustomer.name}</Text>
+                        <Text className="text-tiny text-slate-500 font-medium mt-1">📞 {selectedCustomer.phone}</Text>
+                        {selectedCustomer.address ? (
+                          <Text className="text-[9.5px] text-slate-400 font-semibold mt-1">📍 {selectedCustomer.address}</Text>
+                        ) : null}
+                        {/* Realtime data: loading / offline / hiển thị */}
+                        {isLoadingCustomer ? (
+                          <View className="flex-row items-center mt-1.5">
+                            <Ionicons name="sync-outline" size={11} color="#94a3b8" />
+                            <Text className="text-tiny text-slate-400 ml-1">Đang tải thông tin...</Text>
+                          </View>
+                        ) : !isOnline && selectedCustomer ? (
+                          <View className="flex-row items-center mt-1.5 bg-amber-50 border border-amber-200 px-2 py-1 rounded-lg">
+                            <Ionicons name="cloud-offline-outline" size={11} color="#d97706" />
+                            <Text className="text-tiny text-amber-700 ml-1 font-medium">
+                              Ngoại tuyến — kết nối mạng để xem công nợ & điểm tích lũy
+                            </Text>
+                          </View>
+                        ) : enrichedCustomer ? (
+                          <View className="flex-row items-center gap-2 mt-1.5 flex-wrap">
+                            {enrichedCustomer.debt_amount > 0 && (
+                              <View className="flex-row items-center bg-rose-50 border border-rose-100 px-1.5 py-0.5 rounded-md">
+                                <Ionicons name="warning-outline" size={9} color="#f43f5e" />
+                                <Text className="text-[9px] font-bold text-rose-600 ml-0.5">Nợ: {formatCurrency(enrichedCustomer.debt_amount)}</Text>
+                              </View>
+                            )}
+                            {enrichedCustomer.prepaid_balance > 0 && (
+                              <View className="flex-row items-center bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded-md">
+                                <Ionicons name="wallet-outline" size={9} color="#10b981" />
+                                <Text className="text-[9px] font-bold text-emerald-700 ml-0.5">Ví: {formatCurrency(enrichedCustomer.prepaid_balance)}</Text>
+                              </View>
+                            )}
+                          </View>
+                        ) : null}
+                      </View>
+                      <TouchableOpacity 
+                        activeOpacity={0.7}
+                        className="bg-rose-50 p-2 rounded-xl border border-rose-100 items-center justify-center active:scale-95"
+                        onPress={() => {
+                          setSelectedCustomer(null);
+                          setCustomerSearchQuery('');
+                        }}
+                      >
+                        <Ionicons name="trash-outline" size={14} color="#f43f5e" />
+                      </TouchableOpacity>
                     </View>
-                    <TouchableOpacity 
-                      activeOpacity={0.7}
-                      className="bg-rose-50 p-2 rounded-xl border border-rose-100 items-center justify-center active:scale-95"
-                      onPress={() => {
-                        setSelectedCustomer(null);
-                        setCustomerSearchQuery('');
-                      }}
-                    >
-                      <Ionicons name="trash-outline" size={14} color="#f43f5e" />
-                    </TouchableOpacity>
                   </View>
                 ) : (
                   <>
@@ -175,6 +283,69 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                   </View>
                 )}
               </View>
+
+              {/* CẢNH BÁO DƯ NỢ — hiển thị khi khách có nợ */}
+              {hasDebtWarning && (
+                <View className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3.5">
+                  <View className="flex-row items-start gap-2">
+                    <Ionicons name="warning" size={16} color="#d97706" style={{marginTop: 1}} />
+                    <View className="flex-1">
+                      <Text className="text-xs font-bold text-amber-800">Cảnh báo công nợ</Text>
+                      <Text className="text-tiny text-amber-700 mt-1 leading-relaxed">
+                        Khách hàng đang có dư nợ. Vui lòng nhắc nhở khách thanh toán các khoản nợ cũ.
+                      </Text>
+                    </View>
+                  </View>
+                  <View className="flex-row justify-between mt-2.5 pt-2 border-t border-amber-200/70">
+                    <View>
+                      <Text className="text-tiny text-amber-600 font-medium">Nợ hiện tại</Text>
+                      <Text className="text-xs font-bold text-rose-600">{formatCurrency(customerDebt)}</Text>
+                    </View>
+                    {currentOrderDebtAmount > 0 && (
+                      <View className="items-end">
+                        <Text className="text-tiny text-amber-600 font-medium">Nợ thêm đơn này</Text>
+                        <Text className="text-xs font-bold text-rose-600">+{formatCurrency(currentOrderDebtAmount)}</Text>
+                      </View>
+                    )}
+                    {currentOrderDebtAmount > 0 && (
+                      <View className="items-end">
+                        <Text className="text-tiny text-amber-600 font-medium">Tổng nợ sau đơn</Text>
+                        <Text className="text-xs font-bold text-rose-700">{formatCurrency(customerDebt + currentOrderDebtAmount)}</Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              )}
+
+              {/* GỢI Ý VÍ TRẢ TRƯỚC — hiển thị khi khách có số dư */}
+              {selectedCustomer && prepaidBalance > 0 && !hidePrepaidSuggest && (
+                <View className="mb-4 flex-row items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                  <View className="flex-row items-center flex-1 min-w-0">
+                    <Text className="text-base mr-1.5">💳</Text>
+                    <Text className="text-tiny text-emerald-800 flex-1 leading-relaxed">
+                      Khách có <Text className="font-bold">{formatCurrency(prepaidBalance)}</Text> ví trả trước. Sử dụng không?
+                    </Text>
+                  </View>
+                  <View className="flex-row gap-2">
+                    <TouchableOpacity
+                      onPress={() => {
+                        const payAmount = Math.min(prepaidBalance, finalTotal);
+                        const remaining = finalTotal - payAmount;
+                        const rows: any[] = [{id: Date.now().toString(), method: 'prepaid', fund_id: '', amount: payAmount}];
+                        if (remaining > 0) rows.push({id: (Date.now() + 1).toString(), method: 'cash', fund_id: '', amount: remaining});
+                        setPaymentRows(rows);
+                        setHidePrepaidSuggest(true);
+                      }}
+                      className="bg-emerald-600 px-3 py-1.5 rounded-lg"
+                    >
+                      <Text className="text-white text-tiny font-bold">Dùng ngay</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => setHidePrepaidSuggest(true)} className="px-2 py-1.5">
+                      <Ionicons name="close" size={14} color="#6b7280" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
 
               {/* 2. CHI TIẾT SẢN PHẨM */}
               <View className="bg-white border border-slate-100 rounded-xl p-4 mb-4" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2}}>

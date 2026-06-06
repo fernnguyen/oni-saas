@@ -34,6 +34,7 @@ export async function GET(
     const stats = statsRes.data[0]
 
     if (shareCustomers) {
+      // Share mode: stats per branch takes priority
       let debt = stats?.debt_amount ?? row.debt_amount ?? '0'
       let prepaid = stats?.prepaid_balance ?? row.prepaid_balance ?? '0'
       const points = stats?.loyalty_points ?? row.loyalty_points ?? '0'
@@ -66,57 +67,39 @@ export async function GET(
         note,
       })
     } else {
-      const isLocal = row.branch_id === shopId
-      const isGlobal = !row.branch_id || row.branch_id === ''
-      
-      if (isLocal) {
-        let debt = row.debt_amount ?? '0'
-        let prepaid = row.prepaid_balance ?? '0'
-        const dNum = parseFloat(debt)
-        if (dNum < 0) {
-          const absD = Math.abs(dNum)
-          prepaid = String(parseFloat(prepaid) + absD)
-          debt = '0'
-          
-          void connector.update('customers', row.id, {
-            debt_amount: '0',
-            prepaid_balance: prepaid
-          }).catch(err => console.error('Self-heal local details profile failed:', err))
-          
-          row.debt_amount = debt
-          row.prepaid_balance = prepaid
-        }
-        return NextResponse.json(row)
-      }
-      
-      if (isGlobal && stats) {
-        let debt = stats.debt_amount ?? row.debt_amount ?? '0'
-        let prepaid = stats.prepaid_balance ?? row.prepaid_balance ?? '0'
-        const points = stats.loyalty_points ?? row.loyalty_points ?? '0'
-        const note = stats.note ?? row.note ?? ''
+      // Private mode: always merge customer-branch-stats (same priority as list endpoint)
+      // stats.debt_amount takes priority over customers.debt_amount to ensure consistency
+      let debt = stats?.debt_amount ?? row.debt_amount ?? '0'
+      let prepaid = stats?.prepaid_balance ?? row.prepaid_balance ?? '0'
+      const points = stats?.loyalty_points ?? row.loyalty_points ?? '0'
+      const note = stats?.note ?? row.note ?? ''
 
-        const dNum = parseFloat(debt)
-        if (dNum < 0) {
-          const absD = Math.abs(dNum)
-          prepaid = String(parseFloat(prepaid) + absD)
-          debt = '0'
-          
+      const dNum = parseFloat(debt)
+      if (dNum < 0) {
+        const absD = Math.abs(dNum)
+        prepaid = String(parseFloat(prepaid) + absD)
+        debt = '0'
+        
+        if (stats) {
           void connector.update('customer-branch-stats', stats.id, {
             debt_amount: '0',
             prepaid_balance: prepaid
           }).catch(err => console.error('Self-heal details stats failed:', err))
+        } else {
+          void connector.update('customers', row.id, {
+            debt_amount: '0',
+            prepaid_balance: prepaid
+          }).catch(err => console.error('Self-heal local details profile failed:', err))
         }
-
-        return NextResponse.json({
-          ...row,
-          debt_amount: debt,
-          loyalty_points: points,
-          prepaid_balance: prepaid,
-          note,
-        })
       }
-      
-      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+      return NextResponse.json({
+        ...row,
+        debt_amount: debt,
+        loyalty_points: points,
+        prepaid_balance: prepaid,
+        note,
+      })
     }
   } catch (e) {
     return handleApiError(e, 'GET customer')

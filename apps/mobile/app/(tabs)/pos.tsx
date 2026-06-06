@@ -564,11 +564,33 @@ export default function PosScreen() {
  const [isLoading, setIsLoading] = useState(true);
  const [isNavReady, setIsNavReady] = useState(false);
  const [currentUserEmail, setCurrentUserEmail] = useState<string>('mobile-app');
+ const [activeShopId, setActiveShopId] = useState<string>('');
+ const [isOnline, setIsOnline] = useState<boolean>(true);
+ const [apiAuthHeaders, setApiAuthHeaders] = useState<Record<string, string>>({});
 
  useEffect(() => {
   AsyncStorage.getItem('saved_email').then(email => {
     if (email) setCurrentUserEmail(email);
   }).catch(() => {});
+  AsyncStorage.getItem('active_shop_id').then(id => {
+    if (id) setActiveShopId(id);
+  }).catch(() => {});
+  // Load API headers (có auth token)
+  getApiHeaders().then(h => setApiAuthHeaders(h as Record<string, string>)).catch(() => {});
+  // Kiểm tra online trạng thái
+  const checkOnline = () => {
+    if (Platform.OS === 'web' && typeof navigator !== 'undefined') {
+      setIsOnline(navigator.onLine);
+    } else {
+      // Trên native: thử fetch ping nhẹ
+      fetch(getApiBaseUrl() + '/api/ping', { method: 'HEAD' })
+        .then(() => setIsOnline(true))
+        .catch(() => setIsOnline(false));
+    }
+  };
+  checkOnline();
+  const interval = setInterval(checkOnline, 15000);
+  return () => clearInterval(interval);
  }, []);
 
  useEffect(() => {
@@ -3309,6 +3331,10 @@ if (!isNavReady) {
         paymentFundsList={paymentFundsList}
         productsList={productsList}
         getCartCount={getCartCount}
+        shopId={activeShopId}
+        isOnline={isOnline}
+        apiBaseUrl={getApiBaseUrl()}
+        apiHeaders={apiAuthHeaders}
         onCheckout={() => {
           handlePayCart(selectedCustomer, discountAmount, orderNote, paymentRows);
         }}

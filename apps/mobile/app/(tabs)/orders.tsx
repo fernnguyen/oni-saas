@@ -64,6 +64,8 @@ export default function OrdersScreen() {
  
  const [selectedOrder, setSelectedOrder] = useState<any>(null);
  const [selectedOrderItems, setSelectedOrderItems] = useState<any[]>([]);
+ const [selectedOrderCustomerPhone, setSelectedOrderCustomerPhone] = useState<string | null>(null);
+ const [paymentFundsList, setPaymentFundsList] = useState<any[]>([]);
  const [isSyncingOrder, setIsSyncingOrder] = useState<string | null>(null);
  const [isReprinting, setIsReprinting] = useState(false);
  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -105,6 +107,8 @@ export default function OrdersScreen() {
 } else {
  ordersData = await db.select().from(schema.orders).orderBy(desc(schema.orders.created_at));
  shiftsData = await db.select().from(schema.shop_shifts);
+ const funds = await db.select().from(schema.paymentFunds);
+ setPaymentFundsList(funds);
 }
 
  const mappedShifts = [
@@ -135,19 +139,36 @@ export default function OrdersScreen() {
  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
  try {
  let items = [];
+ let customerPhone: string | null = null;
  if (Platform.OS === 'web') {
  items = [
  {id: 'it1', product_name: 'Cà phê Phin Sữa Đá', qty: 2, unit_price: 29000, line_total: 58000},
  {id: 'it2', product_name: 'Trà Đào Cam Sả', qty: 1, unit_price: 39000, line_total: 39000}
  ];
-} else {
+ } else {
  items = await db
  .select()
  .from(schema.order_items)
  .where(eq(schema.order_items.order_id, order.id));
-}
+ // Lấy số điện thoại từ bảng customers
+ if (order.customer_id) {
+ const customerRows = await db
+ .select()
+ .from(schema.customers)
+ .where(eq(schema.customers.id, order.customer_id));
+ if (customerRows.length > 0) customerPhone = customerRows[0].phone || null;
+ }
+ // Fallback: lấy từ metadata nếu có
+ if (!customerPhone && order.metadata) {
+ try {
+ const meta = JSON.parse(order.metadata);
+ customerPhone = meta.customer_phone || null;
+ } catch {}
+ }
+ }
  
  setSelectedOrderItems(items);
+ setSelectedOrderCustomerPhone(customerPhone);
  setSelectedOrder(order);
 } catch (err) {
  console.error('Lỗi tải chi tiết dòng sản phẩm:', err);
@@ -468,14 +489,17 @@ export default function OrdersScreen() {
  </Text>
  </View>
  <View className="flex-row justify-between py-1">
- <Text className="text-tiny text-slate-500 font-medium">Hình thức thanh toán:</Text>
- <Text className="text-tiny font-semibold text-slate-800">
- {getPaymentMethodDisplay(selectedOrder.payment_method)}
- </Text>
- </View>
- <View className="flex-row justify-between py-1">
  <Text className="text-tiny text-slate-500 font-medium">Mã hóa đơn:</Text>
  <Text className="text-tiny font-semibold text-slate-700">{selectedOrder.order_no || selectedOrder.id}</Text>
+ </View>
+ <View className="flex-row justify-between py-1">
+ <Text className="text-tiny text-slate-500 font-medium">Khách hàng:</Text>
+ <View className="items-end">
+ <Text className="text-tiny font-semibold text-slate-800">{selectedOrder.customer_name || 'Khách lẻ'}</Text>
+ {selectedOrderCustomerPhone && (
+ <Text className="text-tiny text-slate-500 mt-0.5">📞 {selectedOrderCustomerPhone}</Text>
+ )}
+ </View>
  </View>
  {selectedOrder.note && (
  <View className="border-t border-slate-200 mt-2 pt-2">
@@ -483,6 +507,48 @@ export default function OrdersScreen() {
  <Text className="text-xs text-slate-700 mt-1 font-semibold">{selectedOrder.note}</Text>
  </View>
  )}
+ </View>
+
+ {/* Thanh toán chi tiết theo từng phương thức + quỹ */}
+ <Text className="text-xxs font-semibold text-slate-400 mb-2.5 px-1">Thanh toán</Text>
+ <View className="mb-4">
+ {(() => {
+ const pm = selectedOrder.payment_method;
+ let rows: {method: string; fund_id?: string; amount?: number}[] = [];
+ if (pm && (pm.startsWith('[') || pm.startsWith('{'))) {
+ try { rows = JSON.parse(pm); } catch {}
+ }
+ if (rows.length === 0) {
+ rows = [{method: pm || 'cash', amount: selectedOrder.total_amount}];
+ }
+ return rows.map((row: any, i: number) => {
+ const method = row.METHOD || row.method || 'cash';
+ const amount = row.AMOUNT || row.amount;
+ const fund = paymentFundsList.find((f: any) => f.id === (row.FUND_ID || row.fund_id));
+ const methodLabel = translateMethod(method);
+ const isDebt = method === 'debt';
+ const isPrepaid = method === 'prepaid';
+ return (
+ <View key={i} className={`flex-row justify-between items-start py-2.5 border-b border-slate-100 ${i === 0 ? '' : ''}`}>
+ <View className="flex-1">
+ <Text className={`text-xs font-semibold ${isDebt ? 'text-rose-600' : isPrepaid ? 'text-emerald-700' : 'text-slate-800'}`}>
+ {methodLabel}
+ </Text>
+ {fund && (
+ <Text className={`text-tiny font-medium mt-0.5 ${isDebt ? 'text-rose-400' : isPrepaid ? 'text-emerald-500' : 'text-orange-600'}`}>
+ 🏦 {fund.name}{fund.bank_name ? ` (${fund.bank_name})` : ''}
+ </Text>
+ )}
+ </View>
+ {amount != null && (
+ <Text className={`text-xs font-bold ml-3 ${isDebt ? 'text-rose-600' : isPrepaid ? 'text-emerald-700' : 'text-slate-800'}`}>
+ {formatCurrency(Number(amount))}
+ </Text>
+ )}
+ </View>
+ );
+ });
+ })()}
  </View>
 
  <Text className="text-xxs font-semibold text-slate-400 mb-2.5 px-1">Mặt hàng đã mua</Text>
