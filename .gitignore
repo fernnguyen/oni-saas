@@ -12,3 +12,6 @@ supabase/.temp
 .pnpm-store
 scratch/
 tests/
+# Firebase credentials
+google-services.json
+GoogleService-Info.plist
