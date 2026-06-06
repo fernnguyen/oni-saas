@@ -436,6 +436,8 @@ export function CheckoutModal({
   }
 
   const [pointsRedeemed, setPointsRedeemed] = useState('0')
+  const [debtRepayAmount, setDebtRepayAmount] = useState(0)
+  const [hideDebtRepaySuggest, setHideDebtRepaySuggest] = useState(false)
 
   const tierDiscountPct = useMemo(() => {
     if (!settings?.has_crm_access) return 0
@@ -528,10 +530,12 @@ export function CheckoutModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, existingOrder])
 
-  // Reset prepaid suggest banner when modal opens or customer changes
+  // Reset prepaid + debt repay suggest banner when modal opens or customer changes
   useEffect(() => {
     if (open) {
       setHidePrepaidSuggest(false)
+      setHideDebtRepaySuggest(false)
+      setDebtRepayAmount(0)
     }
   }, [open, localCustomer?.customer_id])
 
@@ -709,9 +713,30 @@ export function CheckoutModal({
     return payments.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
   }, [isSplitActive, payments, paymentsA, paymentsB])
 
+  const clampedDebtRepay = Math.min(debtRepayAmount, Number(localCustomer?.debt_amount || 0))
+
+  // effectiveRemainingTotal bao gồm tiền hàng + tiền trả nợ cũ
+  const effectiveRemainingTotal = remainingTotal + clampedDebtRepay
+
   const remaining = useMemo(() => {
-    return remainingTotal - totalPaid
-  }, [remainingTotal, totalPaid])
+    return effectiveRemainingTotal - totalPaid
+  }, [effectiveRemainingTotal, totalPaid])
+
+  /** Chọn quỹ thông minh cho cashbook nợ: payment row nào đủ trả hết nợ ưu tiên trước */
+  function selectDebtFundWeb(): { fund_id: string; method: string } {
+    const activePays = isSplitActive ? [...paymentsA, ...paymentsB] : payments
+    const real = activePays.filter(p => p.method !== 'debt' && p.method !== 'prepaid')
+    if (!real.length) return { fund_id: '', method: 'cash' }
+    const covering = real.filter(p => (parseFloat(p.amount) || 0) >= clampedDebtRepay)
+    if (covering.length > 0) {
+      const smallest = [...covering].sort((a, b) => (parseFloat(a.amount) || 0) - (parseFloat(b.amount) || 0))[0]
+      const fundId = smallest.fund_id || getAutoMatchedFund(smallest.method, fundsList)?.id || ''
+      return { fund_id: fundId, method: smallest.method }
+    }
+    const largest = [...real].sort((a, b) => (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0))[0]
+    const fundId = largest.fund_id || getAutoMatchedFund(largest.method, fundsList)?.id || ''
+    return { fund_id: fundId, method: largest.method }
+  }
 
   const totalPaidA = useMemo(() => {
     return paymentsA.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0)
@@ -773,7 +798,7 @@ export function CheckoutModal({
       if (prev.length === 0) return prev
       const othersPaid = prev.slice(0, -1).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
       return prev.map((p, i) =>
-        i === prev.length - 1 ? { ...p, amount: String(Math.max(0, remainingTotal - othersPaid)) } : p
+        i === prev.length - 1 ? { ...p, amount: String(Math.max(0, effectiveRemainingTotal - othersPaid)) } : p
       )
     })
   }
@@ -1356,6 +1381,27 @@ export function CheckoutModal({
         } catch (e) {
           console.error('Direct sync failed, falling back to queue:', e)
         }
+
+        // Thu nợ cũ kèm đơn hàng (fire-and-forget, không block checkout)
+        if (clampedDebtRepay > 0 && localCustomer && !localCustomer.customer_id.startsWith('virtual:')) {
+          const { fund_id: debtFundId, method: debtMethod } = selectDebtFundWeb()
+          fetch(`/api/shops/${shopId}/cashbook`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: 'receipt',
+              category: 'debt_collection',
+              amount: clampedDebtRepay,
+              method: debtMethod,
+              fund_id: debtFundId,
+              reference_id: localCustomer.customer_id,
+              reference_name: localCustomer.name || '',
+              note: `Thu nợ cũ kèm đơn hàng ${serverOrderNo || local_id}`,
+              employee_id: employeeId,
+              branch_id: branchId,
+            })
+          }).catch(e => console.error('Debt collection cashbook failed:', e))
+        }
       }
 
       if (isSuccessDirect) {
@@ -1687,14 +1733,15 @@ export function CheckoutModal({
                     placeholder="0"
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-right text-sm focus:border-primary focus:outline-none font-semibold text-slate-900"
                   />
+                  {/* Hint ↑ Tất cả — hiện bên dưới input khi chưa điền đủ, ẩn khi đã = max */}
                   {idx === paymentRows.length - 1 && rem > 0 && (
                     <button
                       type="button"
                       onClick={distributeRemaining}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-primary hover:underline font-bold"
+                      className="absolute -bottom-4.5 right-0 text-[10px] text-primary hover:text-primary/80 font-bold leading-none"
                       title="Điền số tiền còn thiếu"
                     >
-                      Điền
+                      ↑ Tất cả: {fmtVND(rem)}
                     </button>
                   )}
                 </div>
@@ -2288,6 +2335,70 @@ export function CheckoutModal({
                 placeholder="Ghi chú đơn hàng..."
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm placeholder:text-slate-400 focus:border-primary focus:outline-none"
               />
+
+              {/* Nợ cũ — Nhắc nhở & Trả kèm đơn hàng */}
+              {localCustomer && Number(localCustomer.debt_amount || 0) > 0 && !hideDebtRepaySuggest && isOnline && (
+                <div className="rounded-xl border border-rose-200 bg-rose-50/80 p-3.5 text-sm space-y-2.5 animate-in fade-in slide-in-from-top-2 duration-200 shadow-xs">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-start gap-2">
+                      <svg className="h-4 w-4 text-rose-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                      <div>
+                        <h4 className="text-xs font-bold text-rose-800 uppercase tracking-wide">Khách đang có nợ cũ</h4>
+                        <p className="text-[11px] text-rose-700 mt-0.5">
+                          Còn <strong>{fmtVND(Number(localCustomer.debt_amount))}</strong> chưa thanh toán. Trả kèm đơn này?
+                        </p>
+                      </div>
+                    </div>
+                    <button onClick={() => setHideDebtRepaySuggest(true)} className="text-rose-400 hover:text-rose-600 p-0.5 shrink-0">
+                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-[11px] text-rose-700 font-semibold shrink-0 w-16">Trả nợ:</label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      className="flex-1 rounded-lg border border-rose-200 bg-white px-2.5 py-1.5 text-sm font-bold text-rose-700 text-right focus:outline-none focus:border-rose-400"
+                      placeholder="0"
+                      value={debtRepayAmount ? debtRepayAmount.toLocaleString('vi-VN') : ''}
+                      onChange={(e) => {
+                        const raw = e.target.value.replace(/\D/g, '')
+                        const v = Math.min(Math.max(0, Number(raw) || 0), Number(localCustomer.debt_amount))
+                        setDebtRepayAmount(v)
+                      }}
+                    />
+                    <button
+                      className="shrink-0 rounded-lg bg-rose-600 px-2.5 py-1.5 text-[11px] font-bold text-white hover:bg-rose-700 transition-colors"
+                      onClick={() => setDebtRepayAmount(Number(localCustomer.debt_amount))}
+                    >
+                      Trả hết
+                    </button>
+                    {debtRepayAmount > 0 && (
+                      <button className="text-rose-400 hover:text-rose-600" onClick={() => setDebtRepayAmount(0)}>
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                      </button>
+                    )}
+                  </div>
+                  {clampedDebtRepay > 0 && (
+                    <div className="border-t border-rose-200 pt-2 grid grid-cols-3 gap-2 text-[11px]">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-rose-600">Tiền hàng</span>
+                        <span className="font-semibold text-slate-700">{fmtVND(finalTotal)}</span>
+                      </div>
+                      <div className="flex flex-col gap-0.5 items-center">
+                        <span className="text-rose-600">+ Trả nợ cũ</span>
+                        <span className="font-bold text-rose-700">{fmtVND(clampedDebtRepay)}</span>
+                      </div>
+                      <div className="flex flex-col gap-0.5 items-end">
+                        <span className="text-rose-700 font-semibold">Tổng cần thu</span>
+                        <span className="font-bold text-rose-800 text-sm">{fmtVND(finalTotal + clampedDebtRepay)}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Debt Alerts & Chốt chặn công nợ */}
               {localCustomer && (isDebtDaysExceeded || isDebtAmountExceeded) && (

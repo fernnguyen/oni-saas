@@ -2093,7 +2093,8 @@ export default function PosScreen() {
  customer: any,
  discount: number,
  note: string,
- payments: {id: string; method: string; fund_id: string; amount: number}[]
+ payments: {id: string; method: string; fund_id: string; amount: number}[],
+ debtRepayOpts?: { debtRepayAmount?: number; debtFundId?: string; debtMethod?: string }
  ) => {
  if (cartOwnerTable) {
  await handlePayTableConfirmUnified(customer, discount, note, payments);
@@ -2186,12 +2187,39 @@ export default function PosScreen() {
 } else {
  showToast(`Đã thanh toán Hóa đơn ${orderNo} thành công! Đang đồng bộ...`);
 }
-} catch (err) {
+ // Thu nợ cũ kèm đơn hàng nếu có
+ const debtRepay = debtRepayOpts?.debtRepayAmount || 0;
+ if (debtRepay > 0 && customer && customer.id && isOnline) {
+ const currentUrl = getApiBaseUrl();
+ const debtShopId = await AsyncStorage.getItem('active_shop_id') || '';
+ if (currentUrl && debtShopId) {
+ try {
+ await fetch(`${currentUrl}/api/shops/${debtShopId}/cashbook`, {
+ method: 'POST',
+ headers: { ...(apiAuthHeaders || {}), 'Content-Type': 'application/json' },
+ body: JSON.stringify({
+ type: 'receipt',
+ category: 'debt_collection',
+ amount: debtRepay,
+ method: debtRepayOpts?.debtMethod || 'cash',
+ fund_id: debtRepayOpts?.debtFundId || '',
+ reference_id: customer.id,
+ reference_name: customer.name || '',
+ note: `Thu nợ cũ kèm đơn ${orderNo}`,
+ branch_id: debtShopId,
+ })
+ });
+ } catch (e) {
+ console.warn('[POS] Không gửi được debt_collection:', e);
+ }
+ }
+ }
+ } catch (err) {
  console.error('Lỗi khi thanh toán đơn lẻ SQLite:', err);
  setIsPayingCartLoading(false);
  setIsCheckoutConfirmVisible(false);
-}
-};
+ }
+ };
 
  // Quét mã giả lập
  const handleSimulateScan = () => {
@@ -3335,8 +3363,8 @@ if (!isNavReady) {
         isOnline={isOnline}
         apiBaseUrl={getApiBaseUrl()}
         apiHeaders={apiAuthHeaders}
-        onCheckout={() => {
-          handlePayCart(selectedCustomer, discountAmount, orderNote, paymentRows);
+        onCheckout={(opts) => {
+          handlePayCart(selectedCustomer, discountAmount, orderNote, paymentRows, opts);
         }}
       />
 

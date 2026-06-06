@@ -252,13 +252,19 @@ export async function POST(
     }
 
     // ── Step 3: Payments — dedup by id ──
-    const existingPays = await connector.list('payments', {
-      page: 1, limit: 100,
-      filters: { order_id: serverId },
-    })
-    const existingPayIds = new Set(
-      (existingPays.data as Record<string, string>[]).map((r) => r.payment_id || r.id)
-    )
+    // Query existing payments only if we have a valid server-side order ID.
+    // If serverId is empty at this point (brand-new order), there are no existing payments yet.
+    const existingPayIds = new Set<string>()
+    if (serverId) {
+      const existingPays = await connector.list('payments', {
+        page: 1, limit: 100,
+        filters: { order_id: serverId },
+      })
+      ;(existingPays.data as Record<string, string>[]).forEach((r) => {
+        if (r.payment_id) existingPayIds.add(r.payment_id)
+        if (r.id) existingPayIds.add(r.id)
+      })
+    }
 
     // Fetch and resolve default payment funds for this branch
     const branchId = order.branch_id ?? ''

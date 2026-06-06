@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, ScrollView, Platform, Modal, Alert } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
@@ -23,7 +24,7 @@ interface CartCheckoutModalProps {
   paymentFundsList: any[];
   productsList: any[];
   getCartCount: () => number;
-  onCheckout: () => void; // Called to trigger final payment or show QR
+  onCheckout: (opts?: { debtRepayAmount?: number; debtFundId?: string; debtMethod?: string }) => void; // Called to trigger final payment or show QR
   // Tích hợp realtime khách hàng
   shopId?: string;
   isOnline?: boolean;
@@ -58,6 +59,9 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
   const [isEditingDiscount, setIsEditingDiscount] = useState(false);
   const [openDropdownRowId, setOpenDropdownRowId] = useState<string | null>(null);
   const [hidePrepaidSuggest, setHidePrepaidSuggest] = useState(false);
+  const [hideDebtRepaySuggest, setHideDebtRepaySuggest] = useState(false);
+  const [debtRepayAmount, setDebtRepayAmount] = useState(0);
+  const [isEditingDebtRepay, setIsEditingDebtRepay] = useState(false);
   // Dữ liệu realtime khách hàng (chứa debt_amount, prepaid_balance cập nhật mới nhất)
   const [enrichedCustomer, setEnrichedCustomer] = useState<any>(null);
   const [isLoadingCustomer, setIsLoadingCustomer] = useState(false);
@@ -65,6 +69,8 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
   // Reset khi đổi khách
   React.useEffect(() => {
     setHidePrepaidSuggest(false);
+    setHideDebtRepaySuggest(false);
+    setDebtRepayAmount(0);
     setEnrichedCustomer(null);
   }, [selectedCustomer?.id]);
 
@@ -129,19 +135,40 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
     .reduce((s, p) => s + p.amount, 0);
   const prepaidBalance = Number(activeCustomer?.prepaid_balance || 0);
 
-  // Cảnh báo khi khách có nợ cũ hoặc đơn này ghi nợ
-  const hasDebtWarning = !!activeCustomer && (customerDebt > 0 || currentOrderDebtAmount > 0);
+  // Tổng thực tế cần thu = đơn hàng + tiền trả nợ cũ thêm
+  const clampedDebtRepay = Math.min(debtRepayAmount, customerDebt);
+  const effectiveTotal = finalTotal + clampedDebtRepay;
+
+  // Cảnh báo khi khách có nợ cũ (chưa được trả hết)
+  const hasDebtWarning = !!activeCustomer && customerDebt > 0 && isOnline && !!enrichedCustomer;
+
+  /**
+   * Chọn quỹ thông minh để ghi cashbook trả nợ:
+   * Ưu tiên payment row nào có amount >= debtRepay (không cần nhiều quỹ).
+   * Nếu không có row đơn nào đủ → dùng row lớn nhất.
+   */
+  const selectDebtFund = (): { fund_id: string; method: string } => {
+    const real = paymentRows.filter(r => r.method !== 'debt' && r.method !== 'prepaid');
+    if (!real.length) return { fund_id: paymentRows[0]?.fund_id || '', method: paymentRows[0]?.method || 'cash' };
+    const covering = real.filter(r => r.amount >= clampedDebtRepay);
+    if (covering.length > 0) {
+      const smallest = [...covering].sort((a, b) => a.amount - b.amount)[0];
+      return { fund_id: smallest.fund_id, method: smallest.method };
+    }
+    const largest = [...real].sort((a, b) => b.amount - a.amount)[0];
+    return { fund_id: largest.fund_id, method: largest.method };
+  };
 
   const handlePressCheckout = () => {
-    if (paidSum < finalTotal) {
+    if (paidSum < effectiveTotal) {
       Alert.alert(
         'Chưa đủ tiền',
-        `Tổng tiền khách trả (${formatCurrency(paidSum)}) chưa đủ hóa đơn (${formatCurrency(finalTotal)}).`
+        `Tổng cần thu (${formatCurrency(effectiveTotal)}) bao gồm ${formatCurrency(finalTotal)} tiền hàng${clampedDebtRepay > 0 ? ` + ${formatCurrency(clampedDebtRepay)} trả nợ cũ` : ''}. Khách mới trả ${formatCurrency(paidSum)}.`
       );
       return;
     }
-    // Gọi thẳng onCheckout – không cần Dialog xác nhận (vì checkout modal đã là bước confirm)
-    onCheckout();
+    const debtOpts = clampedDebtRepay > 0 ? { debtRepayAmount: clampedDebtRepay, ...selectDebtFund() } : undefined;
+    onCheckout(debtOpts);
   };
 
   return (
@@ -284,39 +311,6 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                 )}
               </View>
 
-              {/* CẢNH BÁO DƯ NỢ — hiển thị khi khách có nợ */}
-              {hasDebtWarning && (
-                <View className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3.5">
-                  <View className="flex-row items-start gap-2">
-                    <Ionicons name="warning" size={16} color="#d97706" style={{marginTop: 1}} />
-                    <View className="flex-1">
-                      <Text className="text-xs font-bold text-amber-800">Cảnh báo công nợ</Text>
-                      <Text className="text-tiny text-amber-700 mt-1 leading-relaxed">
-                        Khách hàng đang có dư nợ. Vui lòng nhắc nhở khách thanh toán các khoản nợ cũ.
-                      </Text>
-                    </View>
-                  </View>
-                  <View className="flex-row justify-between mt-2.5 pt-2 border-t border-amber-200/70">
-                    <View>
-                      <Text className="text-tiny text-amber-600 font-medium">Nợ hiện tại</Text>
-                      <Text className="text-xs font-bold text-rose-600">{formatCurrency(customerDebt)}</Text>
-                    </View>
-                    {currentOrderDebtAmount > 0 && (
-                      <View className="items-end">
-                        <Text className="text-tiny text-amber-600 font-medium">Nợ thêm đơn này</Text>
-                        <Text className="text-xs font-bold text-rose-600">+{formatCurrency(currentOrderDebtAmount)}</Text>
-                      </View>
-                    )}
-                    {currentOrderDebtAmount > 0 && (
-                      <View className="items-end">
-                        <Text className="text-tiny text-amber-600 font-medium">Tổng nợ sau đơn</Text>
-                        <Text className="text-xs font-bold text-rose-700">{formatCurrency(customerDebt + currentOrderDebtAmount)}</Text>
-                      </View>
-                    )}
-                  </View>
-                </View>
-              )}
-
               {/* GỢI Ý VÍ TRẢ TRƯỚC — hiển thị khi khách có số dư */}
               {selectedCustomer && prepaidBalance > 0 && !hidePrepaidSuggest && (
                 <View className="mb-4 flex-row items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
@@ -450,7 +444,77 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                 </View>
               </View>
 
-                            <View className="bg-white border border-slate-100 rounded-xl p-4 mb-4 z-10" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2, zIndex: 10}}>
+
+              {/* NỢ CŨ — Nhắc nhở & trả kèm đơn (đặt sát phần thanh toán để dễ kiểm soát) */}
+              {hasDebtWarning && !hideDebtRepaySuggest && (
+                <View className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3.5">
+                  {/* Header */}
+                  <View className="flex-row items-start justify-between mb-2.5">
+                    <View className="flex-row items-center flex-1">
+                      <Ionicons name="alert-circle" size={15} color="#e11d48" style={{marginTop: 1}} />
+                      <View className="ml-2 flex-1">
+                        <Text className="text-xs font-bold text-rose-800">Khách đang có nợ cũ</Text>
+                        <Text className="text-[10px] text-rose-600 mt-0.5 leading-relaxed">
+                          Còn <Text className="font-bold">{formatCurrency(customerDebt)}</Text> chưa thanh toán. Trả kèm đơn này?
+                        </Text>
+                      </View>
+                    </View>
+                    <TouchableOpacity onPress={() => setHideDebtRepaySuggest(true)} className="p-1">
+                      <Ionicons name="close" size={14} color="#9f1239" />
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Input trả nợ */}
+                  <View className="flex-row items-center gap-2">
+                    <Text className="text-[10px] text-rose-700 font-semibold w-[70px]">Trả nợ:</Text>
+                    <View className="flex-1 bg-white border border-rose-200 rounded-lg px-2.5 py-1.5 flex-row items-center">
+                      <TextInput
+                        className="flex-1 text-sm font-bold text-rose-700 text-right"
+                        keyboardType="numeric"
+                        placeholder="0"
+                        placeholderTextColor="#fda4af"
+                        value={debtRepayAmount === 0 ? '' : maskCurrencyInput(debtRepayAmount.toString())}
+                        onChangeText={(val) => {
+                          const amt = parseCurrencyToNumber(maskCurrencyInput(val));
+                          setDebtRepayAmount(Math.min(amt, customerDebt));
+                        }}
+                        style={Platform.OS === 'web' ? ({outlineStyle: 'none', padding: 0} as any) : {padding: 0, paddingVertical: 0}}
+                      />
+                    </View>
+                    <TouchableOpacity
+                      className="bg-rose-600 px-2.5 py-1.5 rounded-lg"
+                      onPress={() => setDebtRepayAmount(customerDebt)}
+                    >
+                      <Text className="text-white text-[10px] font-bold">Trả hết</Text>
+                    </TouchableOpacity>
+                    {debtRepayAmount > 0 && (
+                      <TouchableOpacity className="px-1.5 py-1.5" onPress={() => setDebtRepayAmount(0)}>
+                        <Ionicons name="close-circle" size={16} color="#be123c" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+
+                  {/* Tóm tắt nếu có nhập */}
+                  {clampedDebtRepay > 0 && (
+                    <View className="mt-2.5 pt-2.5 border-t border-rose-200 flex-row justify-between">
+                      <View>
+                        <Text className="text-[10px] text-rose-600">Tiền hàng</Text>
+                        <Text className="text-xs font-semibold text-slate-700">{formatCurrency(finalTotal)}</Text>
+                      </View>
+                      <View className="items-center">
+                        <Text className="text-[10px] text-rose-600">Trả nợ</Text>
+                        <Text className="text-xs font-bold text-rose-700">+{formatCurrency(clampedDebtRepay)}</Text>
+                      </View>
+                      <View className="items-end">
+                        <Text className="text-[10px] text-rose-600 font-bold">Tổng cần thu</Text>
+                        <Text className="text-sm font-bold text-rose-800">{formatCurrency(effectiveTotal)}</Text>
+                      </View>
+                    </View>
+                  )}
+                </View>
+              )}
+
+              <View className="bg-white border border-slate-100 rounded-xl p-4 mb-4 z-10" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2, zIndex: 10}}>
                 <View className="flex-row justify-between items-center mb-3">
                   <Text className="text-xxs font-semibold text-slate-455">Phương thức thanh toán</Text>
                   {paymentFundsList.length > 0 && (
@@ -465,8 +529,8 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                           { value: 'debt', label: 'Ghi nợ' },
                           { value: 'prepaid', label: 'Ví trả trước' },
                         ];
-                        const paidSum = paymentRows.reduce((sum, p) => sum + p.amount, 0);
-                        const remaining = Math.max(0, finalTotal - paidSum);
+                        const paidSumNow = paymentRows.reduce((sum, p) => sum + p.amount, 0);
+                        const remaining = Math.max(0, effectiveTotal - paidSumNow);
                         
                         const usedMethods = new Set(paymentRows.map((p) => p.method));
                         const nextMethod = METHODS.find((m) => !usedMethods.has(m.value)) || METHODS[0];
@@ -504,7 +568,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                     ];
                     
                     const paidSumOfOthers = paymentRows.filter((_, i) => i !== idx).reduce((sum, p) => sum + p.amount, 0);
-                    const remaining = Math.max(0, finalTotal - paidSumOfOthers);
+                    const remaining = Math.max(0, effectiveTotal - paidSumOfOthers);
                     
                     let fundType = 'bank';
                     if (row.method === 'cash') fundType = 'cash';
@@ -558,30 +622,36 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                           )}
                         </View>
 
-                        {/* Số tiền với nút điền */}
-                        <View className="w-[52%] bg-white border border-slate-200 rounded-lg px-3 py-1.5 flex-row items-center h-10">
-                          <TextInput
-                            className="flex-1 text-right text-[15px] font-bold text-slate-800"
-                            keyboardType="numeric"
-                            value={row.amount === 0 ? '' : maskCurrencyInput(row.amount.toString())}
-                            onChangeText={(val) => {
-                              const masked = maskCurrencyInput(val);
-                              const amt = parseCurrencyToNumber(masked);
-                              setPaymentRows(prev => prev.map((r, i) => i === idx ? {...r, amount: amt} : r));
-                            }}
-                            placeholder="0"
-                            style={Platform.OS === 'web' ? ({outlineStyle: 'none', padding: 0} as any) : {padding: 0, paddingVertical: 0}}
-                          />
+                        {/* Số tiền */}
+                        <View className="w-[52%]">
+                          <View className="bg-white border border-slate-200 rounded-lg px-3 py-1.5 flex-row items-center h-10">
+                            <TextInput
+                              className="flex-1 text-right text-[15px] font-bold text-slate-800"
+                              keyboardType="numeric"
+                              value={row.amount === 0 ? '' : maskCurrencyInput(row.amount.toString())}
+                              onChangeText={(val) => {
+                                const masked = maskCurrencyInput(val);
+                                const amt = parseCurrencyToNumber(masked);
+                                setPaymentRows(prev => prev.map((r, i) => i === idx ? {...r, amount: amt} : r));
+                              }}
+                              placeholder="0"
+                              placeholderTextColor="#cbd5e1"
+                              style={Platform.OS === 'web' ? ({outlineStyle: 'none', padding: 0} as any) : {padding: 0, paddingVertical: 0}}
+                            />
+                          </View>
+                          {/* Hint điền đủ — hiện bên dưới input, ẩn khi amount đã = remaining */}
                           {remaining > 0 && row.amount < remaining && (
-                          <TouchableOpacity 
-                            activeOpacity={0.7}
-                            className="ml-2 py-0.5"
-                            onPress={() => {
-                              setPaymentRows(prev => prev.map((r, i) => i === idx ? {...r, amount: remaining} : r));
-                            }}
-                          >
-                            <Text className="text-[10px] font-bold text-orange-600 uppercase">Điền</Text>
-                          </TouchableOpacity>
+                            <TouchableOpacity
+                              activeOpacity={0.7}
+                              className="mt-0.5 self-end"
+                              onPress={() => {
+                                setPaymentRows(prev => prev.map((r, i) => i === idx ? {...r, amount: remaining} : r));
+                              }}
+                            >
+                              <Text className="text-[10px] font-semibold text-orange-500">
+                                ↑ Đủ: {formatCurrency(remaining)}
+                              </Text>
+                            </TouchableOpacity>
                           )}
                         </View>
                       </View>
@@ -659,11 +729,36 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                   })
                 )}
               </View>
-<View className="bg-emerald-50 border border-emerald-100 rounded-xl p-4 mb-4 flex-row justify-between items-center relative z-0" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2}}>
-                <Text className="text-xs text-emerald-800 font-semibold">Khách trả:</Text>
-                <Text className="text-emerald-700 text-sm font-semibold">
-                  {formatCurrency(paidSum)}
-                </Text>
+<View className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 mb-4 relative z-0" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2}}>
+                {clampedDebtRepay > 0 && (
+                  <View className="flex-row justify-between mb-1.5">
+                    <Text className="text-[11px] text-slate-500">Tiền hàng:</Text>
+                    <Text className="text-[11px] text-slate-600 font-medium">{formatCurrency(finalTotal)}</Text>
+                  </View>
+                )}
+                {clampedDebtRepay > 0 && (
+                  <View className="flex-row justify-between mb-2 pb-2 border-b border-slate-200">
+                    <Text className="text-[11px] text-rose-600">+ Trả nợ cũ:</Text>
+                    <Text className="text-[11px] text-rose-700 font-medium">{formatCurrency(clampedDebtRepay)}</Text>
+                  </View>
+                )}
+                <View className="flex-row justify-between items-center">
+                  <Text className="text-xs text-slate-700 font-semibold">{clampedDebtRepay > 0 ? 'Tổng cần thu:' : 'Khách trả:'}</Text>
+                  <View className="flex-row items-center gap-2">
+                    <Text className={`font-bold text-sm ${paidSum >= effectiveTotal ? 'text-emerald-600' : 'text-rose-600'}`}>
+                      {formatCurrency(paidSum)}
+                    </Text>
+                    {clampedDebtRepay > 0 && (
+                      <Text className="text-[10px] text-slate-400">/ {formatCurrency(effectiveTotal)}</Text>
+                    )}
+                  </View>
+                </View>
+                {paidSum > effectiveTotal && (
+                  <View className="flex-row justify-between mt-1">
+                    <Text className="text-[11px] text-emerald-600">Tiền thừa:</Text>
+                    <Text className="text-[11px] font-semibold text-emerald-700">{formatCurrency(paidSum - effectiveTotal)}</Text>
+                  </View>
+                )}
               </View>
             </ScrollView>
 
@@ -678,11 +773,12 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
 
               <Button
                 variant="primary"
-                title="Thanh toán"
+                title={paidSum < effectiveTotal ? `Còn thiếu ${formatCurrency(effectiveTotal - paidSum)}` : 'Thanh toán'}
                 icon={<Ionicons name="checkmark-done" size={14} color="white" />}
                 iconPosition="right"
                 onPress={handlePressCheckout}
-                className="flex-[2] py-3.5 rounded-xl"
+                disabled={paidSum < effectiveTotal}
+                className={`flex-[2] py-3.5 rounded-xl ${paidSum < effectiveTotal ? 'opacity-50' : ''}`}
               />
             </View>
           </View>

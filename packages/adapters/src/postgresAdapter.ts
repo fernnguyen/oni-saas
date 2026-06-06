@@ -571,7 +571,7 @@ export class PostgresConnector implements IDataConnector {
       rowPlaceholders.push(`(${ph.join(', ')})`)
     }
 
-    const queryText = `INSERT INTO "${tableName}" (${columnsSql}) VALUES ${rowPlaceholders.join(', ')}`
+    const queryText = `INSERT INTO "${tableName}" (${columnsSql}) VALUES ${rowPlaceholders.join(', ')} ON CONFLICT (id) DO NOTHING`
     await this.query(queryText, allValues)
 
     return insertRows.map(row => this.formatRow(entity, row))

@@ -25,9 +25,11 @@ function formatPhone(phone?: string): string {
 
 function QuickCustomerBadge({ customer, onClear }: { customer: LocalCustomer; onClear: () => void }) {
   const isVirtual = customer.customer_id.startsWith('virtual:')
+  const debt = Number(customer.debt_amount || 0)
+  const prepaid = Number(customer.prepaid_balance || 0)
   return (
-    <div className="flex items-center justify-between rounded-xl border border-blue-100 bg-blue-50 px-3 py-2">
-      <div className="min-w-0">
+    <div className="flex items-start justify-between rounded-xl border border-blue-100 bg-blue-50 px-3 py-2">
+      <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 flex-wrap">
           <p className="truncate text-sm font-medium text-slate-900">
             {customer.name}
@@ -46,6 +48,27 @@ function QuickCustomerBadge({ customer, onClear }: { customer: LocalCustomer; on
           <p className="truncate text-[11px] text-slate-500 mt-0.5">
             {customer.address}
           </p>
+        )}
+        {/* Badges nợ & ví trả trước */}
+        {(debt > 0 || prepaid > 0) && (
+          <div className="flex items-center gap-1.5 flex-wrap mt-1">
+            {debt > 0 && (
+              <span className="inline-flex items-center gap-1 rounded-md border border-rose-100 bg-rose-50 px-1.5 py-0.5 text-[10px] font-bold text-rose-600">
+                <svg className="h-2.5 w-2.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                Nợ: {debt.toLocaleString('vi-VN')}đ
+              </span>
+            )}
+            {prepaid > 0 && (
+              <span className="inline-flex items-center gap-1 rounded-md border border-emerald-100 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">
+                <svg className="h-2.5 w-2.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                </svg>
+                Ví: {prepaid.toLocaleString('vi-VN')}đ
+              </span>
+            )}
+          </div>
         )}
       </div>
       <button
