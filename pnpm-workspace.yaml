@@ -2,7 +2,4 @@ packages:
   - 'apps/*'
   - 'packages/*'
 onlyBuiltDependencies:
-  - '@sentry/cli'
-  - esbuild
-  - sharp
-  - unrs-resolver
+  - '*'
