@@ -113,9 +113,9 @@ crontab -e
 
 Thêm dòng khai báo lịch chạy sau (chạy vào phút thứ 0 của mỗi 2 tiếng):
 ```cron
-0 */2 * * * /Users/fern/Coding/ERP/oni-saas-starter/scripts/backup.sh >> /var/log/db_backup.log 2>&1
+0 */2 * * * /Users/fern/Coding/ERP/oni-saas-starter/scripts/backup.sh >> /home/oni/db_backup.log 2>&1
 ```
-*(Hãy thay thế `/Users/fern/Coding/ERP/oni-saas-starter/scripts/backup.sh` bằng đường dẫn tuyệt đối chính xác tới dự án trên server của bạn).*
+*(Hãy thay thế `/Users/fern/Coding/ERP/oni-saas-starter/scripts/backup.sh` bằng đường dẫn tuyệt đối chính xác tới dự án trên server của bạn. Lưu ý không ghi log ra `/var/log` nếu chạy dưới user thường như `oni` vì sẽ gặp lỗi Permission Denied).*
 
 Bạn cũng nên bảo mật file script trên server để tránh rò rỉ thông tin đăng nhập DB:
 ```bash

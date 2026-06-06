@@ -15,6 +15,9 @@
 # Thiết lập chế độ dừng script nếu có lỗi xảy ra
 set -e
 
+# Thiết lập PATH đầy đủ để Cron Job nhận diện được các công cụ (rclone, zip, pg_dump...)
+export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
 # Xác định thư mục chứa script và gốc dự án (project root)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
