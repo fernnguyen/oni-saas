@@ -343,26 +343,35 @@ export class SyncManager {
           });
 
           if (response.ok) {
-            const resData = await response.json().catch(() => ({}));
-            const serverId = resData.order_id;
-            const serverNo = resData.order_no;
+            const resData = await response.json().catch(() => ({}))
+            const serverId = resData.order_id
+            const serverNo = resData.order_no
 
-            if (serverId && serverId !== order.id) {
+            // Preserve the local order ID as reference_no so it's searchable
+            const localId = order.id
+
+            if (serverId && serverId !== localId) {
               await db.update(schema.order_items)
                 .set({ order_id: serverId })
-                .where(eq(schema.order_items.order_id, order.id));
-                
+                .where(eq(schema.order_items.order_id, localId))
+
               await db.update(schema.orders)
-                .set({ id: serverId, order_no: serverNo || order.order_no, sync_status: 'synced' })
-                .where(eq(schema.orders.id, order.id));
+                .set({
+                  id: serverId,
+                  order_no: serverNo || order.order_no,
+                  sync_status: 'synced',
+                  // Keep local ID as reference_no for traceability
+                  reference_no: localId,
+                })
+                .where(eq(schema.orders.id, localId))
             } else {
               await db.update(schema.orders)
                 .set({ sync_status: 'synced', order_no: serverNo || order.order_no })
-                .where(eq(schema.orders.id, order.id));
+                .where(eq(schema.orders.id, order.id))
             }
-            
-            successCount++;
-            console.log(`Đồng bộ hóa đơn #${order.id} lên Cloud thành công! Server ID: ${serverId}`);
+
+            successCount++
+            console.log(`Đồng bộ hóa đơn #${localId} lên Cloud thành công! Server ID: ${serverId}, Server No: ${serverNo}`)
           } else {
             failedCount++;
             const errorJson = await response.json().catch(() => ({}));

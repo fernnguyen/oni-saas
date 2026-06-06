@@ -69,8 +69,9 @@ export const customers = sqliteTable('customers', {
 
 // 5. LỊCH SỬ HÓA ĐƠN (Orders)
 export const orders = sqliteTable('orders', {
-  id: text('id').primaryKey(), // ORD-SHA-XXXXX
+  id: text('id').primaryKey(), // ORD-SHA-XXXXX (replaced with server ID after sync)
   order_no: text('order_no'),
+  reference_no: text('reference_no'), // Original local ID (e.g. ORD-R-...) preserved for traceability
   status: text('status').notNull().default('completed'), // completed | returning | returned
   customer_id: text('customer_id'),
   customer_name: text('customer_name'),
