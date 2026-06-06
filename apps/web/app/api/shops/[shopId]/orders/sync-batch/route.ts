@@ -267,53 +267,73 @@ export async function POST(
     }
 
     // Fetch and resolve default payment funds for this branch
+    // NOTE: do NOT add branch_id to filters here — the connector already scopes by branchId.
+    // Adding it again causes double-filter which can return 0 rows even when funds exist.
     const branchId = order.branch_id ?? ''
-    const fundsRes = await connector.list('payment-funds', {
-      filters: { branch_id: branchId },
-      limit: 100
-    })
+    const fundsRes = await connector.list('payment-funds', { limit: 200 })
     let funds = fundsRes.data as Record<string, string>[]
 
-    // Self-healing: auto-seed cash and bank funds if empty during order sync
-    if (funds.length === 0 && branchId) {
-      const cashFund = await connector.create('payment-funds', {
-        branch_id: branchId,
-        name: 'Quỹ tiền mặt tại quầy',
-        type: 'cash',
-        account_number: '',
-        bank_name: '',
-        initial_balance: '0',
-        current_balance: '0',
-        is_default: 'TRUE',
-        active: 'TRUE',
-      }) as Record<string, string>
+    // Self-healing: auto-seed only missing fund types — never overwrite existing ones.
+    // Check per type so a retry can't create duplicates.
+    if (branchId) {
+      const hasCash   = funds.some(f => f.type === 'cash')
+      const hasBank   = funds.some(f => f.type === 'bank')
+      const hasWallet = funds.some(f => f.type === 'wallet')
+      const anyMissing = !hasCash || !hasBank || !hasWallet
 
-      const bankFund = await connector.create('payment-funds', {
-        branch_id: branchId,
-        name: 'Tài khoản ngân hàng mặc định',
-        type: 'bank',
-        account_number: '',
-        bank_name: '',
-        initial_balance: '0',
-        current_balance: '0',
-        is_default: 'FALSE',
-        active: 'TRUE',
-      }) as Record<string, string>
+      if (anyMissing) {
+        const newFunds: Record<string, string>[] = []
 
-      const walletFund = await connector.create('payment-funds', {
-        branch_id: branchId,
-        name: 'Ví điện tử (Momo, ZaloPay...)',
-        type: 'wallet',
-        account_number: '',
-        bank_name: '',
-        initial_balance: '0',
-        current_balance: '0',
-        is_default: 'FALSE',
-        active: 'TRUE',
-      }) as Record<string, string>
+        if (!hasCash) {
+          const f = await connector.create('payment-funds', {
+            branch_id: branchId,
+            name: 'Quỹ tiền mặt tại quầy',
+            type: 'cash',
+            account_number: '',
+            bank_name: '',
+            initial_balance: '0',
+            current_balance: '0',
+            is_default: 'FALSE',
+            active: 'TRUE',
+          }) as Record<string, string>
+          newFunds.push(f)
+        }
 
-      funds = [cashFund, bankFund, walletFund]
-      invalidate(shopId, 'payment-funds')
+        if (!hasBank) {
+          const f = await connector.create('payment-funds', {
+            branch_id: branchId,
+            name: 'Tài khoản ngân hàng mặc định',
+            type: 'bank',
+            account_number: '',
+            bank_name: '',
+            initial_balance: '0',
+            current_balance: '0',
+            is_default: 'FALSE',
+            active: 'TRUE',
+          }) as Record<string, string>
+          newFunds.push(f)
+        }
+
+        if (!hasWallet) {
+          const f = await connector.create('payment-funds', {
+            branch_id: branchId,
+            name: 'Ví điện tử (Momo, ZaloPay...)',
+            type: 'wallet',
+            account_number: '',
+            bank_name: '',
+            initial_balance: '0',
+            current_balance: '0',
+            is_default: 'FALSE',
+            active: 'TRUE',
+          }) as Record<string, string>
+          newFunds.push(f)
+        }
+
+        if (newFunds.length > 0) {
+          funds = [...funds, ...newFunds]
+          invalidate(shopId, 'payment-funds')
+        }
+      }
     }
 
     const defaultCashFund = funds.find(f => f.type === 'cash' && f.is_default === 'TRUE') || funds.find(f => f.type === 'cash')
