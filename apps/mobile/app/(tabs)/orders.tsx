@@ -92,163 +92,231 @@ export default function OrdersScreen() {
 
  // Tải dữ liệu SQLite hoặc Cloud
  const loadOrdersData = async (currentLimit = 10, isLoadMore = false) => {
- try {
-  if (!isLoadMore) {
-    setIsLoading(true);
-  } else {
-    setIsLazyLoading(true);
-  }
-
-  let ordersData = [];
-  let shiftsData = [];
-  const activeShopId = await AsyncStorage.getItem('active_shop_id') || '';
-  const activeShiftId = await AsyncStorage.getItem('active_shift_id') || '';
-  setActiveShiftId(activeShiftId);
-  const isShiftEnabled = (await AsyncStorage.getItem('enable_shift_management')) === 'true';
-
-  // 1. Cố gắng fetch dữ liệu đơn hàng online từ API Server
-  let fetchSuccess = false;
   try {
-    const headers = await getApiHeaders();
-    const url = getApiBaseUrl();
+   if (!isLoadMore) {
+     setIsLoading(true);
+   } else {
+     setIsLazyLoading(true);
+   }
 
-    // Gọi API Next.js Server lấy danh sách 10 đơn (hoặc currentLimit đơn) gần nhất
-    const res = await fetch(`${url}/api/shops/${activeShopId}/orders?limit=${currentLimit}&page=1`, { headers });
-    if (res.ok) {
-      const resJson = await res.json();
-      const cloudOrders = resJson.data || [];
-      
-      ordersData = cloudOrders.map((o: any) => ({
-        id: o.id || o.order_id,
-        order_no: o.order_no || 'HD',
-        status: o.status || 'completed',
-        customer_name: o.customer_name || 'Khách lẻ',
-        total_amount: parseInt(o.total_amount || '0', 10),
-        paid_amount: parseInt(o.paid_amount || '0', 10),
-        payment_method: o.payment_method || 'Tiền mặt',
-        created_at: o.created_at || new Date().toISOString(),
-        shift_id: o.shift_id || 'default-shift',
-        sync_status: 'synced',
-        discount_amount: parseInt(o.discount_amount || '0', 10),
-        note: o.note || '',
-      }));
+   let ordersData = [];
+   let shiftsData = [];
+   const activeShopId = await AsyncStorage.getItem('active_shop_id') || '';
+   const activeShiftId = await AsyncStorage.getItem('active_shift_id') || '';
+   setActiveShiftId(activeShiftId);
+   const isShiftEnabled = (await AsyncStorage.getItem('enable_shift_management')) === 'true';
 
-      if (cloudOrders.length < currentLimit) {
-        setHasMore(false);
-      } else {
-        setHasMore(true);
-      }
+   // 1. Tải danh sách ca từ server trước để đồng bộ mốc thời gian ca
+   try {
+     const headers = await getApiHeaders();
+     const url = getApiBaseUrl();
+     const shiftsRes = await fetch(`${url}/api/shops/${activeShopId}/shifts?limit=50`, { headers });
+     if (shiftsRes.ok) {
+       const shiftsJson = await shiftsRes.json();
+       const serverShifts = shiftsJson.data || [];
+       if (Platform.OS !== 'web') {
+         for (const s of serverShifts) {
+           await db.insert(schema.shop_shifts).values({
+             id: s.id,
+             opened_at: s.opened_at,
+             closed_at: s.closed_at || null,
+             status: s.status || 'open',
+             opening_cash: parseInt(s.opening_cash || '0', 10),
+             actual_closing_cash: parseInt(s.actual_closing_cash || '0', 10),
+             employee_name: s.employee_name || s.user_id || 'Thu ngân',
+             sync_status: 'synced',
+           }).onConflictDoUpdate({
+             target: schema.shop_shifts.id,
+             set: {
+               opened_at: s.opened_at,
+               closed_at: s.closed_at || null,
+               status: s.status || 'open',
+               opening_cash: parseInt(s.opening_cash || '0', 10),
+               actual_closing_cash: parseInt(s.actual_closing_cash || '0', 10),
+               employee_name: s.employee_name || s.user_id || 'Thu ngân',
+               sync_status: 'synced',
+             }
+           });
+         }
+       }
+     }
+   } catch (err) {
+     console.warn('Lỗi kết nối khi tải ca từ server:', err);
+   }
 
-      fetchSuccess = true;
+   // 2. Tải danh sách ca từ SQLite
+   if (Platform.OS !== 'web') {
+     const allShifts = await db.select().from(schema.shop_shifts);
+     shiftsData = allShifts.filter((s: any) => {
+       const isLocalShift = s.id && s.id.startsWith(`shift-${activeShopId}-`);
+       const isActiveShift = activeShiftId && s.id === activeShiftId;
+       return isLocalShift || isActiveShift;
+     });
+   }
 
-      // Lưu cache đồng bộ hóa ngược các đơn hàng này vào SQLite để xem offline
-      if (Platform.OS !== 'web') {
-        for (const order of ordersData) {
-          await db.insert(schema.orders).values({
-            id: order.id,
-            order_no: order.order_no,
-            status: order.status,
-            customer_name: order.customer_name,
-            total_amount: order.total_amount,
-            paid_amount: order.paid_amount,
-            payment_method: order.payment_method,
-            created_at: order.created_at,
-            shift_id: order.shift_id,
-            sync_status: 'synced',
-            discount_amount: order.discount_amount,
-            note: order.note,
-          }).onConflictDoUpdate({
-            target: schema.orders.id,
-            set: {
-              order_no: order.order_no,
-              status: order.status,
-              customer_name: order.customer_name,
-              total_amount: order.total_amount,
-              paid_amount: order.paid_amount,
-              payment_method: order.payment_method,
-              created_at: order.created_at,
-              shift_id: order.shift_id,
-              sync_status: 'synced',
-              discount_amount: order.discount_amount,
-              note: order.note,
-            }
-          });
-        }
-      }
-    }
+   // 3. Xây dựng bản đồ mapping shift_id của các đơn hàng nội địa trước
+   const localShiftIdMap = new Map();
+   if (Platform.OS !== 'web') {
+     const localOrders = await db.select().from(schema.orders);
+     localOrders.forEach((o: any) => {
+       if (o.id && o.shift_id) {
+         localShiftIdMap.set(o.id, o.shift_id);
+       }
+     });
+   }
+
+   // 4. Cố gắng fetch dữ liệu đơn hàng online từ API Server
+   let fetchSuccess = false;
+   try {
+     const headers = await getApiHeaders();
+     const url = getApiBaseUrl();
+
+     // Gọi API Next.js Server lấy danh sách 10 đơn (hoặc currentLimit đơn) gần nhất
+     const res = await fetch(`${url}/api/shops/${activeShopId}/orders?limit=${currentLimit}&page=1`, { headers });
+     if (res.ok) {
+       const resJson = await res.json();
+       const cloudOrders = resJson.data || [];
+       
+       ordersData = cloudOrders.map((o: any) => {
+         const resolvedId = o.id || o.order_id;
+         let resolvedShiftId = localShiftIdMap.get(resolvedId);
+         
+         if (!resolvedShiftId && o.created_at) {
+           const orderTime = new Date(o.created_at).getTime();
+           const matchedShift = shiftsData.find((s: any) => {
+             const openTime = new Date(s.opened_at).getTime();
+             const closeTime = s.closed_at ? new Date(s.closed_at).getTime() : Infinity;
+             return orderTime >= openTime && orderTime <= closeTime;
+           });
+           if (matchedShift) {
+             resolvedShiftId = matchedShift.id;
+           }
+         }
+
+         return {
+           id: resolvedId,
+           order_no: o.order_no || 'HD',
+           status: o.status || 'completed',
+           customer_name: o.customer_name || 'Khách lẻ',
+           total_amount: parseInt(o.total_amount || '0', 10),
+           paid_amount: parseInt(o.paid_amount || '0', 10),
+           payment_method: o.payment_method || 'Tiền mặt',
+           created_at: o.created_at || new Date().toISOString(),
+           shift_id: resolvedShiftId || 'default-shift',
+           sync_status: 'synced',
+           discount_amount: parseInt(o.discount_amount || '0', 10),
+           note: o.note || '',
+         };
+       });
+
+       if (cloudOrders.length < currentLimit) {
+         setHasMore(false);
+       } else {
+         setHasMore(true);
+       }
+
+       fetchSuccess = true;
+
+       // Lưu cache đồng bộ hóa ngược các đơn hàng này vào SQLite để xem offline
+       if (Platform.OS !== 'web') {
+         for (const order of ordersData) {
+           await db.insert(schema.orders).values({
+             id: order.id,
+             order_no: order.order_no,
+             status: order.status,
+             customer_name: order.customer_name,
+             total_amount: order.total_amount,
+             paid_amount: order.paid_amount,
+             payment_method: order.payment_method,
+             created_at: order.created_at,
+             shift_id: order.shift_id,
+             sync_status: 'synced',
+             discount_amount: order.discount_amount,
+             note: order.note,
+           }).onConflictDoUpdate({
+             target: schema.orders.id,
+             set: {
+               order_no: order.order_no,
+               status: order.status,
+               customer_name: order.customer_name,
+               total_amount: order.total_amount,
+               paid_amount: order.paid_amount,
+               payment_method: order.payment_method,
+               created_at: order.created_at,
+               sync_status: 'synced',
+               discount_amount: order.discount_amount,
+               note: order.note,
+             }
+           });
+         }
+       }
+     }
+   } catch (err) {
+     console.warn('Lỗi kết nối Server, tự động chuyển về đọc offline SQLite:', err);
+   }
+
+   // 5. Fallback offline: Đọc từ SQLite cục bộ nếu lỗi mạng hoặc offline
+   if (!fetchSuccess) {
+     if (Platform.OS === 'web') {
+       ordersData = [
+         {
+           id: 'mock-1',
+           order_no: 'HD-MOCK-1',
+           status: 'completed',
+           customer_name: 'Khách lẻ',
+           total_amount: 125000,
+           paid_amount: 125000,
+           payment_method: 'Tiền mặt',
+           created_at: new Date().toISOString(),
+           shift_id: 'default-shift',
+           sync_status: 'synced',
+           discount_amount: 0,
+           note: '',
+         }
+       ];
+     } else {
+       const allOrders = await db.select().from(schema.orders).orderBy(desc(schema.orders.created_at));
+       
+       // Lọc thông minh: hiển thị đơn thuộc ca offline của shop, ca online hiện tại hoặc default-shift
+       ordersData = allOrders.filter((o: any) => {
+         const isLocalShift = o.shift_id && o.shift_id.startsWith(`shift-${activeShopId}-`);
+         const isActiveShift = activeShiftId && o.shift_id === activeShiftId;
+         const isDefaultShift = !isShiftEnabled && o.shift_id === 'default-shift';
+         return isLocalShift || isActiveShift || isDefaultShift;
+       });
+
+       // Slice theo limit lazy load offline
+       ordersData = ordersData.slice(0, currentLimit);
+       if (ordersData.length < currentLimit) {
+         setHasMore(false);
+       } else {
+         setHasMore(true);
+       }
+     }
+   }
+
+   // Tải danh sách quỹ thanh toán cho offline
+   if (Platform.OS !== 'web') {
+     const funds = await db.select().from(schema.paymentFunds);
+     setPaymentFundsList(funds);
+   }
+
+   const mappedShifts = [
+     { id: 'all', label: 'Tất cả ca' },
+     ...shiftsData.map((s: any) => ({
+       id: s.id,
+       label: `Ca ${s.employee_name || 'Thu ngân'} (${s.opened_at.substring(11, 16)} - ${s.closed_at ? s.closed_at.substring(11, 16) : 'Đang mở'})`
+     }))
+   ];
+   
+   setOrdersList(ordersData);
+   setShiftsList(mappedShifts);
   } catch (err) {
-    console.warn('Lỗi kết nối Server, tự động chuyển về đọc offline SQLite:', err);
+   console.error('Lỗi khi tải lịch sử hóa đơn:', err);
+  } finally {
+   setIsLoading(false);
+   setIsLazyLoading(false);
   }
-
-  // 2. Fallback offline: Đọc từ SQLite cục bộ nếu lỗi mạng hoặc offline
-  if (!fetchSuccess) {
-    if (Platform.OS === 'web') {
-      ordersData = [
-        {
-          id: 'mock-1',
-          order_no: 'HD-MOCK-1',
-          status: 'completed',
-          customer_name: 'Khách lẻ',
-          total_amount: 125000,
-          paid_amount: 125000,
-          payment_method: 'Tiền mặt',
-          created_at: new Date().toISOString(),
-          shift_id: 'default-shift',
-          sync_status: 'synced',
-          discount_amount: 0,
-          note: '',
-        }
-      ];
-    } else {
-      const allOrders = await db.select().from(schema.orders).orderBy(desc(schema.orders.created_at));
-      
-      // Lọc thông minh: hiển thị đơn thuộc ca offline của shop, ca online hiện tại hoặc default-shift
-      ordersData = allOrders.filter((o: any) => {
-        const isLocalShift = o.shift_id && o.shift_id.startsWith(`shift-${activeShopId}-`);
-        const isActiveShift = activeShiftId && o.shift_id === activeShiftId;
-        const isDefaultShift = !isShiftEnabled && o.shift_id === 'default-shift';
-        return isLocalShift || isActiveShift || isDefaultShift;
-      });
-
-      // Slice theo limit lazy load offline
-      ordersData = ordersData.slice(0, currentLimit);
-      if (ordersData.length < currentLimit) {
-        setHasMore(false);
-      } else {
-        setHasMore(true);
-      }
-    }
-  }
-
-  // Tải danh sách ca và quĩ thanh toán cho offline
-  if (Platform.OS !== 'web') {
-    const allShifts = await db.select().from(schema.shop_shifts);
-    shiftsData = allShifts.filter((s: any) => {
-      const isLocalShift = s.id && s.id.startsWith(`shift-${activeShopId}-`);
-      const isActiveShift = activeShiftId && s.id === activeShiftId;
-      return isLocalShift || isActiveShift;
-    });
-
-    const funds = await db.select().from(schema.paymentFunds);
-    setPaymentFundsList(funds);
-  }
-
-  const mappedShifts = [
-    { id: 'all', label: 'Tất cả ca' },
-    ...shiftsData.map((s: any) => ({
-      id: s.id,
-      label: `Ca ${s.employee_name || 'Thu ngân'} (${s.opened_at.substring(11, 16)} - ${s.closed_at ? s.closed_at.substring(11, 16) : 'Đang mở'})`
-    }))
-  ];
-  
-  setOrdersList(ordersData);
-  setShiftsList(mappedShifts);
- } catch (err) {
-  console.error('Lỗi khi tải lịch sử hóa đơn:', err);
- } finally {
-  setIsLoading(false);
-  setIsLazyLoading(false);
- }
  };
 
   useFocusEffect(
@@ -354,16 +422,13 @@ export default function OrdersScreen() {
  return matchesSearch && matchesShift && matchesStatus;
 });
 
-  const totalRevenue = filteredOrders
-    .filter(order => {
-      if (selectedShift !== 'all') {
-        return order.shift_id === selectedShift;
-      }
-      return order.shift_id === (activeShiftId || 'default-shift');
-    })
-    .reduce((sum, order) => sum + order.total_amount, 0);
-  const syncedCount = filteredOrders.filter(o => o.sync_status === 'synced').length;
-  const pendingCount = filteredOrders.filter(o => o.sync_status === 'pending').length;
+   const targetShiftId = selectedShift !== 'all' ? selectedShift : (activeShiftId || 'default-shift');
+   const totalRevenue = filteredOrders
+     .filter(order => order.shift_id === targetShiftId)
+     .reduce((sum, order) => sum + order.total_amount, 0);
+   const shiftOrdersCount = filteredOrders.filter(order => order.shift_id === targetShiftId).length;
+   const syncedCount = filteredOrders.filter(o => o.sync_status === 'synced').length;
+   const pendingCount = filteredOrders.filter(o => o.sync_status === 'pending').length;
 
  return (
  <SafeAreaView edges={['top', 'left', 'right']} className="flex-1 bg-slate-50">
@@ -388,7 +453,7 @@ export default function OrdersScreen() {
  <View className="flex-1 mr-2 p-3 rounded-2xl border bg-white border-slate-100 shadow-sm justify-between">
  <Text className="text-xxs font-semibold text-slate-400">Tổng doanh số ca</Text>
  <Text className="text-orange-500 font-semibold text-xs mt-1.5">{formatCurrency(totalRevenue)}</Text>
- <Text className="text-xxs text-slate-455 font-medium mt-0.5">{filteredOrders.length} hóa đơn</Text>
+ <Text className="text-xxs text-slate-455 font-medium mt-0.5">{shiftOrdersCount} hóa đơn</Text>
  </View>
 
  <View className="flex-1 mx-1 p-3 rounded-2xl border bg-white border-slate-100 shadow-sm justify-between">
