@@ -275,7 +275,7 @@ export default function DashboardScreen() {
  <Text className="text-slate-800 font-medium text-sm mt-1">{formatCurrency(stats.monthRevenue)}</Text>
  <View className="flex-row justify-between items-center mt-2.5">
  <Text className="text-xxs text-slate-455 font-medium">{stats.monthOrders} đơn</Text>
- <Badge variant="info" label="SQLITE" size="sm" />
+  <Badge variant="info" label="OFFLINE" size="sm" />
  </View>
  </View>
  </View>

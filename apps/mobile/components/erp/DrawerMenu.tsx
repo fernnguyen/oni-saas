@@ -275,7 +275,7 @@ export function DrawerMenu({visible, onClose, branchName = 'Chi nhánh chính'}:
  onClose={() => setIsLogoutConfirmOpen(false)}
  onConfirm={handleCloseShift}
  title="Xác nhận Kết ca & Đóng ca?"
- description="Hệ thống sẽ gửi báo cáo SQLite ca làm việc, đồng bộ hóa đơn chưa sync, đóng ca và đăng xuất an toàn khỏi ứng dụng di động."
+ description="Hệ thống sẽ gửi báo cáo ca làm việc, đồng bộ hóa đơn chưa gửi, đóng ca và đăng xuất an toàn khỏi ứng dụng di động."
  confirmLabel="Xác nhận Đóng ca"
  cancelLabel="Hủy"
  variant="danger"

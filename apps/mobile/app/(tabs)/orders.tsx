@@ -92,6 +92,7 @@ export default function OrdersScreen() {
  setIsLoading(true);
  let ordersData = [];
  let shiftsData = [];
+ const activeShopId = await AsyncStorage.getItem('active_shop_id') || '';
 
  if (Platform.OS === 'web') {
  const headers = await getApiHeaders();
@@ -116,8 +117,12 @@ export default function OrdersScreen() {
 }));
 }
 } else {
- ordersData = await db.select().from(schema.orders).orderBy(desc(schema.orders.created_at));
- shiftsData = await db.select().from(schema.shop_shifts);
+ const allOrders = await db.select().from(schema.orders).orderBy(desc(schema.orders.created_at));
+ ordersData = allOrders.filter((o: any) => o.shift_id && o.shift_id.startsWith(`shift-${activeShopId}-`));
+
+ const allShifts = await db.select().from(schema.shop_shifts);
+ shiftsData = allShifts.filter((s: any) => s.id && s.id.startsWith(`shift-${activeShopId}-`));
+
  const funds = await db.select().from(schema.paymentFunds);
  setPaymentFundsList(funds);
 }

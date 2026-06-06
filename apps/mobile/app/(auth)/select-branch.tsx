@@ -131,6 +131,8 @@ export default function SelectBranchScreen() {
  await AsyncStorage.removeItem('temp_discount');
  await AsyncStorage.removeItem('temp_note');
  await AsyncStorage.removeItem('temp_customer');
+ await AsyncStorage.removeItem('temp_table_carts');
+ await AsyncStorage.removeItem('temp_table_customers');
 }
 
  // Lưu lại thông tin chi nhánh vào AsyncStorage

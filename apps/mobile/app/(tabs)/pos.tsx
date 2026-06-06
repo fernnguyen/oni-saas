@@ -1,5 +1,6 @@
 import React, {useState, useEffect, useCallback} from 'react';
 import {Text, View, ScrollView, TouchableOpacity, Modal, TextInput, Image, Platform, Animated, ActivityIndicator, Alert} from 'react-native';
+import {useFocusEffect} from 'expo-router';
 import {Ionicons} from '@expo/vector-icons';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -697,61 +698,31 @@ export default function PosScreen() {
 });
 }, [roomGuestCount]);
  
- // Tự động lưu và khôi phục khách hàng được gán cho từng phòng bàn
+ // Tự động lưu khách hàng được gán cho từng phòng bàn
  useEffect(() => {
- if (!isNavReady) return;
- const saveTableCustomers = async () => {
- try {
- await AsyncStorage.setItem('temp_table_customers', JSON.stringify(tableCustomers));
-} catch (err) {
- console.error('Không thể lưu khách hàng phòng bàn:', err);
-}
-};
- saveTableCustomers();
-}, [tableCustomers, isNavReady]);
+    if (!isNavReady || isLoading) return;
+    const saveTableCustomers = async () => {
+      try {
+        await AsyncStorage.setItem('temp_table_customers', JSON.stringify(tableCustomers));
+      } catch (err) {
+        console.error('Không thể lưu khách hàng phòng bàn:', err);
+      }
+    };
+    saveTableCustomers();
+  }, [tableCustomers, isNavReady, isLoading]);
 
- useEffect(() => {
- if (!isNavReady) return;
- const loadTableCustomers = async () => {
- try {
- const saved = await AsyncStorage.getItem('temp_table_customers');
- if (saved) {
- setTableCustomers(JSON.parse(saved));
-}
-} catch (err) {
- console.error('Không thể nạp khách hàng phòng bàn:', err);
-}
-};
- loadTableCustomers();
-}, [isNavReady]);
-
- // Tự động lưu và khôi phục giỏ hàng gọi thêm của từng phòng bàn
- useEffect(() => {
- if (!isNavReady) return;
- const saveTableCarts = async () => {
- try {
- await AsyncStorage.setItem('temp_table_carts', JSON.stringify(tableCarts));
-} catch (err) {
- console.error('Không thể lưu giỏ hàng phòng bàn:', err);
-}
-};
- saveTableCarts();
-}, [tableCarts, isNavReady]);
-
- useEffect(() => {
- if (!isNavReady) return;
- const loadTableCarts = async () => {
- try {
- const saved = await AsyncStorage.getItem('temp_table_carts');
- if (saved) {
- setTableCarts(JSON.parse(saved));
-}
-} catch (err) {
- console.error('Không thể nạp giỏ hàng phòng bàn:', err);
-}
-};
- loadTableCarts();
-}, [isNavReady]);
+  // Tự động lưu giỏ hàng gọi thêm của từng phòng bàn
+  useEffect(() => {
+    if (!isNavReady || isLoading) return;
+    const saveTableCarts = async () => {
+      try {
+        await AsyncStorage.setItem('temp_table_carts', JSON.stringify(tableCarts));
+      } catch (err) {
+        console.error('Không thể lưu giỏ hàng phòng bàn:', err);
+      }
+    };
+    saveTableCarts();
+  }, [tableCarts, isNavReady, isLoading]);
  
  // Ticker đếm giờ cho bi-a
  const [timeTicker, setTimeTicker] = useState(0);
@@ -805,54 +776,91 @@ export default function PosScreen() {
 
  // 2. Tự động lưu giỏ hàng khi thay đổi
  useEffect(() => {
- if (!isNavReady) return;
- const saveCartToStorage = async () => {
- try {
- await AsyncStorage.setItem('temp_cart', JSON.stringify(cart));
-} catch (err) {
- console.error('Không thể lưu giỏ hàng tạm thời:', err);
-}
-};
- saveCartToStorage();
-}, [cart, isNavReady]);
+    if (!isNavReady || isLoading) return;
+    const saveCartToStorage = async () => {
+      try {
+        await AsyncStorage.setItem('temp_cart', JSON.stringify(cart));
+      } catch (err) {
+        console.error('Không thể lưu giỏ hàng tạm thời:', err);
+      }
+    };
+    saveCartToStorage();
+  }, [cart, isNavReady, isLoading]);
 
  // 3. Tự động lưu giảm giá, ghi chú và khách hàng được chọn khi thay đổi
- useEffect(() => {
- if (!isNavReady) return;
- const saveCheckoutStates = async () => {
- try {
- await AsyncStorage.setItem('temp_discount', discountAmount.toString());
- await AsyncStorage.setItem('temp_note', orderNote);
- if (selectedCustomer) {
- await AsyncStorage.setItem('temp_customer', JSON.stringify(selectedCustomer));
-} else {
- await AsyncStorage.removeItem('temp_customer');
-}
-} catch (err) {
- console.error('Không thể lưu trạng thái thanh toán tạm thời:', err);
-}
-};
- saveCheckoutStates();
-}, [discountAmount, orderNote, selectedCustomer, isNavReady]);
+useEffect(() => {
+    if (!isNavReady || isLoading) return;
+    const saveCheckoutStates = async () => {
+      try {
+        await AsyncStorage.setItem('temp_discount', discountAmount.toString());
+        await AsyncStorage.setItem('temp_note', orderNote);
+        if (selectedCustomer) {
+          await AsyncStorage.setItem('temp_customer', JSON.stringify(selectedCustomer));
+        } else {
+          await AsyncStorage.removeItem('temp_customer');
+        }
+      } catch (err) {
+        console.error('Không thể lưu trạng thái thanh toán tạm thời:', err);
+      }
+    };
+    saveCheckoutStates();
+  }, [discountAmount, orderNote, selectedCustomer, isNavReady, isLoading]);
 
- // Tải dữ liệu thực tế SQLite/Cloud
- const loadPosData = async (isMounted = true) => {
- try {
- if (isMounted) setIsLoading(true);
+  const loadPosData = async (isMounted = true) => {
+  try {
+  if (isMounted) setIsLoading(true);
 
- const activeShopName = await AsyncStorage.getItem('active_shop_name') || 'Tạp hóa Linh Ka';
- const activeShopIndustry = await AsyncStorage.getItem('active_shop_industry') || 'retail';
- let vertical = activeShopIndustry;
- 
- if (isMounted) {
- // Tránh cập nhật state phân hệ ngay lập tức trong chu kỳ focus đầu tiên để không làm mất navigation context
- setTimeout(() => {
- if (isMounted) {
- setShopVertical(vertical);
- setActiveVertical(vertical);
-}
-}, 60);
-}
+  const activeShopName = await AsyncStorage.getItem('active_shop_name') || 'Tạp hóa Linh Ka';
+  const activeShopIndustry = await AsyncStorage.getItem('active_shop_industry') || 'retail';
+  let vertical = activeShopIndustry;
+  
+  if (isMounted) {
+  // Tránh cập nhật state phân hệ ngay lập tức trong chu kỳ focus đầu tiên để không làm mất navigation context
+  setTimeout(() => {
+  if (isMounted) {
+  setShopVertical(vertical);
+  setActiveVertical(vertical);
+ }
+ }, 60);
+ }
+
+  // Khôi phục tất cả trạng thái giỏ hàng, ghi chú, CRM tạm từ AsyncStorage của chi nhánh hiện tại
+  const savedCart = await AsyncStorage.getItem('temp_cart');
+  let parsedCart = {};
+  if (savedCart) {
+    try {
+      const parsed = JSON.parse(savedCart);
+      if (Object.keys(parsed).length > 0) parsedCart = parsed;
+    } catch (e) {}
+  }
+  if (isMounted) setCart(parsedCart);
+
+  const savedDiscount = await AsyncStorage.getItem('temp_discount');
+  if (isMounted) setDiscountAmount(savedDiscount ? (parseInt(savedDiscount, 10) || 0) : 0);
+
+  const savedNote = await AsyncStorage.getItem('temp_note');
+  if (isMounted) setOrderNote(savedNote || '');
+
+  const savedCustomer = await AsyncStorage.getItem('temp_customer');
+  let parsedCustomer = null;
+  if (savedCustomer) {
+    try { parsedCustomer = JSON.parse(savedCustomer); } catch (e) {}
+  }
+  if (isMounted) setSelectedCustomer(parsedCustomer);
+
+  const savedTableCustomers = await AsyncStorage.getItem('temp_table_customers');
+  let parsedTableCustomers = {};
+  if (savedTableCustomers) {
+    try { parsedTableCustomers = JSON.parse(savedTableCustomers); } catch (e) {}
+  }
+  if (isMounted) setTableCustomers(parsedTableCustomers);
+
+  const savedTableCarts = await AsyncStorage.getItem('temp_table_carts');
+  let parsedTableCarts = {};
+  if (savedTableCarts) {
+    try { parsedTableCarts = JSON.parse(savedTableCarts); } catch (e) {}
+  }
+  if (isMounted) setTableCarts(parsedTableCarts);
 
  let prods = [];
  let cats = [];
@@ -1015,15 +1023,17 @@ export default function PosScreen() {
 }
 };
 
- // Tải dữ liệu thực tế SQLite/Cloud khi màn hình được Mount
- useEffect(() => {
- if (!isNavReady) return;
- let isMounted = true;
- loadPosData(isMounted);
- return () => {
- isMounted = false;
-};
-}, [isNavReady]);
+ // Tải dữ liệu thực tế & trạng thái tạm khi màn hình POS nhận focus
+  useFocusEffect(
+    useCallback(() => {
+      if (!isNavReady) return;
+      let isMounted = true;
+      loadPosData(isMounted);
+      return () => {
+        isMounted = false;
+      };
+    }, [isNavReady])
+  );
 
  // Kéo đồng bộ lại sơ đồ phòng bàn từ Cloud
  const handleRefresh = async () => {

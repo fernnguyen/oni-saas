@@ -94,6 +94,9 @@ export class SyncManager {
         DELETE FROM location_resources;
         DELETE FROM customers;
         DELETE FROM payment_funds;
+        DELETE FROM orders WHERE sync_status = 'synced';
+        DELETE FROM order_items WHERE order_id NOT IN (SELECT id FROM orders WHERE sync_status = 'pending');
+        DELETE FROM shop_shifts WHERE sync_status = 'synced';
       `);
 
       // 1. Ghi Categories

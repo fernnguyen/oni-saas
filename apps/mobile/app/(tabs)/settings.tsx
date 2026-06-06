@@ -252,7 +252,7 @@ export default function SettingsScreen() {
  Nhân viên thu ngân di động
  </Text>
  <Text className="text-xxs text-slate-400 font-medium mt-0.5">
- Quyền hạn: Bán hàng SQLite
+ Quyền hạn: Bán hàng offline
  </Text>
  </View>
  </View>
@@ -380,15 +380,15 @@ export default function SettingsScreen() {
  />
  </View>
 
- {/* 4. ĐỒNG BỘ SQLITE CỰC BỘ - Giảm bo về rounded-2xl */}
+ {/* 4. ĐỒNG BỘ - Giảm bo về rounded-2xl */}
  <Text className="text-xxs font-semibold text-slate-450 mb-3 px-1">
- Chiến lược đồng bộ SQLite (Offline-First)
+ Chiến lược đồng bộ offline (Offline-First)
  </Text>
  <View className="p-4 rounded-2xl border bg-white border-slate-100 shadow-sm mb-4">
  
  <View className="mb-4">
  <View className="flex-row justify-between py-1.5 items-center border-b border-slate-100 pb-2">
- <Text className="text-xxs text-slate-450 font-semibold">SQLite Row Stats:</Text>
+ <Text className="text-xxs text-slate-455 font-semibold">Số liệu bộ nhớ máy:</Text>
  <Text className="text-xxs font-semibold text-[#fa5908]">
  {productCount} SP | {resourceCount} Bàn | {customerCount} KH
  </Text>
@@ -413,7 +413,7 @@ export default function SettingsScreen() {
  {syncProgress !== null && (
  <View className="mb-4 bg-slate-50 p-3 rounded-xl border border-slate-200">
  <View className="flex-row justify-between mb-1.5">
- <Text className="text-xxs font-semibold text-slate-700">Đang đồng bộ SQLite...</Text>
+ <Text className="text-xxs font-semibold text-slate-700">Đang đồng bộ dữ liệu...</Text>
  <Text className="text-xxs text-orange-500 font-semibold">{syncProgress}%</Text>
  </View>
  <View className="h-1.5 bg-slate-200 rounded-full overflow-hidden" style={{alignSelf: 'stretch'}}>
@@ -496,7 +496,7 @@ export default function SettingsScreen() {
  onClose={() => setIsSyncSuccessVisible(false)}
  onConfirm={() => setIsSyncSuccessVisible(false)}
  title="Đồng bộ thành công"
- description="Đồng bộ toàn phần tải dữ liệu từ Cloud hoàn tất 100%! SQLite đã được làm mới."
+ description="Đồng bộ toàn phần tải dữ liệu từ Cloud hoàn tất 100%! Dữ liệu hệ thống đã được làm mới."
  confirmLabel="Tuyệt vời"
  variant="success"
  />
@@ -526,7 +526,7 @@ export default function SettingsScreen() {
  onClose={() => setIsLogoutModalOpen(false)}
  onConfirm={handleCloseShift}
  title="Xác nhận Kết ca & Đóng ca?"
- description="Hệ thống sẽ gửi báo cáo SQLite ca làm việc, đồng bộ hóa đơn chưa sync, đóng ca và đăng xuất an toàn khỏi ứng dụng di động."
+ description="Hệ thống sẽ gửi báo cáo ca làm việc, đồng bộ hóa đơn chưa gửi, đóng ca và đăng xuất an toàn khỏi ứng dụng di động."
  confirmLabel="Xác nhận Đóng ca"
  cancelLabel="Hủy"
  variant="danger"

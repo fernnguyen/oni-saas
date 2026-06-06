@@ -62,8 +62,8 @@ export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false}
 },
  {
  id: 'n4',
- title: 'Sao lưu SQLite thành công',
- description: 'Hệ thống đã tự động sao lưu dữ liệu SQLite offline',
+ title: 'Sao lưu dữ liệu thành công',
+ description: 'Hệ thống đã tự động sao lưu dữ liệu offline',
  type: 'system',
  status: 'read',
  createdAt: new Date(Date.now() - 120 * 60 * 1000).toISOString(),
@@ -182,6 +182,14 @@ export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false}
  setIsSwitchConfirmVisible(false);
  setSelectedBranchToSwitch(null);
 
+ // Xóa sạch giỏ hàng tạm thời, ghi chú và thông tin CRM của ca làm việc cũ
+ await AsyncStorage.removeItem('temp_cart');
+ await AsyncStorage.removeItem('temp_discount');
+ await AsyncStorage.removeItem('temp_note');
+ await AsyncStorage.removeItem('temp_customer');
+ await AsyncStorage.removeItem('temp_table_carts');
+ await AsyncStorage.removeItem('temp_table_customers');
+
  // 4. Kích hoạt reload mượt mà bằng cách thay thế định tuyến
  router.replace('/(tabs)');
 } catch (err) {
@@ -262,9 +270,9 @@ export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false}
  onRequestClose={() => setIsDropdownOpen(false)}
  >
  <TouchableWithoutFeedback onPress={() => setIsDropdownOpen(false)}>
- <View className="flex-1 bg-black/15 pt-20 px-6">
+ <View className="flex-1 bg-black/40 justify-center items-center px-6">
  <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
- <View className="bg-white rounded-2xl border border-slate-150 p-4 w-[85%] max-w-sm mt-1 z-50" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 10}, shadowOpacity: 0.12, shadowRadius: 16, elevation: 12}}>
+ <View className="bg-white rounded-3xl border border-slate-100 p-5 w-full max-w-sm z-50" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 8}, shadowOpacity: 0.1, shadowRadius: 24, elevation: 8}}>
  
  {/* Header Dropdown */}
  <View className="flex-row justify-between items-center mb-3">
@@ -487,7 +495,7 @@ export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false}
  onConfirm={handleConfirmSwitchBranch}
  loading={isSwitchingLoading}
  title="Chuyển đổi chi nhánh?"
- description={selectedBranchToSwitch ? `Bạn có chắc chắn muốn chuyển sang làm việc tại "${selectedBranchToSwitch.name}"?\nHệ thống sẽ kết thúc ca cũ và tự động tải lại dữ liệu SQLite offline mới đầu ca.` : ''}
+ description={selectedBranchToSwitch ? `Bạn có chắc chắn muốn chuyển sang làm việc tại "${selectedBranchToSwitch.name}"?\nHệ thống sẽ kết thúc ca cũ và tự động tải lại dữ liệu hệ thống mới đầu ca.` : ''}
  confirmLabel="Đồng ý chuyển"
  cancelLabel="Hủy"
  variant="default"
