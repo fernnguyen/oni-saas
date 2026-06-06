@@ -301,7 +301,7 @@ export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false}
  <View className={`w-7 h-7 rounded-lg items-center justify-center mr-3 border ${
  isSelected 
  ? 'bg-orange-500/10 border-orange-500/20' 
- : 'bg-slate-50 border-slate-150'
+ : 'bg-slate-50 border-slate-200'
 }`}>
  <Ionicons name="storefront-outline" size={13} color={isSelected ? '#fa5908' : '#64748b'} />
  </View>
@@ -340,7 +340,7 @@ export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false}
  <TouchableWithoutFeedback onPress={() => setIsNotificationOpen(false)}>
  <View className="flex-1 bg-black/10 pt-20 px-6 items-end">
  <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
- <View className="bg-white rounded-2xl border border-slate-150 p-4 w-[90%] max-w-sm mt-1 z-50" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 10}, shadowOpacity: 0.12, shadowRadius: 16, elevation: 12}}>
+ <View className="bg-white rounded-2xl border border-slate-200 p-4 w-[90%] max-w-sm mt-1 z-50" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 10}, shadowOpacity: 0.12, shadowRadius: 16, elevation: 12}}>
  
  {/* Header */}
  <View className="flex-row justify-between items-center mb-3">
@@ -357,7 +357,7 @@ export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false}
  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
  setNotifications(prev => prev.map(n => ({...n, status: 'read'})));
 }}
- className="bg-slate-50 border border-slate-150 px-2 py-1 rounded-lg active:bg-slate-100"
+ className="bg-slate-50 border border-slate-200 px-2 py-1 rounded-lg active:bg-slate-100"
  >
  <Text className="text-[7.5px] text-slate-500 font-semibold">ĐỌC TẤT CẢ</Text>
  </TouchableOpacity>

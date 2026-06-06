@@ -603,6 +603,19 @@ export default function PosScreen() {
 
  const [activeVertical, setActiveVertical] = useState('retail'); // retail, billiards
  const [shopVertical, setShopVertical] = useState<string>('retail');
+  const getFirstTabLabel = () => {
+    switch (shopVertical) {
+      case 'fnb':
+        return 'Thực đơn & Gọi món';
+      case 'lodging':
+        return 'Dịch vụ & Tiện ích';
+      case 'sports_court':
+      case 'billiards':
+        return 'Dịch vụ & Đồ uống';
+      default:
+        return 'Hàng hóa & Sản phẩm';
+    }
+  };
  const [cart, setCart] = useState<{[cartItemId: string]: CartItem}>({});
  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
  const [previewProduct, setPreviewProduct] = useState<any>(null);
@@ -2416,68 +2429,62 @@ if (!isNavReady) {
  <Header onPressMenu={() => setIsDrawerOpen(true)} />
 
  {/* 2. CHỌN NGÀNH HÀNG/TAB DỌC - Giảm bo góc về rounded-xl, thay thế Emoji bằng Ionicons */}
- <View className="py-2.5 px-4 bg-slate-50 border-b border-slate-100">
- <View className="flex-row">
- <TouchableOpacity 
- activeOpacity={0.8}
- className={`mr-3 px-4 py-2 rounded-xl flex-row items-center border ${
- activeVertical === 'retail' 
- ? 'bg-orange-500 border-orange-500' 
- : 'bg-white border-slate-200'
-}`}
- style={activeVertical === 'retail' ? {
- shadowColor: '#fa5908',
- shadowOffset: {width: 0, height: 2},
- shadowOpacity: 0.12,
- shadowRadius: 3,
- elevation: 2,
-} : undefined}
- onPress={() => setActiveVertical('retail')}
- >
- <Ionicons name="cart-outline" size={14} color={activeVertical === 'retail' ? 'white' : '#fa5908'} className="mr-1.5" />
- <Text className={`font-semibold text-tiny ${activeVertical === 'retail' ? 'text-white' : 'text-slate-600'}`}>
- Bán lẻ & Món ăn
- </Text>
- </TouchableOpacity>
+  {['fnb', 'lodging', 'sports_court', 'billiards'].includes(shopVertical) && (
+    <View className="py-2.5 px-4 bg-slate-50 border-b border-slate-100">
+      <View className="flex-row">
+        <TouchableOpacity 
+          activeOpacity={0.8}
+          className={`mr-3 px-4 py-2 rounded-xl flex-row items-center border ${            activeVertical === 'retail'               ? 'bg-orange-500 border-orange-500'               : 'bg-white border-slate-200'           }`}
+          style={activeVertical === 'retail' ? {
+            shadowColor: '#fa5908',
+            shadowOffset: {width: 0, height: 2},
+            shadowOpacity: 0.12,
+            shadowRadius: 3,
+            elevation: 2,
+          } : undefined}
+          onPress={() => setActiveVertical('retail')}
+        >
+          <Ionicons name="cart-outline" size={14} color={activeVertical === 'retail' ? 'white' : '#fa5908'} className="mr-1.5" />
+          <Text className={`font-semibold text-tiny ${activeVertical === 'retail' ? 'text-white' : 'text-slate-600'}`}>
+            {getFirstTabLabel()}
+          </Text>
+        </TouchableOpacity>
 
- <TouchableOpacity 
- activeOpacity={0.8}
- className={`px-4 py-2 rounded-xl flex-row items-center border ${
- activeVertical !== 'retail' 
- ? 'bg-orange-500 border-orange-500' 
- : 'bg-white border-slate-200'
-}`}
- style={activeVertical !== 'retail' ? {
- shadowColor: '#fa5908',
- shadowOffset: {width: 0, height: 2},
- shadowOpacity: 0.12,
- shadowRadius: 3,
- elevation: 2,
-} : undefined}
- onPress={() => setActiveVertical(!['retail', 'fashion'].includes(shopVertical) ? shopVertical : 'billiards')}
- >
- <Ionicons 
- name={
- shopVertical === 'fnb' ? 'cafe-outline' :
- shopVertical === 'sports_court' ? 'football-outline' :
- shopVertical === 'lodging' ? 'bed-outline' :
- 'play-circle-outline'
-} 
- size={14} 
- color={activeVertical !== 'retail' ? 'white' : '#fa5908'} 
- className="mr-1.5" 
- />
- <Text className={`font-semibold text-tiny ${activeVertical !== 'retail' ? 'text-white' : 'text-slate-600'}`}>
- {
- shopVertical === 'fnb' ? 'Bàn Cafe' :
- shopVertical === 'sports_court' ? 'Sơ đồ Sân' :
- shopVertical === 'lodging' ? 'Sơ đồ Phòng' :
- 'Bàn Bi-a (Giờ)'
-}
- </Text>
- </TouchableOpacity>
- </View>
- </View>
+        <TouchableOpacity 
+          activeOpacity={0.8}
+          className={`px-4 py-2 rounded-xl flex-row items-center border ${            activeVertical !== 'retail'               ? 'bg-orange-500 border-orange-500'               : 'bg-white border-slate-200'           }`}
+          style={activeVertical !== 'retail' ? {
+            shadowColor: '#fa5908',
+            shadowOffset: {width: 0, height: 2},
+            shadowOpacity: 0.12,
+            shadowRadius: 3,
+            elevation: 2,
+          } : undefined}
+          onPress={() => setActiveVertical(!['retail', 'fashion'].includes(shopVertical) ? shopVertical : 'billiards')}
+        >
+          <Ionicons 
+            name={
+              shopVertical === 'fnb' ? 'cafe-outline' :
+              shopVertical === 'sports_court' ? 'football-outline' :
+              shopVertical === 'lodging' ? 'bed-outline' :
+              'play-circle-outline'
+            } 
+            size={14} 
+            color={activeVertical !== 'retail' ? 'white' : '#fa5908'} 
+            className="mr-1.5" 
+          />
+          <Text className={`font-semibold text-tiny ${activeVertical !== 'retail' ? 'text-white' : 'text-slate-600'}`}>
+            {
+              shopVertical === 'fnb' ? 'Sơ đồ Bàn' :
+              shopVertical === 'sports_court' ? 'Sơ đồ Sân' :
+              shopVertical === 'lodging' ? 'Sơ đồ Phòng' :
+              'Bàn Bi-a (Giờ)'
+            }
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  )}
 
  {/* 3. CHI TIẾT NỘI DUNG */}
  {isLoading ? (
