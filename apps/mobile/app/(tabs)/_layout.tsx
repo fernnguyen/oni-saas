@@ -1,9 +1,32 @@
+import React, {useState, useEffect} from 'react';
 import {Tabs} from 'expo-router';
 import {Ionicons, MaterialCommunityIcons} from '@expo/vector-icons';
-import {Platform, TouchableOpacity, View} from 'react-native';
+import {Platform, TouchableOpacity, View, Text} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function TabLayout() {
- const isDark = false; // Khóa cứng giao diện Sáng theo yêu cầu thương hiệu
+  const isDark = false; // Khóa cứng giao diện Sáng theo yêu cầu thương hiệu
+  const [posLabel, setPosLabel] = useState('Bán hàng');
+
+  useEffect(() => {
+    const loadIndustry = async () => {
+      try {
+        const industry = await AsyncStorage.getItem('active_shop_industry');
+        if (industry) {
+          const ind = industry.toLowerCase();
+          // Lodging, F&B, Billiards, Sports court, hourly service -> "Lễ tân"
+          if (['lodging', 'fnb', 'billiards', 'sports_court', 'service_hourly'].includes(ind)) {
+            setPosLabel('Lễ tân');
+          } else {
+            setPosLabel('Bán hàng');
+          }
+        }
+      } catch (err) {
+        console.warn('Lỗi khi nạp industry trong TabLayout:', err);
+      }
+    };
+    loadIndustry();
+  }, []);
 
  return (
  <Tabs
@@ -52,50 +75,40 @@ export default function TabLayout() {
 }}
  />
 
- <Tabs.Screen
- name="pos"
- options={{
- title: 'Bán hàng',
- tabBarButton: (props) => {
- const {delayLongPress, children, ...restProps} = props as any;
- return (
- <TouchableOpacity
- {...restProps}
- style={[
- restProps.style,
- {
- justifyContent: 'center',
- alignItems: 'center',
-}
- ]}
- activeOpacity={0.85}
- >
- <View
- style={{
- position: 'absolute',
- top: -18, // Chỉ nổi quả bóng cam nhô lên trên thanh nav
- width: 56,
- height: 56,
- borderRadius: 28,
- backgroundColor: '#fa5908', // Màu cam branch
- justifyContent: 'center',
- alignItems: 'center',
- shadowColor: '#fa5908',
- shadowOffset: {width: 0, height: 4},
- shadowOpacity: 0.35,
- shadowRadius: 6,
- elevation: 6,
- borderWidth: 3,
- borderColor: '#ffffff', // Viền trắng phân cách sang trọng
-}}
- >
- <MaterialCommunityIcons name="cash-register" size={26} color="white" />
- </View>
- </TouchableOpacity>
- );
-},
-}}
- />
+  <Tabs.Screen
+   name="pos"
+   options={{
+   title: posLabel,
+   tabBarIcon: () => (
+   <View style={{ justifyContent: 'center', alignItems: 'center' }}>
+     {/* Spacer of standard icon size to reserve layout */}
+     <View style={{ height: 22, width: 22 }} />
+     
+     <View
+     style={{
+     position: 'absolute',
+     top: -26, // Đẩy bóng cam nhô lên trên cao hơn để không đè label
+     width: 48,
+     height: 48,
+     borderRadius: 24,
+     backgroundColor: '#fa5908', // Màu cam branch
+     justifyContent: 'center',
+     alignItems: 'center',
+     shadowColor: '#fa5908',
+     shadowOffset: {width: 0, height: 4},
+     shadowOpacity: 0.35,
+     shadowRadius: 6,
+     elevation: 6,
+     borderWidth: 2.5,
+     borderColor: '#ffffff', // Viền trắng phân cách sang trọng
+    }}
+     >
+     <MaterialCommunityIcons name="cash-register" size={22} color="white" />
+     </View>
+   </View>
+   ),
+  }}
+  />
 
  {/* 4. KHÁCH HÀNG */}
  <Tabs.Screen
