@@ -258,11 +258,10 @@ export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false}
  <TouchableOpacity
  key={branch.id}
  activeOpacity={0.8}
- className={`p-3 my-1 rounded-xl flex-row justify-between items-center border ${
- isSelected 
- ? ' border-orange-200' 
- : ' border-slate-100 active:bg-slate-50'
-}`}
+ className="p-3 my-1 rounded-xl flex-row justify-between items-center border"
+ style={{
+    borderColor: isSelected ? '#fed7aa' : '#f1f5f9',
+  }}
  onPress={() => handleBranchSelect(branch)}
  >
  <View className="flex-row items-center flex-1 mr-2">
@@ -341,33 +340,49 @@ export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false}
  </View>
 
  {/* Filter Tabs */}
- <View className="flex-row bg-slate-50 p-0.5 rounded-xl border border-slate-100 mb-3 gap-1">
- {[
- {key: 'all', label: 'Tất cả'},
- {key: 'qr', label: 'Yêu cầu QR'},
- {key: 'other', label: 'Cảnh báo'}
- ].map(tab => {
- const isActive = activeNotificationTab === tab.key;
- return (
- <TouchableOpacity
- key={tab.key}
- onPress={() => {
- Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
- setActiveNotificationTab(tab.key as any);
-}}
- className={`flex-1 py-1.5 items-center justify-center rounded-lg ${
- isActive 
- ? 'bg-white border border-slate-200/50 shadow-sm' 
- : 'active:bg-slate-100/60'
-}`}
- >
- <Text className={`text-xxs font-semibold ${isActive ? 'text-orange-500' : 'text-slate-500'}`}>
- {tab.label}
- </Text>
- </TouchableOpacity>
- );
-})}
- </View>
+  <View className="flex-row bg-slate-50 p-0.5 rounded-xl border border-slate-100 mb-3 gap-1">
+  {[
+  {key: 'all', label: 'Tất cả'},
+  {key: 'qr', label: 'Yêu cầu QR'},
+  {key: 'other', label: 'Cảnh báo'}
+  ].map(tab => {
+  const isActive = activeNotificationTab === tab.key;
+  return (
+  <TouchableOpacity
+  key={tab.key}
+  onPress={() => {
+  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+  setActiveNotificationTab(tab.key as any);
+ }}
+  className="flex-1 py-1.5 items-center justify-center rounded-lg"
+  style={isActive ? {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: 'rgba(226, 232, 240, 0.5)',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 1,
+      },
+      android: {
+        elevation: 1,
+      },
+    }),
+  } : {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: 'transparent',
+  }}
+  >
+  <Text className={`text-xxs font-semibold ${isActive ? 'text-orange-500' : 'text-slate-500'}`}>
+  {tab.label}
+  </Text>
+  </TouchableOpacity>
+  );
+ })}
+  </View>
 
  {/* Notification List */}
  <ScrollView className="max-h-80" showsVerticalScrollIndicator={false}>
