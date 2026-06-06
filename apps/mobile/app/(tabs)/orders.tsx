@@ -1,5 +1,5 @@
 import React, {useState, useCallback} from 'react';
-import {Text, View, ScrollView, TouchableOpacity, TextInput, Modal, Platform} from 'react-native';
+import {Text, View, ScrollView, TouchableOpacity, TouchableWithoutFeedback, TextInput, Modal, Platform} from 'react-native';
 import {Ionicons} from '@expo/vector-icons';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {useFocusEffect} from 'expo-router';
@@ -12,19 +12,37 @@ import {getApiBaseUrl, getApiHeaders} from '../../lib/api/config';
 import * as Haptics from 'expo-haptics';
 import {formatCurrency, formatDateTime} from '../../lib/utils/format';
 
+const PAYMENT_METHOD_VI: Record<string, string> = {
+ cash: 'Tiền mặt',
+ bank_transfer: 'Chuyển khoản',
+ transfer: 'Chuyển khoản',
+ card: 'Quẹt thẻ',
+ debit: 'Quẹt thẻ',
+ momo: 'Ví MoMo',
+ vnpay: 'VNPay',
+ zalopay: 'ZaloPay',
+ debt: 'Ghi nợ',
+ prepaid: 'Ví trả trước',
+ wallet: 'Ví điện tử',
+};
+
+const translateMethod = (code: string): string => {
+ return PAYMENT_METHOD_VI[code?.toLowerCase()] || code || 'Tiền mặt';
+};
+
 const getPaymentMethodDisplay = (pm: string) => {
  if (!pm) return 'Tiền mặt';
  if (pm.startsWith('[') || pm.startsWith('{')) {
- try {
- const parsed = JSON.parse(pm);
- if (Array.isArray(parsed) && parsed.length > 0) {
- return parsed.map((p: any) => p.METHOD || p.method).join(' + ');
-}
-} catch (e) {
- return 'Thanh toán hỗn hợp';
-}
-}
- return pm;
+  try {
+   const parsed = JSON.parse(pm);
+   if (Array.isArray(parsed) && parsed.length > 0) {
+    return parsed.map((p: any) => translateMethod(p.METHOD || p.method)).join(' + ');
+   }
+  } catch (e) {
+   return 'Thanh toán hỗn hợp';
+  }
+ }
+ return translateMethod(pm);
 };
 
 // Import hệ thống UI dùng chung cao cấp
@@ -215,13 +233,13 @@ export default function OrdersScreen() {
  <View className="flex-1 mx-1 p-3 rounded-2xl border bg-white border-slate-100 shadow-sm justify-between">
  <Text className="text-xxs font-semibold text-emerald-600">Đã đồng bộ</Text>
  <Text className="text-emerald-700 font-semibold text-xs mt-1.5">{syncedCount}</Text>
- <Text className="text-xxs text-slate-455 font-medium mt-0.5">Lưu đám mây</Text>
+ <Text className="text-xxs text-slate-455 font-medium mt-0.5">Đã lưu trữ</Text>
  </View>
 
  <View className="flex-1 ml-2 p-3 rounded-2xl border bg-white border-slate-100 shadow-sm justify-between">
  <Text className="text-xxs font-semibold text-amber-600">Chờ đồng bộ</Text>
  <Text className="text-amber-700 font-semibold text-xs mt-1.5">{pendingCount}</Text>
- <Text className="text-xxs text-slate-455 font-medium mt-0.5">Pending offline</Text>
+ <Text className="text-xxs text-slate-455 font-medium mt-0.5">Chưa gửi lên</Text>
  </View>
  </View>
 
@@ -295,7 +313,7 @@ export default function OrdersScreen() {
  <Text className={`text-xxs font-semibold ${
  selectedStatus === 'synced' ? 'text-white' : 'text-emerald-700'
 }`}>
- Đã sync ({syncedCount})
+ Đã đồng bộ ({syncedCount})
  </Text>
  </TouchableOpacity>
 
@@ -310,7 +328,7 @@ export default function OrdersScreen() {
  <Text className={`text-xxs font-semibold ${
  selectedStatus === 'pending' ? 'text-white' : 'text-amber-700'
 }`}>
- Chờ sync ({pendingCount})
+ Chờ đồng bộ ({pendingCount})
  </Text>
  </TouchableOpacity>
  </View>
@@ -353,7 +371,7 @@ export default function OrdersScreen() {
  <View className="flex-row items-center mt-3">
  <Badge 
  variant={isPending ? 'warning' : 'success'} 
- label={isPending ? 'Chờ sync' : 'Đã sync'} 
+ label={isPending ? 'Chờ đồng bộ' : 'Đã đồng bộ'} 
  size="sm" 
  />
 
@@ -384,7 +402,7 @@ export default function OrdersScreen() {
  color="white" 
  />
  <Text className="text-white text-xxs font-semibold ml-1.5">
- {isSyncingOrder === order.id ? 'Sync...' : 'Sync'}
+ {isSyncingOrder === order.id ? 'Đang gửi...' : 'Đồng bộ'}
  </Text>
  </TouchableOpacity>
  ) : (
@@ -398,16 +416,22 @@ export default function OrdersScreen() {
  <View className="h-20" />
  </ScrollView>
 
- {/* 5. MODAL CHI TIẾT HÓA ĐƠN - Giảm bo rounded-t-2xl */}
+ {/* 5. MODAL CHI TIẾT HÓA ĐƠN */}
  <Modal
  visible={!!selectedOrder}
  animationType="slide"
  transparent={true}
  onRequestClose={() => setSelectedOrder(null)}
  >
- <View className="flex-1 justify-end bg-black/60">
- {selectedOrder && (
- <View className="h-[75%] rounded-t-2xl p-6 justify-between bg-white shadow-2xl">
+ <View className="flex-1 bg-black/60">
+  {/* Vùng backdrop phía trên — bấm để đóng */}
+  <TouchableWithoutFeedback onPress={() => setSelectedOrder(null)}>
+   <View className="flex-1" />
+  </TouchableWithoutFeedback>
+
+  {/* Panel nội dung phía dưới */}
+  {selectedOrder && (
+  <View className="h-[75%] rounded-t-2xl p-6 justify-between bg-white shadow-2xl">
  
  {/* Header Modal */}
  <View className="flex-row justify-between items-center border-b border-slate-100 pb-4">
@@ -418,7 +442,7 @@ export default function OrdersScreen() {
  </Text>
  <Badge 
  variant={selectedOrder.sync_status === 'pending' ? 'warning' : 'success'} 
- label={selectedOrder.sync_status === 'pending' ? 'Chờ sync' : 'Đã sync'} 
+ label={selectedOrder.sync_status === 'pending' ? 'Chờ đồng bộ' : 'Đã đồng bộ'} 
  size="sm"
  className="ml-2"
  />
@@ -440,7 +464,7 @@ export default function OrdersScreen() {
  <View className="flex-row justify-between py-1">
  <Text className="text-tiny text-slate-500 font-medium">Mốc thời gian:</Text>
  <Text className="text-tiny font-semibold text-slate-800">
- {selectedOrder.created_at ? formatDateTime(selectedOrder.created_at) : 'Offline'}
+ {selectedOrder.created_at ? formatDateTime(selectedOrder.created_at) : 'Ngoại tuyến'}
  </Text>
  </View>
  <View className="flex-row justify-between py-1">
@@ -450,8 +474,8 @@ export default function OrdersScreen() {
  </Text>
  </View>
  <View className="flex-row justify-between py-1">
- <Text className="text-tiny text-slate-500 font-medium">Mã số SQLite ID:</Text>
- <Text className="text-tiny font-semibold text-slate-700">{selectedOrder.id}</Text>
+ <Text className="text-tiny text-slate-500 font-medium">Mã hóa đơn:</Text>
+ <Text className="text-tiny font-semibold text-slate-700">{selectedOrder.order_no || selectedOrder.id}</Text>
  </View>
  {selectedOrder.note && (
  <View className="border-t border-slate-200 mt-2 pt-2">
@@ -470,7 +494,7 @@ export default function OrdersScreen() {
  <View className="flex-1 mr-3">
  <Text className="text-xs font-medium text-slate-800">{item.product_name}</Text>
  <Text className="text-tiny text-slate-500 font-medium mt-0.5">
- {item.qty} cái x {formatCurrency(item.unit_price)}
+ {item.qty} x {formatCurrency(item.unit_price)}
  </Text>
  </View>
  <Text className="text-xs font-semibold text-slate-800">
@@ -490,7 +514,7 @@ export default function OrdersScreen() {
  {selectedOrder.sync_status === 'pending' ? (
  <Button
  variant="primary"
- title="Sync ngay"
+ title="Đồng bộ ngay"
  icon={<Ionicons name="cloud-upload" size={14} color="white" />}
  onPress={() => handleSyncSingleOrder(selectedOrder.id)}
  loading={isSyncingOrder === selectedOrder.id}
@@ -499,13 +523,13 @@ export default function OrdersScreen() {
  ) : (
  <View className="flex-1 bg-emerald-50 py-3.5 rounded-xl items-center flex-row justify-center border border-emerald-200 opacity-80">
  <Ionicons name="checkmark-done-circle-outline" size={14} color="#10b981" />
- <Text className="font-medium text-tiny ml-1 text-emerald-700">ĐÃ LÊN CLOUD</Text>
+ <Text className="font-medium text-tiny ml-1 text-emerald-700">ĐÃ ĐỒNG BỘ</Text>
  </View>
  )}
 
  <Button
  variant={selectedOrder.sync_status === 'pending' ? 'outline' : 'primary'}
- title="In lại bill"
+ title="In lại hóa đơn"
  icon={<Ionicons name="print" size={14} color={selectedOrder.sync_status === 'pending' ? '#475569' : 'white'} />}
  onPress={handleReprint}
  loading={isReprinting}
@@ -536,7 +560,7 @@ export default function OrdersScreen() {
  onClose={() => setIsSyncSuccessVisible(false)}
  onConfirm={() => setIsSyncSuccessVisible(false)}
  title="Đồng bộ thành công"
- description="Đơn hàng ngoại tuyến đã được đồng bộ lên Next.js Cloud thành công!"
+ description="Đơn hàng ngoại tuyến đã được đồng bộ lên hệ thống thành công!"
  confirmLabel="Đóng"
  variant="success"
  />
@@ -546,7 +570,7 @@ export default function OrdersScreen() {
  onClose={() => setIsSyncErrorVisible(false)}
  onConfirm={() => setIsSyncErrorVisible(false)}
  title="Đồng bộ thất bại"
- description="Không thể kết nối đến Next.js Server. Vui lòng thử lại sau khi có mạng ổn định."
+ description="Không thể kết nối đến máy chủ. Vui lòng thử lại sau khi có mạng ổn định."
  confirmLabel="Xác nhận"
  variant="danger"
  />
