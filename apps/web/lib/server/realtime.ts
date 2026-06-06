@@ -1,6 +1,110 @@
 import Redis from 'ioredis';
 import { getSupabaseAdminClient } from './supabaseAdmin';
 
+// ─────────────────────────────────────────────────────────────
+// Expo Push Notification Helper
+// ─────────────────────────────────────────────────────────────
+
+const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
+
+/**
+ * Queries active push tokens matching the notification scope and sends
+ * push notifications via the Expo Push API.
+ * Automatically deactivates tokens that are no longer registered.
+ */
+async function sendExpoPushNotifications(msg: RealtimeMessage): Promise<void> {
+  try {
+    const admin = getSupabaseAdminClient();
+
+    // Build query for active tokens within the tenant scope
+    let query = admin
+      .from('push_tokens')
+      .select('id, token')
+      .eq('tenant_id', msg.tenantId)
+      .eq('is_active', true);
+
+    // Narrow to specific recipient if provided
+    if (msg.recipientId) {
+      query = query.eq('user_id', msg.recipientId);
+    }
+
+    const { data: tokens, error } = await query;
+
+    if (error) {
+      console.error('❌ Failed to query push_tokens:', error.message);
+      return;
+    }
+
+    if (!tokens || tokens.length === 0) return;
+
+    // Build Expo push messages
+    const messages = tokens.map((t) => ({
+      to: t.token,
+      title: msg.title,
+      body: msg.content,
+      data: {
+        type: msg.type,
+        tenantId: msg.tenantId,
+        branchId: msg.branchId || null,
+        ...(msg.metadata || {}),
+      },
+      sound: 'default' as const,
+      badge: 1,
+    }));
+
+    // Expo recommends chunks of up to 100 messages
+    const CHUNK_SIZE = 100;
+    for (let i = 0; i < messages.length; i += CHUNK_SIZE) {
+      const chunk = messages.slice(i, i + CHUNK_SIZE);
+
+      const response = await fetch(EXPO_PUSH_URL, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Accept-Encoding': 'gzip, deflate',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(chunk),
+      });
+
+      if (!response.ok) {
+        console.error(`❌ Expo Push API returned ${response.status}:`, await response.text());
+        continue;
+      }
+
+      const result = await response.json();
+
+      // Deactivate tokens that are no longer registered
+      const tokensToDeactivate: string[] = [];
+      if (result.data && Array.isArray(result.data)) {
+        result.data.forEach((ticket: any, idx: number) => {
+          if (
+            ticket.status === 'error' &&
+            ticket.details?.error === 'DeviceNotRegistered'
+          ) {
+            tokensToDeactivate.push(chunk[idx].to);
+          }
+        });
+      }
+
+      if (tokensToDeactivate.length > 0) {
+        const { error: deactivateError } = await admin
+          .from('push_tokens')
+          .update({ is_active: false })
+          .in('token', tokensToDeactivate);
+
+        if (deactivateError) {
+          console.error('⚠️ Failed to deactivate expired push tokens:', deactivateError.message);
+        } else {
+          console.log(`🗑️ Deactivated ${tokensToDeactivate.length} expired push token(s).`);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('❌ sendExpoPushNotifications failed:', err);
+  }
+}
+
 export interface RealtimeMessage {
   tenantId: string;
   branchId?: string;       // null = broadcast to all branches of tenant
@@ -39,6 +143,11 @@ export class SupabaseRealtimeAdapter implements RealtimeAdapter {
     if (error) {
       throw new Error(`Supabase real-time trigger failed: ${error.message}`);
     }
+
+    // Fire-and-forget: send Expo push notifications
+    sendExpoPushNotifications(msg).catch((err) =>
+      console.error('⚠️ Expo push (Supabase adapter) failed:', err),
+    );
   }
 }
 
@@ -111,6 +220,11 @@ export class RedisSocketIoAdapter implements RealtimeAdapter {
     });
 
     await this.client.publish(channel, payload);
+
+    // Fire-and-forget: send Expo push notifications
+    sendExpoPushNotifications(msg).catch((err) =>
+      console.error('⚠️ Expo push (Redis adapter) failed:', err),
+    );
   }
 }
 

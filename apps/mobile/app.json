@@ -7,10 +7,17 @@
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "vn.oni.mobile"
+      "bundleIdentifier": "vn.oni.mobile",
+      "infoPlist": {
+        "UIBackgroundModes": [
+          "remote-notification"
+        ]
+      }
     },
     "android": {
-      "package": "vn.oni.mobile"
+      "package": "vn.oni.mobile",
+      "googleServicesFile": "./google-services.json",
+      "useNextNotificationsApi": true
     },
     "plugins": [
       [
@@ -22,8 +29,26 @@
           }
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-notifications",
+        {
+          "color": "#fa5908",
+          "defaultChannel": "default"
+        }
+      ]
     ],
-    "scheme": "oni-mobile"
+    "scheme": "oni-mobile",
+    "extra": {
+      "router": {
+        "headers": {
+          "Cross-Origin-Embedder-Policy": "credentialless",
+          "Cross-Origin-Opener-Policy": "same-origin"
+        }
+      },
+      "eas": {
+        "projectId": "973345c4-814a-4908-9820-17f9e7bbd2e1"
+      }
+    }
   }
 }

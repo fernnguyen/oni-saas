@@ -3,6 +3,7 @@ import {Tabs} from 'expo-router';
 import {Ionicons, MaterialCommunityIcons} from '@expo/vector-icons';
 import {Platform, TouchableOpacity, View, Text} from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {NotificationProvider} from '../../lib/notifications/NotificationContext';
 
 export default function TabLayout() {
   const isDark = false; // Khóa cứng giao diện Sáng theo yêu cầu thương hiệu
@@ -29,6 +30,7 @@ export default function TabLayout() {
   }, []);
 
  return (
+ <NotificationProvider>
  <Tabs
  screenOptions={{
  headerShown: false,
@@ -132,5 +134,6 @@ export default function TabLayout() {
 }}
  />
  </Tabs>
+ </NotificationProvider>
  );
 }

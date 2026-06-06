@@ -3,6 +3,7 @@ import {Text, View, TouchableOpacity, Platform, Modal, ScrollView, TouchableWith
 import {Ionicons} from '@expo/vector-icons';
 import {router} from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {getApiBaseUrl, getApiHeaders, loadApiBaseUrl} from '../../lib/api/config';
 import {SyncManager} from '../../lib/sync/SyncManager';
 import {db} from '../../lib/db/client';
@@ -12,6 +13,7 @@ import * as Haptics from 'expo-haptics';
 // UI components
 import {SyncBanner} from '../erp/SyncBanner';
 import {Dialog} from '../ui/Dialog';
+import {useNotifications} from '../../lib/notifications/NotificationContext';
 
 export interface HeaderProps {
  onPressMenu: () => void;
@@ -21,6 +23,7 @@ export interface HeaderProps {
 }
 
 export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false}: HeaderProps) {
+ const insets = useSafeAreaInsets();
  const [activeBranchName, setActiveBranchName] = useState('Tạp hóa Linh Ka');
  const [activeBranchId, setActiveBranchId] = useState('');
  const [tenantId, setTenantId] = useState('');
@@ -32,45 +35,10 @@ export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false}
  const [selectedBranchToSwitch, setSelectedBranchToSwitch] = useState<any>(null);
  const [isSwitchingLoading, setIsSwitchingLoading] = useState(false);
 
- // States thông báo giống Web UI
+ // States thông báo — kết nối với NotificationContext thực tế thay vì mock data
  const [isNotificationOpen, setIsNotificationOpen] = useState(false);
  const [activeNotificationTab, setActiveNotificationTab] = useState<'all' | 'qr' | 'other'>('all');
- const [notifications, setNotifications] = useState<any[]>([
- {
- id: 'n1',
- title: 'Khách bàn B3 gửi món',
- description: 'Yêu cầu thanh toán 2 Cà phê cốt dừa qua mã QR',
- type: 'qr_order',
- status: 'unread',
- createdAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
-},
- {
- id: 'n2',
- title: 'Mở bàn mới B8',
- description: 'Khách hàng quét QR check-in bàn B8',
- type: 'qr_session',
- status: 'unread',
- createdAt: new Date(Date.now() - 15 * 60 * 1000).toISOString(),
-},
- {
- id: 'n3',
- title: 'Cảnh báo hết hàng',
- description: 'Bia Heineken lon tại Kho chính còn dưới 5 sản phẩm',
- type: 'low_stock',
- status: 'read',
- createdAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
-},
- {
- id: 'n4',
- title: 'Sao lưu dữ liệu thành công',
- description: 'Hệ thống đã tự động sao lưu dữ liệu offline',
- type: 'system',
- status: 'read',
- createdAt: new Date(Date.now() - 120 * 60 * 1000).toISOString(),
-}
- ]);
-
- const unreadCount = notifications.filter(n => n.status === 'unread').length;
+ const { notifications, unreadCount, markAsRead, markAllAsRead, refreshNotifications } = useNotifications();
 
  // Tải thông tin chi nhánh & shops hoạt động
  const loadHeaderData = async () => {
@@ -330,7 +298,7 @@ export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false}
  </TouchableWithoutFeedback>
  </Modal>
 
- {/* DROPDOWN MENU THÔNG BÁO THẢ XUỐNG - Giống hệt WebUI */}
+ {/* DROPDOWN MENU THÔNG BÁO THẢ XUỐNG - Kết nối NotificationContext thực tế */}
  <Modal
  visible={isNotificationOpen}
  transparent={true}
@@ -338,9 +306,17 @@ export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false}
  onRequestClose={() => setIsNotificationOpen(false)}
  >
  <TouchableWithoutFeedback onPress={() => setIsNotificationOpen(false)}>
- <View className="flex-1 bg-black/10 pt-20 px-6 items-end">
+ <View className="flex-1 bg-black/10" style={{paddingTop: insets.top + 52}}>
+ <View className="px-4 items-end">
+
+ {/* Mũi tên chỉ lên bell icon — visual connector */}
+ <View style={{marginRight: 14, marginBottom: -1, zIndex: 60}}>
+ <View style={{width: 0, height: 0, borderLeftWidth: 8, borderRightWidth: 8, borderBottomWidth: 8, borderLeftColor: 'transparent', borderRightColor: 'transparent', borderBottomColor: '#e2e8f0'}} />
+ <View style={{width: 0, height: 0, borderLeftWidth: 7, borderRightWidth: 7, borderBottomWidth: 7, borderLeftColor: 'transparent', borderRightColor: 'transparent', borderBottomColor: '#ffffff', position: 'absolute', top: 1.5, left: 1}} />
+ </View>
+
  <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
- <View className="bg-white rounded-2xl border border-slate-200 p-4 w-[90%] max-w-sm mt-1 z-50" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 10}, shadowOpacity: 0.12, shadowRadius: 16, elevation: 12}}>
+ <View className="bg-white rounded-2xl border border-slate-200 p-4 w-full max-w-sm z-50" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 10}, shadowOpacity: 0.12, shadowRadius: 16, elevation: 12}}>
  
  {/* Header */}
  <View className="flex-row justify-between items-center mb-3">
@@ -355,7 +331,7 @@ export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false}
  <TouchableOpacity 
  onPress={() => {
  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
- setNotifications(prev => prev.map(n => ({...n, status: 'read'})));
+ markAllAsRead();
 }}
  className="bg-slate-50 border border-slate-200 px-2 py-1 rounded-lg active:bg-slate-100"
  >
@@ -404,7 +380,7 @@ export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false}
  .map(n => {
  const isUnread = n.status === 'unread';
  
- // Map colors & icons
+ // Map colors & icons theo type
  let iconName = 'notifications-outline';
  let iconBg = 'bg-blue-50';
  let iconColor = '#3b82f6';
@@ -421,10 +397,30 @@ export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false}
  iconName = 'warning-outline';
  iconBg = 'bg-amber-50';
  iconColor = '#f59e0b';
-} else if (n.type === 'system') {
+} else if (n.type === 'system' || n.type === 'system_broadcast') {
  iconName = 'cube-outline';
  iconBg = 'bg-indigo-50';
  iconColor = '#6366f1';
+} else if (n.type === 'payment') {
+ iconName = 'card-outline';
+ iconBg = 'bg-green-50';
+ iconColor = '#22c55e';
+} else if (n.type === 'order_expiring') {
+ iconName = 'time-outline';
+ iconBg = 'bg-red-50';
+ iconColor = '#ef4444';
+} else if (n.type === 'debt_alert') {
+ iconName = 'alert-circle-outline';
+ iconBg = 'bg-rose-50';
+ iconColor = '#f43f5e';
+} else if (n.type === 'return_approval' || n.type === 'purchase_approval') {
+ iconName = 'checkmark-circle-outline';
+ iconBg = 'bg-violet-50';
+ iconColor = '#8b5cf6';
+} else if (n.type === 'booking') {
+ iconName = 'calendar-outline';
+ iconBg = 'bg-cyan-50';
+ iconColor = '#06b6d4';
 }
 
  return (
@@ -433,7 +429,7 @@ export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false}
  activeOpacity={0.8}
  onPress={() => {
  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
- setNotifications(prev => prev.map(item => item.id === n.id ? {...item, status: 'read'} : item));
+ markAsRead(n.id);
 }}
  className={`p-3 my-1 rounded-xl flex-row items-start border ${
  isUnread 
@@ -452,7 +448,7 @@ export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false}
 
  <View className="flex-1">
  <View className="flex-row justify-between items-center">
- <Text className={`text-tiny font-semibold ${isUnread ? 'text-slate-800' : 'text-slate-500'}`}>
+ <Text className={`text-tiny font-semibold ${isUnread ? 'text-slate-800' : 'text-slate-500'}`} style={{flex: 1, marginRight: 8}}>
  {n.title}
  </Text>
  <Text className="text-[7.5px] text-slate-400 font-medium">
@@ -481,6 +477,7 @@ export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false}
 
  </View>
  </TouchableWithoutFeedback>
+ </View>
  </View>
  </TouchableWithoutFeedback>
  </Modal>
