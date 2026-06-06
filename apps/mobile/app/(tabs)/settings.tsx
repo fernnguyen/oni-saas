@@ -47,6 +47,7 @@ export default function SettingsScreen() {
  // 3. Cài đặt hệ thống khác
  const [autoSyncOnPrint, setAutoSyncOnPrint] = useState(true);
  const [soundFeedback, setSoundFeedback] = useState(true);
+ const [mobileShiftEnabled, setMobileShiftEnabled] = useState(false);
  const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
@@ -97,6 +98,9 @@ export default function SettingsScreen() {
    }
  }
 
+ const isShiftEnabled = (await AsyncStorage.getItem('enable_shift_management')) === 'true';
+ setMobileShiftEnabled(isShiftEnabled);
+
  if (Platform.OS !== 'web') {
  const prods = await db.select().from(schema.products);
  const resources = await db.select().from(schema.location_resources);
@@ -121,6 +125,21 @@ export default function SettingsScreen() {
  console.error('Lỗi khi tải số liệu cài đặt SQLite:', err);
 }
 };
+
+  const handleToggleMobileShift = async (val: boolean) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    setMobileShiftEnabled(val);
+    await AsyncStorage.setItem('enable_shift_management', val ? 'true' : 'false');
+    if (!val) {
+      await AsyncStorage.removeItem('active_shift_id');
+      Alert.alert('Quản lý ca', 'Đã tắt chế độ Quản lý ca POS.');
+    } else {
+      Alert.alert(
+        'Đã bật Quản lý ca',
+        'Hệ thống di động sẽ bắt đầu yêu cầu mở ca và bàn giao két khi bạn thanh toán tại POS hoặc khi đăng nhập lại.'
+      );
+    }
+  };
 
  useFocusEffect(
  useCallback(() => {
@@ -694,7 +713,20 @@ export default function SettingsScreen() {
  />
  </View>
 
- <View className="flex-row justify-between items-center py-3">
+ <View className="flex-row justify-between items-center py-3 border-b border-slate-100">
+  <View className="flex-1 mr-4">
+  <Text className="text-xs font-medium text-slate-800">
+  Bắt buộc quản lý ca POS
+  </Text>
+  <Text className="text-xxs text-slate-400 font-medium mt-0.5">Yêu cầu mở ca và bàn giao két khi bán hàng</Text>
+  </View>
+  <Switch
+  value={mobileShiftEnabled}
+  onValueChange={handleToggleMobileShift}
+  />
+  </View>
+
+  <View className="flex-row justify-between items-center py-3">
  <View className="flex-1 mr-4">
  <Text className="text-xs font-medium text-slate-800">
  Phản hồi âm thanh (Beep!)
@@ -782,13 +814,18 @@ export default function SettingsScreen() {
           </View>
 
           {/* Chi tiết ca */}
-          <View className="bg-slate-50 p-4 rounded-2xl border border-slate-150 mb-4">
+          <View className="bg-slate-50 p-4 rounded-2xl border mb-4" style={{ borderColor: '#f1f5f9' }}>
             <View className="flex-row justify-between items-center py-1">
               <Text className="text-xxs text-slate-500 font-semibold">Tiền mặt bàn giao đầu ca:</Text>
               <Text className="text-xs font-bold text-slate-700">{formatCurrency(openingCashVal)}</Text>
             </View>
-            <View className="flex-row justify-between items-center py-1 border-t border-slate-200/50 mt-2 pt-2">
-              <Text className="text-xxs text-slate-500 font-semibold">Lý thuyết cuối ca (tiền mặt):</Text>
+            <View className="flex-row justify-between items-center py-1 border-t mt-2 pt-2" style={{ borderTopColor: '#e2e8f0' }}>
+              <View className="flex-1 mr-4">
+                <Text className="text-xxs text-slate-500 font-semibold">Tiền mặt hệ thống tính:</Text>
+                <Text className="text-[10px] text-slate-400 font-medium mt-0.5">
+                  (Bằng: Đầu ca + Doanh thu tiền mặt phát sinh)
+                </Text>
+              </View>
               <Text className="text-xs font-bold text-slate-800">{formatCurrency(expectedClosingCashVal)}</Text>
             </View>
           </View>
@@ -798,7 +835,7 @@ export default function SettingsScreen() {
             <Text className="text-xxs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
               Tiền mặt thực tế cuối ca
             </Text>
-            <View className="relative flex-row items-center bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5">
+            <View className="relative flex-row items-center bg-slate-50 border rounded-xl px-4 py-2" style={{ borderColor: '#cbd5e1' }}>
               <TextInput
                 value={actualClosingCashInput ? Number(actualClosingCashInput.replace(/\D/g, '')).toLocaleString('vi-VN') : '0'}
                 onChangeText={(val) => {
@@ -808,9 +845,14 @@ export default function SettingsScreen() {
                 keyboardType="numeric"
                 className="flex-1 text-center text-lg font-bold text-slate-800"
                 placeholder="0"
-                style={Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : undefined}
+                style={{
+                  paddingVertical: 0,
+                  textAlignVertical: 'center',
+                  minHeight: 32,
+                  ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+                }}
               />
-              <Text className="text-sm font-semibold text-slate-400 ml-2">đ</Text>
+              <Text className="text-sm font-semibold text-slate-400 ml-2" style={{ lineHeight: 32 }}>đ</Text>
             </View>
           </View>
 
@@ -819,7 +861,7 @@ export default function SettingsScreen() {
             const actualCash = parseInt(actualClosingCashInput.replace(/\D/g, ''), 10) || 0;
             const diff = actualCash - expectedClosingCashVal;
             return (
-              <View className="flex-row justify-between items-center bg-slate-50 p-3.5 rounded-xl border border-slate-200 mb-4">
+              <View className="flex-row justify-between items-center bg-slate-50 p-3.5 rounded-xl border mb-4" style={{ borderColor: '#e2e8f0' }}>
                 <Text className="text-xxs text-slate-500 font-semibold">Chênh lệch két:</Text>
                 <Text className={`text-xs font-bold ${diff === 0 ? 'text-emerald-600' : diff > 0 ? 'text-blue-600' : 'text-red-500'}`}>
                   {diff > 0 ? '+' : ''}{formatCurrency(diff)}
@@ -836,17 +878,21 @@ export default function SettingsScreen() {
             <TextInput
               value={closingShiftNote}
               onChangeText={setClosingShiftNote}
-              className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-800 h-20"
+              className="bg-slate-50 border rounded-xl px-4 py-3 text-xs text-slate-800 h-20"
               placeholder="Nhập ghi chú bàn giao hoặc lý do chênh lệch két..."
               multiline={true}
               textAlignVertical="top"
-              style={Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : undefined}
+              style={{
+                borderColor: '#e2e8f0',
+                ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+              }}
             />
           </View>
 
           <View className="flex-row gap-3">
             <TouchableOpacity
-              className="flex-1 py-3 rounded-xl border border-slate-200 bg-slate-50 items-center justify-center"
+              className="flex-1 py-3 rounded-xl border bg-slate-50 items-center justify-center"
+              style={{ borderColor: '#cbd5e1' }}
               onPress={() => setShowCloseShiftModal(false)}
               disabled={isClosingShift}
             >
