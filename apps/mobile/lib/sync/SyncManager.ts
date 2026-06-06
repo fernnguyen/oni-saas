@@ -192,8 +192,12 @@ export class SyncManager {
       // 4. Ghi Danh sách Khách hàng
       if (rawCustomers.length > 0) {
         for (const cust of rawCustomers) {
-          const spent = parseInt(cust.total_spent || cust.prepaid_balance || '0', 10);
+          const spent = parseInt(cust.total_spent || '0', 10);
           const oCount = parseInt(cust.orders_count || '0', 10);
+          const creditLimitVal = parseInt(cust.credit_limit || '0', 10);
+          const prepaidVal = parseInt(cust.prepaid_balance || '0', 10);
+          const loyaltyPointsVal = parseInt(cust.loyalty_points || '0', 10);
+          const debtAmountVal = parseInt(cust.debt_amount || '0', 10);
           await db.insert(schema.customers).values({
             id: cust.id || cust.customer_id,
             name: cust.name || '',
@@ -205,6 +209,11 @@ export class SyncManager {
             total_spent: isNaN(spent) ? 0 : spent,
             orders_count: isNaN(oCount) ? 0 : oCount,
             sync_status: 'synced',
+            credit_limit: isNaN(creditLimitVal) ? 0 : creditLimitVal,
+            note: cust.note || null,
+            prepaid_balance: isNaN(prepaidVal) ? 0 : prepaidVal,
+            loyalty_points: isNaN(loyaltyPointsVal) ? 0 : loyaltyPointsVal,
+            debt_amount: isNaN(debtAmountVal) ? 0 : debtAmountVal,
           }).onConflictDoNothing();
         }
       }

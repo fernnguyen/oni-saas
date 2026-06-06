@@ -1,8 +1,15 @@
-import React, {useEffect, useRef} from 'react';
-import {Animated, Dimensions, Modal, Text, TouchableOpacity, View, TouchableWithoutFeedback, Image} from 'react-native';
+import React, {useEffect, useRef, useState} from 'react';
+import {Animated, Dimensions, Modal, Text, TouchableOpacity, View, TouchableWithoutFeedback, Image, Platform} from 'react-native';
 import {Ionicons} from '@expo/vector-icons';
 import {router} from 'expo-router';
 import * as Haptics from 'expo-haptics';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {supabase} from '../../lib/supabase';
+import {db, switchDatabaseScope} from '../../lib/db/client';
+import * as schema from '../../lib/db/schema';
+import {eq} from 'drizzle-orm';
+import {SyncManager} from '../../lib/sync/SyncManager';
+import {Dialog} from '../ui/Dialog';
 
 export interface DrawerMenuProps {
  visible: boolean;
@@ -14,6 +21,9 @@ const {width: SCREEN_WIDTH} = Dimensions.get('window');
 const DRAWER_WIDTH = SCREEN_WIDTH * 0.78;
 
 export function DrawerMenu({visible, onClose, branchName = 'Chi nhánh chính'}: DrawerMenuProps) {
+ const [userInfo, setUserInfo] = useState<{name: string, email: string} | null>(null);
+ const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
+ const [isLoggingOut, setIsLoggingOut] = useState(false);
  
  // Hoạt ảnh trượt ngang từ trái sang phải
  const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
@@ -33,6 +43,22 @@ export function DrawerMenu({visible, onClose, branchName = 'Chi nhánh chính'}:
  useNativeDriver: true,
 }),
  ]).start();
+
+ // Lấy thông tin tài khoản đăng nhập khi mở drawer
+ const fetchUser = async () => {
+ try {
+ const { data: { user } } = await supabase.auth.getUser();
+ if (user) {
+ setUserInfo({
+ name: user.user_metadata?.full_name || user.user_metadata?.name || 'Nhân viên thu ngân',
+ email: user.email || '',
+ });
+ }
+ } catch (err) {
+ console.warn('Lỗi khi lấy thông tin user trong DrawerMenu:', err);
+ }
+ };
+ fetchUser();
 } else {
  Animated.parallel([
  Animated.timing(slideAnim, {
@@ -60,32 +86,79 @@ export function DrawerMenu({visible, onClose, branchName = 'Chi nhánh chính'}:
 }
 };
 
+ // Đóng ca và đăng xuất
+ const handleCloseShift = async () => {
+ setIsLoggingOut(true);
+ Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
+ try {
+ const shopId = await AsyncStorage.getItem('active_shop_id');
+ const activeShiftId = await AsyncStorage.getItem('active_shift_id');
+ 
+ if (activeShiftId && Platform.OS !== 'web') {
+ const nowStr = new Date().toISOString();
+ await db
+ .update(schema.shop_shifts)
+ .set({closed_at: nowStr, status: 'closed', sync_status: 'pending'})
+ .where(eq(schema.shop_shifts.id, activeShiftId));
+ }
+
+ if (shopId && Platform.OS !== 'web') {
+ await SyncManager.pushOfflineShifts(shopId);
+ await SyncManager.pushOfflineOrders(shopId);
+ }
+
+ await AsyncStorage.removeItem('active_shift_id');
+ await AsyncStorage.removeItem('active_shop_id');
+ await AsyncStorage.removeItem('active_shop_name');
+ await AsyncStorage.removeItem('active_tenant_id');
+
+ // Xóa sạch giỏ hàng tạm và thông tin CRM của ca làm việc cũ
+ await AsyncStorage.removeItem('temp_cart');
+ await AsyncStorage.removeItem('temp_discount');
+ await AsyncStorage.removeItem('temp_note');
+ await AsyncStorage.removeItem('temp_customer');
+
+ // Trả lại kết nối CSDL về file mặc định sau khi đăng xuất
+ switchDatabaseScope(null);
+
+ await supabase.auth.signOut();
+ 
+ Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+ setIsLoggingOut(false);
+ setIsLogoutConfirmOpen(false);
+ onClose(); // Đóng Drawer
+ router.replace('/(auth)/login');
+ } catch (err: any) {
+ console.error('Lỗi khi kết thúc ca làm việc từ Drawer:', err);
+ setIsLoggingOut(false);
+ }
+ };
+
  const renderMenuItem = (icon: string, label: string, targetRoute: string, isComingSoon = false) => {
  return (
  <TouchableOpacity
  activeOpacity={0.7}
  onPress={() => handleNavigate(targetRoute)}
- className="flex-row items-center py-3 px-4 my-1 rounded-xl active:bg-orange-50/60"
+ className="flex-row items-center py-2 px-3 my-0.5 rounded-lg active:bg-orange-50/50"
  >
- <View className="bg-slate-50 p-2 rounded-lg mr-3 border border-slate-100">
- <Ionicons name={icon as any} size={16} color="#fa5908" />
+ <View className="bg-slate-50 p-1.5 rounded-md mr-2.5 border border-slate-100">
+ <Ionicons name={icon as any} size={13} color="#fa5908" />
  </View>
  <View className="flex-1">
- {/* Tăng kích cỡ chữ lớn hơn, in đậm sắc nét */}
- <Text className="font-semibold text-xs text-slate-800">
+ <Text className="font-medium text-xs text-slate-700">
  {label}
  </Text>
  </View>
  {isComingSoon ? (
- <View className="bg-amber-50 border border-amber-200 px-1 rounded-md">
- <Text className="text-micro text-amber-700 font-medium">COMING</Text>
+ <View className="bg-slate-100 border border-slate-200 px-1 py-0.5 rounded">
+ <Text className="text-[7.5px] text-slate-500 font-bold tracking-wider">COMING</Text>
  </View>
  ) : (
- <Ionicons name="chevron-forward" size={11} color="#94a3b8" />
+ <Ionicons name="chevron-forward" size={10} color="#cbd5e1" />
  )}
  </TouchableOpacity>
  );
-};
+ };
 
  return (
  <Modal
@@ -114,10 +187,10 @@ export function DrawerMenu({visible, onClose, branchName = 'Chi nhánh chính'}:
  >
  <View>
  {/* Header Drawer */}
- <View className="flex-row items-center mb-6 px-1.5">
+ <View className="flex-row items-center mb-4 px-1.5">
  <Image 
  source={require('../../assets/logo.png')} 
- style={{width: 38, height: 38, resizeMode: 'contain', marginRight: 10}} 
+ style={{width: 34, height: 34, resizeMode: 'contain', marginRight: 10}} 
  />
  <View>
  <Text className="text-xs font-semibold text-slate-800">ONI miniERP</Text>
@@ -127,46 +200,87 @@ export function DrawerMenu({visible, onClose, branchName = 'Chi nhánh chính'}:
  </View>
  </View>
 
- <View className="h-0.5 w-full bg-slate-100 my-3" />
+ <View className="h-0.5 w-full bg-slate-100 my-2.5" />
 
- {/* Danh sách phân hệ ERP */}
- <Text className="text-xxs font-semibold text-slate-400 mb-2 px-1.5">
- Phân hệ quản trị
+ {/* Danh sách phân hệ ERP được phân nhóm compact giống web */}
+ {/* Group 1: Bán hàng & Khách hàng */}
+ <Text className="text-[8.5px] font-bold text-slate-400 mb-1 mt-2 px-1.5 uppercase tracking-wider">
+ Bán hàng & Khách hàng
  </Text>
- 
- {renderMenuItem('analytics', 'Báo cáo tổng quan', '/(tabs)')}
  {renderMenuItem('calculator', 'Bán hàng nhanh POS', '/(tabs)/pos')}
  {renderMenuItem('receipt', 'Lịch sử hóa đơn', '/(tabs)/orders')}
- {renderMenuItem('cube-outline', 'Quản lý Kho hàng', 'Kho hàng', true)}
- {renderMenuItem('wallet-outline', 'Sổ quỹ thu chi (Cashbook)', 'Sổ quỹ', true)}
  {renderMenuItem('people-outline', 'Quản lý Khách hàng', '/(tabs)/customers')}
+
+ {/* Group 2: Vận hành & Tài chính */}
+ <Text className="text-[8.5px] font-bold text-slate-400 mb-1 mt-3.5 px-1.5 uppercase tracking-wider">
+ Vận hành & Tài chính
+ </Text>
+ {renderMenuItem('cube-outline', 'Quản lý Kho hàng', 'Kho hàng', true)}
+ {renderMenuItem('wallet-outline', 'Sổ quỹ (Cashbook)', 'Sổ quỹ', true)}
+
+ {/* Group 3: Hệ thống */}
+ <Text className="text-[8.5px] font-bold text-slate-400 mb-1 mt-3.5 px-1.5 uppercase tracking-wider">
+ Hệ thống
+ </Text>
+ {renderMenuItem('analytics', 'Báo cáo tổng quan', '/(tabs)')}
  {renderMenuItem('settings-outline', 'Cài đặt hệ thống', '/(tabs)/settings')}
  </View>
 
  {/* Footer Drawer */}
- <View className="mb-4">
- <View className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex-row items-center">
- <View className="bg-orange-100 w-7 h-7 rounded-full items-center justify-center mr-2.5">
- <Ionicons name="person-outline" size={13} color="#fa5908" />
+ <View className="mb-4 border-t border-slate-100 pt-4">
+ <View className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 flex-row items-center justify-between">
+ <View className="flex-row items-center flex-1 mr-2">
+ <View className="bg-orange-50 w-8 h-8 rounded-full items-center justify-center mr-2.5 border border-orange-100">
+ <Ionicons name="person" size={13} color="#fa5908" />
  </View>
  <View className="flex-1">
- <Text className="font-medium text-xxs text-slate-700">Staff Thu Ngân</Text>
- <Text className="text-micro text-slate-400 font-medium mt-0.5">Mobile Cashier</Text>
+ <Text className="font-semibold text-xs text-slate-800" numberOfLines={1}>
+ {userInfo?.name || 'Đang tải...'}
+ </Text>
+ <Text className="text-[9.5px] text-slate-450 mt-0.5" numberOfLines={1}>
+ {userInfo?.email || 'email@shop.com'}
+ </Text>
  </View>
+ </View>
+ 
+ {/* Nút Logout */}
+ <TouchableOpacity 
+ activeOpacity={0.7}
+ onPress={() => {
+ Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+ setIsLogoutConfirmOpen(true);
+}}
+ className="p-2 bg-red-50 border border-red-100 rounded-lg active:bg-red-100"
+ >
+ <Ionicons name="log-out-outline" size={14} color="#ef4444" />
+ </TouchableOpacity>
  </View>
  
  <TouchableOpacity 
  activeOpacity={0.7}
  onPress={onClose}
- className="mt-3 flex-row items-center justify-center border border-slate-200 py-2.5 rounded-lg active:bg-slate-50"
+ className="mt-3.5 flex-row items-center justify-center border border-slate-200/80 py-2 rounded-lg active:bg-slate-50"
  >
- <Ionicons name="close" size={12} color="#64748b" />
+ <Ionicons name="close-outline" size={13} color="#64748b" />
  <Text className="text-slate-500 font-medium text-xxs ml-1.5">Đóng Menu</Text>
  </TouchableOpacity>
  </View>
 
  </Animated.View>
  </View>
+
+ {/* Dialog xác nhận kết ca & đăng xuất */}
+ <Dialog
+ visible={isLogoutConfirmOpen}
+ onClose={() => setIsLogoutConfirmOpen(false)}
+ onConfirm={handleCloseShift}
+ title="Xác nhận Kết ca & Đóng ca?"
+ description="Hệ thống sẽ gửi báo cáo SQLite ca làm việc, đồng bộ hóa đơn chưa sync, đóng ca và đăng xuất an toàn khỏi ứng dụng di động."
+ confirmLabel="Xác nhận Đóng ca"
+ cancelLabel="Hủy"
+ variant="danger"
+ loading={isLoggingOut}
+ />
  </Modal>
  );
 }

@@ -194,7 +194,12 @@ export function initializeLocalDatabase(customDb?: any) {
         customer_type TEXT DEFAULT 'Thành viên',
         total_spent INTEGER NOT NULL DEFAULT 0,
         orders_count INTEGER NOT NULL DEFAULT 0,
-        sync_status TEXT NOT NULL DEFAULT 'synced'
+        sync_status TEXT NOT NULL DEFAULT 'synced',
+        credit_limit INTEGER DEFAULT 0,
+        note TEXT,
+        prepaid_balance INTEGER DEFAULT 0,
+        loyalty_points INTEGER DEFAULT 0,
+        debt_amount INTEGER DEFAULT 0
       );
 
       CREATE TABLE IF NOT EXISTS orders (
@@ -260,6 +265,11 @@ export function initializeLocalDatabase(customDb?: any) {
     try { targetDb.execSync(`ALTER TABLE products ADD COLUMN parent_id TEXT;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE products ADD COLUMN variant_options TEXT;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE products ADD COLUMN modifier_groups TEXT;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE customers ADD COLUMN credit_limit INTEGER DEFAULT 0;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE customers ADD COLUMN note TEXT;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE customers ADD COLUMN prepaid_balance INTEGER DEFAULT 0;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE customers ADD COLUMN loyalty_points INTEGER DEFAULT 0;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE customers ADD COLUMN debt_amount INTEGER DEFAULT 0;`); } catch (e) {}
     
     console.log(`CSDL SQLite [${activeDbName}]: Khởi tạo các bảng/migrations offline-first thành công!`);
   } catch (error) {

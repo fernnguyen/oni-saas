@@ -65,6 +65,11 @@ export const customers = sqliteTable('customers', {
   total_spent: integer('total_spent').notNull().default(0), // Tổng tích lũy
   orders_count: integer('orders_count').notNull().default(0), // Số đơn hàng đã giao dịch
   sync_status: text('sync_status').notNull().default('synced'), // synced | pending (thêm mới offline)
+  credit_limit: integer('credit_limit').default(0),
+  note: text('note'),
+  prepaid_balance: integer('prepaid_balance').default(0),
+  loyalty_points: integer('loyalty_points').default(0),
+  debt_amount: integer('debt_amount').default(0),
 });
 
 // 5. LỊCH SỬ HÓA ĐƠN (Orders)
