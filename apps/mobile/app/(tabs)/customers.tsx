@@ -594,11 +594,25 @@ export default function CustomersScreen() {
         {/* Khung lọc theo nhóm khách hàng */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} className="flex-row">
           <TouchableOpacity
-            className={`mr-2 px-4 py-2 rounded-xl border ${
-              selectedFilter === 'all'
-                ? 'bg-orange-500 border-orange-500 shadow-sm'
-                : 'bg-slate-100 border-slate-200'
-            }`}
+            className="mr-2 px-4 py-2 rounded-xl border"
+            style={selectedFilter === 'all' ? {
+              backgroundColor: '#fa5908',
+              borderColor: '#fa5908',
+              ...Platform.select({
+                ios: {
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 1 },
+                  shadowOpacity: 0.1,
+                  shadowRadius: 2,
+                },
+                android: {
+                  elevation: 1.5,
+                },
+              }),
+            } : {
+              backgroundColor: '#f1f5f9',
+              borderColor: '#e2e8f0',
+            }}
             onPress={() => setSelectedFilter('all')}
           >
             <Text className={`text-tiny font-medium ${selectedFilter === 'all' ? 'text-white' : 'text-slate-600'}`}>
@@ -609,11 +623,25 @@ export default function CustomersScreen() {
           {['VIP', 'Thân thiết', 'Thành viên'].map(tier => (
             <TouchableOpacity
               key={tier}
-              className={`mr-2 px-4 py-2 rounded-xl border ${
-                selectedFilter === tier
-                  ? 'bg-orange-500 border-orange-500 shadow-sm'
-                  : 'bg-slate-100 border-slate-200'
-              }`}
+              className="mr-2 px-4 py-2 rounded-xl border"
+              style={selectedFilter === tier ? {
+                backgroundColor: '#fa5908',
+                borderColor: '#fa5908',
+                ...Platform.select({
+                  ios: {
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 1 },
+                    shadowOpacity: 0.1,
+                    shadowRadius: 2,
+                  },
+                  android: {
+                    elevation: 1.5,
+                  },
+                }),
+              } : {
+                backgroundColor: '#f1f5f9',
+                borderColor: '#e2e8f0',
+              }}
               onPress={() => setSelectedFilter(tier)}
             >
               <Text className={`text-tiny font-medium ${selectedFilter === tier ? 'text-white' : 'text-slate-600'}`}>
@@ -708,9 +736,14 @@ export default function CustomersScreen() {
                 {['Thành viên', 'Thân thiết', 'VIP'].map(tier => (
                   <TouchableOpacity
                     key={tier}
-                    className={`flex-1 mx-1 py-2.5 rounded-xl border-2 items-center ${
-                      newCustType === tier ? 'bg-orange-50 border-orange-500' : 'bg-white border-slate-200'
-                    }`}
+                    className="flex-1 mx-1 py-2.5 rounded-xl border-2 items-center"
+                    style={newCustType === tier ? {
+                      backgroundColor: '#fff7ed', // bg-orange-50
+                      borderColor: '#fa5908', // border-orange-500
+                    } : {
+                      backgroundColor: '#ffffff', // bg-white
+                      borderColor: '#e2e8f0', // border-slate-200
+                    }}
                     onPress={() => setNewCustType(tier)}
                   >
                     <Text className={`text-tiny font-semibold ${
@@ -829,9 +862,10 @@ export default function CustomersScreen() {
               ].map(tab => (
                 <TouchableOpacity
                   key={tab.id}
-                  className={`flex-1 pb-2 items-center border-b-2 ${
-                    activeDetailTab === tab.id ? 'border-orange-500' : 'border-transparent'
-                  }`}
+                  className="flex-1 pb-2 items-center border-b-2"
+                  style={{
+                    borderColor: activeDetailTab === tab.id ? '#fa5908' : 'transparent'
+                  }}
                   onPress={() => setActiveDetailTab(tab.id as any)}
                 >
                   <Text className={`text-xs font-semibold ${

@@ -620,18 +620,21 @@ export default function OrdersScreen() {
   </View>
 
  {/* Lọc theo Ca */}
- {shiftsList.length > 1 && (
- <ScrollView horizontal showsHorizontalScrollIndicator={false} className="flex-row mb-3">
- {shiftsList.map(shift => (
- <TouchableOpacity
- key={shift.id}
- className={`mr-2 px-3 py-1.5 rounded-xl border ${
- selectedShift === shift.id
- ? 'bg-orange-500 border-orange-500'
- : 'bg-white border-slate-200'
-}`}
- onPress={() => setSelectedShift(shift.id)}
- >
+  {shiftsList.length > 1 && (
+  <ScrollView horizontal showsHorizontalScrollIndicator={false} className="flex-row mb-3">
+  {shiftsList.map(shift => (
+  <TouchableOpacity
+  key={shift.id}
+  className="mr-2 px-3 py-1.5 rounded-xl border"
+  style={selectedShift === shift.id ? {
+    backgroundColor: '#fa5908',
+    borderColor: '#fa5908'
+  } : {
+    backgroundColor: '#ffffff',
+    borderColor: '#e2e8f0'
+  }}
+  onPress={() => setSelectedShift(shift.id)}
+  >
  <Text className={`text-xxs font-semibold ${
  selectedShift === shift.id ? 'text-white' : 'text-slate-500'
 }`}>
@@ -645,11 +648,14 @@ export default function OrdersScreen() {
  {/* Lọc theo Trạng thái Sync */}
  <View className="flex-row mb-1">
  <TouchableOpacity
- className={`mr-2 px-3 py-1.5 rounded-xl border ${
- selectedStatus === 'all'
- ? 'bg-orange-500 border-orange-500'
- : 'bg-white border-slate-200'
-}`}
+ className="mr-2 px-3 py-1.5 rounded-xl border"
+ style={selectedStatus === 'all' ? {
+   backgroundColor: '#fa5908',
+   borderColor: '#fa5908'
+ } : {
+   backgroundColor: '#ffffff',
+   borderColor: '#e2e8f0'
+ }}
  onPress={() => setSelectedStatus('all')}
  >
  <Text className={`text-xxs font-semibold ${
@@ -660,11 +666,14 @@ export default function OrdersScreen() {
  </TouchableOpacity>
 
  <TouchableOpacity
- className={`mr-2 px-3 py-1.5 rounded-xl border ${
- selectedStatus === 'synced'
- ? 'bg-emerald-600 border-emerald-600'
- : 'bg-emerald-50 border-emerald-300'
-}`}
+ className="mr-2 px-3 py-1.5 rounded-xl border"
+ style={selectedStatus === 'synced' ? {
+   backgroundColor: '#059669',
+   borderColor: '#059669'
+ } : {
+   backgroundColor: '#ecfdf5',
+   borderColor: '#a7f3d0'
+ }}
  onPress={() => setSelectedStatus('synced')}
  >
  <Text className={`text-xxs font-semibold ${
@@ -674,14 +683,17 @@ export default function OrdersScreen() {
  </Text>
  </TouchableOpacity>
 
- <TouchableOpacity
- className={`px-3 py-1.5 rounded-xl border ${
- selectedStatus === 'pending'
- ? 'bg-amber-600 border-amber-600'
- : 'bg-amber-50 border-amber-300'
-}`}
- onPress={() => setSelectedStatus('pending')}
- >
+   <TouchableOpacity
+  className="px-3 py-1.5 rounded-xl border"
+  style={selectedStatus === 'pending' ? {
+    backgroundColor: '#d97706',
+    borderColor: '#d97706'
+  } : {
+    backgroundColor: '#fffbeb',
+    borderColor: '#fde68a'
+  }}
+  onPress={() => setSelectedStatus('pending')}
+  >
  <Text className={`text-xxs font-semibold ${
  selectedStatus === 'pending' ? 'text-white' : 'text-amber-700'
 }`}>
