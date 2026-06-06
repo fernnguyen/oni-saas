@@ -55,12 +55,6 @@
     "zod": "^3.23.0"
   },
   "pnpm": {
-    "onlyBuiltDependencies": [
-      "@sentry/cli",
-      "esbuild",
-      "sharp",
-      "unrs-resolver"
-    ],
     "overrides": {
       "react": "19.1.0",
       "react-dom": "19.1.0",
