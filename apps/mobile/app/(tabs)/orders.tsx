@@ -9,6 +9,7 @@ import * as schema from '../../lib/db/schema';
 import {eq, desc} from 'drizzle-orm';
 import {SyncManager} from '../../lib/sync/SyncManager';
 import {getApiBaseUrl, getApiHeaders} from '../../lib/api/config';
+import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import {formatCurrency, formatDateTime} from '../../lib/utils/format';
 
@@ -69,6 +70,16 @@ export default function OrdersScreen() {
  const [isSyncingOrder, setIsSyncingOrder] = useState<string | null>(null);
  const [isReprinting, setIsReprinting] = useState(false);
  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+ const [copiedId, setCopiedId] = useState(false);
+
+ const handleCopyOrderNo = async (text: string) => {
+   await Clipboard.setStringAsync(text);
+   setCopiedId(true);
+   Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+   setTimeout(() => {
+     setCopiedId(false);
+   }, 1500);
+ };
 
  // Dialog xác nhận in và sync thay Alert.alert
  const [isReprintSuccessVisible, setIsReprintSuccessVisible] = useState(false);
@@ -458,15 +469,21 @@ export default function OrdersScreen() {
  <View className="flex-row justify-between items-center border-b border-slate-100 pb-4">
  <View>
  <View className="flex-row items-center">
- <Text className="text-sm font-semibold text-slate-800">
- {selectedOrder.order_no || selectedOrder.id.substring(0, 12)}
- </Text>
- <Badge 
- variant={selectedOrder.sync_status === 'pending' ? 'warning' : 'success'} 
- label={selectedOrder.sync_status === 'pending' ? 'Chờ đồng bộ' : 'Đã đồng bộ'} 
- size="sm"
- className="ml-2"
- />
+  <Text className="text-sm font-semibold text-slate-800">
+  {selectedOrder.order_no || selectedOrder.id.substring(0, 12)}
+  </Text>
+  <TouchableOpacity
+    onPress={() => handleCopyOrderNo(selectedOrder.order_no || selectedOrder.id)}
+    className="ml-1.5 p-1 bg-slate-100 active:bg-slate-200 rounded"
+  >
+    <Ionicons name={copiedId ? "checkmark" : "copy-outline"} size={12} color={copiedId ? "#10b981" : "#64748b"} />
+  </TouchableOpacity>
+  <Badge 
+  variant={selectedOrder.sync_status === 'pending' ? 'warning' : 'success'} 
+  label={selectedOrder.sync_status === 'pending' ? 'Chờ đồng bộ' : 'Đã đồng bộ'} 
+  size="sm"
+  className="ml-2"
+  />
  </View>
  <Text className="text-tiny text-slate-450 mt-1 font-medium">
  Khách hàng: {selectedOrder.customer_name || 'Khách lẻ'}
@@ -488,10 +505,16 @@ export default function OrdersScreen() {
  {selectedOrder.created_at ? formatDateTime(selectedOrder.created_at) : 'Ngoại tuyến'}
  </Text>
  </View>
- <View className="flex-row justify-between py-1">
- <Text className="text-tiny text-slate-500 font-medium">Mã hóa đơn:</Text>
- <Text className="text-tiny font-semibold text-slate-700">{selectedOrder.order_no || selectedOrder.id}</Text>
- </View>
+  <View className="flex-row justify-between py-1 items-center">
+  <Text className="text-tiny text-slate-500 font-medium">Mã hóa đơn:</Text>
+  <TouchableOpacity
+    onPress={() => handleCopyOrderNo(selectedOrder.order_no || selectedOrder.id)}
+    className="flex-row items-center active:opacity-75"
+  >
+    <Text className="text-tiny font-semibold text-slate-700 mr-1">{selectedOrder.order_no || selectedOrder.id}</Text>
+    <Ionicons name={copiedId ? "checkmark" : "copy-outline"} size={11} color={copiedId ? "#10b981" : "#64748b"} />
+  </TouchableOpacity>
+  </View>
  <View className="flex-row justify-between py-1">
  <Text className="text-tiny text-slate-500 font-medium">Khách hàng:</Text>
  <View className="items-end">

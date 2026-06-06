@@ -1864,7 +1864,8 @@ export default function PosScreen() {
  const orderId = `ORD-T-${Date.now()}`;
  const orderNo = `HD-${shopVertical === 'lodging' ? '🏩' : '🎱'}-${Date.now().toString().substring(9)}`;
  const nowStr = new Date().toISOString();
- let syncSucceeded = false;
+  let syncSucceeded = false;
+  let serverOrderNo = orderNo;
 
  const paymentMethodString = JSON.stringify(payments.map(p => {
     const fund = paymentFundsList.find(f => f.id === p.fund_id);
@@ -2005,12 +2006,14 @@ export default function PosScreen() {
 };
 
  const syncRes = await fetch(`${currentUrl}/api/shops/${shopId}/orders/sync-batch`, {
- method: 'POST',
- headers: {...headers, 'Content-Type': 'application/json'},
- body: JSON.stringify(payload),
-});
+  method: 'POST',
+  headers: {...headers, 'Content-Type': 'application/json'},
+  body: JSON.stringify(payload),
+ });
 
- if (syncRes.ok) {
+  if (syncRes.ok) {
+    const syncData = await syncRes.json().catch(() => ({}));
+    if (syncData.order_no) serverOrderNo = syncData.order_no;
  // Cập nhật vị trí sang available trên Server Cloud
  const patchRes = await fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${selectedTableForPay.id}`, {
  method: 'PATCH',
@@ -2023,14 +2026,19 @@ export default function PosScreen() {
 });
 
  if (patchRes.ok) {
- syncSucceeded = true;
- if (Platform.OS !== 'web') {
- await db
- .update(schema.orders)
- .set({sync_status: 'synced'})
- .where(eq(schema.orders.id, orderId));
-}
-}
+      syncSucceeded = true;
+      if (Platform.OS !== 'web' && syncData.order_id) {
+        const serverId = syncData.order_id;
+        if (serverId !== orderId) {
+          await db.update(schema.order_items)
+            .set({ order_id: serverId })
+            .where(eq(schema.order_items.order_id, orderId));
+        }
+        await db.update(schema.orders)
+          .set({ id: serverId, order_no: syncData.order_no || orderNo, sync_status: 'synced', reference_no: orderId })
+          .where(eq(schema.orders.id, orderId));
+      }
+    }
 }
 } catch (syncErr) {
  console.log('Bỏ qua sync checkout trực tiếp (sẽ sync sau):', syncErr);
@@ -2061,19 +2069,19 @@ export default function PosScreen() {
  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
 
  // Hiển thị Toast thông báo kết quả sang trọng giống WebUI
- const hasTransfer = payments.some(p => ['bank_transfer', 'momo', 'card'].includes(p.method) && p.amount > 0);
- if (hasTransfer) {
-   const transferAmount = payments.filter(p => ['bank_transfer', 'momo', 'card'].includes(p.method)).reduce((sum, p) => sum + p.amount, 0);
-   const transferP = payments.find(p => ['bank_transfer', 'momo', 'card'].includes(p.method) && p.amount > 0);
-   setQrPayload({amount: transferAmount, orderNo: orderNo, fund_id: transferP ? transferP.fund_id : 'bank'});
-   setIsQrModalOpen(true);
- } else {
-   if (syncSucceeded) {
-     showToast("Thanh toán & Giải phóng thành công!", "success");
-   } else {
-     showToast("Thanh toán ngoại tuyến thành công! Sẽ sync sau.", "info");
-   }
- }
+  const hasTransfer = payments.some(p => ['bank_transfer', 'momo', 'card'].includes(p.method) && p.amount > 0);
+  if (hasTransfer) {
+    const transferAmount = payments.filter(p => ['bank_transfer', 'momo', 'card'].includes(p.method)).reduce((sum, p) => sum + p.amount, 0);
+    const transferP = payments.find(p => ['bank_transfer', 'momo', 'card'].includes(p.method) && p.amount > 0);
+    setQrPayload({amount: transferAmount, orderNo: serverOrderNo, fund_id: transferP ? transferP.fund_id : 'bank'});
+    setIsQrModalOpen(true);
+  } else {
+    if (syncSucceeded) {
+      showToast(`Thanh toán & Giải phóng thành công Hóa đơn ${serverOrderNo}!`, "success");
+    } else {
+      showToast(`Thanh toán ngoại tuyến thành công Hóa đơn ${orderNo}! Sẽ sync sau.`, "info");
+    }
+  }
 
   if (Platform.OS !== 'web') {
     setTimeout(() => {
@@ -2171,20 +2179,9 @@ export default function PosScreen() {
  setOrderNote('');
  setSelectedCustomer(null);
  setIsCartModalOpen(false);
- setIsPayingCartLoading(false);
  setIsCheckoutConfirmVisible(false);
 
  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-
- const hasTransfer = payments.some(p => ['bank_transfer', 'momo', 'card'].includes(p.method) && p.amount > 0);
- if (hasTransfer) {
- const transferAmount = payments.filter(p => ['bank_transfer', 'momo', 'card'].includes(p.method)).reduce((sum, p) => sum + p.amount, 0);
- const transferP = payments.find(p => ['bank_transfer', 'momo', 'card'].includes(p.method) && p.amount > 0);
-        setQrPayload({amount: transferAmount, orderNo: orderNo, fund_id: transferP ? transferP.fund_id : 'bank'});
- setIsQrModalOpen(true);
-} else {
- showToast(`Đã thanh toán Hóa đơn ${orderNo} thành công! Đang đồng bộ...`);
-}
 
  // Thu nợ cũ kèm đơn hàng — thử sync trực tiếp để lấy server order_no
  const debtRepay = debtRepayOpts?.debtRepayAmount || 0;
@@ -2241,11 +2238,17 @@ export default function PosScreen() {
        const syncData = await directSyncRes.json().catch(() => ({}));
        if (syncData.order_no) serverOrderNo = syncData.order_no;
        // Mark as synced in SQLite
-       if (Platform.OS !== 'web' && syncData.order_id) {
-         await db.update(schema.orders)
-           .set({ id: syncData.order_id, order_no: syncData.order_no || orderNo, sync_status: 'synced', reference_no: orderId })
-           .where(eq(schema.orders.id, orderId));
-       }
+        if (Platform.OS !== 'web' && syncData.order_id) {
+          const serverId = syncData.order_id;
+          if (serverId !== orderId) {
+            await db.update(schema.order_items)
+              .set({ order_id: serverId })
+              .where(eq(schema.order_items.order_id, orderId));
+          }
+          await db.update(schema.orders)
+            .set({ id: serverId, order_no: syncData.order_no || orderNo, sync_status: 'synced', reference_no: orderId })
+            .where(eq(schema.orders.id, orderId));
+        }
      }
    } catch (syncErr) {
      console.warn('[POS] Sync trực tiếp thất bại, sẽ queue:', syncErr);
@@ -2259,8 +2262,26 @@ export default function PosScreen() {
    setTimeout(() => SyncManager.pushOfflineOrders(debtShopId || shopId), 800);
  }
 
- // Ghi cashbook debt_collection với server order_no (hoặc local nếu offline)
- if (debtRepay > 0 && customer && customer.id && currentUrl && debtShopId) {
+ // Tắt trạng thái Loading thanh toán bán lẻ
+  setIsPayingCartLoading(false);
+
+  // Hiển thị QR thanh toán hoặc Toast báo thành công bằng server ID
+  const hasTransfer = payments.some(p => ['bank_transfer', 'momo', 'card'].includes(p.method) && p.amount > 0);
+  if (hasTransfer) {
+    const transferAmount = payments.filter(p => ['bank_transfer', 'momo', 'card'].includes(p.method)).reduce((sum, p) => sum + p.amount, 0);
+    const transferP = payments.find(p => ['bank_transfer', 'momo', 'card'].includes(p.method) && p.amount > 0);
+    setQrPayload({amount: transferAmount, orderNo: serverOrderNo, fund_id: transferP ? transferP.fund_id : 'bank'});
+    setIsQrModalOpen(true);
+  } else {
+    if (serverOrderNo !== orderNo) {
+      showToast(`Đã thanh toán Hóa đơn ${serverOrderNo} thành công!`, 'success');
+    } else {
+      showToast(`Đã thanh toán Hóa đơn ngoại tuyến ${orderNo} thành công! Sẽ đồng bộ sau.`, 'info');
+    }
+  }
+
+  // Ghi cashbook debt_collection với server order_no (hoặc local nếu offline)
+  if (debtRepay > 0 && customer && customer.id && currentUrl && debtShopId) {
    try {
      await fetch(`${currentUrl}/api/shops/${debtShopId}/cashbook`, {
        method: 'POST',

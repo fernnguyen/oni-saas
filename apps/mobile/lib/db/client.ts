@@ -48,6 +48,8 @@ async function loadActiveTenantDatabase() {
 // Gọi khởi động ngầm
 loadActiveTenantDatabase();
 
+const initializedDbs = new Set<string>();
+
 function getExpoDb() {
   if (!internalExpoDb) {
     if (Platform.OS === 'web') {
@@ -68,6 +70,12 @@ function getExpoDb() {
       }
     } else {
       internalExpoDb = openDatabaseSync(activeDbName);
+    }
+
+    // Đảm bảo chạy khởi tạo bảng và migration ngay khi mở kết nối file database
+    if (!initializedDbs.has(activeDbName)) {
+      initializedDbs.add(activeDbName);
+      initializeLocalDatabase(internalExpoDb);
     }
   }
   return internalExpoDb;
@@ -127,9 +135,19 @@ export const db = new Proxy({}, {
 // 3. Hàm khởi chạy tạo bảng (CREATE TABLE IF NOT EXISTS) đầu phiên
 // Chạy SQL thô trực tiếp qua execSync đảm bảo hoạt động 100% ổn định trên Expo Go
 // mà không cần bundling/migration riêng phức tạp.
-export function initializeLocalDatabase() {
+export function initializeLocalDatabase(customDb?: any) {
+  // Tránh chạy trùng lặp khi đã được gọi qua getExpoDb
+  if (customDb === undefined && initializedDbs.has(activeDbName)) {
+    return;
+  }
+
+  const targetDb = customDb || expoDb;
+  if (customDb === undefined) {
+    initializedDbs.add(activeDbName);
+  }
+
   try {
-    expoDb.execSync(`
+    targetDb.execSync(`
       CREATE TABLE IF NOT EXISTS categories (
         id TEXT PRIMARY KEY NOT NULL,
         name TEXT NOT NULL,
@@ -182,6 +200,7 @@ export function initializeLocalDatabase() {
       CREATE TABLE IF NOT EXISTS orders (
         id TEXT PRIMARY KEY NOT NULL,
         order_no TEXT,
+        reference_no TEXT,
         status TEXT NOT NULL DEFAULT 'completed',
         customer_id TEXT,
         customer_name TEXT,
@@ -192,7 +211,8 @@ export function initializeLocalDatabase() {
         shift_id TEXT,
         sync_status TEXT NOT NULL DEFAULT 'synced',
         note TEXT,
-        discount_amount INTEGER DEFAULT 0
+        discount_amount INTEGER DEFAULT 0,
+        metadata TEXT
       );
 
       CREATE TABLE IF NOT EXISTS order_items (
@@ -231,17 +251,18 @@ export function initializeLocalDatabase() {
     `);
     
     // Nâng cấp bổ sung cột cho các DB đã chạy trước đó để không bị mất dữ liệu
-    try { expoDb.execSync(`ALTER TABLE orders ADD COLUMN note TEXT;`); } catch (e) {}
-    try { expoDb.execSync(`ALTER TABLE orders ADD COLUMN discount_amount INTEGER DEFAULT 0;`); } catch (e) {}
-    try { expoDb.execSync(`ALTER TABLE location_resources ADD COLUMN metadata TEXT;`); } catch (e) {}
-    try { expoDb.execSync(`ALTER TABLE orders ADD COLUMN metadata TEXT;`); } catch (e) {}
-    try { expoDb.execSync(`ALTER TABLE products ADD COLUMN product_type TEXT DEFAULT 'simple';`); } catch (e) {}
-    try { expoDb.execSync(`ALTER TABLE products ADD COLUMN parent_id TEXT;`); } catch (e) {}
-    try { expoDb.execSync(`ALTER TABLE products ADD COLUMN variant_options TEXT;`); } catch (e) {}
-    try { expoDb.execSync(`ALTER TABLE products ADD COLUMN modifier_groups TEXT;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE orders ADD COLUMN note TEXT;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE orders ADD COLUMN discount_amount INTEGER DEFAULT 0;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE orders ADD COLUMN metadata TEXT;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE orders ADD COLUMN reference_no TEXT;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE location_resources ADD COLUMN metadata TEXT;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE products ADD COLUMN product_type TEXT DEFAULT 'simple';`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE products ADD COLUMN parent_id TEXT;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE products ADD COLUMN variant_options TEXT;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE products ADD COLUMN modifier_groups TEXT;`); } catch (e) {}
     
-    console.log('ONI SQLite Database: Khởi tạo các bảng offline-first thành công!');
+    console.log(`CSDL SQLite [${activeDbName}]: Khởi tạo các bảng/migrations offline-first thành công!`);
   } catch (error) {
-    console.error('Lỗi nghiêm trọng khi tạo bảng SQLite nội địa:', error);
+    console.error(`Lỗi nghiêm trọng khi tạo bảng SQLite [${activeDbName}]:`, error);
   }
 }
