@@ -10,18 +10,24 @@
       "node": "22.15.0",
       "env": {
         "CI": "0"
-      }
+      },
+      "android": {
+        "buildType": "apk"
+      },
+      "postInstall": "bash scripts/setup-google-services.sh"
     },
     "preview": {
       "distribution": "internal",
       "node": "22.15.0",
       "env": {
         "CI": "0"
-      }
+      },
+      "postInstall": "bash scripts/setup-google-services.sh"
     },
     "production": {
       "autoIncrement": true,
-      "node": "22.15.0"
+      "node": "22.15.0",
+      "postInstall": "bash scripts/setup-google-services.sh"
     }
   },
   "submit": {
