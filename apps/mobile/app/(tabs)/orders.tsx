@@ -1,5 +1,5 @@
-import React, {useState, useCallback} from 'react';
-import {Text, View, ScrollView, TouchableOpacity, TouchableWithoutFeedback, TextInput, Modal, Platform} from 'react-native';
+import React, {useState, useCallback, useEffect} from 'react';
+import {Text, View, ScrollView, TouchableOpacity, TouchableWithoutFeedback, TextInput, Modal, Platform, ActivityIndicator} from 'react-native';
 import {Ionicons} from '@expo/vector-icons';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {useFocusEffect} from 'expo-router';
@@ -58,6 +58,10 @@ export default function OrdersScreen() {
  const [ordersList, setOrdersList] = useState<any[]>([]);
  const [shiftsList, setShiftsList] = useState<any[]>([{id: 'all', label: 'Tất cả ca'}]);
  const [isLoading, setIsLoading] = useState(true);
+ const [limit, setLimit] = useState(10);
+ const [hasMore, setHasMore] = useState(true);
+ const [isLazyLoading, setIsLazyLoading] = useState(false);
+ const [activeShiftId, setActiveShiftId] = useState('');
 
  const [searchQuery, setSearchQuery] = useState('');
  const [selectedShift, setSelectedShift] = useState('all');
@@ -87,70 +91,181 @@ export default function OrdersScreen() {
  const [isSyncErrorVisible, setIsSyncErrorVisible] = useState(false);
 
  // Tải dữ liệu SQLite hoặc Cloud
- const loadOrdersData = async () => {
+ const loadOrdersData = async (currentLimit = 10, isLoadMore = false) => {
  try {
- setIsLoading(true);
- let ordersData = [];
- let shiftsData = [];
- const activeShopId = await AsyncStorage.getItem('active_shop_id') || '';
+  if (!isLoadMore) {
+    setIsLoading(true);
+  } else {
+    setIsLazyLoading(true);
+  }
 
- if (Platform.OS === 'web') {
- const headers = await getApiHeaders();
- const url = getApiBaseUrl();
- const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
- 
- const res = await fetch(`${url}/api/shops/${shopId}/orders?limit=1000`, {headers});
- if (res.ok) {
- const resJson = await res.json();
- const cloudOrders = resJson.data || [];
- ordersData = cloudOrders.map((o: any) => ({
- id: o.id || o.order_id,
- order_no: o.order_no || 'HD',
- status: o.status || 'completed',
- customer_name: o.customer_name || 'Khách lẻ',
- total_amount: parseInt(o.total_amount || '0', 10),
- paid_amount: parseInt(o.paid_amount || '0', 10),
- payment_method: o.payment_method || 'Tiền mặt',
- created_at: o.created_at || new Date().toISOString(),
- shift_id: o.shift_id || 'default-shift',
- sync_status: 'synced',
- discount_amount: parseInt(o.discount_amount || '0', 10),
- note: o.note || '',
-}));
-}
-} else {
- const allOrders = await db.select().from(schema.orders).orderBy(desc(schema.orders.created_at));
- ordersData = allOrders.filter((o: any) => o.shift_id && o.shift_id.startsWith(`shift-${activeShopId}-`));
+  let ordersData = [];
+  let shiftsData = [];
+  const activeShopId = await AsyncStorage.getItem('active_shop_id') || '';
+  const activeShiftId = await AsyncStorage.getItem('active_shift_id') || '';
+  setActiveShiftId(activeShiftId);
+  const isShiftEnabled = (await AsyncStorage.getItem('enable_shift_management')) === 'true';
 
- const allShifts = await db.select().from(schema.shop_shifts);
- shiftsData = allShifts.filter((s: any) => s.id && s.id.startsWith(`shift-${activeShopId}-`));
+  // 1. Cố gắng fetch dữ liệu đơn hàng online từ API Server
+  let fetchSuccess = false;
+  try {
+    const headers = await getApiHeaders();
+    const url = getApiBaseUrl();
 
- const funds = await db.select().from(schema.paymentFunds);
- setPaymentFundsList(funds);
-}
+    // Gọi API Next.js Server lấy danh sách 10 đơn (hoặc currentLimit đơn) gần nhất
+    const res = await fetch(`${url}/api/shops/${activeShopId}/orders?limit=${currentLimit}&page=1`, { headers });
+    if (res.ok) {
+      const resJson = await res.json();
+      const cloudOrders = resJson.data || [];
+      
+      ordersData = cloudOrders.map((o: any) => ({
+        id: o.id || o.order_id,
+        order_no: o.order_no || 'HD',
+        status: o.status || 'completed',
+        customer_name: o.customer_name || 'Khách lẻ',
+        total_amount: parseInt(o.total_amount || '0', 10),
+        paid_amount: parseInt(o.paid_amount || '0', 10),
+        payment_method: o.payment_method || 'Tiền mặt',
+        created_at: o.created_at || new Date().toISOString(),
+        shift_id: o.shift_id || 'default-shift',
+        sync_status: 'synced',
+        discount_amount: parseInt(o.discount_amount || '0', 10),
+        note: o.note || '',
+      }));
 
- const mappedShifts = [
- {id: 'all', label: 'Tất cả ca'},
- ...shiftsData.map((s: any) => ({
- id: s.id,
- label: `Ca ${s.employee_name || 'Thu ngân'} (${s.opened_at.substring(11, 16)} - ${s.closed_at ? s.closed_at.substring(11, 16) : 'Đang mở'})`
-}))
- ];
- 
- setOrdersList(ordersData);
- setShiftsList(mappedShifts);
- setIsLoading(false);
-} catch (err) {
- console.error('Lỗi khi tải lịch sử hóa đơn:', err);
- setIsLoading(false);
-}
-};
+      if (cloudOrders.length < currentLimit) {
+        setHasMore(false);
+      } else {
+        setHasMore(true);
+      }
 
- useFocusEffect(
- useCallback(() => {
- loadOrdersData();
-}, [])
- );
+      fetchSuccess = true;
+
+      // Lưu cache đồng bộ hóa ngược các đơn hàng này vào SQLite để xem offline
+      if (Platform.OS !== 'web') {
+        for (const order of ordersData) {
+          await db.insert(schema.orders).values({
+            id: order.id,
+            order_no: order.order_no,
+            status: order.status,
+            customer_name: order.customer_name,
+            total_amount: order.total_amount,
+            paid_amount: order.paid_amount,
+            payment_method: order.payment_method,
+            created_at: order.created_at,
+            shift_id: order.shift_id,
+            sync_status: 'synced',
+            discount_amount: order.discount_amount,
+            note: order.note,
+          }).onConflictDoUpdate({
+            target: schema.orders.id,
+            set: {
+              order_no: order.order_no,
+              status: order.status,
+              customer_name: order.customer_name,
+              total_amount: order.total_amount,
+              paid_amount: order.paid_amount,
+              payment_method: order.payment_method,
+              created_at: order.created_at,
+              shift_id: order.shift_id,
+              sync_status: 'synced',
+              discount_amount: order.discount_amount,
+              note: order.note,
+            }
+          });
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Lỗi kết nối Server, tự động chuyển về đọc offline SQLite:', err);
+  }
+
+  // 2. Fallback offline: Đọc từ SQLite cục bộ nếu lỗi mạng hoặc offline
+  if (!fetchSuccess) {
+    if (Platform.OS === 'web') {
+      ordersData = [
+        {
+          id: 'mock-1',
+          order_no: 'HD-MOCK-1',
+          status: 'completed',
+          customer_name: 'Khách lẻ',
+          total_amount: 125000,
+          paid_amount: 125000,
+          payment_method: 'Tiền mặt',
+          created_at: new Date().toISOString(),
+          shift_id: 'default-shift',
+          sync_status: 'synced',
+          discount_amount: 0,
+          note: '',
+        }
+      ];
+    } else {
+      const allOrders = await db.select().from(schema.orders).orderBy(desc(schema.orders.created_at));
+      
+      // Lọc thông minh: hiển thị đơn thuộc ca offline của shop, ca online hiện tại hoặc default-shift
+      ordersData = allOrders.filter((o: any) => {
+        const isLocalShift = o.shift_id && o.shift_id.startsWith(`shift-${activeShopId}-`);
+        const isActiveShift = activeShiftId && o.shift_id === activeShiftId;
+        const isDefaultShift = !isShiftEnabled && o.shift_id === 'default-shift';
+        return isLocalShift || isActiveShift || isDefaultShift;
+      });
+
+      // Slice theo limit lazy load offline
+      ordersData = ordersData.slice(0, currentLimit);
+      if (ordersData.length < currentLimit) {
+        setHasMore(false);
+      } else {
+        setHasMore(true);
+      }
+    }
+  }
+
+  // Tải danh sách ca và quĩ thanh toán cho offline
+  if (Platform.OS !== 'web') {
+    const allShifts = await db.select().from(schema.shop_shifts);
+    shiftsData = allShifts.filter((s: any) => {
+      const isLocalShift = s.id && s.id.startsWith(`shift-${activeShopId}-`);
+      const isActiveShift = activeShiftId && s.id === activeShiftId;
+      return isLocalShift || isActiveShift;
+    });
+
+    const funds = await db.select().from(schema.paymentFunds);
+    setPaymentFundsList(funds);
+  }
+
+  const mappedShifts = [
+    { id: 'all', label: 'Tất cả ca' },
+    ...shiftsData.map((s: any) => ({
+      id: s.id,
+      label: `Ca ${s.employee_name || 'Thu ngân'} (${s.opened_at.substring(11, 16)} - ${s.closed_at ? s.closed_at.substring(11, 16) : 'Đang mở'})`
+    }))
+  ];
+  
+  setOrdersList(ordersData);
+  setShiftsList(mappedShifts);
+ } catch (err) {
+  console.error('Lỗi khi tải lịch sử hóa đơn:', err);
+ } finally {
+  setIsLoading(false);
+  setIsLazyLoading(false);
+ }
+ };
+
+  useFocusEffect(
+  useCallback(() => {
+  setLimit(10);
+  loadOrdersData(10);
+ }, [])
+  );
+
+  useEffect(() => {
+    const delayDebounceFn = setTimeout(() => {
+      if (isLoading) return;
+      setLimit(10);
+      loadOrdersData(10, false);
+    }, 500);
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchQuery]);
 
  // Xem chi tiết
  const handleViewOrderDetails = async (order: any) => {
@@ -239,9 +354,16 @@ export default function OrdersScreen() {
  return matchesSearch && matchesShift && matchesStatus;
 });
 
- const totalRevenue = filteredOrders.reduce((sum, order) => sum + order.total_amount, 0);
- const syncedCount = filteredOrders.filter(o => o.sync_status === 'synced').length;
- const pendingCount = filteredOrders.filter(o => o.sync_status === 'pending').length;
+  const totalRevenue = filteredOrders
+    .filter(order => {
+      if (selectedShift !== 'all') {
+        return order.shift_id === selectedShift;
+      }
+      return order.shift_id === (activeShiftId || 'default-shift');
+    })
+    .reduce((sum, order) => sum + order.total_amount, 0);
+  const syncedCount = filteredOrders.filter(o => o.sync_status === 'synced').length;
+  const pendingCount = filteredOrders.filter(o => o.sync_status === 'pending').length;
 
  return (
  <SafeAreaView edges={['top', 'left', 'right']} className="flex-1 bg-slate-50">
@@ -394,9 +516,9 @@ export default function OrdersScreen() {
  >
  <View className="flex-1 mr-3">
  <View className="flex-row items-center">
- <Text className="text-xs font-semibold text-slate-800">
- {order.order_no || order.id.substring(0, 12)}
- </Text>
+  <Text className="text-xs font-semibold text-slate-800">
+  {order.id}
+  </Text>
  <View className="mx-1.5 w-1 h-1 bg-slate-300 rounded-full" />
  <Text className="text-tiny text-slate-500 font-medium" numberOfLines={1}>
  {order.customer_name || 'Khách mua lẻ'}
@@ -452,6 +574,27 @@ export default function OrdersScreen() {
  );
 })
  )}
+  {filteredOrders.length > 0 && hasMore && (
+    <View className="py-4 items-center">
+      {isLazyLoading ? (
+        <ActivityIndicator size="small" color="#fa5908" />
+      ) : (
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => {
+            const nextLimit = limit + 10;
+            setLimit(nextLimit);
+            loadOrdersData(nextLimit, true);
+          }}
+          className="px-6 py-2.5 rounded-xl border bg-white shadow-sm flex-row items-center"
+          style={{ borderColor: '#e2e8f0' }}
+        >
+          <Text className="text-xxs font-bold text-slate-600">Xem thêm đơn hàng</Text>
+          <Ionicons name="chevron-down-outline" size={12} color="#475569" className="ml-1.5" />
+        </TouchableOpacity>
+      )}
+    </View>
+  )}
  <View className="h-20" />
  </ScrollView>
 
@@ -477,10 +620,10 @@ export default function OrdersScreen() {
  <View>
  <View className="flex-row items-center">
   <Text className="text-sm font-semibold text-slate-800">
-  {selectedOrder.order_no || selectedOrder.id.substring(0, 12)}
+  {selectedOrder.id}
   </Text>
   <TouchableOpacity
-    onPress={() => handleCopyOrderNo(selectedOrder.order_no || selectedOrder.id)}
+    onPress={() => handleCopyOrderNo(selectedOrder.id)}
     className="ml-1.5 p-1 bg-slate-100 active:bg-slate-200 rounded"
   >
     <Ionicons name={copiedId ? "checkmark" : "copy-outline"} size={12} color={copiedId ? "#10b981" : "#64748b"} />
@@ -515,10 +658,10 @@ export default function OrdersScreen() {
   <View className="flex-row justify-between py-1 items-center">
   <Text className="text-tiny text-slate-500 font-medium">Mã hóa đơn:</Text>
   <TouchableOpacity
-    onPress={() => handleCopyOrderNo(selectedOrder.order_no || selectedOrder.id)}
+    onPress={() => handleCopyOrderNo(selectedOrder.id)}
     className="flex-row items-center active:opacity-75"
   >
-    <Text className="text-tiny font-semibold text-slate-700 mr-1">{selectedOrder.order_no || selectedOrder.id}</Text>
+    <Text className="text-tiny font-semibold text-slate-700 mr-1">{selectedOrder.id}</Text>
     <Ionicons name={copiedId ? "checkmark" : "copy-outline"} size={11} color={copiedId ? "#10b981" : "#64748b"} />
   </TouchableOpacity>
   </View>
