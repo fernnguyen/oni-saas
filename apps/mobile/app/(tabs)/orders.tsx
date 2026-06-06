@@ -114,6 +114,8 @@ export default function OrdersScreen() {
  created_at: o.created_at || new Date().toISOString(),
  shift_id: o.shift_id || 'default-shift',
  sync_status: 'synced',
+ discount_amount: parseInt(o.discount_amount || '0', 10),
+ note: o.note || '',
 }));
 }
 } else {
@@ -597,10 +599,41 @@ export default function OrdersScreen() {
  </View>
  ))}
 
- <View className="flex-row justify-between py-4 border-t border-slate-200 mt-4 items-center">
- <Text className="text-xs font-semibold text-slate-800">Tổng thanh toán</Text>
- <Text className="text-orange-500 text-base font-semibold">{formatCurrency(selectedOrder.total_amount)}</Text>
- </View>
+  {(() => {
+    const discountAmount = Number(selectedOrder.discount_amount || 0);
+    if (discountAmount > 0) {
+      return (
+        <View className="border-t border-slate-200 mt-4 pt-2">
+          <View className="flex-row justify-between py-2 items-center">
+            <Text className="text-xs text-slate-500 font-medium">Tạm tính</Text>
+            <Text className="text-xs font-semibold text-slate-800">
+              {formatCurrency(selectedOrder.total_amount + discountAmount)}
+            </Text>
+          </View>
+          <View className="flex-row justify-between py-2 items-center">
+            <Text className="text-xs text-slate-500 font-medium">Giảm giá</Text>
+            <Text className="text-xs font-semibold text-rose-600">
+              -{formatCurrency(discountAmount)}
+            </Text>
+          </View>
+          <View className="flex-row justify-between py-4 border-t border-slate-200 mt-2 items-center">
+            <Text className="text-xs font-semibold text-slate-800">Tổng thanh toán</Text>
+            <Text className="text-orange-500 text-base font-semibold">
+              {formatCurrency(selectedOrder.total_amount)}
+            </Text>
+          </View>
+        </View>
+      );
+    }
+    return (
+      <View className="flex-row justify-between py-4 border-t border-slate-200 mt-4 items-center">
+        <Text className="text-xs font-semibold text-slate-800">Tổng thanh toán</Text>
+        <Text className="text-orange-500 text-base font-semibold">
+          {formatCurrency(selectedOrder.total_amount)}
+        </Text>
+      </View>
+    );
+  })()}
  </ScrollView>
 
  {/* Actions Footer */}

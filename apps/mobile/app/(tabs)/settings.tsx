@@ -49,6 +49,10 @@ export default function SettingsScreen() {
  const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
+ // 0. Thông tin tài khoản
+ const [userName, setUserName] = useState('Nhân viên thu ngân');
+ const [userEmail, setUserEmail] = useState('offline-sales@oni.vn');
+
  // Trạng thái Dialog phản hồi xác nhận
  const [isPrintTestSuccessVisible, setIsPrintTestSuccessVisible] = useState(false);
  const [isSyncSuccessVisible, setIsSyncSuccessVisible] = useState(false);
@@ -61,6 +65,28 @@ export default function SettingsScreen() {
  try {
  const activeShopName = await AsyncStorage.getItem('active_shop_name') || 'Cơ sở chính';
  setBranchName(activeShopName);
+
+ // Lấy thông tin người dùng từ Supabase hoặc AsyncStorage
+ try {
+   const { data: { user } } = await supabase.auth.getUser();
+   if (user) {
+     setUserEmail(user.email || '');
+     setUserName(user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'Nhân viên thu ngân');
+   } else {
+     const savedEmail = await AsyncStorage.getItem('saved_email');
+     if (savedEmail) {
+       setUserEmail(savedEmail);
+       setUserName(savedEmail.split('@')[0]);
+     }
+   }
+ } catch (e) {
+   console.warn('Lỗi lấy thông tin user từ Supabase, thử fallback:', e);
+   const savedEmail = await AsyncStorage.getItem('saved_email');
+   if (savedEmail) {
+     setUserEmail(savedEmail);
+     setUserName(savedEmail.split('@')[0]);
+   }
+ }
 
  if (Platform.OS !== 'web') {
  const prods = await db.select().from(schema.products);
@@ -247,14 +273,14 @@ export default function SettingsScreen() {
  <View className="bg-orange-50 p-3 rounded-xl mr-3 border border-orange-100">
  <Ionicons name="person-outline" size={18} color="#fa5908" />
  </View>
- <View>
- <Text className="font-medium text-xs text-slate-800">
- Nhân viên thu ngân di động
- </Text>
- <Text className="text-xxs text-slate-400 font-medium mt-0.5">
- Quyền hạn: Bán hàng offline
- </Text>
- </View>
+  <View>
+  <Text className="font-semibold text-xs text-slate-800">
+  {userName}
+  </Text>
+  <Text className="text-xxs text-slate-400 font-medium mt-0.5">
+  {userEmail}
+  </Text>
+  </View>
  </View>
  
  <Badge variant="primary" label="ON-SHIFT" size="sm" showDot={true} />
@@ -279,127 +305,151 @@ export default function SettingsScreen() {
  </View>
 
  {/* 3. CÀI ĐẶT MÁY IN NHIỆT K80 - Giảm bo về rounded-2xl */}
- <Text className="text-xxs font-semibold text-slate-450 mb-3 px-1">
- Cấu hình máy in hóa đơn (K80 / K57)
- </Text>
- <View className="p-4 rounded-2xl border bg-white border-slate-100 shadow-sm mb-4">
- {/* Kết nối tabs */}
- <View className="flex-row bg-slate-50 p-1 rounded-xl mb-4 border border-slate-200">
- <TouchableOpacity 
- activeOpacity={0.7}
- className={`flex-1 py-2 rounded-lg items-center flex-row justify-center ${
- printerConnType === 'bluetooth' ? 'bg-white shadow-sm border border-slate-200/50' : ''
-}`}
- onPress={() => setPrinterConnType('bluetooth')}
- >
- <Ionicons name="bluetooth" size={13} color={printerConnType === 'bluetooth' ? '#fa5908' : '#94a3b8'} />
- <Text className={`text-xxs font-semibold ml-1.5 ${
- printerConnType === 'bluetooth' ? 'text-slate-800' : 'text-slate-400'
-}`}>
- Bluetooth (BLE)
- </Text>
- </TouchableOpacity>
- 
- <TouchableOpacity 
- activeOpacity={0.7}
- className={`flex-1 py-2 rounded-lg items-center flex-row justify-center ${
- printerConnType === 'lan' ? 'bg-white shadow-sm border border-slate-200/50' : ''
-}`}
- onPress={() => setPrinterConnType('lan')}
- >
- <Ionicons name="wifi" size={13} color={printerConnType === 'lan' ? '#fa5908' : '#94a3b8'} />
- <Text className={`text-xxs font-semibold ml-1.5 ${
- printerConnType === 'lan' ? 'text-slate-800' : 'text-slate-400'
-}`}>
- LAN / Wifi (IP)
- </Text>
- </TouchableOpacity>
- </View>
+  <Text className="text-xxs font-semibold text-slate-500 mb-3 px-1">
+  Cấu hình máy in hóa đơn (K80 / K57)
+  </Text>
+  <View className="p-4 rounded-2xl border bg-white border-slate-100 shadow-sm mb-4">
+  {/* Kết nối tabs */}
+  <View className="flex-row bg-slate-50 p-1 rounded-xl mb-4 border border-slate-200">
+  <TouchableOpacity 
+  activeOpacity={0.7}
+  className={`flex-1 py-2 rounded-lg items-center flex-row justify-center ${
+  printerConnType === 'bluetooth' ? 'bg-white shadow-sm border border-slate-200/50' : ''
+ }`}
+  onPress={() => setPrinterConnType('bluetooth')}
+  >
+  <Ionicons name="bluetooth" size={13} color={printerConnType === 'bluetooth' ? '#fa5908' : '#94a3b8'} />
+  <Text className={`text-xxs font-semibold ml-1.5 ${
+  printerConnType === 'bluetooth' ? 'text-slate-800' : 'text-slate-400'
+ }`}>
+  Bluetooth (BLE)
+  </Text>
+  </TouchableOpacity>
+  
+  <TouchableOpacity 
+  activeOpacity={0.7}
+  className={`flex-1 py-2 rounded-lg items-center flex-row justify-center ${
+  printerConnType === 'lan' ? 'bg-white shadow-sm border border-slate-200/50' : ''
+ }`}
+  onPress={() => setPrinterConnType('lan')}
+  >
+  <Ionicons name="wifi" size={13} color={printerConnType === 'lan' ? '#fa5908' : '#94a3b8'} />
+  <Text className={`text-xxs font-semibold ml-1.5 ${
+  printerConnType === 'lan' ? 'text-slate-800' : 'text-slate-400'
+ }`}>
+  LAN / Wifi (IP)
+  </Text>
+  </TouchableOpacity>
+  </View>
 
- {/* Form cấu hình */}
- {printerConnType === 'bluetooth' ? (
- <View className="mb-4">
- <Text className="text-xxs text-slate-450 font-semibold mb-2">Chọn thiết bị Bluetooth</Text>
- <View className="flex-row items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200/80">
- <View className="flex-row items-center">
- <Ionicons name="print-outline" size={16} color="#fa5908" />
- <Text className="text-xs font-semibold ml-2 text-slate-800">
- {selectedBleDevice}
- </Text>
- </View>
- 
- <TouchableOpacity 
- className={`px-3 py-1.5 rounded-lg border ${
- isPrinterConnected ? 'bg-emerald-50 border-emerald-300' : 'bg-orange-500 border-orange-600'
-}`}
- onPress={() => {
- Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
- setIsPrinterConnected(!isPrinterConnected);
-}}
- >
- <Text className={`text-xxs font-semibold ${
- isPrinterConnected ? 'text-emerald-700' : 'text-white'
-}`}>
- {isPrinterConnected ? 'Đã kết nối' : 'Kết nối'}
- </Text>
- </TouchableOpacity>
- </View>
- </View>
- ) : (
- <View className="mb-4">
- <Text className="text-xxs text-slate-455 font-semibold mb-2">Thông tin địa chỉ IP máy in LAN</Text>
- <View className="flex-row justify-between items-center">
- <TextInput
- value={printerIp}
- onChangeText={setPrinterIp}
- placeholder="E.g. 192.168.1.200"
- placeholderTextColor="#94a3b8"
- className="flex-1 bg-slate-50 px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-850 mr-2"
- style={Platform.OS === 'web' ? ({outlineStyle: 'none'} as any) : undefined}
- />
- <TextInput
- value={printerPort}
- onChangeText={setPrinterPort}
- placeholder="9100"
- placeholderTextColor="#94a3b8"
- className="w-18 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-center text-slate-850"
- style={Platform.OS === 'web' ? ({outlineStyle: 'none'} as any) : undefined}
- />
- </View>
- </View>
- )}
+  {/* Form cấu hình */}
+  {printerConnType === 'bluetooth' ? (
+  <View className="mb-4">
+  <Text className="text-xxs text-slate-500 font-semibold mb-2">Chọn thiết bị Bluetooth</Text>
+  <View className="flex-row items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200/80">
+  <View className="flex-row items-center">
+  <Ionicons name="print-outline" size={16} color="#fa5908" />
+  <Text className="text-xs font-semibold ml-2 text-slate-800">
+  {selectedBleDevice}
+  </Text>
+  </View>
+  
+  <TouchableOpacity 
+  className={`px-3 py-1.5 rounded-lg border ${
+  isPrinterConnected ? 'bg-emerald-50 border-emerald-300' : 'bg-orange-500 border-orange-600'
+ }`}
+  onPress={() => {
+  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+  setIsPrinterConnected(!isPrinterConnected);
+ }}
+  >
+  <Text className={`text-xxs font-semibold ${
+  isPrinterConnected ? 'text-emerald-700' : 'text-white'
+ }`}>
+  {isPrinterConnected ? 'Đã kết nối' : 'Kết nối'}
+  </Text>
+  </TouchableOpacity>
+  </View>
+  </View>
+  ) : (
+  <View className="mb-4">
+  <Text className="text-xxs text-slate-500 font-semibold mb-2">Thông tin địa chỉ IP máy in LAN</Text>
+  <View className="flex-row justify-between items-center mb-3">
+  <TextInput
+  value={printerIp}
+  onChangeText={setPrinterIp}
+  placeholder="E.g. 192.168.1.200"
+  placeholderTextColor="#94a3b8"
+  className="flex-1 bg-slate-50 px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 mr-2"
+  style={Platform.OS === 'web' ? ({outlineStyle: 'none'} as any) : undefined}
+  />
+  <TextInput
+  value={printerPort}
+  onChangeText={setPrinterPort}
+  placeholder="9100"
+  placeholderTextColor="#94a3b8"
+  className="bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-center text-slate-850"
+  style={[{width: 70}, Platform.OS === 'web' ? ({outlineStyle: 'none'} as any) : undefined]}
+  />
+  </View>
+  
+  <View className="flex-row items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200/80">
+  <View className="flex-row items-center">
+  <Ionicons name="wifi-outline" size={16} color="#fa5908" />
+  <Text className="text-xs font-semibold ml-2 text-slate-800">
+  Máy in LAN ({printerIp}:{printerPort})
+  </Text>
+  </View>
+  <TouchableOpacity 
+  className={`px-3 py-1.5 rounded-lg border ${
+  isPrinterConnected ? 'bg-emerald-50 border-emerald-300' : 'bg-orange-500 border-orange-600'
+ }`}
+  onPress={() => {
+  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+  setIsPrinterConnected(!isPrinterConnected);
+ }}
+  >
+  <Text className={`text-xxs font-semibold ${
+  isPrinterConnected ? 'text-emerald-700' : 'text-white'
+ }`}>
+  {isPrinterConnected ? 'Đã kết nối' : 'Kết nối'}
+  </Text>
+  </TouchableOpacity>
+  </View>
+  </View>
+  )}
 
- {/* Nút in thử */}
- <Button
- variant={isPrinterConnected ? 'primary' : 'secondary'}
- title={isTestingPrint ? 'Đang in phiếu test...' : 'In hóa đơn test (K80)'}
- icon={<Ionicons name="document-text-outline" size={13} color={isPrinterConnected ? 'white' : '#64748b'} />}
- disabled={!isPrinterConnected || isTestingPrint}
- onPress={handlePrintTest}
- className="py-3.5 rounded-xl"
- />
- </View>
+  {/* Nút in thử */}
+  <Button
+  variant="primary"
+  title={isTestingPrint ? 'Đang in phiếu test...' : 'In hóa đơn test (K80)'}
+  icon={<Ionicons name="document-text-outline" size={13} color="white" />}
+  disabled={isTestingPrint}
+  onPress={handlePrintTest}
+  className="py-3.5 rounded-xl"
+  />
+  </View>
 
  {/* 4. ĐỒNG BỘ - Giảm bo về rounded-2xl */}
- <Text className="text-xxs font-semibold text-slate-450 mb-3 px-1">
+ <Text className="text-xxs font-semibold text-slate-500 mb-3 px-1">
  Chiến lược đồng bộ offline (Offline-First)
  </Text>
  <View className="p-4 rounded-2xl border bg-white border-slate-100 shadow-sm mb-4">
  
  <View className="mb-4">
  <View className="flex-row justify-between py-1.5 items-center border-b border-slate-100 pb-2">
- <Text className="text-xxs text-slate-455 font-semibold">Số liệu bộ nhớ máy:</Text>
+ <Text className="text-xxs text-slate-500 font-semibold">Số liệu bộ nhớ máy:</Text>
  <Text className="text-xxs font-semibold text-[#fa5908]">
  {productCount} SP | {resourceCount} Bàn | {customerCount} KH
  </Text>
  </View>
  
  <View className="flex-row justify-between py-2 items-center border-b border-slate-100">
- <Text className="text-xxs text-slate-455 font-semibold">Full Sync gần nhất:</Text>
+ <Text className="text-xxs text-slate-500 font-semibold">Full Sync gần nhất:</Text>
  <Text className="text-xxs font-medium text-slate-600">{lastFullSync}</Text>
  </View>
  <View className="flex-row justify-between py-2 items-center border-b border-slate-100">
- <Text className="text-xxs text-slate-455 font-semibold">Delta Sync gần nhất:</Text>
+ <Text className="text-xxs text-slate-500 font-semibold">Delta Sync gần nhất:</Text>
  <Text className="text-xxs font-medium text-slate-600">{lastDeltaSync}</Text>
  </View>
 
@@ -447,7 +497,7 @@ export default function SettingsScreen() {
  </View>
 
  {/* 5. TÙY CHỌN HỆ THỐNG */}
- <Text className="text-xxs font-semibold text-slate-450 mb-3 px-1">
+ <Text className="text-xxs font-semibold text-slate-500 mb-3 px-1">
  Tùy chọn hệ thống
  </Text>
  <View className="p-4 rounded-2xl border bg-white border-slate-100 shadow-sm mb-10">
