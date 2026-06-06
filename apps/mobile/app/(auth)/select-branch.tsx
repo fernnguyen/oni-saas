@@ -327,7 +327,7 @@ export default function SelectBranchScreen() {
  {isSyncing ? (
  <View className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm mb-2 items-center w-full" style={{alignSelf: 'stretch'}}>
  <ActivityIndicator size="small" color="#fa5908" className="mb-2" />
- <Text className="text-slate-700 font-medium text-xs">Đang nạp dữ liệu SQLite: {Math.round(syncProgress * 100)}%</Text>
+ <Text className="text-slate-700 font-medium text-xs">Đang nạp dữ liệu hệ thống: {Math.round(syncProgress * 100)}%</Text>
  <View style={{alignSelf: 'stretch', height: 6, backgroundColor: '#f1f5f9', borderRadius: 3, overflow: 'hidden', marginTop: 8}}>
  <View style={{height: '100%', backgroundColor: '#fa5908', width: `${Math.min(100, Math.max(0, syncProgress * 100))}%`}} />
  </View>
