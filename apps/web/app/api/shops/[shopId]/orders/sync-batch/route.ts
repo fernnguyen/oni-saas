@@ -787,7 +787,7 @@ export async function POST(
           const resource = await connector.findById('location-resources', resourceId)
           if (resource) {
             const currentOrderId = resource.current_order_id
-            if (!currentOrderId || currentOrderId === serverId || currentOrderId === order.id) {
+            if (!currentOrderId || currentOrderId === serverId || currentOrderId === local_order_id) {
               const releaseStatus = settings?.skip_cleaning_process ? 'available' : 'dirty'
               await connector.update('location-resources', resourceId, {
                 status: releaseStatus,
