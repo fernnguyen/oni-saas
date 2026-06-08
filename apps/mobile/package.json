@@ -8,7 +8,9 @@
     "android": "EXPO_NO_METRO_LAZY=1 expo start --android",
     "ios": "EXPO_NO_METRO_LAZY=1 expo start --ios",
     "web": "EXPO_NO_METRO_LAZY=1 expo start --web",
-    "ts:check": "tsc"
+    "ts:check": "tsc",
+    "eas-build-post-install": "bash scripts/setup-google-services.sh",
+    "eas:helper": "node scripts/eas-helper.js"
   },
   "dependencies": {
     "@expo-google-fonts/inter": "^0.4.2",

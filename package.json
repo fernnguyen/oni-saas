@@ -17,7 +17,8 @@
     "db:generate": "pnpm -C packages/adapters run db:generate",
     "mobile:start": "pnpm --filter @oni/mobile start",
     "mobile:ios": "pnpm --filter @oni/mobile ios",
-    "mobile:android": "pnpm --filter @oni/mobile android"
+    "mobile:android": "pnpm --filter @oni/mobile android",
+    "mobile:eas": "pnpm --filter @oni/mobile eas:helper"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
