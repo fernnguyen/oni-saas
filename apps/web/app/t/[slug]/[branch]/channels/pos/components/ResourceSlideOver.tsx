@@ -1191,6 +1191,7 @@ export function ResourceSlideOver({
       setEditCustomerModalOpen(false)
       fetchingRef.current = ''
       fetchOrder()
+      onRefresh?.()
     } catch {
       toast.error('Lỗi khi cập nhật')
     } finally {

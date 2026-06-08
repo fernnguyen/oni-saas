@@ -2025,11 +2025,19 @@ useEffect(() => {
         customer_phone: custPhone
       });
 
-      // Cập nhật SQLite metadata cục bộ
+      // Cập nhật SQLite metadata cục bộ và đơn hàng in_progress cục bộ
       if (Platform.OS !== 'web' && activeTable) {
         await db.update(schema.location_resources)
           .set({ metadata: updatedMeta })
           .where(eq(schema.location_resources.id, activeTable.id));
+        
+        await db.update(schema.orders)
+          .set({
+            customer_id: custId === 'C-DEFAULT-RETAIL' ? null : custId,
+            customer_name: custName,
+            metadata: updatedMeta
+          })
+          .where(eq(schema.orders.id, orderId));
       }
 
       // Cập nhật state activeTable và tables
