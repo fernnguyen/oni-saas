@@ -20,9 +20,11 @@ export interface HeaderProps {
  syncStatus?: 'synced' | 'pending';
  onPressSync?: () => void;
  isSyncing?: boolean;
+ title?: string;
+ showBack?: boolean;
 }
 
-export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false}: HeaderProps) {
+export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false, title, showBack = false}: HeaderProps) {
  const insets = useSafeAreaInsets();
  const [activeBranchName, setActiveBranchName] = useState('Tạp hóa Linh Ka');
  const [activeBranchId, setActiveBranchId] = useState('');
@@ -158,8 +160,28 @@ export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false}
  await AsyncStorage.removeItem('temp_table_carts');
  await AsyncStorage.removeItem('temp_table_customers');
 
- // 4. Kích hoạt reload mượt mà bằng cách thay thế định tuyến
- router.replace('/(tabs)');
+  // 4. Tải và đồng bộ quyền hạn/vai trò của chi nhánh mới ngay lập tức
+  try {
+    await AsyncStorage.removeItem('last_keep_alive_sync_time');
+    const currentUrl = await loadApiBaseUrl();
+    const headers = await getApiHeaders();
+    const res = await fetch(`${currentUrl}/api/shops/${newShopId}/permissions`, { headers });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && Array.isArray(data.permissions)) {
+        await AsyncStorage.setItem('active_user_permissions', JSON.stringify(data.permissions));
+      }
+      if (data && data.role) {
+        await AsyncStorage.setItem('active_user_role_code', data.role.code || 'staff');
+        await AsyncStorage.setItem('active_user_role_name', data.role.name || 'Nhân viên');
+      }
+    }
+  } catch (err) {
+    console.warn('Lỗi tải quyền hạn khi chuyển chi nhánh trong Header:', err);
+  }
+
+  // 5. Kích hoạt reload mượt mà bằng cách thay thế định tuyến
+  router.replace('/(tabs)');
 } catch (err) {
  console.error('Lỗi chuyển chi nhánh:', err);
  setIsSwitchingLoading(false);
@@ -178,38 +200,46 @@ export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false}
  return (
  <View className="px-4 py-2.5 bg-white border-b border-slate-100 flex-row justify-between items-center relative z-50" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2}}>
  
- {/* Nút Hamburger và Bộ Chọn Chi Nhánh Dropdown */}
- <View className="flex-row items-center flex-1 mr-4">
- {/* Nút Hamburger Left */}
- <TouchableOpacity 
- activeOpacity={0.7}
- onPress={onPressMenu}
- className="p-2 bg-slate-50 border border-slate-100 rounded-xl mr-3"
- >
- <Ionicons name="menu-outline" size={20} color="#fa5908" />
- </TouchableOpacity>
+  {/* Nút Hamburger và Bộ Chọn Chi Nhánh Dropdown */}
+  <View className="flex-row items-center flex-1 mr-4">
+  {/* Nút Hamburger Left hoặc Quay lại */}
+  <TouchableOpacity 
+  activeOpacity={0.7}
+  onPress={onPressMenu}
+  className="p-2 bg-slate-50 border border-slate-100 rounded-xl mr-3"
+  >
+  <Ionicons name={showBack ? "chevron-back" : "menu-outline"} size={20} color="#fa5908" />
+  </TouchableOpacity>
 
- {/* Cấu trúc chọn chi nhánh dropdown - Đã loại bỏ Avatar/Logo, nhãn nhỏ hơn, tên to hơn */}
- <TouchableOpacity 
- activeOpacity={0.85}
- onPress={handleDropdownPress}
- className="flex-row items-center flex-1 max-w-[200px]"
- >
- <View className="flex-1 mr-1">
- <Text className="text-[6.5px] font-semibold text-slate-450 leading-none">CHI NHÁNH</Text>
- <Text className="text-sm font-semibold text-slate-800 mt-1 leading-tight" numberOfLines={1}>
- {activeBranchName}
- </Text>
- </View>
- 
- <Ionicons 
- name={isDropdownOpen ? "chevron-up" : "chevron-down"} 
- size={13} 
- color="#64748b" 
- className="mt-2 ml-1"
- />
- </TouchableOpacity>
- </View>
+  {/* Cấu trúc chọn chi nhánh dropdown hoặc Title */}
+  {title ? (
+    <View className="flex-1 mr-1 justify-center">
+      <Text className="text-sm font-semibold text-slate-800 leading-tight" numberOfLines={1}>
+        {title}
+      </Text>
+    </View>
+  ) : (
+    <TouchableOpacity 
+      activeOpacity={0.85}
+      onPress={handleDropdownPress}
+      className="flex-row items-center flex-1 max-w-[200px]"
+    >
+      <View className="flex-1 mr-1">
+        <Text className="text-[6.5px] font-semibold text-slate-450 leading-none">CHI NHÁNH</Text>
+        <Text className="text-sm font-semibold text-slate-800 mt-1 leading-tight" numberOfLines={1}>
+          {activeBranchName}
+        </Text>
+      </View>
+      
+      <Ionicons 
+        name={isDropdownOpen ? "chevron-up" : "chevron-down"} 
+        size={13} 
+        color="#64748b" 
+        className="mt-2 ml-1"
+      />
+    </TouchableOpacity>
+  )}
+  </View>
 
  {/* SyncStatusBar và Chuông thông báo Right */}
  <View className="flex-row items-center gap-2">

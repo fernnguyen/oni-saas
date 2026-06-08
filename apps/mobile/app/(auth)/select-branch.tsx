@@ -22,6 +22,32 @@ interface Branch {
 
 export default function SelectBranchScreen() {
  const router = useRouter();
+
+ const navigateToTabs = async (shopId: string) => {
+   try {
+     // 1. Xóa thời gian sync cũ để KeepAliveManager biết cần sync lại khi vào tabs
+     await AsyncStorage.removeItem('last_keep_alive_sync_time');
+     
+     // 2. Đồng bộ quyền hạn & vai trò của chi nhánh mới ngay lập tức
+     const currentUrl = await loadApiBaseUrl();
+     const headers = await getApiHeaders();
+     const res = await fetch(`${currentUrl}/api/shops/${shopId}/permissions`, { headers });
+     if (res.ok) {
+       const data = await res.json();
+       if (data && Array.isArray(data.permissions)) {
+         await AsyncStorage.setItem('active_user_permissions', JSON.stringify(data.permissions));
+       }
+       if (data && data.role) {
+         await AsyncStorage.setItem('active_user_role_code', data.role.code || 'staff');
+         await AsyncStorage.setItem('active_user_role_name', data.role.name || 'Nhân viên');
+       }
+     }
+   } catch (err) {
+     console.warn('[SelectBranch] Lỗi tải quyền hạn khi chuyển hướng:', err);
+   } finally {
+     router.replace('/(tabs)');
+   }
+ };
  const [branches, setBranches] = useState<Branch[]>([]);
  const [selectedBranchId, setSelectedBranchId] = useState<string>('');
  const [isLoading, setIsLoading] = useState(true);
@@ -201,7 +227,7 @@ export default function SelectBranchScreen() {
           const activeShift = localShifts[0];
           await AsyncStorage.setItem('active_shift_id', activeShift.id);
           setIsSyncing(false);
-          router.replace('/(tabs)');
+          await navigateToTabs(branch.id);
         } else {
           setIsSyncing(false);
           setOpeningCashInput('0');
@@ -210,7 +236,7 @@ export default function SelectBranchScreen() {
       } else {
         await AsyncStorage.removeItem('active_shift_id');
         setIsSyncing(false);
-        router.replace('/(tabs)');
+        await navigateToTabs(branch.id);
       }
     } catch (err: any) {
       console.error('Lỗi khởi chạy ca làm việc ngoại tuyến:', err);
@@ -355,7 +381,7 @@ export default function SelectBranchScreen() {
           }).onConflictDoNothing();
 
           setIsSyncing(false);
-          router.replace('/(tabs)');
+          await navigateToTabs(branch.id);
         } else {
           // Chưa có ca mở -> Hiện modal nhập tiền đầu ca
           setIsSyncing(false);
@@ -366,7 +392,7 @@ export default function SelectBranchScreen() {
         // Không bật ca kíp -> Bỏ qua ca
         await AsyncStorage.removeItem('active_shift_id');
         setIsSyncing(false);
-        router.replace('/(tabs)');
+        await navigateToTabs(branch.id);
       }
     } catch (err: any) {
       console.error('Lỗi khi khởi chạy ca làm việc:', err);
@@ -377,7 +403,7 @@ export default function SelectBranchScreen() {
 
   const handleSkipShift = async () => {
     setShowShiftModal(false);
-    router.replace('/(tabs)');
+    await navigateToTabs(selectedBranchId);
   };
 
   const handleConfirmShift = async () => {
@@ -426,11 +452,8 @@ export default function SelectBranchScreen() {
         sync_status: syncStatus,
       }).onConflictDoNothing();
 
-      // 3. Thiết lập active_shift_id
-      await AsyncStorage.setItem('active_shift_id', shiftId);
-
       setShowShiftModal(false);
-      router.replace('/(tabs)');
+      await navigateToTabs(branch.id);
     } catch (err: any) {
       console.error('Lỗi khi mở ca làm việc:', err);
       Alert.alert('Lỗi', `Không thể mở ca làm việc: ${err.message || err}`);

@@ -92,14 +92,14 @@ export function DrawerMenu({visible, onClose, branchName = 'Chi nhánh chính'}:
 }
 }, [visible, slideAnim, fadeAnim]);
 
- const handleNavigate = (route: string) => {
- Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
- onClose();
- 
- if (route.startsWith('/(tabs)')) {
- router.push(route as any);
+  const handleNavigate = (route: string) => {
+  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+  onClose();
+  
+  if (route.startsWith('/')) {
+  router.push(route as any);
 } else {
- alert(`Tính năng ${route} sẽ có mặt trong phiên bản cập nhật ERP lớn tiếp theo!`);
+  alert(`Tính năng ${route} sẽ có mặt trong phiên bản cập nhật ERP lớn tiếp theo!`);
 }
 };
 
@@ -262,8 +262,8 @@ export function DrawerMenu({visible, onClose, branchName = 'Chi nhánh chính'}:
  <Text className="text-[8.5px] font-bold text-slate-400 mb-1 mt-3.5 px-1.5 uppercase tracking-wider">
  Vận hành & Tài chính
  </Text>
- {renderMenuItem('cube-outline', 'Quản lý Kho hàng', 'Kho hàng', true)}
- {renderMenuItem('wallet-outline', 'Sổ quỹ (Cashbook)', 'Sổ quỹ', true)}
+ {renderMenuItem('cube-outline', 'Quản lý Kho hàng', '/warehouse')}
+ {renderMenuItem('wallet-outline', 'Sổ quỹ (Cashbook)', '/cashbook')}
 
  {/* Group 3: Hệ thống */}
  <Text className="text-[8.5px] font-bold text-slate-400 mb-1 mt-3.5 px-1.5 uppercase tracking-wider">

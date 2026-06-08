@@ -1,11 +1,12 @@
 import React, {useState, useCallback} from 'react';
-import {Text, View, ScrollView, TouchableOpacity, Platform} from 'react-native';
+import {Text, View, ScrollView, TouchableOpacity, Platform, Alert} from 'react-native';
 import {Ionicons} from '@expo/vector-icons';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {useRouter, useFocusEffect} from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {db} from '../../lib/db/client';
 import * as schema from '../../lib/db/schema';
+import {usePermissions} from '../../lib/auth/PermissionsContext';
 
 // Import UI components dùng chung cao cấp
 import {Header} from '../../components/layout/Header';
@@ -16,10 +17,14 @@ import {formatCurrency} from '../../lib/utils/format';
 
 export default function DashboardScreen() {
  const router = useRouter();
+ const {hasPermission, reloadPermissions} = usePermissions();
+ const canViewReports = hasPermission('reports.view_shop');
+
  const [selectedTimeRange, setSelectedTimeRange] = useState('30days'); // today, 7days, 30days
  const [isLoading, setIsLoading] = useState(true);
  const [branchName, setBranchName] = useState('Chi nhánh chính');
  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+
  const [stats, setStats] = useState({
  todayRevenue: 0,
  todayOrders: 0,
@@ -36,6 +41,9 @@ export default function DashboardScreen() {
  useFocusEffect(
  useCallback(() => {
  let isMounted = true;
+
+ // Reload permissions từ AsyncStorage khi màn hình được focus
+ reloadPermissions();
 
  const loadDashboardData = async () => {
  try {
@@ -114,7 +122,15 @@ export default function DashboardScreen() {
  dateMap[dateStr] = (dateMap[dateStr] || 0) + o.total_amount;
 });
 
- const days = ['05-21', '05-22', '05-23', '05-24', '05-25', '05-26', '05-27'];
+ const days: string[] = [];
+ for (let i = 6; i >= 0; i--) {
+   const d = new Date();
+   d.setDate(d.getDate() - i);
+   const month = String(d.getMonth() + 1).padStart(2, '0');
+   const day = String(d.getDate()).padStart(2, '0');
+   days.push(`${month}-${day}`);
+ }
+
  let maxAmount = 10000;
  const chartDataMapped = days.map(day => {
  const amount = dateMap[day] || 0;
@@ -133,25 +149,13 @@ export default function DashboardScreen() {
  setStats({
  todayRevenue,
  todayOrders,
- monthRevenue: monthRevenue || 1420000,
- monthOrders: monthOrders || 9,
- aov: aov || 157000,
+ monthRevenue: monthRevenue,
+ monthOrders: monthOrders,
+ aov: aov,
  refundRevenue: 0,
  refundCount: 0,
- topProducts: topProductsMapped.length > 0 ? topProductsMapped : [
- {name: 'Cà phê Phin Sữa Đá', qty: 15, percentage: 95, icon: 'cafe-outline'},
- {name: 'Trà Đào Cam Sả', qty: 11, percentage: 70, icon: 'wine-outline'},
- {name: 'Bánh Mì Pate Thịt', qty: 6, percentage: 40, icon: 'restaurant-outline'}
- ],
- chartData: finalChartData.some(c => c.amount > 0) ? finalChartData : [
- {day: '05-21', amount: 160000, height: 25, isPeak: false},
- {day: '05-22', amount: 210000, height: 35, isPeak: false},
- {day: '05-23', amount: 320000, height: 50, isPeak: false},
- {day: '05-24', amount: 450000, height: 65, isPeak: false},
- {day: '05-25', amount: 1250000, height: 95, isPeak: true},
- {day: '05-26', amount: 620000, height: 70, isPeak: false},
- {day: '05-27', amount: todayRevenue, height: todayRevenue > 0 ? Math.round((todayRevenue / 1250000) * 95) : 15, isPeak: false},
- ]
+ topProducts: topProductsMapped,
+ chartData: finalChartData
 });
  setIsLoading(false);
 }
@@ -169,6 +173,12 @@ export default function DashboardScreen() {
 }, [])
  );
 
+ // ERP Shortcuts permissions check
+ const canUsePos = hasPermission('pos.use');
+ const canViewWarehouse = hasPermission(['inventory.view', 'products.view']);
+ const canViewCashbook = hasPermission('cashbook.view');
+ const canViewSettings = hasPermission('settings.view');
+
  return (
  <SafeAreaView edges={['top', 'left', 'right']} className="flex-1 bg-slate-50">
  
@@ -177,58 +187,64 @@ export default function DashboardScreen() {
 
  <ScrollView className="flex-1 px-4 py-4" showsVerticalScrollIndicator={false}>
  
- {/* 2. ERP LỐI TẮT NHANH - Thay thế Emoji bằng Ionicons & Thu gọn card bo tròn (rounded-2xl) */}
+ {/* 2. ERP LỐI TẮT NHANH */}
  <View className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm mb-4">
  <Text className="text-xxs font-semibold text-slate-450 mb-3 px-1">
  ⚡ Lối tắt phân hệ ERP
  </Text>
  <View className="flex-row justify-between">
  <TouchableOpacity 
- activeOpacity={0.7}
- onPress={() => router.push('/(tabs)/pos')}
- className="items-center w-[23%]"
+ activeOpacity={canUsePos ? 0.7 : 1}
+ onPress={() => canUsePos ? router.push('/(tabs)/pos') : Alert.alert('Thông báo', 'Bạn không có quyền sử dụng POS!')}
+ className={`items-center w-[23%] ${!canUsePos ? 'opacity-40' : ''}`}
  >
  <View className="bg-orange-50 w-11 h-11 rounded-xl items-center justify-center border border-orange-100 mb-2 active:scale-95">
  <Ionicons name="cart-outline" size={20} color="#fa5908" />
+ {!canUsePos && <Text style={{position: 'absolute', right: 2, top: 2, fontSize: 8}}>🔒</Text>}
  </View>
  <Text className="text-xxs font-semibold text-slate-700 text-center">POS</Text>
  </TouchableOpacity>
 
  <TouchableOpacity 
- activeOpacity={0.7}
- onPress={() => alert('Phân hệ Quản lý Kho hàng đang được chuẩn bị để tích hợp offline-first!')}
- className="items-center w-[23%]"
+ activeOpacity={canViewWarehouse ? 0.7 : 1}
+ onPress={() => canViewWarehouse ? router.push('/warehouse') : Alert.alert('Thông báo', 'Bạn không có quyền quản lý Kho hàng!')}
+ className={`items-center w-[23%] ${!canViewWarehouse ? 'opacity-40' : ''}`}
  >
  <View className="bg-slate-50 w-11 h-11 rounded-xl items-center justify-center border border-slate-100 mb-2 active:scale-95">
  <Ionicons name="cube-outline" size={20} color="#fa5908" />
+ {!canViewWarehouse && <Text style={{position: 'absolute', right: 2, top: 2, fontSize: 8}}>🔒</Text>}
  </View>
  <Text className="text-xxs font-semibold text-slate-500 text-center">Kho hàng</Text>
  </TouchableOpacity>
 
  <TouchableOpacity 
- activeOpacity={0.7}
- onPress={() => alert('Phân hệ Sổ quỹ thu chi Cashbook đang đồng bộ schema MySQL!')}
- className="items-center w-[23%]"
+ activeOpacity={canViewCashbook ? 0.7 : 1}
+ onPress={() => canViewCashbook ? router.push('/cashbook') : Alert.alert('Thông báo', 'Bạn không có quyền xem Sổ quỹ!')}
+ className={`items-center w-[23%] ${!canViewCashbook ? 'opacity-40' : ''}`}
  >
  <View className="bg-slate-50 w-11 h-11 rounded-xl items-center justify-center border border-slate-100 mb-2 active:scale-95">
  <Ionicons name="wallet-outline" size={20} color="#fa5908" />
+ {!canViewCashbook && <Text style={{position: 'absolute', right: 2, top: 2, fontSize: 8}}>🔒</Text>}
  </View>
  <Text className="text-xxs font-semibold text-slate-500 text-center">Sổ Quỹ</Text>
  </TouchableOpacity>
 
  <TouchableOpacity 
- activeOpacity={0.7}
- onPress={() => router.push('/(tabs)/settings')}
- className="items-center w-[23%]"
+ activeOpacity={canViewSettings ? 0.7 : 1}
+ onPress={() => canViewSettings ? router.push('/(tabs)/settings') : Alert.alert('Thông báo', 'Bạn không có quyền truy cập Cài đặt!')}
+ className={`items-center w-[23%] ${!canViewSettings ? 'opacity-40' : ''}`}
  >
  <View className="bg-slate-50 w-11 h-11 rounded-xl items-center justify-center border border-slate-100 mb-2 active:scale-95">
  <Ionicons name="people-outline" size={20} color="#fa5908" />
+ {!canViewSettings && <Text style={{position: 'absolute', right: 2, top: 2, fontSize: 8}}>🔒</Text>}
  </View>
  <Text className="text-xxs font-semibold text-slate-500 text-center">Nhân Sự</Text>
  </TouchableOpacity>
  </View>
  </View>
 
+ {canViewReports ? (
+ <>
  {/* 3. BỐ CỤC 4 CARD KPI - Thu nhỏ độ bo xuống rounded-2xl */}
  <View className="flex-row flex-wrap justify-between mb-1">
  {isLoading ? (
@@ -308,9 +324,9 @@ export default function DashboardScreen() {
  </View>
  <View className="mt-4">
  <Text className="text-xxs font-medium text-slate-400">Hủy & hoàn tiền</Text>
- <Text className="text-slate-800 font-medium text-sm mt-1">{formatCurrency(0)}</Text>
+ <Text className="text-slate-800 font-medium text-sm mt-1">{formatCurrency(stats.refundRevenue)}</Text>
  <View className="flex-row justify-between items-center mt-2.5">
- <Text className="text-xxs text-slate-455 font-medium">0 phiếu lỗi</Text>
+ <Text className="text-xxs text-slate-455 font-medium">{stats.refundCount} phiếu lỗi</Text>
  <Badge variant="danger" label="0.0%" size="sm" />
  </View>
  </View>
@@ -335,6 +351,14 @@ export default function DashboardScreen() {
 
  {isLoading ? (
  <Skeleton width="100%" height={150} borderRadius={12} />
+ ) : stats.chartData.length === 0 || stats.chartData.every(c => c.amount === 0) ? (
+ <View 
+ style={{ borderColor: '#e2e8f0' }}
+ className="h-44 items-center justify-center border border-dashed rounded-xl py-6"
+ >
+ <Ionicons name="bar-chart-outline" size={32} color="#cbd5e1" />
+ <Text className="text-xxs font-semibold text-slate-400 mt-2 text-center">Chưa có dữ liệu doanh thu trong 7 ngày qua</Text>
+ </View>
  ) : (
  <View className="h-44 justify-end pt-4 pb-2">
  <View className="flex-1 flex-row items-end justify-between px-1 relative">
@@ -377,6 +401,8 @@ export default function DashboardScreen() {
  <View className="p-4 rounded-2xl border bg-white border-slate-100 shadow-sm mb-6">
  {isLoading ? (
  <Skeleton.Text lines={3} gap={12} height={16} />
+ ) : stats.topProducts.length === 0 ? (
+ <Text className="text-xxs text-slate-400 text-center py-4 font-semibold">Chưa phát sinh doanh số</Text>
  ) : (
  stats.topProducts.map((p, index) => (
  <View key={index} className={index < stats.topProducts.length - 1 ? 'mb-4' : ''}>
@@ -404,8 +430,22 @@ export default function DashboardScreen() {
  ))
  )}
  </View>
+ </>
+ ) : (
+ /* Welcome Card Gating */
+ <View className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm mb-6 items-center">
+ <View className="bg-orange-50 p-4 rounded-full border border-orange-100 mb-3">
+ <Ionicons name="sparkles" size={28} color="#fa5908" />
+ </View>
+ <Text className="text-sm font-semibold text-slate-800 text-center">Chào mừng bạn làm việc!</Text>
+ <Text className="text-xxs text-slate-400 text-center mt-1.5 leading-relaxed max-w-[250px]">
+ Hệ thống ghi nhận phiên hoạt động của bạn tại chi nhánh {branchName}. Chúc bạn một ca làm việc thuận lợi và nhiều doanh số!
+ </Text>
+ </View>
+ )}
 
  {/* 6. NÚT CHUYỂN POS */}
+ {canUsePos && (
  <TouchableOpacity 
  activeOpacity={0.85}
  className="bg-orange-500 py-4 rounded-xl items-center shadow-md flex-row justify-center mb-10 shadow-orange-500/20"
@@ -415,6 +455,7 @@ export default function DashboardScreen() {
  <Ionicons name="calculator-outline" size={15} color="white" />
  <Text className="text-white font-medium text-xs ml-2">Bán hàng POS ngay</Text>
  </TouchableOpacity>
+ )}
 
  </ScrollView>
 

@@ -253,6 +253,39 @@ export function initializeLocalDatabase(customDb?: any) {
         qr_template TEXT DEFAULT 'compact2',
         initial_balance INTEGER NOT NULL DEFAULT 0
       );
+
+      CREATE TABLE IF NOT EXISTS cashbook (
+        id TEXT PRIMARY KEY NOT NULL,
+        branch_id TEXT NOT NULL,
+        type TEXT NOT NULL,
+        amount INTEGER NOT NULL DEFAULT 0,
+        method TEXT NOT NULL DEFAULT 'cash',
+        category TEXT NOT NULL DEFAULT 'other_expense',
+        reference_id TEXT,
+        reference_name TEXT,
+        employee_id TEXT,
+        note TEXT,
+        date TEXT NOT NULL,
+        fund_id TEXT,
+        sync_status TEXT NOT NULL DEFAULT 'synced'
+      );
+
+      CREATE TABLE IF NOT EXISTS stock_movements (
+        id TEXT PRIMARY KEY NOT NULL,
+        branch_id TEXT NOT NULL,
+        type TEXT NOT NULL,
+        product_id TEXT NOT NULL,
+        sku TEXT,
+        variant_id TEXT,
+        qty INTEGER NOT NULL DEFAULT 0,
+        unit_cost INTEGER NOT NULL DEFAULT 0,
+        reference_no TEXT,
+        employee_id TEXT,
+        reason TEXT,
+        workflow_status TEXT NOT NULL DEFAULT 'completed',
+        created_at TEXT NOT NULL,
+        sync_status TEXT NOT NULL DEFAULT 'synced'
+      );
     `);
     
     // Nâng cấp bổ sung cột cho các DB đã chạy trước đó để không bị mất dữ liệu

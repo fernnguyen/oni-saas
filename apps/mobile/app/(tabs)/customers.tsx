@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import {Ionicons} from '@expo/vector-icons';
 import {SafeAreaView} from 'react-native-safe-area-context';
-import {useFocusEffect} from 'expo-router';
+import {useFocusEffect, useRouter} from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {db, expoDb} from '../../lib/db/client';
 import * as schema from '../../lib/db/schema';
@@ -60,6 +60,7 @@ const getPaymentMethodDisplay = (pm: string) => {
 };
 
 export default function CustomersScreen() {
+  const router = useRouter();
   const [customersList, setCustomersList] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -1048,6 +1049,20 @@ export default function CustomersScreen() {
                         )}
                       </Text>
                     </View>
+
+                    {parseFloat(selectedCustomer?.debt_amount || '0') > 0 && (
+                      <TouchableOpacity
+                        onPress={() => {
+                          setIsDetailModalOpen(false);
+                          router.push(`/cashbook?customer_id=${selectedCustomer.id || selectedCustomer.customer_id}`);
+                        }}
+                        className="bg-orange-500 py-3.5 rounded-2xl items-center shadow-md flex-row justify-center mb-4 active:scale-95"
+                        style={{ backgroundColor: '#fa5908' }}
+                      >
+                        <Ionicons name="wallet-outline" size={16} color="white" />
+                        <Text className="text-white font-semibold text-xs ml-2">Thu nợ (Lập phiếu Sổ Quỹ)</Text>
+                      </TouchableOpacity>
+                    )}
 
                     <View 
                       style={{ borderColor: '#e2e8f0', backgroundColor: '#f8fafc' }}

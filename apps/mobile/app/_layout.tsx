@@ -17,6 +17,7 @@ import {
 } from '@expo-google-fonts/inter';
 import {NotificationProvider} from '../lib/notifications/NotificationContext';
 import {initializePushNotifications, addNotificationResponseListener} from '../lib/notifications/push';
+import {KeepAliveManager} from '../lib/sync/KeepAliveManager';
 import '../global.css';
 
 // Ngăn Splash Screen tự động ẩn để đợi load font
@@ -71,32 +72,38 @@ export default function RootLayout() {
  'Inter-Black': Inter_900Black,
 });
 
- useEffect(() => {
- // Khởi tạo cơ sở dữ liệu SQLite nội địa đầu phiên
- initializeLocalDatabase();
- 
- // Ép buộc NativeWind luôn sử dụng chế độ Sáng (Light Theme)
- setColorScheme('light');
+  useEffect(() => {
+    // Khởi tạo cơ sở dữ liệu SQLite nội địa đầu phiên
+    initializeLocalDatabase();
+    
+    // Khởi động trình đồng bộ nền keep-alive
+    KeepAliveManager.initialize();
 
- // Khởi tạo Push Notifications (Tầng 2)
- // initializePushNotifications tự kiểm tra expo-notifications có sẵn không
- initializePushNotifications().catch((err) => {
-   console.warn('[RootLayout] Push notification init skipped:', err);
- });
+    // Ép buộc NativeWind luôn sử dụng chế độ Sáng (Light Theme)
+    setColorScheme('light');
 
- // Xử lý khi user tap vào push notification
- const cleanup = addNotificationResponseListener((response) => {
-   const data = response?.notification?.request?.content?.data;
-   if (data?.path) {
-     // Navigate đến path cụ thể nếu notification có metadata.path
-     // VD: data.path = '/(tabs)/pos'
-     const { router } = require('expo-router');
-     router.push(data.path);
-   }
- });
+    // Khởi tạo Push Notifications (Tầng 2)
+    // initializePushNotifications tự kiểm tra expo-notifications có sẵn không
+    initializePushNotifications().catch((err) => {
+      console.warn('[RootLayout] Push notification init skipped:', err);
+    });
 
- return cleanup;
-}, []);
+    // Xử lý khi user tap vào push notification
+    const cleanup = addNotificationResponseListener((response) => {
+      const data = response?.notification?.request?.content?.data;
+      if (data?.path) {
+        // Navigate đến path cụ thể nếu notification có metadata.path
+        // VD: data.path = '/(tabs)/pos'
+        const { router } = require('expo-router');
+        router.push(data.path);
+      }
+    });
+
+    return () => {
+      KeepAliveManager.destroy();
+      if (typeof cleanup === 'function') cleanup();
+    };
+  }, []);
 
  useEffect(() => {
  if (fontsLoaded || fontError) {

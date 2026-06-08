@@ -55,6 +55,7 @@ export default function SettingsScreen() {
  // 0. Thông tin tài khoản
  const [userName, setUserName] = useState('Nhân viên thu ngân');
  const [userEmail, setUserEmail] = useState('offline-sales@oni.vn');
+ const [userRoleName, setUserRoleName] = useState('Nhân viên');
 
  // Trạng thái Dialog phản hồi xác nhận
  const [isPrintTestSuccessVisible, setIsPrintTestSuccessVisible] = useState(false);
@@ -98,6 +99,9 @@ export default function SettingsScreen() {
      setUserName(savedEmail.split('@')[0]);
    }
  }
+
+  const savedRole = await AsyncStorage.getItem('active_user_role_name') || 'Nhân viên';
+  setUserRoleName(savedRole);
 
   const isShiftEnabled = (await AsyncStorage.getItem('enable_shift_management')) === 'true';
   setMobileShiftEnabled(isShiftEnabled);
@@ -501,7 +505,10 @@ export default function SettingsScreen() {
   <Text className="font-semibold text-xs text-slate-800">
   {userName}
   </Text>
-  <Text className="text-xxs text-slate-400 font-medium mt-0.5">
+  <Text className="text-[10px] text-slate-500 font-semibold mt-0.5">
+  Vai trò: {userRoleName}
+  </Text>
+  <Text className="text-xxs text-slate-400 mt-0.5">
   {userEmail}
   </Text>
   </View>

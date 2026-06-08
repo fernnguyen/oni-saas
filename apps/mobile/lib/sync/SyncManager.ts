@@ -74,15 +74,24 @@ export class SyncManager {
       const rawCustomers = custData.data || [];
 
       // --- BƯỚC D2: TẢI DANH SÁCH QUỸ THANH TOÁN (PAYMENT FUNDS) ---
-      onProgress(0.85);
-      // We don't have the exact branchId available as an argument in pullFullDatabase, 
-      // but the API endpoint `/api/shops/${shopId}/payment-funds?active=TRUE` returns all funds.
-      // Usually mobile app is bound to a single shop so we just fetch all active funds.
+      onProgress(0.83);
       const fundsRes = await fetch(`${getApiBaseUrl()}/api/shops/${shopId}/payment-funds?active=TRUE`, { headers });
       if (!fundsRes.ok) throw new Error('Không thể tải danh sách Quỹ thanh toán từ Cloud');
       const fundsData = await fundsRes.json();
       const rawFunds = fundsData.data || [];
 
+      // --- BƯỚC D3: TẢI PHIẾU THU/CHI SỔ QUỸ (CASHBOOK) ---
+      onProgress(0.87);
+      let rawCashbook: any[] = [];
+      try {
+        const cbRes = await fetch(`${getApiBaseUrl()}/api/shops/${shopId}/cashbook?limit=100`, { headers });
+        if (cbRes.ok) {
+          const cbData = await cbRes.json();
+          rawCashbook = cbData.data || [];
+        }
+      } catch (err) {
+        console.warn('Lỗi tải sổ quỹ từ cloud:', err);
+      }
 
       // --- BƯỚC E: LƯU TRỮ VÀO SQLITE NỘI ĐỊA CỦA ĐIỆN THOẠI (Drizzle Transaction) ---
       console.log('Đang ghi dữ liệu đồng bộ vào SQLite nội địa...');
@@ -94,6 +103,8 @@ export class SyncManager {
         DELETE FROM location_resources;
         DELETE FROM customers;
         DELETE FROM payment_funds;
+        DELETE FROM cashbook WHERE sync_status = 'synced';
+        DELETE FROM stock_movements WHERE sync_status = 'synced';
         DELETE FROM orders WHERE sync_status = 'synced';
         DELETE FROM order_items WHERE order_id NOT IN (SELECT id FROM orders WHERE sync_status = 'pending');
         DELETE FROM shop_shifts WHERE sync_status = 'synced';
@@ -235,6 +246,27 @@ export class SyncManager {
             is_default: fund.is_default === true,
             qr_template: fund.qr_template || 'compact2',
             initial_balance: isNaN(parseInt(fund.initial_balance)) ? 0 : parseInt(fund.initial_balance),
+          }).onConflictDoNothing();
+        }
+      }
+
+      // 6. Ghi Phiếu Thu/Chi Sổ Quỹ
+      if (rawCashbook.length > 0) {
+        for (const cb of rawCashbook) {
+          await db.insert(schema.cashbook).values({
+            id: cb.transaction_id || cb.id,
+            branch_id: cb.branch_id || '',
+            type: cb.type || 'receipt',
+            amount: parseInt(cb.amount || '0', 10),
+            method: cb.method || 'cash',
+            category: cb.category || 'other_expense',
+            reference_id: cb.reference_id || null,
+            reference_name: cb.reference_name || null,
+            employee_id: cb.employee_id || null,
+            note: cb.note || null,
+            date: cb.date || new Date().toISOString().split('T')[0],
+            fund_id: cb.fund_id || null,
+            sync_status: 'synced',
           }).onConflictDoNothing();
         }
       }
@@ -442,5 +474,143 @@ export class SyncManager {
       console.error('Lỗi khi đồng bộ Ca làm việc offline:', err);
       return false;
     }
+  }
+
+  // ==========================================
+  // 4. ĐẨY PHIẾU THU/CHI SỔ QUỸ LÊN CLOUD
+  // ==========================================
+  static async pushOfflineCashbook(shopId: string): Promise<{ successCount: number; failedCount: number }> {
+    let successCount = 0;
+    let failedCount = 0;
+
+    try {
+      const pending = await db
+        .select()
+        .from(schema.cashbook)
+        .where(eq(schema.cashbook.sync_status, 'pending'));
+
+      if (pending.length === 0) return { successCount: 0, failedCount: 0 };
+
+      console.log(`Phát hiện ${pending.length} phiếu sổ quỹ offline. Đang đồng bộ...`);
+      const headers = await getApiHeaders();
+
+      for (const item of pending) {
+        try {
+          const response = await fetch(`${getApiBaseUrl()}/api/shops/${shopId}/cashbook`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              type: item.type,
+              amount: String(item.amount),
+              method: item.method,
+              category: item.category,
+              reference_id: item.reference_id || undefined,
+              reference_name: item.reference_name || undefined,
+              note: item.note || `Phiếu ghi nhận offline lúc ${item.date}`,
+              fund_id: item.fund_id || undefined,
+              date: item.date,
+            }),
+          });
+
+          if (response.ok) {
+            const resJson = await response.json().catch(() => ({}));
+            const serverId = resJson.transaction_id || resJson.id;
+
+            if (serverId && serverId !== item.id) {
+              await db.delete(schema.cashbook).where(eq(schema.cashbook.id, item.id));
+              await db.insert(schema.cashbook).values({
+                ...item,
+                id: serverId,
+                sync_status: 'synced',
+              }).onConflictDoNothing();
+            } else {
+              await db.update(schema.cashbook)
+                .set({ sync_status: 'synced' })
+                .where(eq(schema.cashbook.id, item.id));
+            }
+            successCount++;
+          } else {
+            failedCount++;
+            console.warn(`Đồng bộ phiếu quỹ #${item.id} lỗi từ server: ${response.status}`);
+          }
+        } catch (e) {
+          failedCount++;
+          console.error(`Lỗi kết nối khi đồng bộ phiếu quỹ #${item.id}:`, e);
+        }
+      }
+    } catch (err) {
+      console.error('Lỗi nghiêm trọng khi đồng bộ sổ quỹ:', err);
+    }
+    return { successCount, failedCount };
+  }
+
+  // ==========================================
+  // 5. ĐẨY PHIẾU ĐIỀU CHỈNH KHO LÊN CLOUD
+  // ==========================================
+  static async pushOfflineStockMovements(shopId: string): Promise<{ successCount: number; failedCount: number }> {
+    let successCount = 0;
+    let failedCount = 0;
+
+    try {
+      const pending = await db
+        .select()
+        .from(schema.stockMovements)
+        .where(eq(schema.stockMovements.sync_status, 'pending'));
+
+      if (pending.length === 0) return { successCount: 0, failedCount: 0 };
+
+      console.log(`Phát hiện ${pending.length} phiếu điều chỉnh kho offline. Đang đồng bộ...`);
+      const headers = await getApiHeaders();
+
+      for (const item of pending) {
+        try {
+          const response = await fetch(`${getApiBaseUrl()}/api/shops/${shopId}/stock-movements`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              type: item.type,
+              product_id: item.product_id,
+              sku: item.sku || '',
+              variant_id: item.variant_id || '',
+              qty: String(item.qty),
+              unit_cost: String(item.unit_cost),
+              branch_id: shopId,
+              employee_id: item.employee_id || '',
+              reason: item.reason || 'Điều chỉnh tồn kho di động',
+              workflow_status: item.workflow_status,
+              reference_no: item.reference_no || '',
+            }),
+          });
+
+          if (response.ok) {
+            const resJson = await response.json().catch(() => ({}));
+            const serverId = resJson.movement_id || resJson.id;
+
+            if (serverId && serverId !== item.id) {
+              await db.delete(schema.stockMovements).where(eq(schema.stockMovements.id, item.id));
+              await db.insert(schema.stockMovements).values({
+                ...item,
+                id: serverId,
+                sync_status: 'synced',
+              }).onConflictDoNothing();
+            } else {
+              await db.update(schema.stockMovements)
+                .set({ sync_status: 'synced' })
+                .where(eq(schema.stockMovements.id, item.id));
+            }
+            successCount++;
+          } else {
+            failedCount++;
+            console.warn(`Đồng bộ phiếu kho #${item.id} lỗi từ server: ${response.status}`);
+          }
+        } catch (e) {
+          failedCount++;
+          console.error(`Lỗi kết nối khi đồng bộ phiếu kho #${item.id}:`, e);
+        }
+      }
+    } catch (err) {
+      console.error('Lỗi nghiêm trọng khi đồng bộ điều chỉnh kho:', err);
+    }
+    return { successCount, failedCount };
   }
 }

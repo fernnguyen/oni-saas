@@ -113,3 +113,39 @@ export const shop_shifts = sqliteTable('shop_shifts', {
   employee_name: text('employee_name'),
   sync_status: text('sync_status').notNull().default('synced'), // synced | pending
 });
+
+// 8. SỔ QUỸ (Cashbook)
+export const cashbook = sqliteTable('cashbook', {
+  id: text('id').primaryKey(),
+  branch_id: text('branch_id').notNull(),
+  type: text('type').notNull(), // receipt | payment
+  amount: integer('amount').notNull().default(0),
+  method: text('method').notNull().default('cash'), // cash | bank_transfer
+  category: text('category').notNull().default('other_expense'), // debt_collection, debt_payment, salary, rent, utilities, other_revenue, other_expense, inventory
+  reference_id: text('reference_id'),
+  reference_name: text('reference_name'),
+  employee_id: text('employee_id'),
+  note: text('note'),
+  date: text('date').notNull(), // YYYY-MM-DD
+  fund_id: text('fund_id'),
+  sync_status: text('sync_status').notNull().default('synced'), // synced | pending
+});
+
+// 9. LỊCH SỬ KHO / ĐIỀU CHỈNH KHO (Stock Movements)
+export const stockMovements = sqliteTable('stock_movements', {
+  id: text('id').primaryKey(),
+  branch_id: text('branch_id').notNull(),
+  type: text('type').notNull(), // adjustment | sale_out | purchase_in
+  product_id: text('product_id').notNull(),
+  sku: text('sku'),
+  variant_id: text('variant_id'),
+  qty: integer('qty').notNull().default(0), // chênh lệch (+/-)
+  unit_cost: integer('unit_cost').notNull().default(0),
+  reference_no: text('reference_no'),
+  employee_id: text('employee_id'),
+  reason: text('reason'),
+  workflow_status: text('workflow_status').notNull().default('completed'), // draft | completed
+  created_at: text('created_at').notNull(),
+  sync_status: text('sync_status').notNull().default('synced'), // synced | pending
+});
+
