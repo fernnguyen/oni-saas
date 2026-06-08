@@ -66,6 +66,7 @@ export default function SettingsScreen() {
 
  // States chốt ca làm việc
  const [showCloseShiftModal, setShowCloseShiftModal] = useState(false);
+ const [logoutAfterClose, setLogoutAfterClose] = useState(false);
  const [actualClosingCashInput, setActualClosingCashInput] = useState('0');
  const [closingShiftNote, setClosingShiftNote] = useState('');
  const [openingCashVal, setOpeningCashVal] = useState(0);
@@ -476,8 +477,19 @@ export default function SettingsScreen() {
       Alert.alert('Đã kết ca', 'Đã đóng ca làm việc thành công.');
       // Load lại cấu hình settings
       await loadSettingsData();
-      // Quay về chọn chi nhánh để có thể mở ca mới
-      router.replace('/(auth)/select-branch');
+      
+      if (logoutAfterClose) {
+        // Đăng xuất hoàn toàn
+        await AsyncStorage.removeItem('active_shop_id');
+        await AsyncStorage.removeItem('active_shop_name');
+        await AsyncStorage.removeItem('active_tenant_id');
+        switchDatabaseScope(null);
+        await supabase.auth.signOut();
+        router.replace('/(auth)/login');
+      } else {
+        // Quay về chọn chi nhánh để có thể mở ca mới
+        router.replace('/(auth)/select-branch');
+      }
     } catch (err: any) {
       console.error('Lỗi khi đóng ca:', err);
       Alert.alert('Lỗi', `Không thể đóng ca: ${err.message || err}`);
@@ -514,7 +526,9 @@ export default function SettingsScreen() {
   </View>
  </View>
  
- <Badge variant="primary" label="ON-SHIFT" size="sm" showDot={true} />
+ {mobileShiftEnabled && isShiftOpen && (
+    <Badge variant="primary" label="ON-SHIFT" size="sm" showDot={true} />
+  )}
  </View>
 
   <View className="border-t border-slate-100 my-4 pt-4 flex-row justify-between items-center">
@@ -533,13 +547,18 @@ export default function SettingsScreen() {
   onPress={() => setIsLogoutModalOpen(true)}
   className="rounded-xl px-3 py-2"
   />
-  <Button
-  variant="danger"
-  size="sm"
-  title="Đóng ca"
-  onPress={handleTriggerCloseShift}
-  className="rounded-xl px-3 py-2"
-  />
+  {mobileShiftEnabled && isShiftOpen && (
+     <Button
+     variant="danger"
+     size="sm"
+     title="Đóng ca"
+     onPress={() => {
+       setLogoutAfterClose(false);
+       handleTriggerCloseShift();
+     }}
+     className="rounded-xl px-3 py-2"
+     />
+   )}
   </View>
   </View>
  </View>
@@ -862,31 +881,34 @@ export default function SettingsScreen() {
  confirmLabel="Đóng"
  variant="success"
  />
-
   <Dialog
-  visible={isLogoutModalOpen}
-  onClose={() => setIsLogoutModalOpen(false)}
-  onConfirm={isShiftOpen ? handleCloseShiftAndLogout : handleLogoutOnly}
-  title="Đăng xuất tài khoản?"
-  description={
-    isShiftOpen
-      ? "Cảnh báo: Bạn đang có ca làm việc đang mở. Vui lòng chọn đóng ca trước khi thoát hoặc chỉ đăng xuất và giữ nguyên ca."
-      : "Bạn có chắc chắn muốn đăng xuất khỏi ứng dụng di động?"
-  }
-  confirmLabel={isShiftOpen ? "Đóng ca & Thoát" : "Đăng xuất"}
-  cancelLabel="Hủy"
-  variant="danger"
-  >
-    {isShiftOpen && (
-      <Button
-        variant="outline"
-        size="md"
-        title="Chỉ đăng xuất (Giữ ca mở)"
-        onPress={handleLogoutOnly}
-        className="w-full mb-3 rounded-2xl border border-slate-200"
-      />
-    )}
-  </Dialog>
+   visible={isLogoutModalOpen}
+   onClose={() => setIsLogoutModalOpen(false)}
+   onConfirm={(mobileShiftEnabled && isShiftOpen) ? () => {
+     setIsLogoutModalOpen(false);
+     setLogoutAfterClose(true);
+     handleTriggerCloseShift();
+   } : handleLogoutOnly}
+   title="Đăng xuất tài khoản?"
+   description={
+     (mobileShiftEnabled && isShiftOpen)
+       ? "Cảnh báo: Bạn đang có ca làm việc đang mở. Vui lòng chọn đóng ca trước khi thoát hoặc chỉ đăng xuất và giữ nguyên ca."
+       : "Bạn có chắc chắn muốn đăng xuất khỏi ứng dụng di động?"
+   }
+   confirmLabel={(mobileShiftEnabled && isShiftOpen) ? "Đóng ca & Thoát" : "Đăng xuất"}
+   cancelLabel="Hủy"
+   variant="danger"
+   >
+     {(mobileShiftEnabled && isShiftOpen) && (
+       <Button
+         variant="outline"
+         size="md"
+         title="Chỉ đăng xuất (Giữ ca mở)"
+         onPress={handleLogoutOnly}
+         className="w-full mb-3 rounded-2xl border border-slate-200"
+       />
+     )}
+   </Dialog>
 
   {/* Modal Chốt Ca và Đóng Ca */}
   <Modal
