@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Image, Modal } from 'react-native';
+import { View, Text, TouchableOpacity, Image, Modal, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Button } from '../ui/Button';
 
@@ -39,8 +39,12 @@ export default function QRTransferModal({ visible, onClose, qrPayload, onConfirm
       transparent={true}
       onRequestClose={onClose}
     >
-      <View className="flex-1 justify-center items-center px-6" style={{backgroundColor: 'rgba(0, 0, 0, 0.6)'}}>
-        <View className="w-full max-w-sm p-6 rounded-2xl bg-white border border-slate-100 items-center" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 10}, shadowOpacity: 0.12, shadowRadius: 16, elevation: 12}}>
+      <View className="flex-1 justify-center items-center px-6">
+        <Pressable
+          className="absolute inset-0 bg-black/60"
+          onPress={onClose}
+        />
+        <View className="w-full max-w-sm p-6 rounded-2xl bg-white border border-slate-100 items-center relative" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 10}, shadowOpacity: 0.12, shadowRadius: 16, elevation: 12}}>
           
           {/* Header */}
           <View className="w-full flex-row justify-between items-center mb-4">

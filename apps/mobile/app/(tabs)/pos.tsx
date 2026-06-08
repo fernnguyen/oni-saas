@@ -1,5 +1,5 @@
 import React, {useState, useEffect, useCallback} from 'react';
-import {Text, View, ScrollView, TouchableOpacity, Modal, TextInput, Image, Platform, Animated, ActivityIndicator, Alert} from 'react-native';
+import {Text, View, ScrollView, TouchableOpacity, Modal, TextInput, Image, Platform, Animated, ActivityIndicator, Alert, Pressable} from 'react-native';
 import {useFocusEffect} from 'expo-router';
 import {Ionicons} from '@expo/vector-icons';
 import {SafeAreaView} from 'react-native-safe-area-context';
@@ -127,7 +127,12 @@ export function LodgingGuestsForm({
  placeholderTextColor="#cbd5e1"
  value={guest.name || ''}
  onChangeText={(val) => updateGuestField(index, 'name', val)}
- style={Platform.OS === 'web' ? ({outlineStyle: 'none'} as any) : undefined}
+ style={{
+    paddingVertical: 0,
+    textAlignVertical: 'center',
+    lineHeight: undefined,
+    ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+  }}
  />
  </View>
 
@@ -165,7 +170,12 @@ export function LodgingGuestsForm({
  placeholderTextColor="#cbd5e1"
  value={guest.id_number || guest.idCard || ''}
  onChangeText={(val) => updateGuestField(index, 'id_number', val)}
- style={Platform.OS === 'web' ? ({outlineStyle: 'none'} as any) : undefined}
+ style={{
+    paddingVertical: 0,
+    textAlignVertical: 'center',
+    lineHeight: undefined,
+    ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+  }}
  />
  </View>
 
@@ -187,13 +197,18 @@ export function LodgingGuestsForm({
  <View className="flex-1">
  <Text className="text-xs text-slate-500 font-medium mb-1.5">Quốc tịch:</Text>
  <TextInput
- className="bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-800 font-semibold h-[44px]"
- placeholder="Quốc tịch..."
- placeholderTextColor="#cbd5e1"
- value={guest.nationality || 'Việt Nam'}
- onChangeText={(val) => updateGuestField(index, 'nationality', val)}
- style={Platform.OS === 'web' ? ({outlineStyle: 'none'} as any) : undefined}
- />
+  className="bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-800 font-semibold h-[44px]"
+  placeholder="Quốc tịch..."
+  placeholderTextColor="#cbd5e1"
+  value={guest.nationality || 'Việt Nam'}
+  onChangeText={(val) => updateGuestField(index, 'nationality', val)}
+  style={{
+    paddingVertical: 0,
+    textAlignVertical: 'center',
+    lineHeight: undefined,
+    ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+  }}
+  />
  </View>
  </View>
 
@@ -253,7 +268,12 @@ export function LodgingGuestsForm({
  placeholderTextColor="#cbd5e1"
  value={guest.note || ''}
  onChangeText={(val) => updateGuestField(index, 'note', val)}
- style={Platform.OS === 'web' ? ({outlineStyle: 'none'} as any) : undefined}
+ style={{
+   paddingVertical: 0,
+   textAlignVertical: 'center',
+   lineHeight: undefined,
+   ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+ }}
  />
  </View>
  </View>
@@ -2673,7 +2693,12 @@ if (!isNavReady) {
  setProductSearchQuery(text);
  setDisplayLimit(20);
 }}
- style={Platform.OS === 'web' ? ({outlineStyle: 'none'} as any) : undefined}
+ style={{
+   paddingVertical: 0,
+   textAlignVertical: 'center',
+   lineHeight: undefined,
+   ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+ }}
  />
  {productSearchQuery.length > 0 && (
  <TouchableOpacity onPress={() => {setProductSearchQuery(''); setDisplayLimit(20);}} className="mr-2">
@@ -3034,8 +3059,12 @@ if (!isNavReady) {
  transparent={true}
  onRequestClose={() => setIsTableOpenDialogVisible(false)}
  >
- <View className="flex-1 justify-end" style={{backgroundColor: 'rgba(0, 0, 0, 0.6)'}}>
- <View className="h-[75%] rounded-t-2xl p-6 bg-white justify-between" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 10}, shadowOpacity: 0.12, shadowRadius: 16, elevation: 12}}>
+ <View className="flex-1 justify-end">
+ <Pressable
+      className="absolute inset-0 bg-black/60"
+      onPress={() => setIsTableOpenDialogVisible(false)}
+    />
+ <View className="h-[75%] rounded-t-2xl p-6 bg-white justify-between relative" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 10}, shadowOpacity: 0.12, shadowRadius: 16, elevation: 12}}>
  {renderToast(true)}
  {/* Header */}
  <View className="flex-row justify-between items-center border-b border-slate-100 pb-4">
@@ -3128,7 +3157,12 @@ if (!isNavReady) {
  placeholderTextColor="#cbd5e1"
  value={customerSearchQuery}
  onChangeText={setCustomerSearchQuery}
- style={Platform.OS === 'web' ? ({outlineStyle: 'none'} as any) : undefined}
+ style={{
+   paddingVertical: 0,
+   textAlignVertical: 'center',
+   lineHeight: undefined,
+   ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+ }}
  />
  {customerSearchQuery.length > 0 && (
  <TouchableOpacity onPress={() => setCustomerSearchQuery('')}>
@@ -3264,9 +3298,13 @@ if (!isNavReady) {
  transparent={true}
  onRequestClose={() => setActiveTable(null)}
  >
- <View className="flex-1 justify-end" style={{backgroundColor: 'rgba(0, 0, 0, 0.6)'}}>
- {activeTable && (
- <View className="h-[75%] rounded-t-2xl p-6 justify-between bg-white shadow-2xl">
+ <View className="flex-1 justify-end">
+  <Pressable
+    className="absolute inset-0 bg-black/60"
+    onPress={() => setActiveTable(null)}
+  />
+  {activeTable && (
+  <View className="h-[75%] rounded-t-2xl p-6 justify-between bg-white shadow-2xl relative">
  {renderToast(true)}
  {/* Modal Header */}
  <View className="flex-row justify-between items-center mb-4 border-b border-slate-100 pb-2">
@@ -3597,8 +3635,12 @@ if (!isNavReady) {
     transparent={true}
     onRequestClose={() => setIsShiftModalOpen(false)}
   >
-    <View className="flex-1 bg-black/60 justify-center items-center px-6">
-      <View className="bg-white w-full rounded-3xl p-6 shadow-2xl border border-slate-100">
+    <View className="flex-1 justify-center items-center px-6">
+      <Pressable
+        className="absolute inset-0 bg-black/60"
+        onPress={() => setIsShiftModalOpen(false)}
+      />
+      <View className="bg-white w-full rounded-3xl p-6 shadow-2xl border border-slate-100 relative">
         <View className="items-center mb-4">
           <View className="bg-orange-50 p-3 rounded-full mb-3 border border-orange-100">
             <Ionicons name="wallet-outline" size={24} color="#fa5908" />
@@ -3623,7 +3665,12 @@ if (!isNavReady) {
               keyboardType="numeric"
               className="flex-1 text-center text-lg font-bold text-slate-800"
               placeholder="0"
-              style={Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : undefined}
+              style={{
+                paddingVertical: 0,
+                textAlignVertical: 'center',
+                lineHeight: undefined,
+                ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+              }}
             />
             <Text className="text-sm font-semibold text-slate-400 ml-2">đ</Text>
           </View>

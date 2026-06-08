@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { Text, View, ScrollView, TouchableOpacity, TextInput, Modal, Platform, Alert, ActivityIndicator, TouchableWithoutFeedback, Animated } from 'react-native';
+import { Text, View, ScrollView, TouchableOpacity, TextInput, Modal, Platform, Alert, ActivityIndicator, TouchableWithoutFeedback, Animated, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -365,8 +365,22 @@ export default function CashbookScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Danh Sách Giao Dịch */}
-        <Text className="text-xxs font-semibold text-slate-500 mb-3 px-1">Lịch sử giao dịch sổ quỹ</Text>
+        <View className="flex-row justify-between items-center mb-3 px-1">
+          <Text className="text-xxs font-semibold text-slate-500">Lịch sử giao dịch sổ quỹ</Text>
+          <TouchableOpacity 
+            onPress={handleManualSync}
+            disabled={isSyncing}
+            className="flex-row items-center"
+            activeOpacity={0.7}
+          >
+            {isSyncing ? (
+              <ActivityIndicator size="small" color="#fa5908" className="mr-1" style={{ transform: [{ scale: 0.7 }] }} />
+            ) : (
+              <Ionicons name="sync-outline" size={14} color="#fa5908" className="mr-1" />
+            )}
+            <Text className="text-xxs font-bold text-orange-500">Đồng bộ</Text>
+          </TouchableOpacity>
+        </View>
         
         {isLoading ? (
           <ActivityIndicator size="small" color="#fa5908" className="py-10" />
@@ -420,14 +434,17 @@ export default function CashbookScreen() {
         <View className="h-20" />
       </ScrollView>
 
-      {/* Modal Lập Phiếu Thu / Chi */}
       <Modal
         visible={showAddModal}
         animationType="slide"
         transparent={true}
         onRequestClose={() => setShowAddModal(false)}
       >
-        <View className="flex-1 bg-black/60 justify-end">
+        <View className="flex-1 justify-end">
+          <Pressable
+            className="absolute inset-0 bg-black/60"
+            onPress={() => setShowAddModal(false)}
+          />
           <View className="bg-white rounded-t-3xl p-6 max-h-[85%] relative">
             
             {/* Header modal */}
@@ -442,10 +459,9 @@ export default function CashbookScreen() {
 
             <ScrollView showsVerticalScrollIndicator={false} className="space-y-4">
               
-              {/* Số tiền */}
               <View className="mb-4">
                 <Text className="text-xxs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Số tiền *</Text>
-                <View className="relative flex-row items-center bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5">
+                <View className="relative justify-center">
                   <TextInput
                     value={amount}
                     onChangeText={(val) => {
@@ -453,11 +469,18 @@ export default function CashbookScreen() {
                       setAmount(num ? Number(num).toLocaleString('vi-VN') : '');
                     }}
                     keyboardType="numeric"
-                    className="flex-1 text-base font-bold text-slate-800"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-4 pr-12 py-3 text-base font-bold text-slate-800"
                     placeholder="0"
-                    style={Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : undefined}
+                    style={{
+                      paddingVertical: 0,
+                      textAlignVertical: 'center',
+                      lineHeight: undefined,
+                      ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+                    }}
                   />
-                  <Text className="text-sm font-semibold text-slate-400 ml-2">đ</Text>
+                  <View style={{ position: 'absolute', right: 16, height: '100%', justifyContent: 'center' }}>
+                    <Text className="text-sm font-semibold text-slate-400" style={{ lineHeight: undefined }}>đ</Text>
+                  </View>
                 </View>
               </View>
 
@@ -509,16 +532,19 @@ export default function CashbookScreen() {
                   </TouchableOpacity>
                 </View>
               )}
-
-              {/* Ghi chú */}
               <View className="mb-6">
                 <Text className="text-xxs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Ghi chú</Text>
                 <TextInput
                   value={note}
                   onChangeText={setNote}
                   placeholder="Nhập nội dung thu chi..."
-                  className="bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl text-xs font-semibold text-slate-800"
-                  style={Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : undefined}
+                  className="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl text-xs font-semibold text-slate-800"
+                  style={{
+                    paddingVertical: 0,
+                    textAlignVertical: 'center',
+                    lineHeight: undefined,
+                    ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+                  }}
                 />
               </View>
 
@@ -659,8 +685,7 @@ export default function CashbookScreen() {
                 )}
               </View>
             )}
-
-          </View>
+                      </View>
         </View>
       </Modal>
 

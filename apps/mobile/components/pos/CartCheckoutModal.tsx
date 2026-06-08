@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, ScrollView, Platform, Modal, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, ScrollView, Platform, Modal, Alert, Pressable } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { Button } from '../ui/Button';
@@ -179,8 +179,12 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
         transparent={true}
         onRequestClose={onClose}
       >
-        <View className="flex-1 justify-end" style={{backgroundColor: 'rgba(0, 0, 0, 0.6)'}}>
-          <View className="h-[90%] rounded-t-2xl p-6 bg-white justify-between" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 10}, shadowOpacity: 0.12, shadowRadius: 16, elevation: 12}}>
+        <View className="flex-1 justify-end">
+          <Pressable
+            className="absolute inset-0 bg-black/60"
+            onPress={onClose}
+          />
+          <View className="h-[90%] rounded-t-2xl p-6 bg-white justify-between relative" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 10}, shadowOpacity: 0.12, shadowRadius: 16, elevation: 12}}>
             
             {/* Header */}
             <View className="flex-row justify-between items-center border-b border-slate-100 pb-4">
@@ -268,7 +272,12 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                         placeholderTextColor="#cbd5e1"
                         value={customerSearchQuery}
                         onChangeText={setCustomerSearchQuery}
-                        style={Platform.OS === 'web' ? ({outlineStyle: 'none'} as any) : undefined}
+                        style={{
+                          paddingVertical: 0,
+                          textAlignVertical: 'center',
+                          lineHeight: undefined,
+                          ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+                        }}
                       />
                       {customerSearchQuery.length > 0 && (
                         <TouchableOpacity onPress={() => setCustomerSearchQuery('')}>
@@ -410,7 +419,12 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                           setDiscountAmount(amt);
                         }}
                         autoFocus={true}
-                        style={Platform.OS === 'web' ? ({outlineStyle: 'none'} as any) : undefined}
+                        style={{
+                          paddingVertical: 0,
+                          textAlignVertical: 'center',
+                          lineHeight: undefined,
+                          ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+                        }}
                       />
                     </View>
                   ) : (
@@ -439,7 +453,12 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                     placeholderTextColor="#cbd5e1"
                     value={orderNote}
                     onChangeText={setOrderNote}
-                    style={Platform.OS === 'web' ? ({outlineStyle: 'none'} as any) : undefined}
+                    style={{
+                      paddingVertical: 0,
+                      textAlignVertical: 'center',
+                      lineHeight: undefined,
+                      ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+                    }}
                   />
                 </View>
               </View>
@@ -478,7 +497,12 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                           const amt = parseCurrencyToNumber(maskCurrencyInput(val));
                           setDebtRepayAmount(Math.min(amt, customerDebt));
                         }}
-                        style={Platform.OS === 'web' ? ({outlineStyle: 'none', padding: 0} as any) : {padding: 0, paddingVertical: 0}}
+                        style={{
+                          paddingVertical: 0,
+                          textAlignVertical: 'center',
+                          lineHeight: undefined,
+                          ...(Platform.OS === 'web' ? { outlineStyle: 'none', padding: 0 } as any : { padding: 0 })
+                        }}
                       />
                     </View>
                     <TouchableOpacity
@@ -636,7 +660,12 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                               }}
                               placeholder="0"
                               placeholderTextColor="#cbd5e1"
-                              style={Platform.OS === 'web' ? ({outlineStyle: 'none', padding: 0} as any) : {padding: 0, paddingVertical: 0}}
+                              style={{
+                                paddingVertical: 0,
+                                textAlignVertical: 'center',
+                                lineHeight: undefined,
+                                ...(Platform.OS === 'web' ? { outlineStyle: 'none', padding: 0 } as any : { padding: 0 })
+                              }}
                             />
                           </View>
                           {/* Hint điền đủ — hiện bên dưới input, ẩn khi amount đã = remaining */}

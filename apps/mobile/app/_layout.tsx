@@ -4,7 +4,7 @@ import {StatusBar} from 'expo-status-bar';
 import {SafeAreaProvider} from 'react-native-safe-area-context';
 import {useColorScheme} from 'nativewind';
 import {StyleSheet} from 'react-native-css-interop';
-import {Text, TextInput} from 'react-native';
+import {Text, TextInput, Platform} from 'react-native';
 import {initializeLocalDatabase} from '../lib/db/client';
 import {
  useFonts, 

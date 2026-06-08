@@ -363,7 +363,12 @@ export function BarcodeScannerModal({
  onChangeText={setManualBarcode}
  onSubmitEditing={handleManualSubmit}
  autoFocus={true}
- style={Platform.OS === 'web' ? ({outlineStyle: 'none'} as any) : undefined}
+ style={{
+    paddingVertical: 0,
+    textAlignVertical: 'center',
+    lineHeight: undefined,
+    ...(Platform.OS === 'web' ? {outlineStyle: 'none'} as any : {})
+  }}
  />
  {manualBarcode.length > 0 && (
  <TouchableOpacity onPress={() => setManualBarcode('')}>
@@ -415,7 +420,12 @@ export function BarcodeScannerModal({
  value={manualBarcode}
  onChangeText={setManualBarcode}
  onSubmitEditing={handleManualSubmit}
- style={Platform.OS === 'web' ? ({outlineStyle: 'none'} as any) : undefined}
+ style={{
+    paddingVertical: 0,
+    textAlignVertical: 'center',
+    lineHeight: undefined,
+    ...(Platform.OS === 'web' ? {outlineStyle: 'none'} as any : {})
+  }}
  />
  {manualBarcode.length > 0 && (
  <TouchableOpacity onPress={() => setManualBarcode('')}>

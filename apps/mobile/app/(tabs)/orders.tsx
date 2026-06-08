@@ -596,7 +596,12 @@ export default function OrdersScreen() {
   className="flex-1 ml-2 text-xs text-slate-800 py-1"
   value={searchQuery}
   onChangeText={setSearchQuery}
-  style={Platform.OS === 'web' ? ({outlineStyle: 'none'} as any) : undefined}
+  style={{
+    paddingVertical: 0,
+    textAlignVertical: 'center',
+    lineHeight: undefined,
+    ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+  }}
   />
   {searchQuery !== '' && (
   <TouchableOpacity onPress={() => setSearchQuery('')}>
@@ -614,7 +619,7 @@ export default function OrdersScreen() {
     {isRefreshing ? (
       <ActivityIndicator size="small" color="#fa5908" style={{ width: 16, height: 16 }} />
     ) : (
-      <Ionicons name="refresh-outline" size={16} color="#475569" />
+      <Ionicons name="sync-outline" size={16} color="#fa5908" />
     )}
   </TouchableOpacity>
   </View>

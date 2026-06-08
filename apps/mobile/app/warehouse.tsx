@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { Text, View, ScrollView, TouchableOpacity, TextInput, Modal, Platform, Alert, ActivityIndicator, TouchableWithoutFeedback, Animated } from 'react-native';
+import { Text, View, ScrollView, TouchableOpacity, TextInput, Modal, Platform, Alert, ActivityIndicator, TouchableWithoutFeedback, Animated, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -14,6 +14,7 @@ import { Badge } from '../components/ui/Badge';
 import { BarcodeScannerModal } from '../components/ui/BarcodeScannerModal';
 import { KeepAliveManager } from '../lib/sync/KeepAliveManager';
 import * as Haptics from 'expo-haptics';
+import { getApiBaseUrl, getApiHeaders } from '../lib/api/config';
 
 const REASONS = [
   { value: 'Kiểm kê định kỳ', label: 'Kiểm kê định kỳ' },
@@ -42,6 +43,7 @@ export default function WarehouseScreen() {
   // Sync states
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'synced' | 'pending'>('synced');
+  const [isRefreshingProduct, setIsRefreshingProduct] = useState(false);
 
   // Toast states
   const [toastMsg, setToastMsg] = useState<{message: string; type: 'success' | 'error' | 'info'} | null>(null);
@@ -74,6 +76,41 @@ export default function WarehouseScreen() {
       showToast('Đồng bộ thất bại, vui lòng thử lại!', 'error');
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  const handleRefreshSingleProduct = async () => {
+    if (!selectedProduct) return;
+    setIsRefreshingProduct(true);
+    try {
+      const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+      const headers = await getApiHeaders();
+      const res = await fetch(`${getApiBaseUrl()}/api/shops/${shopId}/products/${selectedProduct.id}`, { headers });
+      if (res.ok) {
+        const cloudProd = await res.json();
+        const latestQty = parseInt(cloudProd.stock_qty || '0', 10);
+        
+        // Cập nhật SQLite nội địa để đồng bộ luôn
+        if (Platform.OS !== 'web') {
+          await db.update(schema.products)
+            .set({ stock_qty: latestQty })
+            .where(eq(schema.products.id, selectedProduct.id));
+        }
+
+        // Cập nhật selectedProduct
+        setSelectedProduct((prev: any) => prev ? { ...prev, stock_qty: latestQty } : null);
+        
+        // Load lại danh sách sản phẩm để cập nhật màn hình chính
+        await loadProducts();
+        
+        showToast(`Đã cập nhật tồn kho mới nhất từ máy chủ (${latestQty} ${selectedProduct.unit || 'đv'})!`, 'success');
+      } else {
+        showToast('Không thể kết nối máy chủ để lấy tồn kho mới nhất.', 'error');
+      }
+    } catch (err) {
+      showToast('Lỗi khi tải lại tồn kho sản phẩm.', 'error');
+    } finally {
+      setIsRefreshingProduct(false);
     }
   };
 
@@ -273,26 +310,49 @@ export default function WarehouseScreen() {
 
       {/* Tìm kiếm & Quét Barcode */}
       <View className="px-4 pt-3 flex-row items-center gap-2 mb-3">
-        <View className="flex-1 flex-row items-center bg-white border border-slate-200 rounded-xl px-3 py-1">
-          <Ionicons name="search-outline" size={18} color="#94a3b8" />
+        <View className="flex-1 relative justify-center">
+          <View style={{ position: 'absolute', left: 12, zIndex: 10, height: '100%', justifyContent: 'center' }}>
+            <Ionicons name="search-outline" size={18} color="#94a3b8" />
+          </View>
           <TextInput
             value={searchQuery}
             onChangeText={setSearchQuery}
             placeholder="Tìm theo tên, SKU, Barcode..."
             placeholderTextColor="#94a3b8"
-            className="flex-1 text-xs text-slate-800 ml-2 py-2"
-            style={Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : undefined}
+            className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-10 py-2.5 text-xs text-slate-800"
+            style={{
+              paddingVertical: 0,
+              textAlignVertical: 'center',
+              lineHeight: undefined,
+              ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+            }}
           />
           {searchQuery ? (
-            <TouchableOpacity onPress={() => setSearchQuery('')}>
+            <TouchableOpacity 
+              onPress={() => setSearchQuery('')}
+              style={{ position: 'absolute', right: 12, zIndex: 10, height: '100%', justifyContent: 'center' }}
+            >
               <Ionicons name="close-circle" size={16} color="#94a3b8" />
             </TouchableOpacity>
           ) : null}
         </View>
 
         <TouchableOpacity 
+          onPress={handleManualSync}
+          disabled={isSyncing}
+          className="bg-slate-100 border border-slate-200 p-3 rounded-xl justify-center items-center h-11 w-11"
+          activeOpacity={0.7}
+        >
+          {isSyncing ? (
+            <ActivityIndicator size="small" color="#fa5908" style={{ transform: [{ scale: 0.8 }] }} />
+          ) : (
+            <Ionicons name="sync-outline" size={16} color="#fa5908" />
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity 
           onPress={() => setIsScannerOpen(true)}
-          className="bg-orange-500 p-3.5 rounded-xl justify-center items-center"
+          className="bg-orange-500 rounded-xl justify-center items-center h-11 w-11"
           style={{ backgroundColor: '#fa5908' }}
         >
           <Ionicons name="scan" size={16} color="white" />
@@ -343,7 +403,11 @@ export default function WarehouseScreen() {
         transparent={true}
         onRequestClose={() => setShowAdjustModal(false)}
       >
-        <View className="flex-1 bg-black/60 justify-end">
+        <View className="flex-1 justify-end">
+          <Pressable
+            className="absolute inset-0 bg-black/60"
+            onPress={() => setShowAdjustModal(false)}
+          />
           <View className="bg-white rounded-t-3xl p-6 relative">
             
             {/* Header modal */}
@@ -356,24 +420,44 @@ export default function WarehouseScreen() {
 
             {selectedProduct && (
               <ScrollView showsVerticalScrollIndicator={false} className="space-y-4">
-                <View className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-4">
-                  <Text className="text-xs font-semibold text-slate-800">{selectedProduct.name}</Text>
-                  <Text className="text-xxs text-slate-400 font-semibold mt-1">Tồn kho hiện tại trên máy: {selectedProduct.stock_qty} {selectedProduct.unit}</Text>
+                 <View className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-4 flex-row justify-between items-center">
+                  <View className="flex-1 mr-2">
+                    <Text className="text-xs font-semibold text-slate-800">{selectedProduct.name}</Text>
+                    <Text className="text-xxs text-slate-400 font-semibold mt-1">Tồn kho hiện tại trên máy: {selectedProduct.stock_qty} {selectedProduct.unit}</Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={handleRefreshSingleProduct}
+                    disabled={isRefreshingProduct}
+                    className="p-2 bg-white rounded-lg border border-slate-200 items-center justify-center shadow-xs"
+                    activeOpacity={0.7}
+                  >
+                    {isRefreshingProduct ? (
+                      <ActivityIndicator size="small" color="#fa5908" style={{ transform: [{ scale: 0.7 }] }} />
+                    ) : (
+                      <Ionicons name="sync-outline" size={16} color="#fa5908" />
+                    )}
+                  </TouchableOpacity>
                 </View>
 
-                {/* Số lượng thực tế đếm được */}
                 <View className="mb-4">
                   <Text className="text-xxs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Số lượng thực tế *</Text>
-                  <View className="relative flex-row items-center bg-slate-50 border border-slate-200 rounded-xl px-4 py-2">
+                  <View className="relative justify-center">
                     <TextInput
                       value={actualQtyInput}
                       onChangeText={setActualQtyInput}
                       keyboardType="numeric"
-                      className="flex-1 text-center text-lg font-bold text-slate-800"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 text-center text-lg font-bold text-slate-800 pl-4 pr-12"
                       placeholder="0"
-                      style={Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : undefined}
+                      style={{
+                        paddingVertical: 0,
+                        textAlignVertical: 'center',
+                        lineHeight: undefined,
+                        ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+                      }}
                     />
-                    <Text className="text-sm font-semibold text-slate-400 ml-2">{selectedProduct.unit || 'đv'}</Text>
+                    <View style={{ position: 'absolute', right: 16, height: '100%', justifyContent: 'center' }}>
+                      <Text className="text-sm font-semibold text-slate-400" style={{ lineHeight: undefined }}>{selectedProduct.unit || 'đv'}</Text>
+                    </View>
                   </View>
                 </View>
 
@@ -468,8 +552,7 @@ export default function WarehouseScreen() {
                 </ScrollView>
               </View>
             )}
-
-          </View>
+                      </View>
         </View>
       </Modal>
 

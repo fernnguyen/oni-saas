@@ -1,5 +1,5 @@
 import React, {useState, useCallback} from 'react';
-import {Text, View, ScrollView, TouchableOpacity, TextInput, Modal, Platform, Alert, ActivityIndicator} from 'react-native';
+import {Text, View, ScrollView, TouchableOpacity, TextInput, Modal, Platform, Alert, ActivityIndicator, Pressable} from 'react-native';
 import {Ionicons} from '@expo/vector-icons';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {useFocusEffect, router} from 'expo-router';
@@ -649,7 +649,12 @@ export default function SettingsScreen() {
   placeholder="E.g. 192.168.1.200"
   placeholderTextColor="#94a3b8"
   className="flex-1 bg-slate-50 px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 mr-2"
-  style={Platform.OS === 'web' ? ({outlineStyle: 'none'} as any) : undefined}
+  style={{
+    paddingVertical: 0,
+    textAlignVertical: 'center',
+    lineHeight: undefined,
+    ...(Platform.OS === 'web' ? {outlineStyle: 'none'} as any : {})
+  }}
   />
   <TextInput
   value={printerPort}
@@ -657,7 +662,13 @@ export default function SettingsScreen() {
   placeholder="9100"
   placeholderTextColor="#94a3b8"
   className="bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-center text-slate-850"
-  style={[{width: 70}, Platform.OS === 'web' ? ({outlineStyle: 'none'} as any) : undefined]}
+  style={{
+    width: 70,
+    paddingVertical: 0,
+    textAlignVertical: 'center',
+    lineHeight: undefined,
+    ...(Platform.OS === 'web' ? {outlineStyle: 'none'} as any : {})
+  }}
   />
   </View>
   
@@ -884,8 +895,12 @@ export default function SettingsScreen() {
     transparent={true}
     onRequestClose={() => setShowCloseShiftModal(false)}
   >
-    <View className="flex-1 bg-black/60 justify-center items-center px-6">
-      <View className="bg-white w-full rounded-3xl p-6 shadow-2xl border border-slate-100 max-h-[90%]">
+    <View className="flex-1 justify-center items-center px-6">
+      <Pressable
+        className="absolute inset-0 bg-black/60"
+        onPress={() => setShowCloseShiftModal(false)}
+      />
+      <View className="bg-white w-full rounded-3xl p-6 shadow-2xl border border-slate-100 max-h-[90%] relative">
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 10 }}>
           <View className="items-center mb-4">
             <View className="bg-orange-50 p-3 rounded-full mb-3 border border-orange-100">
@@ -932,11 +947,11 @@ export default function SettingsScreen() {
                 style={{
                   paddingVertical: 0,
                   textAlignVertical: 'center',
-                  minHeight: 32,
+                  lineHeight: undefined,
                   ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
                 }}
               />
-              <Text className="text-sm font-semibold text-slate-400 ml-2" style={{ lineHeight: 32 }}>đ</Text>
+              <Text className="text-sm font-semibold text-slate-400 ml-2" style={{ lineHeight: undefined }}>đ</Text>
             </View>
           </View>
 
@@ -967,6 +982,7 @@ export default function SettingsScreen() {
               multiline={true}
               textAlignVertical="top"
               style={{
+                lineHeight: undefined,
                 borderColor: '#e2e8f0',
                 ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
               }}

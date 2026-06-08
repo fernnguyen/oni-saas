@@ -11,7 +11,8 @@ import {
   Platform,
   Linking,
   FlatList,
-  TouchableWithoutFeedback
+  TouchableWithoutFeedback,
+  Pressable
 } from 'react-native';
 import {Ionicons} from '@expo/vector-icons';
 import {SafeAreaView} from 'react-native-safe-area-context';
@@ -571,7 +572,12 @@ export default function CustomersScreen() {
               className="flex-1 text-slate-800 text-xs font-semibold p-0"
               value={searchQuery}
               onChangeText={setSearchQuery}
-              style={{outlineStyle: 'none'} as any}
+              style={{
+                paddingVertical: 0,
+                textAlignVertical: 'center',
+                lineHeight: undefined,
+                ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+              }}
             />
             {searchQuery.length > 0 && (
               <TouchableOpacity onPress={() => setSearchQuery('')}>
@@ -701,8 +707,12 @@ export default function CustomersScreen() {
         transparent={true}
         onRequestClose={() => setIsAddModalOpen(false)}
       >
-        <View className="flex-1 justify-end bg-black/60">
-          <View className="h-[80%] rounded-t-[32px] p-6 justify-between bg-white">
+        <View className="flex-1 justify-end">
+          <Pressable
+            className="absolute inset-0 bg-black/60"
+            onPress={() => setIsAddModalOpen(false)}
+          />
+          <View className="h-[80%] rounded-t-[32px] p-6 justify-between bg-white relative">
             <View className="flex-row justify-between items-center border-b border-slate-100 pb-3">
               <Text className="text-lg font-medium text-slate-800">Thêm khách hàng mới</Text>
               <TouchableOpacity onPress={() => setIsAddModalOpen(false)} className="p-1">
@@ -718,7 +728,12 @@ export default function CustomersScreen() {
                 className="bg-slate-50 px-4 py-3 rounded-xl border border-slate-200 text-sm font-semibold text-slate-800 mb-4"
                 value={newCustName}
                 onChangeText={setNewCustName}
-                style={{outlineStyle: 'none'} as any}
+                style={{
+                  paddingVertical: 0,
+                  textAlignVertical: 'center',
+                  lineHeight: undefined,
+                  ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+                }}
               />
 
               <Text className="text-xs text-slate-500 font-medium mb-1.5">Số điện thoại <Text className="text-red-500">*</Text></Text>
@@ -729,7 +744,12 @@ export default function CustomersScreen() {
                 className="bg-slate-50 px-4 py-3 rounded-xl border border-slate-200 text-sm font-semibold text-slate-800 mb-4"
                 value={newCustPhone}
                 onChangeText={setNewCustPhone}
-                style={{outlineStyle: 'none'} as any}
+                style={{
+                  paddingVertical: 0,
+                  textAlignVertical: 'center',
+                  lineHeight: undefined,
+                  ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+                }}
               />
 
               <Text className="text-xs text-slate-500 font-medium mb-1.5">Hạng thành viên</Text>
@@ -764,7 +784,12 @@ export default function CustomersScreen() {
                 className="bg-slate-50 px-4 py-3 rounded-xl border border-slate-200 text-sm font-semibold text-slate-800 mb-4"
                 value={newCustEmail}
                 onChangeText={setNewCustEmail}
-                style={{outlineStyle: 'none'} as any}
+                style={{
+                  paddingVertical: 0,
+                  textAlignVertical: 'center',
+                  lineHeight: undefined,
+                  ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+                }}
               />
 
               <Text className="text-xs text-slate-500 font-medium mb-1.5">Địa chỉ nhà</Text>
@@ -774,7 +799,12 @@ export default function CustomersScreen() {
                 className="bg-slate-50 px-4 py-3 rounded-xl border border-slate-200 text-sm font-semibold text-slate-800 mb-4"
                 value={newCustAddress}
                 onChangeText={setNewCustAddress}
-                style={{outlineStyle: 'none'} as any}
+                style={{
+                  paddingVertical: 0,
+                  textAlignVertical: 'center',
+                  lineHeight: undefined,
+                  ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+                }}
               />
 
               <Text className="text-xs text-slate-500 font-medium mb-1.5">Hạn mức nợ (đ)</Text>
@@ -785,7 +815,12 @@ export default function CustomersScreen() {
                 className="bg-slate-50 px-4 py-3 rounded-xl border border-slate-200 text-sm font-semibold text-slate-800 mb-4"
                 value={newCustCreditLimit}
                 onChangeText={setNewCustCreditLimit}
-                style={{outlineStyle: 'none'} as any}
+                style={{
+                  paddingVertical: 0,
+                  textAlignVertical: 'center',
+                  lineHeight: undefined,
+                  ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+                }}
               />
 
               <Text className="text-xs text-slate-500 font-medium mb-1.5">Ghi chú đặc biệt</Text>
@@ -797,7 +832,11 @@ export default function CustomersScreen() {
                 className="bg-slate-50 px-4 py-3 rounded-xl border border-slate-200 text-sm font-semibold text-slate-800 mb-4 h-20"
                 value={newCustNote}
                 onChangeText={setNewCustNote}
-                style={{outlineStyle: 'none', textAlignVertical: 'top'} as any}
+                style={{
+                  lineHeight: undefined,
+                  textAlignVertical: 'top',
+                  ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+                }}
               />
             </ScrollView>
 
@@ -1224,8 +1263,12 @@ export default function CustomersScreen() {
         transparent={true}
         onRequestClose={() => setIsCallConfirmOpen(false)}
       >
-        <View className="flex-1 justify-center items-center bg-black/55 px-6">
-          <View className="bg-white rounded-3xl p-6 w-full max-w-[320px] shadow-2xl">
+        <View className="flex-1 justify-center items-center px-6">
+          <Pressable
+            className="absolute inset-0 bg-black/55"
+            onPress={() => setIsCallConfirmOpen(false)}
+          />
+          <View className="bg-white rounded-3xl p-6 w-full max-w-[320px] shadow-2xl relative">
             <View className="items-center mb-4">
               <View className="w-12 h-12 bg-green-50 rounded-full items-center justify-center mb-3 border border-green-200">
                 <Ionicons name="call" size={24} color="#10b981" />

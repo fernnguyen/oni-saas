@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, ScrollView, Modal, Image } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, Modal, Image, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { formatCurrency } from '../../lib/utils/format';
 
@@ -24,8 +24,12 @@ export function ProductPreviewModal({
       transparent={true}
       onRequestClose={onClose}
     >
-      <View className="flex-1 justify-center items-center px-4" style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}>
-        <View className="w-full max-w-[360px] bg-white rounded-2xl overflow-hidden shadow-2xl">
+      <View className="flex-1 justify-center items-center px-4">
+        <Pressable
+          className="absolute inset-0 bg-black/50"
+          onPress={onClose}
+        />
+        <View className="w-full max-w-[360px] bg-white rounded-2xl overflow-hidden shadow-2xl relative">
           <View className="flex-row justify-between items-center p-4 border-b border-slate-100">
             <Text className="text-sm font-semibold text-slate-800 flex-1" numberOfLines={1}>{product.name}</Text>
             <TouchableOpacity onPress={onClose} className="ml-2">

@@ -1,5 +1,5 @@
 import React, {useState, useEffect} from 'react';
-import {Text, View, ScrollView, TouchableOpacity, ActivityIndicator, Alert, TextInput, Modal, Platform} from 'react-native';
+import {Text, View, ScrollView, TouchableOpacity, ActivityIndicator, Alert, TextInput, Modal, Platform, Pressable} from 'react-native';
 import {useRouter} from 'expo-router';
 import {Ionicons} from '@expo/vector-icons';
 import {SafeAreaView} from 'react-native-safe-area-context';
@@ -514,12 +514,17 @@ export default function SelectBranchScreen() {
   value={apiUrlInput}
   onChangeText={setApiUrlInput}
   placeholder="https://oni.vn"
- placeholderTextColor="#94a3b8"
- className="flex-1 bg-slate-50 border border-slate-200 px-3.5 py-2 rounded-xl text-xs font-medium text-slate-800 mr-2"
- autoCapitalize="none"
- keyboardType="url"
- style={{outlineStyle: 'none'} as any}
- />
+  placeholderTextColor="#94a3b8"
+  className="flex-1 bg-slate-50 border border-slate-200 px-3.5 py-2 rounded-xl text-xs font-medium text-slate-800 mr-2"
+  autoCapitalize="none"
+  keyboardType="url"
+  style={{
+    paddingVertical: 0,
+    textAlignVertical: 'center',
+    lineHeight: undefined,
+    ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+  }}
+  />
  <TouchableOpacity 
  className="bg-orange-500 px-4 py-2 rounded-xl justify-center shadow-sm"
  onPress={handleSaveApiUrl}
@@ -636,8 +641,12 @@ export default function SelectBranchScreen() {
     transparent={true}
     onRequestClose={() => setShowShiftModal(false)}
   >
-    <View className="flex-1 bg-black/60 justify-center items-center px-6">
-      <View className="bg-white w-full rounded-3xl p-6 shadow-2xl border border-slate-100">
+    <View className="flex-1 justify-center items-center px-6">
+      <Pressable
+        className="absolute inset-0 bg-black/60"
+        onPress={() => setShowShiftModal(false)}
+      />
+      <View className="bg-white w-full rounded-3xl p-6 shadow-2xl border border-slate-100 relative">
         <View className="items-center mb-4">
           <View className="bg-orange-50 p-3 rounded-full mb-3 border border-orange-100">
             <Ionicons name="wallet-outline" size={24} color="#fa5908" />
@@ -662,7 +671,12 @@ export default function SelectBranchScreen() {
               keyboardType="numeric"
               className="flex-1 text-center text-lg font-bold text-slate-800"
               placeholder="0"
-              style={Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : undefined}
+              style={{
+                paddingVertical: 0,
+                textAlignVertical: 'center',
+                lineHeight: undefined,
+                ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+              }}
             />
             <Text className="text-sm font-semibold text-slate-400 ml-2">đ</Text>
           </View>
