@@ -1,8 +1,8 @@
-import React, { useState, useCallback } from 'react';
-import { Text, View, ScrollView, TouchableOpacity, TextInput, Modal, Platform, Alert, ActivityIndicator, TouchableWithoutFeedback, Animated, Pressable } from 'react-native';
+import React, { useState, useCallback, useEffect } from 'react';
+import { Text, View, ScrollView, TouchableOpacity, TextInput, Modal, Platform, Alert, ActivityIndicator, Animated, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { db } from '../lib/db/client';
 import * as schema from '../lib/db/schema';
@@ -13,18 +13,42 @@ import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { BarcodeScannerModal } from '../components/ui/BarcodeScannerModal';
 import { KeepAliveManager } from '../lib/sync/KeepAliveManager';
+import { PermissionsProvider, usePermissions } from '../lib/auth/PermissionsContext';
 import * as Haptics from 'expo-haptics';
 import { getApiBaseUrl, getApiHeaders } from '../lib/api/config';
 
-const REASONS = [
-  { value: 'Kiểm kê định kỳ', label: 'Kiểm kê định kỳ' },
-  { value: 'Hao hụt thất thoát', label: 'Hao hụt thất thoát' },
-  { value: 'Hư hỏng hàng hóa', label: 'Hư hỏng hàng hóa' },
-  { value: 'Khác', label: 'Lý do khác' },
-];
+const REASONS_MAP: Record<string, { value: string; label: string }[]> = {
+  adjustment: [
+    { value: 'Kiểm kê định kỳ', label: 'Kiểm kê định kỳ' },
+    { value: 'Hao hụt thất thoát', label: 'Hao hụt thất thoát' },
+    { value: 'Hư hỏng hàng hóa', label: 'Hư hỏng hàng hóa' },
+    { value: 'Khác', label: 'Lý do khác' },
+  ],
+  purchase_in: [
+    { value: 'Nhập hàng mới từ nhà cung cấp', label: 'Nhập hàng mới từ NCC' },
+    { value: 'Nhập hàng bổ sung tồn kho', label: 'Nhập hàng bổ sung' },
+    { value: 'Khác', label: 'Lý do khác' },
+  ],
+  transfer_out: [
+    { value: 'Xuất chuyển kho sang chi nhánh khác', label: 'Chuyển sang chi nhánh khác' },
+    { value: 'Xuất chuyển kho lưu trữ/dự phòng', label: 'Chuyển kho lưu trữ/dự phòng' },
+    { value: 'Khác', label: 'Lý do khác' },
+  ],
+  transfer_in: [
+    { value: 'Nhận hàng chuyển từ chi nhánh khác', label: 'Nhận chuyển từ chi nhánh khác' },
+    { value: 'Khác', label: 'Lý do khác' },
+  ],
+  return_in: [
+    { value: 'Khách hàng đổi trả sản phẩm', label: 'Khách hàng đổi trả' },
+    { value: 'Khách hàng trả hàng lỗi', label: 'Khách trả hàng lỗi' },
+    { value: 'Khác', label: 'Lý do khác' },
+  ],
+};
 
-export default function WarehouseScreen() {
-  const router = useRouter();
+function WarehouseContent() {
+  const { hasPermission } = usePermissions();
+  const hasPricingPermission = hasPermission(['admin', 'owner', 'purchaser', 'purchasing.manage', 'chief_accountant', 'settings.manage']);
+
   const [products, setProducts] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -32,10 +56,14 @@ export default function WarehouseScreen() {
   // Barcode scanner state
   const [isScannerOpen, setIsScannerOpen] = useState(false);
 
-  // Form states điều chỉnh tồn kho
+  // Form states giao dịch kho
   const [showAdjustModal, setShowAdjustModal] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
+  const [movementType, setMovementType] = useState<'adjustment' | 'purchase_in' | 'transfer_out' | 'transfer_in' | 'return_in'>('adjustment');
   const [actualQtyInput, setActualQtyInput] = useState('');
+  const [qtyInput, setQtyInput] = useState('1');
+  const [costInput, setCostInput] = useState('');
+  const [referenceNo, setReferenceNo] = useState('');
   const [reason, setReason] = useState('Kiểm kê định kỳ');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showReasonSelector, setShowReasonSelector] = useState(false);
@@ -165,42 +193,118 @@ export default function WarehouseScreen() {
     try {
       setIsLoading(true);
       let localProds: any[] = [];
+      const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
 
-      if (Platform.OS !== 'web') {
-        if (searchQuery.trim()) {
-          const q = `%${searchQuery.trim()}%`;
-          localProds = await db
-            .select()
-            .from(schema.products)
-            .where(
-              or(
-                like(schema.products.name, q),
-                like(schema.products.sku, q),
-                like(schema.products.barcode, q)
-              )
-            );
-        } else {
-          localProds = await db.select().from(schema.products);
+      // 1. NẾU CÓ TÌM KIẾM -> Ưu tiên Online trước, sau đó fallback Offline
+      if (searchQuery.trim()) {
+        let fetchSearchSuccess = false;
+        let searchedProducts: any[] = [];
+        try {
+          const headers = await getApiHeaders();
+          const url = getApiBaseUrl();
+          // Tìm kiếm sản phẩm online (tối đa 100 dòng)
+          const res = await fetch(`${url}/api/shops/${shopId}/products?limit=100&page=1&search=${encodeURIComponent(searchQuery.trim())}`, { headers });
+          if (res.ok) {
+            const resJson = await res.json();
+            const cloudProducts = resJson.data || [];
+            searchedProducts = cloudProducts.map((p: any) => {
+              const sellPrice = parseInt(p.sell_price || '0', 10);
+              const stockQty = parseInt(p.stock_qty || '0', 10);
+              return {
+                id: p.id || p.product_id,
+                name: p.name || '',
+                sku: p.sku || '',
+                barcode: p.barcode || '',
+                category_id: p.category_id || null,
+                unit: p.unit || '',
+                sell_price: isNaN(sellPrice) ? 0 : sellPrice,
+                stock_qty: isNaN(stockQty) ? 0 : stockQty,
+                image_url: p.image_url || null,
+                description: p.description || null,
+              };
+            });
+            fetchSearchSuccess = true;
+
+            // Đồng bộ bộ nhớ đệm cache SQLite cục bộ
+            if (Platform.OS !== 'web') {
+              for (const prod of searchedProducts) {
+                await db.insert(schema.products).values({
+                  id: prod.id,
+                  name: prod.name,
+                  sku: prod.sku,
+                  barcode: prod.barcode,
+                  category_id: prod.category_id,
+                  unit: prod.unit,
+                  sell_price: prod.sell_price,
+                  stock_qty: prod.stock_qty,
+                  image_url: prod.image_url,
+                  description: prod.description,
+                }).onConflictDoUpdate({
+                  target: schema.products.id,
+                  set: {
+                    name: prod.name,
+                    sku: prod.sku,
+                    barcode: prod.barcode,
+                    category_id: prod.category_id,
+                    unit: prod.unit,
+                    sell_price: prod.sell_price,
+                    stock_qty: prod.stock_qty,
+                    image_url: prod.image_url,
+                    description: prod.description,
+                  }
+                });
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('Lỗi tìm kiếm sản phẩm online, tự động chuyển về tìm kiếm offline SQLite:', err);
         }
-      } else {
-        // Mock data
-        localProds = [
-          { id: 'p1', name: 'Cà phê Phin Sữa Đá', sku: 'CF001', barcode: '11111', stock_qty: 15, sell_price: 29000, unit: 'Ly' },
-          { id: 'p2', name: 'Trà Đào Cam Sả', sku: 'TR002', barcode: '22222', stock_qty: 11, sell_price: 39000, unit: 'Ly' },
-          { id: 'p3', name: 'Bánh Mì Pate Thịt', sku: 'BM003', barcode: '33333', stock_qty: 6, sell_price: 25000, unit: 'Cái' },
-        ];
-        if (searchQuery.trim()) {
-          localProds = localProds.filter(p => 
-            p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-            p.barcode.includes(searchQuery) ||
-            p.sku.includes(searchQuery)
-          );
+
+        if (fetchSearchSuccess) {
+          localProds = searchedProducts;
+        } else {
+          // Tìm kiếm offline fallback từ SQLite
+          if (Platform.OS !== 'web') {
+            const q = `%${searchQuery.trim()}%`;
+            localProds = await db
+              .select()
+              .from(schema.products)
+              .where(
+                or(
+                  like(schema.products.name, q),
+                  like(schema.products.sku, q),
+                  like(schema.products.barcode, q)
+                )
+              );
+          } else {
+            localProds = [
+              { id: 'p1', name: 'Cà phê Phin Sữa Đá', sku: 'CF001', barcode: '11111', stock_qty: 15, sell_price: 29000, unit: 'Ly' },
+              { id: 'p2', name: 'Trà Đào Cam Sả', sku: 'TR002', barcode: '22222', stock_qty: 11, sell_price: 39000, unit: 'Ly' },
+              { id: 'p3', name: 'Bánh Mì Pate Thịt', sku: 'BM003', barcode: '33333', stock_qty: 6, sell_price: 25000, unit: 'Cái' },
+            ].filter(p => 
+              p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+              p.barcode.includes(searchQuery) ||
+              p.sku.includes(searchQuery)
+            );
+          }
+        }
+      } 
+      // 2. KHÔNG TÌM KIẾM -> Offline First
+      else {
+        if (Platform.OS !== 'web') {
+          localProds = await db.select().from(schema.products);
+        } else {
+          localProds = [
+            { id: 'p1', name: 'Cà phê Phin Sữa Đá', sku: 'CF001', barcode: '11111', stock_qty: 15, sell_price: 29000, unit: 'Ly' },
+            { id: 'p2', name: 'Trà Đào Cam Sả', sku: 'TR002', barcode: '22222', stock_qty: 11, sell_price: 39000, unit: 'Ly' },
+            { id: 'p3', name: 'Bánh Mì Pate Thịt', sku: 'BM003', barcode: '33333', stock_qty: 6, sell_price: 25000, unit: 'Cái' },
+          ];
         }
       }
 
       setProducts(localProds);
 
-      // 4. Cập nhật syncStatus dựa trên xem có dòng nào pending không
+      // Cập nhật syncStatus dựa trên xem có dòng nào pending không
       let hasPending = false;
       if (Platform.OS !== 'web') {
         const pendingMovements = await db
@@ -217,11 +321,21 @@ export default function WarehouseScreen() {
     }
   };
 
+  // Kích hoạt load lại sản phẩm khi màn hình được focus
   useFocusEffect(
     useCallback(() => {
       loadProducts();
-    }, [searchQuery])
+    }, [])
   );
+
+  // Debounce tìm kiếm (Tránh spam API liên tục khi gõ phím)
+  useEffect(() => {
+    const delayDebounceFn = setTimeout(() => {
+      loadProducts();
+    }, 400);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchQuery]);
 
   const handleScanBarcode = (barcode: string) => {
     setIsScannerOpen(false);
@@ -231,18 +345,120 @@ export default function WarehouseScreen() {
 
   const handleOpenAdjust = (prod: any) => {
     setSelectedProduct(prod);
-    setActualQtyInput(String(prod.stock_qty));
+    setMovementType('adjustment');
+    setActualQtyInput(String(prod.stock_qty || 0));
+    setQtyInput('1');
+    setCostInput('');
+    setReferenceNo('');
     setReason('Kiểm kê định kỳ');
     setShowAdjustModal(true);
   };
 
-  const handleSaveAdjustment = async () => {
-    const actual = parseInt(actualQtyInput, 10);
-    if (isNaN(actual) || actual < 0) {
-      Alert.alert('Lỗi', 'Số lượng đếm thực tế phải là một số lớn hơn hoặc bằng 0.');
-      return;
+  const handleTypeChange = (type: typeof movementType) => {
+    setMovementType(type);
+    const defaultReason = REASONS_MAP[type]?.[0]?.value || 'Khác';
+    setReason(defaultReason);
+    if (type === 'adjustment') {
+      setActualQtyInput(String(selectedProduct?.stock_qty || 0));
+    } else {
+      setQtyInput('1');
+    }
+  };
+
+  const handleSaveMovement = async () => {
+    let delta = 0;
+    let newStockQty = selectedProduct.stock_qty || 0;
+    const currentStock = selectedProduct.stock_qty || 0;
+
+    if (movementType === 'adjustment') {
+      const actual = parseInt(actualQtyInput, 10);
+      if (isNaN(actual) || actual < 0) {
+        Alert.alert('Lỗi', 'Số lượng đếm thực tế phải là một số lớn hơn hoặc bằng 0.');
+        return;
+      }
+      delta = actual - currentStock;
+      newStockQty = actual;
+    } else {
+      const qtyVal = parseInt(qtyInput, 10);
+      if (isNaN(qtyVal) || qtyVal <= 0) {
+        Alert.alert('Lỗi', 'Số lượng giao dịch phải là một số nguyên lớn hơn 0.');
+        return;
+      }
+      
+      if (movementType === 'purchase_in') {
+        delta = qtyVal;
+        newStockQty = currentStock + qtyVal;
+      } else if (movementType === 'transfer_out') {
+        delta = -qtyVal;
+        newStockQty = currentStock - qtyVal;
+      } else if (movementType === 'transfer_in') {
+        delta = qtyVal;
+        newStockQty = currentStock + qtyVal;
+      } else if (movementType === 'return_in') {
+        delta = qtyVal;
+        newStockQty = currentStock + qtyVal;
+      }
     }
 
+    // Validate pricing if purchase_in & user has permission
+    let unitCostVal = 0;
+    if (movementType === 'purchase_in' && hasPricingPermission) {
+      unitCostVal = parseInt(costInput || '0', 10);
+      if (isNaN(unitCostVal) || unitCostVal < 0) {
+        Alert.alert('Lỗi', 'Đơn giá mua/giá vốn phải là một số lớn hơn hoặc bằng 0.');
+        return;
+      }
+    }
+
+    // Tên hiển thị loại giao dịch tiếng Việt
+    const actionNames: Record<string, string> = {
+      adjustment: 'Kiểm kê (Điều chỉnh)',
+      purchase_in: 'Nhập kho',
+      transfer_out: 'Xuất chuyển kho',
+      transfer_in: 'Nhập chuyển kho',
+      return_in: 'Khách trả hàng',
+    };
+
+    let confirmMsg = `Bạn có chắc chắn muốn thực hiện giao dịch sau?\n\n`;
+    confirmMsg += `• Sản phẩm: ${selectedProduct.name}\n`;
+    confirmMsg += `• Loại tác vụ: ${actionNames[movementType]}\n`;
+    
+    if (movementType === 'adjustment') {
+      confirmMsg += `• Tồn kho cũ: ${currentStock} ${selectedProduct.unit || 'đv'}\n`;
+      confirmMsg += `• Tồn kho mới: ${newStockQty} ${selectedProduct.unit || 'đv'}\n`;
+      confirmMsg += `• Chênh lệch: ${delta >= 0 ? '+' : ''}${delta} ${selectedProduct.unit || 'đv'}\n`;
+    } else {
+      confirmMsg += `• Số lượng: ${qtyInput} ${selectedProduct.unit || 'đv'}\n`;
+      confirmMsg += `• Tồn kho trước: ${currentStock} ${selectedProduct.unit || 'đv'}\n`;
+      confirmMsg += `• Tồn kho sau: ${newStockQty} ${selectedProduct.unit || 'đv'}\n`;
+    }
+
+    if (movementType === 'purchase_in' && hasPricingPermission) {
+      confirmMsg += `• Đơn giá mua: ${formatCurrency(unitCostVal)}\n`;
+      confirmMsg += `• Tổng giá trị: ${formatCurrency(unitCostVal * parseInt(qtyInput || '0', 10))}\n`;
+    }
+
+    if (referenceNo) {
+      confirmMsg += `• Mã chứng từ: ${referenceNo}\n`;
+    }
+    
+    confirmMsg += `• Lý do: ${reason}\n`;
+
+    Alert.alert(
+      'Xác nhận giao dịch kho',
+      confirmMsg,
+      [
+        { text: 'Hủy', style: 'cancel' },
+        {
+          text: 'Xác nhận',
+          style: 'default',
+          onPress: () => submitMovement(delta, newStockQty, unitCostVal)
+        }
+      ]
+    );
+  };
+
+  const submitMovement = async (delta: number, newStockQty: number, unitCostVal: number) => {
     setIsSubmitting(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
 
@@ -252,23 +468,23 @@ export default function WarehouseScreen() {
       const movementId = `sm-local-${Date.now()}`;
       const nowStr = new Date().toISOString();
 
-      const expected = selectedProduct.stock_qty || 0;
-      const delta = actual - expected;
+      // Hậu tố [Mobile] để dễ quản lý, kiểm soát nguồn gốc phiếu phát sinh
+      const finalReason = reason ? `${reason} [Mobile]` : 'Giao dịch kho từ di động [Mobile]';
 
-      // 1. Lưu phiếu điều chỉnh stock_movements vào SQLite
+      // 1. Lưu phiếu giao dịch stock_movements vào SQLite
       if (Platform.OS !== 'web') {
         await db.insert(schema.stockMovements).values({
           id: movementId,
           branch_id: shopId,
-          type: 'adjustment',
+          type: movementType,
           product_id: selectedProduct.id,
           sku: selectedProduct.sku || null,
           variant_id: null,
-          qty: delta, // Lưu chênh lệch (+/-)
-          unit_cost: 0,
-          reference_no: null,
+          qty: delta, // Delta có dấu âm/dương
+          unit_cost: unitCostVal,
+          reference_no: referenceNo || null,
           employee_id: userEmail,
-          reason,
+          reason: finalReason,
           workflow_status: 'completed',
           created_at: nowStr,
           sync_status: 'pending',
@@ -277,13 +493,13 @@ export default function WarehouseScreen() {
         // 2. Cập nhật tồn kho sản phẩm trực tiếp trong bảng products SQLite cục bộ
         await db
           .update(schema.products)
-          .set({ stock_qty: actual })
+          .set({ stock_qty: newStockQty })
           .where(eq(schema.products.id, selectedProduct.id));
       }
 
       setShowAdjustModal(false);
       setSelectedProduct(null);
-      showToast('Đã lưu phiếu kiểm kho ngoại tuyến và cập nhật tồn kho di động thành công!', 'success');
+      showToast('Đã lưu phiếu kho ngoại tuyến và cập nhật tồn kho di động thành công!', 'success');
       
       // Load lại sản phẩm
       await loadProducts();
@@ -291,7 +507,7 @@ export default function WarehouseScreen() {
       // Gọi đồng bộ nền ngay
       KeepAliveManager.triggerSyncIfNeeded(false);
     } catch (err: any) {
-      showToast(`Lỗi lưu điều chỉnh kho: ${err.message}`, 'error');
+      showToast(`Lỗi lưu phiếu kho: ${err.message}`, 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -300,7 +516,7 @@ export default function WarehouseScreen() {
   return (
     <SafeAreaView edges={['top', 'left', 'right']} className="flex-1 bg-slate-50">
       <Header 
-        title="Kiểm kho sản phẩm" 
+        title="Giao dịch kho sản phẩm" 
         onPressMenu={() => router.push('/(tabs)')} 
         showBack={true} 
         syncStatus={syncStatus}
@@ -386,7 +602,7 @@ export default function WarehouseScreen() {
               <Button
                 variant="outline"
                 size="sm"
-                title="Kiểm kho"
+                title="Giao dịch kho"
                 onPress={() => handleOpenAdjust(p)}
                 className="rounded-xl px-3 py-1.5"
               />
@@ -408,14 +624,60 @@ export default function WarehouseScreen() {
             className="absolute inset-0 bg-black/60"
             onPress={() => setShowAdjustModal(false)}
           />
-          <View className="bg-white rounded-t-3xl p-6 relative">
+          <View className="bg-white rounded-t-3xl p-6 relative max-h-[90%]">
             
             {/* Header modal */}
-            <View className="flex-row justify-between items-center mb-6">
-              <Text className="text-base font-bold text-slate-800">Kiểm kê & Điều chỉnh tồn kho</Text>
+            <View className="flex-row justify-between items-center mb-4">
+              <Text className="text-base font-bold text-slate-800">Giao dịch kho hàng</Text>
               <TouchableOpacity onPress={() => setShowAdjustModal(false)}>
                 <Ionicons name="close" size={24} color="#64748b" />
               </TouchableOpacity>
+            </View>
+
+            {/* Segmented type selector */}
+            <View className="flex-row bg-slate-100 p-1 rounded-xl mb-4 gap-1">
+              {[
+                { type: 'adjustment', label: 'Kiểm kê', icon: 'calculator-outline', color: '#eab308' },
+                { type: 'purchase_in', label: 'Nhập kho', icon: 'download-outline', color: '#3b82f6' },
+                { type: 'transfer_out', label: 'Xuất chuyển', icon: 'arrow-forward-outline', color: '#f97316' },
+                { type: 'transfer_in', label: 'Nhập chuyển', icon: 'arrow-back-outline', color: '#a855f7' },
+                { type: 'return_in', label: 'Khách trả', icon: 'refresh-outline', color: '#ef4444' },
+              ].map((item) => {
+                const isActive = movementType === item.type;
+                return (
+                  <TouchableOpacity
+                    key={item.type}
+                    onPress={() => handleTypeChange(item.type as any)}
+                    className="flex-1 py-2 rounded-lg items-center justify-center"
+                    style={isActive ? {
+                      backgroundColor: 'white',
+                      ...Platform.select({
+                        ios: {
+                          shadowColor: '#000',
+                          shadowOffset: { width: 0, height: 1 },
+                          shadowOpacity: 0.05,
+                          shadowRadius: 1,
+                        },
+                        android: {
+                          elevation: 1,
+                        },
+                      })
+                    } : undefined}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons 
+                      name={item.icon as any} 
+                      size={14} 
+                      color={isActive ? item.color : '#64748b'} 
+                    />
+                    <Text 
+                      className={`text-[9px] font-semibold mt-0.5 ${isActive ? 'text-slate-850 font-bold' : 'text-slate-500'}`}
+                    >
+                      {item.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
 
             {selectedProduct && (
@@ -423,7 +685,24 @@ export default function WarehouseScreen() {
                  <View className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-4 flex-row justify-between items-center">
                   <View className="flex-1 mr-2">
                     <Text className="text-xs font-semibold text-slate-800">{selectedProduct.name}</Text>
-                    <Text className="text-xxs text-slate-400 font-semibold mt-1">Tồn kho hiện tại trên máy: {selectedProduct.stock_qty} {selectedProduct.unit}</Text>
+                    {movementType === 'adjustment' ? (
+                      <Text className="text-xxs text-slate-400 font-semibold mt-1">Tồn kho hiện tại trên máy: {selectedProduct.stock_qty} {selectedProduct.unit || 'đv'}</Text>
+                    ) : (
+                      <Text className="text-xxs text-slate-400 font-semibold mt-1">
+                        Tồn kho hiện tại: {selectedProduct.stock_qty} {selectedProduct.unit || 'đv'}
+                        {(() => {
+                          const val = parseInt(qtyInput, 10);
+                          if (isNaN(val) || val <= 0) return '';
+                          let nextQty = selectedProduct.stock_qty || 0;
+                          if (movementType === 'purchase_in' || movementType === 'transfer_in' || movementType === 'return_in') {
+                            nextQty += val;
+                          } else if (movementType === 'transfer_out') {
+                            nextQty -= val;
+                          }
+                          return ` ➔ Tồn dự kiến sau lưu: ${nextQty} ${selectedProduct.unit || 'đv'}`;
+                        })()}
+                      </Text>
+                    )}
                   </View>
                   <TouchableOpacity
                     onPress={handleRefreshSingleProduct}
@@ -439,30 +718,104 @@ export default function WarehouseScreen() {
                   </TouchableOpacity>
                 </View>
 
-                <View className="mb-4">
-                  <Text className="text-xxs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Số lượng thực tế *</Text>
-                  <View className="relative justify-center">
-                    <TextInput
-                      value={actualQtyInput}
-                      onChangeText={setActualQtyInput}
-                      keyboardType="numeric"
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 text-center text-lg font-bold text-slate-800 pl-4 pr-12"
-                      placeholder="0"
-                      style={{
-                        paddingVertical: 0,
-                        textAlignVertical: 'center',
-                        lineHeight: undefined,
-                        ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
-                      }}
-                    />
-                    <View style={{ position: 'absolute', right: 16, height: '100%', justifyContent: 'center' }}>
-                      <Text className="text-sm font-semibold text-slate-400" style={{ lineHeight: undefined }}>{selectedProduct.unit || 'đv'}</Text>
+                {movementType === 'adjustment' ? (
+                  <View className="mb-4">
+                    <Text className="text-xxs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Số lượng thực tế *</Text>
+                    <View className="relative justify-center">
+                      <TextInput
+                        value={actualQtyInput}
+                        onChangeText={setActualQtyInput}
+                        keyboardType="numeric"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 text-center text-lg font-bold text-slate-800 pl-4 pr-12"
+                        placeholder="0"
+                        style={{
+                          paddingVertical: 0,
+                          textAlignVertical: 'center',
+                          lineHeight: undefined,
+                          ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+                        }}
+                      />
+                      <View style={{ position: 'absolute', right: 16, height: '100%', justifyContent: 'center' }}>
+                        <Text className="text-sm font-semibold text-slate-400" style={{ lineHeight: undefined }}>{selectedProduct.unit || 'đv'}</Text>
+                      </View>
                     </View>
                   </View>
+                ) : (
+                  <View className="mb-4">
+                    <Text className="text-xxs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+                      {movementType === 'purchase_in' ? 'Số lượng nhập *' :
+                       movementType === 'transfer_out' ? 'Số lượng xuất chuyển *' :
+                       movementType === 'transfer_in' ? 'Số lượng nhập chuyển *' :
+                       'Số lượng khách trả *'}
+                    </Text>
+                    <View className="relative justify-center">
+                      <TextInput
+                        value={qtyInput}
+                        onChangeText={setQtyInput}
+                        keyboardType="numeric"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 text-center text-lg font-bold text-slate-800 pl-4 pr-12"
+                        placeholder="1"
+                        style={{
+                          paddingVertical: 0,
+                          textAlignVertical: 'center',
+                          lineHeight: undefined,
+                          ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+                        }}
+                      />
+                      <View style={{ position: 'absolute', right: 16, height: '100%', justifyContent: 'center' }}>
+                        <Text className="text-sm font-semibold text-slate-400" style={{ lineHeight: undefined }}>{selectedProduct.unit || 'đv'}</Text>
+                      </View>
+                    </View>
+                  </View>
+                )}
+
+                {/* Nhập đơn giá nếu có quyền (chỉ dành cho Nhập kho) */}
+                {movementType === 'purchase_in' && hasPricingPermission && (
+                  <View className="mb-4">
+                    <Text className="text-xxs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Đơn giá nhập (đ/đv) *</Text>
+                    <View className="relative justify-center">
+                      <TextInput
+                        value={costInput}
+                        onChangeText={setCostInput}
+                        keyboardType="numeric"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 text-center text-sm font-bold text-slate-800 px-4"
+                        placeholder="0"
+                        style={{
+                          paddingVertical: 0,
+                          textAlignVertical: 'center',
+                          lineHeight: undefined,
+                          ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+                        }}
+                      />
+                    </View>
+                    {costInput !== '' && !isNaN(parseInt(costInput, 10)) && (
+                      <Text className="text-[10px] text-slate-400 font-semibold mt-1 text-right">
+                        Thành tiền: {formatCurrency(parseInt(costInput, 10) * parseInt(qtyInput || '0', 10))}
+                      </Text>
+                    )}
+                  </View>
+                )}
+
+                {/* Nhập mã chứng từ */}
+                <View className="mb-4">
+                  <Text className="text-xxs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Mã chứng từ / Mã tham chiếu</Text>
+                  <TextInput
+                    value={referenceNo}
+                    onChangeText={setReferenceNo}
+                    placeholder="Ví dụ: PN001, PO-992,..."
+                    placeholderTextColor="#cbd5e1"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs text-slate-850 font-semibold"
+                    style={{
+                      paddingVertical: 0,
+                      textAlignVertical: 'center',
+                      lineHeight: undefined,
+                      ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+                    }}
+                  />
                 </View>
 
-                {/* Độ lệch chênh lệch */}
-                {actualQtyInput !== '' && (
+                {/* Hiển thị chênh lệch (đối với kiểm kho) */}
+                {movementType === 'adjustment' && actualQtyInput !== '' && (
                   <View className="mb-4 p-3 rounded-lg flex-row justify-between items-center bg-slate-50 border border-slate-100">
                     <Text className="text-xxs font-semibold text-slate-500">Chênh lệch điều chỉnh:</Text>
                     {(() => {
@@ -478,16 +831,34 @@ export default function WarehouseScreen() {
                   </View>
                 )}
 
+                {/* Cảnh báo âm kho khi xuất chuyển */}
+                {movementType === 'transfer_out' && qtyInput !== '' && (
+                  (() => {
+                    const val = parseInt(qtyInput, 10);
+                    if (!isNaN(val) && val > (selectedProduct.stock_qty || 0)) {
+                      return (
+                        <View className="mb-4 p-3 rounded-lg flex-row items-center bg-rose-50 border border-rose-100">
+                          <Ionicons name="warning-outline" size={14} color="#e11d48" className="mr-1.5" />
+                          <Text className="text-[10px] text-rose-600 font-semibold flex-1">
+                            Cảnh báo: Số lượng xuất ({val}) lớn hơn tồn kho hiện tại ({selectedProduct.stock_qty || 0}).
+                          </Text>
+                        </View>
+                      );
+                    }
+                    return null;
+                  })()
+                )}
+
                 {/* Lý do */}
                 <View className="mb-4">
-                  <Text className="text-xxs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Lý do điều chỉnh *</Text>
+                  <Text className="text-xxs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Lý do giao dịch *</Text>
                   <TouchableOpacity
                     activeOpacity={0.8}
                     onPress={() => setShowReasonSelector(true)}
                     className="flex-row justify-between items-center border border-slate-200 rounded-xl px-4 py-3 bg-slate-50"
                   >
                     <Text className="text-xs font-semibold text-slate-800">
-                      {REASONS.find(r => r.value === reason)?.label || 'Chọn lý do'}
+                      {reason}
                     </Text>
                     <Ionicons name="chevron-down" size={16} color="#64748b" />
                   </TouchableOpacity>
@@ -505,7 +876,7 @@ export default function WarehouseScreen() {
 
                   <TouchableOpacity
                     className="flex-1 py-3.5 rounded-xl bg-orange-500 items-center justify-center flex-row"
-                    onPress={handleSaveAdjustment}
+                    onPress={handleSaveMovement}
                     disabled={isSubmitting}
                     style={{ backgroundColor: '#fa5908' }}
                   >
@@ -514,7 +885,7 @@ export default function WarehouseScreen() {
                     ) : (
                       <>
                         <Ionicons name="checkmark-circle-outline" size={16} color="white" />
-                        <Text className="text-white font-semibold text-xs ml-1.5">Xác nhận điều chỉnh</Text>
+                        <Text className="text-white font-semibold text-xs ml-1.5">Xác nhận giao dịch</Text>
                       </>
                     )}
                   </TouchableOpacity>
@@ -526,13 +897,13 @@ export default function WarehouseScreen() {
             {showReasonSelector && (
               <View className="absolute inset-0 bg-white rounded-t-3xl p-6 z-50">
                 <View className="flex-row justify-between items-center mb-6">
-                  <Text className="text-base font-bold text-slate-800">Chọn lý do điều chỉnh</Text>
+                  <Text className="text-base font-bold text-slate-800">Chọn lý do giao dịch</Text>
                   <TouchableOpacity onPress={() => setShowReasonSelector(false)}>
                     <Ionicons name="close" size={24} color="#64748b" />
                   </TouchableOpacity>
                 </View>
                 <ScrollView showsVerticalScrollIndicator={false}>
-                  {REASONS.map(r => (
+                  {(REASONS_MAP[movementType] || REASONS_MAP.adjustment).map(r => (
                     <TouchableOpacity
                       key={r.value}
                       onPress={() => {
@@ -552,7 +923,7 @@ export default function WarehouseScreen() {
                 </ScrollView>
               </View>
             )}
-                      </View>
+          </View>
         </View>
       </Modal>
 
@@ -564,5 +935,13 @@ export default function WarehouseScreen() {
       />
       {renderToast()}
     </SafeAreaView>
+  );
+}
+
+export default function WarehouseScreen() {
+  return (
+    <PermissionsProvider>
+      <WarehouseContent />
+    </PermissionsProvider>
   );
 }
