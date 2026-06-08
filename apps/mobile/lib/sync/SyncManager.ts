@@ -3,6 +3,7 @@ import * as schema from '../db/schema';
 import { getApiBaseUrl, getApiHeaders } from '../api/config';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { eq } from 'drizzle-orm';
+import { formatDateTime } from '../utils/format';
 
 export class SyncManager {
   
@@ -264,7 +265,7 @@ export class SyncManager {
             reference_name: cb.reference_name || null,
             employee_id: cb.employee_id || null,
             note: cb.note || null,
-            date: cb.date || new Date().toISOString().split('T')[0],
+            date: cb.created_at || cb.date || new Date().toISOString(),
             fund_id: cb.fund_id || null,
             sync_status: 'synced',
           }).onConflictDoNothing();
@@ -501,14 +502,16 @@ export class SyncManager {
             headers,
             body: JSON.stringify({
               type: item.type,
-              amount: String(item.amount),
+              amount: Number(item.amount),
               method: item.method,
               category: item.category,
               reference_id: item.reference_id || undefined,
               reference_name: item.reference_name || undefined,
-              note: item.note || `Phiếu ghi nhận offline lúc ${item.date}`,
+              note: item.note ? `${item.note} [Mobile]` : `Phiếu ghi nhận từ di động lúc ${item.date.includes('T') ? formatDateTime(item.date) : item.date}`,
               fund_id: item.fund_id || undefined,
               date: item.date,
+              branch_id: shopId,
+              employee_id: item.employee_id || undefined,
             }),
           });
 

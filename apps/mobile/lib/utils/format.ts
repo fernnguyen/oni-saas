@@ -126,8 +126,8 @@ export function formatDate(dateVal: Date | string | number | null | undefined): 
 }
 
 /**
- * Định dạng ngày giờ đầy đủ kiểu Việt Nam: HH:mm dd/mm/yyyy
- * Ví dụ: "2025-12-18T05:30:00.000Z" -> "12:30 18/12/2025" (tự động quy đổi múi giờ địa phương)
+ * Định dạng ngày giờ đầy đủ kiểu Việt Nam: dd/mm/yyyy HH:mm
+ * Ví dụ: "2025-12-18T05:30:00.000Z" -> "18/12/2025 12:30" (tự động quy đổi múi giờ địa phương)
  */
 export function formatDateTime(dateVal: Date | string | number | null | undefined): string {
   if (!dateVal) return '';
@@ -140,5 +140,5 @@ export function formatDateTime(dateVal: Date | string | number | null | undefine
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const year = date.getFullYear();
 
-  return `${hours}:${minutes} ${day}/${month}/${year}`;
+  return `${day}/${month}/${year} ${hours}:${minutes}`;
 }

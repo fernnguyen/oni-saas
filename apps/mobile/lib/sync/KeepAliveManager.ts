@@ -91,14 +91,10 @@ export class KeepAliveManager {
       await SyncManager.pushOfflineOrders(shopId);
 
       // 3. Đẩy Sổ quỹ pending
-      if (typeof (SyncManager as any).pushOfflineCashbook === 'function') {
-        await (SyncManager as any).pushOfflineCashbook(shopId);
-      }
+      await SyncManager.pushOfflineCashbook(shopId);
 
       // 4. Đẩy Điều chỉnh kho pending
-      if (typeof (SyncManager as any).pushOfflineStockMovements === 'function') {
-        await (SyncManager as any).pushOfflineStockMovements(shopId);
-      }
+      await SyncManager.pushOfflineStockMovements(shopId);
     } catch (e) {
       console.warn('[KeepAliveManager] Lỗi đẩy dữ liệu pending:', e);
     }

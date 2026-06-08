@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { Text, View, ScrollView, TouchableOpacity, TextInput, Modal, Platform, Alert, ActivityIndicator, TouchableWithoutFeedback } from 'react-native';
+import { Text, View, ScrollView, TouchableOpacity, TextInput, Modal, Platform, Alert, ActivityIndicator, TouchableWithoutFeedback, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -39,6 +39,91 @@ export default function WarehouseScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showReasonSelector, setShowReasonSelector] = useState(false);
 
+  // Sync states
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'synced' | 'pending'>('synced');
+
+  // Toast states
+  const [toastMsg, setToastMsg] = useState<{message: string; type: 'success' | 'error' | 'info'} | null>(null);
+  const toastOpacity = React.useRef(new Animated.Value(0)).current;
+
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+    setToastMsg({message, type});
+    Haptics.notificationAsync(
+      type === 'success' ? Haptics.NotificationFeedbackType.Success :
+      type === 'error' ? Haptics.NotificationFeedbackType.Error :
+      Haptics.NotificationFeedbackType.Warning
+    ).catch(() => {});
+    
+    Animated.sequence([
+      Animated.timing(toastOpacity, {toValue: 1, duration: 250, useNativeDriver: true}),
+      Animated.delay(2000),
+      Animated.timing(toastOpacity, {toValue: 0, duration: 250, useNativeDriver: true})
+    ]).start(() => setToastMsg(null));
+  };
+
+  const handleManualSync = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    showToast('Đang tiến hành đồng bộ dữ liệu...', 'info');
+    try {
+      await KeepAliveManager.triggerSyncIfNeeded(true);
+      await loadProducts();
+      showToast('Đồng bộ dữ liệu kho hàng thành công!', 'success');
+    } catch (err) {
+      showToast('Đồng bộ thất bại, vui lòng thử lại!', 'error');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const renderToast = () => {
+    if (!toastMsg) return null;
+    return (
+      <Animated.View 
+        style={{
+          position: 'absolute',
+          top: Platform.OS === 'ios' ? 60 : 30,
+          left: 20,
+          right: 20,
+          zIndex: 999999,
+          opacity: toastOpacity,
+          transform: [
+            {
+              translateY: toastOpacity.interpolate({
+                inputRange: [0, 1],
+                outputRange: [-20, 0]
+              })
+            }
+          ],
+          shadowColor: '#000',
+          shadowOffset: {width: 0, height: 4},
+          shadowOpacity: 0.15,
+          shadowRadius: 8,
+          elevation: 999
+        }}
+        className={`flex-row items-center px-4 py-3.5 rounded-2xl border ${
+          toastMsg.type === 'success' ? 'bg-emerald-500 border-emerald-600' :
+          toastMsg.type === 'error' ? 'bg-rose-500 border-rose-600' :
+          'bg-blue-600 border-blue-700'
+        }`}
+      >
+        <Ionicons 
+          name={
+            toastMsg.type === 'success' ? 'checkmark-circle' :
+            toastMsg.type === 'error' ? 'alert-circle' :
+            'information-circle'
+          } 
+          size={18} 
+          color="white" 
+        />
+        <Text className="flex-1 ml-2.5 text-white font-medium text-xs">
+          {toastMsg.message}
+        </Text>
+      </Animated.View>
+    );
+  };
+
   const loadProducts = async () => {
     try {
       setIsLoading(true);
@@ -77,6 +162,17 @@ export default function WarehouseScreen() {
       }
 
       setProducts(localProds);
+
+      // 4. Cập nhật syncStatus dựa trên xem có dòng nào pending không
+      let hasPending = false;
+      if (Platform.OS !== 'web') {
+        const pendingMovements = await db
+          .select()
+          .from(schema.stockMovements)
+          .where(eq(schema.stockMovements.sync_status, 'pending'));
+        hasPending = pendingMovements.length > 0;
+      }
+      setSyncStatus(hasPending ? 'pending' : 'synced');
     } catch (error) {
       console.error('Lỗi tải sản phẩm:', error);
     } finally {
@@ -150,7 +246,7 @@ export default function WarehouseScreen() {
 
       setShowAdjustModal(false);
       setSelectedProduct(null);
-      Alert.alert('Thành công', 'Đã lưu phiếu kiểm kho ngoại tuyến và cập nhật số lượng tồn kho di động.');
+      showToast('Đã lưu phiếu kiểm kho ngoại tuyến và cập nhật tồn kho di động thành công!', 'success');
       
       // Load lại sản phẩm
       await loadProducts();
@@ -158,7 +254,7 @@ export default function WarehouseScreen() {
       // Gọi đồng bộ nền ngay
       KeepAliveManager.triggerSyncIfNeeded(false);
     } catch (err: any) {
-      Alert.alert('Lỗi', `Lỗi lưu điều chỉnh kho: ${err.message}`);
+      showToast(`Lỗi lưu điều chỉnh kho: ${err.message}`, 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -166,7 +262,14 @@ export default function WarehouseScreen() {
 
   return (
     <SafeAreaView edges={['top', 'left', 'right']} className="flex-1 bg-slate-50">
-      <Header title="Kiểm kho sản phẩm" onPressMenu={() => router.push('/(tabs)')} showBack={true} />
+      <Header 
+        title="Kiểm kho sản phẩm" 
+        onPressMenu={() => router.push('/(tabs)')} 
+        showBack={true} 
+        syncStatus={syncStatus}
+        isSyncing={isSyncing}
+        onPressSync={handleManualSync}
+      />
 
       {/* Tìm kiếm & Quét Barcode */}
       <View className="px-4 pt-3 flex-row items-center gap-2 mb-3">
@@ -376,6 +479,7 @@ export default function WarehouseScreen() {
         onClose={() => setIsScannerOpen(false)}
         onScan={handleScanBarcode}
       />
+      {renderToast()}
     </SafeAreaView>
   );
 }

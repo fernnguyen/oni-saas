@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { Text, View, ScrollView, TouchableOpacity, TextInput, Modal, Platform, Alert, ActivityIndicator, TouchableWithoutFeedback } from 'react-native';
+import { Text, View, ScrollView, TouchableOpacity, TextInput, Modal, Platform, Alert, ActivityIndicator, TouchableWithoutFeedback, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -7,7 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { db } from '../lib/db/client';
 import * as schema from '../lib/db/schema';
 import { eq, desc } from 'drizzle-orm';
-import { formatCurrency } from '../lib/utils/format';
+import { formatCurrency, formatDate, formatDateTime } from '../lib/utils/format';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
@@ -73,6 +73,91 @@ export default function CashbookScreen() {
   const [showFundSelector, setShowFundSelector] = useState(false);
   const [showCustomerSelector, setShowCustomerSelector] = useState(false);
 
+  // Sync states
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'synced' | 'pending'>('synced');
+
+  // Toast states
+  const [toastMsg, setToastMsg] = useState<{message: string; type: 'success' | 'error' | 'info'} | null>(null);
+  const toastOpacity = React.useRef(new Animated.Value(0)).current;
+
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+    setToastMsg({message, type});
+    Haptics.notificationAsync(
+      type === 'success' ? Haptics.NotificationFeedbackType.Success :
+      type === 'error' ? Haptics.NotificationFeedbackType.Error :
+      Haptics.NotificationFeedbackType.Warning
+    ).catch(() => {});
+    
+    Animated.sequence([
+      Animated.timing(toastOpacity, {toValue: 1, duration: 250, useNativeDriver: true}),
+      Animated.delay(2000),
+      Animated.timing(toastOpacity, {toValue: 0, duration: 250, useNativeDriver: true})
+    ]).start(() => setToastMsg(null));
+  };
+
+  const handleManualSync = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    showToast('Đang tiến hành đồng bộ dữ liệu...', 'info');
+    try {
+      await KeepAliveManager.triggerSyncIfNeeded(true);
+      await loadCashbookData();
+      showToast('Đồng bộ dữ liệu sổ quỹ thành công!', 'success');
+    } catch (err) {
+      showToast('Đồng bộ thất bại, vui lòng thử lại!', 'error');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const renderToast = () => {
+    if (!toastMsg) return null;
+    return (
+      <Animated.View 
+        style={{
+          position: 'absolute',
+          top: Platform.OS === 'ios' ? 60 : 30,
+          left: 20,
+          right: 20,
+          zIndex: 999999,
+          opacity: toastOpacity,
+          transform: [
+            {
+              translateY: toastOpacity.interpolate({
+                inputRange: [0, 1],
+                outputRange: [-20, 0]
+              })
+            }
+          ],
+          shadowColor: '#000',
+          shadowOffset: {width: 0, height: 4},
+          shadowOpacity: 0.15,
+          shadowRadius: 8,
+          elevation: 999
+        }}
+        className={`flex-row items-center px-4 py-3.5 rounded-2xl border ${
+          toastMsg.type === 'success' ? 'bg-emerald-500 border-emerald-600' :
+          toastMsg.type === 'error' ? 'bg-rose-500 border-rose-600' :
+          'bg-blue-600 border-blue-700'
+        }`}
+      >
+        <Ionicons 
+          name={
+            toastMsg.type === 'success' ? 'checkmark-circle' :
+            toastMsg.type === 'error' ? 'alert-circle' :
+            'information-circle'
+          } 
+          size={18} 
+          color="white" 
+        />
+        <Text className="flex-1 ml-2.5 text-white font-medium text-xs">
+          {toastMsg.message}
+        </Text>
+      </Animated.View>
+    );
+  };
+
   // Tự động mở modal thu nợ khi chuyển hướng từ danh sách khách hàng
   React.useEffect(() => {
     if (customer_id && customers.length > 0) {
@@ -120,8 +205,8 @@ export default function CashbookScreen() {
       } else {
         // Mock data cho web simulator
         localTx = [
-          { id: '1', type: 'receipt', amount: 350000, category: 'debt_collection', reference_name: 'Nguyễn Văn A', note: 'Thu nợ', date: '2026-06-08', sync_status: 'synced' },
-          { id: '2', type: 'payment', amount: 1200000, category: 'rent', note: 'Thanh toán tiền điện', date: '2026-06-07', sync_status: 'synced' },
+          { id: '1', type: 'receipt', amount: 350000, category: 'debt_collection', reference_name: 'Nguyễn Văn A', note: 'Thu nợ', date: '2026-06-08T10:30:00.000Z', sync_status: 'synced' },
+          { id: '2', type: 'payment', amount: 1200000, category: 'utilities', note: 'Thanh toán tiền điện', date: '2026-06-07T15:45:00.000Z', sync_status: 'synced' },
         ];
       }
       setTransactions(localTx);
@@ -140,6 +225,10 @@ export default function CashbookScreen() {
       setTotalReceipt(receipts);
       setTotalPayment(payments);
       setNetBalance(initialBalanceSum + receipts - payments);
+
+      // 5. Cập nhật syncStatus dựa trên xem có dòng nào pending không
+      const hasPending = localTx.some(t => t.sync_status === 'pending');
+      setSyncStatus(hasPending ? 'pending' : 'synced');
     } catch (error) {
       console.error('Lỗi khi tải dữ liệu sổ quỹ:', error);
     } finally {
@@ -167,7 +256,7 @@ export default function CashbookScreen() {
       const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
       const userEmail = await AsyncStorage.getItem('saved_email') || 'mobile-app';
       const txId = `cb-local-${Date.now()}`;
-      const todayStr = new Date().toISOString().split('T')[0];
+      const todayStr = new Date().toISOString();
 
       let refName = '';
       if (txType === 'receipt' && category === 'debt_collection' && customerId) {
@@ -211,7 +300,7 @@ export default function CashbookScreen() {
       setNote('');
       setCustomerId('');
       
-      Alert.alert('Thành công', `Đã lưu phiếu ${txType === 'receipt' ? 'Thu' : 'Chi'} ngoại tuyến thành công.`);
+      showToast(`Đã lưu phiếu ${txType === 'receipt' ? 'Thu' : 'Chi'} ngoại tuyến thành công!`, 'success');
       
       // Tải lại dữ liệu
       await loadCashbookData();
@@ -219,7 +308,7 @@ export default function CashbookScreen() {
       // Kích hoạt đồng bộ nền ngay lập tức để đẩy lên cloud
       KeepAliveManager.triggerSyncIfNeeded(false);
     } catch (err: any) {
-      Alert.alert('Lỗi', `Không thể lưu phiếu thu chi: ${err.message}`);
+      showToast(`Không thể lưu phiếu thu chi: ${err.message}`, 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -227,7 +316,14 @@ export default function CashbookScreen() {
 
   return (
     <SafeAreaView edges={['top', 'left', 'right']} className="flex-1 bg-slate-50">
-      <Header title="Sổ quỹ thu chi" onPressMenu={() => router.push('/(tabs)')} showBack={true} />
+      <Header 
+        title="Sổ quỹ thu chi" 
+        onPressMenu={() => router.push('/(tabs)')} 
+        showBack={true} 
+        syncStatus={syncStatus}
+        isSyncing={isSyncing}
+        onPressSync={handleManualSync}
+      />
 
       <ScrollView className="flex-1 px-4 py-4" showsVerticalScrollIndicator={false}>
         
@@ -301,7 +397,9 @@ export default function CashbookScreen() {
                   )}
                   
                   <View className="flex-row items-center mt-2.5">
-                    <Text className="text-micro font-medium text-slate-400">{item.date}</Text>
+                    <Text className="text-micro font-medium text-slate-400">
+                      {item.date.includes('T') || item.date.includes(' ') ? formatDateTime(item.date) : formatDate(item.date)}
+                    </Text>
                     <View className="mx-1.5 w-1 h-1 rounded-full bg-slate-200" />
                     {isPending ? (
                       <Badge variant="warning" label="OFFLINE" size="sm" />
@@ -566,6 +664,7 @@ export default function CashbookScreen() {
         </View>
       </Modal>
 
+      {renderToast()}
     </SafeAreaView>
   );
 }
