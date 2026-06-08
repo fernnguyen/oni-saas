@@ -22,6 +22,16 @@ export const paymentFunds = sqliteTable('payment_funds', {
   initial_balance: integer('initial_balance').notNull().default(0),
 });
 
+// BẢNG PHƯƠNG THỨC THANH TOÁN (PAYMENT METHODS)
+export const paymentMethods = sqliteTable('payment_methods', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  type: text('type').notNull(), // cash, bank, wallet, prepaid, debt
+  branch_id: text('branch_id').notNull(),
+  is_default: integer('is_default', { mode: 'boolean' }).notNull().default(false),
+  active: integer('active', { mode: 'boolean' }).notNull().default(true),
+});
+
 // 2. SẢN PHẨM & DỊCH VỤ (Products)
 export const products = sqliteTable('products', {
   id: text('id').primaryKey(),

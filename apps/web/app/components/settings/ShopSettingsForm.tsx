@@ -174,9 +174,146 @@ export function ShopSettingsForm({
   });
 
   const [copied, setCopied] = useState(false);
-  const [activeTab, setActiveTab] = useState<'general' | 'sales' | 'debt' | 'sepay' | 'crm' | 'telegram'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'sales' | 'debt' | 'sepay' | 'crm' | 'telegram' | 'payment-methods'>('general');
 
   const router = useRouter();
+  
+  // Payment methods states
+  const [methods, setMethods] = useState<any[]>([]);
+  const [methodsLoading, setMethodsLoading] = useState(false);
+  const [editingMethod, setEditingMethod] = useState<any | null>(null);
+  const [isAddingMethod, setIsAddingMethod] = useState(false);
+  const [methodForm, setMethodForm] = useState({
+    id: '',
+    code: '',
+    name: '',
+    type: 'cash' as 'cash' | 'bank' | 'wallet' | 'prepaid' | 'debt',
+    is_default: false,
+  });
+
+  async function fetchMethods() {
+    setMethodsLoading(true);
+    try {
+      const res = await fetch(`/api/shops/${shop.id}/payment-methods`);
+      if (res.ok) {
+        const json = await res.json();
+        setMethods(json.data || []);
+      }
+    } catch (e) {
+      console.error('Failed to fetch methods:', e);
+    } finally {
+      setMethodsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab === 'payment-methods') {
+      void fetchMethods();
+    }
+  }, [activeTab]);
+
+  async function handleSaveMethod() {
+    if (!methodForm.name.trim()) {
+      toast.error('Tên phương thức thanh toán không được để trống');
+      return;
+    }
+    if (!methodForm.code.trim()) {
+      toast.error('Mã code lưu ở db không được để trống');
+      return;
+    }
+    const cleanCode = methodForm.code.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9_]/g, '_');
+    
+    try {
+      let res;
+      if (editingMethod) {
+        res = await fetch(`/api/shops/${shop.id}/payment-methods/${editingMethod.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: methodForm.name,
+            type: methodForm.type,
+            code: cleanCode,
+            is_default: methodForm.is_default,
+          }),
+        });
+      } else {
+        const cleanId = cleanCode;
+        res = await fetch(`/api/shops/${shop.id}/payment-methods`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: cleanId,
+            name: methodForm.name,
+            type: methodForm.type,
+            code: cleanCode,
+            branch_id: shop.id,
+            is_default: methodForm.is_default,
+          }),
+        });
+      }
+
+      if (res.ok) {
+        toast.success(editingMethod ? 'Cập nhật phương thức thanh toán thành công!' : 'Thêm phương thức thanh toán mới thành công!');
+        setEditingMethod(null);
+        setIsAddingMethod(false);
+        void fetchMethods();
+      } else {
+        const errJson = await res.json().catch(() => ({}));
+        toast.error(errJson.error || 'Có lỗi xảy ra, vui lòng thử lại.');
+      }
+    } catch (e) {
+      console.error('Failed to save method:', e);
+      toast.error('Có lỗi kết nối hệ thống.');
+    }
+  }
+
+  async function handleToggleMethodActive(methodId: string, currentActive: boolean) {
+    try {
+      const res = await fetch(`/api/shops/${shop.id}/payment-methods/${methodId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          active: !currentActive,
+        }),
+      });
+      if (res.ok) {
+        toast.success(!currentActive ? 'Đã kích hoạt phương thức thanh toán!' : 'Đã ẩn phương thức thanh toán!');
+        void fetchMethods();
+      } else {
+        const errJson = await res.json().catch(() => ({}));
+        toast.error(errJson.error || 'Có lỗi xảy ra, vui lòng thử lại.');
+      }
+    } catch (e) {
+      console.error('Failed to toggle method status:', e);
+      toast.error('Có lỗi kết nối hệ thống.');
+    }
+  }
+
+  async function handleDeleteMethod(methodId: string, methodName: string) {
+    const ok = await confirm({
+      title: '⚠️ Xác nhận xóa/vô hiệu hóa',
+      description: `Bạn có chắc chắn muốn xóa/vô hiệu hóa phương thức thanh toán "${methodName}" này?`,
+      confirmLabel: 'Xác nhận xóa',
+      variant: 'danger',
+    });
+    if (!ok) return;
+
+    try {
+      const res = await fetch(`/api/shops/${shop.id}/payment-methods/${methodId}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        toast.success('Đã xóa/vô hiệu hóa phương thức thanh toán thành công!');
+        void fetchMethods();
+      } else {
+        const errJson = await res.json().catch(() => ({}));
+        toast.error(errJson.error || 'Có lỗi xảy ra, vui lòng thử lại.');
+      }
+    } catch (e) {
+      console.error('Failed to delete method:', e);
+      toast.error('Có lỗi kết nối hệ thống.');
+    }
+  }
   const [isPending, startTransition] = useTransition();
 
   const AVAILABLE_EVENTS = [
@@ -646,6 +783,17 @@ export function ShopSettingsForm({
               </svg>
             ), 
             desc: 'Cấu hình thông báo Telegram', 
+            permission: canManage 
+          },
+          { 
+            id: 'payment-methods', 
+            label: 'Phương thức thanh toán', 
+            icon: (
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+              </svg>
+            ), 
+            desc: 'Cấu hình phương thức thanh toán', 
             permission: canManage 
           },
         ].filter(t => t.permission).map((tab) => (
@@ -2148,6 +2296,249 @@ export function ShopSettingsForm({
             </div>
           )
         )}
+
+      {activeTab === 'payment-methods' && (
+        <div className="space-y-6 animate-in fade-in-50 duration-200">
+          <Section title="Danh mục Phương thức thanh toán" description="Quản lý danh sách các phương thức thanh toán tại quầy thu ngân (Tiền mặt, Chuyển khoản, Ví điện tử...)">
+            
+            {/* Form thêm mới / chỉnh sửa */}
+            {(isAddingMethod || editingMethod) ? (
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4 mb-4 animate-in fade-in-50 duration-200">
+                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-2">
+                  {editingMethod ? 'Cập nhật phương thức thanh toán' : 'Thêm phương thức thanh toán mới'}
+                </h3>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Field label="Tên phương thức thanh toán" hint="Ví dụ: Chuyển khoản, Ví MoMo, Thẻ ATM/POS...">
+                    <input
+                      value={methodForm.name}
+                      onChange={(e) => setMethodForm({ ...methodForm, name: e.target.value })}
+                      className={inputCls}
+                      placeholder="Nhập tên phương thức..."
+                    />
+                  </Field>
+
+                  <Field label="Mã code lưu ở DB" hint={editingMethod ? "Mã code cố định không thể chỉnh sửa" : "Nhập mã code dùng trong dữ liệu đơn hàng (ví dụ: cash, momo, bank_transfer...)"}>
+                    <input
+                      value={methodForm.code}
+                      disabled={!!editingMethod}
+                      onChange={(e) => setMethodForm({ ...methodForm, code: e.target.value })}
+                      className={inputCls}
+                      placeholder="Nhập mã code (ví dụ: zalopay)..."
+                    />
+                  </Field>
+
+                  <Field label="Loại hình thanh toán" hint="Ánh xạ loại hình để khớp với nhóm quỹ khi thanh toán">
+                    <select
+                      value={methodForm.type}
+                      onChange={(e) => setMethodForm({ ...methodForm, type: e.target.value as any })}
+                      className={inputCls}
+                    >
+                      <option value="cash">Tiền mặt</option>
+                      <option value="bank">Ngân hàng (Chuyển khoản, Card)</option>
+                      <option value="wallet">Ví điện tử (Momo, ZaloPay...)</option>
+                      <option value="prepaid">Ví trả trước</option>
+                      <option value="debt">Ghi nợ</option>
+                    </select>
+                  </Field>
+                </div>
+
+                <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <Field label="Đặt làm mặc định" hint="Tự động chọn phương thức này khi mở màn hình thanh toán cho nhóm tương ứng">
+                    <div
+                      onClick={() => setMethodForm({ ...methodForm, is_default: !methodForm.is_default })}
+                      className="flex cursor-pointer items-center gap-3 mt-1"
+                    >
+                      <div
+                        className={`relative h-6 w-11 rounded-full transition-colors ${methodForm.is_default ? 'bg-primary' : 'bg-slate-200'}`}
+                      >
+                        <span
+                          className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${methodForm.is_default ? 'translate-x-5' : ''}`}
+                        />
+                      </div>
+                      <span className="text-sm text-slate-600 select-none font-medium">
+                        {methodForm.is_default ? 'Đặt làm mặc định' : 'Không đặt làm mặc định'}
+                      </span>
+                    </div>
+                  </Field>
+
+                  <div className="flex items-center gap-3 self-end sm:self-auto">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingMethod(null);
+                        setIsAddingMethod(false);
+                      }}
+                      className="cursor-pointer rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-5 py-2.5 text-sm font-semibold transition-all active:scale-95 shadow-3xs flex items-center justify-center gap-1.5"
+                    >
+                      Hủy bỏ
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveMethod}
+                      className="cursor-pointer rounded-xl bg-primary hover:bg-primary-dark text-white px-5 py-2.5 text-sm font-semibold transition-all active:scale-95 shadow-sm shadow-primary/20 flex items-center justify-center gap-1.5"
+                    >
+                      Xác nhận lưu
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="flex justify-between items-center mb-4">
+                <span className="text-xs text-slate-400">Danh sách các phương thức hiện đang cấu hình trong hệ thống</span>
+                {canManage && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMethodForm({
+                        id: '',
+                        code: '',
+                        name: '',
+                        type: 'cash',
+                        is_default: false,
+                      });
+                      setEditingMethod(null);
+                      setIsAddingMethod(true);
+                    }}
+                    className="cursor-pointer rounded-xl bg-primary hover:bg-primary-dark text-white px-4 py-2 text-xs font-semibold transition-all active:scale-95 shadow-sm shadow-primary/20 flex items-center gap-1.5"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                    </svg>
+                    Thêm phương thức
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Danh sách Phương thức */}
+            {methodsLoading ? (
+              <div className="py-12 flex flex-col justify-center items-center gap-3">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                <span className="text-xs text-slate-400">Đang tải danh sách phương thức thanh toán...</span>
+              </div>
+            ) : methods.length === 0 ? (
+              <div className="py-12 text-center border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50/50">
+                <p className="text-sm text-slate-400 italic">Chưa cấu hình phương thức thanh toán nào cho chi nhánh này.</p>
+              </div>
+            ) : (
+              <div className="overflow-hidden border border-slate-200 rounded-2xl bg-white shadow-xs">
+                <table className="min-w-full text-xs text-left">
+                  <thead className="bg-slate-50 text-slate-550 uppercase font-semibold border-b border-slate-200">
+                    <tr>
+                      <th className="px-5 py-3">Tên phương thức</th>
+                      <th className="px-5 py-3">Mã code lưu ở DB</th>
+                      <th className="px-5 py-3">Loại</th>
+                      <th className="px-5 py-3 text-center">Trạng thái</th>
+                      <th className="px-5 py-3 text-right">Thao tác</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-150">
+                    {methods.map((method) => {
+                      const isDefault = method.is_default === 'TRUE' || method.is_default === true;
+                      const isActive = method.active === 'TRUE' || method.active === true;
+                      
+                      let typeBadge = '';
+                      let typeColor = '';
+                      if (method.type === 'cash') {
+                        typeBadge = 'Tiền mặt';
+                        typeColor = 'bg-emerald-50 text-emerald-700 border border-emerald-100';
+                      } else if (method.type === 'bank') {
+                        typeBadge = 'Ngân hàng / POS';
+                        typeColor = 'bg-blue-50 text-blue-700 border border-blue-100';
+                      } else if (method.type === 'wallet') {
+                        typeBadge = 'Ví điện tử';
+                        typeColor = 'bg-pink-50 text-pink-700 border border-pink-100';
+                      } else if (method.type === 'prepaid') {
+                        typeBadge = 'Ví trả trước';
+                        typeColor = 'bg-indigo-50 text-indigo-700 border border-indigo-100';
+                      } else if (method.type === 'debt') {
+                        typeBadge = 'Ghi nợ';
+                        typeColor = 'bg-amber-50 text-amber-700 border border-amber-100';
+                      }
+
+                      return (
+                        <tr key={method.id} className={`hover:bg-slate-50/50 transition-colors ${!isActive ? 'opacity-65 bg-slate-50/30' : ''}`}>
+                          <td className="px-5 py-3.5 font-bold text-slate-800">
+                            <div className="flex items-center gap-2">
+                              <span>{method.name}</span>
+                              {isDefault && (
+                                <span className="text-[9px] font-bold bg-primary/10 text-primary border border-primary/20 rounded-md px-1.5 py-0.5">
+                                  Mặc định
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-5 py-3.5 font-mono text-[11px] text-slate-600">
+                            {method.code || method.id}
+                          </td>
+                          <td className="px-5 py-3.5">
+                            <span className={`text-[10px] font-bold rounded-lg px-2 py-0.5 ${typeColor}`}>
+                              {typeBadge}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3.5 text-center">
+                            <div className="flex items-center justify-center">
+                              {/* Toggle switch for status without row label */}
+                              <div
+                                onClick={() => canManage && handleToggleMethodActive(method.id, isActive)}
+                                className={`relative h-5.5 w-10 rounded-full transition-all duration-200 ${
+                                  isActive ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-slate-200 hover:bg-slate-300'
+                                } ${canManage ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
+                              >
+                                <span
+                                  className={`absolute top-0.5 left-0.5 h-4.5 w-4.5 rounded-full bg-white shadow transition-all duration-200 ${
+                                    isActive ? 'translate-x-4.5' : ''
+                                  }`}
+                                />
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-5 py-3.5 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setMethodForm({
+                                    id: method.id,
+                                    code: method.code || method.id,
+                                    name: method.name,
+                                    type: method.type,
+                                    is_default: isDefault,
+                                  });
+                                  setEditingMethod(method);
+                                  setIsAddingMethod(false);
+                                }}
+                                className="cursor-pointer rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-3 py-1.5 text-xs font-bold transition-all active:scale-95 shadow-3xs flex items-center gap-1.5"
+                              >
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                </svg>
+                                Sửa
+                              </button>
+                              
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteMethod(method.id, method.name)}
+                                className="cursor-pointer rounded-xl bg-white border border-red-200 hover:bg-red-50 text-red-600 px-3 py-1.5 text-xs font-bold transition-all active:scale-95 shadow-3xs flex items-center gap-1.5"
+                              >
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                                Xóa
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Section>
+        </div>
+      )}
 
       </div>
     </div>

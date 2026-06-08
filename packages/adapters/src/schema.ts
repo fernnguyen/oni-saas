@@ -721,5 +721,16 @@ export const resource_occupants = mysqlTable('resource_occupants', {
   metadata: json('metadata'),                                      // Mở rộng sau này
 });
 
+export const payment_methods = mysqlTable('payment_methods', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  branch_id: varchar('branch_id', { length: 255 }).notNull(),
+  name: varchar('name', { length: 255 }).notNull(),
+  type: varchar('type', { length: 50 }).notNull(), // 'cash' | 'bank' | 'wallet' | 'prepaid' | 'debt'
+  code: varchar('code', { length: 255 }).notNull(), // Code stored in db, e.g. 'cash', 'bank_transfer', 'momo'
+  is_default: varchar('is_default', { length: 10 }).default('FALSE'),
+});
+
+
 
 

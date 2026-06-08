@@ -145,19 +145,35 @@ export async function POST(
           }
         }
 
-        const paymentMethodMap: Record<string, string> = {
-          cash: 'Tiền mặt',
-          card: 'Quẹt thẻ',
-          bank_transfer: 'Chuyển khoản',
-          momo: 'MoMo',
-          vnpay: 'VNPay',
-          zalopay: 'ZaloPay',
-          debt: 'Ghi nợ'
-        };
+        let methodName = data.payment_method || 'Tiền mặt'
+        if (data.payment_method) {
+          try {
+            const methodsList = await connector.list('payment-methods', {
+              filters: { branch_id: shopId },
+              limit: 100
+            })
+            const match = (methodsList.data as Record<string, string>[]).find(m => m.code === data.payment_method)
+            if (match) {
+              methodName = match.name
+            } else {
+              const paymentMethodMap: Record<string, string> = {
+                cash: 'Tiền mặt',
+                card: 'Quẹt thẻ',
+                bank_transfer: 'Chuyển khoản',
+                momo: 'MoMo',
+                vnpay: 'VNPay',
+                zalopay: 'ZaloPay',
+                debt: 'Ghi nợ'
+              };
+              methodName = paymentMethodMap[data.payment_method] || data.payment_method
+            }
+          } catch (err) {
+            console.error('Failed to translate payment method for notification:', err)
+          }
+        }
 
         let paidText = `${Number(data.paid_amount).toLocaleString('vi-VN')}đ`;
         if (data.payment_method) {
-          const methodName = paymentMethodMap[data.payment_method] || data.payment_method;
           paidText += ` (${methodName})`;
         }
 

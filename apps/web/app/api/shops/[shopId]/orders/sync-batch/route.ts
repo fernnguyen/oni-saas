@@ -71,6 +71,7 @@ interface SyncOrder {
   points_redeemed?: number
   note?: string
   metadata?: string
+  payment_method?: string
 }
 
 export async function POST(
@@ -157,6 +158,21 @@ export async function POST(
       finalCustomerId = (newCustomer as Record<string, string>).customer_id || ''
     }
 
+    // Determine the consolidated payment method
+    let paymentMethod = order.payment_method
+    if (!paymentMethod) {
+      if (payments && payments.length > 0) {
+        if (payments.length === 1) {
+          paymentMethod = payments[0].method
+        } else {
+          const uniqueMethods = Array.from(new Set(payments.map(p => p.method).filter(Boolean)))
+          paymentMethod = uniqueMethods.join(', ').substring(0, 50)
+        }
+      } else {
+        paymentMethod = 'cash'
+      }
+    }
+
     if (!serverId) {
       isNewOrder = true
       const createData: Record<string, string> = {
@@ -175,6 +191,7 @@ export async function POST(
         points_earned:   String(order.points_earned ?? 0),
         points_redeemed: String(order.points_redeemed ?? 0),
         note:            order.note ?? '',
+        payment_method:  paymentMethod ?? 'cash',
         reference_no:    local_order_id ?? '',
         created_at:      getGMT7Time(),
       }
@@ -201,6 +218,7 @@ export async function POST(
         points_earned:   String(order.points_earned ?? 0),
         points_redeemed: String(order.points_redeemed ?? 0),
         note:            order.note ?? '',
+        payment_method:  paymentMethod ?? 'cash',
       }
       if (local_order_id) {
         updateData.reference_no = local_order_id

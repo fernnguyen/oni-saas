@@ -254,6 +254,15 @@ export function initializeLocalDatabase(customDb?: any) {
         initial_balance INTEGER NOT NULL DEFAULT 0
       );
 
+      CREATE TABLE IF NOT EXISTS payment_methods (
+        id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL,
+        branch_id TEXT NOT NULL,
+        is_default INTEGER NOT NULL DEFAULT 0,
+        active INTEGER NOT NULL DEFAULT 1
+      );
+
       CREATE TABLE IF NOT EXISTS cashbook (
         id TEXT PRIMARY KEY NOT NULL,
         branch_id TEXT NOT NULL,
