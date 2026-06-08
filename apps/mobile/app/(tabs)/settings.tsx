@@ -529,7 +529,7 @@ export default function SettingsScreen() {
   <Button
   variant="danger"
   size="sm"
-  title="Đóng ca / Kết ca"
+  title="Đóng ca"
   onPress={handleTriggerCloseShift}
   className="rounded-xl px-3 py-2"
   />

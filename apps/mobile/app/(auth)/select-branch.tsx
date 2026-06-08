@@ -9,6 +9,7 @@ import {SyncManager} from '../../lib/sync/SyncManager';
 import {db, switchDatabaseScope} from '../../lib/db/client';
 import * as schema from '../../lib/db/schema';
 import {supabase} from '../../lib/supabase';
+import {eq} from 'drizzle-orm';
 
 interface Branch {
  id: string;
@@ -27,6 +28,7 @@ export default function SelectBranchScreen() {
  const [isSyncing, setIsSyncing] = useState(false);
  const [syncProgress, setSyncProgress] = useState(0);
  const [tenantId, setTenantId] = useState('');
+ const [isOffline, setIsOffline] = useState(false);
 
  // States quản lý ca làm việc (Shift Management)
  const [showShiftModal, setShowShiftModal] = useState(false);
@@ -72,69 +74,97 @@ export default function SelectBranchScreen() {
    );
  };
 
- // 1. Tải danh sách chi nhánh thực tế từ Next.js REST API
- useEffect(() => {
- const fetchBranches = async () => {
- try {
- setIsLoading(true);
- const currentUrl = await loadApiBaseUrl();
- setApiUrlInput(currentUrl);
+  // 1. Tải danh sách chi nhánh thực tế từ Next.js REST API
+  useEffect(() => {
+    const fetchBranches = async () => {
+      try {
+        setIsLoading(true);
+        setIsOffline(false);
+        const currentUrl = await loadApiBaseUrl();
+        setApiUrlInput(currentUrl);
 
- const headers = await getApiHeaders();
- 
- // A. Lấy tenant_id của user hiện tại qua API
- const meRes = await fetch(`${currentUrl}/api/tenants/me`, {headers});
- if (!meRes.ok) {
- throw new Error(`Không thể xác thực Tenant. Mã lỗi: ${meRes.status}`);
-}
- const meData = await meRes.json();
- const tId = meData.tenant_id;
- 
- if (!tId) {
- throw new Error('Tài khoản này chưa được liên kết với bất kỳ Gian hàng (Tenant) nào.');
-}
- setTenantId(tId);
- await AsyncStorage.setItem('active_tenant_id', tId);
- switchDatabaseScope(tId);
+        const headers = await getApiHeaders();
+        
+        // A. Lấy tenant_id của user hiện tại qua API
+        const meRes = await fetch(`${currentUrl}/api/tenants/me`, {headers});
+        if (!meRes.ok) {
+          throw new Error(`Không thể xác thực Tenant. Mã lỗi: ${meRes.status}`);
+        }
+        const meData = await meRes.json();
+        const tId = meData.tenant_id;
+        
+        if (!tId) {
+          throw new Error('Tài khoản này chưa được liên kết với bất kỳ Gian hàng (Tenant) nào.');
+        }
+        setTenantId(tId);
+        await AsyncStorage.setItem('active_tenant_id', tId);
+        switchDatabaseScope(tId);
 
- // B. Lấy danh sách shops hoạt động của Tenant qua API
- const shopsRes = await fetch(`${currentUrl}/api/shops?tenant_id=${tId}`, {headers});
- if (!shopsRes.ok) {
- throw new Error(`Không thể tải danh sách chi nhánh. Mã lỗi: ${shopsRes.status}`);
-}
- const shopsData = await shopsRes.json();
- const rawShops = shopsData.shops || [];
+        // B. Lấy danh sách shops hoạt động của Tenant qua API
+        const shopsRes = await fetch(`${currentUrl}/api/shops?tenant_id=${tId}`, {headers});
+        if (!shopsRes.ok) {
+          throw new Error(`Không thể tải danh sách chi nhánh. Mã lỗi: ${shopsRes.status}`);
+        }
+        const shopsData = await shopsRes.json();
+        const rawShops = shopsData.shops || [];
 
- const mappedBranches = rawShops.map((shop: any) => ({
- id: shop.id,
- name: shop.name || 'Chi nhánh chưa đặt tên',
- address: shop.address || 'Địa chỉ đang cập nhật',
- phone: shop.phone || 'SĐT đang cập nhật',
- isActive: shop.is_active !== false,
- industry_type: shop.industry_type || 'retail',
-}));
+        const mappedBranches = rawShops.map((shop: any) => ({
+          id: shop.id,
+          name: shop.name || 'Chi nhánh chưa đặt tên',
+          address: shop.address || 'Địa chỉ đang cập nhật',
+          phone: shop.phone || 'SĐT đang cập nhật',
+          isActive: shop.is_active !== false,
+          industry_type: shop.industry_type || 'retail',
+        }));
 
- setBranches(mappedBranches);
- if (mappedBranches.length > 0) {
- // Mặc định chọn chi nhánh hoạt động đầu tiên tìm thấy
- const firstActive = mappedBranches.find((b: any) => b.isActive);
- setSelectedBranchId(firstActive ? firstActive.id : mappedBranches[0].id);
-}
- setShowConfig(false); // Ẩn card cấu hình nếu tải dữ liệu thành công
-} catch (error: any) {
- console.error('Lỗi khi tải chi nhánh thực tế:', error);
- setShowConfig(true); // Hiển thị card cấu hình khi lỗi mạng xảy ra
- Alert.alert(
- 'Lỗi kết nối máy chủ',
- `Không thể kết nối đến máy chủ REST API.\n\nChi tiết: ${error.message || 'Lỗi mạng'}\n\nHướng dẫn: Vui lòng kiểm tra cổng dịch vụ Next.js (có thể là 3001) hoặc cấu hình IP LAN máy tính bên dưới.`
- );
-} finally {
- setIsLoading(false);
-}
-};
+        setBranches(mappedBranches);
+        // Lưu cache danh sách chi nhánh
+        await AsyncStorage.setItem(`cached_branches_${tId}`, JSON.stringify(mappedBranches));
 
- fetchBranches();
-}, [refreshTrigger]);
+        if (mappedBranches.length > 0) {
+          // Mặc định chọn chi nhánh hoạt động đầu tiên tìm thấy
+          const firstActive = mappedBranches.find((b: any) => b.isActive);
+          setSelectedBranchId(firstActive ? firstActive.id : mappedBranches[0].id);
+        }
+        setShowConfig(false); // Ẩn card cấu hình nếu tải dữ liệu thành công
+      } catch (error: any) {
+        console.error('Lỗi khi tải chi nhánh thực tế:', error);
+        
+        // Thử khôi phục từ cache
+        try {
+          const cachedTId = await AsyncStorage.getItem('active_tenant_id');
+          if (cachedTId) {
+            setTenantId(cachedTId);
+            switchDatabaseScope(cachedTId);
+            const cachedBranchesStr = await AsyncStorage.getItem(`cached_branches_${cachedTId}`);
+            if (cachedBranchesStr) {
+              const parsedBranches = JSON.parse(cachedBranchesStr);
+              if (Array.isArray(parsedBranches) && parsedBranches.length > 0) {
+                setBranches(parsedBranches);
+                const firstActive = parsedBranches.find((b: any) => b.isActive);
+                setSelectedBranchId(firstActive ? firstActive.id : parsedBranches[0].id);
+                setIsOffline(true);
+                setShowConfig(false);
+                return; // Kết thúc sớm và không hiện Alert lỗi kết nối
+              }
+            }
+          }
+        } catch (cacheErr) {
+          console.error('Không thể đọc dữ liệu chi nhánh từ cache:', cacheErr);
+        }
+
+        setShowConfig(true); // Hiển thị card cấu hình khi lỗi mạng xảy ra và không có cache
+        Alert.alert(
+          'Lỗi kết nối máy chủ',
+          `Không thể kết nối đến máy chủ REST API và không tìm thấy dữ liệu đã lưu.\n\nChi tiết: ${error.message || 'Lỗi mạng'}\n\nHướng dẫn: Vui lòng kết nối mạng để tải thông tin chi nhánh lần đầu.`
+        );
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchBranches();
+  }, [refreshTrigger]);
 
  // Lưu địa chỉ API và tải lại
  const handleSaveApiUrl = async () => {
@@ -144,131 +174,206 @@ export default function SelectBranchScreen() {
  setRefreshTrigger(prev => prev + 1);
 };
 
- // 2. Kích hoạt ca làm việc di động và tải dữ liệu Offline về SQLite cục bộ
- const handleStartSession = async () => {
- const branch = branches.find(b => b.id === selectedBranchId);
- if (!branch) {
- Alert.alert('Thông báo', 'Vui lòng chọn một chi nhánh hợp lệ!');
- return;
-}
- 
- if (!branch.isActive) {
- Alert.alert('Thông báo', 'Chi nhánh này đang tạm khóa để bảo trì dữ liệu, vui lòng chọn chi nhánh khác!');
- return;
-}
-
- setIsSyncing(true);
- setSyncProgress(0.1);
-
- try {
- // Đảm bảo CSDL được chuyển đúng vùng tenant trước khi pull và ghi dữ liệu
- switchDatabaseScope(tenantId);
-
- // Nếu thay đổi sang chi nhánh khác, hãy xóa sạch giỏ hàng tạm của chi nhánh cũ để tránh lệch dữ liệu
- const oldShopId = await AsyncStorage.getItem('active_shop_id');
- if (oldShopId !== branch.id) {
- await AsyncStorage.removeItem('temp_cart');
- await AsyncStorage.removeItem('temp_discount');
- await AsyncStorage.removeItem('temp_note');
- await AsyncStorage.removeItem('temp_customer');
- await AsyncStorage.removeItem('temp_table_carts');
- await AsyncStorage.removeItem('temp_table_customers');
-}
-
- // Lưu lại thông tin chi nhánh vào AsyncStorage
- await AsyncStorage.setItem('active_shop_id', branch.id);
- await AsyncStorage.setItem('active_shop_name', branch.name);
- await AsyncStorage.setItem('active_shop_industry', branch.industry_type);
-
- // Kích hoạt Sync toàn phần tải dữ liệu từ Cloud về ghi SQLite offline
- const syncSuccess = await SyncManager.pullFullDatabase(
- branch.id,
- tenantId,
- (progress) => {
- setSyncProgress(progress);
-}
- );
-
- if (!syncSuccess) {
- Alert.alert(
- 'Đồng bộ thất bại',
- 'Tải danh mục đầu phiên thất bại. Vui lòng kiểm tra cấu hình địa chỉ API Next.js.'
- );
- setIsSyncing(false);
- return;
-}
-
-  // Xóa active_shift_id cũ trước khi kiểm tra ca mới
-  await AsyncStorage.removeItem('active_shift_id');
-
-  // Kiểm tra Cài đặt Quản lý ca (Settings) từ server
-  const currentUrl = await loadApiBaseUrl();
-  const headers = await getApiHeaders();
-  
-  let isShiftEnabled = false;
-  try {
-    const settingsRes = await fetch(`${currentUrl}/api/shops/${branch.id}/settings`, { headers });
-    if (settingsRes.ok) {
-      const settingsJson = await settingsRes.json();
-      isShiftEnabled = settingsJson.enable_shift_management ?? false;
-    }
-  } catch (err) {
-    console.warn('Lỗi khi tải cài đặt ca từ server, mặc định tắt:', err);
-  }
-
-  // Lưu cấu hình Quản lý ca vào AsyncStorage để POS/Checkout sử dụng offline
-  await AsyncStorage.setItem('enable_shift_management', isShiftEnabled ? 'true' : 'false');
-
-  if (isShiftEnabled) {
-    let activeShiftOnServer = null;
+  // Hỗ trợ bắt đầu ca làm việc ngoại tuyến (offline startup bypass)
+  const handleStartSessionOffline = async (branch: Branch, tId: string) => {
+    setIsSyncing(true);
     try {
-      const userEmail = await AsyncStorage.getItem('saved_email') || '';
-      const shiftsRes = await fetch(`${currentUrl}/api/shops/${branch.id}/shifts?status=open&branch_id=${branch.id}&user_id=${userEmail}`, { headers });
-      if (shiftsRes.ok) {
-        const shiftsJson = await shiftsRes.json();
-        if (shiftsJson.total > 0 && shiftsJson.data && shiftsJson.data.length > 0) {
-          activeShiftOnServer = shiftsJson.data[0];
+      // Đảm bảo CSDL được chuyển đúng vùng tenant
+      switchDatabaseScope(tId);
+
+      // Xóa active_shift_id cũ trước khi kiểm tra ca mới
+      await AsyncStorage.removeItem('active_shift_id');
+
+      // Tải cấu hình ca từ cache AsyncStorage cho chi nhánh này
+      const cachedShiftSettings = await AsyncStorage.getItem(`cached_enable_shift_management_${branch.id}`);
+      const isShiftEnabled = cachedShiftSettings === 'true';
+
+      // Lưu cấu hình Quản lý ca vào AsyncStorage
+      await AsyncStorage.setItem('enable_shift_management', isShiftEnabled ? 'true' : 'false');
+
+      if (isShiftEnabled) {
+        // Kiểm tra xem trong SQLite local shop_shifts có ca nào đang mở
+        const localShifts = await db.select()
+          .from(schema.shop_shifts)
+          .where(eq(schema.shop_shifts.status, 'open'));
+
+        if (localShifts.length > 0) {
+          const activeShift = localShifts[0];
+          await AsyncStorage.setItem('active_shift_id', activeShift.id);
+          setIsSyncing(false);
+          router.replace('/(tabs)');
+        } else {
+          setIsSyncing(false);
+          setOpeningCashInput('0');
+          setShowShiftModal(true);
+        }
+      } else {
+        await AsyncStorage.removeItem('active_shift_id');
+        setIsSyncing(false);
+        router.replace('/(tabs)');
+      }
+    } catch (err: any) {
+      console.error('Lỗi khởi chạy ca làm việc ngoại tuyến:', err);
+      Alert.alert('Lỗi mở ca ngoại tuyến', `Không thể mở ca ngoại tuyến: ${err.message}`);
+      setIsSyncing(false);
+    }
+  };
+
+  // 2. Kích hoạt ca làm việc di động và tải dữ liệu Offline về SQLite cục bộ
+  const handleStartSession = async () => {
+    const branch = branches.find(b => b.id === selectedBranchId);
+    if (!branch) {
+      Alert.alert('Thông báo', 'Vui lòng chọn một chi nhánh hợp lệ!');
+      return;
+    }
+    
+    if (!branch.isActive) {
+      Alert.alert('Thông báo', 'Chi nhánh này đang tạm khóa để bảo trì dữ liệu, vui lòng chọn chi nhánh khác!');
+      return;
+    }
+
+    setIsSyncing(true);
+    setSyncProgress(0.1);
+
+    try {
+      // Đảm bảo CSDL được chuyển đúng vùng tenant trước khi pull và ghi dữ liệu
+      switchDatabaseScope(tenantId);
+
+      // Nếu thay đổi sang chi nhánh khác, hãy xóa sạch giỏ hàng tạm của chi nhánh cũ để tránh lệch dữ liệu
+      const oldShopId = await AsyncStorage.getItem('active_shop_id');
+      if (oldShopId !== branch.id) {
+        await AsyncStorage.removeItem('temp_cart');
+        await AsyncStorage.removeItem('temp_discount');
+        await AsyncStorage.removeItem('temp_note');
+        await AsyncStorage.removeItem('temp_customer');
+        await AsyncStorage.removeItem('temp_table_carts');
+        await AsyncStorage.removeItem('temp_table_customers');
+      }
+
+      // Lưu lại thông tin chi nhánh vào AsyncStorage
+      await AsyncStorage.setItem('active_shop_id', branch.id);
+      await AsyncStorage.setItem('active_shop_name', branch.name);
+      await AsyncStorage.setItem('active_shop_industry', branch.industry_type);
+
+      // Kích hoạt Sync toàn phần tải dữ liệu từ Cloud về ghi SQLite offline
+      const syncSuccess = await SyncManager.pullFullDatabase(
+        branch.id,
+        tenantId,
+        (progress) => {
+          setSyncProgress(progress);
+        }
+      );
+
+      if (!syncSuccess) {
+        // Kiểm tra xem SQLite cục bộ đã có dữ liệu sản phẩm chưa
+        const localProducts = await db.select({ id: schema.products.id }).from(schema.products).limit(1);
+        const hasLocalData = localProducts.length > 0;
+
+        if (hasLocalData) {
+          setIsSyncing(false);
+          Alert.alert(
+            'Đồng bộ không thành công',
+            'Không thể kết nối máy chủ để đồng bộ dữ liệu mới. Bạn có muốn sử dụng dữ liệu ngoại tuyến hiện có trên máy để bán hàng không?',
+            [
+              {
+                text: 'Hủy',
+                style: 'cancel',
+              },
+              {
+                text: 'Tiếp tục (Ngoại tuyến)',
+                onPress: () => handleStartSessionOffline(branch, tenantId),
+              }
+            ]
+          );
+          return;
+        } else {
+          Alert.alert(
+            'Đồng bộ thất bại',
+            'Tải danh mục đầu phiên thất bại và thiết bị chưa có dữ liệu lưu trữ từ trước. Vui lòng kiểm tra kết nối mạng và thử lại.'
+          );
+          setIsSyncing(false);
+          return;
         }
       }
-    } catch (err) {
-      console.warn('Lỗi kiểm tra ca mở trên server:', err);
-    }
 
-    if (activeShiftOnServer) {
-      // Đã có ca mở trên server -> dùng luôn ca này
-      await AsyncStorage.setItem('active_shift_id', activeShiftOnServer.id);
+      // Xóa active_shift_id cũ trước khi kiểm tra ca mới
+      await AsyncStorage.removeItem('active_shift_id');
+
+      // Kiểm tra Cài đặt Quản lý ca (Settings) từ server
+      const currentUrl = await loadApiBaseUrl();
+      const headers = await getApiHeaders();
       
-      // Lưu ca vào SQLite cục bộ
-      await db.insert(schema.shop_shifts).values({
-        id: activeShiftOnServer.id,
-        opened_at: activeShiftOnServer.opened_at,
-        status: 'open',
-        opening_cash: parseFloat(activeShiftOnServer.opening_cash || '0'),
-        actual_closing_cash: 0,
-        employee_name: activeShiftOnServer.employee_name || 'Thu ngân',
-        sync_status: 'synced',
-      }).onConflictDoNothing();
+      let isShiftEnabled = false;
+      try {
+        const settingsRes = await fetch(`${currentUrl}/api/shops/${branch.id}/settings`, { headers });
+        if (settingsRes.ok) {
+          const settingsJson = await settingsRes.json();
+          isShiftEnabled = settingsJson.enable_shift_management ?? false;
+          // Lưu cache cài đặt ca
+          await AsyncStorage.setItem(`cached_enable_shift_management_${branch.id}`, isShiftEnabled ? 'true' : 'false');
+        } else {
+          const cached = await AsyncStorage.getItem(`cached_enable_shift_management_${branch.id}`);
+          if (cached) isShiftEnabled = cached === 'true';
+        }
+      } catch (err) {
+        console.warn('Lỗi khi tải cài đặt ca từ server, thử đọc từ cache:', err);
+        const cached = await AsyncStorage.getItem(`cached_enable_shift_management_${branch.id}`);
+        if (cached) isShiftEnabled = cached === 'true';
+      }
 
+      // Lưu cấu hình Quản lý ca vào AsyncStorage để POS/Checkout sử dụng offline
+      await AsyncStorage.setItem('enable_shift_management', isShiftEnabled ? 'true' : 'false');
+
+      if (isShiftEnabled) {
+        let activeShiftOnServer = null;
+        try {
+          const userEmail = await AsyncStorage.getItem('saved_email') || '';
+          const shiftsRes = await fetch(`${currentUrl}/api/shops/${branch.id}/shifts?status=open&branch_id=${branch.id}&user_id=${userEmail}`, { headers });
+          if (shiftsRes.ok) {
+            const shiftsJson = await shiftsRes.json();
+            if (shiftsJson.total > 0 && shiftsJson.data && shiftsJson.data.length > 0) {
+              activeShiftOnServer = shiftsJson.data[0];
+            }
+          }
+        } catch (err) {
+          console.warn('Lỗi kiểm tra ca mở trên server:', err);
+        }
+
+        if (activeShiftOnServer) {
+          // Đã có ca mở trên server -> dùng luôn ca này
+          await AsyncStorage.setItem('active_shift_id', activeShiftOnServer.id);
+          
+          // Lưu ca vào SQLite cục bộ
+          await db.insert(schema.shop_shifts).values({
+            id: activeShiftOnServer.id,
+            opened_at: activeShiftOnServer.opened_at,
+            status: 'open',
+            opening_cash: parseFloat(activeShiftOnServer.opening_cash || '0'),
+            actual_closing_cash: 0,
+            employee_name: activeShiftOnServer.employee_name || 'Thu ngân',
+            sync_status: 'synced',
+          }).onConflictDoNothing();
+
+          setIsSyncing(false);
+          router.replace('/(tabs)');
+        } else {
+          // Chưa có ca mở -> Hiện modal nhập tiền đầu ca
+          setIsSyncing(false);
+          setOpeningCashInput('0');
+          setShowShiftModal(true);
+        }
+      } else {
+        // Không bật ca kíp -> Bỏ qua ca
+        await AsyncStorage.removeItem('active_shift_id');
+        setIsSyncing(false);
+        router.replace('/(tabs)');
+      }
+    } catch (err: any) {
+      console.error('Lỗi khi khởi chạy ca làm việc:', err);
+      Alert.alert('Lỗi mở ca', `Không thể mở ca làm việc di động: ${err.message}`);
       setIsSyncing(false);
-      router.replace('/(tabs)');
-    } else {
-      // Chưa có ca mở -> Hiện modal nhập tiền đầu ca
-      setIsSyncing(false);
-      setOpeningCashInput('0');
-      setShowShiftModal(true);
     }
-  } else {
-    // Không bật ca kíp -> Bỏ qua ca
-    await AsyncStorage.removeItem('active_shift_id');
-    setIsSyncing(false);
-    router.replace('/(tabs)');
-  }
- } catch (err: any) {
-  console.error('Lỗi khi khởi chạy ca làm việc:', err);
-  Alert.alert('Lỗi mở ca', `Không thể mở ca làm việc di động: ${err.message}`);
-  setIsSyncing(false);
- }
- };
+  };
 
   const handleSkipShift = async () => {
     setShowShiftModal(false);
@@ -357,11 +462,19 @@ export default function SelectBranchScreen() {
  </TouchableOpacity>
  </View>
 
- <Text className="text-xl font-medium text-slate-800">Chọn chi nhánh làm việc</Text>
- <Text className="text-xs text-slate-450 mt-1 font-semibold leading-relaxed">
- Vui lòng chọn cơ sở kinh doanh để tải dữ liệu SQLite ngoại tuyến đầu ca làm việc.
- </Text>
- </View>
+  <Text className="text-xl font-medium text-slate-800">Chọn chi nhánh làm việc</Text>
+  <Text className="text-xs text-slate-450 mt-1 font-semibold leading-relaxed">
+  Vui lòng chọn cơ sở kinh doanh để tải dữ liệu SQLite ngoại tuyến đầu ca làm việc.
+  </Text>
+  {isOffline && (
+    <View className="bg-amber-50 border border-amber-200 rounded-2xl p-3.5 mt-3.5 flex-row items-center">
+      <Ionicons name="cloud-offline" size={18} color="#d97706" />
+      <Text className="text-xs font-semibold text-amber-800 ml-2 flex-1">
+        Chế độ ngoại tuyến: Sử dụng dữ liệu chi nhánh đã lưu trước đó.
+      </Text>
+    </View>
+  )}
+  </View>
 
  {/* 2. API SERVER CONFIGURATION ACCORDION/CARD */}
  {showConfig && (
