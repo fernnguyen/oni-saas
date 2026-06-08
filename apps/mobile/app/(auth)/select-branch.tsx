@@ -192,13 +192,21 @@ export default function SelectBranchScreen() {
     fetchBranches();
   }, [refreshTrigger]);
 
- // Lưu địa chỉ API và tải lại
- const handleSaveApiUrl = async () => {
- if (!apiUrlInput) return;
- await saveApiBaseUrl(apiUrlInput);
- Alert.alert('Đã lưu cấu hình', `Đã đổi địa chỉ REST API thành: ${apiUrlInput}`);
- setRefreshTrigger(prev => prev + 1);
-};
+  // Lưu địa chỉ API và tải lại
+  const handleSaveApiUrl = async () => {
+    if (!apiUrlInput.trim()) {
+      Alert.alert('Thông báo', 'Vui lòng nhập địa chỉ Server hợp lệ!');
+      return;
+    }
+    try {
+      await saveApiBaseUrl(apiUrlInput.trim());
+      setShowConfig(false);
+      Alert.alert('Thành công', `Đã đổi địa chỉ REST API thành: ${apiUrlInput.trim()}`);
+      setRefreshTrigger(prev => prev + 1);
+    } catch (err) {
+      Alert.alert('Lỗi', 'Không thể lưu địa chỉ Server mới.');
+    }
+  };
 
   // Hỗ trợ bắt đầu ca làm việc ngoại tuyến (offline startup bypass)
   const handleStartSessionOffline = async (branch: Branch, tId: string) => {
@@ -481,13 +489,13 @@ export default function SelectBranchScreen() {
  className="bg-slate-100 p-2 rounded-xl border border-slate-200"
  onPress={() => setShowConfig(!showConfig)}
  >
- <Ionicons name="settings-outline" size={16} color="#475569" />
+ <Ionicons name="settings-outline" size={16} color="#fa5908" />
  </TouchableOpacity>
  </View>
 
   <Text className="text-xl font-medium text-slate-800">Chọn chi nhánh làm việc</Text>
   <Text className="text-xs text-slate-450 mt-1 font-semibold leading-relaxed">
-  Vui lòng chọn cơ sở kinh doanh để tải dữ liệu SQLite ngoại tuyến đầu ca làm việc.
+  Vui lòng chọn cơ sở kinh doanh để hệ thống đồng bộ dữ liệu đầu ca làm việc.
   </Text>
   {isOffline && (
     <View className="bg-amber-50 border border-amber-200 rounded-2xl p-3.5 mt-3.5 flex-row items-center">
@@ -499,41 +507,103 @@ export default function SelectBranchScreen() {
   )}
   </View>
 
- {/* 2. API SERVER CONFIGURATION ACCORDION/CARD */}
- {showConfig && (
- <View className="bg-white p-4.5 rounded-3xl border border-slate-200 shadow-sm mt-4">
- <View className="flex-row items-center mb-2">
- <Ionicons name="settings" size={16} color="#fa5908" />
- <Text className="text-xs font-medium text-slate-800 ml-1.5">Cấu hình Địa chỉ REST API</Text>
- </View>
-  <Text className="text-tiny text-slate-400 font-medium mb-3 leading-relaxed">
-  Mặc định là https://oni.vn. Bạn có thể cấu hình tên miền đám mây hoặc máy chủ cục bộ riêng của doanh nghiệp (ví dụ: http://192.168.1.5:3001).
-  </Text>
-  <View className="flex-row">
-  <TextInput
-  value={apiUrlInput}
-  onChangeText={setApiUrlInput}
-  placeholder="https://oni.vn"
-  placeholderTextColor="#94a3b8"
-  className="flex-1 bg-slate-50 border border-slate-200 px-3.5 py-2 rounded-xl text-xs font-medium text-slate-800 mr-2"
-  autoCapitalize="none"
-  keyboardType="url"
-  style={{
-    paddingVertical: 0,
-    textAlignVertical: 'center',
-    lineHeight: undefined,
-    ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
-  }}
-  />
- <TouchableOpacity 
- className="bg-orange-500 px-4 py-2 rounded-xl justify-center shadow-sm"
- onPress={handleSaveApiUrl}
- >
- <Text className="text-white text-xs font-semibold">Lưu & Thử lại</Text>
- </TouchableOpacity>
- </View>
- </View>
- )}
+  {/* 2. API SERVER CONFIGURATION MODAL */}
+  <Modal
+    visible={showConfig}
+    animationType="fade"
+    transparent={true}
+    onRequestClose={() => setShowConfig(false)}
+  >
+    <View style={{flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0, 0, 0, 0.6)', paddingHorizontal: 24}}>
+      <Pressable style={{position: 'absolute', top: 0, left: 0, right: 0, bottom: 0}} onPress={() => setShowConfig(false)} />
+      <View style={{backgroundColor: '#ffffff', borderRadius: 28, padding: 24, width: '100%', maxWidth: 360, shadowColor: '#000', shadowOffset: {width: 0, height: 10}, shadowOpacity: 0.1, shadowRadius: 20, elevation: 5}}>
+        
+        {/* Header Modal */}
+        <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#f1f5f9', paddingBottom: 14, marginBottom: 16}}>
+          <View style={{flexDirection: 'row', alignItems: 'center'}}>
+            <Ionicons name="settings-outline" size={18} color="#fa5908" style={{marginRight: 8}} />
+            <Text style={{fontSize: 16, fontWeight: '700', color: '#1e293b'}}>Cấu hình máy chủ</Text>
+          </View>
+          <TouchableOpacity onPress={() => setShowConfig(false)} style={{padding: 4}}>
+            <Ionicons name="close" size={20} color="#64748b" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Thân Modal */}
+        <View style={{marginBottom: 20}}>
+          <Text style={{fontSize: 10, color: '#64748b', fontWeight: '700', letterSpacing: 0.5, marginBottom: 8}}>
+            ĐỊA CHỈ SERVER API (HOST URL)
+          </Text>
+          <View style={{flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 12, backgroundColor: '#f8fafc', paddingHorizontal: 12, height: 50}}>
+            <Ionicons name="link-outline" size={16} color="#fa5908" style={{marginRight: 8}} />
+            <TextInput
+              placeholder="https://oni.vn"
+              placeholderTextColor="#cbd5e1"
+              value={apiUrlInput}
+              onChangeText={setApiUrlInput}
+              autoCapitalize="none"
+              keyboardType="url"
+              style={Platform.OS === 'web' 
+                ? ({flex: 1, fontSize: 14, fontWeight: '600', color: '#1e293b', outlineStyle: 'none', borderStyle: 'none', borderWidth: 0, padding: 0} as any)
+                : {flex: 1, fontSize: 14, fontWeight: '600', color: '#1e293b', padding: 0}
+              }
+            />
+            {apiUrlInput !== 'https://oni.vn' && (
+              <TouchableOpacity 
+                onPress={() => {
+                  setApiUrlInput('https://oni.vn');
+                }}
+                style={{padding: 6, backgroundColor: '#f1f5f9', borderRadius: 8, marginLeft: 6}}
+              >
+                <Text style={{fontSize: 10, fontWeight: '700', color: '#fa5908'}}>Reset</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          <Text style={{fontSize: 11, color: '#94a3b8', fontWeight: '500', marginTop: 10, lineHeight: 16}}>
+            Mặc định là https://oni.vn. Bạn có thể cấu hình tên miền đám mây hoặc máy chủ cục bộ riêng của doanh nghiệp.
+          </Text>
+        </View>
+
+        {/* Nút hành động */}
+        <View style={{flexDirection: 'row', gap: 10}}>
+          <TouchableOpacity 
+            onPress={() => setShowConfig(false)}
+            style={{
+              flex: 1,
+              borderWidth: 1,
+              borderColor: '#cbd5e1',
+              height: 48,
+              borderRadius: 14,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: '#ffffff'
+            }}
+          >
+            <Text style={{color: '#64748b', fontWeight: '600', fontSize: 14}}>Hủy</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            onPress={handleSaveApiUrl}
+            style={{
+              flex: 1,
+              backgroundColor: '#fa5908', 
+              height: 48, 
+              borderRadius: 14, 
+              alignItems: 'center', 
+              justifyContent: 'center', 
+              shadowColor: '#fa5908',
+              shadowOffset: {width: 0, height: 4},
+              shadowOpacity: 0.15,
+              shadowRadius: 8,
+              elevation: 2
+            }}
+          >
+            <Text style={{color: '#ffffff', fontWeight: '600', fontSize: 14}}>Lưu & Thử lại</Text>
+          </TouchableOpacity>
+        </View>
+
+      </View>
+    </View>
+  </Modal>
 
  {/* 3. BRANCH LIST OR LOADING CONTAINER */}
  {isLoading ? (

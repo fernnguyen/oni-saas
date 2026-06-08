@@ -1,5 +1,5 @@
 import React, {useState, useEffect} from 'react';
-import {Text, View, TextInput, TouchableOpacity, ActivityIndicator, Alert, Modal, Platform, Image} from 'react-native';
+import {Text, View, TextInput, TouchableOpacity, ActivityIndicator, Alert, Modal, Platform, Image, Pressable} from 'react-native';
 import {useRouter} from 'expo-router';
 import {Ionicons} from '@expo/vector-icons';
 import {SafeAreaView} from 'react-native-safe-area-context';
@@ -148,7 +148,7 @@ export default function LoginScreen() {
  return (
  <SafeAreaView style={{flex: 1, backgroundColor: '#f8fafc', justifyContent: 'space-between', paddingHorizontal: 24, paddingVertical: 24, position: 'relative'}}>
  
- {/* Nút Cấu hình Server (Góc trái trên) - Loại bỏ hoàn toàn viền đen bằng thuộc tính border chuẩn */}
+ {/* Nút Cấu hình Server (Góc phải trên) - Loại bỏ hoàn toàn viền đen bằng thuộc tính border chuẩn */}
  <TouchableOpacity 
  activeOpacity={0.7}
  onPress={() => {
@@ -158,7 +158,7 @@ export default function LoginScreen() {
  style={{
  position: 'absolute', 
  top: 50, 
- left: 24, 
+ right: 24, 
  zIndex: 99, 
  width: 36, 
  height: 36, 
@@ -170,7 +170,7 @@ export default function LoginScreen() {
  justifyContent: 'center' 
 }}
  >
- <Ionicons name="server-outline" size={16} color="#fa5908" />
+ <Ionicons name="settings-outline" size={16} color="#fa5908" />
  </TouchableOpacity>
 
  {/* Spacer trên để đẩy phần logo xuống hợp lý */}
@@ -361,67 +361,104 @@ export default function LoginScreen() {
  </TouchableOpacity>
  </View>
 
- {/* MODAL CẤU HÌNH SERVER URL */}
- <Modal
- visible={isServerModalOpen}
- animationType="slide"
- transparent={true}
- onRequestClose={() => setIsServerModalOpen(false)}
- >
- <View style={{flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0, 0, 0, 0.6)'}}>
- <View style={{backgroundColor: '#ffffff', borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, minHeight: '40%', paddingBottom: 32}}>
- <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#f1f5f9', paddingBottom: 12, marginBottom: 16}}>
- <Text style={{fontSize: 18, fontWeight: '900', color: '#1e293b'}}>Cấu hình máy chủ</Text>
- <TouchableOpacity onPress={() => setIsServerModalOpen(false)} style={{padding: 4}}>
- <Ionicons name="close" size={24} color="#64748b" />
- </TouchableOpacity>
- </View>
+  {/* MODAL CẤU HÌNH SERVER URL */}
+  <Modal
+    visible={isServerModalOpen}
+    animationType="fade"
+    transparent={true}
+    onRequestClose={() => setIsServerModalOpen(false)}
+  >
+    <View style={{flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0, 0, 0, 0.6)', paddingHorizontal: 24}}>
+      <Pressable style={{position: 'absolute', top: 0, left: 0, right: 0, bottom: 0}} onPress={() => setIsServerModalOpen(false)} />
+      <View style={{backgroundColor: '#ffffff', borderRadius: 28, padding: 24, width: '100%', maxWidth: 360, shadowColor: '#000', shadowOffset: {width: 0, height: 10}, shadowOpacity: 0.1, shadowRadius: 20, elevation: 5}}>
+        
+        {/* Header Modal */}
+        <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#f1f5f9', paddingBottom: 14, marginBottom: 16}}>
+          <View style={{flexDirection: 'row', alignItems: 'center'}}>
+            <Ionicons name="settings-outline" size={18} color="#fa5908" style={{marginRight: 8}} />
+            <Text style={{fontSize: 16, fontWeight: '700', color: '#1e293b'}}>Cấu hình máy chủ</Text>
+          </View>
+          <TouchableOpacity onPress={() => setIsServerModalOpen(false)} style={{padding: 4}}>
+            <Ionicons name="close" size={20} color="#64748b" />
+          </TouchableOpacity>
+        </View>
 
- <View style={{flex: 1, marginBottom: 24}}>
- <Text style={{fontSize: 10, color: '#64748b', fontWeight: '900', letterSpacing: 0.5, marginBottom: 8}}>
- ĐỊA CHỈ SERVER API (HOST URL)
- </Text>
- <View style={{flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 12, backgroundColor: '#ffffff', paddingHorizontal: 14, height: 48}}>
- <Ionicons name="link-outline" size={16} color="#fa5908" style={{marginRight: 8}} />
- <TextInput
- placeholder="https://oni.vn"
- placeholderTextColor="#cbd5e1"
- value={customServerUrl}
- onChangeText={setCustomServerUrl}
- autoCapitalize="none"
- style={Platform.OS === 'web' 
- ? ({flex: 1, marginLeft: 10, fontSize: 14, fontWeight: '700', color: '#1e293b', outlineStyle: 'none', borderStyle: 'none', borderWidth: 0, padding: 0} as any)
- : {flex: 1, marginLeft: 10, fontSize: 14, fontWeight: '700', color: '#1e293b', padding: 0}
-}
- />
- </View>
- <Text style={{fontSize: 9, color: '#94a3b8', fontWeight: '600', marginTop: 10, lineHeight: 14}}>
- * Mặc định là https://oni.vn. Bạn có thể cấu hình tên miền đám mây hoặc máy chủ cục bộ riêng của doanh nghiệp.
- </Text>
- </View>
+        {/* Thân Modal */}
+        <View style={{marginBottom: 20}}>
+          <Text style={{fontSize: 10, color: '#64748b', fontWeight: '700', letterSpacing: 0.5, marginBottom: 8}}>
+            ĐỊA CHỈ SERVER API (HOST URL)
+          </Text>
+          <View style={{flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 12, backgroundColor: '#f8fafc', paddingHorizontal: 12, height: 50}}>
+            <Ionicons name="link-outline" size={16} color="#fa5908" style={{marginRight: 8}} />
+            <TextInput
+              placeholder="https://oni.vn"
+              placeholderTextColor="#cbd5e1"
+              value={customServerUrl}
+              onChangeText={setCustomServerUrl}
+              autoCapitalize="none"
+              keyboardType="url"
+              style={Platform.OS === 'web' 
+                ? ({flex: 1, fontSize: 14, fontWeight: '600', color: '#1e293b', outlineStyle: 'none', borderStyle: 'none', borderWidth: 0, padding: 0} as any)
+                : {flex: 1, fontSize: 14, fontWeight: '600', color: '#1e293b', padding: 0}
+              }
+            />
+            {customServerUrl !== 'https://oni.vn' && (
+              <TouchableOpacity 
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                  setCustomServerUrl('https://oni.vn');
+                }}
+                style={{padding: 6, backgroundColor: '#f1f5f9', borderRadius: 8, marginLeft: 6}}
+              >
+                <Text style={{fontSize: 10, fontWeight: '700', color: '#fa5908'}}>Reset</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          <Text style={{fontSize: 11, color: '#94a3b8', fontWeight: '500', marginTop: 10, lineHeight: 16}}>
+            Mặc định là https://oni.vn. Bạn có thể cấu hình tên miền đám mây hoặc máy chủ cục bộ riêng của doanh nghiệp.
+          </Text>
+        </View>
 
- <TouchableOpacity 
- onPress={handleSaveServerUrl}
- style={{
- backgroundColor: '#fa5908', 
- height: 48, 
- borderRadius: 24, 
- alignItems: 'center', 
- justifyContent: 'center', 
- flexDirection: 'row',
- shadowColor: '#fa5908',
- shadowOffset: {width: 0, height: 4},
- shadowOpacity: 0.15,
- shadowRadius: 8,
- elevation: 3
-}}
- >
- <Ionicons name="checkmark-circle-outline" size={16} color="white" style={{marginRight: 6}} />
- <Text style={{color: '#ffffff', fontWeight: '900', fontSize: 13, letterSpacing: 0.8}}>Lưu cấu hình</Text>
- </TouchableOpacity>
- </View>
- </View>
- </Modal>
+        {/* Nút hành động */}
+        <View style={{flexDirection: 'row', gap: 10}}>
+          <TouchableOpacity 
+            onPress={() => setIsServerModalOpen(false)}
+            style={{
+              flex: 1,
+              borderWidth: 1,
+              borderColor: '#cbd5e1',
+              height: 48,
+              borderRadius: 14,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: '#ffffff'
+            }}
+          >
+            <Text style={{color: '#64748b', fontWeight: '600', fontSize: 14}}>Hủy</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            onPress={handleSaveServerUrl}
+            style={{
+              flex: 1,
+              backgroundColor: '#fa5908', 
+              height: 48, 
+              borderRadius: 14, 
+              alignItems: 'center', 
+              justifyContent: 'center', 
+              shadowColor: '#fa5908',
+              shadowOffset: {width: 0, height: 4},
+              shadowOpacity: 0.15,
+              shadowRadius: 8,
+              elevation: 2
+            }}
+          >
+            <Text style={{color: '#ffffff', fontWeight: '600', fontSize: 14}}>Lưu cấu hình</Text>
+          </TouchableOpacity>
+        </View>
+
+      </View>
+    </View>
+  </Modal>
 
  </SafeAreaView>
  );
