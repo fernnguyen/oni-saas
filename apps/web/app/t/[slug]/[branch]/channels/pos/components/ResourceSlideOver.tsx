@@ -338,6 +338,18 @@ export function ResourceSlideOver({
     }
   }, [isOccupied, resource.current_order_id, shopId, syncOfflineActions])
 
+  const handleManualRefresh = useCallback(async () => {
+    // 1. Làm mới danh sách phòng phía ngoài
+    onRefresh?.()
+    
+    // 2. Tải lại chi tiết đơn hàng nếu phòng/bàn đang được sử dụng
+    if (isOccupied && resource.current_order_id) {
+      fetchingRef.current = ''
+      await fetchOrder()
+    }
+    toast.success('Đã làm mới dữ liệu')
+  }, [onRefresh, isOccupied, resource.current_order_id, fetchOrder])
+
   const lastOpenedRef = useRef<{ id: string; open: boolean }>({ id: '', open: false })
 
   // Reset state when opening a new resource
@@ -1313,6 +1325,16 @@ export function ResourceSlideOver({
                 )}
               </div>
             )}
+            <button
+              onClick={handleManualRefresh}
+              className={`rounded-xl p-2 hover:bg-slate-100 text-slate-500 hover:text-slate-700 transition-colors ${(loadingOrder || saving) ? 'animate-spin' : ''}`}
+              title="Làm mới dữ liệu"
+              disabled={loadingOrder || saving}
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+              </svg>
+            </button>
             <button onClick={onClose} className="rounded-xl p-2 hover:bg-slate-100 text-slate-400">✕</button>
           </div>
         </div>

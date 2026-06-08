@@ -2161,6 +2161,10 @@ useEffect(() => {
  if (Platform.OS === 'web') {
  setTables(prev => prev.map(t => t.id === selectedTableForPay.id ? {...t, status: 'available', startTime: null} : t));
 } else {
+    if (selectedTableForPay.current_order_id) {
+      await db.delete(schema.orders).where(eq(schema.orders.id, selectedTableForPay.current_order_id));
+      await db.delete(schema.order_items).where(eq(schema.order_items.order_id, selectedTableForPay.current_order_id));
+    }
    await db.insert(schema.orders).values({
   id: orderId,
   order_no: orderNo,
@@ -2391,14 +2395,30 @@ useEffect(() => {
  payments: {id: string; method: string; fund_id: string; amount: number}[],
  debtRepayOpts?: { debtRepayAmount?: number; debtFundId?: string; debtMethod?: string }
  ) => {
+ const originalTotal = getCartTotal();
+ const finalTotal = Math.max(0, originalTotal - discount);
+
+ const confirmPay = Platform.OS === 'web'
+   ? window.confirm(`Bạn có chắc chắn muốn hoàn tất thanh toán hóa đơn trị giá ${finalTotal.toLocaleString('vi-VN')}đ không?`)
+   : await new Promise<boolean>((resolve) => {
+       Alert.alert(
+         "Xác nhận Thanh toán",
+         `Bạn có chắc chắn muốn hoàn tất thanh toán hóa đơn trị giá ${finalTotal.toLocaleString('vi-VN')}đ không?`,
+         [
+           { text: "Hủy", onPress: () => resolve(false), style: "cancel" },
+           { text: "Xác nhận", onPress: () => resolve(true), style: "default" }
+         ]
+       );
+     });
+
+ if (!confirmPay) return;
+
  if (cartOwnerTable) {
  await handlePayTableConfirmUnified(customer, discount, note, payments);
  return;
 }
  setIsPayingCartLoading(true);
  try {
- const originalTotal = getCartTotal();
- const finalTotal = Math.max(0, originalTotal - discount);
  const paidSum = payments.reduce((sum, p) => sum + p.amount, 0);
 
  const paymentMethodString = JSON.stringify(payments.map(p => {
@@ -3745,12 +3765,16 @@ if (!isNavReady) {
  if (Platform.OS === 'web') {
  setTables(prev => prev.map(t => t.id === activeTable.id ? {...t, status: 'available', startTime: null} : t));
 } else {
- await db
- .update(schema.location_resources)
- .set({status: 'available', startTime: null})
- .where(eq(schema.location_resources.id, activeTable.id));
- const updated = await db.select().from(schema.location_resources);
- setTables(updated);
+  if (activeTable.current_order_id) {
+    await db.delete(schema.orders).where(eq(schema.orders.id, activeTable.current_order_id));
+    await db.delete(schema.order_items).where(eq(schema.order_items.order_id, activeTable.current_order_id));
+  }
+  await db
+  .update(schema.location_resources)
+  .set({status: 'available', startTime: null, current_order_id: null})
+  .where(eq(schema.location_resources.id, activeTable.id));
+  const updated = await db.select().from(schema.location_resources);
+  setTables(updated);
 }
 
  // 2. Đồng bộ trực tuyến lên Server Next.js nếu đang có mạng

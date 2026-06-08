@@ -370,10 +370,12 @@ export function TableMapPOS({
           sort_order: '0'
         }))
       }
-      
-      setResources([...physicalResources, ...virtualResources])
+      const allRes = [...physicalResources, ...virtualResources]
+      setResources(allRes)
+      return allRes
     } catch {
       toast.error('Không thể tải danh sách')
+      return null
     } finally {
       setLoading(false)
     }
@@ -483,7 +485,7 @@ export function TableMapPOS({
     }
   }, [viewMode, selectedZone, sortedZones, loading])
 
-  function handleResourceClick(r: Resource) {
+  async function handleResourceClick(r: Resource) {
     if (groupCheckoutMode) {
       if (selectedResourceIds.length === 0) {
         if (r.status !== 'occupied' && r.status !== 'available' && r.status !== 'checking_out') {
@@ -505,12 +507,19 @@ export function TableMapPOS({
         }
       }
     } else {
-      if (r.status === 'available' || r.status === 'occupied' || r.status === 'checking_out' || r.status === 'inspected') {
-        setActiveSlideResource(r)
-      } else if (r.status === 'cleaning' || r.status === 'dirty') {
+      let updatedR = r
+      // Tải lại dữ liệu phòng bàn trước khi hiển thị để tránh xung đột phiên bản
+      const latestResources = await fetchResources()
+      if (latestResources) {
+        updatedR = latestResources.find(res => res.id === r.id) || r
+      }
+
+      if (updatedR.status === 'available' || updatedR.status === 'occupied' || updatedR.status === 'checking_out' || updatedR.status === 'inspected') {
+        setActiveSlideResource(updatedR)
+      } else if (updatedR.status === 'cleaning' || updatedR.status === 'dirty') {
         const housekeepingMode = shopSettings?.housekeeping_workflow_mode || 'SIMPLE'
         if (housekeepingMode === 'SIMPLE') {
-          handleSetAvailable(r)
+          handleSetAvailable(updatedR)
         } else {
           toast.info('Chế độ Enterprise: Chỉ buồng phòng mới có thể đổi trạng thái sạch phòng.')
         }
