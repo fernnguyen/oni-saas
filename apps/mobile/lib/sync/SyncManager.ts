@@ -319,12 +319,23 @@ export class SyncManager {
             .from(schema.order_items)
             .where(eq(schema.order_items.order_id, order.id));
 
+          let serverOrderId = '';
+          if ((order as any).metadata) {
+            try {
+              const parsedMeta = JSON.parse((order as any).metadata);
+              if (parsedMeta && parsedMeta.server_order_id) {
+                serverOrderId = parsedMeta.server_order_id;
+              }
+            } catch (e) {}
+          }
+
           // Định dạng payload gửi lên REST API Next.js sync-batch
           const payload = {
             local_order_id: order.id,
+            server_order_id: serverOrderId,
             order: {
               status: order.status,
-              channel: 'pos-mobile',
+              channel: 'pos',
               customer_id: order.customer_id || '',
               customer_name: order.customer_name || 'Khách lẻ',
               branch_id: shopId,
@@ -346,7 +357,7 @@ export class SyncManager {
               discount_amount: 0,
               line_total: it.line_total,
             })),
-            payments: (() => {
+            payments: order.status === 'in_progress' ? [] : (() => {
               try {
                 const parsed = JSON.parse(order.payment_method);
                 if (Array.isArray(parsed)) {

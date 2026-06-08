@@ -109,6 +109,21 @@ export async function POST(
     let serverId = server_order_id ?? ''
     let orderNo = ''
 
+    // If serverId is a local ID format, try to find the actual server order ID by reference_no
+    if (serverId && (serverId.startsWith('ORD-') || serverId.startsWith('ord-'))) {
+      const matched = await connector.list('orders', {
+        page: 1, limit: 1,
+        filters: { reference_no: serverId },
+      })
+      if (matched.data.length > 0) {
+        serverId = (matched.data[0] as Record<string, string>).order_id
+      } else {
+        // If the check-in order wasn't found, it means it doesn't exist on server.
+        // Treat it as a new order instead of failing.
+        serverId = ''
+      }
+    }
+
     if (!serverId && local_order_id) {
       // Idempotency check: if a previous call created the order but the client
       // never received the response (e.g. F5 mid-request), find it by reference_no.
@@ -799,6 +814,34 @@ export async function POST(
         }
       } catch (err) {
         console.error('Failed to auto-release location resource:', err)
+      }
+    }
+
+    // --- Auto Occupy Table Logic ---
+    if (order.status === 'in_progress' && order.metadata) {
+      try {
+        const metaObj = typeof order.metadata === 'string' ? JSON.parse(order.metadata) : order.metadata
+        const resourceId = metaObj?.resource_id
+        if (resourceId && !resourceId.startsWith('takeaway')) {
+          const resource = await connector.findById('location-resources', resourceId)
+          if (resource) {
+            const checkInVal = metaObj.check_in || getGMT7Time()
+            await connector.update('location-resources', resourceId, {
+              status: 'occupied',
+              current_order_id: serverId,
+              metadata: JSON.stringify({
+                ...typeof resource.metadata === 'string' ? JSON.parse(resource.metadata) : (resource.metadata || {}),
+                check_in: checkInVal,
+                guests_list: metaObj.guests_list || [],
+                num_guests: metaObj.num_guests || 1,
+                rental_type: metaObj.rental_type || 'hourly',
+              })
+            })
+            invalidate(shopId, 'location-resources')
+          }
+        }
+      } catch (err) {
+        console.error('Failed to auto-occupy location resource:', err)
       }
     }
 

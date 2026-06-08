@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 const ORDER_STATUSES = ['draft', 'in_progress', 'confirmed', 'processing', 'completed', 'cancelled', 'returning', 'partially_refunded', 'refunded'] as const
-const ORDER_CHANNELS = ['pos', 'online', 'phone', 'zalo'] as const
+const ORDER_CHANNELS = ['pos', 'online', 'phone', 'zalo', 'pos-mobile'] as const
 const PAYMENT_METHODS = ['cash', 'card', 'bank_transfer', 'momo', 'vnpay', 'zalopay', 'debt'] as const
 
 export const orderCreateSchema = z.object({

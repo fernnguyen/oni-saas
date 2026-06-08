@@ -1551,12 +1551,20 @@ useEffect(() => {
 };
 
  // Gán khách hàng cho phòng bàn cục bộ
- if (order && order.customer_id) {
- setTableCustomers(prev => ({
- ...prev,
- [table.id]: {id: order.customer_id, name: order.customer_name || 'Khách lẻ'}
-}));
-}
+  if (order && order.customer_id) {
+    const localCust = customersList.find(c => c.id === order.customer_id);
+    const phoneVal = localCust?.phone || parsedMeta.customer_phone || "";
+    const addressVal = localCust?.address || parsedMeta.customer_address || "";
+    setTableCustomers(prev => ({
+      ...prev,
+      [table.id]: {
+        id: order.customer_id, 
+        name: order.customer_name || 'Khách lẻ',
+        phone: phoneVal,
+        address: addressVal
+      }
+    }));
+  }
 
  // Cập nhật tables list state cục bộ và ghi SQLite ngoại tuyến để tự chữa lành
  setTables(prev => prev.map(t => t.id === table.id ? updatedTable : t));
@@ -1764,138 +1772,142 @@ useEffect(() => {
 
  // Mở bàn
  const handleConfirmOpenTable = async () => {
- if (!selectedTableForOpen) return;
- try {
- const nowTime = Date.now();
- let syncSucceeded = false;
- let orderId = `ORD-T-INPROG-${Date.now()}`;
+    if (!selectedTableForOpen) return;
+    try {
+      const nowTime = Date.now();
+      let syncSucceeded = false;
+      let orderId = `ORD-T-INPROG-${Date.now()}`;
 
- // 1. Đồng bộ trực tuyến lên Server Next.js nếu đang có mạng (cho cả Web lẫn Native SQLite)
- try {
- const currentUrl = getApiBaseUrl();
- const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
- const headers = await getApiHeaders();
- 
- // A. Tạo order in_progress trên Next.js Server
- const orderRes = await fetch(`${currentUrl}/api/shops/${shopId}/orders`, {
- method: 'POST',
- headers: {...headers, 'Content-Type': 'application/json'},
- body: JSON.stringify({
- status: 'in_progress',
- channel: 'pos-mobile',
- customer_id: selectedCustomer?.id || '',
- customer_name: selectedCustomer?.name || 'Khách lẻ',
- branch_id: shopId,
- employee_id: currentUserEmail,
- subtotal: '0',
- total_amount: '0',
- paid_amount: '0',
- resource_id: selectedTableForOpen.id,
- metadata: (() => {
- let tMeta: any = {};
- try {
- tMeta = selectedTableForOpen.metadata ? JSON.parse(selectedTableForOpen.metadata) : {};
-} catch (e) {}
- return JSON.stringify({
- resource_id: selectedTableForOpen.id,
- resource_name: selectedTableForOpen.name,
- check_in: new Date(nowTime).toISOString(),
- num_guests: roomGuestCount,
- rental_type: roomRentalType,
- advanced_pricing: tMeta.advanced_pricing,
- overnight_rate: tMeta.overnight_rate,
- weekend_rate: tMeta.weekend_rate,
- room_class: tMeta.room_class,
- bed_type: tMeta.bed_type,
- guests_list: lodgingGuests
- .filter(g => g.name || g.id_number || g.idCard)
- .map(g => ({
- id: g.id || undefined,
- name: g.name || '',
- id_type: g.id_type || 'CCCD',
- id_number: g.id_number || g.idCard || '',
- idCard: g.id_number || g.idCard || '',
- expiry_date: g.expiry_date || '',
- nationality: g.nationality || 'Việt Nam',
- dob: g.dob || '',
- gender: g.gender || '',
- note: g.note || ''
-})),
-});
-})()
-}),
-});
+      let tMeta: any = {};
+      try {
+        tMeta = selectedTableForOpen.metadata ? JSON.parse(selectedTableForOpen.metadata) : {};
+      } catch (e) {}
 
- if (orderRes.ok) {
- const createdOrder = await orderRes.json();
- orderId = createdOrder.id || createdOrder.order_id;
+      // 1. Chuẩn hóa metadata nhận phòng để dùng chung cho cả Server và SQLite
+      const openTableMeta = JSON.stringify({
+        resource_id: selectedTableForOpen.id,
+        resource_name: selectedTableForOpen.name,
+        check_in: new Date(nowTime).toISOString(),
+        num_guests: roomGuestCount,
+        rental_type: roomRentalType,
+        advanced_pricing: tMeta.advanced_pricing,
+        overnight_rate: tMeta.overnight_rate,
+        weekend_rate: tMeta.weekend_rate,
+        room_class: tMeta.room_class,
+        bed_type: tMeta.bed_type,
+        guests_list: lodgingGuests
+          .filter(g => g.name || g.id_number || g.idCard)
+          .map(g => ({
+            id: g.id || undefined,
+            name: g.name || '',
+            id_type: g.id_type || 'CCCD',
+            id_number: g.id_number || g.idCard || '',
+            idCard: g.id_number || g.idCard || '',
+            expiry_date: g.expiry_date || '',
+            nationality: g.nationality || 'Việt Nam',
+            dob: g.dob || '',
+            gender: g.gender || '',
+            note: g.note || ''
+          })),
+      });
 
- // B. Cập nhật vị trí sang occupied
- const patchRes = await fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${selectedTableForOpen.id}`, {
- method: 'PATCH',
- headers: {...headers, 'Content-Type': 'application/json'},
- body: JSON.stringify({
- status: 'occupied',
- current_order_id: orderId,
- startTime: nowTime
-}),
-});
- if (patchRes.ok) {
- syncSucceeded = true;
-} else {
- const errBody = await patchRes.text().catch(() => '');
- console.warn(`[Open Table PATCH Failed] Status ${patchRes.status}:`, errBody);
-}
-} else {
- const errBody = await orderRes.text().catch(() => '');
- console.warn(`[Open Table POST Failed] Status ${orderRes.status}:`, errBody);
-}
-} catch (syncErr) {
- console.log('Mất mạng hoặc lỗi server, bỏ qua sync check-in trực tiếp:', syncErr);
-}
+      // 2. Đồng bộ trực tuyến lên Server Next.js nếu đang có mạng (cho cả Web lẫn Native SQLite)
+      try {
+        const currentUrl = getApiBaseUrl();
+        const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+        const headers = await getApiHeaders();
+        
+        // A. Tạo order in_progress trên Next.js Server
+        const orderRes = await fetch(`${currentUrl}/api/shops/${shopId}/orders`, {
+          method: 'POST',
+          headers: {...headers, 'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            status: 'in_progress',
+            channel: 'pos',
+            customer_id: selectedCustomer?.id || '',
+            customer_name: selectedCustomer?.name || 'Khách lẻ',
+            branch_id: shopId,
+            employee_id: currentUserEmail,
+            subtotal: '0',
+            total_amount: '0',
+            paid_amount: '0',
+            resource_id: selectedTableForOpen.id,
+            metadata: openTableMeta
+          }),
+        });
 
- // 2. Ghi đè vào DB Cục bộ hoặc State cục bộ
- const openTableMeta = JSON.stringify({
- guests_list: lodgingGuests
- .filter(g => g.name || g.id_number || g.idCard)
- .map(g => ({
- id: g.id || undefined,
- name: g.name || '',
- id_type: g.id_type || 'CCCD',
- id_number: g.id_number || g.idCard || '',
- idCard: g.id_number || g.idCard || '',
- expiry_date: g.expiry_date || '',
- nationality: g.nationality || 'Việt Nam',
- dob: g.dob || '',
- gender: g.gender || '',
- note: g.note || ''
-})),
- num_guests: roomGuestCount,
- rental_type: roomRentalType,
-});
+        if (orderRes.ok) {
+          const createdOrder = await orderRes.json();
+          orderId = createdOrder.id || createdOrder.order_id;
 
- if (Platform.OS === 'web') {
- setTables(prev => prev.map(t => t.id === selectedTableForOpen.id ? {
- ...t, 
- status: 'occupied', 
- current_order_id: orderId, 
- startTime: nowTime,
- metadata: openTableMeta
-} : t));
-} else {
- await db
- .update(schema.location_resources)
- .set({
- status: 'occupied', 
- current_order_id: orderId,
- startTime: nowTime,
- metadata: openTableMeta
-})
- .where(eq(schema.location_resources.id, selectedTableForOpen.id));
- 
- const updated = await db.select().from(schema.location_resources);
- setTables(updated);
-}
+          // B. Cập nhật vị trí sang occupied
+          const patchRes = await fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${selectedTableForOpen.id}`, {
+            method: 'PATCH',
+            headers: {...headers, 'Content-Type': 'application/json'},
+            body: JSON.stringify({
+              status: 'occupied',
+              current_order_id: orderId,
+              startTime: nowTime
+            }),
+          });
+          if (patchRes.ok) {
+            syncSucceeded = true;
+          } else {
+            const errBody = await patchRes.text().catch(() => '');
+            console.warn(`[Open Table PATCH Failed] Status ${patchRes.status}:`, errBody);
+          }
+        } else {
+          const errBody = await orderRes.text().catch(() => '');
+          console.warn(`[Open Table POST Failed] Status ${orderRes.status}:`, errBody);
+        }
+      } catch (syncErr) {
+        console.log('Mất mạng hoặc lỗi server, bỏ qua sync check-in trực tiếp:', syncErr);
+      }
+
+      // 3. Ghi đè vào DB Cục bộ hoặc State cục bộ
+      if (Platform.OS === 'web') {
+        setTables(prev => prev.map(t => t.id === selectedTableForOpen.id ? {
+          ...t, 
+          status: 'occupied', 
+          current_order_id: orderId, 
+          startTime: nowTime,
+          metadata: openTableMeta
+        } : t));
+      } else {
+        await db
+          .update(schema.location_resources)
+          .set({
+            status: 'occupied', 
+            current_order_id: orderId,
+            startTime: nowTime,
+            metadata: openTableMeta
+          })
+          .where(eq(schema.location_resources.id, selectedTableForOpen.id));
+        
+        // Nhập đơn hàng in_progress ngoại tuyến nếu chưa đồng bộ thành công
+        if (!syncSucceeded) {
+          const activeShiftId = await AsyncStorage.getItem('active_shift_id') || 'default-shift';
+          await db.insert(schema.orders).values({
+            id: orderId,
+            order_no: `HD-T-${Date.now().toString().substring(9)}`,
+            status: 'in_progress',
+            customer_id: selectedCustomer?.id || null,
+            customer_name: selectedCustomer?.name || 'Khách lẻ',
+            total_amount: 0,
+            paid_amount: 0,
+            payment_method: '',
+            created_at: new Date(nowTime).toISOString(),
+            shift_id: activeShiftId,
+            sync_status: 'pending',
+            note: '',
+            discount_amount: 0,
+            metadata: openTableMeta,
+          });
+        }
+        
+        const updated = await db.select().from(schema.location_resources);
+        setTables(updated);
+      }
 
  // Gán thông tin khách hàng nhận phòng bàn
  if (selectedCustomer) {
@@ -1922,7 +1934,79 @@ useEffect(() => {
 }
 };
 
- // Bấm thanh toán phòng/bàn
+     // Thay đổi số lượng món ăn/dịch vụ của phòng bàn trực tiếp
+  const handleIncreaseTableItemQty = (tableId: string, cartItemId: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    setTableCarts(prev => {
+      const tableCart = prev[tableId] || {};
+      const item = tableCart[cartItemId];
+      if (!item) return prev;
+      const updatedCart = {
+        ...tableCart,
+        [cartItemId]: {
+          ...item,
+          quantity: item.quantity + 1
+        }
+      };
+
+      // Đồng bộ trực tuyến tức thì lên server Next.js nếu có current_order_id
+      if (activeTable && activeTable.id === tableId && activeTable.current_order_id) {
+        syncOrderItemsOnline(activeTable.current_order_id, updatedCart);
+      }
+
+      return {
+        ...prev,
+        [tableId]: updatedCart
+      };
+    });
+  };
+
+  const handleDecreaseTableItemQty = (tableId: string, cartItemId: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    setTableCarts(prev => {
+      const tableCart = prev[tableId] || {};
+      const item = tableCart[cartItemId];
+      if (!item) return prev;
+      const newQty = Math.max(1, item.quantity - 1);
+      const updatedCart = {
+        ...tableCart,
+        [cartItemId]: {
+          ...item,
+          quantity: newQty
+        }
+      };
+
+      // Đồng bộ trực tuyến tức thì lên server Next.js nếu có current_order_id
+      if (activeTable && activeTable.id === tableId && activeTable.current_order_id) {
+        syncOrderItemsOnline(activeTable.current_order_id, updatedCart);
+      }
+
+      return {
+        ...prev,
+        [tableId]: updatedCart
+      };
+    });
+  };
+
+  const handleRemoveTableItem = (tableId: string, cartItemId: string) => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+    setTableCarts(prev => {
+      const tableCart = { ...(prev[tableId] || {}) };
+      delete tableCart[cartItemId];
+
+      // Đồng bộ trực tuyến tức thì lên server Next.js nếu có current_order_id
+      if (activeTable && activeTable.id === tableId && activeTable.current_order_id) {
+        syncOrderItemsOnline(activeTable.current_order_id, tableCart);
+      }
+
+      return {
+        ...prev,
+        [tableId]: tableCart
+      };
+    });
+  };
+
+  // Bấm thanh toán phòng/bàn
  const triggerPayTable = (table: any) => {
  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
  
@@ -2008,21 +2092,30 @@ useEffect(() => {
  if (Platform.OS === 'web') {
  setTables(prev => prev.map(t => t.id === selectedTableForPay.id ? {...t, status: 'available', startTime: null} : t));
 } else {
- await db.insert(schema.orders).values({
- id: orderId,
- order_no: orderNo,
- status: 'completed',
- customer_name: customer?.name || 'Khách lẻ',
- customer_id: customer?.id || null,
- total_amount: totalAmount,
- paid_amount: paidSum,
- payment_method: paymentMethodString,
- created_at: nowStr,
- shift_id: shiftId,
- sync_status: 'pending',
- note: note,
- discount_amount: discount,
-});
+   await db.insert(schema.orders).values({
+  id: orderId,
+  order_no: orderNo,
+  status: 'completed',
+  customer_name: customer?.name || 'Khách lẻ',
+  customer_id: customer?.id || null,
+  total_amount: totalAmount,
+  paid_amount: paidSum,
+  payment_method: paymentMethodString,
+  created_at: nowStr,
+  shift_id: shiftId,
+  sync_status: 'pending',
+  note: note,
+  discount_amount: discount,
+  metadata: JSON.stringify({
+    resource_id: selectedTableForPay.id,
+    resource_name: selectedTableForPay.name,
+    billing_cost: billing.cost,
+    billing_duration: billing.label,
+    check_out: nowStr,
+    rental_type: selectedTableForPay.metadata ? JSON.parse(selectedTableForPay.metadata).rental_type : 'hourly',
+    server_order_id: selectedTableForPay.current_order_id || ''
+  }),
+ });
 
  if (billing.cost > 0) {
  await db.insert(schema.order_items).values({
@@ -2070,7 +2163,7 @@ useEffect(() => {
  server_order_id: selectedTableForPay.current_order_id || '', 
  order: {
  status: 'completed',
- channel: 'pos-mobile',
+ channel: 'pos',
  customer_id: customer?.id || '',
  customer_name: customer?.name || 'Khách lẻ',
  branch_id: shopId,
@@ -2325,7 +2418,7 @@ useEffect(() => {
          local_order_id: orderId,
          order: {
            status: 'completed',
-           channel: 'pos-mobile',
+           channel: 'pos',
            customer_id: customer ? customer.id : '',
            customer_name: customer ? customer.name : 'Khách mua lẻ',
            branch_id: debtShopId,
@@ -3366,8 +3459,32 @@ if (!isNavReady) {
  </Text>
  <Text className="text-[9.5px] text-slate-500 mt-3 font-semibold leading-relaxed">
  ⏱️ Nhận lúc: {new Date(activeTable.startTime).toLocaleTimeString()} ({calculateBilling(activeTable).hours}h {calculateBilling(activeTable).minutes}m)
- </Text>
- </View>
+                  </Text>
+                </View>
+
+                {/* GIAO DIỆN KHÁCH HÀNG CRM TRONG CHI TIẾT PHÒNG */}
+                {tableCustomers[activeTable.id] ? (
+                  <View className="mb-4 bg-slate-50 border border-slate-200 p-3 rounded-xl flex-row items-center justify-between">
+                    <View className="flex-1">
+                      <Text className="text-[10px] text-slate-400 font-semibold mb-1">Khách hàng đại diện:</Text>
+                      <Text className="text-xs font-bold text-slate-800">{tableCustomers[activeTable.id].name}</Text>
+                      {tableCustomers[activeTable.id].phone ? (
+                        <Text className="text-tiny text-slate-500 font-semibold mt-0.5">📞 {tableCustomers[activeTable.id].phone}</Text>
+                      ) : (
+                        <Text className="text-tiny text-slate-400 mt-0.5 font-medium">Không có số điện thoại</Text>
+                      )}
+                    </View>
+                    <Ionicons name="person-circle-outline" size={24} color="#64748b" />
+                  </View>
+                ) : (
+                  <View className="mb-4 bg-slate-50 border border-slate-200 p-3 rounded-xl flex-row items-center justify-between">
+                    <View className="flex-1">
+                      <Text className="text-[10px] text-slate-400 font-semibold mb-1">Khách hàng đại diện:</Text>
+                      <Text className="text-xs font-semibold text-slate-450">Chưa gán khách hàng đại diện</Text>
+                    </View>
+                    <Ionicons name="person-circle-outline" size={24} color="#cbd5e1" />
+                  </View>
+                )}
 
  {/* CHI TIẾT MÓN / DỊCH VỤ ĐÃ GỌI KÈM */}
  {tableCarts[activeTable.id] && Object.keys(tableCarts[activeTable.id]).length > 0 ? (
@@ -3376,12 +3493,46 @@ if (!isNavReady) {
  <View className="bg-slate-50 border border-slate-200 rounded-xl p-3 max-h-32 overflow-hidden">
  <ScrollView nestedScrollEnabled={true}>
  {Object.entries(tableCarts[activeTable.id]).map(([cartItemId, item]) => (
- <View key={cartItemId} className="flex-row justify-between items-center py-1.5 border-b border-slate-100 last:border-0">
- <Text className="text-xs font-semibold text-slate-700 flex-1 mr-2" numberOfLines={1}>{item.name}</Text>
- <Text className="text-tiny text-slate-500 font-medium mr-3">x{item.quantity}</Text>
- <Text className="text-xs font-semibold text-slate-800">{formatCurrency((item.price + (item.modifier_total || 0)) * item.quantity)}</Text>
- </View>
- ))}
+                        <View key={cartItemId} className="flex-row justify-between items-center py-2 border-b border-slate-100 last:border-0">
+                          <Text className="text-xs font-semibold text-slate-700 flex-1 mr-2" numberOfLines={1}>{item.name}</Text>
+                          
+                          <View className="flex-row items-center gap-2">
+                            {/* Nút giảm số lượng */}
+                            <TouchableOpacity 
+                              onPress={() => handleDecreaseTableItemQty(activeTable.id, cartItemId)}
+                              className="w-7 h-7 bg-slate-100 rounded-lg justify-center items-center active:bg-slate-200"
+                            >
+                              <Text className="text-slate-600 font-bold text-sm">-</Text>
+                            </TouchableOpacity>
+
+                            {/* Ô hiển thị số lượng */}
+                            <View className="min-w-[30px] h-7 bg-white border border-slate-200 rounded-lg justify-center items-center px-1">
+                              <Text className="text-xs font-bold text-slate-800">{item.quantity}</Text>
+                            </View>
+
+                            {/* Nút tăng số lượng */}
+                            <TouchableOpacity 
+                              onPress={() => handleIncreaseTableItemQty(activeTable.id, cartItemId)}
+                              className="w-7 h-7 bg-slate-100 rounded-lg justify-center items-center active:bg-slate-200"
+                            >
+                              <Text className="text-slate-600 font-bold text-sm">+</Text>
+                            </TouchableOpacity>
+
+                            {/* Thành tiền */}
+                            <Text className="text-xs font-bold text-slate-800 min-w-[70px] text-right ml-1">
+                              {formatCurrency((item.price + (item.modifier_total || 0)) * item.quantity)}
+                            </Text>
+
+                            {/* Nút Xóa món */}
+                            <TouchableOpacity 
+                              onPress={() => handleRemoveTableItem(activeTable.id, cartItemId)}
+                              className="p-1 ml-1"
+                            >
+                              <Ionicons name="close" size={16} color="#94a3b8" />
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      ))}
  </ScrollView>
  </View>
  </View>
