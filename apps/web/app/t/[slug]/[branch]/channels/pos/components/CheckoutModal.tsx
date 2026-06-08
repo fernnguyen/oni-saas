@@ -1678,7 +1678,7 @@ export function CheckoutModal({
             disabled={paymentRows.length >= METHODS.length}
             className="text-xs text-primary hover:underline font-bold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
           >
-            + Thêm
+            Thêm
           </button>
         </div>
 
