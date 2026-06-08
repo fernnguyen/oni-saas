@@ -258,6 +258,7 @@ export function initializeLocalDatabase(customDb?: any) {
         id TEXT PRIMARY KEY NOT NULL,
         name TEXT NOT NULL,
         type TEXT NOT NULL,
+        code TEXT NOT NULL,
         branch_id TEXT NOT NULL,
         is_default INTEGER NOT NULL DEFAULT 0,
         active INTEGER NOT NULL DEFAULT 1
@@ -312,6 +313,7 @@ export function initializeLocalDatabase(customDb?: any) {
     try { targetDb.execSync(`ALTER TABLE customers ADD COLUMN prepaid_balance INTEGER DEFAULT 0;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE customers ADD COLUMN loyalty_points INTEGER DEFAULT 0;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE customers ADD COLUMN debt_amount INTEGER DEFAULT 0;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE payment_methods ADD COLUMN code TEXT NOT NULL DEFAULT 'cash';`); } catch (e) {}
     
     console.log(`CSDL SQLite [${activeDbName}]: Khởi tạo các bảng/migrations offline-first thành công!`);
   } catch (error) {

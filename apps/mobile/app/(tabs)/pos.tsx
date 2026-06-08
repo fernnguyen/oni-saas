@@ -579,7 +579,8 @@ export default function PosScreen() {
  const [productsList, setProductsList] = useState<any[]>([]);
  const [categoriesList, setCategoriesList] = useState<any[]>([]);
  const [customersList, setCustomersList] = useState<any[]>([]);
-  const [paymentFundsList, setPaymentFundsList] = useState<any[]>([]);
+ const [paymentFundsList, setPaymentFundsList] = useState<any[]>([]);
+ const [paymentMethodsList, setPaymentMethodsList] = useState<any[]>([]);
  const [selectedCategoryId, setSelectedCategoryId] = useState<string>('all');
  const [tables, setTables] = useState<any[]>([]);
  const [isLoading, setIsLoading] = useState(true);
@@ -623,6 +624,10 @@ export default function PosScreen() {
 
  const [activeVertical, setActiveVertical] = useState('retail'); // retail, billiards
  const [shopVertical, setShopVertical] = useState<string>('retail');
+  const checkIsQrPayment = (methodId: string) => {
+    const m = paymentMethodsList.find(pm => pm.id === methodId || pm.code === methodId);
+    return m?.type === 'bank' && m?.code !== 'card';
+  };
   const getFirstTabLabel = () => {
     switch (shopVertical) {
       case 'fnb':
@@ -678,6 +683,8 @@ export default function PosScreen() {
  const [isPayingTableLoading, setIsPayingTableLoading] = useState(false);
 
  const [isCheckoutConfirmVisible, setIsCheckoutConfirmVisible] = useState(false);
+ const checkoutResolveRef = React.useRef<((value: boolean) => void) | null>(null);
+ const [checkoutConfirmData, setCheckoutConfirmData] = useState<{ amount: number; paymentMethods: string } | null>(null);
  const [isPayingCartLoading, setIsPayingCartLoading] = useState(false);
  const [isUpdatingGuestsLoading, setIsUpdatingGuestsLoading] = useState(false);
 
@@ -846,12 +853,12 @@ export default function PosScreen() {
 
  // Tự động đồng bộ số tiền thanh toán mặc định khi giỏ hàng hoặc giảm giá thay đổi
  useEffect(() => {
- if (!isNavReady) return;
- const finalTotal = Math.max(0, getCartTotal() - discountAmount);
-    setPaymentRows([
-    {id: '1', method: 'cash', fund_id: paymentFundsList.find(f => f.type === 'cash')?.id || 'cash', amount: finalTotal}
-    ]);
-}, [cart, discountAmount, isNavReady]);
+   if (!isNavReady) return;
+   const finalTotal = Math.max(0, getCartTotal() - discountAmount);
+   setPaymentRows([
+     {id: '1', method: 'cash', fund_id: paymentFundsList.find(f => f.type === 'cash')?.id || 'cash', amount: finalTotal}
+   ]);
+ }, [cart, discountAmount, isNavReady, paymentFundsList]);
 
  // 1. Tải lại giỏ hàng và các thông tin tạm thời khi Mount component (Giữ giỏ hàng khi chuyển tab/reload)
  useEffect(() => {
@@ -979,7 +986,8 @@ useEffect(() => {
  let cats = [];
  let resources = [];
  let customers = [];
-  let funds: any[] = [];
+   let funds: any[] = [];
+   let methods: any[] = [];
 
  if (Platform.OS === 'web') {
  // Tải dữ liệu thực tế từ REST API (Next.js) trên môi trường Web để tránh placeholder mock
@@ -1080,6 +1088,25 @@ useEffect(() => {
 };
 });
 }
+
+ // E. Tải phương thức thanh toán
+ try {
+ const methodRes = await fetch(`${currentUrl}/api/shops/${shopId}/payment-methods?active=TRUE`, {headers});
+ if (methodRes.ok) {
+ const methodData = await methodRes.json();
+ methods = (methodData.data || []).map((m: any) => ({
+ id: m.id,
+ name: m.name,
+ type: m.type,
+ code: m.code,
+ branch_id: m.branch_id,
+ is_default: m.is_default === 'TRUE',
+ active: m.active === 'TRUE',
+}));
+}
+} catch (e) {
+ console.warn('Lỗi khi tải phương thức thanh toán:', e);
+}
 } catch (fetchError) {
  console.warn('Lỗi khi tải dữ liệu thực tế từ REST API trên Web, sử dụng Mock làm dự phòng:', fetchError);
 }
@@ -1113,6 +1140,18 @@ useEffect(() => {
  {id: 'cust2', name: 'Trần Thị Hằng', phone: '0987654321', customer_type: 'Thân thiết'}
  ];
 }
+ if (methods.length === 0) {
+   methods = [
+     { id: 'cash', name: 'Tiền mặt', type: 'cash', code: 'cash', is_default: true, active: true },
+     { id: 'bank_transfer', name: 'Chuyển khoản', type: 'bank', code: 'bank_transfer', is_default: true, active: true },
+     { id: 'card', name: 'Thẻ ATM / POS', type: 'bank', code: 'card', is_default: false, active: true },
+     { id: 'momo', name: 'Ví MoMo', type: 'wallet', code: 'momo', is_default: true, active: true },
+     { id: 'zalopay', name: 'Ví ZaloPay', type: 'wallet', code: 'zalopay', is_default: false, active: true },
+     { id: 'vnpay', name: 'Ví VNPay', type: 'wallet', code: 'vnpay', is_default: false, active: true },
+     { id: 'prepaid', name: 'Ví trả trước', type: 'prepaid', code: 'prepaid', is_default: true, active: true },
+     { id: 'debt', name: 'Ghi nợ', type: 'debt', code: 'debt', is_default: true, active: true },
+   ];
+ }
 } else {
  // SQLite Native
  prods = await db.select().from(schema.products);
@@ -1120,6 +1159,7 @@ useEffect(() => {
  resources = await db.select().from(schema.location_resources);
  customers = await db.select().from(schema.customers);
       funds = await db.select().from(schema.paymentFunds);
+      methods = await db.select().from(schema.paymentMethods);
 }
 
  if (isMounted) {
@@ -1128,6 +1168,7 @@ useEffect(() => {
  setTables(resources);
  setCustomersList(customers);
       setPaymentFundsList(funds);
+      setPaymentMethodsList(methods);
  setIsLoading(false);
 }
 } catch (error) {
@@ -2376,10 +2417,10 @@ useEffect(() => {
  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
 
  // Hiển thị Toast thông báo kết quả sang trọng giống WebUI
-  const hasTransfer = payments.some(p => ['bank_transfer', 'momo', 'card'].includes(p.method) && p.amount > 0);
+  const hasTransfer = payments.some(p => checkIsQrPayment(p.method) && p.amount > 0);
   if (hasTransfer) {
-    const transferAmount = payments.filter(p => ['bank_transfer', 'momo', 'card'].includes(p.method)).reduce((sum, p) => sum + p.amount, 0);
-    const transferP = payments.find(p => ['bank_transfer', 'momo', 'card'].includes(p.method) && p.amount > 0);
+    const transferAmount = payments.filter(p => checkIsQrPayment(p.method)).reduce((sum, p) => sum + p.amount, 0);
+    const transferP = payments.find(p => checkIsQrPayment(p.method) && p.amount > 0);
     setQrPayload({amount: transferAmount, orderNo: serverOrderNo, fund_id: transferP ? transferP.fund_id : 'bank'});
     setIsQrModalOpen(true);
   } else {
@@ -2414,20 +2455,26 @@ useEffect(() => {
  const originalTotal = getCartTotal();
  const finalTotal = Math.max(0, originalTotal - discount);
 
- const confirmPay = Platform.OS === 'web'
-   ? window.confirm(`Bạn có chắc chắn muốn hoàn tất thanh toán hóa đơn trị giá ${finalTotal.toLocaleString('vi-VN')}đ không?`)
-   : await new Promise<boolean>((resolve) => {
-       Alert.alert(
-         "Xác nhận Thanh toán",
-         `Bạn có chắc chắn muốn hoàn tất thanh toán hóa đơn trị giá ${finalTotal.toLocaleString('vi-VN')}đ không?`,
-         [
-           { text: "Hủy", onPress: () => resolve(false), style: "cancel" },
-           { text: "Xác nhận", onPress: () => resolve(true), style: "default" }
-         ]
-       );
-     });
+  const methodNames = payments.map(p => {
+    const found = paymentMethodsList.find(pm => pm.id === p.method || pm.code === p.method || pm.value === p.method);
+    const name = found ? (found.name || found.label) : (
+      p.method === 'cash' ? 'Tiền mặt' :
+      p.method === 'bank_transfer' ? 'Chuyển khoản' :
+      p.method === 'card' ? 'Thẻ ATM / POS' :
+      p.method === 'momo' ? 'Ví MoMo' :
+      p.method === 'debt' ? 'Ghi nợ' :
+      p.method === 'prepaid' ? 'Ví trả trước' : p.method
+    );
+    return `${name} (${p.amount.toLocaleString('vi-VN')}đ)`;
+  }).join(' + ');
 
- if (!confirmPay) return;
+  const confirmPay = await new Promise<boolean>((resolve) => {
+    checkoutResolveRef.current = resolve;
+    setCheckoutConfirmData({ amount: finalTotal, paymentMethods: methodNames });
+    setIsCheckoutConfirmVisible(true);
+  });
+
+  if (!confirmPay) return;
 
  if (cartOwnerTable) {
  await handlePayTableConfirmUnified(customer, discount, note, payments);
@@ -2589,10 +2636,10 @@ useEffect(() => {
   setIsPayingCartLoading(false);
 
   // Hiển thị QR thanh toán hoặc Toast báo thành công bằng server ID
-  const hasTransfer = payments.some(p => ['bank_transfer', 'momo', 'card'].includes(p.method) && p.amount > 0);
+  const hasTransfer = payments.some(p => checkIsQrPayment(p.method) && p.amount > 0);
   if (hasTransfer) {
-    const transferAmount = payments.filter(p => ['bank_transfer', 'momo', 'card'].includes(p.method)).reduce((sum, p) => sum + p.amount, 0);
-    const transferP = payments.find(p => ['bank_transfer', 'momo', 'card'].includes(p.method) && p.amount > 0);
+    const transferAmount = payments.filter(p => checkIsQrPayment(p.method)).reduce((sum, p) => sum + p.amount, 0);
+    const transferP = payments.find(p => checkIsQrPayment(p.method) && p.amount > 0);
     setQrPayload({amount: transferAmount, orderNo: serverOrderNo, fund_id: transferP ? transferP.fund_id : 'bank'});
     setIsQrModalOpen(true);
   } else {
@@ -3478,7 +3525,28 @@ if (!isNavReady) {
  )}
  </Dialog>
 
- {/* Hộp thoại xác nhận thanh toán đã được di chuyển vào bên trong Checkout Modal để xử lý z-index */}
+  <Dialog
+    visible={isCheckoutConfirmVisible}
+    onClose={() => {
+      setIsCheckoutConfirmVisible(false);
+      if (checkoutResolveRef.current) {
+        checkoutResolveRef.current(false);
+        checkoutResolveRef.current = null;
+      }
+    }}
+    onConfirm={() => {
+      setIsCheckoutConfirmVisible(false);
+      if (checkoutResolveRef.current) {
+        checkoutResolveRef.current(true);
+        checkoutResolveRef.current = null;
+      }
+    }}
+    title="Xác nhận Thanh toán"
+    description={`Bạn có chắc chắn muốn hoàn tất thanh toán hóa đơn trị giá ${checkoutConfirmData?.amount ? checkoutConfirmData.amount.toLocaleString('vi-VN') : '0'}đ bằng phương thức: ${checkoutConfirmData?.paymentMethods || ''}?`}
+    confirmLabel="Xác nhận"
+    cancelLabel="Hủy"
+    variant="default"
+  />
 
  {/* 5. CAMERA SCAN BARCODE POPUP */}
  <BarcodeScannerModal
@@ -3927,6 +3995,7 @@ if (!isNavReady) {
         paymentRows={paymentRows}
         setPaymentRows={setPaymentRows}
         paymentFundsList={paymentFundsList}
+        paymentMethodsList={paymentMethodsList}
         productsList={productsList}
         getCartCount={getCartCount}
         shopId={activeShopId}

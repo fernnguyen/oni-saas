@@ -256,20 +256,72 @@ export function CheckoutModal({
   const [paymentsB, setPaymentsB] = useState<PaymentRow[]>([])
   const [activeFolioTab, setActiveFolioTab] = useState<'A' | 'B'>('A')
 
+  const { data: settings } = useQuery({
+    queryKey: ['settings', shopId],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/settings`)
+      if (!res.ok) return {}
+      return res.json()
+    },
+    enabled: !!shopId,
+  })
+
+  // Lấy danh sách phương thức thanh toán động từ DB
+  const { data: methodsData } = useQuery({
+    queryKey: ['payment-methods', shopId, branchId],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/payment-methods?branch_id=${branchId}&active=TRUE`)
+      if (!res.ok) return []
+      const json = await res.json()
+      return (json.data || []) as Record<string, any>[]
+    },
+    enabled: !!shopId && !!branchId && open,
+  })
+  const methodsList = methodsData || []
+
+  // Lấy danh sách quỹ thanh toán để liên kết dòng tiền mặt/ngân hàng/ví điện tử
+  const { data: fundsData } = useQuery({
+    queryKey: ['payment-funds', shopId, branchId],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/payment-funds?branch_id=${branchId}&active=TRUE`)
+      if (!res.ok) return []
+      const json = await res.json()
+      return (json.data || []) as Record<string, string>[]
+    },
+    enabled: !!shopId && !!branchId && open,
+  })
+  const fundsList = fundsData || []
+
+  const resolvedMethods = useMemo(() => {
+    if (methodsList.length > 0) {
+      return methodsList.map((m) => ({
+        value: m.id,
+        label: m.name,
+        type: m.type,
+        code: m.code,
+      }))
+    }
+    return METHODS.map((m) => ({ ...m, code: m.value }))
+  }, [methodsList])
+
   const bankTransferAmt = useMemo(() => {
+    const checkIsBankTransfer = (methodId: string) => {
+      const m = resolvedMethods.find((rm) => rm.value === methodId)
+      return m?.type === 'bank' && m?.code !== 'card'
+    }
     if (isSplitActive) {
       const amtA = paymentsA
-        .filter((p) => p.method === 'bank_transfer')
+        .filter((p) => checkIsBankTransfer(p.method))
         .reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
       const amtB = paymentsB
-        .filter((p) => p.method === 'bank_transfer')
+        .filter((p) => checkIsBankTransfer(p.method))
         .reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
       return amtA + amtB
     }
     return payments
-      .filter((p) => p.method === 'bank_transfer')
+      .filter((p) => checkIsBankTransfer(p.method))
       .reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
-  }, [isSplitActive, payments, paymentsA, paymentsB])
+  }, [isSplitActive, payments, paymentsA, paymentsB, resolvedMethods])
 
   const debtAmount = useMemo(() => {
     if (isSplitActive) {
@@ -336,53 +388,6 @@ export function CheckoutModal({
 
   const computedSubtotal = computedItems.reduce((s, it) => s + (it.line_total || 0), 0)
 
-  const { data: settings } = useQuery({
-    queryKey: ['settings', shopId],
-    queryFn: async () => {
-      const res = await fetch(`/api/shops/${shopId}/settings`)
-      if (!res.ok) return {}
-      return res.json()
-    },
-    enabled: !!shopId,
-  })
-
-  // Lấy danh sách phương thức thanh toán động từ DB
-  const { data: methodsData } = useQuery({
-    queryKey: ['payment-methods', shopId, branchId],
-    queryFn: async () => {
-      const res = await fetch(`/api/shops/${shopId}/payment-methods?branch_id=${branchId}&active=TRUE`)
-      if (!res.ok) return []
-      const json = await res.json()
-      return (json.data || []) as Record<string, any>[]
-    },
-    enabled: !!shopId && !!branchId && open,
-  })
-  const methodsList = methodsData || []
-
-  // Lấy danh sách quỹ thanh toán để liên kết dòng tiền mặt/ngân hàng/ví điện tử
-  const { data: fundsData } = useQuery({
-    queryKey: ['payment-funds', shopId, branchId],
-    queryFn: async () => {
-      const res = await fetch(`/api/shops/${shopId}/payment-funds?branch_id=${branchId}&active=TRUE`)
-      if (!res.ok) return []
-      const json = await res.json()
-      return (json.data || []) as Record<string, string>[]
-    },
-    enabled: !!shopId && !!branchId && open,
-  })
-  const fundsList = fundsData || []
-
-  const resolvedMethods = useMemo(() => {
-    if (methodsList.length > 0) {
-      return methodsList.map((m) => ({
-        value: m.id,
-        label: m.name,
-        type: m.type,
-      }))
-    }
-    return METHODS
-  }, [methodsList])
-
   // Fetch Customer Purchase History for Debt Aging
   const { data: customerOrders } = useQuery({
     queryKey: ['customer-orders', shopId, localCustomer?.customer_id],
@@ -426,7 +431,15 @@ export function CheckoutModal({
 
   const isBlocked = !allowSellOverLimit && (isDebtDaysExceeded || isDebtAmountExceeded)
 
-  const qrPayment = payments.find((p) => p.method === 'bank_transfer')
+  const qrPayment = useMemo(() => {
+    const checkIsBankTransfer = (methodId: string) => {
+      const m = resolvedMethods.find((rm) => rm.value === methodId)
+      return m?.type === 'bank' && m?.code !== 'card'
+    }
+    const allPayments = isSplitActive ? [...paymentsA, ...paymentsB] : payments
+    return allPayments.find((p) => checkIsBankTransfer(p.method))
+  }, [payments, paymentsA, paymentsB, isSplitActive, resolvedMethods])
+
   const qrFund = fundsList.find((f) => f.id === qrPayment?.fund_id) || 
                  fundsList.find((f) => f.type === 'bank' && f.is_default === 'TRUE') || 
                  fundsList.find((f) => f.type === 'bank')
@@ -886,7 +899,7 @@ export function CheckoutModal({
             const bankPayment = {
               local_id: crypto.randomUUID(),
               order_local_id: waitingOrderId,
-              method: 'bank_transfer',
+              method: qrPayment?.method || 'bank_transfer',
               amount: bankTransferAmt,
               reference_no: data.reference_no || 'SEPAY',
               note: 'Tự động đối soát SEPay',
@@ -969,7 +982,7 @@ export function CheckoutModal({
     const bankPayment = {
       local_id: crypto.randomUUID(),
       order_local_id: waitingOrderId!,
-      method: 'bank_transfer',
+      method: qrPayment?.method || 'bank_transfer',
       amount: bankTransferAmt,
       reference_no: 'MANUAL',
       note: 'Xác nhận thủ công tại POS',
@@ -998,7 +1011,7 @@ export function CheckoutModal({
           body: JSON.stringify({
             order_id: orderServerId,
             order_no: waitingOrderNo,
-            method: 'bank_transfer',
+            method: qrPayment?.method || 'bank_transfer',
             amount: String(bankTransferAmt),
             reference_no: 'MANUAL',
             note: 'Xác nhận thủ công tại POS',
@@ -1011,7 +1024,7 @@ export function CheckoutModal({
           body: JSON.stringify({
             type: 'receipt',
             amount: bankTransferAmt,
-            method: 'bank_transfer',
+            method: qrPayment?.method || 'bank_transfer',
             category: 'sales',
             reference_id: orderServerId,
             reference_name: localCustomer?.name || 'Khách lẻ',
@@ -1045,7 +1058,7 @@ export function CheckoutModal({
             payload.payments.push({
               local_id: bankPayment.local_id,
               order_local_id: waitingOrderId!,
-              method: 'bank_transfer',
+              method: qrPayment?.method || 'bank_transfer',
               amount: bankTransferAmt,
               reference_no: 'MANUAL',
               note: 'Xác nhận thủ công tại POS',
@@ -1118,7 +1131,7 @@ export function CheckoutModal({
     const printPayments = [
       ...createdLocalPaymentsRef.current,
       {
-        method: 'bank_transfer',
+        method: qrPayment?.method || 'bank_transfer',
         amount: bankTransferAmt,
         note: 'Chờ chuyển khoản',
         fund_id: qrFund?.id || ''
@@ -1300,7 +1313,13 @@ export function CheckoutModal({
           ]
         : payments.filter(p => parseFloat(p.amount) > 0).map(p => ({ ...p, folio: 'unified' }))
 
-      const nonQrPayments = isWaitingForQr ? actualPayments.filter((p) => p.method !== 'bank_transfer') : actualPayments
+      const checkIsBankTransfer = (methodId: string) => {
+        const m = resolvedMethods.find((rm) => rm.value === methodId)
+        return m?.type === 'bank' && m?.code !== 'card'
+      }
+      const nonQrPayments = isWaitingForQr 
+        ? actualPayments.filter((p) => !checkIsBankTransfer(p.method)) 
+        : actualPayments
 
       const localPayments: any[] = nonQrPayments.map((p) => {
         let fundType = 'bank'
@@ -1704,8 +1723,11 @@ export function CheckoutModal({
             type="button"
             onClick={addPayment}
             disabled={paymentRows.length >= resolvedMethods.length}
-            className="text-xs text-primary hover:underline font-bold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            className="text-xs text-primary hover:underline font-bold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-1"
           >
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v6m3-3H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
             Thêm
           </button>
         </div>
@@ -1770,24 +1792,42 @@ export function CheckoutModal({
 
               {/* Bộ chọn Quỹ nhận tiền */}
               {!isPrepaid && !isDebt && matchingFunds.length > 0 && (
-                <div className="flex items-center gap-2.5 pt-2 border-t border-dashed border-slate-100">
-                  <span className="text-slate-550 shrink-0 font-medium text-sm">Nạp vào quỹ:</span>
+                <div className="relative flex items-center pl-6 mt-3.5">
+                  {/* Left vertical line */}
+                  <div className="absolute left-2.5 -top-2 bottom-1/2 w-px bg-slate-200" />
+                  {/* Left circle bullet */}
+                  <div className="absolute left-[7px] top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-slate-300" />
+
                   {matchingFunds.length === 1 ? (
-                    <span className="text-slate-800 font-semibold text-sm">
-                      {matchingFunds[0].name} {matchingFunds[0].bank_name ? `(${matchingFunds[0].bank_name})` : ''}
-                    </span>
+                    <div className="flex-1 flex items-center gap-2 bg-orange-50/50 border border-orange-100 rounded-lg px-3 py-1.5 text-xs">
+                      <span className="text-[10px] text-orange-800 font-bold uppercase tracking-wider">QUỸ:</span>
+                      <span className="font-bold text-orange-950">
+                        {matchingFunds[0].name} {matchingFunds[0].bank_name ? `(${matchingFunds[0].bank_name})` : ''}
+                      </span>
+                    </div>
                   ) : (
-                    <select
-                      value={p.fund_id || ''}
-                      onChange={(e) => updatePayment(p.id, 'fund_id', e.target.value)}
-                      className="flex-1 rounded-lg border border-slate-200 px-2.5 py-2 text-sm focus:border-primary focus:outline-none bg-white font-medium text-slate-800"
-                    >
-                      {matchingFunds.map((f) => (
-                        <option key={f.id} value={f.id}>
-                          {f.name} {f.bank_name ? `(${f.bank_name})` : ''}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="relative flex-1 flex items-center">
+                      <span className="absolute left-3 text-[10px] text-orange-800 font-bold uppercase pointer-events-none select-none">
+                        QUỸ:
+                      </span>
+                      <select
+                        value={p.fund_id || ''}
+                        onChange={(e) => updatePayment(p.id, 'fund_id', e.target.value)}
+                        className="w-full pl-11 pr-8 py-1.5 bg-orange-50/50 border border-orange-100 rounded-lg text-xs font-bold text-orange-950 focus:border-orange-300 focus:outline-none appearance-none cursor-pointer"
+                      >
+                        {matchingFunds.map((f) => (
+                          <option key={f.id} value={f.id} className="bg-white font-medium text-slate-800">
+                            {f.name} {f.bank_name ? `(${f.bank_name})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                      {/* Custom chevron icon */}
+                      <div className="absolute right-2.5 pointer-events-none text-orange-800">
+                        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </div>
+                    </div>
                   )}
                 </div>
               )}
@@ -1815,7 +1855,15 @@ export function CheckoutModal({
         {/* Summary rows */}
         <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm space-y-1">
           <div className="flex items-center justify-between">
-            <span className="text-slate-500">{isSplit ? 'Đã thiết lập:' : 'Số tiền nhận:'}</span>
+            <span className="text-slate-500">
+              {isSplit
+                ? 'Đã thiết lập:'
+                : paymentRows.length === 1 &&
+                  (paymentRows[0].method === 'debt' ||
+                    resolvedMethods.find((rm) => rm.value === paymentRows[0].method)?.code === 'debt')
+                ? 'Số tiền ghi nợ:'
+                : 'Số tiền nhận:'}
+            </span>
             <span className={rem > 0 ? 'font-bold text-red-500' : 'font-bold text-green-600'}>
               {fmtVND(paymentRows.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0))}
               {rem > 0 && (

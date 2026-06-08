@@ -82,7 +82,7 @@ export class SyncManager {
       const rawFunds = fundsData.data || [];
 
       // --- BƯỚC D3: TẢI PHIẾU THU/CHI SỔ QUỸ (CASHBOOK) ---
-      onProgress(0.87);
+      onProgress(0.86);
       let rawCashbook: any[] = [];
       try {
         const cbRes = await fetch(`${getApiBaseUrl()}/api/shops/${shopId}/cashbook?limit=100`, { headers });
@@ -92,6 +92,19 @@ export class SyncManager {
         }
       } catch (err) {
         console.warn('Lỗi tải sổ quỹ từ cloud:', err);
+      }
+
+      // --- BƯỚC D4: TẢI DANH SÁCH PHƯƠNG THỨC THANH TOÁN (PAYMENT METHODS) ---
+      onProgress(0.88);
+      let rawMethods: any[] = [];
+      try {
+        const methodsRes = await fetch(`${getApiBaseUrl()}/api/shops/${shopId}/payment-methods?active=TRUE`, { headers });
+        if (methodsRes.ok) {
+          const methodsData = await methodsRes.json();
+          rawMethods = methodsData.data || [];
+        }
+      } catch (err) {
+        console.warn('Lỗi tải phương thức thanh toán từ cloud:', err);
       }
 
       // --- BƯỚC E: LƯU TRỮ VÀO SQLITE NỘI ĐỊA CỦA ĐIỆN THOẠI (Drizzle Transaction) ---
@@ -104,6 +117,7 @@ export class SyncManager {
         DELETE FROM location_resources;
         DELETE FROM customers;
         DELETE FROM payment_funds;
+        DELETE FROM payment_methods;
         DELETE FROM cashbook WHERE sync_status = 'synced';
         DELETE FROM stock_movements WHERE sync_status = 'synced';
         DELETE FROM orders WHERE sync_status = 'synced';
@@ -251,6 +265,21 @@ export class SyncManager {
         }
       }
 
+      // 5.5 Ghi Danh sách Phương thức thanh toán (Payment Methods)
+      if (rawMethods.length > 0) {
+        for (const m of rawMethods) {
+          await db.insert(schema.paymentMethods).values({
+            id: m.id,
+            name: m.name || '',
+            type: m.type || 'cash',
+            code: m.code || m.id,
+            branch_id: m.branch_id || shopId,
+            is_default: m.is_default === 'TRUE' || m.is_default === true,
+            active: m.active === 'TRUE' || m.active === true,
+          }).onConflictDoNothing();
+        }
+      }
+
       // 6. Ghi Phiếu Thu/Chi Sổ Quỹ
       if (rawCashbook.length > 0) {
         for (const cb of rawCashbook) {
@@ -361,14 +390,11 @@ export class SyncManager {
               try {
                 const parsed = JSON.parse(order.payment_method);
                 if (Array.isArray(parsed)) {
-                  if (parsed.length > 0 && parsed[0].meta) {
-                    return parsed;
-                  }
                   return parsed.map((p: any) => ({
                     method: p.method === 'Chuyển khoản' ? 'bank_transfer' :
                             p.method === 'Thẻ ATM' ? 'card' :
                             p.method === 'Ví MoMo' ? 'momo' :
-                            p.method === 'Ghi nợ' ? 'debt' : 'cash',
+                            p.method === 'Ghi nợ' ? 'debt' : p.method,
                     amount: p.amount,
                   }));
                 }
@@ -378,7 +404,7 @@ export class SyncManager {
                   method: order.payment_method === 'Chuyển khoản' ? 'bank_transfer' :
                           order.payment_method === 'Thẻ ATM' ? 'card' :
                           order.payment_method === 'Ví MoMo' ? 'momo' :
-                          order.payment_method === 'Ghi nợ' ? 'debt' : 'cash',
+                          order.payment_method === 'Ghi nợ' ? 'debt' : order.payment_method,
                   amount: order.paid_amount,
                 }
               ];

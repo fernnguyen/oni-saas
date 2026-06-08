@@ -31,6 +31,7 @@ interface CartCheckoutModalProps {
   apiBaseUrl?: string;
   apiHeaders?: Record<string, string>;
   loading?: boolean;
+  paymentMethodsList?: any[];
 }
 
 export function formatCurrency(value: number): string {
@@ -62,8 +63,49 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
     discountAmount, setDiscountAmount, orderNote, setOrderNote,
     selectedCustomer, setSelectedCustomer, customersList,
     paymentRows, setPaymentRows, paymentFundsList, productsList, getCartCount, onCheckout,
-    shopId, isOnline = true, apiBaseUrl, apiHeaders, loading = false
+    shopId, isOnline = true, apiBaseUrl, apiHeaders, loading = false,
+    paymentMethodsList = []
   } = props;
+
+  const resolvedMethods = React.useMemo(() => {
+    const list = paymentMethodsList && paymentMethodsList.length > 0
+      ? paymentMethodsList
+      : PAYMENT_METHODS;
+
+    return list.map((m: any) => {
+      const methodCode = m.code || m.value;
+      const methodType = m.type;
+
+      let icon = 'business-outline';
+      let color = '#3b82f6';
+
+      if (methodType === 'cash' || methodCode === 'cash') {
+        icon = 'cash-outline';
+        color = '#10b981';
+      } else if (methodCode === 'card') {
+        icon = 'card-outline';
+        color = '#6366f1';
+      } else if (methodCode === 'momo' || methodType === 'wallet') {
+        icon = 'wallet-outline';
+        color = '#ec4899';
+      } else if (methodType === 'debt' || methodCode === 'debt') {
+        icon = 'receipt-outline';
+        color = '#ef4444';
+      } else if (methodType === 'prepaid' || methodCode === 'prepaid') {
+        icon = 'wallet-outline';
+        color = '#f59e0b';
+      }
+
+      return {
+        value: m.id || m.value,
+        label: m.name || m.label,
+        code: methodCode,
+        type: methodType,
+        icon,
+        color
+      };
+    });
+  }, [paymentMethodsList]);
 
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
   const [isEditingDiscount, setIsEditingDiscount] = useState(false);
@@ -84,6 +126,29 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
     setDebtRepayAmount(0);
     setEnrichedCustomer(null);
   }, [selectedCustomer?.id]);
+
+  // Tự động gán quỹ thực tế cho các dòng thanh toán chưa có quỹ hoặc đang dùng ID tạm 'cash'
+  React.useEffect(() => {
+    if (paymentFundsList && paymentFundsList.length > 0) {
+      setPaymentRows(prev => {
+        let changed = false;
+        const next = prev.map(p => {
+          if ((!p.fund_id || p.fund_id === 'cash') && p.method !== 'debt' && p.method !== 'prepaid') {
+            const methodObj = resolvedMethods.find(m => m.value === p.method);
+            const fundType = methodObj ? (methodObj.type || 'bank') : (p.method === 'cash' ? 'cash' : 'bank');
+            const matching = paymentFundsList.filter(f => f.type === fundType);
+            const defaultFund = matching.find(f => f.is_default === 'TRUE') || matching[0];
+            if (defaultFund && defaultFund.id !== p.fund_id) {
+              changed = true;
+              return { ...p, fund_id: defaultFund.id };
+            }
+          }
+          return p;
+        });
+        return changed ? next : prev;
+      });
+    }
+  }, [paymentFundsList, resolvedMethods]);
 
   // Fetch realtime khi chọn khách và đang online
   React.useEffect(() => {
@@ -597,14 +662,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                       className="flex-row items-center"
                       onPress={() => {
                         if (loading) return;
-                        const METHODS = [
-                          { value: 'cash', label: 'Tiền mặt' },
-                          { value: 'bank_transfer', label: 'Chuyển khoản' },
-                          { value: 'card', label: 'Thẻ ATM / POS' },
-                          { value: 'momo', label: 'Ví MoMo' },
-                          { value: 'debt', label: 'Ghi nợ' },
-                          { value: 'prepaid', label: 'Ví trả trước' },
-                        ];
+                        const METHODS = resolvedMethods;
                         const paidSumNow = paymentRows.reduce((sum, p) => sum + p.amount, 0);
                         const remaining = Math.max(0, effectiveTotal - paidSumNow);
                         
@@ -612,8 +670,8 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                         const nextMethod = METHODS.find((m) => !usedMethods.has(m.value)) || METHODS[0];
                         
                         let fundType = 'bank';
-                        if (nextMethod.value === 'cash') fundType = 'cash';
-                        else if (['momo', 'zalopay', 'vnpay', 'wallet'].includes(nextMethod.value)) fundType = 'wallet';
+                        if (nextMethod.type === 'cash' || nextMethod.code === 'cash') fundType = 'cash';
+                        else if (nextMethod.type === 'wallet') fundType = 'wallet';
                         
                         const matchingFunds = paymentFundsList.filter(f => f.type === fundType);
                         const defaultFund = matchingFunds.find(f => f.is_default === 'TRUE') || matchingFunds[0];
@@ -635,21 +693,19 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                   <Text className="text-xs text-slate-500 italic">Vui lòng đồng bộ dữ liệu để lấy danh sách Quỹ.</Text>
                 ) : (
                   paymentRows.map((row, idx) => {
-                    const METHODS = [
-                      { value: 'cash', label: 'Tiền mặt' },
-                      { value: 'bank_transfer', label: 'Chuyển khoản' },
-                      { value: 'card', label: 'Thẻ ATM / POS' },
-                      { value: 'momo', label: 'Ví MoMo' },
-                      { value: 'debt', label: 'Ghi nợ' },
-                      { value: 'prepaid', label: 'Ví trả trước' },
-                    ];
+                    const METHODS = resolvedMethods;
                     
                     const paidSumOfOthers = paymentRows.filter((_, i) => i !== idx).reduce((sum, p) => sum + p.amount, 0);
                     const remaining = Math.max(0, effectiveTotal - paidSumOfOthers);
                     
                     let fundType = 'bank';
-                    if (row.method === 'cash') fundType = 'cash';
-                    else if (['momo', 'zalopay', 'vnpay', 'wallet'].includes(row.method)) fundType = 'wallet';
+                    const activeMethodObj = resolvedMethods.find(m => m.value === row.method);
+                    if (activeMethodObj) {
+                      fundType = activeMethodObj.type || 'bank';
+                    } else {
+                      if (row.method === 'cash') fundType = 'cash';
+                      else if (['momo', 'zalopay', 'vnpay', 'wallet'].includes(row.method)) fundType = 'wallet';
+                    }
                     
                     const matchingFunds = paymentFundsList.filter(f => f.type === fundType);
                     const activeFund = paymentFundsList.find(f => f.id === row.fund_id) || matchingFunds[0];
@@ -717,27 +773,36 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                         </View>
                       </View>
 
-                      {/* Chọn Quỹ (Nếu có >1 quỹ) */}
-                      {matchingFunds.length > 1 && row.method !== 'debt' && row.method !== 'prepaid' && (
+                      {/* Chọn Quỹ (Nếu có >= 1 quỹ) */}
+                      {matchingFunds.length >= 1 && row.method !== 'debt' && row.method !== 'prepaid' && (
                         <View className="mt-2 flex-row items-center relative">
                           <View className="w-6 items-center justify-center">
                             <View className="w-px h-full bg-slate-300 absolute" />
                             <View className="w-1.5 h-1.5 rounded-full bg-slate-300" />
                           </View>
-                          <TouchableOpacity 
-                            className="flex-1 ml-1 bg-orange-50/50 border border-orange-100/80 rounded-lg px-2.5 py-2 flex-row justify-between items-center"
-                            onPress={() => {
-                              if (loading) return;
-                              setSelectingFundRow({ rowId: row.id, idx, matchingFunds });
-                            }}
-                            disabled={loading}
-                          >
-                            <View className="flex-row items-center flex-1 pr-2">
+                          {matchingFunds.length === 1 ? (
+                            <View 
+                              className="flex-1 ml-1 bg-orange-50/50 border border-orange-100/80 rounded-lg px-2.5 py-2 flex-row items-center"
+                            >
                               <Text className="text-[10px] text-orange-800 font-semibold uppercase mr-1">Quỹ:</Text>
-                              <Text className="text-xs font-bold text-orange-900" numberOfLines={1}>{activeFund?.name || 'Chọn quỹ...'}</Text>
+                              <Text className="text-xs font-bold text-orange-900" numberOfLines={1}>{activeFund?.name || matchingFunds[0].name}</Text>
                             </View>
-                            <Ionicons name="chevron-down" size={12} color="#c2410c" />
-                          </TouchableOpacity>
+                          ) : (
+                            <TouchableOpacity 
+                              className="flex-1 ml-1 bg-orange-50/50 border border-orange-100/80 rounded-lg px-2.5 py-2 flex-row justify-between items-center"
+                              onPress={() => {
+                                if (loading) return;
+                                setSelectingFundRow({ rowId: row.id, idx, matchingFunds });
+                              }}
+                              disabled={loading}
+                            >
+                              <View className="flex-row items-center flex-1 pr-2">
+                                <Text className="text-[10px] text-orange-800 font-semibold uppercase mr-1">Quỹ:</Text>
+                                <Text className="text-xs font-bold text-orange-900" numberOfLines={1}>{activeFund?.name || 'Chọn quỹ...'}</Text>
+                              </View>
+                              <Ionicons name="chevron-down" size={12} color="#c2410c" />
+                            </TouchableOpacity>
+                          )}
                         </View>
                       )}
 
@@ -849,11 +914,11 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
 
                 <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   <View className="flex-row flex-wrap justify-between">
-                    {PAYMENT_METHODS.map((m) => {
+                    {resolvedMethods.map((m) => {
                       const isSelected = selectingMethodRow && paymentRows[selectingMethodRow.idx]?.method === m.value;
                       
-                      const isPrepaid = m.value === 'prepaid';
-                      const isDebt = m.value === 'debt';
+                      const isPrepaid = m.type === 'prepaid' || m.code === 'prepaid';
+                      const isDebt = m.type === 'debt' || m.code === 'debt';
                       const customerPrepaid = Number(activeCustomer?.prepaid_balance || 0);
 
                       let isDisabled = false;
@@ -878,8 +943,8 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                             if (!selectingMethodRow) return;
                             const idx = selectingMethodRow.idx;
                             let newFundType = 'bank';
-                            if (m.value === 'cash') newFundType = 'cash';
-                            else if (['momo', 'zalopay', 'vnpay', 'wallet'].includes(m.value)) newFundType = 'wallet';
+                            if (m.type === 'cash' || m.code === 'cash') newFundType = 'cash';
+                            else if (m.type === 'wallet') newFundType = 'wallet';
                             
                             const mFunds = paymentFundsList.filter(f => f.type === newFundType);
                             const dFund = mFunds.find(f => f.is_default === 'TRUE') || mFunds[0];
