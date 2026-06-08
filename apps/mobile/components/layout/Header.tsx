@@ -225,8 +225,8 @@ export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false,
       className="flex-row items-center flex-1 max-w-[200px]"
     >
       <View className="flex-1 mr-1">
-        <Text className="text-[6.5px] font-semibold text-slate-450 leading-none">CHI NHÁNH</Text>
-        <Text className="text-sm font-semibold text-slate-800 mt-1 leading-tight" numberOfLines={1}>
+        <Text className="text-micro font-semibold text-slate-450">CHI NHÁNH</Text>
+        <Text className="text-sm font-semibold text-slate-800 mt-0.5 leading-tight" numberOfLines={1}>
           {activeBranchName}
         </Text>
       </View>
