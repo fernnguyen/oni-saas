@@ -49,6 +49,7 @@ export default function SettingsScreen() {
  const [soundFeedback, setSoundFeedback] = useState(true);
  const [mobileShiftEnabled, setMobileShiftEnabled] = useState(false);
  const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
+ const [isShiftOpen, setIsShiftOpen] = useState(false);
  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
  // 0. Thông tin tài khoản
@@ -98,8 +99,11 @@ export default function SettingsScreen() {
    }
  }
 
- const isShiftEnabled = (await AsyncStorage.getItem('enable_shift_management')) === 'true';
- setMobileShiftEnabled(isShiftEnabled);
+  const isShiftEnabled = (await AsyncStorage.getItem('enable_shift_management')) === 'true';
+  setMobileShiftEnabled(isShiftEnabled);
+
+  const activeShiftId = await AsyncStorage.getItem('active_shift_id');
+  setIsShiftOpen(!!activeShiftId);
 
  if (Platform.OS !== 'web') {
  const prods = await db.select().from(schema.products);
@@ -310,6 +314,100 @@ export default function SettingsScreen() {
   };
 
   // Xác nhận đóng ca và kết ca hoàn chỉnh
+  // Đăng xuất không đóng ca (Chỉ Thoát)
+  const handleLogoutOnly = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
+    try {
+      setIsLogoutModalOpen(false);
+      
+      // Xóa các session lưu trữ
+      await AsyncStorage.removeItem('active_shift_id');
+      await AsyncStorage.removeItem('active_shop_id');
+      await AsyncStorage.removeItem('active_shop_name');
+      await AsyncStorage.removeItem('active_tenant_id');
+      await AsyncStorage.removeItem('temp_cart');
+      await AsyncStorage.removeItem('temp_discount');
+      await AsyncStorage.removeItem('temp_note');
+      await AsyncStorage.removeItem('temp_customer');
+
+      switchDatabaseScope(null);
+      await supabase.auth.signOut();
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      router.replace('/(auth)/login');
+    } catch (err: any) {
+      console.error('Lỗi khi đăng xuất:', err);
+    }
+  };
+
+  // Đóng ca & Đăng xuất (Đóng ca và thoát)
+  const handleCloseShiftAndLogout = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
+    try {
+      setIsLogoutModalOpen(false);
+      const shopId = await AsyncStorage.getItem('active_shop_id');
+      const activeShiftId = await AsyncStorage.getItem('active_shift_id');
+      const nowStr = new Date().toISOString();
+
+      if (activeShiftId && Platform.OS !== 'web') {
+        // Cập nhật SQLite
+        await db
+          .update(schema.shop_shifts)
+          .set({
+            closed_at: nowStr,
+            status: 'closed',
+            sync_status: 'pending'
+          })
+          .where(eq(schema.shop_shifts.id, activeShiftId));
+
+        // PUT lên server
+        if (shopId) {
+          try {
+            const currentUrl = await getApiBaseUrl();
+            const headers = await getApiHeaders();
+            await fetch(`${currentUrl}/api/shops/${shopId}/shifts/${activeShiftId}`, {
+              method: 'PUT',
+              headers: { ...headers, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                closed_at: nowStr,
+              }),
+            });
+          } catch (err) {
+            console.warn('Lỗi đồng bộ đóng ca lên server:', err);
+          }
+        }
+      }
+
+      if (shopId && Platform.OS !== 'web') {
+        try {
+          await SyncManager.pushOfflineShifts(shopId);
+          await SyncManager.pushOfflineOrders(shopId);
+        } catch (syncErr) {
+          console.warn('Lỗi push offline chốt ca:', syncErr);
+        }
+      }
+
+      // Xóa session
+      await AsyncStorage.removeItem('active_shift_id');
+      await AsyncStorage.removeItem('active_shop_id');
+      await AsyncStorage.removeItem('active_shop_name');
+      await AsyncStorage.removeItem('active_tenant_id');
+      await AsyncStorage.removeItem('temp_cart');
+      await AsyncStorage.removeItem('temp_discount');
+      await AsyncStorage.removeItem('temp_note');
+      await AsyncStorage.removeItem('temp_customer');
+
+      switchDatabaseScope(null);
+      await supabase.auth.signOut();
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      router.replace('/(auth)/login');
+    } catch (err: any) {
+      console.error('Lỗi khi đóng ca & đăng xuất:', err);
+    }
+  };
+
+  // Xác nhận đóng ca làm việc và GIỮ phiên đăng nhập (Chốt ca -> quay lại màn hình chọn chi nhánh)
   const handleCloseShiftConfirm = async () => {
     if (isClosingShift) return;
     setIsClosingShift(true);
@@ -362,69 +460,25 @@ export default function SettingsScreen() {
         }
       }
 
-      // Xóa Session
+      // Xóa ca làm việc trong AsyncStorage
       await AsyncStorage.removeItem('active_shift_id');
-      await AsyncStorage.removeItem('active_shop_id');
-      await AsyncStorage.removeItem('active_shop_name');
-      await AsyncStorage.removeItem('active_tenant_id');
       await AsyncStorage.removeItem('temp_cart');
       await AsyncStorage.removeItem('temp_discount');
       await AsyncStorage.removeItem('temp_note');
       await AsyncStorage.removeItem('temp_customer');
 
-      switchDatabaseScope(null);
-      await supabase.auth.signOut();
-
       setShowCloseShiftModal(false);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      Alert.alert('Đã kết ca', 'Đã đóng ca làm việc và đăng xuất thành công.');
-      router.replace('/(auth)/login');
+      Alert.alert('Đã kết ca', 'Đã đóng ca làm việc thành công.');
+      // Load lại cấu hình settings
+      await loadSettingsData();
+      // Quay về chọn chi nhánh để có thể mở ca mới
+      router.replace('/(auth)/select-branch');
     } catch (err: any) {
       console.error('Lỗi khi đóng ca:', err);
       Alert.alert('Lỗi', `Không thể đóng ca: ${err.message || err}`);
     } finally {
       setIsClosingShift(false);
-    }
-  };
-
-  // Fallback đóng ca không cần két hoặc lỗi
-  const handleCloseShift = async () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
-    try {
-      setIsLogoutModalOpen(false);
-      const shopId = await AsyncStorage.getItem('active_shop_id');
-      const activeShiftId = await AsyncStorage.getItem('active_shift_id');
-      
-      if (activeShiftId && Platform.OS !== 'web') {
-        const nowStr = new Date().toISOString();
-        await db
-          .update(schema.shop_shifts)
-          .set({closed_at: nowStr, status: 'closed', sync_status: 'pending'})
-          .where(eq(schema.shop_shifts.id, activeShiftId));
-      }
-
-      if (shopId && Platform.OS !== 'web') {
-        await SyncManager.pushOfflineShifts(shopId);
-        await SyncManager.pushOfflineOrders(shopId);
-      }
-
-      await AsyncStorage.removeItem('active_shift_id');
-      await AsyncStorage.removeItem('active_shop_id');
-      await AsyncStorage.removeItem('active_shop_name');
-      await AsyncStorage.removeItem('active_tenant_id');
-      await AsyncStorage.removeItem('temp_cart');
-      await AsyncStorage.removeItem('temp_discount');
-      await AsyncStorage.removeItem('temp_note');
-      await AsyncStorage.removeItem('temp_customer');
-
-      switchDatabaseScope(null);
-      await supabase.auth.signOut();
-      
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      Alert.alert('Đã đóng ca', 'Đã đóng ca làm việc và đăng xuất thành công.');
-      router.replace('/(auth)/login');
-    } catch (err: any) {
-      console.error('Lỗi khi kết thúc ca làm việc:', err);
     }
   };
 
@@ -456,22 +510,31 @@ export default function SettingsScreen() {
  <Badge variant="primary" label="ON-SHIFT" size="sm" showDot={true} />
  </View>
 
- <View className="border-t border-slate-100 my-4 pt-4 flex-row justify-between items-center">
- <View>
- <Text className="text-xxs text-slate-400 font-medium">Chi nhánh hoạt động</Text>
- <Text className="text-xs font-semibold mt-0.5 text-slate-700">
- {branchName}
- </Text>
- </View>
- 
- <Button
- variant="danger"
- size="sm"
- title="Đóng ca / Kết ca"
- onPress={handleTriggerCloseShift}
- className="rounded-xl px-3.5 py-2"
- />
- </View>
+  <View className="border-t border-slate-100 my-4 pt-4 flex-row justify-between items-center">
+  <View className="flex-1 mr-2">
+  <Text className="text-xxs text-slate-400 font-medium">Chi nhánh hoạt động</Text>
+  <Text className="text-xs font-semibold mt-0.5 text-slate-700">
+  {branchName}
+  </Text>
+  </View>
+  
+  <View className="flex-row gap-2">
+  <Button
+  variant="outline"
+  size="sm"
+  title="Đăng xuất"
+  onPress={() => setIsLogoutModalOpen(true)}
+  className="rounded-xl px-3 py-2"
+  />
+  <Button
+  variant="danger"
+  size="sm"
+  title="Đóng ca / Kết ca"
+  onPress={handleTriggerCloseShift}
+  className="rounded-xl px-3 py-2"
+  />
+  </View>
+  </View>
  </View>
 
  {/* 3. CÀI ĐẶT MÁY IN NHIỆT K80 - Giảm bo về rounded-2xl */}
@@ -782,16 +845,30 @@ export default function SettingsScreen() {
  variant="success"
  />
 
- <Dialog
- visible={isLogoutModalOpen}
- onClose={() => setIsLogoutModalOpen(false)}
- onConfirm={handleCloseShift}
- title="Xác nhận Kết ca & Đóng ca?"
- description="Hệ thống sẽ gửi báo cáo ca làm việc, đồng bộ hóa đơn chưa gửi, đóng ca và đăng xuất an toàn khỏi ứng dụng di động."
- confirmLabel="Xác nhận Đóng ca"
- cancelLabel="Hủy"
- variant="danger"
- />
+  <Dialog
+  visible={isLogoutModalOpen}
+  onClose={() => setIsLogoutModalOpen(false)}
+  onConfirm={isShiftOpen ? handleCloseShiftAndLogout : handleLogoutOnly}
+  title="Đăng xuất tài khoản?"
+  description={
+    isShiftOpen
+      ? "Cảnh báo: Bạn đang có ca làm việc đang mở. Vui lòng chọn đóng ca trước khi thoát hoặc chỉ đăng xuất và giữ nguyên ca."
+      : "Bạn có chắc chắn muốn đăng xuất khỏi ứng dụng di động?"
+  }
+  confirmLabel={isShiftOpen ? "Đóng ca & Thoát" : "Đăng xuất"}
+  cancelLabel="Hủy"
+  variant="danger"
+  >
+    {isShiftOpen && (
+      <Button
+        variant="outline"
+        size="md"
+        title="Chỉ đăng xuất (Giữ ca mở)"
+        onPress={handleLogoutOnly}
+        className="w-full mb-3 rounded-2xl border border-slate-200"
+      />
+    )}
+  </Dialog>
 
   {/* Modal Chốt Ca và Đóng Ca */}
   <Modal

@@ -97,7 +97,8 @@ export function Dialog({
  title={cancelLabel}
  disabled={loading}
  onPress={onClose}
- className="flex-1 rounded-2xl"
+ className="rounded-2xl"
+ style={{ flex: 0.7 }}
  />
  )}
  
@@ -107,7 +108,8 @@ export function Dialog({
  title={confirmLabel}
  loading={loading}
  onPress={onConfirm}
- className={`${loading ? 'w-full' : 'flex-1'} rounded-2xl`}
+ className="rounded-2xl"
+ style={loading ? { width: '100%' } : { flex: 1.3 }}
  />
  </View>
  

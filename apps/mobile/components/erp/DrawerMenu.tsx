@@ -10,6 +10,7 @@ import * as schema from '../../lib/db/schema';
 import {eq} from 'drizzle-orm';
 import {SyncManager} from '../../lib/sync/SyncManager';
 import {Dialog} from '../ui/Dialog';
+import {Button} from '../ui/Button';
 
 export interface DrawerMenuProps {
  visible: boolean;
@@ -24,6 +25,7 @@ export function DrawerMenu({visible, onClose, branchName = 'Chi nhánh chính'}:
  const [userInfo, setUserInfo] = useState<{name: string, email: string} | null>(null);
  const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
  const [isLoggingOut, setIsLoggingOut] = useState(false);
+ const [isShiftOpen, setIsShiftOpen] = useState(false);
  
  // Hoạt ảnh trượt ngang từ trái sang phải
  const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
@@ -44,15 +46,30 @@ export function DrawerMenu({visible, onClose, branchName = 'Chi nhánh chính'}:
 }),
  ]).start();
 
- // Lấy thông tin tài khoản đăng nhập khi mở drawer
+ // Lấy thông tin tài khoản đăng nhập khi mở drawer (Offline-first)
  const fetchUser = async () => {
  try {
- const { data: { user } } = await supabase.auth.getUser();
- if (user) {
+ const name = await AsyncStorage.getItem('user_name');
+ const email = await AsyncStorage.getItem('saved_email');
+ const activeShiftId = await AsyncStorage.getItem('active_shift_id');
+ 
+ setIsShiftOpen(!!activeShiftId);
+ 
+ if (name || email) {
  setUserInfo({
- name: user.user_metadata?.full_name || user.user_metadata?.name || 'Nhân viên thu ngân',
- email: user.email || '',
+ name: name || 'Nhân viên',
+ email: email || '',
  });
+ } else {
+ // Fallback nếu chưa lưu trong AsyncStorage
+ const { data: { session } } = await supabase.auth.getSession();
+ if (session?.user) {
+ const fallbackName = session.user.user_metadata?.full_name || session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Nhân viên';
+ setUserInfo({
+ name: fallbackName,
+ email: session.user.email || '',
+ });
+ }
  }
  } catch (err) {
  console.warn('Lỗi khi lấy thông tin user trong DrawerMenu:', err);
@@ -86,53 +103,83 @@ export function DrawerMenu({visible, onClose, branchName = 'Chi nhánh chính'}:
 }
 };
 
- // Đóng ca và đăng xuất
- const handleCloseShift = async () => {
- setIsLoggingOut(true);
- Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
- try {
- const shopId = await AsyncStorage.getItem('active_shop_id');
- const activeShiftId = await AsyncStorage.getItem('active_shift_id');
- 
- if (activeShiftId && Platform.OS !== 'web') {
- const nowStr = new Date().toISOString();
- await db
- .update(schema.shop_shifts)
- .set({closed_at: nowStr, status: 'closed', sync_status: 'pending'})
- .where(eq(schema.shop_shifts.id, activeShiftId));
- }
+  // Đăng xuất không đóng ca (Chỉ Thoát)
+  const handleLogoutOnly = async () => {
+    setIsLoggingOut(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
+    try {
+      setIsLogoutConfirmOpen(false);
+      
+      // Xóa các session lưu trữ
+      await AsyncStorage.removeItem('active_shift_id');
+      await AsyncStorage.removeItem('active_shop_id');
+      await AsyncStorage.removeItem('active_shop_name');
+      await AsyncStorage.removeItem('active_tenant_id');
+      await AsyncStorage.removeItem('temp_cart');
+      await AsyncStorage.removeItem('temp_discount');
+      await AsyncStorage.removeItem('temp_note');
+      await AsyncStorage.removeItem('temp_customer');
 
- if (shopId && Platform.OS !== 'web') {
- await SyncManager.pushOfflineShifts(shopId);
- await SyncManager.pushOfflineOrders(shopId);
- }
+      switchDatabaseScope(null);
+      await supabase.auth.signOut();
 
- await AsyncStorage.removeItem('active_shift_id');
- await AsyncStorage.removeItem('active_shop_id');
- await AsyncStorage.removeItem('active_shop_name');
- await AsyncStorage.removeItem('active_tenant_id');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      setIsLoggingOut(false);
+      onClose(); // Đóng Drawer
+      router.replace('/(auth)/login');
+    } catch (err: any) {
+      console.error('Lỗi khi đăng xuất từ Drawer:', err);
+      setIsLoggingOut(false);
+    }
+  };
 
- // Xóa sạch giỏ hàng tạm và thông tin CRM của ca làm việc cũ
- await AsyncStorage.removeItem('temp_cart');
- await AsyncStorage.removeItem('temp_discount');
- await AsyncStorage.removeItem('temp_note');
- await AsyncStorage.removeItem('temp_customer');
+  // Đóng ca và đăng xuất (Đóng ca và thoát)
+  const handleCloseShiftAndLogout = async () => {
+    setIsLoggingOut(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
+    try {
+      const shopId = await AsyncStorage.getItem('active_shop_id');
+      const activeShiftId = await AsyncStorage.getItem('active_shift_id');
+      
+      if (activeShiftId && Platform.OS !== 'web') {
+        const nowStr = new Date().toISOString();
+        await db
+          .update(schema.shop_shifts)
+          .set({closed_at: nowStr, status: 'closed', sync_status: 'pending'})
+          .where(eq(schema.shop_shifts.id, activeShiftId));
+      }
 
- // Trả lại kết nối CSDL về file mặc định sau khi đăng xuất
- switchDatabaseScope(null);
+      if (shopId && Platform.OS !== 'web') {
+        await SyncManager.pushOfflineShifts(shopId);
+        await SyncManager.pushOfflineOrders(shopId);
+      }
 
- await supabase.auth.signOut();
- 
- Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
- setIsLoggingOut(false);
- setIsLogoutConfirmOpen(false);
- onClose(); // Đóng Drawer
- router.replace('/(auth)/login');
- } catch (err: any) {
- console.error('Lỗi khi kết thúc ca làm việc từ Drawer:', err);
- setIsLoggingOut(false);
- }
- };
+      await AsyncStorage.removeItem('active_shift_id');
+      await AsyncStorage.removeItem('active_shop_id');
+      await AsyncStorage.removeItem('active_shop_name');
+      await AsyncStorage.removeItem('active_tenant_id');
+
+      // Xóa sạch giỏ hàng tạm và thông tin CRM của ca làm việc cũ
+      await AsyncStorage.removeItem('temp_cart');
+      await AsyncStorage.removeItem('temp_discount');
+      await AsyncStorage.removeItem('temp_note');
+      await AsyncStorage.removeItem('temp_customer');
+
+      // Trả lại kết nối CSDL về file mặc định sau khi đăng xuất
+      switchDatabaseScope(null);
+
+      await supabase.auth.signOut();
+      
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      setIsLoggingOut(false);
+      setIsLogoutConfirmOpen(false);
+      onClose(); // Đóng Drawer
+      router.replace('/(auth)/login');
+    } catch (err: any) {
+      console.error('Lỗi khi kết thúc ca làm việc từ Drawer:', err);
+      setIsLoggingOut(false);
+    }
+  };
 
  const renderMenuItem = (icon: string, label: string, targetRoute: string, isComingSoon = false) => {
  return (
@@ -270,17 +317,31 @@ export function DrawerMenu({visible, onClose, branchName = 'Chi nhánh chính'}:
  </View>
 
  {/* Dialog xác nhận kết ca & đăng xuất */}
- <Dialog
- visible={isLogoutConfirmOpen}
- onClose={() => setIsLogoutConfirmOpen(false)}
- onConfirm={handleCloseShift}
- title="Xác nhận Kết ca & Đóng ca?"
- description="Hệ thống sẽ gửi báo cáo ca làm việc, đồng bộ hóa đơn chưa gửi, đóng ca và đăng xuất an toàn khỏi ứng dụng di động."
- confirmLabel="Xác nhận Đóng ca"
- cancelLabel="Hủy"
- variant="danger"
- loading={isLoggingOut}
- />
+  <Dialog
+  visible={isLogoutConfirmOpen}
+  onClose={() => setIsLogoutConfirmOpen(false)}
+  onConfirm={isShiftOpen ? handleCloseShiftAndLogout : handleLogoutOnly}
+  title="Đăng xuất tài khoản?"
+  description={
+    isShiftOpen
+      ? "Cảnh báo: Bạn đang có ca làm việc đang mở. Vui lòng chọn đóng ca trước khi thoát hoặc chỉ đăng xuất và giữ nguyên ca."
+      : "Bạn có chắc chắn muốn đăng xuất khỏi ứng dụng di động?"
+  }
+  confirmLabel={isShiftOpen ? "Đóng ca & Thoát" : "Đăng xuất"}
+  cancelLabel="Hủy"
+  variant="danger"
+  loading={isLoggingOut}
+  >
+    {isShiftOpen && (
+      <Button
+        variant="outline"
+        size="md"
+        title="Chỉ đăng xuất (Giữ ca mở)"
+        onPress={handleLogoutOnly}
+        className="w-full mb-3 rounded-2xl border border-slate-200"
+      />
+    )}
+  </Dialog>
  </Modal>
  );
 }

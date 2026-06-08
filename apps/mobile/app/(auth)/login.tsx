@@ -93,6 +93,11 @@ export default function LoginScreen() {
  return;
 }
 
+ if (data?.user) {
+    const fullName = data.user.user_metadata?.full_name || data.user.user_metadata?.name || trimmedEmail.split('@')[0];
+    await AsyncStorage.setItem('user_name', fullName);
+  }
+
  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
  setIsLoading(false);
  // Đi tới chọn Chi nhánh
@@ -120,6 +125,10 @@ export default function LoginScreen() {
  if (session) {
  await AsyncStorage.setItem('saved_tenant_code', tenantCode.trim().toLowerCase());
  await AsyncStorage.setItem('active_tenant_code', tenantCode.trim().toLowerCase());
+ if (session.user) {
+    const fullName = session.user.user_metadata?.full_name || session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Nhân viên';
+    await AsyncStorage.setItem('user_name', fullName);
+  }
  setIsLoading(false);
  router.push('/(auth)/select-branch');
 } else {
