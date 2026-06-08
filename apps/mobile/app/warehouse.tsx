@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { Text, View, ScrollView, TouchableOpacity, TextInput, Modal, Platform, Alert, ActivityIndicator } from 'react-native';
+import { Text, View, ScrollView, TouchableOpacity, TextInput, Modal, Platform, Alert, ActivityIndicator, TouchableWithoutFeedback } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -14,6 +14,13 @@ import { Badge } from '../components/ui/Badge';
 import { BarcodeScannerModal } from '../components/ui/BarcodeScannerModal';
 import { KeepAliveManager } from '../lib/sync/KeepAliveManager';
 import * as Haptics from 'expo-haptics';
+
+const REASONS = [
+  { value: 'Kiểm kê định kỳ', label: 'Kiểm kê định kỳ' },
+  { value: 'Hao hụt thất thoát', label: 'Hao hụt thất thoát' },
+  { value: 'Hư hỏng hàng hóa', label: 'Hư hỏng hàng hóa' },
+  { value: 'Khác', label: 'Lý do khác' },
+];
 
 export default function WarehouseScreen() {
   const router = useRouter();
@@ -30,6 +37,7 @@ export default function WarehouseScreen() {
   const [actualQtyInput, setActualQtyInput] = useState('');
   const [reason, setReason] = useState('Kiểm kê định kỳ');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showReasonSelector, setShowReasonSelector] = useState(false);
 
   const loadProducts = async () => {
     try {
@@ -233,7 +241,7 @@ export default function WarehouseScreen() {
         onRequestClose={() => setShowAdjustModal(false)}
       >
         <View className="flex-1 bg-black/60 justify-end">
-          <View className="bg-white rounded-t-3xl p-6">
+          <View className="bg-white rounded-t-3xl p-6 relative">
             
             {/* Header modal */}
             <View className="flex-row justify-between items-center mb-6">
@@ -286,25 +294,16 @@ export default function WarehouseScreen() {
                 {/* Lý do */}
                 <View className="mb-4">
                   <Text className="text-xxs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Lý do điều chỉnh *</Text>
-                  <View className="border border-slate-200 rounded-xl overflow-hidden bg-slate-50">
-                    <select
-                      value={reason}
-                      onChange={(e) => setReason(e.target.value)}
-                      style={{
-                        width: '100%',
-                        padding: 12,
-                        fontSize: 13,
-                        border: 'none',
-                        backgroundColor: 'transparent',
-                        outline: 'none',
-                      }}
-                    >
-                      <option value="Kiểm kê định kỳ">Kiểm kê định kỳ</option>
-                      <option value="Hao hụt thất thoát">Hao hụt thất thoát</option>
-                      <option value="Hư hỏng hàng hóa">Hư hỏng hàng hóa</option>
-                      <option value="Khác">Lý do khác</option>
-                    </select>
-                  </View>
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() => setShowReasonSelector(true)}
+                    className="flex-row justify-between items-center border border-slate-200 rounded-xl px-4 py-3 bg-slate-50"
+                  >
+                    <Text className="text-xs font-semibold text-slate-800">
+                      {REASONS.find(r => r.value === reason)?.label || 'Chọn lý do'}
+                    </Text>
+                    <Ionicons name="chevron-down" size={16} color="#64748b" />
+                  </TouchableOpacity>
                 </View>
 
                 {/* Actions */}
@@ -335,6 +334,38 @@ export default function WarehouseScreen() {
                 </View>
               </ScrollView>
             )}
+
+            {/* Reason Selector Overlay */}
+            {showReasonSelector && (
+              <View className="absolute inset-0 bg-white rounded-t-3xl p-6 z-50">
+                <View className="flex-row justify-between items-center mb-6">
+                  <Text className="text-base font-bold text-slate-800">Chọn lý do điều chỉnh</Text>
+                  <TouchableOpacity onPress={() => setShowReasonSelector(false)}>
+                    <Ionicons name="close" size={24} color="#64748b" />
+                  </TouchableOpacity>
+                </View>
+                <ScrollView showsVerticalScrollIndicator={false}>
+                  {REASONS.map(r => (
+                    <TouchableOpacity
+                      key={r.value}
+                      onPress={() => {
+                        setReason(r.value);
+                        setShowReasonSelector(false);
+                      }}
+                      className="py-3.5 border-b border-slate-100 flex-row justify-between items-center"
+                    >
+                      <Text className={`text-xs ${reason === r.value ? 'font-bold text-orange-500' : 'text-slate-700'}`}>
+                        {r.label}
+                      </Text>
+                      {reason === r.value && (
+                        <Ionicons name="checkmark" size={18} color="#fa5908" />
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+
           </View>
         </View>
       </Modal>

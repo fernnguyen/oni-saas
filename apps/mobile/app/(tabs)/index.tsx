@@ -2,7 +2,7 @@ import React, {useState, useCallback} from 'react';
 import {Text, View, ScrollView, TouchableOpacity, Platform, Alert} from 'react-native';
 import {Ionicons} from '@expo/vector-icons';
 import {SafeAreaView} from 'react-native-safe-area-context';
-import {useRouter, useFocusEffect} from 'expo-router';
+import {router, useFocusEffect} from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {db} from '../../lib/db/client';
 import * as schema from '../../lib/db/schema';
@@ -16,7 +16,6 @@ import {DrawerMenu} from '../../components/erp/DrawerMenu';
 import {formatCurrency} from '../../lib/utils/format';
 
 export default function DashboardScreen() {
- const router = useRouter();
  const {hasPermission, reloadPermissions} = usePermissions();
  const canViewReports = hasPermission('reports.view_shop');
 
@@ -198,7 +197,7 @@ export default function DashboardScreen() {
  onPress={() => canUsePos ? router.push('/(tabs)/pos') : Alert.alert('Thông báo', 'Bạn không có quyền sử dụng POS!')}
  className={`items-center w-[23%] ${!canUsePos ? 'opacity-40' : ''}`}
  >
- <View className="bg-orange-50 w-11 h-11 rounded-xl items-center justify-center border border-orange-100 mb-2 active:scale-95">
+ <View className="bg-orange-50 w-11 h-11 rounded-xl items-center justify-center border border-orange-100 mb-2">
  <Ionicons name="cart-outline" size={20} color="#fa5908" />
  {!canUsePos && <Text style={{position: 'absolute', right: 2, top: 2, fontSize: 8}}>🔒</Text>}
  </View>
@@ -210,7 +209,7 @@ export default function DashboardScreen() {
  onPress={() => canViewWarehouse ? router.push('/warehouse') : Alert.alert('Thông báo', 'Bạn không có quyền quản lý Kho hàng!')}
  className={`items-center w-[23%] ${!canViewWarehouse ? 'opacity-40' : ''}`}
  >
- <View className="bg-slate-50 w-11 h-11 rounded-xl items-center justify-center border border-slate-100 mb-2 active:scale-95">
+ <View className="bg-slate-50 w-11 h-11 rounded-xl items-center justify-center border border-slate-100 mb-2">
  <Ionicons name="cube-outline" size={20} color="#fa5908" />
  {!canViewWarehouse && <Text style={{position: 'absolute', right: 2, top: 2, fontSize: 8}}>🔒</Text>}
  </View>
@@ -222,7 +221,7 @@ export default function DashboardScreen() {
  onPress={() => canViewCashbook ? router.push('/cashbook') : Alert.alert('Thông báo', 'Bạn không có quyền xem Sổ quỹ!')}
  className={`items-center w-[23%] ${!canViewCashbook ? 'opacity-40' : ''}`}
  >
- <View className="bg-slate-50 w-11 h-11 rounded-xl items-center justify-center border border-slate-100 mb-2 active:scale-95">
+ <View className="bg-slate-50 w-11 h-11 rounded-xl items-center justify-center border border-slate-100 mb-2">
  <Ionicons name="wallet-outline" size={20} color="#fa5908" />
  {!canViewCashbook && <Text style={{position: 'absolute', right: 2, top: 2, fontSize: 8}}>🔒</Text>}
  </View>
@@ -234,7 +233,7 @@ export default function DashboardScreen() {
  onPress={() => canViewSettings ? router.push('/(tabs)/settings') : Alert.alert('Thông báo', 'Bạn không có quyền truy cập Cài đặt!')}
  className={`items-center w-[23%] ${!canViewSettings ? 'opacity-40' : ''}`}
  >
- <View className="bg-slate-50 w-11 h-11 rounded-xl items-center justify-center border border-slate-100 mb-2 active:scale-95">
+ <View className="bg-slate-50 w-11 h-11 rounded-xl items-center justify-center border border-slate-100 mb-2">
  <Ionicons name="people-outline" size={20} color="#fa5908" />
  {!canViewSettings && <Text style={{position: 'absolute', right: 2, top: 2, fontSize: 8}}>🔒</Text>}
  </View>

@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { Text, View, ScrollView, TouchableOpacity, TextInput, Modal, Platform, Alert, ActivityIndicator } from 'react-native';
+import { Text, View, ScrollView, TouchableOpacity, TextInput, Modal, Platform, Alert, ActivityIndicator, TouchableWithoutFeedback } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -15,24 +15,32 @@ import { KeepAliveManager } from '../lib/sync/KeepAliveManager';
 import * as Haptics from 'expo-haptics';
 
 const CATEGORY_MAP: Record<string, string> = {
-  debt_collection: 'Thu nợ khách hàng',
-  debt_payment: 'Chi trả nợ NCC',
-  salary: 'Chi lương nhân viên',
-  rent: 'Chi mặt bằng',
-  utilities: 'Chi điện nước',
-  other_revenue: 'Thu khác',
-  other_expense: 'Chi khác',
-  inventory: 'Thanh toán mua hàng',
+  sales: 'Bán hàng',
+  debt_collection: 'Thu nợ',
+  debt_payment: 'Trả nợ',
+  import: 'Nhập hàng',
+  salary: 'Lương nhân viên',
+  utilities: 'Điện nước/Mặt bằng',
+  other: 'Khác',
+  refund: 'Hoàn tiền',
+  inventory: 'Kho hàng',
+  inventory_payment: 'Thanh toán nhập kho',
+  inventory_receipt: 'Thu nhập kho',
+  prepaid_deposit: 'Nạp tiền ví trả trước',
+  depreciation_expense: 'Chi phí khấu hao',
 };
 
-const CATEGORIES = [
-  { value: 'other_expense', label: 'Chi khác' },
-  { value: 'salary', label: 'Chi lương nhân viên' },
-  { value: 'rent', label: 'Chi mặt bằng' },
-  { value: 'utilities', label: 'Chi điện nước' },
-  { value: 'debt_payment', label: 'Chi trả nợ NCC' },
-  { value: 'other_revenue', label: 'Thu khác' },
+const RECEIPT_CATEGORIES = [
+  { value: 'sales', label: 'Bán hàng' },
   { value: 'debt_collection', label: 'Thu nợ khách hàng' },
+  { value: 'other', label: 'Thu nhập khác' },
+];
+
+const PAYMENT_CATEGORIES = [
+  { value: 'import', label: 'Nhập hàng' },
+  { value: 'salary', label: 'Lương nhân viên' },
+  { value: 'utilities', label: 'Điện nước/Mặt bằng' },
+  { value: 'other', label: 'Chi phí khác' },
 ];
 
 export default function CashbookScreen() {
@@ -52,11 +60,18 @@ export default function CashbookScreen() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [txType, setTxType] = useState<'receipt' | 'payment'>('payment');
   const [amount, setAmount] = useState('');
-  const [category, setCategory] = useState('other_expense');
+  const [category, setCategory] = useState('other');
+  
+  const availableCategories = txType === 'receipt' ? RECEIPT_CATEGORIES : PAYMENT_CATEGORIES;
   const [fundId, setFundId] = useState('');
   const [note, setNote] = useState('');
   const [customerId, setCustomerId] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // States hiển thị selector dropdown
+  const [showCategorySelector, setShowCategorySelector] = useState(false);
+  const [showFundSelector, setShowFundSelector] = useState(false);
+  const [showCustomerSelector, setShowCustomerSelector] = useState(false);
 
   // Tự động mở modal thu nợ khi chuyển hướng từ danh sách khách hàng
   React.useEffect(() => {
@@ -237,7 +252,7 @@ export default function CashbookScreen() {
         <View className="flex-row justify-between gap-3 mb-5">
           <TouchableOpacity 
             activeOpacity={0.8}
-            onPress={() => { setTxType('receipt'); setCategory('other_revenue'); setShowAddModal(true); }}
+            onPress={() => { setTxType('receipt'); setCategory('other'); setShowAddModal(true); }}
             className="flex-1 bg-emerald-50 border border-emerald-100 py-3.5 rounded-2xl items-center flex-row justify-center"
           >
             <Ionicons name="add-circle" size={18} color="#059669" />
@@ -246,7 +261,7 @@ export default function CashbookScreen() {
 
           <TouchableOpacity 
             activeOpacity={0.8}
-            onPress={() => { setTxType('payment'); setCategory('other_expense'); setShowAddModal(true); }}
+            onPress={() => { setTxType('payment'); setCategory('other'); setShowAddModal(true); }}
             className="flex-1 bg-rose-50 border border-rose-100 py-3.5 rounded-2xl items-center flex-row justify-center"
           >
             <Ionicons name="remove-circle" size={18} color="#e11d48" />
@@ -315,7 +330,7 @@ export default function CashbookScreen() {
         onRequestClose={() => setShowAddModal(false)}
       >
         <View className="flex-1 bg-black/60 justify-end">
-          <View className="bg-white rounded-t-3xl p-6 max-h-[85%]">
+          <View className="bg-white rounded-t-3xl p-6 max-h-[85%] relative">
             
             {/* Header modal */}
             <View className="flex-row justify-between items-center mb-6">
@@ -351,83 +366,49 @@ export default function CashbookScreen() {
               {/* Loại phân mục thu chi */}
               <View className="mb-4">
                 <Text className="text-xxs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Phân mục *</Text>
-                <View className="border border-slate-200 rounded-xl overflow-hidden bg-slate-50">
-                  <select
-                    value={category}
-                    onChange={(e) => {
-                      setCategory(e.target.value);
-                      if (e.target.value !== 'debt_collection') {
-                        setCustomerId('');
-                      }
-                    }}
-                    style={{
-                      width: '100%',
-                      padding: 12,
-                      fontSize: 13,
-                      border: 'none',
-                      backgroundColor: 'transparent',
-                      outline: 'none',
-                    }}
-                  >
-                    {CATEGORIES.filter(c => {
-                      if (txType === 'receipt') return c.value === 'other_revenue' || c.value === 'debt_collection';
-                      return c.value !== 'other_revenue' && c.value !== 'debt_collection';
-                    }).map(c => (
-                      <option key={c.value} value={c.value}>{c.label}</option>
-                    ))}
-                  </select>
-                </View>
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={() => setShowCategorySelector(true)}
+                  className="flex-row justify-between items-center border border-slate-200 rounded-xl px-4 py-3 bg-slate-50"
+                >
+                  <Text className="text-xs font-semibold text-slate-800">
+                    {availableCategories.find(c => c.value === category)?.label || 'Chọn phân mục'}
+                  </Text>
+                  <Ionicons name="chevron-down" size={16} color="#64748b" />
+                </TouchableOpacity>
               </View>
 
               {/* Quỹ thanh toán */}
               <View className="mb-4">
                 <Text className="text-xxs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Sổ quỹ thanh toán *</Text>
-                <View className="border border-slate-200 rounded-xl overflow-hidden bg-slate-50">
-                  <select
-                    value={fundId}
-                    onChange={(e) => setFundId(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: 12,
-                      fontSize: 13,
-                      border: 'none',
-                      backgroundColor: 'transparent',
-                      outline: 'none',
-                    }}
-                  >
-                    {funds.map(f => (
-                      <option key={f.id} value={f.id}>{f.name}</option>
-                    ))}
-                    {funds.length === 0 && <option value="">Đang tải danh sách quỹ...</option>}
-                  </select>
-                </View>
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={() => setShowFundSelector(true)}
+                  className="flex-row justify-between items-center border border-slate-200 rounded-xl px-4 py-3 bg-slate-50"
+                >
+                  <Text className="text-xs font-semibold text-slate-800">
+                    {funds.find(f => f.id === fundId)?.name || (funds.length === 0 ? 'Đang tải danh sách quỹ...' : 'Chọn quỹ')}
+                  </Text>
+                  <Ionicons name="chevron-down" size={16} color="#64748b" />
+                </TouchableOpacity>
               </View>
 
               {/* Liên kết khách hàng (nếu là Thu Nợ) */}
               {txType === 'receipt' && category === 'debt_collection' && (
                 <View className="mb-4">
                   <Text className="text-xxs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Khách hàng cần thu nợ *</Text>
-                  <View className="border border-slate-200 rounded-xl overflow-hidden bg-slate-50">
-                    <select
-                      value={customerId}
-                      onChange={(e) => setCustomerId(e.target.value)}
-                      style={{
-                        width: '100%',
-                        padding: 12,
-                        fontSize: 13,
-                        border: 'none',
-                        backgroundColor: 'transparent',
-                        outline: 'none',
-                      }}
-                    >
-                      <option value="">-- Chọn khách hàng --</option>
-                      {customers.filter(c => (c.debt_amount || 0) > 0).map(c => (
-                        <option key={c.id} value={c.id}>
-                          {c.name} (Nợ: {formatCurrency(c.debt_amount)})
-                        </option>
-                      ))}
-                    </select>
-                  </View>
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() => setShowCustomerSelector(true)}
+                    className="flex-row justify-between items-center border border-slate-200 rounded-xl px-4 py-3 bg-slate-50"
+                  >
+                    <Text className="text-xs font-semibold text-slate-800">
+                      {customers.find(c => c.id === customerId)?.name 
+                        ? `${customers.find(c => c.id === customerId)?.name} (Nợ: ${formatCurrency(customers.find(c => c.id === customerId)?.debt_amount || 0)})` 
+                        : '-- Chọn khách hàng --'}
+                    </Text>
+                    <Ionicons name="chevron-down" size={16} color="#64748b" />
+                  </TouchableOpacity>
                 </View>
               )}
 
@@ -472,6 +453,115 @@ export default function CashbookScreen() {
               
               <View className="h-10" />
             </ScrollView>
+
+            {/* Category Selector Overlay */}
+            {showCategorySelector && (
+              <View className="absolute inset-0 bg-white rounded-t-3xl p-6 z-50">
+                <View className="flex-row justify-between items-center mb-6">
+                  <Text className="text-base font-bold text-slate-800">Chọn phân mục</Text>
+                  <TouchableOpacity onPress={() => setShowCategorySelector(false)}>
+                    <Ionicons name="close" size={24} color="#64748b" />
+                  </TouchableOpacity>
+                </View>
+                <ScrollView showsVerticalScrollIndicator={false}>
+                  {availableCategories.map(c => (
+                    <TouchableOpacity
+                      key={c.value}
+                      onPress={() => {
+                        setCategory(c.value);
+                        if (c.value !== 'debt_collection') {
+                          setCustomerId('');
+                        }
+                        setShowCategorySelector(false);
+                      }}
+                      className="py-3.5 border-b border-slate-100 flex-row justify-between items-center"
+                    >
+                      <Text className={`text-xs ${category === c.value ? 'font-bold text-orange-500' : 'text-slate-700'}`}>
+                        {c.label}
+                      </Text>
+                      {category === c.value && (
+                        <Ionicons name="checkmark" size={18} color="#fa5908" />
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+
+            {/* Fund Selector Overlay */}
+            {showFundSelector && (
+              <View className="absolute inset-0 bg-white rounded-t-3xl p-6 z-50">
+                <View className="flex-row justify-between items-center mb-6">
+                  <Text className="text-base font-bold text-slate-800">Chọn sổ quỹ thanh toán</Text>
+                  <TouchableOpacity onPress={() => setShowFundSelector(false)}>
+                    <Ionicons name="close" size={24} color="#64748b" />
+                  </TouchableOpacity>
+                </View>
+                {funds.length === 0 ? (
+                  <Text className="text-xs text-slate-500 py-4 text-center">Đang tải danh sách quỹ...</Text>
+                ) : (
+                  <ScrollView showsVerticalScrollIndicator={false}>
+                    {funds.map(f => (
+                      <TouchableOpacity
+                        key={f.id}
+                        onPress={() => {
+                          setFundId(f.id);
+                          setShowFundSelector(false);
+                        }}
+                        className="py-3.5 border-b border-slate-100 flex-row justify-between items-center"
+                      >
+                        <Text className={`text-xs ${fundId === f.id ? 'font-bold text-orange-500' : 'text-slate-700'}`}>
+                          {f.name}
+                        </Text>
+                        {fundId === f.id && (
+                          <Ionicons name="checkmark" size={18} color="#fa5908" />
+                        )}
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                )}
+              </View>
+            )}
+
+            {/* Customer Selector Overlay */}
+            {showCustomerSelector && (
+              <View className="absolute inset-0 bg-white rounded-t-3xl p-6 z-50">
+                <View className="flex-row justify-between items-center mb-6">
+                  <Text className="text-base font-bold text-slate-800">Chọn khách hàng cần thu nợ</Text>
+                  <TouchableOpacity onPress={() => setShowCustomerSelector(false)}>
+                    <Ionicons name="close" size={24} color="#64748b" />
+                  </TouchableOpacity>
+                </View>
+                {customers.filter(c => (c.debt_amount || 0) > 0).length === 0 ? (
+                  <Text className="text-xs text-slate-500 py-4 text-center">Không có khách hàng nào có dư nợ.</Text>
+                ) : (
+                  <ScrollView showsVerticalScrollIndicator={false}>
+                    {customers.filter(c => (c.debt_amount || 0) > 0).map(c => (
+                      <TouchableOpacity
+                        key={c.id}
+                        onPress={() => {
+                          setCustomerId(c.id);
+                          const debt = c.debt_amount || 0;
+                          if (debt > 0) {
+                            setAmount(debt.toLocaleString('vi-VN'));
+                          }
+                          setShowCustomerSelector(false);
+                        }}
+                        className="py-3.5 border-b border-slate-100 flex-row justify-between items-center"
+                      >
+                        <Text className={`text-xs ${customerId === c.id ? 'font-bold text-orange-500' : 'text-slate-700'}`}>
+                          {c.name} (Nợ: {formatCurrency(c.debt_amount || 0)})
+                        </Text>
+                        {customerId === c.id && (
+                          <Ionicons name="checkmark" size={18} color="#fa5908" />
+                        )}
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                )}
+              </View>
+            )}
+
           </View>
         </View>
       </Modal>

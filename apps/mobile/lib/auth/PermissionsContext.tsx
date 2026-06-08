@@ -50,8 +50,8 @@ export function PermissionsProvider({ children }: { children: React.ReactNode })
 
   const hasPermission = useCallback(
     (has: string | string[]) => {
-      // Vai trò owner/admin đặc biệt trên Mobile luôn có toàn quyền
-      if (roleCode === 'owner' || roleCode === 'admin' || permissions.includes('*')) {
+      const rCode = roleCode ? roleCode.trim().toLowerCase() : '';
+      if (rCode === 'owner' || rCode === 'admin' || permissions.includes('*')) {
         return true;
       }
 
