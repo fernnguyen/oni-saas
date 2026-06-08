@@ -47,6 +47,15 @@ export function parseCurrencyToNumber(value: string): number {
   return parseInt(value.replace(/[^0-9]/g, ''), 10) || 0;
 }
 
+const PAYMENT_METHODS = [
+  { value: 'cash', label: 'Tiền mặt', icon: 'cash-outline', color: '#10b981' },
+  { value: 'bank_transfer', label: 'Chuyển khoản', icon: 'business-outline', color: '#3b82f6' },
+  { value: 'card', label: 'Thẻ ATM / POS', icon: 'card-outline', color: '#6366f1' },
+  { value: 'momo', label: 'Ví MoMo', icon: 'wallet-outline', color: '#ec4899' },
+  { value: 'debt', label: 'Ghi nợ', icon: 'receipt-outline', color: '#ef4444' },
+  { value: 'prepaid', label: 'Ví trả trước', icon: 'wallet-outline', color: '#f59e0b' },
+];
+
 export default function CartCheckoutModal(props: CartCheckoutModalProps) {
   const {
     visible, onClose, cart, updateCartItemQuantity, removeFromCart, getCartTotal,
@@ -58,7 +67,8 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
 
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
   const [isEditingDiscount, setIsEditingDiscount] = useState(false);
-  const [openDropdownRowId, setOpenDropdownRowId] = useState<string | null>(null);
+  const [selectingMethodRow, setSelectingMethodRow] = useState<{ rowId: string; idx: number } | null>(null);
+  const [selectingFundRow, setSelectingFundRow] = useState<{ rowId: string; idx: number; matchingFunds: any[] } | null>(null);
   const [hidePrepaidSuggest, setHidePrepaidSuggest] = useState(false);
   const [hideDebtRepaySuggest, setHideDebtRepaySuggest] = useState(false);
   const [debtRepayAmount, setDebtRepayAmount] = useState(0);
@@ -161,6 +171,36 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
   };
 
   const handlePressCheckout = () => {
+    // 1. Kiểm tra khách lẻ (no selectedCustomer) dùng Ghi nợ hoặc Ví trả trước
+    const hasDebt = paymentRows.some((p) => p.method === 'debt' && p.amount > 0);
+    const hasPrepaid = paymentRows.some((p) => p.method === 'prepaid' && p.amount > 0);
+
+    if (hasDebt && !selectedCustomer) {
+      Alert.alert('Lỗi thanh toán', 'Phương thức Ghi nợ yêu cầu phải chọn Khách hàng.');
+      return;
+    }
+
+    if (hasPrepaid && !selectedCustomer) {
+      Alert.alert('Lỗi thanh toán', 'Phương thức Ví trả trước yêu cầu phải chọn Khách hàng.');
+      return;
+    }
+
+    // 2. Kiểm tra số dư ví trả trước
+    if (hasPrepaid && selectedCustomer) {
+      const prepaidSpent = paymentRows
+        .filter((p) => p.method === 'prepaid')
+        .reduce((sum, p) => sum + p.amount, 0);
+      const customerPrepaid = Number(activeCustomer?.prepaid_balance || 0);
+      if (prepaidSpent > customerPrepaid) {
+        Alert.alert(
+          'Không đủ số dư ví',
+          `Số dư Ví trả trước của khách chỉ còn ${formatCurrency(customerPrepaid)}, không đủ để thanh toán ${formatCurrency(prepaidSpent)}.`
+        );
+        return;
+      }
+    }
+
+    // 3. Kiểm tra tổng số tiền đã trả
     if (paidSum < effectiveTotal) {
       Alert.alert(
         'Chưa đủ tiền',
@@ -617,14 +657,14 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                     return (
                     <View key={row.id} className="mb-3.5 bg-slate-50 p-2.5 rounded-xl border border-slate-200" style={{zIndex: paymentRows.length - idx}}>
                       
-                      <View className="flex-row items-center justify-between z-20">
+                      <View className="flex-row items-center justify-between">
                         {/* Chọn Method */}
-                        <View style={{width: '45%'}} className="relative">
+                        <View style={{width: '45%'}}>
                           <TouchableOpacity 
                             className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-2.5 flex-row justify-between items-center"
                             onPress={() => {
                               if (loading) return;
-                              setOpenDropdownRowId(openDropdownRowId === `method-${row.id}` ? null : `method-${row.id}`);
+                              setSelectingMethodRow({ rowId: row.id, idx });
                             }}
                             disabled={loading}
                           >
@@ -633,32 +673,6 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                             </Text>
                             <Ionicons name="chevron-down" size={12} color="#94a3b8" />
                           </TouchableOpacity>
-                          
-                          {openDropdownRowId === `method-${row.id}` && (
-                            <View className="absolute bg-white border border-slate-200 rounded-xl py-1 w-44 shadow-lg top-[40px] left-0" style={{shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 8, elevation: 5}}>
-                              <ScrollView nestedScrollEnabled={true} style={{maxHeight: 200}}>
-                                {METHODS.map(m => (
-                                  <TouchableOpacity
-                                    key={m.value}
-                                    className="px-3 py-2 border-b border-slate-50"
-                                    onPress={() => {
-                                      let newFundType = 'bank';
-                                      if (m.value === 'cash') newFundType = 'cash';
-                                      else if (['momo', 'zalopay', 'vnpay', 'wallet'].includes(m.value)) newFundType = 'wallet';
-                                      
-                                      const mFunds = paymentFundsList.filter(f => f.type === newFundType);
-                                      const dFund = mFunds.find(f => f.is_default === 'TRUE') || mFunds[0];
-                                      
-                                      setPaymentRows(prev => prev.map((r, i) => i === idx ? {...r, method: m.value, fund_id: dFund?.id || ''} : r));
-                                      setOpenDropdownRowId(null);
-                                    }}
-                                  >
-                                    <Text className={`text-xs ${m.value === row.method ? 'font-semibold text-orange-500' : 'text-slate-700'}`}>{m.label}</Text>
-                                  </TouchableOpacity>
-                                ))}
-                              </ScrollView>
-                            </View>
-                          )}
                         </View>
 
                         {/* Số tiền */}
@@ -705,7 +719,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
 
                       {/* Chọn Quỹ (Nếu có >1 quỹ) */}
                       {matchingFunds.length > 1 && row.method !== 'debt' && row.method !== 'prepaid' && (
-                        <View className="mt-2 flex-row items-center z-10 relative">
+                        <View className="mt-2 flex-row items-center relative">
                           <View className="w-6 items-center justify-center">
                             <View className="w-px h-full bg-slate-300 absolute" />
                             <View className="w-1.5 h-1.5 rounded-full bg-slate-300" />
@@ -714,7 +728,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                             className="flex-1 ml-1 bg-orange-50/50 border border-orange-100/80 rounded-lg px-2.5 py-2 flex-row justify-between items-center"
                             onPress={() => {
                               if (loading) return;
-                              setOpenDropdownRowId(openDropdownRowId === `fund-${row.id}` ? null : `fund-${row.id}`);
+                              setSelectingFundRow({ rowId: row.id, idx, matchingFunds });
                             }}
                             disabled={loading}
                           >
@@ -724,26 +738,6 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                             </View>
                             <Ionicons name="chevron-down" size={12} color="#c2410c" />
                           </TouchableOpacity>
-
-                          {openDropdownRowId === `fund-${row.id}` && (
-                            <View className="absolute bg-white border border-slate-200 rounded-xl py-1 w-56 shadow-lg top-[36px] left-8" style={{shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 8, elevation: 5}}>
-                              <ScrollView nestedScrollEnabled={true} style={{maxHeight: 150}}>
-                                {matchingFunds.map(f => (
-                                  <TouchableOpacity
-                                    key={f.id}
-                                    className="px-3 py-2 border-b border-slate-50"
-                                    onPress={() => {
-                                      setPaymentRows(prev => prev.map((r, i) => i === idx ? {...r, fund_id: f.id} : r));
-                                      setOpenDropdownRowId(null);
-                                    }}
-                                  >
-                                    <Text className={`text-xs ${f.id === row.fund_id ? 'font-bold text-orange-600' : 'text-slate-700 font-medium'}`}>{f.name}</Text>
-                                    {f.bank_name && <Text className="text-[10px] text-slate-500 mt-0.5">{f.bank_name}</Text>}
-                                  </TouchableOpacity>
-                                ))}
-                              </ScrollView>
-                            </View>
-                          )}
                         </View>
                       )}
 
@@ -767,7 +761,6 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                           onPress={() => {
                             if (loading) return;
                             setPaymentRows(prev => prev.filter(r => r.id !== row.id));
-                            if (openDropdownRowId === `method-${row.id}` || openDropdownRowId === `fund-${row.id}`) setOpenDropdownRowId(null);
                           }}
                           disabled={loading}
                           className="absolute -top-2 -right-2 bg-white border border-rose-200 rounded-full p-1"
@@ -835,6 +828,142 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
               />
             </View>
           </View>
+
+          {/* Modal chọn phương thức thanh toán */}
+          {selectingMethodRow !== null && (
+            <View className="absolute inset-0 z-50 justify-end" style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)' }}>
+              <Pressable
+                className="absolute inset-0"
+                onPress={() => setSelectingMethodRow(null)}
+              />
+              <View className="bg-white rounded-t-3xl p-6 pb-8 max-h-[70%]" style={{ shadowColor: '#000', shadowOffset: { width: 0, height: -10 }, shadowOpacity: 0.1, shadowRadius: 10, elevation: 10 }}>
+                <View className="flex-row justify-between items-center border-b border-slate-100 pb-4 mb-4">
+                  <View className="flex-row items-center">
+                    <Ionicons name="wallet-outline" size={20} color="#fa5908" />
+                    <Text className="text-sm font-semibold text-slate-800 ml-2">Chọn phương thức thanh toán</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => setSelectingMethodRow(null)} className="p-1">
+                    <Ionicons name="close" size={24} color="#64748b" />
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                  <View className="flex-row flex-wrap justify-between">
+                    {PAYMENT_METHODS.map((m) => {
+                      const isSelected = selectingMethodRow && paymentRows[selectingMethodRow.idx]?.method === m.value;
+                      
+                      const isPrepaid = m.value === 'prepaid';
+                      const isDebt = m.value === 'debt';
+                      const customerPrepaid = Number(activeCustomer?.prepaid_balance || 0);
+
+                      let isDisabled = false;
+                      let disableReason = '';
+
+                      if ((isPrepaid || isDebt) && !selectedCustomer) {
+                        isDisabled = true;
+                        disableReason = 'Cần khách hàng';
+                      } else if (isPrepaid && customerPrepaid <= 0) {
+                        isDisabled = true;
+                        disableReason = 'Số dư ví = 0';
+                      }
+
+                      return (
+                        <TouchableOpacity
+                          key={m.value}
+                          disabled={isDisabled}
+                          className={`w-[48%] border p-4 rounded-2xl flex-col items-center justify-center mb-3 active:scale-95 ${
+                            isSelected ? 'border-orange-500 bg-orange-50/50' : 'border-slate-200'
+                          } ${isDisabled ? 'bg-slate-100 opacity-40' : 'bg-slate-50'}`}
+                          onPress={() => {
+                            if (!selectingMethodRow) return;
+                            const idx = selectingMethodRow.idx;
+                            let newFundType = 'bank';
+                            if (m.value === 'cash') newFundType = 'cash';
+                            else if (['momo', 'zalopay', 'vnpay', 'wallet'].includes(m.value)) newFundType = 'wallet';
+                            
+                            const mFunds = paymentFundsList.filter(f => f.type === newFundType);
+                            const dFund = mFunds.find(f => f.is_default === 'TRUE') || mFunds[0];
+                            
+                            setPaymentRows(prev => prev.map((r, i) => i === idx ? {...r, method: m.value, fund_id: dFund?.id || ''} : r));
+                            setSelectingMethodRow(null);
+                          }}
+                        >
+                          <View className="w-12 h-12 rounded-full items-center justify-center" style={{ backgroundColor: `${m.color}15` }}>
+                            <Ionicons name={m.icon as any} size={22} color={m.color} />
+                          </View>
+                          <Text className={`text-xs font-semibold text-center mt-2 ${isSelected ? 'text-orange-600' : 'text-slate-700'} ${isDisabled ? 'text-slate-400' : ''}`}>
+                            {m.label}
+                          </Text>
+                          {isDisabled && disableReason ? (
+                            <Text className="text-[9px] text-slate-400 font-medium text-center mt-1">
+                              ({disableReason})
+                            </Text>
+                          ) : null}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </ScrollView>
+              </View>
+            </View>
+          )}
+
+          {/* Modal chọn quỹ tài chính */}
+          {selectingFundRow !== null && (
+            <View className="absolute inset-0 z-50 justify-end" style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)' }}>
+              <Pressable
+                className="absolute inset-0"
+                onPress={() => setSelectingFundRow(null)}
+              />
+              <View className="bg-white rounded-t-3xl p-6 pb-8 max-h-[70%]" style={{ shadowColor: '#000', shadowOffset: { width: 0, height: -10 }, shadowOpacity: 0.1, shadowRadius: 10, elevation: 10 }}>
+                <View className="flex-row justify-between items-center border-b border-slate-100 pb-4 mb-4">
+                  <View className="flex-row items-center">
+                    <Ionicons name="business-outline" size={20} color="#fa5908" />
+                    <Text className="text-sm font-semibold text-slate-800 ml-2">Chọn quỹ tài chính</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => setSelectingFundRow(null)} className="p-1">
+                    <Ionicons name="close" size={24} color="#64748b" />
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                  <View className="space-y-3">
+                    {selectingFundRow?.matchingFunds.map((f) => {
+                      const isSelected = selectingFundRow && paymentRows[selectingFundRow.idx]?.fund_id === f.id;
+                      return (
+                        <TouchableOpacity
+                          key={f.id}
+                          className={`p-4 rounded-xl border flex-row justify-between items-center mb-3 active:scale-98 ${
+                            isSelected ? 'border-orange-500 bg-orange-50/30' : 'border-slate-200 bg-slate-50'
+                          }`}
+                          onPress={() => {
+                            if (!selectingFundRow) return;
+                            const idx = selectingFundRow.idx;
+                            setPaymentRows(prev => prev.map((r, i) => i === idx ? {...r, fund_id: f.id} : r));
+                            setSelectingFundRow(null);
+                          }}
+                        >
+                          <View className="flex-1 pr-4">
+                            <Text className={`text-sm font-bold ${isSelected ? 'text-orange-600' : 'text-slate-800'}`}>
+                              {f.name}
+                            </Text>
+                            {f.bank_name ? (
+                              <Text className="text-xs text-slate-500 mt-1">
+                                {f.bank_name} {f.account_number ? `· ${f.account_number}` : ''}
+                              </Text>
+                            ) : null}
+                          </View>
+                          {isSelected && (
+                            <Ionicons name="checkmark-circle" size={20} color="#fa5908" />
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </ScrollView>
+              </View>
+            </View>
+          )}
         </View>
       </Modal>
     </>

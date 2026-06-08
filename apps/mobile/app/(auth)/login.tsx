@@ -1,5 +1,5 @@
 import React, {useState, useEffect} from 'react';
-import {Text, View, TextInput, TouchableOpacity, ActivityIndicator, Alert, Modal, Platform, Image, Pressable} from 'react-native';
+import {Text, View, TextInput, TouchableOpacity, ActivityIndicator, Alert, Modal, Platform, Image, Pressable, KeyboardAvoidingView, ScrollView} from 'react-native';
 import {useRouter} from 'expo-router';
 import {Ionicons} from '@expo/vector-icons';
 import {SafeAreaView} from 'react-native-safe-area-context';
@@ -146,7 +146,7 @@ export default function LoginScreen() {
 };
 
  return (
- <SafeAreaView style={{flex: 1, backgroundColor: '#f8fafc', justifyContent: 'space-between', paddingHorizontal: 24, paddingVertical: 24, position: 'relative'}}>
+ <SafeAreaView style={{flex: 1, backgroundColor: '#f8fafc', position: 'relative'}}>
  
  {/* Nút Cấu hình Server (Góc phải trên) - Loại bỏ hoàn toàn viền đen bằng thuộc tính border chuẩn */}
  <TouchableOpacity 
@@ -173,8 +173,23 @@ export default function LoginScreen() {
  <Ionicons name="settings-outline" size={16} color="#fa5908" />
  </TouchableOpacity>
 
- {/* Spacer trên để đẩy phần logo xuống hợp lý */}
- <View style={{height: 20}} />
+  <KeyboardAvoidingView 
+    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    style={{flex: 1}}
+  >
+    <ScrollView
+      contentContainerStyle={{
+        flexGrow: 1,
+        justifyContent: 'space-between',
+        paddingHorizontal: 24,
+        paddingVertical: 24
+      }}
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={{flex: 1, justifyContent: 'space-between'}}>
+        {/* Spacer trên để đẩy phần logo xuống hợp lý */}
+        <View style={{height: 20}} />
 
  {/* 1. BRAND HEADER & LOGO THƯƠNG HIỆU */}
  <View style={{alignItems: 'center', marginTop: 30}}>
@@ -360,6 +375,10 @@ export default function LoginScreen() {
  </Text>
  </TouchableOpacity>
  </View>
+
+      </View>
+    </ScrollView>
+  </KeyboardAvoidingView>
 
   {/* MODAL CẤU HÌNH SERVER URL */}
   <Modal
