@@ -2006,6 +2006,75 @@ useEffect(() => {
     });
   };
 
+    const syncCustomerUpdate = async (orderId: string, custId: string, custName: string, custPhone: string) => {
+    try {
+      const currentUrl = getApiBaseUrl();
+      const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+      const headers = await getApiHeaders();
+      
+      // Lấy metadata hiện tại
+      let currentMeta: any = {};
+      if (activeTable && activeTable.metadata) {
+        try {
+          currentMeta = typeof activeTable.metadata === 'string' ? JSON.parse(activeTable.metadata) : (activeTable.metadata || {});
+        } catch (e) {}
+      }
+      
+      const updatedMeta = JSON.stringify({
+        ...currentMeta,
+        customer_phone: custPhone
+      });
+
+      // Cập nhật SQLite metadata cục bộ
+      if (Platform.OS !== 'web' && activeTable) {
+        await db.update(schema.location_resources)
+          .set({ metadata: updatedMeta })
+          .where(eq(schema.location_resources.id, activeTable.id));
+      }
+
+      // Cập nhật state activeTable và tables
+      setActiveTable((prev: any) => prev ? { ...prev, metadata: updatedMeta } : null);
+      setTables(prev => prev.map(t => t.id === activeTable.id ? { ...t, metadata: updatedMeta } : t));
+
+      // Gọi PUT đồng bộ lên server Next.js
+      await fetch(`${currentUrl}/api/shops/${shopId}/orders/${orderId}`, {
+        method: 'PUT',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customer_id: custId,
+          customer_name: custName,
+          metadata: updatedMeta
+        })
+      });
+    } catch (e) {
+      console.warn('Lỗi khi đồng bộ khách hàng đại diện lên server:', e);
+    }
+  };
+
+  const handleUpdateTableCustomer = async (tableId: string, customer: any) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    if (!customer) {
+      // Xóa khách hàng đại diện -> đưa về Khách lẻ
+      setTableCustomers(prev => {
+        const copy = { ...prev };
+        delete copy[tableId];
+        return copy;
+      });
+      if (activeTable && activeTable.id === tableId && activeTable.current_order_id) {
+        await syncCustomerUpdate(activeTable.current_order_id, 'C-DEFAULT-RETAIL', 'Khách lẻ', '');
+      }
+    } else {
+      // Gán khách hàng đại diện mới
+      setTableCustomers(prev => ({
+        ...prev,
+        [tableId]: customer
+      }));
+      if (activeTable && activeTable.id === tableId && activeTable.current_order_id) {
+        await syncCustomerUpdate(activeTable.current_order_id, customer.id, customer.name, customer.phone || '');
+      }
+    }
+  };
+
   // Bấm thanh toán phòng/bàn
  const triggerPayTable = (table: any) => {
  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
@@ -3474,15 +3543,79 @@ if (!isNavReady) {
                         <Text className="text-tiny text-slate-400 mt-0.5 font-medium">Không có số điện thoại</Text>
                       )}
                     </View>
-                    <Ionicons name="person-circle-outline" size={24} color="#64748b" />
+                    <TouchableOpacity 
+                      activeOpacity={0.7}
+                      className="bg-rose-50 p-2 rounded-xl border border-rose-200 items-center justify-center active:scale-95"
+                      onPress={() => handleUpdateTableCustomer(activeTable.id, null)}
+                    >
+                      <Ionicons name="trash-outline" size={14} color="#f43f5e" />
+                    </TouchableOpacity>
                   </View>
                 ) : (
-                  <View className="mb-4 bg-slate-50 border border-slate-200 p-3 rounded-xl flex-row items-center justify-between">
-                    <View className="flex-1">
-                      <Text className="text-[10px] text-slate-400 font-semibold mb-1">Khách hàng đại diện:</Text>
-                      <Text className="text-xs font-semibold text-slate-450">Chưa gán khách hàng đại diện</Text>
+                  <View className="mb-4 bg-slate-50 border border-slate-200 p-3 rounded-xl">
+                    <View className="flex-row justify-between items-center mb-1">
+                      <Text className="text-[10px] text-slate-400 font-semibold">Khách hàng đại diện:</Text>
+                      <View className="bg-slate-200/60 px-2 py-0.5 rounded">
+                        <Text className="text-[9.5px] font-bold text-slate-600">Khách lẻ</Text>
+                      </View>
                     </View>
-                    <Ionicons name="person-circle-outline" size={24} color="#cbd5e1" />
+                    
+                    {/* Ô tìm kiếm khách hàng */}
+                    <View className="flex-row items-center bg-white border border-slate-200 rounded-xl px-3 py-1.5 mt-1">
+                      <Ionicons name="search-outline" size={14} color="#94a3b8" />
+                      <TextInput 
+                        className="flex-1 ml-2 text-xs text-slate-850 py-0.5"
+                        placeholder="Tìm khách hàng đại diện..."
+                        placeholderTextColor="#cbd5e1"
+                        value={customerSearchQuery}
+                        onChangeText={setCustomerSearchQuery}
+                        style={{
+                          paddingVertical: 0,
+                          textAlignVertical: 'center',
+                          lineHeight: undefined,
+                          ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+                        }}
+                      />
+                      {customerSearchQuery.length > 0 && (
+                        <TouchableOpacity onPress={() => setCustomerSearchQuery('')}>
+                          <Ionicons name="close" size={14} color="#cbd5e1" />
+                        </TouchableOpacity>
+                      )}
+                    </View>
+
+                    {/* Danh sách gợi ý khách hàng ngay trong modal chi tiết phòng */}
+                    {customerSearchQuery.trim().length > 0 && (
+                      <View className="bg-white border border-slate-200 rounded-xl mt-2 max-h-32 overflow-hidden z-50">
+                        <ScrollView nestedScrollEnabled={true} keyboardShouldPersistTaps="handled">
+                          {customersList
+                            .filter(c => {
+                              const nameStr = (c.name || '').toLowerCase();
+                              const phoneStr = (c.phone || '');
+                              const queryStr = customerSearchQuery.toLowerCase();
+                              return nameStr.includes(queryStr) || phoneStr.includes(queryStr);
+                            })
+                            .map(cust => (
+                              <TouchableOpacity 
+                                key={cust.id} 
+                                className="p-2.5 border-b border-slate-100 flex-row justify-between items-center active:bg-slate-50"
+                                onPress={() => {
+                                  handleUpdateTableCustomer(activeTable.id, cust);
+                                  setCustomerSearchQuery('');
+                                }}
+                              >
+                                <View>
+                                  <Text className="text-xs font-semibold text-slate-800">{cust.name}</Text>
+                                  {cust.phone ? (
+                                    <Text className="text-[9.5px] text-slate-400 mt-0.5">{cust.phone}</Text>
+                                  ) : null}
+                                </View>
+                                <Ionicons name="chevron-forward" size={12} color="#cbd5e1" />
+                              </TouchableOpacity>
+                            ))
+                          }
+                        </ScrollView>
+                      </View>
+                    )}
                   </View>
                 )}
 
