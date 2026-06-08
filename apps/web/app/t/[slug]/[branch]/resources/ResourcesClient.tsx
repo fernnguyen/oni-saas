@@ -1745,7 +1745,7 @@ export function ResourcesClient({ shopId, industryType }: Props) {
                         {printTargets[0] && (
                           <img
                             src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(
-                              `${window.location.origin}/qr-order/${slug}/${printTargets[0].resource_id || printTargets[0].id}`
+                              `${window.location.origin}/qr-order/${branchSlug}/${printTargets[0].resource_id || printTargets[0].id}`
                             )}`}
                             alt={`QR ${printTargets[0]?.name}`}
                             className="w-[130px] h-[130px]"
@@ -1771,7 +1771,7 @@ export function ResourcesClient({ shopId, industryType }: Props) {
                         {printTargets[0] && (
                           <img
                             src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(
-                              `${window.location.origin}/qr-order/${slug}/${printTargets[0].resource_id || printTargets[0].id}`
+                              `${window.location.origin}/qr-order/${branchSlug}/${printTargets[0].resource_id || printTargets[0].id}`
                             )}`}
                             alt={`QR ${printTargets[0]?.name}`}
                             className="w-[120px] h-[120px] filter grayscale contrast-200"
@@ -1820,7 +1820,7 @@ export function ResourcesClient({ shopId, industryType }: Props) {
       {printItems.length > 0 && (
         <div id="qr-print-container" className="hidden-except-print">
           {printItems.map((item) => {
-            const qrUrl = `${window.location.origin}/qr-order/${slug}/${item.resource_id || item.id}`
+            const qrUrl = `${window.location.origin}/qr-order/${branchSlug}/${item.resource_id || item.id}`
             const qrImg = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(qrUrl)}`
 
             return (

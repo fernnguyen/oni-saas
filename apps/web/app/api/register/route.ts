@@ -107,13 +107,12 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // 1 — Check slug uniqueness (tenant + shop + reserved subdomains share global slug namespace)
-  const [{ count: tenantCount }, { count: shopCount }, { count: reservedCount }] = await Promise.all([
+  // 1 — Check slug uniqueness (tenant + reserved subdomains share global slug namespace)
+  const [{ count: tenantCount }, { count: reservedCount }] = await Promise.all([
     admin.from('tenants').select('*', { count: 'exact', head: true }).eq('slug', slug),
-    admin.from('shops').select('*',   { count: 'exact', head: true }).eq('slug', slug),
     admin.from('reserved_subdomains').select('*', { count: 'exact', head: true }).eq('subdomain', slug),
   ]);
-  if ((tenantCount ?? 0) > 0 || (shopCount ?? 0) > 0 || (reservedCount ?? 0) > 0) {
+  if ((tenantCount ?? 0) > 0 || (reservedCount ?? 0) > 0) {
     const isReserved = (reservedCount ?? 0) > 0;
     return NextResponse.json(
       { message: isReserved ? 'Tên miền này không hợp lệ hoặc đã được bảo lưu.' : 'Subdomain này đã được sử dụng. Hãy chọn tên khác.', field: 'slug' },
