@@ -30,6 +30,7 @@ interface CartCheckoutModalProps {
   isOnline?: boolean;
   apiBaseUrl?: string;
   apiHeaders?: Record<string, string>;
+  loading?: boolean;
 }
 
 export function formatCurrency(value: number): string {
@@ -52,7 +53,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
     discountAmount, setDiscountAmount, orderNote, setOrderNote,
     selectedCustomer, setSelectedCustomer, customersList,
     paymentRows, setPaymentRows, paymentFundsList, productsList, getCartCount, onCheckout,
-    shopId, isOnline = true, apiBaseUrl, apiHeaders
+    shopId, isOnline = true, apiBaseUrl, apiHeaders, loading = false
   } = props;
 
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
@@ -177,12 +178,12 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
         visible={visible}
         animationType="slide"
         transparent={true}
-        onRequestClose={onClose}
+        onRequestClose={loading ? undefined : onClose}
       >
         <View className="flex-1 justify-end">
           <Pressable
             className="absolute inset-0 bg-black/60"
-            onPress={onClose}
+            onPress={loading ? undefined : onClose}
           />
           <View className="h-[90%] rounded-t-2xl p-6 bg-white justify-between relative" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 10}, shadowOpacity: 0.12, shadowRadius: 16, elevation: 12}}>
             
@@ -194,8 +195,8 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                   Thanh toán đơn hàng ({getCartCount()} món)
                 </Text>
               </View>
-              <TouchableOpacity onPress={onClose} className="p-1">
-                <Ionicons name="close" size={24} color="#64748b" />
+              <TouchableOpacity onPress={loading ? undefined : onClose} disabled={loading} className="p-1">
+                <Ionicons name="close" size={24} color={loading ? "#cbd5e1" : "#64748b"} />
               </TouchableOpacity>
             </View>
 
@@ -252,11 +253,13 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                       </View>
                       <TouchableOpacity 
                         activeOpacity={0.7}
-                        className="bg-rose-50 p-2 rounded-xl border border-rose-100 items-center justify-center active:scale-95"
+                        className={`bg-rose-50 p-2 rounded-xl border border-rose-100 items-center justify-center active:scale-95 ${loading ? 'opacity-50' : ''}`}
                         onPress={() => {
+                          if (loading) return;
                           setSelectedCustomer(null);
                           setCustomerSearchQuery('');
                         }}
+                        disabled={loading}
                       >
                         <Ionicons name="trash-outline" size={14} color="#f43f5e" />
                       </TouchableOpacity>
@@ -272,6 +275,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                         placeholderTextColor="#cbd5e1"
                         value={customerSearchQuery}
                         onChangeText={setCustomerSearchQuery}
+                        editable={!loading}
                         style={{
                           paddingVertical: 0,
                           textAlignVertical: 'center',
@@ -332,6 +336,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                   <View className="flex-row gap-2">
                     <TouchableOpacity
                       onPress={() => {
+                        if (loading) return;
                         const payAmount = Math.min(prepaidBalance, finalTotal);
                         const remaining = finalTotal - payAmount;
                         const rows: any[] = [{id: Date.now().toString(), method: 'prepaid', fund_id: '', amount: payAmount}];
@@ -339,11 +344,12 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                         setPaymentRows(rows);
                         setHidePrepaidSuggest(true);
                       }}
-                      className="bg-emerald-600 px-3 py-1.5 rounded-lg"
+                      disabled={loading}
+                      className={`bg-emerald-600 px-3 py-1.5 rounded-lg ${loading ? 'opacity-50' : ''}`}
                     >
                       <Text className="text-white text-tiny font-bold">Dùng ngay</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => setHidePrepaidSuggest(true)} className="px-2 py-1.5">
+                    <TouchableOpacity onPress={() => !loading && setHidePrepaidSuggest(true)} disabled={loading} className="px-2 py-1.5">
                       <Ionicons name="close" size={14} color="#6b7280" />
                     </TouchableOpacity>
                   </View>
@@ -375,9 +381,9 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                       <View className="flex-row items-center">
                         {/* Quantity Control */}
                         <View className="flex-row items-center bg-slate-50 border border-slate-200 rounded-md overflow-hidden mr-2">
-                          <TouchableOpacity onPress={() => updateCartItemQuantity(cartItemId, item.quantity - 1)} className="w-7 h-7 items-center justify-center border-r border-slate-200 bg-white active:bg-slate-100"><Text className="text-slate-600 font-medium">-</Text></TouchableOpacity>
+                          <TouchableOpacity onPress={() => !loading && updateCartItemQuantity(cartItemId, item.quantity - 1)} disabled={loading} className="w-7 h-7 items-center justify-center border-r border-slate-200 bg-white active:bg-slate-100"><Text className="text-slate-600 font-medium">-</Text></TouchableOpacity>
                           <Text className="w-8 text-center text-xs font-semibold text-slate-800 bg-white" style={{lineHeight: 28}}>{item.quantity}</Text>
-                          <TouchableOpacity onPress={() => updateCartItemQuantity(cartItemId, item.quantity + 1)} className="w-7 h-7 items-center justify-center border-l border-slate-200 bg-white active:bg-slate-100"><Text className="text-slate-600 font-medium">+</Text></TouchableOpacity>
+                          <TouchableOpacity onPress={() => !loading && updateCartItemQuantity(cartItemId, item.quantity + 1)} disabled={loading} className="w-7 h-7 items-center justify-center border-l border-slate-200 bg-white active:bg-slate-100"><Text className="text-slate-600 font-medium">+</Text></TouchableOpacity>
                         </View>
 
                         {/* Total Price */}
@@ -392,7 +398,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                       <Text className="text-xs text-slate-500 font-medium">
                         Đơn giá: {formatCurrency(item.price + (item.modifier_total || 0))} {productsList.find(pr => pr.id === item.productId)?.unit ? `/ ${productsList.find(pr => pr.id === item.productId)?.unit}` : ''}
                       </Text>
-                      <TouchableOpacity onPress={() => removeFromCart(cartItemId)} className="p-1">
+                      <TouchableOpacity onPress={() => !loading && removeFromCart(cartItemId)} disabled={loading} className="p-1">
                         <Ionicons name="trash-outline" size={16} color="#f43f5e" />
                       </TouchableOpacity>
                     </View>
@@ -402,7 +408,8 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                 {/* Hàng Giảm giá */}
                 <TouchableOpacity 
                   className="flex-row justify-between items-center py-2.5 border-t border-dashed border-slate-200 mt-2 active:opacity-60"
-                  onPress={() => setIsEditingDiscount(prev => !prev)}
+                  onPress={() => !loading && setIsEditingDiscount(prev => !prev)}
+                  disabled={loading}
                 >
                   <Text className="text-xs text-slate-450 font-medium">Giảm giá (Chạm để sửa):</Text>
                   {isEditingDiscount ? (
@@ -419,6 +426,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                           setDiscountAmount(amt);
                         }}
                         autoFocus={true}
+                        editable={!loading}
                         style={{
                           paddingVertical: 0,
                           textAlignVertical: 'center',
@@ -453,6 +461,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                     placeholderTextColor="#cbd5e1"
                     value={orderNote}
                     onChangeText={setOrderNote}
+                    editable={!loading}
                     style={{
                       paddingVertical: 0,
                       textAlignVertical: 'center',
@@ -478,7 +487,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                         </Text>
                       </View>
                     </View>
-                    <TouchableOpacity onPress={() => setHideDebtRepaySuggest(true)} className="p-1">
+                    <TouchableOpacity onPress={() => !loading && setHideDebtRepaySuggest(true)} disabled={loading} className="p-1">
                       <Ionicons name="close" size={14} color="#9f1239" />
                     </TouchableOpacity>
                   </View>
@@ -497,6 +506,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                           const amt = parseCurrencyToNumber(maskCurrencyInput(val));
                           setDebtRepayAmount(Math.min(amt, customerDebt));
                         }}
+                        editable={!loading}
                         style={{
                           paddingVertical: 0,
                           textAlignVertical: 'center',
@@ -506,13 +516,14 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                       />
                     </View>
                     <TouchableOpacity
-                      className="bg-rose-600 px-2.5 py-1.5 rounded-lg"
-                      onPress={() => setDebtRepayAmount(customerDebt)}
+                      className={`bg-rose-600 px-2.5 py-1.5 rounded-lg ${loading ? 'opacity-50' : ''}`}
+                      onPress={() => !loading && setDebtRepayAmount(customerDebt)}
+                      disabled={loading}
                     >
                       <Text className="text-white text-[10px] font-bold">Trả hết</Text>
                     </TouchableOpacity>
                     {debtRepayAmount > 0 && (
-                      <TouchableOpacity className="px-1.5 py-1.5" onPress={() => setDebtRepayAmount(0)}>
+                      <TouchableOpacity className="px-1.5 py-1.5" onPress={() => !loading && setDebtRepayAmount(0)} disabled={loading}>
                         <Ionicons name="close-circle" size={16} color="#be123c" />
                       </TouchableOpacity>
                     )}
@@ -545,6 +556,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                     <TouchableOpacity 
                       className="flex-row items-center"
                       onPress={() => {
+                        if (loading) return;
                         const METHODS = [
                           { value: 'cash', label: 'Tiền mặt' },
                           { value: 'bank_transfer', label: 'Chuyển khoản' },
@@ -571,6 +583,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                           {id: Date.now().toString(), method: nextMethod.value, fund_id: defaultFund?.id || '', amount: remaining}
                         ]);
                       }}
+                      disabled={loading}
                     >
                       <Ionicons name="add-circle-outline" size={13} color="#fa5908" />
                       <Text className="text-xs font-semibold text-orange-500 ml-1">+ Thêm</Text>
@@ -610,8 +623,10 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                           <TouchableOpacity 
                             className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-2.5 flex-row justify-between items-center"
                             onPress={() => {
+                              if (loading) return;
                               setOpenDropdownRowId(openDropdownRowId === `method-${row.id}` ? null : `method-${row.id}`);
                             }}
+                            disabled={loading}
                           >
                             <Text className="text-xs font-semibold text-slate-700" numberOfLines={1}>
                               {METHODS.find(m => m.value === row.method)?.label || 'Chọn...'}
@@ -660,6 +675,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                               }}
                               placeholder="0"
                               placeholderTextColor="#cbd5e1"
+                              editable={!loading}
                               style={{
                                 paddingVertical: 0,
                                 textAlignVertical: 'center',
@@ -674,8 +690,10 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                               activeOpacity={0.7}
                               className="mt-0.5 self-end"
                               onPress={() => {
+                                if (loading) return;
                                 setPaymentRows(prev => prev.map((r, i) => i === idx ? {...r, amount: remaining} : r));
                               }}
+                              disabled={loading}
                             >
                               <Text className="text-[10px] font-semibold text-orange-500">
                                 ↑ Đủ: {formatCurrency(remaining)}
@@ -695,8 +713,10 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                           <TouchableOpacity 
                             className="flex-1 ml-1 bg-orange-50/50 border border-orange-100/80 rounded-lg px-2.5 py-2 flex-row justify-between items-center"
                             onPress={() => {
+                              if (loading) return;
                               setOpenDropdownRowId(openDropdownRowId === `fund-${row.id}` ? null : `fund-${row.id}`);
                             }}
+                            disabled={loading}
                           >
                             <View className="flex-row items-center flex-1 pr-2">
                               <Text className="text-[10px] text-orange-800 font-semibold uppercase mr-1">Quỹ:</Text>
@@ -745,9 +765,11 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                       {paymentRows.length > 1 && (
                         <TouchableOpacity 
                           onPress={() => {
+                            if (loading) return;
                             setPaymentRows(prev => prev.filter(r => r.id !== row.id));
                             if (openDropdownRowId === `method-${row.id}` || openDropdownRowId === `fund-${row.id}`) setOpenDropdownRowId(null);
                           }}
+                          disabled={loading}
                           className="absolute -top-2 -right-2 bg-white border border-rose-200 rounded-full p-1"
                         >
                           <Ionicons name="close" size={12} color="#f43f5e" />
@@ -797,17 +819,19 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                 variant="outline"
                 title="Hủy bỏ"
                 onPress={onClose}
+                disabled={loading}
                 className="flex-1 py-3.5 rounded-xl"
               />
 
               <Button
                 variant="primary"
                 title={paidSum < effectiveTotal ? `Còn thiếu ${formatCurrency(effectiveTotal - paidSum)}` : 'Thanh toán'}
-                icon={<Ionicons name="checkmark-done" size={14} color="white" />}
+                icon={!loading ? <Ionicons name="checkmark-done" size={14} color="white" /> : undefined}
                 iconPosition="right"
                 onPress={handlePressCheckout}
-                disabled={paidSum < effectiveTotal}
-                className={`flex-[2] py-3.5 rounded-xl ${paidSum < effectiveTotal ? 'opacity-50' : ''}`}
+                disabled={paidSum < effectiveTotal || loading}
+                loading={loading}
+                className={`flex-[2] py-3.5 rounded-xl ${paidSum < effectiveTotal || loading ? 'opacity-50' : ''}`}
               />
             </View>
           </View>

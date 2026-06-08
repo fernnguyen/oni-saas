@@ -1441,187 +1441,195 @@ useEffect(() => {
 }
 };
 
- // Mở bàn
- // Mở bàn
- const handleTablePress = async (table: any) => {
- Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
- if (table.status === 'playing' || table.status === 'occupied') {
- // 1. Mở modal ngay lập tức với dữ liệu cục bộ hiện có để mang lại trải nghiệm tức thì (Zero-Lag)
- setActiveTable(table);
- setIsSyncingTableSession(true);
- setActiveTableTab('billing'); // Reset tab về billing mặc định khi mở phòng bàn
- 
- // Khôi phục thông tin khách lưu trú từ cache SQLite cục bộ trước khi sync
- let localMeta: any = {};
- try {
- localMeta = typeof table.metadata === 'string' ? JSON.parse(table.metadata) : (table.metadata || {});
-} catch (e) {}
- const cachedGuests = localMeta.guests_list || [];
- setRoomGuestCount(localMeta.num_guests || Math.max(1, cachedGuests.length));
- setLodgingGuests(cachedGuests.length > 0 
- ? cachedGuests.map((g: any) => ({
- id: g.id || undefined,
- name: g.name || '',
- id_type: g.id_type || g.idType || 'CCCD',
- id_number: g.id_number || g.idNumber || g.idCard || g.id_card || '',
- idCard: g.id_number || g.idNumber || g.idCard || g.id_card || '',
- expiry_date: g.expiry_date || g.expiryDate || '',
- nationality: g.nationality || 'Việt Nam',
- dob: g.dob || '',
- gender: g.gender || '',
- note: g.note || ''
-})) 
- : [{name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', note: ''}]);
- 
- // 2. Gọi đồng bộ chạy ngầm chỉ cho duy nhất phòng/bàn này để lấy món ăn & đơn hàng mới nhất từ Cloud
- try {
- const onlineSession = await fetchActiveTableSessionOnline(table.id, table.current_order_id || null);
- setIsSyncingTableSession(false);
- 
- if (onlineSession) {
- // Bắt trạng thái đơn hàng/phòng đã thanh toán và giải phóng trên Cloud -> Tự động chữa lành cục bộ!
- if ('isFinished' in onlineSession && onlineSession.isFinished) {
- setIsSyncingTableSession(false);
- setActiveTable(null); // Đóng modal ngay lập tức
- 
- // A. Cập nhật SQLite nội địa sang trống
- if (Platform.OS !== 'web') {
- try {
- await db
- .update(schema.location_resources)
- .set({status: 'available', current_order_id: null, startTime: null})
- .where(eq(schema.location_resources.id, table.id));
-} catch (e) {}
-}
- 
- // B. Cập nhật state cục bộ sang trống
- setTables(prev => prev.map(t => t.id === table.id ? {...t, status: 'available', current_order_id: null, startTime: null} : t));
- setTableCarts(prev => {
- const copy = {...prev};
- delete copy[table.id];
- return copy;
-});
- 
- showToast("Phòng đã được thanh toán và trả trên hệ thống!", "info");
- return;
-}
+  const syncActiveTableSession = async (table: any) => {
+    try {
+      const onlineSession = await fetchActiveTableSessionOnline(table.id, table.current_order_id || null);
+      if (onlineSession) {
+        // Bắt trạng thái đơn hàng/phòng đã thanh toán và giải phóng trên Cloud -> Tự động chữa lành cục bộ!
+        if ('isFinished' in onlineSession && onlineSession.isFinished) {
+          setIsSyncingTableSession(false);
+          setActiveTable(null); // Đóng modal ngay lập tức
+          
+          // A. Cập nhật SQLite nội địa sang trống
+          if (Platform.OS !== 'web') {
+            try {
+              await db
+                .update(schema.location_resources)
+                .set({status: 'available', current_order_id: null, startTime: null})
+                .where(eq(schema.location_resources.id, table.id));
+            } catch (e) {}
+          }
+          
+          // B. Cập nhật state cục bộ sang trống
+          setTables(prev => prev.map(t => t.id === table.id ? {...t, status: 'available', current_order_id: null, startTime: null} : t));
+          setTableCarts(prev => {
+            const copy = {...prev};
+            delete copy[table.id];
+            return copy;
+          });
+          
+          showToast("Phòng đã được thanh toán và trả trên hệ thống!", "info");
+          return;
+        }
 
- const {order, items, resource} = onlineSession;
- let parsedMeta: any = {};
- if (order) {
- try {
- parsedMeta = typeof order.metadata === 'string' ? JSON.parse(order.metadata) : (order.metadata || {});
-} catch (e) {}
-}
+        const {order, items, resource} = onlineSession;
+        let parsedMeta: any = {};
+        if (order) {
+          try {
+            parsedMeta = typeof order.metadata === 'string' ? JSON.parse(order.metadata) : (order.metadata || {});
+          } catch (e) {}
+        }
 
- let resourceMeta: any = {};
- if (resource) {
- try {
- resourceMeta = typeof resource.metadata === 'string' ? JSON.parse(resource.metadata) : (resource.metadata || {});
-} catch (e) {}
-}
+        let resourceMeta: any = {};
+        if (resource) {
+          try {
+            resourceMeta = typeof resource.metadata === 'string' ? JSON.parse(resource.metadata) : (resource.metadata || {});
+          } catch (e) {}
+        }
 
- let tableMetaObj: any = {};
- try {
- tableMetaObj = typeof table.metadata === 'string' ? JSON.parse(table.metadata) : (table.metadata || {});
-} catch (e) {}
+        let tableMetaObj: any = {};
+        try {
+          tableMetaObj = typeof table.metadata === 'string' ? JSON.parse(table.metadata) : (table.metadata || {});
+        } catch (e) {}
 
- // Find the first metadata source that contains a non-empty guests list
- const onlineGuests = 
- (parsedMeta.guests_list && parsedMeta.guests_list.length > 0) ? parsedMeta.guests_list :
- (resourceMeta.guests_list && resourceMeta.guests_list.length > 0) ? resourceMeta.guests_list :
- (tableMetaObj.guests_list && tableMetaObj.guests_list.length > 0) ? tableMetaObj.guests_list : [];
+        // Find the first metadata source that contains a non-empty guests list
+        const onlineGuests = 
+          (parsedMeta.guests_list && parsedMeta.guests_list.length > 0) ? parsedMeta.guests_list :
+          (resourceMeta.guests_list && resourceMeta.guests_list.length > 0) ? resourceMeta.guests_list :
+          (tableMetaObj.guests_list && tableMetaObj.guests_list.length > 0) ? tableMetaObj.guests_list : [];
 
- const rentalType = parsedMeta.rental_type || resourceMeta.rental_type || tableMetaObj.rental_type || 'hourly';
- const numGuests = (onlineGuests.length > 0) ? onlineGuests.length : (parsedMeta.num_guests || resourceMeta.num_guests || tableMetaObj.num_guests || 1);
- const checkInVal = parsedMeta.check_in || resourceMeta.check_in || tableMetaObj.check_in;
- const checkInTime = checkInVal ? new Date(checkInVal).getTime() : (table.startTime || Date.now());
+        const rentalType = parsedMeta.rental_type || resourceMeta.rental_type || tableMetaObj.rental_type || 'hourly';
+        const numGuests = (onlineGuests.length > 0) ? onlineGuests.length : (parsedMeta.num_guests || resourceMeta.num_guests || tableMetaObj.num_guests || 1);
+        const checkInVal = parsedMeta.check_in || resourceMeta.check_in || tableMetaObj.check_in;
+        const checkInTime = checkInVal ? new Date(checkInVal).getTime() : (table.startTime || Date.now());
 
- const updatedTable = {
- ...table,
- current_order_id: order ? order.id : table.current_order_id, // Tự động chữa lành ID đơn hàng nếu thiếu
- startTime: checkInTime,
- metadata: JSON.stringify({
- ...tableMetaObj,
- rental_type: rentalType,
- num_guests: numGuests,
- check_in: checkInVal,
- guests_list: onlineGuests
-})
-};
+        const updatedTable = {
+          ...table,
+          current_order_id: order ? order.id : table.current_order_id, // Tự động chữa lành ID đơn hàng nếu thiếu
+          startTime: checkInTime,
+          metadata: JSON.stringify({
+            ...tableMetaObj,
+            rental_type: rentalType,
+            num_guests: numGuests,
+            check_in: checkInVal,
+            guests_list: onlineGuests
+          })
+        };
 
- // Gán khách hàng cho phòng bàn cục bộ
-  if (order && order.customer_id) {
-    const localCust = customersList.find(c => c.id === order.customer_id);
-    const phoneVal = localCust?.phone || parsedMeta.customer_phone || "";
-    const addressVal = localCust?.address || parsedMeta.customer_address || "";
-    setTableCustomers(prev => ({
-      ...prev,
-      [table.id]: {
-        id: order.customer_id, 
-        name: order.customer_name || 'Khách lẻ',
-        phone: phoneVal,
-        address: addressVal
+        // Gán khách hàng cho phòng bàn cục bộ
+        if (order && order.customer_id) {
+          const localCust = customersList.find(c => c.id === order.customer_id);
+          const phoneVal = localCust?.phone || parsedMeta.customer_phone || "";
+          const addressVal = localCust?.address || parsedMeta.customer_address || "";
+          setTableCustomers(prev => ({
+            ...prev,
+            [table.id]: {
+              id: order.customer_id, 
+              name: order.customer_name || 'Khách lẻ',
+              phone: phoneVal,
+              address: addressVal
+            }
+          }));
+        } else if (order) {
+          setTableCustomers(prev => {
+            const copy = { ...prev };
+            delete copy[table.id];
+            return copy;
+          });
+        }
+
+        // Cập nhật tables list state cục bộ và ghi SQLite ngoại tuyến để tự chữa lành
+        setTables(prev => prev.map(t => t.id === table.id ? updatedTable : t));
+        if (Platform.OS !== 'web') {
+          try {
+            await db
+              .update(schema.location_resources)
+              .set({current_order_id: order ? order.id : table.current_order_id, startTime: checkInTime, metadata: updatedTable.metadata})
+              .where(eq(schema.location_resources.id, table.id));
+          } catch (e) {}
+        }
+        
+        // Đồng bộ món ăn của bàn về state cục bộ
+        const mappedCart: any = {};
+        if (items) {
+          for (const item of items) {
+            mappedCart[item.product_id] = {
+              productId: item.product_id,
+              name: item.product_name,
+              price: parseInt(item.unit_price || '0', 10),
+              quantity: parseInt(item.qty || '1', 10)
+            };
+          }
+        }
+        
+        setTableCarts(prev => ({
+          ...prev,
+          [table.id]: mappedCart
+        }));
+        
+        // Khôi phục thông tin khách lưu trú từ Cloud
+        setRoomGuestCount(numGuests);
+        setLodgingGuests(onlineGuests.length > 0 
+          ? onlineGuests.map((g: any) => ({
+              id: g.id || undefined,
+              name: g.name || '',
+              id_type: g.id_type || g.idType || 'CCCD',
+              id_number: g.id_number || g.idNumber || g.idCard || g.id_card || '',
+              idCard: g.id_number || g.idNumber || g.idCard || g.id_card || '',
+              expiry_date: g.expiry_date || g.expiryDate || '',
+              nationality: g.nationality || 'Việt Nam',
+              dob: g.dob || '',
+              gender: g.gender || '',
+              note: g.note || ''
+            })) 
+          : [{name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', note: ''}]);
+        
+        setActiveTable(updatedTable);
       }
-    }));
-  }
+    } catch (err) {
+      console.warn('Lỗi khi đồng bộ phiên hoạt động:', err);
+    }
+  };
 
- // Cập nhật tables list state cục bộ và ghi SQLite ngoại tuyến để tự chữa lành
- setTables(prev => prev.map(t => t.id === table.id ? updatedTable : t));
- if (Platform.OS !== 'web') {
- try {
- await db
- .update(schema.location_resources)
- .set({current_order_id: order ? order.id : table.current_order_id, startTime: checkInTime, metadata: updatedTable.metadata})
- .where(eq(schema.location_resources.id, table.id));
-} catch (e) {}
-}
- 
- // Đồng bộ món ăn của bàn về state cục bộ
- const mappedCart: any = {};
- if (items) {
- for (const item of items) {
- mappedCart[item.product_id] = {
- productId: item.product_id,
- name: item.product_name,
- price: parseInt(item.unit_price || '0', 10),
- quantity: parseInt(item.qty || '1', 10)
-};
-}
-}
- 
- setTableCarts(prev => ({
- ...prev,
- [table.id]: mappedCart
-}));
- 
- // Khôi phục thông tin khách lưu trú từ Cloud
- setRoomGuestCount(numGuests);
- setLodgingGuests(onlineGuests.length > 0 
- ? onlineGuests.map((g: any) => ({
- id: g.id || undefined,
- name: g.name || '',
- id_type: g.id_type || g.idType || 'CCCD',
- id_number: g.id_number || g.idNumber || g.idCard || g.id_card || '',
- idCard: g.id_number || g.idNumber || g.idCard || g.id_card || '',
- expiry_date: g.expiry_date || g.expiryDate || '',
- nationality: g.nationality || 'Việt Nam',
- dob: g.dob || '',
- gender: g.gender || '',
- note: g.note || ''
-})) 
- : [{name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', note: ''}]);
- 
- setActiveTable(updatedTable);
-}
-} catch (err) {
- console.warn('Lỗi khi đồng bộ nền phiên hoạt động:', err);
-}
-} else {
- setSelectedTableForOpen(table);
- setIsTableOpenDialogVisible(true);
-}
-};
+  // Mở bàn
+  // Mở bàn
+  const handleTablePress = async (table: any) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    if (table.status === 'playing' || table.status === 'occupied') {
+      // 1. Mở modal ngay lập tức với dữ liệu cục bộ hiện có để mang lại trải nghiệm tức thì (Zero-Lag)
+      setActiveTable(table);
+      setIsSyncingTableSession(true);
+      setActiveTableTab('billing'); // Reset tab về billing mặc định khi mở phòng bàn
+      
+      // Khôi phục thông tin khách lưu trú từ cache SQLite cục bộ trước khi sync
+      let localMeta: any = {};
+      try {
+        localMeta = typeof table.metadata === 'string' ? JSON.parse(table.metadata) : (table.metadata || {});
+      } catch (e) {}
+      const cachedGuests = localMeta.guests_list || [];
+      setRoomGuestCount(localMeta.num_guests || Math.max(1, cachedGuests.length));
+      setLodgingGuests(cachedGuests.length > 0 
+        ? cachedGuests.map((g: any) => ({
+            id: g.id || undefined,
+            name: g.name || '',
+            id_type: g.id_type || g.idType || 'CCCD',
+            id_number: g.id_number || g.idNumber || g.idCard || g.id_card || '',
+            idCard: g.id_number || g.idNumber || g.idCard || g.id_card || '',
+            expiry_date: g.expiry_date || g.expiryDate || '',
+            nationality: g.nationality || 'Việt Nam',
+            dob: g.dob || '',
+            gender: g.gender || '',
+            note: g.note || ''
+          })) 
+        : [{name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', note: ''}]);
+      
+      await syncActiveTableSession(table);
+      setIsSyncingTableSession(false);
+    } else {
+      setSelectedTableForOpen(table);
+      setIsTableOpenDialogVisible(true);
+    }
+  };
 
  // Cập nhật thông tin khách lưu trú của phòng đang ở
  const handleUpdateActiveRoomGuests = async () => {
@@ -2489,15 +2497,6 @@ useEffect(() => {
  setProductsList(updatedProds);
 }
 
- setCart({});
- setDiscountAmount(0);
- setOrderNote('');
- setSelectedCustomer(null);
- setIsCartModalOpen(false);
- setIsCheckoutConfirmVisible(false);
-
- Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-
  // Thu nợ cũ kèm đơn hàng — thử sync trực tiếp để lấy server order_no
  const debtRepay = debtRepayOpts?.debtRepayAmount || 0;
  const debtShopId = await AsyncStorage.getItem('active_shop_id') || '';
@@ -2577,7 +2576,16 @@ useEffect(() => {
    setTimeout(() => SyncManager.pushOfflineOrders(debtShopId || shopId), 800);
  }
 
- // Tắt trạng thái Loading thanh toán bán lẻ
+  setCart({});
+  setDiscountAmount(0);
+  setOrderNote('');
+  setSelectedCustomer(null);
+  setIsCartModalOpen(false);
+  setIsCheckoutConfirmVisible(false);
+
+  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+
+  // Tắt trạng thái Loading thanh toán bán lẻ
   setIsPayingCartLoading(false);
 
   // Hiển thị QR thanh toán hoặc Toast báo thành công bằng server ID
@@ -3498,9 +3506,9 @@ if (!isNavReady) {
  {renderToast(true)}
  {/* Modal Header */}
  <View className="flex-row justify-between items-center mb-4 border-b border-slate-100 pb-2">
- <View className="flex-row items-center">
+ <View className="flex-row items-center flex-1 mr-2">
  <Ionicons name="time" size={18} color="#fa5908" />
- <Text className="text-base font-semibold text-slate-800 ml-2">
+ <Text className="text-base font-semibold text-slate-800 ml-2 flex-1" numberOfLines={1}>
  {activeTable.name} ({
  shopVertical === 'fnb' ? 'Có khách' :
  shopVertical === 'sports_court' ? 'Sân đang đá' :
@@ -3509,9 +3517,28 @@ if (!isNavReady) {
 })
  </Text>
  </View>
- <TouchableOpacity onPress={() => setActiveTable(null)} className="p-1">
+ <View className="flex-row items-center gap-2">
+ <TouchableOpacity 
+   onPress={async () => {
+     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+     setIsSyncingTableSession(true);
+     await syncActiveTableSession(activeTable);
+     setIsSyncingTableSession(false);
+     showToast("Đã đồng bộ dữ liệu phòng mới nhất từ Cloud!", "success");
+   }} 
+   className="p-1.5 rounded-lg active:bg-slate-100"
+   disabled={isSyncingTableSession}
+ >
+ {isSyncingTableSession ? (
+   <ActivityIndicator size="small" color="#fa5908" />
+ ) : (
+    <Ionicons name="sync-outline" size={20} color="#fa5908" />
+ )}
+ </TouchableOpacity>
+ <TouchableOpacity onPress={() => setActiveTable(null)} className="p-1.5 rounded-lg active:bg-slate-100">
  <Ionicons name="close" size={24} color="#64748b" />
  </TouchableOpacity>
+ </View>
  </View>
 
  {/* TAB SELECTOR FOR ACTIVE ROOM */}
@@ -3906,6 +3933,7 @@ if (!isNavReady) {
         isOnline={isOnline}
         apiBaseUrl={getApiBaseUrl()}
         apiHeaders={apiAuthHeaders}
+        loading={isPayingTableLoading || isPayingCartLoading}
         onCheckout={(opts) => {
           handlePayCart(selectedCustomer, discountAmount, orderNote, paymentRows, opts);
         }}
