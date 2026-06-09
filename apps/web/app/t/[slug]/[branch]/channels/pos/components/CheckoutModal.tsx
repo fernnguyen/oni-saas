@@ -754,18 +754,27 @@ export function CheckoutModal({
   // effectiveRemainingTotal bao gồm tiền hàng + tiền trả nợ cũ
   const effectiveRemainingTotal = remainingTotal + clampedDebtRepay
 
+  const prevEffectiveRemainingTotalRef = useRef(effectiveRemainingTotal)
   // Tự động điều chỉnh số tiền ở dòng thanh toán duy nhất khớp với effectiveRemainingTotal
   useEffect(() => {
     if (paymentsLoaded && payments.length === 1) {
       const targetVal = String(effectiveRemainingTotal)
-      if (payments[0].amount !== targetVal) {
-        setPayments([{ ...payments[0], amount: targetVal }])
+      const prevVal = String(prevEffectiveRemainingTotalRef.current)
+      if (payments[0].amount === prevVal || payments[0].amount === '') {
+        if (payments[0].amount !== targetVal) {
+          setPayments([{ ...payments[0], amount: targetVal }])
+        }
       }
     }
+    prevEffectiveRemainingTotalRef.current = effectiveRemainingTotal
   }, [effectiveRemainingTotal, payments, paymentsLoaded])
 
   const remaining = useMemo(() => {
     return effectiveRemainingTotal - totalPaid
+  }, [effectiveRemainingTotal, totalPaid])
+
+  const actualChange = useMemo(() => {
+    return Math.max(0, totalPaid - effectiveRemainingTotal)
   }, [effectiveRemainingTotal, totalPaid])
 
   /** Chọn quỹ thông minh cho cashbook nợ: payment row nào đủ trả hết nợ ưu tiên trước */
@@ -1286,6 +1295,7 @@ export function CheckoutModal({
 
     if (options?.bypassQr) {
       const activePayments = isSplitActive ? [...paymentsA, ...paymentsB] : payments
+      const changeToReturn = Math.max(0, totalPaid - effectiveRemainingTotal)
 
       const isOk = await confirm({
         title: 'Xác nhận Thanh toán',
@@ -1300,8 +1310,7 @@ export function CheckoutModal({
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
               <div>
-                <p className="font-bold">Yêu cầu xác nhận thanh toán</p>
-                <p className="text-amber-700/90 mt-0.5 leading-relaxed">Vui lòng đối chiếu kỹ số tiền thực tế và phương thức thanh toán trước khi xác nhận.</p>
+                <p className="text-amber-700/90 leading-relaxed">Vui lòng đối chiếu kỹ số tiền thực tế và phương thức thanh toán trước khi xác nhận.</p>
               </div>
             </div>
 
@@ -1326,14 +1335,35 @@ export function CheckoutModal({
                   </div>
                 )}
 
-                {clampedDebtRepay > 0 && (
+                {(clampedDebtRepay > 0 || changeToReturn > 0) && (
                   <div className="flex justify-between p-3 bg-slate-100/50 font-bold border-t border-slate-200 items-center">
-                    <span className="text-slate-800">Tổng cộng</span>
+                    <span className="text-emerald-600">Tổng cần thu</span>
                     <div className="flex items-baseline gap-0.5">
-                      <span className="text-base font-black text-slate-900">{Number(finalTotal + clampedDebtRepay).toLocaleString('vi-VN')}</span>
-                      <span className="text-[10px] font-black text-slate-500">đ</span>
+                      <span className="text-base font-black text-emerald-600">
+                        {Number(finalTotal + clampedDebtRepay).toLocaleString('vi-VN')}
+                      </span>
+                      <span className="text-[10px] font-black text-emerald-600">đ</span>
                     </div>
                   </div>
+                )}
+
+                {changeToReturn > 0 && (
+                  <>
+                    <div className="flex justify-between p-3 bg-blue-50/10 items-center">
+                      <span className="text-blue-600/90 font-medium">Khách đưa</span>
+                      <div className="flex items-baseline gap-0.5">
+                        <span className="font-bold text-blue-750 text-sm">{Number(totalPaid).toLocaleString('vi-VN')}</span>
+                        <span className="text-[10px] font-bold text-blue-450">đ</span>
+                      </div>
+                    </div>
+                    <div className="flex justify-between p-3 bg-red-50/20 font-bold border-t border-red-200 items-center">
+                      <span className="text-red-600">Tiền thừa trả khách</span>
+                      <div className="flex items-baseline gap-0.5">
+                        <span className="text-base font-black text-red-600">{Number(changeToReturn).toLocaleString('vi-VN')}</span>
+                        <span className="text-[10px] font-black text-red-600">đ</span>
+                      </div>
+                    </div>
+                  </>
                 )}
               </div>
             </div>
@@ -1363,7 +1393,7 @@ export function CheckoutModal({
                         {fundDetail && <span className="text-[10px] text-slate-400 leading-normal">{fundDetail}</span>}
                       </div>
                       <div className="flex items-baseline gap-0.5 shrink-0 pl-4">
-                        <span className="font-bold text-slate-900">{Number(amt).toLocaleString('vi-VN')}</span>
+                        <span className="font-bold text-slate-900 text-sm">{Number(amt).toLocaleString('vi-VN')}</span>
                         <span className="text-[10px] font-bold text-slate-400">đ</span>
                       </div>
                     </div>
@@ -1986,7 +2016,7 @@ export function CheckoutModal({
   }
 
   function renderUnifiedPaymentForm() {
-    return renderPaymentFormSection(payments, remaining, remainingTotal, cashChange, false)
+    return renderPaymentFormSection(payments, remaining, remainingTotal, actualChange, false)
   }
 
   function renderFolioPaymentForm(folio: 'A' | 'B') {
@@ -1994,9 +2024,9 @@ export function CheckoutModal({
     const targetPayments = isA ? paymentsA : paymentsB
     const targetRemaining = isA ? remainingA : remainingB
     const targetTotal = isA ? remainingTotalA : remainingTotalB
-    const targetCashChange = cashChange
+    const targetChange = Math.max(0, (isA ? totalPaidA : totalPaidB) - targetTotal)
 
-    return renderPaymentFormSection(targetPayments, targetRemaining, targetTotal, targetCashChange, true)
+    return renderPaymentFormSection(targetPayments, targetRemaining, targetTotal, targetChange, true)
   }
 
   if (!open) return null

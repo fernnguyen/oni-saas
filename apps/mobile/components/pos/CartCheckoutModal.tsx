@@ -216,15 +216,21 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
   // Tổng thực tế cần thu = đơn hàng + tiền trả nợ cũ thêm
   const clampedDebtRepay = Math.min(debtRepayAmount, customerDebt);
   const effectiveTotal = finalTotal + clampedDebtRepay;
+  const changeToReturn = paidSum - effectiveTotal;
 
+  const prevEffectiveTotalRef = React.useRef(effectiveTotal);
   // Tự động điều chỉnh số tiền ở dòng thanh toán duy nhất khớp với effectiveTotal
   React.useEffect(() => {
     if (paymentRows.length === 1) {
       const targetVal = effectiveTotal;
-      if (paymentRows[0].amount !== targetVal) {
-        setPaymentRows([{ ...paymentRows[0], amount: targetVal }]);
+      const prevVal = prevEffectiveTotalRef.current;
+      if (paymentRows[0].amount === prevVal || paymentRows[0].amount === 0) {
+        if (paymentRows[0].amount !== targetVal) {
+          setPaymentRows([{ ...paymentRows[0], amount: targetVal }]);
+        }
       }
     }
+    prevEffectiveTotalRef.current = effectiveTotal;
   }, [effectiveTotal, paymentRows, setPaymentRows]);
 
   // Cảnh báo khi khách có nợ cũ (chưa được trả hết)
@@ -1069,7 +1075,6 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
             <View className="flex-row gap-2 bg-amber-50 border border-amber-200 rounded-xl p-3 mb-3 w-full">
               <Ionicons name="warning-outline" size={16} color="#d97706" style={{ marginTop: 1 }} />
               <View className="flex-1">
-                <Text className="text-[11px] font-bold text-amber-805">Yêu cầu xác nhận thanh toán</Text>
                 <Text className="text-[10px] text-amber-700 mt-0.5 leading-normal">
                   Vui lòng đối chiếu kỹ số tiền thực tế và phương thức thanh toán trước khi xác nhận.
                 </Text>
@@ -1096,14 +1101,33 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                 </View>
               )}
 
-              {clampedDebtRepay > 0 && (
-                <View className="flex-row justify-between p-3 bg-slate-100/50 items-center">
-                  <Text className="text-slate-800 text-xs font-bold">Tổng cộng</Text>
+              {(clampedDebtRepay > 0 || changeToReturn > 0) && (
+                <View className="flex-row justify-between p-3 bg-slate-100/50 items-center border-b border-slate-100">
+                  <Text className="text-emerald-600 text-xs font-bold">Tổng cần thu</Text>
                   <View className="flex-row items-baseline">
-                    <Text className="font-bold text-slate-900 text-sm">{formatCurrency(finalTotal + clampedDebtRepay).replace(/[đ₫]/g, '').trim()}</Text>
-                    <Text className="text-[9px] font-bold text-slate-505 ml-0.5">đ</Text>
+                    <Text className="font-bold text-emerald-600 text-sm">{formatCurrency(finalTotal + clampedDebtRepay).replace(/[đ₫]/g, '').trim()}</Text>
+                    <Text className="text-[9px] font-bold text-emerald-600 ml-0.5">đ</Text>
                   </View>
                 </View>
+              )}
+
+              {changeToReturn > 0 && (
+                <>
+                  <View className="flex-row justify-between p-3 border-b border-slate-100 bg-blue-50/10 items-center">
+                    <Text className="text-blue-600/90 text-xs font-medium">Khách đưa</Text>
+                    <View className="flex-row items-baseline">
+                      <Text className="font-bold text-blue-750 text-xs">{formatCurrency(paidSum).replace(/[đ₫]/g, '').trim()}</Text>
+                      <Text className="text-[9px] font-bold text-slate-400 ml-0.5">đ</Text>
+                    </View>
+                  </View>
+                  <View className="flex-row justify-between p-3 bg-red-50/20 items-center">
+                    <Text className="text-red-600 text-xs font-bold">Tiền thừa trả khách</Text>
+                    <View className="flex-row items-baseline">
+                      <Text className="font-bold text-red-600 text-sm">{formatCurrency(changeToReturn).replace(/[đ₫]/g, '').trim()}</Text>
+                      <Text className="text-[9px] font-bold text-red-500 ml-0.5">đ</Text>
+                    </View>
+                  </View>
+                </>
               )}
             </View>
 
