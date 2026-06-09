@@ -35,6 +35,7 @@ export interface LodgingGuest {
  nationality?: string;
  dob?: string;
  gender?: string;
+ address?: string;
  note?: string;
 }
 
@@ -81,7 +82,7 @@ export function LodgingGuestsForm({
  const updateGuestField = (index: number, field: keyof LodgingGuest, value: any) => {
  const updated = [...guests];
  if (!updated[index]) {
- updated[index] = {name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', note: ''};
+ updated[index] = {name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', address: '', note: ''};
 }
  updated[index] = {...updated[index], [field]: value};
  // Maintain idCard and id_number sync
@@ -110,6 +111,7 @@ export function LodgingGuestsForm({
 };
 
   const [expandedState, setExpandedState] = useState<Record<number, boolean>>({});
+  const [deleteConfirmIndex, setDeleteConfirmIndex] = useState<number | null>(null);
 
   return (
     <View className="px-1 py-2">
@@ -145,16 +147,7 @@ export function LodgingGuestsForm({
                     <Text className="text-slate-350 mx-1.5 text-xs">|</Text>
                     <TouchableOpacity
                       activeOpacity={0.7}
-                      onPress={() => {
-                        const updated = guests.filter((_, i) => i !== index);
-                        onChangeGuests(updated);
-                        onChangeGuestCount(updated.length);
-                        setExpandedState(prev => {
-                          const next = {...prev};
-                          delete next[index];
-                          return next;
-                        });
-                      }}
+                      onPress={() => setDeleteConfirmIndex(index)}
                       className="px-2.5 py-1.5 bg-rose-50 rounded-lg border border-rose-100"
                     >
                       <Text className="text-[10px] font-bold text-rose-600">Xóa</Text>
@@ -188,16 +181,7 @@ export function LodgingGuestsForm({
                 {guests.length > 1 && (
                   <TouchableOpacity
                     activeOpacity={0.7}
-                    onPress={() => {
-                      const updated = guests.filter((_, i) => i !== index);
-                      onChangeGuests(updated);
-                      onChangeGuestCount(updated.length);
-                      setExpandedState(prev => {
-                        const next = {...prev};
-                        delete next[index];
-                        return next;
-                      });
-                    }}
+                    onPress={() => setDeleteConfirmIndex(index)}
                     className="p-2 bg-rose-50 rounded-xl border border-rose-100 items-center justify-center active:scale-95"
                   >
                     <Ionicons name="trash-outline" size={15} color="#f43f5e" />
@@ -347,6 +331,24 @@ export function LodgingGuestsForm({
  </View>
  </View>
 
+ {/* Field 7.5: Địa chỉ */}
+ <View className="mt-3">
+ <Text className="text-xs text-slate-500 font-medium mb-1.5">Địa chỉ:</Text>
+ <TextInput
+ className="bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-800 font-semibold h-[44px]"
+ placeholder="Nhập địa chỉ..."
+ placeholderTextColor="#cbd5e1"
+ value={guest.address || ''}
+ onChangeText={(val) => updateGuestField(index, 'address', val)}
+ style={{
+   paddingVertical: 0,
+   textAlignVertical: 'center',
+   lineHeight: undefined,
+   ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+ }}
+ />
+ </View>
+
  {/* Field 8: Ghi chú */}
  <View className="mt-3">
  <Text className="text-xs text-slate-500 font-medium mb-1.5">Ghi chú:</Text>
@@ -372,7 +374,7 @@ export function LodgingGuestsForm({
   <TouchableOpacity 
     activeOpacity={0.8}
     onPress={() => {
-      const updated = [...guests, {name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', note: ''}];
+      const updated = [...guests, {name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', address: '', note: ''}];
       onChangeGuests(updated);
       onChangeGuestCount(updated.length);
     }}
@@ -381,6 +383,30 @@ export function LodgingGuestsForm({
     <Ionicons name="add-circle" size={18} color="#fa5908" />
     <Text className="text-xs font-semibold text-orange-600 ml-2">Thêm khách lưu trú</Text>
   </TouchableOpacity>
+
+  {/* Custom Confirmation Dialog for Delete */}
+  <Dialog
+    visible={deleteConfirmIndex !== null}
+    onClose={() => setDeleteConfirmIndex(null)}
+    onConfirm={() => {
+      if (deleteConfirmIndex !== null) {
+        const updated = guests.filter((_, i) => i !== deleteConfirmIndex);
+        onChangeGuests(updated);
+        onChangeGuestCount(updated.length);
+        setExpandedState(prev => {
+          const next = {...prev};
+          delete next[deleteConfirmIndex];
+          return next;
+        });
+        setDeleteConfirmIndex(null);
+      }
+    }}
+    title="Xóa khách lưu trú"
+    description="Bạn có chắc chắn muốn xóa khách lưu trú này?"
+    confirmLabel="Xóa"
+    cancelLabel="Hủy"
+    variant="danger"
+  />
   </View>
   );
 }
@@ -647,7 +673,7 @@ export default function PosScreen() {
               const formattedDate = `${pickerDay.toString().padStart(2, '0')}/${pickerMonth.toString().padStart(2, '0')}/${pickerYear}`;
               const updated = [...lodgingGuests];
               if (!updated[pickerTargetIndex]) {
-                updated[pickerTargetIndex] = {name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', note: ''};
+                updated[pickerTargetIndex] = {name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', address: '', note: ''};
               }
               updated[pickerTargetIndex] = {...updated[pickerTargetIndex], [pickerTargetField]: formattedDate};
               setLodgingGuests(updated);
@@ -872,7 +898,7 @@ export default function PosScreen() {
  const [tableCustomers, setTableCustomers] = useState<{[tableId: string]: any}>({});
 
  const [activeTableTab, setActiveTableTab] = useState<'billing' | 'guests'>('billing');
- const [lodgingGuests, setLodgingGuests] = useState<LodgingGuest[]>([{name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', note: ''}]);
+ const [lodgingGuests, setLodgingGuests] = useState<LodgingGuest[]>([{name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', address: '', note: ''}]);
  const [isSyncingTableSession, setIsSyncingTableSession] = useState<boolean>(false);
  const [isOpeningTable, setIsOpeningTable] = useState<boolean>(false);
 
@@ -1711,9 +1737,10 @@ useEffect(() => {
               nationality: g.nationality || 'Việt Nam',
               dob: g.dob || '',
               gender: g.gender || '',
+              address: g.address || '',
               note: g.note || ''
             })) 
-          : [{name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', note: ''}]);
+          : [{name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', address: '', note: ''}]);
         
         setActiveTable(updatedTable);
       }
@@ -1750,9 +1777,10 @@ useEffect(() => {
             nationality: g.nationality || 'Việt Nam',
             dob: g.dob || '',
             gender: g.gender || '',
+            address: g.address || '',
             note: g.note || ''
           })) 
-        : [{name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', note: ''}]);
+        : [{name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', address: '', note: ''}]);
       
       await syncActiveTableSession(table);
       setIsSyncingTableSession(false);
@@ -1801,6 +1829,7 @@ useEffect(() => {
  nationality: g.nationality || 'Việt Nam',
  dob: g.dob || '',
  gender: g.gender || '',
+ address: g.address || '',
  note: g.note || ''
 }));
 
@@ -1956,6 +1985,7 @@ useEffect(() => {
             nationality: g.nationality || 'Việt Nam',
             dob: g.dob || '',
             gender: g.gender || '',
+            address: g.address || '',
             note: g.note || ''
           })),
         guests: lodgingGuests
@@ -1970,6 +2000,7 @@ useEffect(() => {
             nationality: g.nationality || 'Việt Nam',
             dob: g.dob || '',
             gender: g.gender || '',
+            address: g.address || '',
             note: g.note || ''
           })),
       });

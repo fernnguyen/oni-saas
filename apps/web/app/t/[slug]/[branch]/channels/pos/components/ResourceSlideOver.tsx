@@ -1641,7 +1641,7 @@ export function ResourceSlideOver({
                       </div>
                     )
                   })}
-                  <button onClick={() => setGuests([...guests, { id: Date.now(), name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', note: '' }])} className="w-full rounded-xl border border-dashed border-slate-300 py-3 text-sm font-medium text-slate-500 hover:border-primary hover:text-primary transition-colors bg-white">
+                  <button onClick={() => setGuests([...guests, { id: Date.now(), name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', address: '', note: '' }])} className="w-full rounded-xl border border-dashed border-slate-300 py-3 text-sm font-medium text-slate-500 hover:border-primary hover:text-primary transition-colors bg-white">
                     + Thêm khách lưu trú
                   </button>
                 </div>
@@ -1981,7 +1981,13 @@ export function ResourceSlideOver({
                                   <span className="text-slate-300 text-xs select-none">|</span>
                                   <button
                                     type="button"
-                                    onClick={() => {
+                                    onClick={async () => {
+                                      const ok = await confirm({
+                                        title: 'Xóa khách lưu trú',
+                                        description: 'Bạn có chắc chắn muốn xóa khách lưu trú này?',
+                                        variant: 'danger',
+                                      })
+                                      if (!ok) return
                                       setGuests(guests.filter((_, i) => i !== idx))
                                       setExpandedGuests(prev => {
                                         const next = { ...prev }
@@ -2018,7 +2024,13 @@ export function ResourceSlideOver({
                                   {g.name && <span className="text-slate-300 text-xs select-none">|</span>}
                                   <button
                                     type="button"
-                                    onClick={() => {
+                                    onClick={async () => {
+                                      const ok = await confirm({
+                                        title: 'Xóa khách lưu trú',
+                                        description: 'Bạn có chắc chắn muốn xóa khách lưu trú này?',
+                                        variant: 'danger',
+                                      })
+                                      if (!ok) return
                                       setGuests(guests.filter((_, i) => i !== idx))
                                       setExpandedGuests(prev => {
                                         const next = { ...prev }
@@ -2084,16 +2096,22 @@ export function ResourceSlideOver({
                                   </select>
                                 </div>
                                 <div className="col-span-2">
+                                  <label className="block text-xs font-medium text-slate-605 mb-1">Địa chỉ</label>
+                                  <input type="text" value={g.address || ''} onChange={e => {
+                                    const newG = [...guests]; newG[idx].address = e.target.value; setGuests(newG);
+                                  }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white text-slate-800" placeholder="Nhập địa chỉ..." />
+                                </div>
+                                <div className="col-span-2">
                                   <label className="block text-xs font-medium text-slate-650 mb-1">Ghi chú</label>
                                   <input type="text" value={g.note || ''} onChange={e => {
                                     const newG = [...guests]; newG[idx].note = e.target.value; setGuests(newG);
-                                  }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white text-slate-800" placeholder="Ghi chú thêm (địa chỉ, lưu ý...)" />
+                                  }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white text-slate-800" placeholder="Ghi chú thêm (lưu ý...)" />
                                 </div>
                               </div>
                             </div>
                           )
                         })}
-                        <button onClick={() => setGuests([...guests, { id: Date.now(), name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', note: '' }])} className="w-full rounded-xl border border-dashed border-slate-300 py-3 text-sm font-medium text-slate-500 hover:border-primary hover:text-primary transition-colors bg-white">
+                        <button onClick={() => setGuests([...guests, { id: Date.now(), name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', address: '', note: '' }])} className="w-full rounded-xl border border-dashed border-slate-300 py-3 text-sm font-medium text-slate-500 hover:border-primary hover:text-primary transition-colors bg-white">
                           + Thêm khách lưu trú
                         </button>
                       </div>
@@ -2199,6 +2217,7 @@ export function ResourceSlideOver({
           autoPrintReceipt={autoPrintReceipt}
           customCheckoutTime={customCheckoutTime}
           hourlyRate={hourlyRate}
+          isAccommodation={isRoom}
         />
       )}
       {/* Resource Picker Modal for Transfer */}
