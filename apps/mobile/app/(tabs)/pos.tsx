@@ -2191,6 +2191,17 @@ useEffect(() => {
  const subtotal = billing.cost + itemsCost;
  const totalAmount = Math.max(0, subtotal - discount);
  const paidSum = payments.reduce((sum, p) => sum + p.amount, 0);
+  const cashChange = Math.max(0, paidSum - totalAmount);
+  let processedPayments = [...payments];
+  if (cashChange > 0) {
+    const defaultCashFund = paymentFundsList.find(f => f.type === 'cash' && f.is_default === 'TRUE') || paymentFundsList.find(f => f.type === 'cash') || paymentFundsList[0];
+    processedPayments.push({
+      id: 'change-' + Date.now(),
+      method: 'cash',
+      fund_id: defaultCashFund?.id || '',
+      amount: -cashChange
+    });
+  }
 
  const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
  const shiftId = await AsyncStorage.getItem('active_shift_id') || 'default-shift';
@@ -2200,7 +2211,7 @@ useEffect(() => {
   let syncSucceeded = false;
   let serverOrderNo = orderNo;
 
- const paymentMethodString = JSON.stringify(payments.map(p => {
+ const paymentMethodString = JSON.stringify(processedPayments.map(p => {
     const fund = paymentFundsList.find(f => f.id === p.fund_id);
     return {
       method: p.method,
@@ -2227,7 +2238,7 @@ useEffect(() => {
   customer_name: customer?.name || 'Khách lẻ',
   customer_id: customer?.id || null,
   total_amount: totalAmount,
-  paid_amount: paidSum,
+  paid_amount: Math.min(totalAmount, paidSum),
   payment_method: paymentMethodString,
   created_at: nowStr,
   shift_id: shiftId,
@@ -2300,8 +2311,8 @@ useEffect(() => {
  discount_amount: discount,
  tax_amount: 0,
  total_amount: totalAmount,
- paid_amount: paidSum,
- debt_amount: Math.max(0, totalAmount - paidSum),
+ paid_amount: Math.min(totalAmount, paidSum),
+ debt_amount: Math.max(0, totalAmount - Math.min(totalAmount, paidSum)),
  note: note || `Thanh toán phòng/bàn từ di động.`,
  metadata: JSON.stringify({
  resource_id: selectedTableForPay.id,
@@ -2332,7 +2343,7 @@ useEffect(() => {
  line_total: (item.price + (item.modifier_total || 0)) * item.quantity,
 }))
  ],
- payments: payments.map(p => {
+ payments: processedPayments.map(p => {
     const fund = paymentFundsList.find(f => f.id === p.fund_id);
     return {
       method: p.method,
@@ -2461,9 +2472,25 @@ useEffect(() => {
 }
  setIsPayingCartLoading(true);
  try {
- const paidSum = payments.reduce((sum, p) => sum + p.amount, 0);
+ const debtRepay = debtRepayOpts?.debtRepayAmount || 0;
+    const paidSum = payments.reduce((sum, p) => sum + p.amount, 0);
+    const totalAmountDue = finalTotal + debtRepay;
+    const cashChange = Math.max(0, paidSum - totalAmountDue);
+    let processedPayments = [...payments];
+    if (cashChange > 0) {
+      const defaultCashFund = paymentFundsList.find(f => f.type === 'cash' && f.is_default === 'TRUE') || paymentFundsList.find(f => f.type === 'cash') || paymentFundsList[0];
+      processedPayments.push({
+        id: 'change-' + Date.now(),
+        method: 'cash',
+        fund_id: defaultCashFund?.id || '',
+        amount: -cashChange
+      });
+    }
+    const netPaidSum = processedPayments.reduce((sum, p) => sum + p.amount, 0);
+    const orderPaidAmt = Math.min(finalTotal, Math.max(0, netPaidSum - debtRepay));
+    const orderDebtAmt = Math.max(0, finalTotal - orderPaidAmt);
 
- const paymentMethodString = JSON.stringify(payments.map(p => {
+ const paymentMethodString = JSON.stringify(processedPayments.map(p => {
     const fund = paymentFundsList.find(f => f.id === p.fund_id);
     return {
       method: p.method,
@@ -2489,7 +2516,7 @@ useEffect(() => {
  customer_id: customer ? customer.id : null,
  customer_name: customer ? customer.name : 'Khách mua lẻ',
  total_amount: finalTotal,
- paid_amount: paidSum,
+ paid_amount: orderPaidAmt,
  payment_method: paymentMethodString,
  created_at: nowStr,
  shift_id: shiftId,
@@ -2524,7 +2551,6 @@ useEffect(() => {
 }
 
  // Thu nợ cũ kèm đơn hàng — thử sync trực tiếp để lấy server order_no
- const debtRepay = debtRepayOpts?.debtRepayAmount || 0;
  const debtShopId = await AsyncStorage.getItem('active_shop_id') || '';
  const currentUrl = isOnline ? getApiBaseUrl() : null;
 
@@ -2549,8 +2575,8 @@ useEffect(() => {
            discount_amount: discountAmount,
            tax_amount: 0,
            total_amount: finalTotal,
-           paid_amount: paidSum,
-           debt_amount: Math.max(0, finalTotal - paidSum),
+           paid_amount: orderPaidAmt,
+           debt_amount: orderDebtAmt,
            note: note || '',
          },
          items: Object.entries(cart).map(([cartItemId, item]: [string, any]) => ({
@@ -2561,7 +2587,7 @@ useEffect(() => {
            discount_amount: 0,
            line_total: (item.price + (item.modifier_total || 0)) * item.quantity,
          })),
-         payments: payments.map(p => {
+         payments: processedPayments.map(p => {
            const fund = paymentFundsList.find((f: any) => f.id === p.fund_id);
            return { method: p.method, amount: p.amount, fund_id: p.fund_id, meta: { fund_id: p.fund_id, fund_name: fund ? fund.name : '' } };
          }),
@@ -2615,10 +2641,10 @@ useEffect(() => {
   setIsPayingCartLoading(false);
 
   // Hiển thị QR thanh toán hoặc Toast báo thành công bằng server ID
-  const hasTransfer = payments.some(p => checkIsQrPayment(p.method) && p.amount > 0);
+  const hasTransfer = processedPayments.some(p => checkIsQrPayment(p.method) && p.amount > 0);
   if (hasTransfer) {
-    const transferAmount = payments.filter(p => checkIsQrPayment(p.method)).reduce((sum, p) => sum + p.amount, 0);
-    const transferP = payments.find(p => checkIsQrPayment(p.method) && p.amount > 0);
+    const transferAmount = processedPayments.filter(p => checkIsQrPayment(p.method)).reduce((sum, p) => sum + p.amount, 0);
+    const transferP = processedPayments.find(p => checkIsQrPayment(p.method) && p.amount > 0);
     setQrPayload({amount: transferAmount, orderNo: serverOrderNo, fund_id: transferP ? transferP.fund_id : 'bank'});
     setIsQrModalOpen(true);
   } else {

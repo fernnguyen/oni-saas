@@ -217,6 +217,16 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
   const clampedDebtRepay = Math.min(debtRepayAmount, customerDebt);
   const effectiveTotal = finalTotal + clampedDebtRepay;
 
+  // Tự động điều chỉnh số tiền ở dòng thanh toán duy nhất khớp với effectiveTotal
+  React.useEffect(() => {
+    if (paymentRows.length === 1) {
+      const targetVal = effectiveTotal;
+      if (paymentRows[0].amount !== targetVal) {
+        setPaymentRows([{ ...paymentRows[0], amount: targetVal }]);
+      }
+    }
+  }, [effectiveTotal, paymentRows, setPaymentRows]);
+
   // Cảnh báo khi khách có nợ cũ (chưa được trả hết)
   const hasDebtWarning = !!activeCustomer && customerDebt > 0 && isOnline && !!enrichedCustomer;
 
@@ -278,27 +288,6 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
     setIsConfirmVisible(true);
   };
 
-  const methodNames = paymentRows.map(p => {
-    const foundMethod = resolvedMethods.find(m => m.value === p.method || m.code === p.method);
-    const methodName = foundMethod ? foundMethod.label : p.method;
-
-    if (p.method === 'debt' || p.method === 'prepaid') {
-      return methodName;
-    }
-
-    let fundType = 'bank';
-    if (foundMethod) {
-      fundType = foundMethod.type || 'bank';
-    } else {
-      if (p.method === 'cash') fundType = 'cash';
-      else if (['momo', 'zalopay', 'vnpay', 'wallet'].includes(p.method)) fundType = 'wallet';
-    }
-    const matchingFunds = paymentFundsList.filter(f => f.type === fundType);
-    const activeFund = paymentFundsList.find(f => f.id === p.fund_id) || matchingFunds[0];
-    const fundName = activeFund ? `Quỹ ${activeFund.name}` : 'Chưa chọn quỹ';
-
-    return `${methodName} (${fundName})`;
-  }).join(' + ');
 
   return (
     <>
@@ -808,7 +797,12 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                               className="flex-1 ml-1 bg-orange-50/50 border border-orange-100/80 rounded-lg px-2.5 py-2 flex-row items-center"
                             >
                               <Text className="text-[10px] text-orange-800 font-semibold uppercase mr-1">Quỹ:</Text>
-                              <Text className="text-xs font-bold text-orange-900" numberOfLines={1}>{activeFund?.name || matchingFunds[0].name}</Text>
+                              <Text className="text-xs font-bold text-orange-900" numberOfLines={1}>
+                                {(() => {
+                                  const f = activeFund || matchingFunds[0];
+                                  return f ? `${f.name}${f.account_number ? ` (STK: ${f.account_number})` : ''}` : '';
+                                })()}
+                              </Text>
                             </View>
                           ) : (
                             <TouchableOpacity 
@@ -821,7 +815,11 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                             >
                               <View className="flex-row items-center flex-1 pr-2">
                                 <Text className="text-[10px] text-orange-800 font-semibold uppercase mr-1">Quỹ:</Text>
-                                <Text className="text-xs font-bold text-orange-900" numberOfLines={1}>{activeFund?.name || 'Chọn quỹ...'}</Text>
+                                <Text className="text-xs font-bold text-orange-900" numberOfLines={1}>
+                                  {activeFund 
+                                    ? `${activeFund.name}${activeFund.account_number ? ` (STK: ${activeFund.account_number})` : ''}` 
+                                    : 'Chọn quỹ...'}
+                                </Text>
                               </View>
                               <Ionicons name="chevron-down" size={12} color="#c2410c" />
                             </TouchableOpacity>
@@ -1035,9 +1033,9 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                             <Text className={`text-sm font-bold ${isSelected ? 'text-orange-600' : 'text-slate-800'}`}>
                               {f.name}
                             </Text>
-                            {f.bank_name ? (
+                            {f.account_number ? (
                               <Text className="text-xs text-slate-500 mt-1">
-                                {f.bank_name} {f.account_number ? `· ${f.account_number}` : ''}
+                                STK: {f.account_number}
                               </Text>
                             ) : null}
                           </View>
@@ -1062,11 +1060,96 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
               onCheckout(debtOpts);
             }}
             title="Xác nhận Thanh toán"
-            description={`Bạn có chắc chắn muốn hoàn tất thanh toán hóa đơn trị giá ${formatCurrency(finalTotal)} bằng phương thức: ${methodNames}?`}
+            description="Bạn có chắc chắn muốn hoàn tất thanh toán hóa đơn này không?"
             confirmLabel="Xác nhận"
             cancelLabel="Hủy"
             variant="default"
-          />
+          >
+            {/* Alert Banner */}
+            <View className="flex-row gap-2 bg-amber-50 border border-amber-200 rounded-xl p-3 mb-3 w-full">
+              <Ionicons name="warning-outline" size={16} color="#d97706" style={{ marginTop: 1 }} />
+              <View className="flex-1">
+                <Text className="text-[11px] font-bold text-amber-805">Yêu cầu xác nhận thanh toán</Text>
+                <Text className="text-[10px] text-amber-700 mt-0.5 leading-normal">
+                  Vui lòng đối chiếu kỹ số tiền thực tế và phương thức thanh toán trước khi xác nhận.
+                </Text>
+              </View>
+            </View>
+
+            {/* Bill Info Table */}
+            <View className="border border-slate-100 rounded-xl overflow-hidden bg-slate-50/50 w-full mb-3">
+              <View className="flex-row justify-between p-3 border-b border-slate-100 items-center">
+                <Text className="text-slate-500 text-xs font-medium">Tiền hàng</Text>
+                <View className="flex-row items-baseline">
+                  <Text className="font-semibold text-slate-800 text-xs">{formatCurrency(finalTotal).replace(/[đ₫]/g, '').trim()}</Text>
+                  <Text className="text-[9px] font-bold text-slate-400 ml-0.5">đ</Text>
+                </View>
+              </View>
+              
+              {clampedDebtRepay > 0 && (
+                <View className="flex-row justify-between p-3 border-b border-slate-100 bg-rose-50/10 items-center">
+                  <Text className="text-rose-600/90 text-xs font-medium">Trả nợ cũ</Text>
+                  <View className="flex-row items-baseline">
+                    <Text className="font-semibold text-rose-700 text-xs">+{formatCurrency(clampedDebtRepay).replace(/[đ₫]/g, '').trim()}</Text>
+                    <Text className="text-[9px] font-bold text-slate-400 ml-0.5">đ</Text>
+                  </View>
+                </View>
+              )}
+
+              {clampedDebtRepay > 0 && (
+                <View className="flex-row justify-between p-3 bg-slate-100/50 items-center">
+                  <Text className="text-slate-800 text-xs font-bold">Tổng cộng</Text>
+                  <View className="flex-row items-baseline">
+                    <Text className="font-bold text-slate-900 text-sm">{formatCurrency(finalTotal + clampedDebtRepay).replace(/[đ₫]/g, '').trim()}</Text>
+                    <Text className="text-[9px] font-bold text-slate-505 ml-0.5">đ</Text>
+                  </View>
+                </View>
+              )}
+            </View>
+
+            {/* Detailed Payments Table */}
+            <View className="w-full mt-1">
+              <Text className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 pl-1">Chi tiết thanh toán</Text>
+              <View className="border border-slate-100 rounded-xl bg-white w-full">
+                {paymentRows.filter(p => (parseFloat(String(p.amount)) || 0) > 0).map((p, idx, arr) => {
+                  const foundMethod = resolvedMethods.find(m => m.value === p.method || m.code === p.method);
+                  const methodName = foundMethod ? foundMethod.label : p.method;
+                  const amt = parseFloat(String(p.amount)) || 0;
+                  
+                  let fundDetail = '';
+                  if (p.method !== 'debt' && p.method !== 'prepaid') {
+                    let fundType = 'bank';
+                    if (foundMethod) {
+                      fundType = foundMethod.type || 'bank';
+                    } else {
+                      if (p.method === 'cash') fundType = 'cash';
+                      else if (['momo', 'zalopay', 'vnpay', 'wallet'].includes(p.method)) fundType = 'wallet';
+                    }
+                    const matchingFunds = paymentFundsList.filter(f => f.type === fundType);
+                    const activeFund = paymentFundsList.find(f => f.id === p.fund_id) || matchingFunds[0];
+                    if (activeFund) {
+                      fundDetail = activeFund.name + (activeFund.account_number ? ` (STK: ${activeFund.account_number})` : '');
+                    }
+                  }
+
+                  const isLast = idx === arr.length - 1;
+
+                  return (
+                    <View key={p.id} className={`flex-row justify-between items-center p-3 w-full ${!isLast ? 'border-b border-slate-100' : ''}`}>
+                      <View className="flex-1 pr-2">
+                        <Text className="font-semibold text-slate-800 text-xs">{methodName}</Text>
+                        {fundDetail ? <Text className="text-[9px] text-slate-400 mt-0.5 leading-normal">{fundDetail}</Text> : null}
+                      </View>
+                      <View className="flex-row items-baseline shrink-0">
+                        <Text className="font-bold text-slate-900 text-xs">{formatCurrency(amt).replace(/[đ₫]/g, '').trim()}</Text>
+                        <Text className="text-[9px] font-bold text-slate-400 ml-0.5">đ</Text>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+          </Dialog>
         </View>
       </Modal>
     </>

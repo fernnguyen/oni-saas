@@ -754,6 +754,16 @@ export function CheckoutModal({
   // effectiveRemainingTotal bao gồm tiền hàng + tiền trả nợ cũ
   const effectiveRemainingTotal = remainingTotal + clampedDebtRepay
 
+  // Tự động điều chỉnh số tiền ở dòng thanh toán duy nhất khớp với effectiveRemainingTotal
+  useEffect(() => {
+    if (paymentsLoaded && payments.length === 1) {
+      const targetVal = String(effectiveRemainingTotal)
+      if (payments[0].amount !== targetVal) {
+        setPayments([{ ...payments[0], amount: targetVal }])
+      }
+    }
+  }, [effectiveRemainingTotal, payments, paymentsLoaded])
+
   const remaining = useMemo(() => {
     return effectiveRemainingTotal - totalPaid
   }, [effectiveRemainingTotal, totalPaid])
@@ -1274,6 +1284,99 @@ export function CheckoutModal({
       }
     }
 
+    if (options?.bypassQr) {
+      const activePayments = isSplitActive ? [...paymentsA, ...paymentsB] : payments
+
+      const isOk = await confirm({
+        title: 'Xác nhận Thanh toán',
+        description: 'Bạn có chắc chắn muốn hoàn tất thanh toán hóa đơn này không?',
+        confirmLabel: 'Xác nhận',
+        cancelLabel: 'Hủy',
+        children: (
+          <div className="space-y-4 text-left">
+            {/* Alert Banner */}
+            <div className="flex gap-2.5 items-start bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800">
+              <svg className="h-4.5 w-4.5 shrink-0 text-amber-600 mt-0.5 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <div>
+                <p className="font-bold">Yêu cầu xác nhận thanh toán</p>
+                <p className="text-amber-700/90 mt-0.5 leading-relaxed">Vui lòng đối chiếu kỹ số tiền thực tế và phương thức thanh toán trước khi xác nhận.</p>
+              </div>
+            </div>
+
+            {/* Bill Info Table */}
+            <div className="border border-slate-100 rounded-xl overflow-hidden bg-slate-50/50 text-xs">
+              <div className="divide-y divide-slate-100">
+                <div className="flex justify-between p-3 items-center">
+                  <span className="text-slate-500 font-medium">Tiền hàng</span>
+                  <div className="flex items-baseline gap-0.5">
+                    <span className="font-bold text-slate-800 text-sm">{Number(finalTotal).toLocaleString('vi-VN')}</span>
+                    <span className="text-[10px] font-bold text-slate-400">đ</span>
+                  </div>
+                </div>
+
+                {clampedDebtRepay > 0 && (
+                  <div className="flex justify-between p-3 bg-rose-50/10 items-center">
+                    <span className="text-rose-600/90 font-medium">Trả nợ cũ</span>
+                    <div className="flex items-baseline gap-0.5">
+                      <span className="font-bold text-rose-750 text-sm">+{Number(clampedDebtRepay).toLocaleString('vi-VN')}</span>
+                      <span className="text-[10px] font-bold text-rose-450">đ</span>
+                    </div>
+                  </div>
+                )}
+
+                {clampedDebtRepay > 0 && (
+                  <div className="flex justify-between p-3 bg-slate-100/50 font-bold border-t border-slate-200 items-center">
+                    <span className="text-slate-800">Tổng cộng</span>
+                    <div className="flex items-baseline gap-0.5">
+                      <span className="text-base font-black text-slate-900">{Number(finalTotal + clampedDebtRepay).toLocaleString('vi-VN')}</span>
+                      <span className="text-[10px] font-black text-slate-500">đ</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Detailed Payments Table */}
+            <div className="space-y-2">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider pl-1">Chi tiết thanh toán</p>
+              <div className="border border-slate-100 rounded-xl divide-y divide-slate-100 bg-white">
+                {activePayments.filter(p => (parseFloat(p.amount) || 0) > 0).map(p => {
+                  const foundMethod = resolvedMethods.find(m => m.value === p.method || m.code === p.method)
+                  const methodName = foundMethod ? foundMethod.label : p.method
+                  const amt = parseFloat(p.amount) || 0
+
+                  let fundDetail = ''
+                  if (p.method !== 'debt' && p.method !== 'prepaid') {
+                    const matchingFunds = fundsList.filter(f => f.type === (foundMethod?.type || 'bank'))
+                    const activeFund = fundsList.find(f => f.id === p.fund_id) || matchingFunds[0]
+                    if (activeFund) {
+                      fundDetail = activeFund.name + (activeFund.account_number ? ` (STK: ${activeFund.account_number})` : '')
+                    }
+                  }
+
+                  return (
+                    <div key={p.id} className="flex justify-between items-center p-3 text-xs">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-semibold text-slate-800">{methodName}</span>
+                        {fundDetail && <span className="text-[10px] text-slate-400 leading-normal">{fundDetail}</span>}
+                      </div>
+                      <div className="flex items-baseline gap-0.5 shrink-0 pl-4">
+                        <span className="font-bold text-slate-900">{Number(amt).toLocaleString('vi-VN')}</span>
+                        <span className="text-[10px] font-bold text-slate-400">đ</span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+        )
+      })
+      if (!isOk) return
+    }
+
     const isWaitingForQr = bankTransferAmt > 0 && !options?.bypassQr
     setSaving(true)
     try {
@@ -1772,7 +1875,7 @@ export function CheckoutModal({
                     <button
                       type="button"
                       onClick={distributeRemaining}
-                      className="absolute -bottom-4.5 right-0 text-[10px] text-primary hover:text-primary/80 font-bold leading-none"
+                      className="absolute -bottom-3 right-3 bg-orange-600 text-white text-[10px] font-bold px-2.5 py-1 rounded-full shadow-lg border border-orange-500 z-20 hover:bg-orange-700 hover:scale-105 active:scale-95 transition-all cursor-pointer leading-none flex items-center gap-0.5 animate-bounce"
                       title="Điền số tiền còn thiếu"
                     >
                       ↑ Tất cả: {fmtVND(rem)}
@@ -1802,7 +1905,7 @@ export function CheckoutModal({
                     <div className="flex-1 flex items-center gap-2 bg-orange-50/50 border border-orange-100 rounded-lg px-3 py-1.5 text-xs">
                       <span className="text-[10px] text-orange-800 font-bold uppercase tracking-wider">QUỸ:</span>
                       <span className="font-bold text-orange-950">
-                        {matchingFunds[0].name} {matchingFunds[0].bank_name ? `(${matchingFunds[0].bank_name})` : ''}
+                        {matchingFunds[0].name}{matchingFunds[0].account_number ? ` (STK: ${matchingFunds[0].account_number})` : ''}
                       </span>
                     </div>
                   ) : (
@@ -1817,7 +1920,7 @@ export function CheckoutModal({
                       >
                         {matchingFunds.map((f) => (
                           <option key={f.id} value={f.id} className="bg-white font-medium text-slate-800">
-                            {f.name} {f.bank_name ? `(${f.bank_name})` : ''}
+                            {f.name}{f.account_number ? ` (STK: ${f.account_number})` : ''}
                           </option>
                         ))}
                       </select>
