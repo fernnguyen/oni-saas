@@ -140,6 +140,7 @@ export function ResourceSlideOver({
     id: Date.now(), name: '', gender: '', dob: '', id_type: 'CCCD',
     id_number: '', expiry_date: '', nationality: 'Việt Nam', address: '', note: '', is_child: false
   }])
+  const [expandedGuests, setExpandedGuests] = useState<Record<number, boolean>>({})
 
   // --- Occupied State ---
   const [bookingSource, setBookingSource] = useState('Khách lẻ (Walk-in)')
@@ -325,7 +326,7 @@ export function ResourceSlideOver({
     if (oData) {
       setOrder(oData)
       const meta = safeParse(oData.metadata)
-      if (meta.guests) setGuests(meta.guests)
+      if (meta.guests_list || meta.guests) setGuests(meta.guests_list || meta.guests)
       if (meta.booking_source) setBookingSource(meta.booking_source)
       if (meta.note || oData.note) setNote(meta.note || oData.note || '')
       if (meta.expected_checkout) setExpectedCheckout(meta.expected_checkout)
@@ -366,6 +367,7 @@ export function ResourceSlideOver({
         id: Date.now(), name: '', gender: '', dob: '', id_type: 'CCCD',
         id_number: '', expiry_date: '', nationality: 'Việt Nam', address: '', note: '', is_child: false
       }])
+      setExpandedGuests({})
       setBookingSource('Khách lẻ (Walk-in)')
       setExpectedCheckout('')
       setNote('')
@@ -486,6 +488,24 @@ export function ResourceSlideOver({
       const resourceMeta = safeParse(resource.metadata)
       const advPricing = resourceMeta.advanced_pricing
 
+      const checkInMeta = {
+        resource_id: resource.id,
+        resource_name: resource.name,
+        check_in: checkInDate.toISOString(),
+        num_guests: numGuests,
+        expected_checkout: expectedCheckout,
+        customer_phone: customer?.phone || '',
+        guests: showGuests ? activeGuests : undefined,
+        guests_list: showGuests ? activeGuests : undefined,
+        note: note,
+        advanced_pricing: advPricing,
+        rental_type: rentalType,
+        overnight_rate: resourceMeta.overnight_rate,
+        weekend_rate: resourceMeta.weekend_rate,
+        room_class: resourceMeta.room_class,
+        bed_type: resourceMeta.bed_type,
+      }
+
       const res = await fetch(`/api/shops/${shopId}/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -498,22 +518,7 @@ export function ResourceSlideOver({
           subtotal: '0',
           total_amount: '0',
           paid_amount: '0',
-          metadata: JSON.stringify({
-            resource_id: resource.id,
-            resource_name: resource.name,
-            check_in: checkInDate.toISOString(),
-            num_guests: numGuests,
-            expected_checkout: expectedCheckout,
-            customer_phone: customer?.phone || '',
-            guests: showGuests ? activeGuests : undefined,
-            note: note,
-            advanced_pricing: advPricing,
-            rental_type: rentalType,
-            overnight_rate: resourceMeta.overnight_rate,
-            weekend_rate: resourceMeta.weekend_rate,
-            room_class: resourceMeta.room_class,
-            bed_type: resourceMeta.bed_type,
-          })
+          metadata: JSON.stringify(checkInMeta)
         }),
       })
 
@@ -524,29 +529,18 @@ export function ResourceSlideOver({
       await fetch(`/api/shops/${shopId}/location-resources/${resource.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'occupied', current_order_id: orderId }),
+        body: JSON.stringify({
+          status: 'occupied',
+          current_order_id: orderId,
+          metadata: JSON.stringify(checkInMeta)
+        }),
       })
 
       // Bypass double loading by seeding state
       fetchingRef.current = orderId
       setOrder({
         ...createdOrder,
-        metadata: JSON.stringify({
-          resource_id: resource.id,
-          resource_name: resource.name,
-          check_in: checkInDate.toISOString(),
-          num_guests: numGuests,
-          expected_checkout: expectedCheckout,
-          customer_phone: customer?.phone || '',
-          guests: showGuests ? activeGuests : undefined,
-          note: note,
-          advanced_pricing: advPricing,
-          rental_type: rentalType,
-          overnight_rate: resourceMeta.overnight_rate,
-          weekend_rate: resourceMeta.weekend_rate,
-          room_class: resourceMeta.room_class,
-          bed_type: resourceMeta.bed_type,
-        })
+        metadata: JSON.stringify(checkInMeta)
       })
       setExistingItems([])
       setInstallments([])
@@ -570,6 +564,7 @@ export function ResourceSlideOver({
       const newMeta = {
         ...meta,
         guests: showGuests ? validGuests : undefined,
+        guests_list: showGuests ? validGuests : undefined,
         booking_source: bookingSource,
         expected_checkout: expectedCheckout,
         note: note,
@@ -587,6 +582,19 @@ export function ResourceSlideOver({
       if (!res.ok) throw new Error('Cập nhật thất bại')
       const updatedOrder = await res.json()
       setOrder(updatedOrder)
+
+      try {
+        await fetch(`/api/shops/${shopId}/location-resources/${resource.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            metadata: JSON.stringify(newMeta)
+          })
+        })
+      } catch (err) {
+        console.warn('Lỗi đồng bộ metadata vị trí:', err)
+      }
+
       toast.success('Đã lưu thông tin khách hàng')
     } catch (err) {
       console.error(err)
@@ -1499,73 +1507,140 @@ export function ResourceSlideOver({
 
               {showGuests && activeTab === 'guests' && (
                 <div className="space-y-4">
-                  {guests.map((g, idx) => (
-                    <div key={g.id} className="rounded-xl border border-slate-200 bg-white p-4 relative shadow-sm">
-                      <div className="absolute right-3 top-3">
-                        {guests.length > 1 && (
-                          <button onClick={() => setGuests(guests.filter(x => x.id !== g.id))} className="text-slate-400 hover:text-red-500 text-xs font-medium">✕ Xóa</button>
-                        )}
+                  {guests.map((g, idx) => {
+                    const isExpanded = expandedGuests[idx] !== undefined ? expandedGuests[idx] : (!g.name && !g.id_number)
+                    if (!isExpanded) {
+                      return (
+                        <div key={g.id} className="flex items-center justify-between p-3.5 bg-white border border-slate-200 rounded-xl shadow-xs">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-650">{idx + 1}</span>
+                            <span className="text-sm font-semibold text-slate-800 truncate">
+                              {g.name || 'Chưa nhập tên'} <span className="text-xs font-normal text-slate-500">({g.id_type || 'CCCD'}: {g.id_number || 'Chưa nhập'})</span>
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-3 shrink-0 ml-auto pl-4">
+                            <button
+                              type="button"
+                              onClick={() => setExpandedGuests(prev => ({ ...prev, [idx]: true }))}
+                              className="text-xs font-bold text-primary hover:text-primary-dark transition-colors cursor-pointer"
+                            >
+                              Sửa
+                            </button>
+                            <span className="text-slate-300 text-xs select-none">|</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setGuests(guests.filter((_, i) => i !== idx))
+                                setExpandedGuests(prev => {
+                                  const next = { ...prev }
+                                  delete next[idx]
+                                  return next
+                                })
+                              }}
+                              className="text-xs font-bold text-red-500 hover:text-red-750 transition-colors cursor-pointer"
+                            >
+                              Xóa
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    }
+
+                    return (
+                      <div key={g.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4 relative shadow-sm">
+                        <div className="flex items-center justify-between mb-4">
+                          <div className="flex items-center gap-2">
+                            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">{idx + 1}</span>
+                            <span className="text-sm font-semibold text-slate-800">Thông tin khách hàng {idx + 1}</span>
+                          </div>
+                          <div className="flex items-center gap-3 ml-auto">
+                            {g.name && (
+                              <button
+                                type="button"
+                                onClick={() => setExpandedGuests(prev => ({ ...prev, [idx]: false }))}
+                                className="text-xs font-bold text-slate-500 hover:text-slate-705 transition-colors cursor-pointer"
+                              >
+                                Thu gọn
+                              </button>
+                            )}
+                            {g.name && <span className="text-slate-300 text-xs select-none">|</span>}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setGuests(guests.filter((_, i) => i !== idx))
+                                setExpandedGuests(prev => {
+                                  const next = { ...prev }
+                                  delete next[idx]
+                                  return next
+                                })
+                              }}
+                              className="text-xs font-bold text-red-500 hover:text-red-755 transition-colors cursor-pointer"
+                            >
+                              Xóa
+                            </button>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="col-span-2">
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Họ và tên</label>
+                            <input type="text" value={g.name} onChange={e => {
+                              const newG = [...guests]; newG[idx].name = e.target.value; setGuests(newG);
+                            }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white text-slate-800" placeholder="Nhập tên khách..." />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Loại giấy tờ</label>
+                            <select value={g.id_type} onChange={e => {
+                              const newG = [...guests]; newG[idx].id_type = e.target.value; setGuests(newG);
+                            }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white text-slate-800">
+                              <option value="CCCD">CCCD/CMND</option>
+                              <option value="Passport">Hộ chiếu</option>
+                              <option value="Other">Khác</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Số giấy tờ</label>
+                            <input type="text" value={g.id_number} onChange={e => {
+                              const newG = [...guests]; newG[idx].id_number = e.target.value; setGuests(newG);
+                            }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white text-slate-800" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Ngày hết hạn</label>
+                            <input type="date" value={g.expiry_date || ''} onChange={e => {
+                              const newG = [...guests]; newG[idx].expiry_date = e.target.value; setGuests(newG);
+                            }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white text-slate-800" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Quốc tịch</label>
+                            <input type="text" value={g.nationality} onChange={e => {
+                              const newG = [...guests]; newG[idx].nationality = e.target.value; setGuests(newG);
+                            }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white text-slate-800" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Ngày sinh</label>
+                            <input type="date" value={g.dob || ''} onChange={e => {
+                              const newG = [...guests]; newG[idx].dob = e.target.value; setGuests(newG);
+                            }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white text-slate-800" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Giới tính</label>
+                            <select value={g.gender || ''} onChange={e => {
+                              const newG = [...guests]; newG[idx].gender = e.target.value; setGuests(newG);
+                            }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white text-slate-800">
+                              <option value="">-- Chọn --</option>
+                              <option value="Nam">Nam</option>
+                              <option value="Nữ">Nữ</option>
+                            </select>
+                          </div>
+                          <div className="col-span-2">
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Ghi chú</label>
+                            <input type="text" value={g.note || ''} onChange={e => {
+                              const newG = [...guests]; newG[idx].note = e.target.value; setGuests(newG);
+                            }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white text-slate-800" placeholder="Ghi chú thêm (địa chỉ, lưu ý...)" />
+                          </div>
+                        </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="col-span-2 pr-8">
-                          <label className="block text-xs font-medium text-slate-600 mb-1">Họ và tên</label>
-                          <input type="text" value={g.name} onChange={e => {
-                            const newG = [...guests]; newG[idx].name = e.target.value; setGuests(newG);
-                          }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none" placeholder="Nhập tên khách..." />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-slate-600 mb-1">Loại giấy tờ</label>
-                          <select value={g.id_type} onChange={e => {
-                            const newG = [...guests]; newG[idx].id_type = e.target.value; setGuests(newG);
-                          }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white">
-                            <option value="CCCD">CCCD/CMND</option>
-                            <option value="Passport">Hộ chiếu</option>
-                            <option value="Other">Khác</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-slate-600 mb-1">Số giấy tờ</label>
-                          <input type="text" value={g.id_number} onChange={e => {
-                            const newG = [...guests]; newG[idx].id_number = e.target.value; setGuests(newG);
-                          }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none" />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-slate-600 mb-1">Ngày hết hạn</label>
-                          <input type="date" value={g.expiry_date || ''} onChange={e => {
-                            const newG = [...guests]; newG[idx].expiry_date = e.target.value; setGuests(newG);
-                          }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white" />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-slate-600 mb-1">Quốc tịch</label>
-                          <input type="text" value={g.nationality} onChange={e => {
-                            const newG = [...guests]; newG[idx].nationality = e.target.value; setGuests(newG);
-                          }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none" />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-slate-600 mb-1">Ngày sinh</label>
-                          <input type="date" value={g.dob || ''} onChange={e => {
-                            const newG = [...guests]; newG[idx].dob = e.target.value; setGuests(newG);
-                          }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white" />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-slate-600 mb-1">Giới tính</label>
-                          <select value={g.gender || ''} onChange={e => {
-                            const newG = [...guests]; newG[idx].gender = e.target.value; setGuests(newG);
-                          }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white">
-                            <option value="">-- Chọn --</option>
-                            <option value="Nam">Nam</option>
-                            <option value="Nữ">Nữ</option>
-                          </select>
-                        </div>
-                        <div className="col-span-2">
-                          <label className="block text-xs font-medium text-slate-600 mb-1">Ghi chú</label>
-                          <input type="text" value={g.note || ''} onChange={e => {
-                            const newG = [...guests]; newG[idx].note = e.target.value; setGuests(newG);
-                          }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none" placeholder="Ghi chú thêm (địa chỉ, lưu ý...)" />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                   <button onClick={() => setGuests([...guests, { id: Date.now(), name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', note: '' }])} className="w-full rounded-xl border border-dashed border-slate-300 py-3 text-sm font-medium text-slate-500 hover:border-primary hover:text-primary transition-colors bg-white">
                     + Thêm khách lưu trú
                   </button>
@@ -1869,7 +1944,7 @@ export function ResourceSlideOver({
                               {isUpdatingMeta ? 'Đang lưu...' : 'Lưu ghi chú'}
                             </button>
                           </div>
-                          <input type="text" value={note} onChange={(e) => setNote(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none" placeholder="Yêu cầu đặc biệt, chú thích..." />
+                          <input type="text" value={note} onChange={(e) => setNote(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white text-slate-800" placeholder="Yêu cầu đặc biệt, chú thích..." />
                         </div>
                       </div>
                     </>
@@ -1884,77 +1959,140 @@ export function ResourceSlideOver({
                         </button>
                       </div>
                       <div className="space-y-4">
-                        {guests.map((g, idx) => (
-                          <div key={g.id || idx} className="rounded-xl border border-slate-200 bg-slate-50 p-4 relative group">
-                            {guests.length > 1 && (
-                              <button onClick={() => setGuests(guests.filter((_, i) => i !== idx))} className="absolute top-3 right-3 text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity text-xs font-medium">
-                                Xóa
-                              </button>
-                            )}
-                            <div className="flex items-center gap-2 mb-3">
-                              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-200 text-xs font-bold text-slate-600">{idx + 1}</span>
-                              <span className="text-sm font-semibold text-slate-700">Khách hàng {idx + 1}</span>
+                        {guests.map((g, idx) => {
+                          const isExpanded = expandedGuests[idx] !== undefined ? expandedGuests[idx] : (!g.name && !g.id_number)
+                          if (!isExpanded) {
+                            return (
+                              <div key={g.id || idx} className="flex items-center justify-between p-3.5 bg-white border border-slate-200 rounded-xl shadow-xs">
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-650">{idx + 1}</span>
+                                  <span className="text-sm font-semibold text-slate-800 truncate">
+                                    {g.name || 'Chưa nhập tên'} <span className="text-xs font-normal text-slate-500">({g.id_type || 'CCCD'}: {g.id_number || 'Chưa nhập'})</span>
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-3 shrink-0 ml-auto pl-4">
+                                  <button
+                                    type="button"
+                                    onClick={() => setExpandedGuests(prev => ({ ...prev, [idx]: true }))}
+                                    className="text-xs font-bold text-primary hover:text-primary-dark transition-colors cursor-pointer"
+                                  >
+                                    Sửa
+                                  </button>
+                                  <span className="text-slate-300 text-xs select-none">|</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setGuests(guests.filter((_, i) => i !== idx))
+                                      setExpandedGuests(prev => {
+                                        const next = { ...prev }
+                                        delete next[idx]
+                                        return next
+                                      })
+                                    }}
+                                    className="text-xs font-bold text-red-500 hover:text-red-750 transition-colors cursor-pointer"
+                                  >
+                                    Xóa
+                                  </button>
+                                </div>
+                              </div>
+                            )
+                          }
+
+                          return (
+                            <div key={g.id || idx} className="rounded-xl border border-slate-200 bg-slate-50 p-4 relative shadow-sm">
+                              <div className="flex items-center justify-between mb-4">
+                                <div className="flex items-center gap-2">
+                                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">{idx + 1}</span>
+                                  <span className="text-sm font-semibold text-slate-800">Thông tin khách hàng {idx + 1}</span>
+                                </div>
+                                <div className="flex items-center gap-3 ml-auto">
+                                  {g.name && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setExpandedGuests(prev => ({ ...prev, [idx]: false }))}
+                                      className="text-xs font-bold text-slate-500 hover:text-slate-705 transition-colors cursor-pointer"
+                                    >
+                                      Thu gọn
+                                    </button>
+                                  )}
+                                  {g.name && <span className="text-slate-300 text-xs select-none">|</span>}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setGuests(guests.filter((_, i) => i !== idx))
+                                      setExpandedGuests(prev => {
+                                        const next = { ...prev }
+                                        delete next[idx]
+                                        return next
+                                      })
+                                    }}
+                                    className="text-xs font-bold text-red-500 hover:text-red-755 transition-colors cursor-pointer"
+                                  >
+                                    Xóa
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-2 gap-3">
+                                <div className="col-span-2">
+                                  <label className="block text-xs font-medium text-slate-600 mb-1">Họ và tên</label>
+                                  <input type="text" value={g.name} onChange={e => {
+                                    const newG = [...guests]; newG[idx].name = e.target.value; setGuests(newG);
+                                  }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white text-slate-800" placeholder="Nhập tên khách..." />
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-medium text-slate-600 mb-1">Loại giấy tờ</label>
+                                  <select value={g.id_type} onChange={e => {
+                                    const newG = [...guests]; newG[idx].id_type = e.target.value; setGuests(newG);
+                                  }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white text-slate-800">
+                                    <option value="CCCD">CCCD/CMND</option>
+                                    <option value="Passport">Hộ chiếu</option>
+                                    <option value="Other">Khác</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-medium text-slate-600 mb-1">Số giấy tờ</label>
+                                  <input type="text" value={g.id_number} onChange={e => {
+                                    const newG = [...guests]; newG[idx].id_number = e.target.value; setGuests(newG);
+                                  }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white text-slate-800" />
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-medium text-slate-600 mb-1">Ngày hết hạn</label>
+                                  <input type="date" value={g.expiry_date || ''} onChange={e => {
+                                    const newG = [...guests]; newG[idx].expiry_date = e.target.value; setGuests(newG);
+                                  }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white text-slate-800" />
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-medium text-slate-600 mb-1">Quốc tịch</label>
+                                  <input type="text" value={g.nationality} onChange={e => {
+                                    const newG = [...guests]; newG[idx].nationality = e.target.value; setGuests(newG);
+                                  }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white text-slate-800" />
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-medium text-slate-600 mb-1">Ngày sinh</label>
+                                  <input type="date" value={g.dob || ''} onChange={e => {
+                                    const newG = [...guests]; newG[idx].dob = e.target.value; setGuests(newG);
+                                  }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white text-slate-800" />
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-medium text-slate-600 mb-1">Giới tính</label>
+                                  <select value={g.gender || ''} onChange={e => {
+                                    const newG = [...guests]; newG[idx].gender = e.target.value; setGuests(newG);
+                                  }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white text-slate-800">
+                                    <option value="">-- Chọn --</option>
+                                    <option value="Nam">Nam</option>
+                                    <option value="Nữ">Nữ</option>
+                                  </select>
+                                </div>
+                                <div className="col-span-2">
+                                  <label className="block text-xs font-medium text-slate-650 mb-1">Ghi chú</label>
+                                  <input type="text" value={g.note || ''} onChange={e => {
+                                    const newG = [...guests]; newG[idx].note = e.target.value; setGuests(newG);
+                                  }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white text-slate-800" placeholder="Ghi chú thêm (địa chỉ, lưu ý...)" />
+                                </div>
+                              </div>
                             </div>
-                            <div className="grid grid-cols-2 gap-3">
-                              <div className="col-span-2 pr-8">
-                                <label className="block text-xs font-medium text-slate-600 mb-1">Họ và tên</label>
-                                <input type="text" value={g.name} onChange={e => {
-                                  const newG = [...guests]; newG[idx].name = e.target.value; setGuests(newG);
-                                }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none" placeholder="Nhập tên khách..." />
-                              </div>
-                              <div>
-                                <label className="block text-xs font-medium text-slate-600 mb-1">Loại giấy tờ</label>
-                                <select value={g.id_type} onChange={e => {
-                                  const newG = [...guests]; newG[idx].id_type = e.target.value; setGuests(newG);
-                                }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white">
-                                  <option value="CCCD">CCCD/CMND</option>
-                                  <option value="Passport">Hộ chiếu</option>
-                                  <option value="Other">Khác</option>
-                                </select>
-                              </div>
-                              <div>
-                                <label className="block text-xs font-medium text-slate-600 mb-1">Số giấy tờ</label>
-                                <input type="text" value={g.id_number} onChange={e => {
-                                  const newG = [...guests]; newG[idx].id_number = e.target.value; setGuests(newG);
-                                }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none" />
-                              </div>
-                              <div>
-                                <label className="block text-xs font-medium text-slate-600 mb-1">Ngày hết hạn</label>
-                                <input type="date" value={g.expiry_date || ''} onChange={e => {
-                                  const newG = [...guests]; newG[idx].expiry_date = e.target.value; setGuests(newG);
-                                }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white" />
-                              </div>
-                              <div>
-                                <label className="block text-xs font-medium text-slate-600 mb-1">Quốc tịch</label>
-                                <input type="text" value={g.nationality} onChange={e => {
-                                  const newG = [...guests]; newG[idx].nationality = e.target.value; setGuests(newG);
-                                }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none" />
-                              </div>
-                              <div>
-                                <label className="block text-xs font-medium text-slate-600 mb-1">Ngày sinh</label>
-                                <input type="date" value={g.dob || ''} onChange={e => {
-                                  const newG = [...guests]; newG[idx].dob = e.target.value; setGuests(newG);
-                                }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white" />
-                              </div>
-                              <div>
-                                <label className="block text-xs font-medium text-slate-600 mb-1">Giới tính</label>
-                                <select value={g.gender || ''} onChange={e => {
-                                  const newG = [...guests]; newG[idx].gender = e.target.value; setGuests(newG);
-                                }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white">
-                                  <option value="">-- Chọn --</option>
-                                  <option value="Nam">Nam</option>
-                                  <option value="Nữ">Nữ</option>
-                                </select>
-                              </div>
-                              <div className="col-span-2">
-                                <label className="block text-xs font-medium text-slate-600 mb-1">Ghi chú</label>
-                                <input type="text" value={g.note || ''} onChange={e => {
-                                  const newG = [...guests]; newG[idx].note = e.target.value; setGuests(newG);
-                                }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none" placeholder="Ghi chú thêm (địa chỉ, lưu ý...)" />
-                              </div>
-                            </div>
-                          </div>
-                        ))}
+                          )
+                        })}
                         <button onClick={() => setGuests([...guests, { id: Date.now(), name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', note: '' }])} className="w-full rounded-xl border border-dashed border-slate-300 py-3 text-sm font-medium text-slate-500 hover:border-primary hover:text-primary transition-colors bg-white">
                           + Thêm khách lưu trú
                         </button>

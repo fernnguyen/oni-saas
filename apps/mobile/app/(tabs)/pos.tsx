@@ -96,27 +96,102 @@ export function LodgingGuestsForm({
  );
 };
 
- return (
- <View className="px-1 py-2">
- {guests.map((guest, index) => {
- return (
- <View key={index} className="mb-6 pb-6 border-b border-slate-100 last:border-b-0 animate-fade-in">
- <View className="flex-row justify-between items-center mb-3">
- <Text className="text-sm font-semibold text-orange-600">Khách lưu trú #{index + 1}:</Text>
- {index > 0 && (
- <TouchableOpacity 
- activeOpacity={0.7}
- onPress={() => {
- const updated = guests.filter((_, i) => i !== index);
- onChangeGuests(updated);
- onChangeGuestCount(updated.length);
-}}
- className="p-2 bg-rose-50 rounded-xl border border-rose-100 items-center justify-center active:scale-95"
- >
- <Ionicons name="trash-outline" size={15} color="#f43f5e" />
- </TouchableOpacity>
- )}
- </View>
+  const [expandedState, setExpandedState] = useState<Record<number, boolean>>({});
+
+  return (
+    <View className="px-1 py-2">
+      {guests.map((guest, index) => {
+        const isExpanded = expandedState[index] !== undefined ? expandedState[index] : (!guest.name && !guest.id_number);
+
+        if (!isExpanded) {
+          return (
+            <View key={index} className="flex-row justify-between items-center bg-white border border-slate-200 p-3.5 rounded-2xl mb-3 shadow-xs">
+              <View className="flex-row items-center flex-1 mr-2">
+                <View className="w-6 h-6 rounded-full bg-slate-100 items-center justify-center mr-2">
+                  <Text className="text-xs font-bold text-slate-600">{index + 1}</Text>
+                </View>
+                <View className="flex-1">
+                  <Text className="text-xs font-bold text-slate-850" numberOfLines={1}>
+                    {guest.name || 'Chưa nhập tên'}
+                  </Text>
+                  <Text className="text-[10px] text-slate-500 mt-0.5" numberOfLines={1}>
+                    {guest.id_type || 'CCCD'}: {guest.id_number || 'Chưa nhập'}
+                  </Text>
+                </View>
+              </View>
+              <View className="flex-row items-center">
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={() => setExpandedState(prev => ({...prev, [index]: true}))}
+                  className="px-2.5 py-1.5 bg-orange-50 rounded-lg border border-orange-100"
+                >
+                  <Text className="text-[10px] font-bold text-orange-600">Sửa</Text>
+                </TouchableOpacity>
+                {guests.length > 1 && (
+                  <>
+                    <Text className="text-slate-350 mx-1.5 text-xs">|</Text>
+                    <TouchableOpacity
+                      activeOpacity={0.7}
+                      onPress={() => {
+                        const updated = guests.filter((_, i) => i !== index);
+                        onChangeGuests(updated);
+                        onChangeGuestCount(updated.length);
+                        setExpandedState(prev => {
+                          const next = {...prev};
+                          delete next[index];
+                          return next;
+                        });
+                      }}
+                      className="px-2.5 py-1.5 bg-rose-50 rounded-lg border border-rose-100"
+                    >
+                      <Text className="text-[10px] font-bold text-rose-600">Xóa</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+              </View>
+            </View>
+          );
+        }
+
+        return (
+          <View key={index} className="mb-6 pb-6 border-b border-slate-100 last:border-b-0 animate-fade-in">
+            <View className="flex-row justify-between items-center mb-3">
+              <View className="flex-row items-center">
+                <View className="w-6 h-6 rounded-full bg-orange-50 items-center justify-center mr-2">
+                  <Text className="text-xs font-bold text-orange-600">{index + 1}</Text>
+                </View>
+                <Text className="text-sm font-semibold text-orange-600">Khách lưu trú #{index + 1}</Text>
+              </View>
+              <View className="flex-row items-center">
+                {guest.name ? (
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    onPress={() => setExpandedState(prev => ({...prev, [index]: false}))}
+                    className="px-2.5 py-1.5 bg-slate-100 rounded-lg border border-slate-200 mr-2"
+                  >
+                    <Text className="text-[10px] font-bold text-slate-600">Thu gọn</Text>
+                  </TouchableOpacity>
+                ) : null}
+                {guests.length > 1 && (
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      const updated = guests.filter((_, i) => i !== index);
+                      onChangeGuests(updated);
+                      onChangeGuestCount(updated.length);
+                      setExpandedState(prev => {
+                        const next = {...prev};
+                        delete next[index];
+                        return next;
+                      });
+                    }}
+                    className="p-2 bg-rose-50 rounded-xl border border-rose-100 items-center justify-center active:scale-95"
+                  >
+                    <Ionicons name="trash-outline" size={15} color="#f43f5e" />
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
 
  {/* Field 1: Họ và tên */}
  <View className="mt-3">
@@ -275,26 +350,26 @@ export function LodgingGuestsForm({
    ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
  }}
  />
- </View>
- </View>
- );
-})}
+      </View>
+      </View>
+    );
+  })}
 
- {/* Add Guest Button */}
- <TouchableOpacity 
- activeOpacity={0.8}
- onPress={() => {
- const updated = [...guests, {name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', note: ''}];
- onChangeGuests(updated);
- onChangeGuestCount(updated.length);
-}}
- className="flex-row items-center justify-center bg-orange-50 border border-orange-100 py-3.5 rounded-xl mt-2 active:bg-orange-100"
- >
- <Ionicons name="add-circle" size={18} color="#fa5908" />
- <Text className="text-xs font-semibold text-orange-600 ml-2">Thêm khách lưu trú</Text>
- </TouchableOpacity>
- </View>
- );
+  {/* Add Guest Button */}
+  <TouchableOpacity 
+    activeOpacity={0.8}
+    onPress={() => {
+      const updated = [...guests, {name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', note: ''}];
+      onChangeGuests(updated);
+      onChangeGuestCount(updated.length);
+    }}
+    className="flex-row items-center justify-center bg-orange-50 border border-orange-100 py-3.5 rounded-xl mt-2 active:bg-orange-100"
+  >
+    <Ionicons name="add-circle" size={18} color="#fa5908" />
+    <Text className="text-xs font-semibold text-orange-600 ml-2">Thêm khách lưu trú</Text>
+  </TouchableOpacity>
+  </View>
+  );
 }
 
 export default function PosScreen() {
@@ -1534,8 +1609,11 @@ useEffect(() => {
         // Find the first metadata source that contains a non-empty guests list
         const onlineGuests = 
           (parsedMeta.guests_list && parsedMeta.guests_list.length > 0) ? parsedMeta.guests_list :
+          (parsedMeta.guests && parsedMeta.guests.length > 0) ? parsedMeta.guests :
           (resourceMeta.guests_list && resourceMeta.guests_list.length > 0) ? resourceMeta.guests_list :
-          (tableMetaObj.guests_list && tableMetaObj.guests_list.length > 0) ? tableMetaObj.guests_list : [];
+          (resourceMeta.guests && resourceMeta.guests.length > 0) ? resourceMeta.guests :
+          (tableMetaObj.guests_list && tableMetaObj.guests_list.length > 0) ? tableMetaObj.guests_list :
+          (tableMetaObj.guests && tableMetaObj.guests.length > 0) ? tableMetaObj.guests : [];
 
         const rentalType = parsedMeta.rental_type || resourceMeta.rental_type || tableMetaObj.rental_type || 'hourly';
         const numGuests = (onlineGuests.length > 0) ? onlineGuests.length : (parsedMeta.num_guests || resourceMeta.num_guests || tableMetaObj.num_guests || 1);
@@ -1551,7 +1629,8 @@ useEffect(() => {
             rental_type: rentalType,
             num_guests: numGuests,
             check_in: checkInVal,
-            guests_list: onlineGuests
+            guests_list: onlineGuests,
+            guests: onlineGuests
           })
         };
 
@@ -1645,7 +1724,7 @@ useEffect(() => {
       try {
         localMeta = typeof table.metadata === 'string' ? JSON.parse(table.metadata) : (table.metadata || {});
       } catch (e) {}
-      const cachedGuests = localMeta.guests_list || [];
+      const cachedGuests = localMeta.guests_list || localMeta.guests || [];
       setRoomGuestCount(localMeta.num_guests || Math.max(1, cachedGuests.length));
       setLodgingGuests(cachedGuests.length > 0 
         ? cachedGuests.map((g: any) => ({
@@ -1725,7 +1804,8 @@ useEffect(() => {
  check_in: activeTable.startTime || new Date().toISOString(),
  num_guests: roomGuestCount,
  rental_type: roomRentalType,
- guests_list: updatedGuests
+ guests_list: updatedGuests,
+ guests: updatedGuests
 });
 
  // 2. Offline-First: Cập nhật SQLite nội địa và State
@@ -1843,6 +1923,20 @@ useEffect(() => {
         room_class: tMeta.room_class,
         bed_type: tMeta.bed_type,
         guests_list: lodgingGuests
+          .filter(g => g.name || g.id_number || g.idCard)
+          .map(g => ({
+            id: g.id || undefined,
+            name: g.name || '',
+            id_type: g.id_type || 'CCCD',
+            id_number: g.id_number || g.idCard || '',
+            idCard: g.id_number || g.idCard || '',
+            expiry_date: g.expiry_date || '',
+            nationality: g.nationality || 'Việt Nam',
+            dob: g.dob || '',
+            gender: g.gender || '',
+            note: g.note || ''
+          })),
+        guests: lodgingGuests
           .filter(g => g.name || g.id_number || g.idCard)
           .map(g => ({
             id: g.id || undefined,
