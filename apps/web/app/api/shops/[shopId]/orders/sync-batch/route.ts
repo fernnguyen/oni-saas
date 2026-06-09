@@ -110,18 +110,30 @@ export async function POST(
     let serverId = server_order_id ?? ''
     let orderNo = ''
 
-    // If serverId is a local ID format, try to find the actual server order ID by reference_no
-    if (serverId && (serverId.startsWith('ORD-') || serverId.startsWith('ord-'))) {
-      const matched = await connector.list('orders', {
-        page: 1, limit: 1,
-        filters: { reference_no: serverId },
-      })
-      if (matched.data.length > 0) {
-        serverId = (matched.data[0] as Record<string, string>).order_id
+    if (serverId) {
+      let actualOrder = null
+      try {
+        actualOrder = await connector.findById('orders', serverId)
+      } catch (e) {
+        // Ignore syntax errors for ID format if serverId is actually a local ID
+      }
+
+      if (actualOrder) {
+        // It's a valid order_id!
+        orderNo = (actualOrder as Record<string, string>).order_no || ''
       } else {
-        // If the check-in order wasn't found, it means it doesn't exist on server.
-        // Treat it as a new order instead of failing.
-        serverId = ''
+        // It might be a local ID sent as server_order_id. Let's try to find it by reference_no.
+        const matched = await connector.list('orders', {
+          page: 1, limit: 1,
+          filters: { reference_no: serverId },
+        })
+        if (matched.data.length > 0) {
+          serverId = (matched.data[0] as Record<string, string>).order_id
+          orderNo = (matched.data[0] as Record<string, string>).order_no || ''
+        } else {
+          // If neither order_id nor reference_no matched, it doesn't exist on server.
+          serverId = ''
+        }
       }
     }
 

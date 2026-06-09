@@ -339,6 +339,12 @@ export class SyncManager {
               }
             } catch (e) {}
           }
+          
+          // Tự động chữa lành: Nếu ID cục bộ không bắt đầu bằng tiền tố local (ORD-T- hoặc ORD-R-) (tức là đã là ID từ server cấp),
+          // Bắt buộc phải truyền nó làm server_order_id để Next.js cập nhật đơn hàng thay vì tạo mới (gây duplicate)
+          if (!serverOrderId && order.id && !order.id.startsWith('ORD-T-') && !order.id.startsWith('ORD-R-') && !order.id.startsWith('ord-t-') && !order.id.startsWith('ord-r-')) {
+            serverOrderId = order.id;
+          }
 
           // Định dạng payload gửi lên REST API Next.js sync-batch
           const payload = {

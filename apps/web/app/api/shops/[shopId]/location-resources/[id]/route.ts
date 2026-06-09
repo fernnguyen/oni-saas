@@ -28,7 +28,7 @@ export async function PATCH(
 ) {
   try {
     const { shopId, id } = await params
-    const { connector } = await requireShopAccess(shopId, 'products.edit')
+    const { connector } = await requireShopAccess(shopId, 'pos.use')
 
     // 1. Verify resource exists and belongs to the active branch
     const current = await connector.findById('location-resources', id)
@@ -74,7 +74,7 @@ export async function DELETE(
 ) {
   try {
     const { shopId, id } = await params
-    const { connector } = await requireShopAccess(shopId, 'products.delete')
+    const { connector } = await requireShopAccess(shopId, 'pos.use')
 
     // 1. Verify resource exists and belongs to the active branch
     const current = await connector.findById('location-resources', id)
