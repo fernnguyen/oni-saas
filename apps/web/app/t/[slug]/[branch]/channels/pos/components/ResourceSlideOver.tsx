@@ -324,6 +324,11 @@ export function ResourceSlideOver({
     }
 
     if (oData) {
+      if (oData.status === 'completed' || oData.status === 'cancelled') {
+        toast.info("Đơn hàng này đã được thanh toán và đóng từ thiết bị khác (ví dụ: Mobile App).")
+        onSessionClosed()
+        return
+      }
       setOrder(oData)
       const meta = safeParse(oData.metadata)
       if (meta.guests_list || meta.guests) setGuests(meta.guests_list || meta.guests)
@@ -409,6 +414,16 @@ export function ResourceSlideOver({
     timerRef.current = setInterval(updateTimer, 60000) // Update every minute
     return () => clearInterval(timerRef.current!)
   }, [order, customCheckoutTime])
+
+  // Background polling for external payment/changes
+  useEffect(() => {
+    if (!open || !isOccupied || !resource.current_order_id) return
+    const pollTimer = setInterval(() => {
+      fetchingRef.current = '' // reset to force fetch
+      fetchOrder()
+    }, 15000) // Poll every 15s
+    return () => clearInterval(pollTimer)
+  }, [open, isOccupied, resource.current_order_id, fetchOrder])
 
   // Online / network restore background sync
   useEffect(() => {
@@ -941,7 +956,7 @@ export function ResourceSlideOver({
         await fetch(`/api/shops/${shopId}/location-resources/${resource.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: settings?.skip_cleaning_process ? 'available' : 'dirty', current_order_id: '' }),
+          body: JSON.stringify({ status: settings?.skip_cleaning_process ? 'available' : 'cleaning', current_order_id: '' }),
         })
       } catch {
         // ignore
@@ -1002,7 +1017,7 @@ export function ResourceSlideOver({
       await fetch(`/api/shops/${shopId}/location-resources/${resource.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: settings?.skip_cleaning_process ? 'available' : 'dirty', current_order_id: '' }),
+        body: JSON.stringify({ status: settings?.skip_cleaning_process ? 'available' : 'cleaning', current_order_id: '' }),
       })
       // 2. Occupy target resource
       await fetch(`/api/shops/${shopId}/location-resources/${targetId}`, {
@@ -1164,7 +1179,7 @@ export function ResourceSlideOver({
       await fetch(`/api/shops/${shopId}/location-resources/${sourceId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: settings?.skip_cleaning_process ? 'available' : 'dirty', current_order_id: '' }),
+        body: JSON.stringify({ status: settings?.skip_cleaning_process ? 'available' : 'cleaning', current_order_id: '' }),
       })
 
       toast.success(`Đã gộp từ ${sourceResource.name}`)
@@ -1284,7 +1299,7 @@ export function ResourceSlideOver({
                     await fetch(`/api/shops/${shopId}/location-resources/${resource.id}`, {
                       method: 'PATCH',
                       headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ status: 'dirty', current_order_id: '' }),
+                      body: JSON.stringify({ status: 'cleaning', current_order_id: '' }),
                     })
                     toast.success(`Đã báo bẩn phòng ${resource.name}`)
                     onRefresh?.()

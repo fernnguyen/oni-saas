@@ -833,7 +833,7 @@ export async function POST(
           if (resource) {
             const currentOrderId = resource.current_order_id
             if (!currentOrderId || currentOrderId === serverId || currentOrderId === local_order_id) {
-              const releaseStatus = settings?.skip_cleaning_process ? 'available' : 'dirty'
+              const releaseStatus = settings?.skip_cleaning_process ? 'available' : 'cleaning'
               await connector.update('location-resources', resourceId, {
                 status: releaseStatus,
                 current_order_id: ''
