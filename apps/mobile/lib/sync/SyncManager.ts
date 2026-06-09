@@ -20,40 +20,56 @@ export class SyncManager {
       onProgress(0.1);
       
       const headers = await getApiHeaders();
+      const baseUrl = getApiBaseUrl();
 
-      // --- BƯỚC A: TẢI DANH MỤC SẢN PHẨM ---
       onProgress(0.2);
-      const catRes = await fetch(`${getApiBaseUrl()}/api/shops/${shopId}/categories?limit=500`, { headers });
-      if (!catRes.ok) throw new Error('Không thể tải Danh mục sản phẩm từ Cloud');
-      const catData = await catRes.json();
-      const rawCategories = catData.data || [];
 
-      // --- BƯỚC B: TẢI DANH SÁCH SẢN PHẨM ---
-      onProgress(0.4);
-      const prodRes = await fetch(`${getApiBaseUrl()}/api/shops/${shopId}/products?limit=2000&nocache=true`, { headers });
-      if (!prodRes.ok) throw new Error('Không thể tải danh mục Sản phẩm từ Cloud');
-      const prodData = await prodRes.json();
-      const rawProducts = prodData.data || [];
-
-      // --- BƯỚC C: TẢI DANH MỤC PHÒNG BAN & BÀN CHƠI BI-A ---
-      onProgress(0.55);
-      const tableRes = await fetch(`${getApiBaseUrl()}/api/shops/${shopId}/location-resources?limit=500`, { headers });
-      if (!tableRes.ok) throw new Error('Không thể tải Sơ đồ phòng bàn từ Cloud');
-      const tableData = await tableRes.json();
-      const rawTables = tableData.data || [];
-
-      // --- BƯỚC C2: TẢI DANH SÁCH ĐƠN HÀNG IN PROGRESS (ĐỂ LẤY GIỜ CHECK-IN THỰC TẾ) ---
-      onProgress(0.65);
-      let activeOrders: any[] = [];
-      try {
-        const activeOrdersRes = await fetch(`${getApiBaseUrl()}/api/shops/${shopId}/orders?status=in_progress&limit=100`, { headers });
-        if (activeOrdersRes.ok) {
-          const activeOrdersData = await activeOrdersRes.json();
-          activeOrders = activeOrdersData.data || [];
+      // --- FETCH TẤT CẢ API SONG SONG (PARALLEL) ĐỂ TĂNG TỐC ---
+      const fetchJson = async (url: string, essential = false, errorMsg = '') => {
+        try {
+          const res = await fetch(url, { headers });
+          if (!res.ok) {
+            if (essential) throw new Error(errorMsg);
+            return { data: [] };
+          }
+          return await res.json();
+        } catch (err) {
+          if (essential) throw new Error(errorMsg || (err as Error).message);
+          console.warn(`Lỗi tải dữ liệu từ ${url}:`, err);
+          return { data: [] };
         }
-      } catch (err) {
-        console.warn('Bỏ qua tải active orders (sẽ dùng thời gian mặc định):', err);
-      }
+      };
+
+      const [
+        catData,
+        prodData,
+        tableData,
+        activeOrdersData,
+        custData,
+        fundsData,
+        cbData,
+        methodsData
+      ] = await Promise.all([
+        fetchJson(`${baseUrl}/api/shops/${shopId}/categories?limit=500`, true, 'Không thể tải Danh mục sản phẩm từ Cloud'),
+        fetchJson(`${baseUrl}/api/shops/${shopId}/products?limit=2000&nocache=true`, true, 'Không thể tải danh mục Sản phẩm từ Cloud'),
+        fetchJson(`${baseUrl}/api/shops/${shopId}/location-resources?limit=500`, true, 'Không thể tải Sơ đồ phòng bàn từ Cloud'),
+        fetchJson(`${baseUrl}/api/shops/${shopId}/orders?status=in_progress&limit=100`, false),
+        fetchJson(`${baseUrl}/api/shops/${shopId}/customers?limit=2000`, true, 'Không thể tải Danh sách khách hàng từ Cloud'),
+        fetchJson(`${baseUrl}/api/shops/${shopId}/payment-funds?active=TRUE`, true, 'Không thể tải danh sách Quỹ thanh toán từ Cloud'),
+        fetchJson(`${baseUrl}/api/shops/${shopId}/cashbook?limit=100`, false),
+        fetchJson(`${baseUrl}/api/shops/${shopId}/payment-methods?active=TRUE`, false),
+      ]);
+
+      onProgress(0.6);
+
+      const rawCategories = catData.data || [];
+      const rawProducts = prodData.data || [];
+      const rawTables = tableData.data || [];
+      const activeOrders = activeOrdersData.data || [];
+      const rawCustomers = custData.data || [];
+      const rawFunds = fundsData.data || [];
+      const rawCashbook = cbData.data || [];
+      const rawMethods = methodsData.data || [];
 
       // Bản đồ hóa các active order theo resource_id để tra cứu nhanh
       const activeOrdersMap = new Map<string, any>();
@@ -67,48 +83,9 @@ export class SyncManager {
         } catch (e) {}
       }
 
-      // --- BƯỚC D: TẢI DANH SÁCH KHÁCH HÀNG ---
-      onProgress(0.8);
-      const custRes = await fetch(`${getApiBaseUrl()}/api/shops/${shopId}/customers?limit=2000`, { headers });
-      if (!custRes.ok) throw new Error('Không thể tải Danh sách khách hàng từ Cloud');
-      const custData = await custRes.json();
-      const rawCustomers = custData.data || [];
-
-      // --- BƯỚC D2: TẢI DANH SÁCH QUỸ THANH TOÁN (PAYMENT FUNDS) ---
-      onProgress(0.83);
-      const fundsRes = await fetch(`${getApiBaseUrl()}/api/shops/${shopId}/payment-funds?active=TRUE`, { headers });
-      if (!fundsRes.ok) throw new Error('Không thể tải danh sách Quỹ thanh toán từ Cloud');
-      const fundsData = await fundsRes.json();
-      const rawFunds = fundsData.data || [];
-
-      // --- BƯỚC D3: TẢI PHIẾU THU/CHI SỔ QUỸ (CASHBOOK) ---
-      onProgress(0.86);
-      let rawCashbook: any[] = [];
-      try {
-        const cbRes = await fetch(`${getApiBaseUrl()}/api/shops/${shopId}/cashbook?limit=100`, { headers });
-        if (cbRes.ok) {
-          const cbData = await cbRes.json();
-          rawCashbook = cbData.data || [];
-        }
-      } catch (err) {
-        console.warn('Lỗi tải sổ quỹ từ cloud:', err);
-      }
-
-      // --- BƯỚC D4: TẢI DANH SÁCH PHƯƠNG THỨC THANH TOÁN (PAYMENT METHODS) ---
-      onProgress(0.88);
-      let rawMethods: any[] = [];
-      try {
-        const methodsRes = await fetch(`${getApiBaseUrl()}/api/shops/${shopId}/payment-methods?active=TRUE`, { headers });
-        if (methodsRes.ok) {
-          const methodsData = await methodsRes.json();
-          rawMethods = methodsData.data || [];
-        }
-      } catch (err) {
-        console.warn('Lỗi tải phương thức thanh toán từ cloud:', err);
-      }
-
       // --- BƯỚC E: LƯU TRỮ VÀO SQLITE NỘI ĐỊA CỦA ĐIỆN THOẠI (Drizzle Transaction) ---
       console.log('Đang ghi dữ liệu đồng bộ vào SQLite nội địa...');
+      onProgress(0.7);
       
       // Xóa sạch dữ liệu cấu hình cũ để nạp mới đầu ca làm việc
       expoDb.execSync(`
@@ -125,6 +102,11 @@ export class SyncManager {
         DELETE FROM shop_shifts WHERE sync_status = 'synced';
       `);
 
+      onProgress(0.8);
+
+      // Lưu trữ tuần tự (Sequential) để đảm bảo an toàn dữ liệu trên SQLite
+      // Tránh việc Promise.all đẩy quá nhiều connection cùng lúc làm rớt frame/dữ liệu
+
       // 1. Ghi Categories
       if (rawCategories.length > 0) {
         for (const cat of rawCategories) {
@@ -137,7 +119,7 @@ export class SyncManager {
         }
       }
 
-      // 2. Ghi Products (Lưu ý parse giá bán sell_price từ String về Integer để tránh lỗi tính toán)
+      // 2. Ghi Products
       if (rawProducts.length > 0) {
         for (const prod of rawProducts) {
           const sellPrice = parseInt(prod.sell_price || '0', 10);
@@ -157,6 +139,8 @@ export class SyncManager {
         }
       }
 
+      onProgress(0.9);
+
       // 3. Ghi Sơ đồ Bàn bi-a (hourly_rate từ String về Integer)
       if (rawTables.length > 0) {
         for (const table of rawTables) {
@@ -173,7 +157,6 @@ export class SyncManager {
             if (checkInStr) {
               resolvedStartTime = new Date(checkInStr).getTime();
             }
-            // Hợp nhất các tham số check-in và khách lưu trú vào metadata cục bộ
             try {
               const tableMetaObj = JSON.parse(mergedMetadata);
               const cloudGuests = activeOrderSession.meta.guests_list || tableMetaObj.guests_list || [];
@@ -188,7 +171,7 @@ export class SyncManager {
           }
           
           if (isOccupied && !resolvedStartTime) {
-            resolvedStartTime = Date.now() - 3600000; // fallback 1 giờ trước
+            resolvedStartTime = Date.now() - 3600000;
           }
 
           await db.insert(schema.location_resources).values({
@@ -201,8 +184,7 @@ export class SyncManager {
             zone: table.zone || null,
             startTime: resolvedStartTime,
             metadata: mergedMetadata,
-          })
-          .onConflictDoUpdate({
+          }).onConflictDoUpdate({
             target: schema.location_resources.id,
             set: {
               name: table.name || '',
@@ -265,7 +247,7 @@ export class SyncManager {
         }
       }
 
-      // 5.5 Ghi Danh sách Phương thức thanh toán (Payment Methods)
+      // 5.5 Ghi Danh sách Phương thức thanh toán
       if (rawMethods.length > 0) {
         for (const m of rawMethods) {
           await db.insert(schema.paymentMethods).values({
