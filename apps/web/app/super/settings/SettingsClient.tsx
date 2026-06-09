@@ -151,6 +151,48 @@ export function SettingsClient({ initialConfig }: { initialConfig: any }) {
           </div>
         </div>
       </div>
+
+      {/* POS Realtime Sync Settings Card */}
+      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        <div className="border-b border-slate-100 px-6 py-4 bg-slate-50/50">
+          <h2 className="text-sm font-semibold text-slate-900">Đồng bộ POS Thời gian thực (Realtime)</h2>
+          <p className="text-xs text-slate-400 mt-0.5">Cấu hình kết nối Supabase Broadcast để đồng bộ Web và Mobile POS tức thì.</p>
+        </div>
+        <div className="px-6 py-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <h4 className="text-sm font-medium text-slate-800">Bật tính năng Realtime Sync</h4>
+              <p className="text-sm text-slate-500 mt-0.5 max-w-2xl leading-normal">
+                Thay thế cơ chế Polling (tải lại mỗi 15s) bằng kết nối Socket (Supabase Broadcast). Giúp thao tác giữa các thiết bị được cập nhật tức thì (Đề xuất bật). Nếu tắt, hệ thống sẽ tự fallback về cơ chế tải lại thủ công.
+              </p>
+            </div>
+            <div className="flex-shrink-0 ml-4">
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input 
+                  type="checkbox" 
+                  className="sr-only peer" 
+                  checked={!!config.enable_realtime_sync}
+                  onChange={(e) => {
+                    const newConfig = { ...config, enable_realtime_sync: e.target.checked }
+                    setConfig(newConfig)
+                    startTransition(async () => {
+                      try {
+                        await updateSystemSettings(newConfig)
+                        toast.success('Đã lưu cấu hình Realtime Sync')
+                      } catch (err) {
+                        toast.error('Lỗi khi lưu cấu hình Realtime')
+                        setConfig(config) // revert
+                      }
+                    })
+                  }}
+                  disabled={isPending}
+                />
+                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

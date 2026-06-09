@@ -14,6 +14,7 @@ import type { LocalCustomer, LocalProduct } from '@/lib/localDb/schema'
 import type { CartItem } from '@/hooks/useCart'
 import { VariantPickerModal } from './VariantPickerModal'
 import { ModifierPickerModal } from './ModifierPickerModal'
+import { getSupabaseBrowserClient } from '@/lib/supabaseBrowser'
 
 interface Resource {
   id: string
@@ -73,6 +74,8 @@ interface Props {
   hasActiveShift?: boolean
   isShiftEnabled?: boolean
   onOpenShiftModal?: () => void
+  slug?: string
+  enableRealtimeSync?: boolean
 }
 
 import { fmtDateTimeVN } from './CheckoutModal'
@@ -120,6 +123,8 @@ export function ResourceSlideOver({
   hasActiveShift = false,
   isShiftEnabled = false,
   onOpenShiftModal,
+  slug,
+  enableRealtimeSync,
 }: Props) {
   const tpl = resourceTemplate ?? DEFAULT_TEMPLATE
   const sec = tpl.sections
@@ -184,6 +189,7 @@ export function ResourceSlideOver({
   const [variantParent, setVariantParent] = useState<LocalProduct | null>(null)
   const [modifierProduct, setModifierProduct] = useState<LocalProduct | null>(null)
   const [refundAmountInput, setRefundAmountInput] = useState('')
+  const [hasPendingSync, setHasPendingSync] = useState(false)
 
   const { data: settings } = useQuery({
     queryKey: ['settings', shopId],
@@ -196,7 +202,6 @@ export function ResourceSlideOver({
   })
 
   const meta = safeParse(resource.metadata)
-  const isRoom = resource.type === 'room'
   const isOccupied = resource.status === 'occupied' || resource.status === 'checking_out'
   const showGuests = sec.guestRegistration && !resource.id.startsWith('takeaway')
 
@@ -386,6 +391,7 @@ export function ResourceSlideOver({
       fetchOrder()
       setCustomCheckoutTime('')
       setIsEditingCheckout(false)
+      setHasPendingSync(false)
     } else if (!open) {
       if (timerRef.current) clearInterval(timerRef.current)
     }
@@ -415,15 +421,66 @@ export function ResourceSlideOver({
     return () => clearInterval(timerRef.current!)
   }, [order, customCheckoutTime])
 
-  // Background polling for external payment/changes
+  // Background polling for external payment/changes (Fallback if Realtime disabled)
   useEffect(() => {
     if (!open || !isOccupied || !resource.current_order_id) return
+    if (enableRealtimeSync) return // Skip polling if realtime is on
+
     const pollTimer = setInterval(() => {
-      fetchingRef.current = '' // reset to force fetch
-      fetchOrder()
+      const isDirty = Object.keys(dirtyItems).length > 0 ||
+                      checkoutOpen || transferModalOpen || splitModalOpen || 
+                      mergeModalOpen || editCustomerModalOpen || customerCreateModalOpen ||
+                      isEditingCheckout || showPaymentForm
+
+      if (isDirty) {
+        setHasPendingSync(true)
+      } else {
+        fetchingRef.current = '' // reset to force fetch
+        fetchOrder()
+      }
     }, 15000) // Poll every 15s
-    return () => clearInterval(pollTimer)
-  }, [open, isOccupied, resource.current_order_id, fetchOrder])
+    return () => pollTimer && clearInterval(pollTimer)
+  }, [open, isOccupied, resource.current_order_id, fetchOrder, enableRealtimeSync, dirtyItems, checkoutOpen, transferModalOpen, splitModalOpen, mergeModalOpen, editCustomerModalOpen, customerCreateModalOpen, isEditingCheckout, showPaymentForm])
+
+  // Real-time synchronization via Supabase Broadcast
+  const broadcastSyncEvent = useCallback((eventAction: string = 'ORDER_UPDATED') => {
+    if (!enableRealtimeSync || !slug || !shopId) return
+    const supabase = getSupabaseBrowserClient()
+    supabase.channel(`pos_sync_${slug}_${shopId}`).send({
+      type: 'broadcast',
+      event: 'sync_event',
+      payload: { source: 'web_app', event: eventAction, tableId: resource.id }
+    })
+  }, [enableRealtimeSync, slug, shopId, resource.id])
+
+  useEffect(() => {
+    if (!open || !isOccupied || !resource.current_order_id || !enableRealtimeSync || !slug) return
+    const supabase = getSupabaseBrowserClient()
+    const channelName = `pos_sync_${slug}_${shopId}`
+    const channel = supabase.channel(channelName)
+    
+    channel.on('broadcast', { event: 'sync_event' }, (payload: any) => {
+      console.log('[SlideOver] Received Supabase Realtime sync_event:', payload)
+      if (payload?.payload?.source !== 'web_app' && payload?.payload?.tableId === resource.id) {
+        // Kiểm tra xem user có đang sửa dữ liệu hay không (dirty state)
+        const isDirty = Object.keys(dirtyItems).length > 0 ||
+                        checkoutOpen || transferModalOpen || splitModalOpen || 
+                        mergeModalOpen || editCustomerModalOpen || customerCreateModalOpen ||
+                        isEditingCheckout || showPaymentForm
+
+        if (isDirty) {
+          setHasPendingSync(true)
+        } else {
+          fetchingRef.current = ''
+          void fetchOrder()
+        }
+      }
+    }).subscribe()
+
+    return () => {
+      void supabase.removeChannel(channel)
+    }
+  }, [open, isOccupied, resource.current_order_id, enableRealtimeSync, slug, shopId, resource.id, fetchOrder, dirtyItems, checkoutOpen, transferModalOpen, splitModalOpen, mergeModalOpen, editCustomerModalOpen, customerCreateModalOpen, isEditingCheckout, showPaymentForm])
 
   // Online / network restore background sync
   useEffect(() => {
@@ -610,7 +667,9 @@ export function ResourceSlideOver({
         console.warn('Lỗi đồng bộ metadata vị trí:', err)
       }
 
-      toast.success('Đã lưu thông tin khách hàng')
+      toast.success('Đã lưu thông tin')
+      broadcastSyncEvent('METADATA_UPDATED')
+      void fetchOrder()
     } catch (err) {
       console.error(err)
       toast.error('Lỗi khi lưu thông tin')
@@ -805,8 +864,6 @@ export function ResourceSlideOver({
     }
   }
 
-
-
   async function handleSaveDirtyItems() {
     if (!order) return
     const dirtyIds = Object.keys(dirtyItems)
@@ -834,12 +891,14 @@ export function ResourceSlideOver({
         const iData = await itemsRes.json()
         setExistingItems(iData.data || [])
       }
+      broadcastSyncEvent('ITEMS_UPDATED')
     } catch {
       toast.error('Lỗi khi lưu cập nhật')
     } finally {
       setSavingDirty(false)
     }
   }
+
   async function handleCancelOrder() {
     if (!order) return
     if (!permissions.includes('orders.delete')) {
@@ -887,8 +946,6 @@ export function ResourceSlideOver({
     }
   }
 
-
-
   async function handleDeleteExistingItem(itemId: string) {
     if (!order) return
     setDeletingItemId(itemId)
@@ -912,6 +969,8 @@ export function ResourceSlideOver({
         if (!res.ok) throw new Error()
         toast.success('Đã xóa món')
       }
+      broadcastSyncEvent('ITEMS_UPDATED')
+      await fetchOrder()
     } catch {
       pushOfflineAction(order.id, { type: 'DELETE', itemId })
       toast.warning('Mất kết nối. Đã xóa món tạm thời trên thiết bị này.')
@@ -990,7 +1049,8 @@ export function ResourceSlideOver({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ status: 'checking_out' }),
         })
-        toast.success('Đã khóa giờ tính tiền & báo kiểm phòng!')
+        toast.success('Đã gửi yêu cầu thanh toán / kiểm phòng')
+        broadcastSyncEvent('CHECKOUT_REQUESTED')
         fetchOrder()
         onRefresh?.()
       } else {
@@ -1364,6 +1424,24 @@ export function ResourceSlideOver({
         </div>
 
         {/* Content Area */}
+        {hasPendingSync && (
+          <div className="bg-orange-100 border-l-4 border-orange-500 text-orange-700 p-3 mx-5 mt-4 rounded flex justify-between items-center shadow-sm shrink-0">
+            <div className="flex flex-col">
+              <span className="font-semibold text-sm">Cảnh báo đồng bộ</span>
+              <span className="text-xs mt-0.5">Phòng/bàn này vừa có thay đổi từ thiết bị khác. Dữ liệu đang hiển thị có thể đã cũ.</span>
+            </div>
+            <button 
+              onClick={() => {
+                setHasPendingSync(false)
+                void fetchOrder()
+              }}
+              className="px-3 py-1.5 bg-orange-500 text-white text-xs font-medium rounded hover:bg-orange-600 transition-colors shadow-sm ml-4 whitespace-nowrap"
+            >
+              Tải lại
+            </button>
+          </div>
+        )}
+
         {!isOccupied && showGuests && (
           <div className="px-5 border-b border-slate-100 flex gap-6 shrink-0 bg-white">
             <button

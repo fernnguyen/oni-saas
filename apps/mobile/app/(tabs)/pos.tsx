@@ -32,6 +32,7 @@ import { useCart } from '../../hooks/pos/useCart';
 import { usePosData } from '../../hooks/pos/usePosData';
 import { useTableManager } from '../../hooks/pos/useTableManager';
 import { usePosToast } from '../../hooks/pos/usePosToast';
+import { useRealtimeSync } from '../../hooks/pos/useRealtimeSync';
 export type SelectedModifier = { option: string; price_adj: number };
 export type CartItem = {
   productId: string;
@@ -308,8 +309,22 @@ export default function PosScreen() {
   // Custom Date Picker Modal States
   const [isScanSuccessDialogVisible, setIsScanSuccessDialogVisible] = useState(false);
   const [scannedProductInfo, setScannedProductInfo] = useState<any>(null);
+  const [hasPendingSync, setHasPendingSync] = useState(false);
 
   // States cho nghiệp vụ phòng/bàn/sân nâng cao & CRM
+
+  const { broadcastSync, isEnabled: isRealtimeEnabled } = useRealtimeSync(activeShopId, isOnline, () => {
+    // Tự động reload khi có tín hiệu từ web/app khác
+    // Nếu màn hình giỏ hàng mở hoặc modal liên quan mở (isDirty), thì cảnh báo thay vì reload
+    // Ở Mobile, isCartModalOpen, isTableOpenDialogVisible, activeTable != null nhưng nếu người dùng đang thao tác thì nên lưu ý.
+    // Thực ra `activeTable` mở cũng ko hẳn là dirty nếu ko input, nhưng mobile ko có form input phức tạp trừ CheckIn
+    
+    // Fallback: cứ hiện banner nếu đang có table/modal mở
+    setHasPendingSync(true);
+    
+    // Mặc định luôn reload danh sách bàn ở dưới ngầm
+    loadPosData(true);
+  });
 
   const {
     activeTable, setActiveTable,
@@ -352,8 +367,9 @@ export default function PosScreen() {
   } = useTableManager({
     tables, setTables, shopVertical, activeShopId,
     showToast, setCart, setDiscountAmount, setOrderNote, setSelectedCustomer, setIsPreviewModalOpen,
-    isNavReady, isLoading, checkIsQrPayment, currentUserEmail, productsList, paymentFundsList,
+    isNavReady, isLoading, isOnline, checkIsQrPayment, currentUserEmail, productsList, paymentFundsList,
     customersList, selectedCustomer, setPaymentRows, handleCheckoutPress, setIsCartModalOpen, setQrPayload, setIsQrModalOpen,
+    broadcastSync,
   });
 
   // Tự động đồng bộ số tiền thanh toán mặc định khi giỏ hàng hoặc giảm giá thay đổi
@@ -1032,6 +1048,28 @@ export default function PosScreen() {
             </View>
           ) : (
             <View className="pb-28">
+              {/* Cảnh báo đồng bộ trên màn hình chính */}
+              {hasPendingSync && (
+                <TouchableOpacity 
+                  style={{ marginHorizontal: 4, marginBottom: 16, backgroundColor: '#FEF3C7', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#F59E0B', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
+                  onPress={() => {
+                    setHasPendingSync(false);
+                    loadPosData(true);
+                    if (activeTable) {
+                      syncActiveTableSession(activeTable);
+                    }
+                  }}
+                >
+                  <View style={{ flex: 1, paddingRight: 8 }}>
+                    <Text style={{ fontWeight: 'bold', color: '#B45309' }}>Có thay đổi mới từ thu ngân</Text>
+                    <Text style={{ fontSize: 11, color: '#D97706', marginTop: 2 }}>Chạm vào đây để tải lại đồng bộ mới nhất.</Text>
+                  </View>
+                  <View style={{ backgroundColor: '#F59E0B', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }}>
+                    <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 12 }}>Tải lại</Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+
               {Object.entries(groupedZones).map(([zoneName, zoneTables]) => (
                 <View key={zoneName} className="mb-6">
                   {/* Tiêu đề Khu vực/Tầng */}

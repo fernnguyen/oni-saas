@@ -13,6 +13,7 @@ import { DataTable, type Column } from '@/app/components/ui/DataTable'
 import dynamic from 'next/dynamic'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog'
+import { getSupabaseBrowserClient } from '@/lib/supabaseBrowser'
 import { format } from 'date-fns'
 import GroupCheckoutModal from './GroupCheckoutModal'
 import { Layers, Check, ArrowRight } from 'lucide-react'
@@ -399,6 +400,27 @@ export function TableMapPOS({
     }
   }, [shopId, fetchResources])
 
+  // Real-time synchronization via Supabase Broadcast (Cross-device Web <-> Mobile)
+  useEffect(() => {
+    if (typeof window === 'undefined' || !shopSettings?.enable_realtime_sync) return
+    const supabase = getSupabaseBrowserClient()
+    const channelName = `pos_sync_${slug}_${shopId}`
+    const channel = supabase.channel(channelName)
+    
+    channel.on('broadcast', { event: 'sync_event' }, (payload: any) => {
+      console.log('[TableMapPOS] Received Supabase Realtime sync_event:', payload)
+      if (payload?.payload?.source !== 'web_app') {
+        void fetchResources()
+      }
+    }).subscribe((status) => {
+      console.log(`[TableMapPOS] Supabase Realtime status: ${status}`)
+    })
+
+    return () => {
+      void supabase.removeChannel(channel)
+    }
+  }, [shopSettings?.enable_realtime_sync, slug, shopId, fetchResources])
+
   // Timer for occupied resources
   useEffect(() => {
     const hasOccupied = resources.some(r => r.status === 'occupied')
@@ -626,11 +648,36 @@ export function TableMapPOS({
       setResources(prev => prev.map(res => res.id === activeSlideResource.id ? { ...res, status: 'occupied', current_order_id: orderId } : res))
     }
     fetchResources()
+
+    // Cross-device Supabase Broadcast
+    if (shopSettings?.enable_realtime_sync) {
+      const supabase = getSupabaseBrowserClient()
+      supabase.channel(`pos_sync_${slug}_${shopId}`).send({
+        type: 'broadcast',
+        event: 'sync_event',
+        payload: { source: 'web_app', event: 'TABLE_CHECKIN' }
+      })
+    }
   }
 
   function handleSessionClosed() {
     setActiveSlideResource(null)
     fetchResources()
+
+    // Cross-tab intra-browser broadcast
+    const bc = new BroadcastChannel('oni-pos-sync')
+    bc.postMessage({ type: 'REFRESH_TABLE_MAP', shopId })
+    bc.close()
+
+    // Cross-device Supabase Broadcast
+    if (shopSettings?.enable_realtime_sync) {
+      const supabase = getSupabaseBrowserClient()
+      supabase.channel(`pos_sync_${slug}_${shopId}`).send({
+        type: 'broadcast',
+        event: 'sync_event',
+        payload: { source: 'web_app', event: 'SESSION_CLOSED', tableId: activeSlideResource?.id }
+      })
+    }
   }
 
   async function handleTakeawayClick() {
@@ -1254,6 +1301,8 @@ export function TableMapPOS({
         hasActiveShift={hasActiveShift}
         isShiftEnabled={isShiftEnabled}
         onOpenShiftModal={() => setShiftOpenModalOpen(true)}
+        slug={slug}
+        enableRealtimeSync={shopSettings?.enable_realtime_sync}
       />
 
       {/* DIALOG 1: MỞ CA LÀM VIỆC (SHIFT OPEN) */}
@@ -1534,6 +1583,16 @@ export function TableMapPOS({
           setGroupCheckoutMode(false)
           setSelectedResourceIds([])
           void fetchResources()
+
+          // Broadcast sync event for group checkout
+          if (shopSettings?.enable_realtime_sync) {
+            const supabase = getSupabaseBrowserClient()
+            supabase.channel(`pos_sync_${slug}_${shopId}`).send({
+              type: 'broadcast',
+              event: 'sync_event',
+              payload: { source: 'web_app', event: 'GROUP_CHECKOUT' }
+            })
+          }
         }}
       />
     </div>

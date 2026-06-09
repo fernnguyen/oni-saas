@@ -160,6 +160,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ shop
   settings.has_crm_access = ctx.tenantId ? await checkFeatureAccess(ctx.tenantId, 'crm') : false;
   settings.permissions = ctx.permissions;
 
+  // Inject system global settings
+  const { data: systemSettings } = await admin
+    .from('system_settings')
+    .select('config')
+    .eq('id', 'global')
+    .maybeSingle();
+  settings.enable_realtime_sync = systemSettings?.config?.enable_realtime_sync ?? false;
+
   // Fetch share_customers from tenants table
   let shareCustomers = false;
   if (ctx.tenantId) {

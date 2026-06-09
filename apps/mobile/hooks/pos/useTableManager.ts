@@ -23,6 +23,7 @@ export interface UseTableManagerProps {
   setIsPreviewModalOpen: React.Dispatch<React.SetStateAction<boolean>>;
   isNavReady: boolean;
   isLoading: boolean;
+  isOnline: boolean;
   checkIsQrPayment: (method: string) => boolean;
   currentUserEmail: string;
   productsList: any[];
@@ -34,6 +35,7 @@ export interface UseTableManagerProps {
   setPaymentRows: React.Dispatch<React.SetStateAction<any[]>>;
   selectedCustomer: any;
   customersList: any[];
+  broadcastSync?: (payload: any) => void;
 }
 
 import { CartItem } from '../../app/(tabs)/pos';
@@ -44,7 +46,7 @@ export function useTableManager(props: UseTableManagerProps) {
   const { 
     tables, setTables, shopVertical, activeShopId, 
     showToast, setCart, setDiscountAmount, setOrderNote, setSelectedCustomer, setIsPreviewModalOpen,
-    isNavReady, isLoading, checkIsQrPayment, currentUserEmail, productsList, paymentFundsList, customersList, selectedCustomer, setPaymentRows, handleCheckoutPress, setIsCartModalOpen, setQrPayload, setIsQrModalOpen } = props;
+    isNavReady, isLoading, isOnline, checkIsQrPayment, currentUserEmail, productsList, paymentFundsList, customersList, selectedCustomer, setPaymentRows, handleCheckoutPress, setIsCartModalOpen, setQrPayload, setIsQrModalOpen, broadcastSync } = props;
 
   const [activeTable, setActiveTable] = useState<any>(null);
 
@@ -208,6 +210,8 @@ export function useTableManager(props: UseTableManagerProps) {
 
   // Các hàm tiện ích đồng bộ hóa thời gian thực trực tuyến cho phòng/bàn
   const fetchActiveTableSessionOnline = async (tableId: string, orderId: string | null) => {
+    if (!isOnline) return null;
+    
     try {
       const currentUrl = getApiBaseUrl();
       const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
@@ -282,6 +286,7 @@ export function useTableManager(props: UseTableManagerProps) {
   };
 
   const syncOrderItemsOnline = async (orderId: string, cartItems: any) => {
+    if (!isOnline) return;
     try {
       const currentUrl = getApiBaseUrl();
       const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
@@ -852,6 +857,7 @@ export function useTableManager(props: UseTableManagerProps) {
       // Hiển thị Toast thông báo thành công sang trọng giống WebUI
       if (syncSucceeded) {
         showToast(`Đã nhận ${shopVertical === 'lodging' ? 'Phòng' : shopVertical === 'sports_court' ? 'Sân' : 'Bàn'} & Đồng bộ thành công!`, 'success');
+        broadcastSync?.({ event: 'TABLE_OPENED', tableId: selectedTableForOpen.id, orderId: orderId });
       } else {
         showToast(`Nhận ${shopVertical === 'lodging' ? 'Phòng' : shopVertical === 'sports_court' ? 'Sân' : 'Bàn'} ngoại tuyến thành công!`, 'info');
       }
@@ -934,6 +940,7 @@ export function useTableManager(props: UseTableManagerProps) {
   };
 
   const syncCustomerUpdate = async (orderId: string, custId: string, custName: string, custPhone: string) => {
+    if (!isOnline) return;
     try {
       const currentUrl = getApiBaseUrl();
       const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
@@ -1316,6 +1323,7 @@ export function useTableManager(props: UseTableManagerProps) {
       } else {
         if (syncSucceeded) {
           showToast(`Thanh toán & Giải phóng thành công Hóa đơn ${serverOrderNo}!`, "success");
+          broadcastSync?.({ event: 'TABLE_PAID', tableId: selectedTableForPay.id, orderId: orderId });
         } else {
           showToast(`Thanh toán ngoại tuyến thành công Hóa đơn ${orderNo}! Sẽ sync sau.`, "info");
         }
