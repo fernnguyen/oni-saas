@@ -347,7 +347,8 @@ export default function PosScreen() {
     isUpdatingGuestsLoading,
     roomRentalType,
     setRoomRentalType,
-    handleConfirmOpenTable
+    handleConfirmOpenTable,
+    syncActiveTableSession
   } = useTableManager({
     tables, setTables, shopVertical, activeShopId,
     showToast, setCart, setDiscountAmount, setOrderNote, setSelectedCustomer, setIsPreviewModalOpen,
@@ -1436,9 +1437,10 @@ export default function PosScreen() {
             <PosDatePicker
               isOpen={isDatePickerOpen}
               onClose={() => setIsDatePickerOpen(false)}
-              targetField={pickerTargetField}
-              initialDate={lodgingGuests[pickerTargetIndex]?.[pickerTargetField]}
+              targetField={pickerTargetField || ''}
+              initialDate={(pickerTargetField && pickerTargetIndex !== null ? lodgingGuests[pickerTargetIndex]?.[pickerTargetField as keyof LodgingGuest] : undefined) as string | undefined}
               onConfirm={(dateStr) => {
+                if (!pickerTargetField || pickerTargetIndex === null) return;
                 const updated = [...lodgingGuests];
                 if (!updated[pickerTargetIndex]) {
                   updated[pickerTargetIndex] = { name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', address: '', note: '' };
@@ -1902,9 +1904,10 @@ export default function PosScreen() {
               <PosDatePicker
                 isOpen={isDatePickerOpen}
                 onClose={() => setIsDatePickerOpen(false)}
-                targetField={pickerTargetField}
-                initialDate={lodgingGuests[pickerTargetIndex]?.[pickerTargetField]}
+                targetField={pickerTargetField || ''}
+                initialDate={(pickerTargetField && pickerTargetIndex !== null ? lodgingGuests[pickerTargetIndex]?.[pickerTargetField as keyof LodgingGuest] : undefined) as string | undefined}
                 onConfirm={(dateStr) => {
+                  if (!pickerTargetField || pickerTargetIndex === null) return;
                   const updated = [...lodgingGuests];
                   if (!updated[pickerTargetIndex]) {
                     updated[pickerTargetIndex] = { name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', address: '', note: '' };

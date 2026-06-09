@@ -1060,9 +1060,10 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
           <Dialog
             visible={isConfirmVisible}
             onClose={() => setIsConfirmVisible(false)}
-            onConfirm={() => {
+            onConfirm={async () => {
               const debtOpts = clampedDebtRepay > 0 ? { debtRepayAmount: clampedDebtRepay, ...selectDebtFund() } : undefined;
-              onCheckout(debtOpts);
+              await onCheckout(debtOpts);
+              setIsConfirmVisible(false);
             }}
             title="Xác nhận Thanh toán"
             description="Bạn có chắc chắn muốn hoàn tất thanh toán hóa đơn này không?"

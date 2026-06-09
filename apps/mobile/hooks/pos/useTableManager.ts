@@ -7,7 +7,7 @@ import * as schema from '../../lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { getApiBaseUrl, getApiHeaders } from '../../lib/api/config';
 import { SyncManager } from '../../lib/sync/SyncManager';
-import { debounce } from 'lodash';
+
 
 export interface UseTableManagerProps {
   tables: any[];
@@ -28,7 +28,7 @@ export interface UseTableManagerProps {
   productsList: any[];
   paymentFundsList: any[];
   setIsQrModalOpen: React.Dispatch<React.SetStateAction<boolean>>;
-  setQrPayload: React.Dispatch<React.SetStateAction<string>>;
+  setQrPayload: React.Dispatch<React.SetStateAction<any>>;
   setIsCartModalOpen: React.Dispatch<React.SetStateAction<boolean>>;
   handleCheckoutPress: (action?: any) => void;
   setPaymentRows: React.Dispatch<React.SetStateAction<any[]>>;
@@ -416,7 +416,7 @@ export function useTableManager(props: UseTableManagerProps) {
 
         const updatedTable = {
           ...table,
-          current_order_id: order ? order.id : table.current_order_id, // Tự động chữa lành ID đơn hàng nếu thiếu
+          current_order_id: order ? (order.id || order.order_id) : table.current_order_id, // Tự động chữa lành ID đơn hàng nếu thiếu
           startTime: checkInTime,
           metadata: JSON.stringify({
             ...tableMetaObj,
@@ -456,7 +456,7 @@ export function useTableManager(props: UseTableManagerProps) {
           try {
             await db
               .update(schema.location_resources)
-              .set({ current_order_id: order ? order.id : table.current_order_id, startTime: checkInTime, metadata: updatedTable.metadata })
+              .set({ current_order_id: order ? (order.id || order.order_id) : table.current_order_id, startTime: checkInTime, metadata: updatedTable.metadata })
               .where(eq(schema.location_resources.id, table.id));
           } catch (e) { }
         }
@@ -667,39 +667,9 @@ export function useTableManager(props: UseTableManagerProps) {
   };
 
   // Trình mở DatePicker
-  const handleDatePickerOpen = (index: number, field: 'dob' | 'expiry_date', currentValue: string) => {
+  const handleDatePickerOpen = (index: number, field: 'dob' | 'expiry_date') => {
     setPickerTargetIndex(index);
     setPickerTargetField(field);
-
-    let d = 27, m = 5, y = 2026;
-    if (currentValue) {
-      if (currentValue.includes('/')) {
-        const parts = currentValue.split('/');
-        if (parts.length === 3) {
-          d = parseInt(parts[0]) || 27;
-          m = parseInt(parts[1]) || 5;
-          y = parseInt(parts[2]) || 2026;
-        }
-      } else if (currentValue.includes('-')) {
-        const parts = currentValue.split('-');
-        if (parts.length === 3) {
-          d = parseInt(parts[2]) || 27;
-          m = parseInt(parts[1]) || 5;
-          y = parseInt(parts[0]) || 2026;
-        }
-      }
-    } else {
-      if (field === 'expiry_date') {
-        y = 2031; // Hạn giấy tờ mặc định +5 năm
-      } else {
-        y = 1995; // Ngày sinh mặc định 1995
-      }
-    }
-
-    setPickerDay(d);
-    setPickerMonth(m);
-    setPickerYear(y);
-    setDatePickerView('calendar');
     setIsDatePickerOpen(true);
   };
 
@@ -1418,6 +1388,7 @@ export function useTableManager(props: UseTableManagerProps) {
     syncCustomerUpdate,
     handleUpdateActiveRoomGuests,
     handleDatePickerOpen,
-    handleConfirmOpenTable
+    handleConfirmOpenTable,
+    syncActiveTableSession
   };
 }
