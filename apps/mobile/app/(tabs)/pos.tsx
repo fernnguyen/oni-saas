@@ -1,5 +1,5 @@
 import React, {useState, useEffect, useCallback} from 'react';
-import {Text, View, ScrollView, TouchableOpacity, Modal, TextInput, Image, Platform, Animated, ActivityIndicator, Alert, Pressable} from 'react-native';
+import {Text, View, ScrollView, TouchableOpacity, Modal, TextInput, Image, Platform, Animated, ActivityIndicator, Alert, Pressable, KeyboardAvoidingView} from 'react-native';
 import {useFocusEffect} from 'expo-router';
 import {Ionicons} from '@expo/vector-icons';
 import {SafeAreaView} from 'react-native-safe-area-context';
@@ -3456,7 +3456,7 @@ if (!isNavReady) {
  transparent={true}
  onRequestClose={() => setIsTableOpenDialogVisible(false)}
  >
- <View className="flex-1 justify-end">
+ <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} className="flex-1 justify-end">
  <Pressable
       className="absolute inset-0 bg-black/60"
       onPress={() => setIsTableOpenDialogVisible(false)}
@@ -3651,7 +3651,7 @@ if (!isNavReady) {
  </View>
  {renderDatePicker()}
  </View>
- </View>
+ </KeyboardAvoidingView>
  </Modal>
 
  {/* Unused isTablePayDialogVisible Dialog removed since we use POS unified checkout modal */}
@@ -3695,7 +3695,7 @@ if (!isNavReady) {
  transparent={true}
  onRequestClose={() => setActiveTable(null)}
  >
- <View className="flex-1 justify-end">
+ <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} className="flex-1 justify-end">
   <Pressable
     className="absolute inset-0 bg-black/60"
     onPress={() => setActiveTable(null)}
@@ -4105,7 +4105,7 @@ if (!isNavReady) {
  {renderDatePicker()}
  </View>
  )}
- </View>
+ </KeyboardAvoidingView>
  </Modal>
 
  {/* 7. MODAL GIỎ HÀNG & THANH TOÁN CHI TIẾT */}
