@@ -90,6 +90,7 @@ interface Props {
   customCheckoutTime?: string
   hourlyRate?: number
   existingOrder?: LocalOrder | null
+  isAccommodation?: boolean
 }
 
 const METHODS = [
@@ -219,6 +220,7 @@ export function CheckoutModal({
   customCheckoutTime,
   hourlyRate = 0,
   existingOrder = null,
+  isAccommodation = false,
 }: Props) {
   const confirm = useConfirm()
   const [localCustomer, setLocalCustomer] = useState(customer)
@@ -2344,70 +2346,83 @@ export function CheckoutModal({
               {/* Order summary */}
               <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
                 {/* Splitting Toggle */}
-                <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-200/60">
-                  <span className="text-xs font-bold text-slate-700">Tách hóa đơn (Folio Splitting)</span>
-                  <button
-                    type="button"
-                    onClick={() => setIsSplitActive(!isSplitActive)}
-                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                      isSplitActive ? 'bg-primary' : 'bg-slate-200'
-                    }`}
-                  >
-                    <span
-                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
-                        isSplitActive ? 'translate-x-5' : 'translate-x-0'
+                {isAccommodation && (
+                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-200/60">
+                    <span className="text-xs font-bold text-slate-700">Tách hóa đơn (Folio Splitting)</span>
+                    <button
+                      type="button"
+                      onClick={() => setIsSplitActive(!isSplitActive)}
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                        isSplitActive ? 'bg-primary' : 'bg-slate-200'
                       }`}
-                    />
-                  </button>
-                </div>
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                          isSplitActive ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                )}
 
                 <div className="max-h-[280px] overflow-y-auto space-y-3 pr-1 scrollbar-thin">
-                  {/* Group 1: Tiền phòng & Dịch vụ */}
-                  {groupedItems.roomItems.length > 0 && (
-                    <div>
-                      <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-between">
-                        <span>🏨 Tiền phòng & Dịch vụ</span>
-                        {isSplitActive && <span className="text-[9px] font-semibold text-primary lowercase">(chọn để đưa vào Folio A)</span>}
-                      </div>
-                      <div className="space-y-1.5 pl-1">
-                        {groupedItems.roomItems.map((item) => {
-                          const idx = computedItems.indexOf(item)
-                          return renderItemRow(item, idx)
-                        })}
-                      </div>
+                  {!isAccommodation ? (
+                    <div className="space-y-1.5 pl-1">
+                      {computedItems.map((item) => {
+                        const idx = computedItems.indexOf(item)
+                        return renderItemRow(item, idx)
+                      })}
                     </div>
-                  )}
+                  ) : (
+                    <>
+                      {/* Group 1: Tiền phòng & Dịch vụ */}
+                      {groupedItems.roomItems.length > 0 && (
+                        <div>
+                          <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-between">
+                            <span>🏨 Tiền phòng & Dịch vụ</span>
+                            {isSplitActive && <span className="text-[9px] font-semibold text-primary lowercase">(chọn để đưa vào Folio A)</span>}
+                          </div>
+                          <div className="space-y-1.5 pl-1">
+                            {groupedItems.roomItems.map((item) => {
+                              const idx = computedItems.indexOf(item)
+                              return renderItemRow(item, idx)
+                            })}
+                          </div>
+                        </div>
+                      )}
 
-                  {/* Group 2: Tiêu hao Minibar */}
-                  {groupedItems.minibarItems.length > 0 && (
-                    <div>
-                      <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-between">
-                        <span>🥤 Tiêu hao Minibar</span>
-                        {isSplitActive && <span className="text-[9px] font-semibold text-primary lowercase">(chọn để đưa vào Folio A)</span>}
-                      </div>
-                      <div className="space-y-1.5 pl-1">
-                        {groupedItems.minibarItems.map((item) => {
-                          const idx = computedItems.indexOf(item)
-                          return renderItemRow(item, idx)
-                        })}
-                      </div>
-                    </div>
-                  )}
+                      {/* Group 2: Tiêu hao Minibar */}
+                      {groupedItems.minibarItems.length > 0 && (
+                        <div>
+                          <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-between">
+                            <span>🥤 Tiêu hao Minibar</span>
+                            {isSplitActive && <span className="text-[9px] font-semibold text-primary lowercase">(chọn để đưa vào Folio A)</span>}
+                          </div>
+                          <div className="space-y-1.5 pl-1">
+                            {groupedItems.minibarItems.map((item) => {
+                              const idx = computedItems.indexOf(item)
+                              return renderItemRow(item, idx)
+                            })}
+                          </div>
+                        </div>
+                      )}
 
-                  {/* Group 3: Bồi thường tài sản */}
-                  {groupedItems.assetItems.length > 0 && (
-                    <div>
-                      <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-between">
-                        <span>⚠️ Bồi thường hỏng hóc/mất mát</span>
-                        {isSplitActive && <span className="text-[9px] font-semibold text-primary lowercase">(chọn để đưa vào Folio A)</span>}
-                      </div>
-                      <div className="space-y-1.5 pl-1">
-                        {groupedItems.assetItems.map((item) => {
-                          const idx = computedItems.indexOf(item)
-                          return renderItemRow(item, idx)
-                        })}
-                      </div>
-                    </div>
+                      {/* Group 3: Bồi thường tài sản */}
+                      {groupedItems.assetItems.length > 0 && (
+                        <div>
+                          <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-between">
+                            <span>⚠️ Bồi thường hỏng hóc/mất mát</span>
+                            {isSplitActive && <span className="text-[9px] font-semibold text-primary lowercase">(chọn để đưa vào Folio A)</span>}
+                          </div>
+                          <div className="space-y-1.5 pl-1">
+                            {groupedItems.assetItems.map((item) => {
+                              const idx = computedItems.indexOf(item)
+                              return renderItemRow(item, idx)
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
 
