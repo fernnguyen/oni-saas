@@ -310,20 +310,18 @@ export default function PosScreen() {
   const [isScanSuccessDialogVisible, setIsScanSuccessDialogVisible] = useState(false);
   const [scannedProductInfo, setScannedProductInfo] = useState<any>(null);
   const [hasPendingSync, setHasPendingSync] = useState(false);
+  const [syncTriggerTick, setSyncTriggerTick] = useState(0);
+  const syncTableSilentRef = React.useRef<(id: string) => void>(null);
 
   // States cho nghiệp vụ phòng/bàn/sân nâng cao & CRM
 
-  const { broadcastSync, isEnabled: isRealtimeEnabled } = useRealtimeSync(activeShopId, isOnline, () => {
-    // Tự động reload khi có tín hiệu từ web/app khác
-    // Nếu màn hình giỏ hàng mở hoặc modal liên quan mở (isDirty), thì cảnh báo thay vì reload
-    // Ở Mobile, isCartModalOpen, isTableOpenDialogVisible, activeTable != null nhưng nếu người dùng đang thao tác thì nên lưu ý.
-    // Thực ra `activeTable` mở cũng ko hẳn là dirty nếu ko input, nhưng mobile ko có form input phức tạp trừ CheckIn
-    
-    // Fallback: cứ hiện banner nếu đang có table/modal mở
-    setHasPendingSync(true);
-    
-    // Mặc định luôn reload danh sách bàn ở dưới ngầm
-    loadPosData(true);
+  const { broadcastSync, isEnabled: isRealtimeEnabled } = useRealtimeSync(activeShopId, isOnline, (payload) => {
+    // Kích hoạt state để useEffect bên dưới xử lý auto-refresh
+    if (payload?.tableId && syncTableSilentRef.current) {
+      syncTableSilentRef.current(payload.tableId);
+    } else {
+      setSyncTriggerTick(prev => prev + 1);
+    }
   });
 
   const {
@@ -363,7 +361,8 @@ export default function PosScreen() {
     roomRentalType,
     setRoomRentalType,
     handleConfirmOpenTable,
-    syncActiveTableSession
+    syncActiveTableSession,
+    syncTableSilent
   } = useTableManager({
     tables, setTables, shopVertical, activeShopId,
     showToast, setCart, setDiscountAmount, setOrderNote, setSelectedCustomer, setIsPreviewModalOpen,
@@ -371,6 +370,21 @@ export default function PosScreen() {
     customersList, selectedCustomer, setPaymentRows, handleCheckoutPress, setIsCartModalOpen, setQrPayload, setIsQrModalOpen,
     broadcastSync,
   });
+
+  // Đồng bộ hook callback
+  useEffect(() => {
+    syncTableSilentRef.current = syncTableSilent;
+  }, [syncTableSilent]);
+
+  // Tự động đồng bộ dữ liệu khi có tín hiệu từ thiết bị khác
+  useEffect(() => {
+    if (syncTriggerTick > 0) {
+      loadPosData(true);
+      if (activeTable) {
+        syncActiveTableSession(activeTable);
+      }
+    }
+  }, [syncTriggerTick]);
 
   // Tự động đồng bộ số tiền thanh toán mặc định khi giỏ hàng hoặc giảm giá thay đổi
   useEffect(() => {
@@ -1287,6 +1301,26 @@ export default function PosScreen() {
           />
           <View className="h-[75%] rounded-t-2xl p-6 bg-white justify-between relative" style={{ shadowColor: '#000000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 12 }}>
             <PosToast toastMsg={toastMsg} toastOpacity={toastOpacity} isForModal={true} />
+              {hasPendingSync && (
+                <TouchableOpacity 
+                  style={{ marginHorizontal: 4, marginBottom: 16, marginTop: 8, backgroundColor: "#FEF3C7", padding: 12, borderRadius: 12, borderWidth: 1, borderColor: "#F59E0B", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}
+                  onPress={() => {
+                    setHasPendingSync(false);
+                    loadPosData(true);
+                    if (activeTable) {
+                      syncActiveTableSession(activeTable);
+                    }
+                  }}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontWeight: "600", color: "#92400E", fontSize: 13 }}>Cập nhật mới từ thiết bị khác!</Text>
+                    <Text style={{ color: "#B45309", fontSize: 12, marginTop: 2 }}>Dữ liệu đã thay đổi, vui lòng tải lại để đồng bộ.</Text>
+                  </View>
+                  <View style={{ backgroundColor: "#F59E0B", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }}>
+                    <Text style={{ color: "white", fontWeight: "bold", fontSize: 13 }}>Tải lại</Text>
+                  </View>
+                </TouchableOpacity>
+              )}
             {/* Header */}
             <View className="flex-row justify-between items-center border-b border-slate-100 pb-4">
               <View className="flex-row items-center">
@@ -1541,6 +1575,26 @@ export default function PosScreen() {
           {activeTable && (
             <View className="h-[75%] rounded-t-2xl p-6 justify-between bg-white shadow-2xl relative">
               <PosToast toastMsg={toastMsg} toastOpacity={toastOpacity} isForModal={true} />
+              {hasPendingSync && (
+                <TouchableOpacity 
+                  style={{ marginHorizontal: 4, marginBottom: 16, marginTop: 8, backgroundColor: "#FEF3C7", padding: 12, borderRadius: 12, borderWidth: 1, borderColor: "#F59E0B", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}
+                  onPress={() => {
+                    setHasPendingSync(false);
+                    loadPosData(true);
+                    if (activeTable) {
+                      syncActiveTableSession(activeTable);
+                    }
+                  }}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontWeight: "600", color: "#92400E", fontSize: 13 }}>Cập nhật mới từ thiết bị khác!</Text>
+                    <Text style={{ color: "#B45309", fontSize: 12, marginTop: 2 }}>Dữ liệu đã thay đổi, vui lòng tải lại để đồng bộ.</Text>
+                  </View>
+                  <View style={{ backgroundColor: "#F59E0B", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }}>
+                    <Text style={{ color: "white", fontWeight: "bold", fontSize: 13 }}>Tải lại</Text>
+                  </View>
+                </TouchableOpacity>
+              )}
               {/* Modal Header */}
               <View className="flex-row justify-between items-center mb-4 border-b border-slate-100 pb-2">
                 <View className="flex-row items-center flex-1 mr-2">

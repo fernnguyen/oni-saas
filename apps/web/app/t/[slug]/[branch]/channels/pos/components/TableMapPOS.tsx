@@ -159,6 +159,26 @@ export function TableMapPOS({
 
   const activeShift = openShiftData?.data?.[0] || null
   const hasActiveShift = !!activeShift
+  const syncChannelRef = useRef<any>(null)
+  const [syncTick, setSyncTick] = useState(0)
+
+  // Broadcast helper
+  const broadcastSyncEvent = useCallback(async (eventAction: string = 'ORDER_UPDATED', payloadOverrides: any = {}) => {
+    console.log('[TableMapPOS] Attempting broadcastSyncEvent:', eventAction, payloadOverrides, 'Realtime enabled:', shopSettings?.enable_realtime_sync, 'Channel exists:', !!syncChannelRef.current);
+    if (shopSettings?.enable_realtime_sync && syncChannelRef.current) {
+      try {
+        const resp = await syncChannelRef.current.send({
+          type: 'broadcast',
+          event: 'sync_event',
+          payload: { source: 'web_app', event: eventAction, ...payloadOverrides }
+        });
+        console.log('[TableMapPOS] Broadcast successful:', resp);
+      } catch (err) {
+        console.error('[TableMapPOS] Broadcast failed:', err);
+      }
+    }
+  }, [shopSettings?.enable_realtime_sync])
+
 
   // Auto-open Shift Open Modal if enabled but no active shift
   useEffect(() => {
@@ -405,12 +425,14 @@ export function TableMapPOS({
     if (typeof window === 'undefined' || !shopSettings?.enable_realtime_sync) return
     const supabase = getSupabaseBrowserClient()
     const channelName = `pos_sync_${slug}_${shopId}`
-    const channel = supabase.channel(channelName)
+    const channel = supabase.channel(channelName, { config: { broadcast: { ack: true } } })
+    syncChannelRef.current = channel
     
     channel.on('broadcast', { event: 'sync_event' }, (payload: any) => {
       console.log('[TableMapPOS] Received Supabase Realtime sync_event:', payload)
       if (payload?.payload?.source !== 'web_app') {
         void fetchResources()
+        setSyncTick(prev => prev + 1)
       }
     }).subscribe((status) => {
       console.log(`[TableMapPOS] Supabase Realtime status: ${status}`)
@@ -418,6 +440,7 @@ export function TableMapPOS({
 
     return () => {
       void supabase.removeChannel(channel)
+      syncChannelRef.current = null
     }
   }, [shopSettings?.enable_realtime_sync, slug, shopId, fetchResources])
 
@@ -650,12 +673,11 @@ export function TableMapPOS({
     fetchResources()
 
     // Cross-device Supabase Broadcast
-    if (shopSettings?.enable_realtime_sync) {
-      const supabase = getSupabaseBrowserClient()
-      supabase.channel(`pos_sync_${slug}_${shopId}`).send({
+    if (shopSettings?.enable_realtime_sync && syncChannelRef.current) {
+      syncChannelRef.current.send({
         type: 'broadcast',
         event: 'sync_event',
-        payload: { source: 'web_app', event: 'TABLE_CHECKIN' }
+        payload: { source: 'web_app', event: 'TABLE_CHECKIN', tableId: activeSlideResource?.id }
       })
     }
   }
@@ -670,9 +692,8 @@ export function TableMapPOS({
     bc.close()
 
     // Cross-device Supabase Broadcast
-    if (shopSettings?.enable_realtime_sync) {
-      const supabase = getSupabaseBrowserClient()
-      supabase.channel(`pos_sync_${slug}_${shopId}`).send({
+    if (shopSettings?.enable_realtime_sync && syncChannelRef.current) {
+      syncChannelRef.current.send({
         type: 'broadcast',
         event: 'sync_event',
         payload: { source: 'web_app', event: 'SESSION_CLOSED', tableId: activeSlideResource?.id }
@@ -1033,7 +1054,7 @@ export function TableMapPOS({
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
                 {items.sort((a: Resource, b: Resource) => Number(a.sort_order || 0) - Number(b.sort_order || 0)).map((r: Resource) => {
                   const st = STATUS_CARDS[r.status] ?? STATUS_CARDS.available
-                  const rmd = safeParseJSON(r.metadata)
+                  const rmd = typeof r.metadata === 'string' ? JSON.parse(r.metadata || '{}') : (r.metadata || {})
                   const isRoomType = r.type === 'room'
                   const activeOrder = r.status === 'occupied'
                     ? (ordersMap.get(r.current_order_id || '') || ordersMap.get(`res-${r.id}`))
@@ -1137,148 +1158,148 @@ export function TableMapPOS({
 
           {viewMode === 'list' && resources.length > 0 && (
             <DataTable
-          columns={[
-            ...(groupCheckoutMode ? [{
-              key: 'select',
-              label: '',
-              className: 'w-[50px]',
-              render: (r: Resource) => {
-                const isSelectable = r.status === 'occupied' || r.status === 'available'
-                const isSelected = selectedResourceIds.includes(r.id)
-                if (!isSelectable) return null
-                return (
-                  <div className="flex items-center justify-center">
-                    <div className={`w-4 h-4 rounded-md border flex items-center justify-center transition-colors ${
-                      isSelected ? 'bg-primary border-primary text-white' : 'bg-white border-slate-300 text-transparent'
-                    }`}>
-                      <Check className="w-3 h-3 stroke-[3]" />
+              columns={[
+                ...(groupCheckoutMode ? [{
+                  key: 'select',
+                  label: '',
+                  className: 'w-[50px]',
+                  render: (r: Resource) => {
+                    const isSelectable = r.status === 'occupied' || r.status === 'available'
+                    const isSelected = selectedResourceIds.includes(r.id)
+                    if (!isSelectable) return null
+                    return (
+                      <div className="flex items-center justify-center">
+                        <div className={`w-4 h-4 rounded-md border flex items-center justify-center transition-colors ${
+                          isSelected ? 'bg-primary border-primary text-white' : 'bg-white border-slate-300 text-transparent'
+                        }`}>
+                          <Check className="w-3 h-3 stroke-[3]" />
+                        </div>
+                      </div>
+                    )
+                  }
+                }] : []),
+                {
+                  key: 'name',
+                  label: 'Tên',
+                  className: 'w-[20%]',
+                  render: (r) => {
+                    const isDimmed = groupCheckoutMode && (
+                      selectionStatus === 'occupied' ? r.status !== 'occupied' :
+                      selectionStatus === 'available' ? r.status !== 'available' :
+                      (r.status !== 'occupied' && r.status !== 'available')
+                    )
+                    return (
+                      <button onClick={(e) => { e.stopPropagation(); handleResourceClick(r); }} className="text-left group">
+                        <span className={`font-bold text-slate-800 group-hover:text-primary transition-colors ${isDimmed ? 'opacity-40' : ''}`}>{r.name}</span>
+                      </button>
+                    )
+                  }
+                },
+                {
+                  key: 'status',
+                  label: 'Trạng thái',
+                  className: 'w-[15%]',
+                  render: (r) => {
+                    const st = STATUS_CARDS[r.status] ?? STATUS_CARDS.available
+                    const isDimmed = groupCheckoutMode && (
+                      selectionStatus === 'occupied' ? r.status !== 'occupied' :
+                      selectionStatus === 'available' ? r.status !== 'available' :
+                      (r.status !== 'occupied' && r.status !== 'available')
+                    )
+                    return (
+                      <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ${st.bg} ${st.text} ${isDimmed ? 'opacity-40' : ''}`}>
+                        {st.label}
+                      </span>
+                    )
+                  }
+                },
+                {
+                  key: 'customer',
+                  label: 'Khách hàng',
+                  className: 'w-[20%]',
+                  render: (r) => {
+                    const activeOrder = r.status === 'occupied'
+                      ? (ordersMap.get(r.current_order_id || '') || ordersMap.get(`res-${r.id}`))
+                      : null
+                    const isDimmed = groupCheckoutMode && (
+                      selectionStatus === 'occupied' ? r.status !== 'occupied' :
+                      selectionStatus === 'available' ? r.status !== 'available' :
+                      (r.status !== 'occupied' && r.status !== 'available')
+                    )
+                    return activeOrder ? (
+                      <span className={`font-bold text-slate-700 ${isDimmed ? 'opacity-40' : ''}`}>
+                        {activeOrder.customer_name || 'Khách lẻ'}
+                      </span>
+                    ) : (
+                      <span className="text-slate-400">—</span>
+                    )
+                  }
+                },
+                {
+                  key: 'capacity',
+                  label: 'Sức chứa',
+                  className: 'w-[20%]',
+                  render: (r) => r.capacity ? (
+                    <div className="flex items-center gap-1.5 text-slate-600">
+                      <UserIcon className="w-3.5 h-3.5 opacity-70" /> {r.capacity} người
                     </div>
-                  </div>
-                )
-              }
-            }] : []),
-            {
-              key: 'name',
-              label: 'Tên',
-              className: 'w-[20%]',
-              render: (r) => {
-                const isDimmed = groupCheckoutMode && (
-                  selectionStatus === 'occupied' ? r.status !== 'occupied' :
-                  selectionStatus === 'available' ? r.status !== 'available' :
-                  (r.status !== 'occupied' && r.status !== 'available')
-                )
-                return (
-                  <button onClick={(e) => { e.stopPropagation(); handleResourceClick(r); }} className="text-left group">
-                    <span className={`font-bold text-slate-800 group-hover:text-primary transition-colors ${isDimmed ? 'opacity-40' : ''}`}>{r.name}</span>
-                  </button>
-                )
-              }
-            },
-            {
-              key: 'status',
-              label: 'Trạng thái',
-              className: 'w-[15%]',
-              render: (r) => {
-                const st = STATUS_CARDS[r.status] ?? STATUS_CARDS.available
-                const isDimmed = groupCheckoutMode && (
-                  selectionStatus === 'occupied' ? r.status !== 'occupied' :
-                  selectionStatus === 'available' ? r.status !== 'available' :
-                  (r.status !== 'occupied' && r.status !== 'available')
-                )
-                return (
-                  <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ${st.bg} ${st.text} ${isDimmed ? 'opacity-40' : ''}`}>
-                    {st.label}
+                  ) : <span className="text-slate-400">-</span>
+                },
+                ...(hasHourlyBilling ? [{
+                  key: 'price',
+                  label: 'Giá giờ',
+                  className: 'w-[15%]',
+                  render: (r: Resource) => (
+                    <span className="font-semibold text-slate-700">
+                      {r.hourly_rate && Number(r.hourly_rate) > 0 ? `${Number(r.hourly_rate).toLocaleString('vi-VN')}₫` : '-'}
+                    </span>
+                  )
+                }] : []),
+                {
+                  key: 'class',
+                  label: 'Phân loại',
+                  className: 'w-[15%] hidden sm:table-cell',
+                  render: (r) => {
+                    const rmd = typeof r.metadata === 'string' ? JSON.parse(r.metadata || '{}') : (r.metadata || {})
+                    return <span className="text-slate-500 capitalize">{rmd.room_class || rmd.sub_type || '-'}</span>
+                  }
+                },
+                {
+                  key: 'actions',
+                  label: 'Thao tác',
+                  align: 'right',
+                  className: 'w-[10%]',
+                  render: (r) => {
+                    const isSimple = (shopSettings?.housekeeping_workflow_mode || 'SIMPLE') === 'SIMPLE'
+                    const canToggleClean = (r.status === 'cleaning' || r.status === 'dirty') && isSimple
+                    return (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleResourceClick(r); }}
+                        className={canToggleClean
+                          ? "rounded-lg bg-white border border-amber-300 px-3 py-1.5 text-xs font-bold text-amber-600 hover:bg-amber-50 hover:text-amber-700 transition-colors shadow-sm whitespace-nowrap"
+                          : "rounded-lg bg-white border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors shadow-sm whitespace-nowrap"
+                        }
+                      >
+                        {canToggleClean ? '✓ Dọn xong' : 'Thao tác'}
+                      </button>
+                    )
+                  }
+                }
+              ]}
+              groupedData={Array.from(zones.entries()).map(([zone, items]: [string, Resource[]]) => ({
+                key: zone,
+                label: (
+                  <span className="uppercase tracking-wider">
+                    {zone}
+                    <span className="text-slate-400 text-xs font-normal normal-case ml-2">({items.length} vị trí)</span>
                   </span>
-                )
-              }
-            },
-            {
-              key: 'customer',
-              label: 'Khách hàng',
-              className: 'w-[20%]',
-              render: (r) => {
-                const activeOrder = r.status === 'occupied'
-                  ? (ordersMap.get(r.current_order_id || '') || ordersMap.get(`res-${r.id}`))
-                  : null
-                const isDimmed = groupCheckoutMode && (
-                  selectionStatus === 'occupied' ? r.status !== 'occupied' :
-                  selectionStatus === 'available' ? r.status !== 'available' :
-                  (r.status !== 'occupied' && r.status !== 'available')
-                )
-                return activeOrder ? (
-                  <span className={`font-bold text-slate-700 ${isDimmed ? 'opacity-40' : ''}`}>
-                    {activeOrder.customer_name || 'Khách lẻ'}
-                  </span>
-                ) : (
-                  <span className="text-slate-400">—</span>
-                )
-              }
-            },
-            {
-              key: 'capacity',
-              label: 'Sức chứa',
-              className: 'w-[20%]',
-              render: (r) => r.capacity ? (
-                <div className="flex items-center gap-1.5 text-slate-600">
-                  <UserIcon className="w-3.5 h-3.5 opacity-70" /> {r.capacity} người
-                </div>
-              ) : <span className="text-slate-400">-</span>
-            },
-            ...(hasHourlyBilling ? [{
-              key: 'price',
-              label: 'Giá giờ',
-              className: 'w-[15%]',
-              render: (r: Resource) => (
-                <span className="font-semibold text-slate-700">
-                  {r.hourly_rate && Number(r.hourly_rate) > 0 ? `${Number(r.hourly_rate).toLocaleString('vi-VN')}₫` : '-'}
-                </span>
-              )
-            }] : []),
-            {
-              key: 'class',
-              label: 'Phân loại',
-              className: 'w-[15%] hidden sm:table-cell',
-              render: (r) => {
-                const rmd = safeParseJSON(r.metadata)
-                return <span className="text-slate-500 capitalize">{rmd.room_class || rmd.sub_type || '-'}</span>
-              }
-            },
-            {
-              key: 'actions',
-              label: 'Thao tác',
-              align: 'right',
-              className: 'w-[10%]',
-              render: (r) => {
-                const isSimple = (shopSettings?.housekeeping_workflow_mode || 'SIMPLE') === 'SIMPLE'
-                const canToggleClean = (r.status === 'cleaning' || r.status === 'dirty') && isSimple
-                return (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleResourceClick(r); }}
-                    className={canToggleClean
-                      ? "rounded-lg bg-white border border-amber-300 px-3 py-1.5 text-xs font-bold text-amber-600 hover:bg-amber-50 hover:text-amber-700 transition-colors shadow-sm whitespace-nowrap"
-                      : "rounded-lg bg-white border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors shadow-sm whitespace-nowrap"
-                    }
-                  >
-                    {canToggleClean ? '✓ Dọn xong' : 'Thao tác'}
-                  </button>
-                )
-              }
-            }
-          ]}
-          groupedData={Array.from(zones.entries()).map(([zone, items]: [string, Resource[]]) => ({
-            key: zone,
-            label: (
-              <span className="uppercase tracking-wider">
-                {zone}
-                <span className="text-slate-400 text-xs font-normal normal-case ml-2">({items.length} vị trí)</span>
-              </span>
-            ),
-            items: items.sort((a: Resource, b: Resource) => Number(a.sort_order || 0) - Number(b.sort_order || 0))
-          }))}
-          rowKey={(row) => row.id}
-          onRowClick={handleResourceClick}
-        />
-      )}
+                ),
+                items: items.sort((a: Resource, b: Resource) => Number(a.sort_order || 0) - Number(b.sort_order || 0))
+              }))}
+              rowKey={(row) => row.id}
+              onRowClick={handleResourceClick}
+            />
+          )}
         </div>
       )}
 
@@ -1303,6 +1324,8 @@ export function TableMapPOS({
         onOpenShiftModal={() => setShiftOpenModalOpen(true)}
         slug={slug}
         enableRealtimeSync={shopSettings?.enable_realtime_sync}
+        broadcastSyncEvent={broadcastSyncEvent}
+        syncTick={syncTick}
       />
 
       {/* DIALOG 1: MỞ CA LÀM VIỆC (SHIFT OPEN) */}

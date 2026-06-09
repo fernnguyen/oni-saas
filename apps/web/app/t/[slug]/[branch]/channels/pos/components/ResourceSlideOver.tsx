@@ -70,12 +70,17 @@ interface Props {
   allResources?: any[]
   onRefresh?: () => void
   autoPrintReceipt?: boolean
+  customCheckoutTime?: string
+  hourlyRate?: number
+  isAccommodation?: boolean
   permissions?: string[]
   hasActiveShift?: boolean
   isShiftEnabled?: boolean
   onOpenShiftModal?: () => void
   slug?: string
   enableRealtimeSync?: boolean
+  broadcastSyncEvent?: (eventAction?: string, payloadOverrides?: any) => void
+  syncTick?: number
 }
 
 import { fmtDateTimeVN } from './CheckoutModal'
@@ -122,9 +127,11 @@ export function ResourceSlideOver({
   permissions = [],
   hasActiveShift = false,
   isShiftEnabled = false,
-  onOpenShiftModal,
+  isAccommodation = false,
   slug,
-  enableRealtimeSync,
+  enableRealtimeSync = false,
+  broadcastSyncEvent,
+  syncTick = 0
 }: Props) {
   const tpl = resourceTemplate ?? DEFAULT_TEMPLATE
   const sec = tpl.sections
@@ -166,6 +173,7 @@ export function ResourceSlideOver({
   const [checkoutInput, setCheckoutInput] = useState('')
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const isDirtyRef = useRef(false)
 
   // --- Operations State ---
   const [transferModalOpen, setTransferModalOpen] = useState(false)
@@ -200,6 +208,8 @@ export function ResourceSlideOver({
     },
     enabled: !!shopId && open,
   })
+
+  function safeParse(str: any) { try { return JSON.parse(str || '{}') } catch { return {} } }
 
   const meta = safeParse(resource.metadata)
   const isOccupied = resource.status === 'occupied' || resource.status === 'checking_out'
@@ -287,7 +297,6 @@ export function ResourceSlideOver({
     let isOffline = false
 
     try {
-      // Replay offline actions before fetching
       const queueKey = `offline_table_actions:${orderId}`
       const queueStr = localStorage.getItem(queueKey)
       if (queueStr && JSON.parse(queueStr).length > 0) {
@@ -350,10 +359,7 @@ export function ResourceSlideOver({
   }, [isOccupied, resource.current_order_id, shopId, syncOfflineActions])
 
   const handleManualRefresh = useCallback(async () => {
-    // 1. Làm mới danh sách phòng phía ngoài
     onRefresh?.()
-    
-    // 2. Tải lại chi tiết đơn hàng nếu phòng/bàn đang được sử dụng
     if (isOccupied && resource.current_order_id) {
       fetchingRef.current = ''
       await fetchOrder()
@@ -363,7 +369,6 @@ export function ResourceSlideOver({
 
   const lastOpenedRef = useRef<{ id: string; open: boolean }>({ id: '', open: false })
 
-  // Reset state when opening a new resource
   useEffect(() => {
     const justOpened = open && (!lastOpenedRef.current.open || lastOpenedRef.current.id !== resource.id)
     lastOpenedRef.current = { id: resource.id, open }
@@ -397,7 +402,6 @@ export function ResourceSlideOver({
     }
   }, [open, resource.id, fetchOrder])
 
-  // Timer logic
   useEffect(() => {
     if (!order) return
     let checkInDate = new Date(order.created_at)
@@ -417,87 +421,25 @@ export function ResourceSlideOver({
       setElapsed(diff > 0 ? diff : 0)
     }
     updateTimer()
-    timerRef.current = setInterval(updateTimer, 60000) // Update every minute
+    timerRef.current = setInterval(updateTimer, 60000)
     return () => clearInterval(timerRef.current!)
   }, [order, customCheckoutTime])
 
-  // Background polling for external payment/changes (Fallback if Realtime disabled)
+  isDirtyRef.current = Object.keys(dirtyItems).length > 0 || checkoutOpen || transferModalOpen || splitModalOpen || mergeModalOpen || editCustomerModalOpen || customerCreateModalOpen || isEditingCheckout || showPaymentForm;
+
   useEffect(() => {
-    if (!open || !isOccupied || !resource.current_order_id) return
-    if (enableRealtimeSync) return // Skip polling if realtime is on
-
-    const pollTimer = setInterval(() => {
-      const isDirty = Object.keys(dirtyItems).length > 0 ||
-                      checkoutOpen || transferModalOpen || splitModalOpen || 
-                      mergeModalOpen || editCustomerModalOpen || customerCreateModalOpen ||
-                      isEditingCheckout || showPaymentForm
-
-      if (isDirty) {
+    if (syncTick > 0) {
+      if (isDirtyRef.current) {
         setHasPendingSync(true)
       } else {
-        fetchingRef.current = '' // reset to force fetch
-        fetchOrder()
-      }
-    }, 15000) // Poll every 15s
-    return () => pollTimer && clearInterval(pollTimer)
-  }, [open, isOccupied, resource.current_order_id, fetchOrder, enableRealtimeSync, dirtyItems, checkoutOpen, transferModalOpen, splitModalOpen, mergeModalOpen, editCustomerModalOpen, customerCreateModalOpen, isEditingCheckout, showPaymentForm])
-
-  // Real-time synchronization via Supabase Broadcast
-  const broadcastSyncEvent = useCallback((eventAction: string = 'ORDER_UPDATED') => {
-    if (!enableRealtimeSync || !slug || !shopId) return
-    const supabase = getSupabaseBrowserClient()
-    supabase.channel(`pos_sync_${slug}_${shopId}`).send({
-      type: 'broadcast',
-      event: 'sync_event',
-      payload: { source: 'web_app', event: eventAction, tableId: resource.id }
-    })
-  }, [enableRealtimeSync, slug, shopId, resource.id])
-
-  useEffect(() => {
-    if (!open || !isOccupied || !resource.current_order_id || !enableRealtimeSync || !slug) return
-    const supabase = getSupabaseBrowserClient()
-    const channelName = `pos_sync_${slug}_${shopId}`
-    const channel = supabase.channel(channelName)
-    
-    channel.on('broadcast', { event: 'sync_event' }, (payload: any) => {
-      console.log('[SlideOver] Received Supabase Realtime sync_event:', payload)
-      if (payload?.payload?.source !== 'web_app' && payload?.payload?.tableId === resource.id) {
-        // Kiểm tra xem user có đang sửa dữ liệu hay không (dirty state)
-        const isDirty = Object.keys(dirtyItems).length > 0 ||
-                        checkoutOpen || transferModalOpen || splitModalOpen || 
-                        mergeModalOpen || editCustomerModalOpen || customerCreateModalOpen ||
-                        isEditingCheckout || showPaymentForm
-
-        if (isDirty) {
-          setHasPendingSync(true)
-        } else {
-          fetchingRef.current = ''
-          void fetchOrder()
-        }
-      }
-    }).subscribe()
-
-    return () => {
-      void supabase.removeChannel(channel)
-    }
-  }, [open, isOccupied, resource.current_order_id, enableRealtimeSync, slug, shopId, resource.id, fetchOrder, dirtyItems, checkoutOpen, transferModalOpen, splitModalOpen, mergeModalOpen, editCustomerModalOpen, customerCreateModalOpen, isEditingCheckout, showPaymentForm])
-
-  // Online / network restore background sync
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const handleOnline = () => {
-      if (open && isOccupied && resource.current_order_id) {
         fetchingRef.current = ''
-        fetchOrder()
+        void fetchOrder()
       }
     }
-    window.addEventListener('online', handleOnline)
-    return () => window.removeEventListener('online', handleOnline)
-  }, [open, isOccupied, resource.current_order_id, fetchOrder])
+  }, [syncTick, fetchOrder])
 
   const orderMeta = order ? safeParse(order.metadata) : null
 
-  // Calculate Time Charge
   const hourlyRate = Number(resource.hourly_rate) || 0
   const activeRentalType = orderMeta?.rental_type || 'hourly'
   let billableHours = 0
@@ -541,7 +483,7 @@ export function ResourceSlideOver({
     if (c?.name) {
       setGuests(prev => {
         const newGuests = [...prev]
-        if (!newGuests[0].name) newGuests[0].name = c.name
+        if (newGuests.length > 0 && !newGuests[0].name) newGuests[0].name = c.name
         return newGuests
       })
     }
@@ -608,7 +550,6 @@ export function ResourceSlideOver({
         }),
       })
 
-      // Bypass double loading by seeding state
       fetchingRef.current = orderId
       setOrder({
         ...createdOrder,
@@ -668,7 +609,7 @@ export function ResourceSlideOver({
       }
 
       toast.success('Đã lưu thông tin')
-      broadcastSyncEvent('METADATA_UPDATED')
+      if (broadcastSyncEvent) broadcastSyncEvent("ITEMS_UPDATED", { tableId: resource.id })
       void fetchOrder()
     } catch (err) {
       console.error(err)
@@ -762,7 +703,6 @@ export function ResourceSlideOver({
       return
     }
 
-    // Auto-save new item immediately
     const tempId = `temp-${Date.now()}`
     const newItem = {
       order_id: order.id,
@@ -891,7 +831,7 @@ export function ResourceSlideOver({
         const iData = await itemsRes.json()
         setExistingItems(iData.data || [])
       }
-      broadcastSyncEvent('ITEMS_UPDATED')
+      if (broadcastSyncEvent) broadcastSyncEvent("ITEMS_UPDATED", { tableId: resource.id })
     } catch {
       toast.error('Lỗi khi lưu cập nhật')
     } finally {
@@ -969,7 +909,7 @@ export function ResourceSlideOver({
         if (!res.ok) throw new Error()
         toast.success('Đã xóa món')
       }
-      broadcastSyncEvent('ITEMS_UPDATED')
+      if (broadcastSyncEvent) broadcastSyncEvent("ITEMS_UPDATED", { tableId: resource.id })
       await fetchOrder()
     } catch {
       pushOfflineAction(order.id, { type: 'DELETE', itemId })
@@ -1033,7 +973,6 @@ export function ResourceSlideOver({
     currentMeta.actual_checkout_requested_at = nowStr
     
     try {
-      // 1. Update order metadata
       const orderRes = await fetch(`/api/shops/${shopId}/orders/${order.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -1043,14 +982,13 @@ export function ResourceSlideOver({
       })
       
       if (orderRes.ok) {
-        // 2. Update resource status to checking_out
         await fetch(`/api/shops/${shopId}/location-resources/${resource.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ status: 'checking_out' }),
         })
         toast.success('Đã gửi yêu cầu thanh toán / kiểm phòng')
-        broadcastSyncEvent('CHECKOUT_REQUESTED')
+        if (broadcastSyncEvent) broadcastSyncEvent("ITEMS_UPDATED", { tableId: resource.id })
         fetchOrder()
         onRefresh?.()
       } else {
@@ -2348,7 +2286,7 @@ export function ResourceSlideOver({
           autoPrintReceipt={autoPrintReceipt}
           customCheckoutTime={customCheckoutTime}
           hourlyRate={hourlyRate}
-          isAccommodation={isRoom}
+          isAccommodation={resource.type === 'room'}
         />
       )}
       {/* Resource Picker Modal for Transfer */}

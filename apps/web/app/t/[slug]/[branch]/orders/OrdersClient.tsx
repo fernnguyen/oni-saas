@@ -668,14 +668,15 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
           >
             <Printer className="h-3.5 w-3.5" /> In
           </button>
-          {row.status !== 'cancelled' && row.status !== 'in_progress' && permissions.includes('orders.delete') && (
+          {(row.status !== 'cancelled' && row.status !== 'in_progress' && permissions.includes('orders.delete')) || 
+           (row.status === 'in_progress' && permissions.includes('orders.delete') && permissions.some((p: string) => p.includes('owner') || p.includes('admin'))) ? (
             <button
               onClick={() => setCancelTarget(row)}
-              className="flex items-center gap-1.5 rounded-lg border border-red-100 bg-white px-3 py-1.5 text-xs font-medium text-red-500 shadow-sm hover:bg-red-50 transition-colors"
+              className={`flex items-center gap-1.5 rounded-lg border ${row.status === 'in_progress' ? 'border-orange-200 bg-orange-50 text-orange-600 hover:bg-orange-100' : 'border-red-100 bg-white text-red-500 hover:bg-red-50'} px-3 py-1.5 text-xs font-medium shadow-sm transition-colors`}
             >
-              <Ban className="h-3.5 w-3.5" /> Hủy
+              <Ban className="h-3.5 w-3.5" /> {row.status === 'in_progress' ? 'Gỡ kẹt' : 'Hủy'}
             </button>
-          )}
+          ) : null}
         </div>
       ),
     },
@@ -1373,11 +1374,12 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
             cancelMutation.mutate({ id: cancelTarget.order_id, reason: finalReason || 'Không rõ' })
           }
         }}
-        title="Xác nhận hủy đơn hàng"
-        description={`Khách hàng: ${cancelTarget?.customer_name || 'Khách lẻ'} - Tổng tiền: ${fmtVND(cancelTarget?.total_amount || '0')} \nBạn có chắc muốn hủy đơn hàng "${cancelTarget?.order_id}"? Việc này không thể hoàn tác. Hệ thống sẽ tự động tạo phiếu chi để hoàn lại dòng tiền tương ứng và khôi phục tồn kho.${
+        title={cancelTarget?.status === 'in_progress' ? "Xác nhận gỡ kẹt đơn hàng" : "Xác nhận hủy đơn hàng"}
+        description={`Khách hàng: ${cancelTarget?.customer_name || 'Khách lẻ'} - Tổng tiền: ${fmtVND(cancelTarget?.total_amount || '0')} 
+${cancelTarget?.status === 'in_progress' ? '\n⚠️ CẢNH BÁO TỪ HỆ THỐNG:\nĐơn này đang trong trạng thái ĐANG PHỤC VỤ. Chỉ dùng chức năng GỠ KẸT này để xử lý lỗi hệ thống/dữ liệu cũ bị kẹt. Nếu khách hàng vẫn đang dùng dịch vụ tại bàn, hành động này sẽ HỦY ĐƠN và XÓA PHIÊN NGAY LẬP TỨC!\n\n' : '\n'}Bạn có chắc muốn hủy đơn hàng "${cancelTarget?.order_id}"? Việc này không thể hoàn tác. Hệ thống sẽ tự động tạo phiếu chi để hoàn lại dòng tiền tương ứng và khôi phục tồn kho.${
           parseFloat(cancelTarget?.debt_amount || '0') > 0 ? `\nĐồng thời xóa công nợ ${fmtVND(cancelTarget?.debt_amount || '0')} cho khách hàng này.` : ''
         }`}
-        confirmLabel="Hủy đơn"
+        confirmLabel={cancelTarget?.status === 'in_progress' ? "Gỡ kẹt ngay" : "Hủy đơn"}
         variant="danger"
         loading={cancelMutation.isPending}
       >

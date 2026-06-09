@@ -10,7 +10,7 @@ type RealtimePayload = {
   source: string;
 };
 
-export function useRealtimeSync(activeShopId: string, isOnline: boolean, onSyncRequired: () => void) {
+export function useRealtimeSync(activeShopId: string, isOnline: boolean, onSyncRequired: (payload?: any) => void) {
   const channelRef = useRef<any>(null);
   const [isEnabled, setIsEnabled] = useState(false);
   const syncCallbackRef = useRef(onSyncRequired);
@@ -57,7 +57,7 @@ export function useRealtimeSync(activeShopId: string, isOnline: boolean, onSyncR
           console.log('[RealtimeSync] Received sync event:', payload);
           // Only trigger if source is not this device
           if (payload?.payload?.source !== 'mobile_app') {
-            syncCallbackRef.current();
+            syncCallbackRef.current(payload?.payload);
           }
         })
         .subscribe((status: string) => {

@@ -228,7 +228,15 @@ export function useTableManager(props: UseTableManagerProps) {
         console.log('Không thể tải metadata phòng từ Cloud:', resErr);
       }
 
-      let resolvedOrderId = orderId;
+      // Quan trọng: Phải luôn ưu tiên ID từ Cloud thay vì ID cũ từ SQLite
+      let resolvedOrderId = latestResource?.current_order_id || orderId;
+
+      // Nếu Cloud trả về available và không có order, nghĩa là bàn đã được giải phóng
+      if (latestResource && latestResource.status === 'available' && !latestResource.current_order_id) {
+        return { isFinished: true };
+      }
+
+      
       let orderData: any = null;
 
       // TỰ ĐỘNG CHỮA LÀNH (Self-heal): Nếu không có orderId cục bộ nhưng trạng thái là đang ở/chơi
@@ -238,6 +246,10 @@ export function useTableManager(props: UseTableManagerProps) {
         if (ordersRes.ok) {
           const ordersData = await ordersRes.json();
           const list = ordersData.data || [];
+          
+          // Sắp xếp giảm dần theo created_at để ưu tiên order mới nhất nếu bị stuck
+          list.sort((a: any, b: any) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+          
           const matched = list.find((o: any) => {
             try {
               const meta = typeof o.metadata === 'string' ? JSON.parse(o.metadata) : (o.metadata || {});
@@ -285,7 +297,7 @@ export function useTableManager(props: UseTableManagerProps) {
     }
   };
 
-  const syncOrderItemsOnline = async (orderId: string, cartItems: any) => {
+  const syncOrderItemsOnline = async (orderId: string, cartItems: any, tableId?: string) => {
     if (!isOnline) return;
     try {
       const currentUrl = getApiBaseUrl();
@@ -352,6 +364,9 @@ export function useTableManager(props: UseTableManagerProps) {
         });
       }
 
+      if (broadcastSync && tableId) {
+        broadcastSync({ event: "TABLE_UPDATED", tableId });
+      }
       return true;
     } catch (err) {
       console.warn('Lỗi khi đồng bộ món lên server:', err);
@@ -516,6 +531,24 @@ export function useTableManager(props: UseTableManagerProps) {
       return { isFinished: false };
     }
   };
+
+  const syncTableSilent = useCallback(async (tableId: string) => {
+    const targetTable = tables.find(t => t.id === tableId);
+    if (!targetTable) {
+      try {
+        const currentUrl = getApiBaseUrl();
+        const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+        const headers = await getApiHeaders();
+        const resourceRes = await fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${tableId}`, { headers });
+        if (resourceRes.ok) {
+          const fetchedTable = await resourceRes.json();
+          await syncActiveTableSession({ ...fetchedTable, type: fetchedTable.type || 'table', status: fetchedTable.status === 'occupied' ? 'occupied' : 'available' });
+        }
+      } catch (err) {}
+    } else {
+      await syncActiveTableSession(targetTable);
+    }
+  }, [tables, syncActiveTableSession]);
 
   // Mở bàn
   // Mở bàn
@@ -884,7 +917,7 @@ export function useTableManager(props: UseTableManagerProps) {
 
       // Đồng bộ trực tuyến tức thì lên server Next.js nếu có current_order_id
       if (activeTable && activeTable.id === tableId && activeTable.current_order_id) {
-        syncOrderItemsOnline(activeTable.current_order_id, updatedCart);
+        syncOrderItemsOnline(activeTable.current_order_id, updatedCart, tableId);
       }
 
       return {
@@ -911,7 +944,7 @@ export function useTableManager(props: UseTableManagerProps) {
 
       // Đồng bộ trực tuyến tức thì lên server Next.js nếu có current_order_id
       if (activeTable && activeTable.id === tableId && activeTable.current_order_id) {
-        syncOrderItemsOnline(activeTable.current_order_id, updatedCart);
+        syncOrderItemsOnline(activeTable.current_order_id, updatedCart, tableId);
       }
 
       return {
@@ -929,7 +962,7 @@ export function useTableManager(props: UseTableManagerProps) {
 
       // Đồng bộ trực tuyến tức thì lên server Next.js nếu có current_order_id
       if (activeTable && activeTable.id === tableId && activeTable.current_order_id) {
-        syncOrderItemsOnline(activeTable.current_order_id, tableCart);
+        syncOrderItemsOnline(activeTable.current_order_id, tableCart, tableId);
       }
 
       return {
@@ -1405,6 +1438,7 @@ export function useTableManager(props: UseTableManagerProps) {
     handleUpdateActiveRoomGuests,
     handleDatePickerOpen,
     handleConfirmOpenTable,
-    syncActiveTableSession
+    syncActiveTableSession,
+    syncTableSilent
   };
 }
