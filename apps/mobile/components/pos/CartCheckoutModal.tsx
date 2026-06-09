@@ -1061,7 +1061,6 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
             visible={isConfirmVisible}
             onClose={() => setIsConfirmVisible(false)}
             onConfirm={() => {
-              setIsConfirmVisible(false);
               const debtOpts = clampedDebtRepay > 0 ? { debtRepayAmount: clampedDebtRepay, ...selectDebtFund() } : undefined;
               onCheckout(debtOpts);
             }}
@@ -1070,7 +1069,9 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
             confirmLabel="Xác nhận"
             cancelLabel="Hủy"
             variant="default"
+            loading={loading}
           >
+            <ScrollView style={{ maxHeight: 400 }} showsVerticalScrollIndicator={true} className="w-full">
             {/* Alert Banner */}
             <View className="flex-row gap-2 bg-amber-50 border border-amber-200 rounded-xl p-3 mb-3 w-full">
               <Ionicons name="warning-outline" size={16} color="#d97706" style={{ marginTop: 1 }} />
@@ -1173,6 +1174,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                 })}
               </View>
             </View>
+            </ScrollView>
           </Dialog>
         </View>
       </Modal>

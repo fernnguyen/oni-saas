@@ -228,12 +228,7 @@ export default function PosScreen() {
   const [isTablePayDialogVisible, setIsTablePayDialogVisible] = useState(false);
   const [selectedTableForPay, setSelectedTableForPay] = useState<any>(null);
   const [tablePayMethod, setTablePayMethod] = useState<'Tiền mặt' | 'Chuyển khoản'>('Tiền mặt');
-  const [isPayingTableLoading, setIsPayingTableLoading] = useState(false);
-
-
   const [isPayingCartLoading, setIsPayingCartLoading] = useState(false);
-  const [isUpdatingGuestsLoading, setIsUpdatingGuestsLoading] = useState(false);
-
   // States quản lý ca làm việc (Shift Management)
   const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
   const [openingCashInput, setOpeningCashInput] = useState('0');
@@ -311,20 +306,11 @@ export default function PosScreen() {
   };
 
   // Custom Date Picker Modal States
-  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
-  const [pickerTargetIndex, setPickerTargetIndex] = useState<number>(0);
-  const [pickerTargetField, setPickerTargetField] = useState<'dob' | 'expiry_date'>('dob');
-  const [pickerDay, setPickerDay] = useState<number>(27);
-  const [pickerMonth, setPickerMonth] = useState<number>(5);
-  const [pickerYear, setPickerYear] = useState<number>(2026);
-  const [datePickerView, setDatePickerView] = useState<'calendar' | 'year'>('calendar');
-
   const [isScanSuccessDialogVisible, setIsScanSuccessDialogVisible] = useState(false);
   const [scannedProductInfo, setScannedProductInfo] = useState<any>(null);
 
   // States cho nghiệp vụ phòng/bàn/sân nâng cao & CRM
 
-  const [roomRentalType, setRoomRentalType] = useState<'hourly' | 'daily'>('hourly');
   const {
     activeTable, setActiveTable,
     tableCarts, setTableCarts,
@@ -353,6 +339,14 @@ export default function PosScreen() {
     syncCustomerUpdate,
     handleUpdateActiveRoomGuests,
     handleDatePickerOpen,
+    isDatePickerOpen,
+    setIsDatePickerOpen,
+    pickerTargetField,
+    pickerTargetIndex,
+    isPayingTableLoading,
+    isUpdatingGuestsLoading,
+    roomRentalType,
+    setRoomRentalType,
     handleConfirmOpenTable
   } = useTableManager({
     tables, setTables, shopVertical, activeShopId,

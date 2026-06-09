@@ -1107,7 +1107,8 @@ export function useTableManager(props: UseTableManagerProps) {
 
       const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
       const shiftId = await AsyncStorage.getItem('active_shift_id') || 'default-shift';
-      const orderId = `ORD-T-${Date.now()}`;
+      // FIX DUPLICATE: Reuse existing order ID to prevent duplicates!
+      const orderId = selectedTableForPay.current_order_id || `ORD-T-${Date.now()}`;
       const orderNo = `HD-${shopVertical === 'lodging' ? '🏩' : '🎱'}-${Date.now().toString().substring(9)}`;
       const nowStr = new Date().toISOString();
       let syncSucceeded = false;
@@ -1200,7 +1201,7 @@ export function useTableManager(props: UseTableManagerProps) {
         const headers = await getApiHeaders();
 
         const payload = {
-          local_order_id: orderId,
+          local_order_id: selectedTableForPay.current_order_id || orderId,
           server_order_id: selectedTableForPay.current_order_id || '',
           order: {
             status: 'completed',
@@ -1393,6 +1394,7 @@ export function useTableManager(props: UseTableManagerProps) {
     isOpeningTable, setIsOpeningTable,
     isSyncingTableSession, setIsSyncingTableSession,
     isPayingTableLoading,
+    isUpdatingGuestsLoading,
     datePickerView, setDatePickerView,
     pickerYear, setPickerYear,
     pickerMonth, setPickerMonth,
