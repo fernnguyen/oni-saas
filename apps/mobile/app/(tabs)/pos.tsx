@@ -682,9 +682,7 @@ export default function PosScreen() {
  const [tablePayMethod, setTablePayMethod] = useState<'Tiền mặt' | 'Chuyển khoản'>('Tiền mặt');
  const [isPayingTableLoading, setIsPayingTableLoading] = useState(false);
 
- const [isCheckoutConfirmVisible, setIsCheckoutConfirmVisible] = useState(false);
- const checkoutResolveRef = React.useRef<((value: boolean) => void) | null>(null);
- const [checkoutConfirmData, setCheckoutConfirmData] = useState<{ amount: number; paymentMethods: string } | null>(null);
+
  const [isPayingCartLoading, setIsPayingCartLoading] = useState(false);
  const [isUpdatingGuestsLoading, setIsUpdatingGuestsLoading] = useState(false);
 
@@ -2412,7 +2410,7 @@ useEffect(() => {
 
  setIsCartModalOpen(false);
  setIsPayingTableLoading(false);
- setIsCheckoutConfirmVisible(false);
+
 
  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
 
@@ -2439,7 +2437,7 @@ useEffect(() => {
 } catch (err) {
  console.error('Lỗi thanh toán phòng bàn:', err);
  setIsPayingTableLoading(false);
- setIsCheckoutConfirmVisible(false);
+
  showToast("Lỗi khi xử lý thanh toán!", "error");
 }
 };
@@ -2455,26 +2453,7 @@ useEffect(() => {
  const originalTotal = getCartTotal();
  const finalTotal = Math.max(0, originalTotal - discount);
 
-  const methodNames = payments.map(p => {
-    const found = paymentMethodsList.find(pm => pm.id === p.method || pm.code === p.method || pm.value === p.method);
-    const name = found ? (found.name || found.label) : (
-      p.method === 'cash' ? 'Tiền mặt' :
-      p.method === 'bank_transfer' ? 'Chuyển khoản' :
-      p.method === 'card' ? 'Thẻ ATM / POS' :
-      p.method === 'momo' ? 'Ví MoMo' :
-      p.method === 'debt' ? 'Ghi nợ' :
-      p.method === 'prepaid' ? 'Ví trả trước' : p.method
-    );
-    return `${name} (${p.amount.toLocaleString('vi-VN')}đ)`;
-  }).join(' + ');
 
-  const confirmPay = await new Promise<boolean>((resolve) => {
-    checkoutResolveRef.current = resolve;
-    setCheckoutConfirmData({ amount: finalTotal, paymentMethods: methodNames });
-    setIsCheckoutConfirmVisible(true);
-  });
-
-  if (!confirmPay) return;
 
  if (cartOwnerTable) {
  await handlePayTableConfirmUnified(customer, discount, note, payments);
@@ -2628,7 +2607,7 @@ useEffect(() => {
   setOrderNote('');
   setSelectedCustomer(null);
   setIsCartModalOpen(false);
-  setIsCheckoutConfirmVisible(false);
+
 
   Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
 
@@ -2675,7 +2654,7 @@ useEffect(() => {
  } catch (err) {
  console.error('Lỗi khi thanh toán đơn lẻ SQLite:', err);
  setIsPayingCartLoading(false);
- setIsCheckoutConfirmVisible(false);
+
  }
  };
 
@@ -3525,28 +3504,7 @@ if (!isNavReady) {
  )}
  </Dialog>
 
-  <Dialog
-    visible={isCheckoutConfirmVisible}
-    onClose={() => {
-      setIsCheckoutConfirmVisible(false);
-      if (checkoutResolveRef.current) {
-        checkoutResolveRef.current(false);
-        checkoutResolveRef.current = null;
-      }
-    }}
-    onConfirm={() => {
-      setIsCheckoutConfirmVisible(false);
-      if (checkoutResolveRef.current) {
-        checkoutResolveRef.current(true);
-        checkoutResolveRef.current = null;
-      }
-    }}
-    title="Xác nhận Thanh toán"
-    description={`Bạn có chắc chắn muốn hoàn tất thanh toán hóa đơn trị giá ${checkoutConfirmData?.amount ? checkoutConfirmData.amount.toLocaleString('vi-VN') : '0'}đ bằng phương thức: ${checkoutConfirmData?.paymentMethods || ''}?`}
-    confirmLabel="Xác nhận"
-    cancelLabel="Hủy"
-    variant="default"
-  />
+
 
  {/* 5. CAMERA SCAN BARCODE POPUP */}
  <BarcodeScannerModal

@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
+import { Dialog } from '../ui/Dialog';
 
 interface CartCheckoutModalProps {
   visible: boolean;
@@ -118,6 +119,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
   // Dữ liệu realtime khách hàng (chứa debt_amount, prepaid_balance cập nhật mới nhất)
   const [enrichedCustomer, setEnrichedCustomer] = useState<any>(null);
   const [isLoadingCustomer, setIsLoadingCustomer] = useState(false);
+  const [isConfirmVisible, setIsConfirmVisible] = useState(false);
 
   // Reset khi đổi khách
   React.useEffect(() => {
@@ -273,9 +275,30 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
       );
       return;
     }
-    const debtOpts = clampedDebtRepay > 0 ? { debtRepayAmount: clampedDebtRepay, ...selectDebtFund() } : undefined;
-    onCheckout(debtOpts);
+    setIsConfirmVisible(true);
   };
+
+  const methodNames = paymentRows.map(p => {
+    const foundMethod = resolvedMethods.find(m => m.value === p.method || m.code === p.method);
+    const methodName = foundMethod ? foundMethod.label : p.method;
+
+    if (p.method === 'debt' || p.method === 'prepaid') {
+      return methodName;
+    }
+
+    let fundType = 'bank';
+    if (foundMethod) {
+      fundType = foundMethod.type || 'bank';
+    } else {
+      if (p.method === 'cash') fundType = 'cash';
+      else if (['momo', 'zalopay', 'vnpay', 'wallet'].includes(p.method)) fundType = 'wallet';
+    }
+    const matchingFunds = paymentFundsList.filter(f => f.type === fundType);
+    const activeFund = paymentFundsList.find(f => f.id === p.fund_id) || matchingFunds[0];
+    const fundName = activeFund ? `Quỹ ${activeFund.name}` : 'Chưa chọn quỹ';
+
+    return `${methodName} (${fundName})`;
+  }).join(' + ');
 
   return (
     <>
@@ -1029,6 +1052,21 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
               </View>
             </View>
           )}
+          {/* Dialog xác nhận thanh toán */}
+          <Dialog
+            visible={isConfirmVisible}
+            onClose={() => setIsConfirmVisible(false)}
+            onConfirm={() => {
+              setIsConfirmVisible(false);
+              const debtOpts = clampedDebtRepay > 0 ? { debtRepayAmount: clampedDebtRepay, ...selectDebtFund() } : undefined;
+              onCheckout(debtOpts);
+            }}
+            title="Xác nhận Thanh toán"
+            description={`Bạn có chắc chắn muốn hoàn tất thanh toán hóa đơn trị giá ${formatCurrency(finalTotal)} bằng phương thức: ${methodNames}?`}
+            confirmLabel="Xác nhận"
+            cancelLabel="Hủy"
+            variant="default"
+          />
         </View>
       </Modal>
     </>
