@@ -1511,7 +1511,7 @@ export function ResourceSlideOver({
                     const isExpanded = expandedGuests[idx] !== undefined ? expandedGuests[idx] : (!g.name && !g.id_number)
                     if (!isExpanded) {
                       return (
-                        <div key={g.id} className="flex items-center justify-between p-3.5 bg-white border border-slate-200 rounded-xl shadow-xs">
+                        <div key={g.id} onClick={() => setExpandedGuests(prev => ({ ...prev, [idx]: true }))} className="flex items-center justify-between p-3.5 bg-white border border-slate-200 rounded-xl shadow-xs cursor-pointer hover:bg-slate-50 transition-colors">
                           <div className="flex items-center gap-2.5 min-w-0">
                             <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-650">{idx + 1}</span>
                             <span className="text-sm font-semibold text-slate-800 truncate">
@@ -1521,7 +1521,10 @@ export function ResourceSlideOver({
                           <div className="flex items-center gap-3 shrink-0 ml-auto pl-4">
                             <button
                               type="button"
-                              onClick={() => setExpandedGuests(prev => ({ ...prev, [idx]: true }))}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setExpandedGuests(prev => ({ ...prev, [idx]: true }))
+                              }}
                               className="text-xs font-bold text-primary hover:text-primary-dark transition-colors cursor-pointer"
                             >
                               Sửa
@@ -1529,7 +1532,14 @@ export function ResourceSlideOver({
                             <span className="text-slate-300 text-xs select-none">|</span>
                             <button
                               type="button"
-                              onClick={() => {
+                              onClick={async (e) => {
+                                e.stopPropagation()
+                                const ok = await confirm({
+                                  title: 'Xóa khách lưu trú',
+                                  description: 'Bạn có chắc chắn muốn xóa khách lưu trú này?',
+                                  variant: 'danger',
+                                })
+                                if (!ok) return
                                 setGuests(guests.filter((_, i) => i !== idx))
                                 setExpandedGuests(prev => {
                                   const next = { ...prev }
@@ -1548,7 +1558,7 @@ export function ResourceSlideOver({
 
                     return (
                       <div key={g.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4 relative shadow-sm">
-                        <div className="flex items-center justify-between mb-4">
+                        <div onClick={() => g.name && setExpandedGuests(prev => ({ ...prev, [idx]: !prev[idx] }))} className={`flex items-center justify-between mb-4 ${g.name ? 'cursor-pointer hover:opacity-85 select-none' : ''}`}>
                           <div className="flex items-center gap-2">
                             <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">{idx + 1}</span>
                             <span className="text-sm font-semibold text-slate-800">Thông tin khách hàng {idx + 1}</span>
@@ -1557,7 +1567,10 @@ export function ResourceSlideOver({
                             {g.name && (
                               <button
                                 type="button"
-                                onClick={() => setExpandedGuests(prev => ({ ...prev, [idx]: false }))}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setExpandedGuests(prev => ({ ...prev, [idx]: false }))
+                                }}
                                 className="text-xs font-bold text-slate-500 hover:text-slate-705 transition-colors cursor-pointer"
                               >
                                 Thu gọn
@@ -1566,7 +1579,14 @@ export function ResourceSlideOver({
                             {g.name && <span className="text-slate-300 text-xs select-none">|</span>}
                             <button
                               type="button"
-                              onClick={() => {
+                              onClick={async (e) => {
+                                e.stopPropagation()
+                                const ok = await confirm({
+                                  title: 'Xóa khách lưu trú',
+                                  description: 'Bạn có chắc chắn muốn xóa khách lưu trú này?',
+                                  variant: 'danger',
+                                })
+                                if (!ok) return
                                 setGuests(guests.filter((_, i) => i !== idx))
                                 setExpandedGuests(prev => {
                                   const next = { ...prev }
@@ -1961,52 +1981,56 @@ export function ResourceSlideOver({
                       <div className="space-y-4">
                         {guests.map((g, idx) => {
                           const isExpanded = expandedGuests[idx] !== undefined ? expandedGuests[idx] : (!g.name && !g.id_number)
-                          if (!isExpanded) {
-                            return (
-                              <div key={g.id || idx} className="flex items-center justify-between p-3.5 bg-white border border-slate-200 rounded-xl shadow-xs">
-                                <div className="flex items-center gap-2.5 min-w-0">
-                                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-650">{idx + 1}</span>
-                                  <span className="text-sm font-semibold text-slate-800 truncate">
-                                    {g.name || 'Chưa nhập tên'} <span className="text-xs font-normal text-slate-500">({g.id_type || 'CCCD'}: {g.id_number || 'Chưa nhập'})</span>
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-3 shrink-0 ml-auto pl-4">
-                                  <button
-                                    type="button"
-                                    onClick={() => setExpandedGuests(prev => ({ ...prev, [idx]: true }))}
-                                    className="text-xs font-bold text-primary hover:text-primary-dark transition-colors cursor-pointer"
-                                  >
-                                    Sửa
-                                  </button>
-                                  <span className="text-slate-300 text-xs select-none">|</span>
-                                  <button
-                                    type="button"
-                                    onClick={async () => {
-                                      const ok = await confirm({
-                                        title: 'Xóa khách lưu trú',
-                                        description: 'Bạn có chắc chắn muốn xóa khách lưu trú này?',
-                                        variant: 'danger',
-                                      })
-                                      if (!ok) return
-                                      setGuests(guests.filter((_, i) => i !== idx))
-                                      setExpandedGuests(prev => {
-                                        const next = { ...prev }
-                                        delete next[idx]
-                                        return next
-                                      })
-                                    }}
-                                    className="text-xs font-bold text-red-500 hover:text-red-750 transition-colors cursor-pointer"
-                                  >
-                                    Xóa
-                                  </button>
-                                </div>
-                              </div>
-                            )
-                          }
+                           if (!isExpanded) {
+                             return (
+                               <div key={g.id || idx} onClick={() => setExpandedGuests(prev => ({ ...prev, [idx]: !prev[idx] }))} className="flex items-center justify-between p-3.5 bg-white border border-slate-200 rounded-xl shadow-xs cursor-pointer hover:bg-slate-50 transition-colors">
+                                 <div className="flex items-center gap-2.5 min-w-0">
+                                   <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-650">{idx + 1}</span>
+                                   <span className="text-sm font-semibold text-slate-800 truncate">
+                                     {g.name || 'Chưa nhập tên'} <span className="text-xs font-normal text-slate-500">({g.id_type || 'CCCD'}: {g.id_number || 'Chưa nhập'})</span>
+                                   </span>
+                                 </div>
+                                 <div className="flex items-center gap-3 shrink-0 ml-auto pl-4">
+                                   <button
+                                     type="button"
+                                     onClick={(e) => {
+                                       e.stopPropagation()
+                                       setExpandedGuests(prev => ({ ...prev, [idx]: true }))
+                                     }}
+                                     className="text-xs font-bold text-primary hover:text-primary-dark transition-colors cursor-pointer"
+                                   >
+                                     Sửa
+                                   </button>
+                                   <span className="text-slate-300 text-xs select-none">|</span>
+                                   <button
+                                     type="button"
+                                     onClick={async (e) => {
+                                       e.stopPropagation()
+                                       const ok = await confirm({
+                                         title: 'Xóa khách lưu trú',
+                                         description: 'Bạn có chắc chắn muốn xóa khách lưu trú này?',
+                                         variant: 'danger',
+                                       })
+                                       if (!ok) return
+                                       setGuests(guests.filter((_, i) => i !== idx))
+                                       setExpandedGuests(prev => {
+                                         const next = { ...prev }
+                                         delete next[idx]
+                                         return next
+                                       })
+                                     }}
+                                     className="text-xs font-bold text-red-500 hover:text-red-750 transition-colors cursor-pointer"
+                                   >
+                                     Xóa
+                                   </button>
+                                 </div>
+                               </div>
+                             )
+                           }
 
                           return (
                             <div key={g.id || idx} className="rounded-xl border border-slate-200 bg-slate-50 p-4 relative shadow-sm">
-                              <div className="flex items-center justify-between mb-4">
+                              <div onClick={() => g.name && setExpandedGuests(prev => ({ ...prev, [idx]: !prev[idx] }))} className={`flex items-center justify-between mb-4 ${g.name ? 'cursor-pointer hover:opacity-85 select-none' : ''}`}>
                                 <div className="flex items-center gap-2">
                                   <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">{idx + 1}</span>
                                   <span className="text-sm font-semibold text-slate-800">Thông tin khách hàng {idx + 1}</span>
@@ -2015,7 +2039,10 @@ export function ResourceSlideOver({
                                   {g.name && (
                                     <button
                                       type="button"
-                                      onClick={() => setExpandedGuests(prev => ({ ...prev, [idx]: false }))}
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        setExpandedGuests(prev => ({ ...prev, [idx]: false }))
+                                      }}
                                       className="text-xs font-bold text-slate-500 hover:text-slate-705 transition-colors cursor-pointer"
                                     >
                                       Thu gọn
@@ -2024,7 +2051,8 @@ export function ResourceSlideOver({
                                   {g.name && <span className="text-slate-300 text-xs select-none">|</span>}
                                   <button
                                     type="button"
-                                    onClick={async () => {
+                                    onClick={async (e) => {
+                                      e.stopPropagation()
                                       const ok = await confirm({
                                         title: 'Xóa khách lưu trú',
                                         description: 'Bạn có chắc chắn muốn xóa khách lưu trú này?',
@@ -2153,33 +2181,43 @@ export function ResourceSlideOver({
           ) : (
             <div className="flex flex-col gap-3">
               <div className="flex gap-3">
-                <div className="flex gap-3 w-full">
-                  {resource.status === 'occupied' && !resource.id.startsWith('takeaway') && (
-                    <button
-                      onClick={handleRequestCheckout}
-                      className="rounded-xl bg-amber-500 hover:bg-amber-600 px-4 py-3.5 text-sm font-bold text-white shadow-sm transition-all"
-                    >
-                      Khóa giờ & Kiểm phòng
-                    </button>
-                  )}
+                {activeTab === 'guests' ? (
                   <button
-                    onClick={handlePayAndCloseClick}
-                    className="flex-1 rounded-xl bg-slate-900 py-3.5 text-sm font-bold text-white shadow-sm hover:bg-slate-800 transition-all"
+                    onClick={handleUpdateMetadata}
+                    disabled={isUpdatingMeta}
+                    className="w-full rounded-xl bg-primary py-3.5 text-sm font-bold text-white shadow-sm hover:bg-primary-dark disabled:opacity-50 transition-all"
                   >
-                    {resource.id.startsWith('takeaway') ? 'Thanh toán' : tpl.actions.payAndClose}
+                    {isUpdatingMeta ? 'Đang cập nhật khách lưu trú...' : 'Cập nhật khách lưu trú'}
                   </button>
-                  {permissions.includes('orders.delete') && (
+                ) : (
+                  <div className="flex gap-3 w-full">
+                    {resource.status === 'occupied' && !resource.id.startsWith('takeaway') && (
+                      <button
+                        onClick={handleRequestCheckout}
+                        className="rounded-xl bg-amber-500 hover:bg-amber-600 px-4 py-3.5 text-sm font-bold text-white shadow-sm transition-all"
+                      >
+                        Khóa giờ & Kiểm phòng
+                      </button>
+                    )}
                     <button
-                      onClick={() => {
-                        setRefundAmountInput(order?.paid_amount ? Number(order.paid_amount).toLocaleString('vi-VN') : '')
-                        setConfirmCancelResource(true)
-                      }}
-                      className="shrink-0 px-5 rounded-xl bg-red-50 text-red-600 border border-red-200 py-3.5 text-sm font-bold hover:bg-red-100 transition-colors"
+                      onClick={handlePayAndCloseClick}
+                      className="flex-1 rounded-xl bg-slate-900 py-3.5 text-sm font-bold text-white shadow-sm hover:bg-slate-800 transition-all"
                     >
-                      {resource.id.startsWith('takeaway') ? 'Hủy đơn' : `Hủy ${tpl.label.toLowerCase()}`}
+                      {resource.id.startsWith('takeaway') ? 'Thanh toán' : tpl.actions.payAndClose}
                     </button>
-                  )}
-                </div>
+                    {permissions.includes('orders.delete') && (
+                      <button
+                        onClick={() => {
+                          setRefundAmountInput(order?.paid_amount ? Number(order.paid_amount).toLocaleString('vi-VN') : '')
+                          setConfirmCancelResource(true)
+                        }}
+                        className="shrink-0 px-5 rounded-xl bg-red-50 text-red-600 border border-red-200 py-3.5 text-sm font-bold hover:bg-red-100 transition-colors"
+                      >
+                        {resource.id.startsWith('takeaway') ? 'Hủy đơn' : `Hủy ${tpl.label.toLowerCase()}`}
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}

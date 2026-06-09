@@ -120,10 +120,10 @@ export function LodgingGuestsForm({
 
         if (!isExpanded) {
           return (
-            <View key={index} className="flex-row justify-between items-center bg-white border border-slate-200 p-3.5 rounded-2xl mb-3 shadow-xs">
+            <TouchableOpacity key={index} activeOpacity={0.9} onPress={() => setExpandedState(prev => ({...prev, [index]: !prev[index]}))} className="flex-row justify-between items-center bg-white border border-slate-200 p-3.5 rounded-2xl mb-3 shadow-xs">
               <View className="flex-row items-center flex-1 mr-2">
                 <View className="w-6 h-6 rounded-full bg-slate-100 items-center justify-center mr-2">
-                  <Text className="text-xs font-bold text-slate-600">{index + 1}</Text>
+                  <Text className="text-xs font-bold text-slate-650">{index + 1}</Text>
                 </View>
                 <View className="flex-1">
                   <Text className="text-xs font-bold text-slate-850" numberOfLines={1}>
@@ -155,19 +155,24 @@ export function LodgingGuestsForm({
                   </>
                 )}
               </View>
-            </View>
+            </TouchableOpacity>
           );
         }
 
         return (
           <View key={index} className="mb-6 pb-6 border-b border-slate-100 last:border-b-0 animate-fade-in">
             <View className="flex-row justify-between items-center mb-3">
-              <View className="flex-row items-center">
+              <TouchableOpacity
+                activeOpacity={0.7}
+                disabled={!guest.name}
+                onPress={() => setExpandedState(prev => ({...prev, [index]: !prev[index]}))}
+                className="flex-row items-center flex-1 py-1"
+              >
                 <View className="w-6 h-6 rounded-full bg-orange-50 items-center justify-center mr-2">
                   <Text className="text-xs font-bold text-orange-600">{index + 1}</Text>
                 </View>
                 <Text className="text-sm font-semibold text-orange-600">Khách lưu trú #{index + 1}</Text>
-              </View>
+              </TouchableOpacity>
               <View className="flex-row items-center">
                 {guest.name ? (
                   <TouchableOpacity
