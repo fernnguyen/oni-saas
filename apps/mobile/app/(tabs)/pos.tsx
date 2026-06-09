@@ -1521,9 +1521,11 @@ export default function PosScreen() {
                     onPress={async () => {
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { });
                       setIsSyncingTableSession(true);
-                      await syncActiveTableSession(activeTable);
+                      const result = await syncActiveTableSession(activeTable);
                       setIsSyncingTableSession(false);
-                      showToast("Đã đồng bộ dữ liệu phòng mới nhất từ Cloud!", "success");
+                      if (!result?.isFinished) {
+                        showToast("Đã đồng bộ dữ liệu phòng mới nhất từ Cloud!", "success");
+                      }
                     }}
                     className="p-1.5 rounded-lg active:bg-slate-100"
                     disabled={isSyncingTableSession}
@@ -1966,7 +1968,7 @@ export default function PosScreen() {
       />
 
       {/* Toast Notification Overlay */}
-      <PosToast toastMsg={toastMsg} toastOpacity={toastOpacity} />
+      <PosToast toastMsg={(!!activeTable || !!isCartModalOpen || !!isQrModalOpen || !!isTableOpenDialogVisible) ? null : toastMsg} toastOpacity={toastOpacity} />
 
 
       {/* Premium Saving & Cloud Syncing Glass Overlay */}

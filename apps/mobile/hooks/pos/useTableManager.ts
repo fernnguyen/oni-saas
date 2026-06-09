@@ -269,7 +269,12 @@ export function useTableManager(props: UseTableManagerProps) {
       const itemsData = await itemsRes.json();
       const rawItems = itemsData.data || [];
 
-      return { order: orderData, items: rawItems, resource: latestResource };
+      let isFinished = false;
+      if (orderData && (orderData.status === 'completed' || orderData.status === 'cancelled')) {
+        isFinished = true;
+      }
+
+      return { order: orderData, items: rawItems, resource: latestResource, isFinished };
     } catch (err) {
       console.warn('Lỗi khi tải chi tiết phòng/bàn từ server:', err);
       return null;
@@ -377,7 +382,7 @@ export function useTableManager(props: UseTableManagerProps) {
           });
 
           showToast("Phòng đã được thanh toán và trả trên hệ thống!", "info");
-          return;
+          return { isFinished: true };
         }
 
         const { order, items, resource } = onlineSession;
@@ -498,9 +503,12 @@ export function useTableManager(props: UseTableManagerProps) {
           : [{ name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', address: '', note: '' }]);
 
         setActiveTable(updatedTable);
+        return { isFinished: false };
       }
+      return { isFinished: false };
     } catch (err) {
       console.warn('Lỗi khi đồng bộ phiên hoạt động:', err);
+      return { isFinished: false };
     }
   };
 
