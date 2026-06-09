@@ -1870,7 +1870,7 @@ useEffect(() => {
           headers: {...headers, 'Content-Type': 'application/json'},
           body: JSON.stringify({
             status: 'in_progress',
-            channel: 'pos',
+            channel: 'pos-mobile',
             customer_id: selectedCustomer?.id || '',
             customer_name: selectedCustomer?.name || 'Khách lẻ',
             branch_id: shopId,
@@ -2302,7 +2302,7 @@ useEffect(() => {
  server_order_id: selectedTableForPay.current_order_id || '', 
  order: {
  status: 'completed',
- channel: 'pos',
+ channel: 'pos-mobile',
  customer_id: customer?.id || '',
  customer_name: customer?.name || 'Khách lẻ',
  branch_id: shopId,
@@ -2566,7 +2566,7 @@ useEffect(() => {
          local_order_id: orderId,
          order: {
            status: 'completed',
-           channel: 'pos',
+           channel: 'pos-mobile',
            customer_id: customer ? customer.id : '',
            customer_name: customer ? customer.name : 'Khách mua lẻ',
            branch_id: debtShopId,

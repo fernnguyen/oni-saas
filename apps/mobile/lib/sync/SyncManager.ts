@@ -364,7 +364,7 @@ export class SyncManager {
             server_order_id: serverOrderId,
             order: {
               status: order.status,
-              channel: 'pos',
+              channel: 'pos-mobile',
               customer_id: order.customer_id || '',
               customer_name: order.customer_name || 'Khách lẻ',
               branch_id: shopId,
