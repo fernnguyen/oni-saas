@@ -2,10 +2,13 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { getSupabaseAdminClient } from '../lib/server/supabaseAdmin';
 import { PricingSection } from './PricingSection';
-import { LoginButton } from './LoginButton';
+import { Navbar } from './components/layout/Navbar';
+import { Footer } from './components/layout/Footer';
 import { HeroDashboardMock } from './HeroDashboardMock';
-import { IndustryDropdown } from './components/layout/IndustryDropdown';
-import { INDUSTRY_GROUPS, INDUSTRIES_LIST, ALL_SECTORS } from './components/layout/industriesData';
+import { INDUSTRY_GROUPS, INDUSTRIES_LIST } from './components/layout/industriesData';
+import { FloatingZalo } from './components/layout/FloatingZalo';
+import { AppDownloadButtons } from './components/layout/AppDownloadButtons';
+import { FREE_TRIAL_YEARS } from '../lib/constants/pricing';
 import { 
   Database, 
   Sparkles, 
@@ -105,26 +108,7 @@ export default async function LandingPage() {
     <div className="min-h-screen bg-slate-50 text-slate-900 overflow-x-hidden" style={{ fontFamily: "'Inter', sans-serif" }}>
 
       {/* ═══ NAVBAR ═══ */}
-      <nav className="fixed top-0 left-0 right-0 z-50 border-b border-slate-200 bg-white/95 backdrop-blur-md shadow-sm">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
-          <Link href="/" className="flex items-center gap-2.5">
-            <Image src="/logo.png" alt="ONI.vn" width={32} height={32} className="rounded-lg" />
-            <span className="text-xl font-extrabold tracking-tight text-primary">ONI.vn</span>
-          </Link>
-          <div className="hidden md:flex items-center gap-8 text-sm font-semibold text-slate-650">
-            <IndustryDropdown />
-            <a href="#features" className="hover:text-primary transition-colors">Tính năng</a>
-            <a href="#how" className="hover:text-primary transition-colors">Cách hoạt động</a>
-            <a href="#pricing" className="hover:text-primary transition-colors">Bảng giá</a>
-          </div>
-          <div className="flex items-center gap-3">
-            <LoginButton />
-            <Link href="/register" id="navbar-cta-register" className="whitespace-nowrap rounded-lg bg-primary px-5 py-2.5 text-sm font-bold text-white shadow-md hover:bg-primary-dark hover:shadow-lg transition-all">
-              Bắt đầu<span className="hidden sm:inline"> bán hàng</span>
-            </Link>
-          </div>
-        </div>
-      </nav>
+      <Navbar />
 
       {/* ═══ HERO (SPLIT LAYOUT VIBE) ═══ */}
       <section className="relative pt-32 pb-24 lg:pt-40 lg:pb-32 overflow-hidden bg-slate-50 border-b border-slate-200">
@@ -166,15 +150,15 @@ export default async function LandingPage() {
             </div>
             {/* Trust badges */}
             <div className="mt-12 flex flex-wrap items-center justify-center lg:justify-start gap-6 text-sm font-medium text-slate-550">
-              <div className="flex items-center gap-1.5"><Shield className="h-4 w-4 text-emerald-600" /><span className="opacity-90">Bảo mật mã hóa đầu cuối</span></div>
-              <div className="flex items-center gap-1.5"><Database className="h-4 w-4 text-blue-600" /><span className="opacity-90">Kết nối Database riêng (BYOD)</span></div>
+              <div className="flex items-center gap-1.5"><Shield className="h-4 w-4 text-emerald-600" /><span className="opacity-90">Bảo mật cao</span></div>
+              <div className="flex items-center gap-1.5"><Database className="h-4 w-4 text-blue-600" /><span className="opacity-90">Kết nối DB riêng (BYOD)</span></div>
               <div className="flex items-center gap-1.5"><Globe className="h-4 w-4 text-cyan-600" /><span className="opacity-90">Độ tin cậy SLA 99.9%</span></div>
             </div>
           </div>
 
-          <div className="flex-1 w-full max-w-lg lg:max-w-none relative z-10 hidden md:block">
+          <div className="flex-1 w-full max-w-lg lg:max-w-none relative z-10 mt-12 lg:mt-0">
             {/* Right side Dashboard mock/illustration */}
-            <div className="relative rounded-2xl bg-white/80 backdrop-blur-md border border-slate-200 p-2 shadow-2xl shadow-blue-900/10 transform rotate-2 hover:rotate-0 transition-transform duration-500">
+            <div className="hidden lg:block relative rounded-2xl bg-white/80 backdrop-blur-md border border-slate-200 p-2 shadow-2xl shadow-blue-900/10 transform rotate-2 hover:rotate-0 transition-transform duration-500">
               <div className="absolute top-4 left-4 flex gap-1.5">
                 <div className="h-3 w-3 rounded-full bg-red-400/80" />
                 <div className="h-3 w-3 rounded-full bg-amber-400/80" />
@@ -197,6 +181,12 @@ export default async function LandingPage() {
                 </div>
                 <HeroDashboardMock />
               </div>
+            </div>
+
+            {/* App Download Links */}
+            <div className="mt-10 text-center">
+              <p className="text-base md:text-lg font-bold text-slate-500 mb-5">Bán hàng nhanh chóng trên di động</p>
+              <AppDownloadButtons />
             </div>
           </div>
         </div>
@@ -731,7 +721,7 @@ export default async function LandingPage() {
             Bắt đầu quản lý kinh doanh thông minh
           </h2>
           <p className="text-xl text-slate-650 font-medium mb-10 max-w-2xl mx-auto">
-            Bắt đầu bán hàng ngay với gói Tiên phong miễn phí 3 năm. Nâng cấp chi phí cực rẻ cho quy mô chuỗi nhiều chi nhánh.
+            Bắt đầu bán hàng ngay với gói Tiên phong miễn phí {FREE_TRIAL_YEARS} năm. Nâng cấp chi phí cực rẻ cho quy mô chuỗi nhiều chi nhánh.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link href="/register" id="cta-bottom-register" className="group flex items-center justify-center gap-2 rounded-xl bg-primary px-8 py-4 text-lg font-bold text-white shadow-xl hover:bg-primary-dark transition-all hover:scale-105">
@@ -743,51 +733,9 @@ export default async function LandingPage() {
       </section>
 
       {/* ═══ FOOTER ═══ */}
-      <footer className="bg-slate-900 text-slate-400 py-20 border-t border-slate-850">
-        <div className="mx-auto max-w-7xl px-6">
-          <div className="grid gap-12 md:grid-cols-4 lg:grid-cols-5 mb-16 pb-12 border-b border-slate-800">
-            <div className="lg:col-span-2 space-y-4">
-              <Link href="/" className="flex items-center gap-3">
-                <Image src="/logo.png" alt="ONI.vn" width={44} height={44} className="rounded-xl border border-slate-800" />
-                <span className="text-xl font-black tracking-tight text-white">ONI.vn</span>
-              </Link>
-              <p className="text-sm text-slate-500 font-medium max-w-sm leading-relaxed">
-                Nền tảng Mini ERP &amp; quản lý bán hàng đa chi nhánh đột phá. Cơ chế kết nối cơ sở dữ liệu riêng tư BYOD biệt lập, tích hợp AI phân tích thông minh và Zalo/Telegram.
-              </p>
-              <div className="text-xs text-slate-500 font-bold">
-                &copy; {new Date().getFullYear()} ONI.vn. Đã đăng ký bản quyền.
-              </div>
-            </div>
-            
-            {ALL_SECTORS.map((group) => (
-              <div key={group.groupId} className="space-y-4">
-                <h4 className="text-xs font-black uppercase tracking-wider text-slate-200 border-b border-slate-800 pb-2">{group.groupLabel}</h4>
-                <ul className="space-y-2.5 text-xs font-semibold">
-                  {group.items.map((item, idx) => (
-                    <li key={idx}>
-                      <Link href={item.href} className="hover:text-primary transition-colors hover:underline">
-                        {item.label}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
+      <Footer />
 
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-xs font-bold text-slate-500">
-            <div className="flex flex-wrap gap-x-8 gap-y-2 justify-center">
-              <a href="#features" className="hover:text-white transition-colors">Tính năng nghiệp vụ</a>
-              <a href="#how" className="hover:text-white transition-colors">Cách hoạt động</a>
-              <a href="#pricing" className="hover:text-white transition-colors">Bảng giá gói cước</a>
-              <Link href="/register" className="hover:text-white transition-colors">Đăng ký dùng thử miễn phí 3 năm</Link>
-            </div>
-            <div className="text-[10px] text-slate-600">
-              Sản phẩm phục vụ Chuyển đổi số Hộ kinh doanh &amp; Doanh nghiệp Việt Nam.
-            </div>
-          </div>
-        </div>
-      </footer>
+      <FloatingZalo />
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { getSupabaseAdminClient } from '../../../lib/server/supabaseAdmin';
 import { getSupabaseServerClient } from '../../../lib/server/supabaseServer';
 import { verifyTurnstileToken } from '../../../lib/server/turnstile';
 import { INDUSTRY_TYPES } from '@oni/core';
+import { FREE_TRIAL_YEARS } from '../../../lib/constants/pricing';
 
 // Reject fake tenant emails — these are reserved for tenant user accounts
 const ONI_FAKE_EMAIL_RE = /^[^@]+@[^.]+\.oni\.vn$/i;
@@ -184,18 +185,18 @@ export async function POST(req: NextRequest) {
   }
   const tenantId = (tenant as any).id as string;
 
-  // Update subscription to selected plan and set 3-year expiration for plan_mini
+  // Update subscription to selected plan and set free trial expiration for plan_mini
   const planCode = parsed.data.plan_code || 'plan_mini';
   const { data: plan } = await admin.from('plans').select('id, code').eq('code', planCode).single();
   
   if (plan) {
     const updateData: any = { plan_id: plan.id };
     
-    // Set 3 years expiration for plan_mini
+    // Set free trial expiration for plan_mini
     if (plan.code === 'plan_mini') {
-      const threeYearsLater = new Date();
-      threeYearsLater.setFullYear(threeYearsLater.getFullYear() + 3);
-      updateData.current_period_end = threeYearsLater.toISOString();
+      const expirationDate = new Date();
+      expirationDate.setFullYear(expirationDate.getFullYear() + FREE_TRIAL_YEARS);
+      updateData.current_period_end = expirationDate.toISOString();
     }
     
     await admin.from('subscriptions').update(updateData).eq('tenant_id', tenantId);
