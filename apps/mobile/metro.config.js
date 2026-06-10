@@ -9,7 +9,7 @@ const workspaceRoot = path.resolve(projectRoot, "../..");
 const config = getDefaultConfig(projectRoot);
 
 // 1. Cấu hình để Metro theo dõi sự thay đổi file trong toàn bộ Monorepo
-config.watchFolders = [workspaceRoot];
+config.watchFolders = [...(config.watchFolders || []), workspaceRoot];
 
 // 2. Định hướng cho Metro tìm kiếm các thư viện dùng chung từ node_modules của root và của mobile
 config.resolver.nodeModulesPaths = [
@@ -17,8 +17,7 @@ config.resolver.nodeModulesPaths = [
   path.resolve(workspaceRoot, "node_modules"),
 ];
 
-// 3. Kích hoạt tính năng đọc Symlink cho pnpm và hỗ trợ file WebAssembly (.wasm) cho expo-sqlite trên Web
-config.resolver.unstable_enableSymlinks = true;
+// 3. Kích hoạt tính năng hỗ trợ file WebAssembly (.wasm) cho expo-sqlite trên Web
 config.resolver.assetExts.push("wasm");
 
 // 4. Force Metro deduplicate React & react-navigation về 1 instance duy nhất

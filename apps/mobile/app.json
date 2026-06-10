@@ -24,7 +24,6 @@
     "android": {
       "package": "vn.oni.mobile",
       "googleServicesFile": "./google-services.json",
-      "useNextNotificationsApi": true,
       "permissions": [
         "CAMERA",
         "NOTIFICATIONS"
@@ -62,7 +61,7 @@
         }
       },
       "eas": {
-        "projectId": "973345c4-814a-4908-9820-17f9e7bbd2e1"
+        "projectId": "3e9d8515-e699-4f8a-90d0-d7df57b5cb9c"
       }
     }
   }
