@@ -28,7 +28,20 @@ const PAYMENT_METHOD_VI: Record<string, string> = {
 };
 
 const translateMethod = (code: string): string => {
- return PAYMENT_METHOD_VI[code?.toLowerCase()] || code || 'Tiền mặt';
+  if (!code) return 'Tiền mặt';
+  const cleanCode = code.toLowerCase();
+  
+  if (cleanCode.startsWith('cash') || cleanCode === 'tiền mặt') return 'Tiền mặt';
+  if (cleanCode.startsWith('bank_transfer') || cleanCode.startsWith('transfer') || cleanCode === 'chuyển khoản') return 'Chuyển khoản';
+  if (cleanCode.startsWith('card') || cleanCode.startsWith('debit') || cleanCode === 'quẹt thẻ') return 'Quẹt thẻ';
+  if (cleanCode.startsWith('momo')) return 'Ví MoMo';
+  if (cleanCode.startsWith('vnpay')) return 'VNPay';
+  if (cleanCode.startsWith('zalopay')) return 'ZaloPay';
+  if (cleanCode.startsWith('debt') || cleanCode === 'ghi nợ') return 'Ghi nợ';
+  if (cleanCode.startsWith('prepaid') || cleanCode === 'ví trả trước') return 'Ví trả trước';
+  if (cleanCode.startsWith('wallet') || cleanCode === 'ví điện tử') return 'Ví điện tử';
+
+  return PAYMENT_METHOD_VI[cleanCode] || code || 'Tiền mặt';
 };
 
 const getPaymentMethodDisplay = (pm: string) => {

@@ -152,6 +152,50 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
     }
   }, [paymentFundsList, resolvedMethods]);
 
+  // Đồng bộ phương thức thanh toán dạng text/code (như 'cash') sang ID thực tế của database
+  React.useEffect(() => {
+    if (resolvedMethods && resolvedMethods.length > 0 && paymentRows && paymentRows.length > 0) {
+      let changed = false;
+      const nextRows = paymentRows.map(p => {
+        // Kiểm tra xem p.method hiện tại có khớp hoàn toàn với một phương thức đang hoạt động của chi nhánh hiện tại không
+        const exactMatch = resolvedMethods.find(m => m.value === p.method);
+        if (!exactMatch) {
+          // Nếu không khớp hoàn toàn (có thể do p.method là 'cash' legacy hoặc 'cash-old_branch_id' từ ca trước/màn hình khác)
+          // Ta tìm phương thức phù hợp nhất trong chi nhánh hiện tại theo logic:
+          const isCash = p.method === 'cash' || p.method?.startsWith('cash-') || p.method?.startsWith('cash_');
+          const isBank = p.method === 'bank_transfer' || p.method?.startsWith('bank_transfer-') || p.method?.startsWith('bank_transfer_') || p.method === 'transfer' || p.method?.startsWith('transfer-') || p.method === 'card' || p.method?.startsWith('card-');
+          const isPrepaid = p.method === 'prepaid' || p.method?.startsWith('prepaid-');
+          const isDebt = p.method === 'debt' || p.method?.startsWith('debt-');
+          const isWallet = p.method === 'momo' || p.method?.startsWith('momo-') || p.method === 'vnpay' || p.method?.startsWith('vnpay-') || p.method === 'zalopay' || p.method?.startsWith('zalopay-') || p.method === 'wallet' || p.method?.startsWith('wallet-');
+
+          let matchedMethod = null;
+          if (isCash) {
+            matchedMethod = resolvedMethods.find(m => m.code?.startsWith('cash') || m.type === 'cash');
+          } else if (isBank) {
+            matchedMethod = resolvedMethods.find(m => m.code?.startsWith('bank') || m.code?.startsWith('transfer') || m.code?.startsWith('card') || m.type === 'bank');
+          } else if (isPrepaid) {
+            matchedMethod = resolvedMethods.find(m => m.code?.startsWith('prepaid') || m.type === 'prepaid');
+          } else if (isDebt) {
+            matchedMethod = resolvedMethods.find(m => m.code?.startsWith('debt') || m.type === 'debt');
+          } else if (isWallet) {
+            const walletBrand = p.method.split('-')[0].split('_')[0];
+            matchedMethod = resolvedMethods.find(m => m.code?.startsWith(walletBrand)) || resolvedMethods.find(m => m.type === 'wallet');
+          }
+
+          // Nếu tìm thấy phương thức tương ứng ở chi nhánh hiện tại, chuẩn hóa nó sang ID/value mới
+          if (matchedMethod && matchedMethod.value !== p.method) {
+            changed = true;
+            return { ...p, method: matchedMethod.value };
+          }
+        }
+        return p;
+      });
+      if (changed) {
+        setPaymentRows(nextRows);
+      }
+    }
+  }, [resolvedMethods, paymentRows, setPaymentRows]);
+
   // Fetch realtime khi chọn khách và đang online
   React.useEffect(() => {
     if (!selectedCustomer?.id || !isOnline || !apiBaseUrl) return;

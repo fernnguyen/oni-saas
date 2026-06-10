@@ -54,6 +54,7 @@ function TabLayoutContent() {
         headerShown: false,
         tabBarActiveTintColor: '#fa5908', // Màu cam thương hiệu ONI
         tabBarInactiveTintColor: '#94a3b8', // Slate-400
+        tabBarLabelPosition: 'below-icon', // Force vertical stacked layout on tablets
         tabBarStyle: {
           backgroundColor: '#ffffff',
           borderTopColor: '#e2e8f0',
