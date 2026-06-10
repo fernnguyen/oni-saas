@@ -813,40 +813,7 @@ export default function PosScreen() {
       )}
 
       {/* 3. CHI TIẾT NỘI DUNG */}
-      {isLoading ? (
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 16 }}>
-          {/* Skeleton.Text equivalent using raw inline styles */}
-          <View style={{ width: '100%', marginBottom: 32 }}>
-            {Array.from({ length: 4 }).map((_, idx) => (
-              <View
-                key={idx}
-                style={{
-                  width: idx === 3 ? '60%' : '100%',
-                  height: 16,
-                  borderRadius: 8,
-                  backgroundColor: '#e2e8f0',
-                  marginBottom: idx < 3 ? 12 : 0
-                }}
-              />
-            ))}
-          </View>
-          {/* Skeleton blocks equivalent */}
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', width: '100%' }}>
-            {Array.from({ length: 4 }).map((_, i) => (
-              <View
-                key={i}
-                style={{
-                  width: '48%',
-                  height: 160,
-                  borderRadius: 12,
-                  backgroundColor: '#e2e8f0',
-                  marginBottom: 16
-                }}
-              />
-            ))}
-          </View>
-        </View>
-      ) : activeVertical === 'retail' ? (
+      {activeVertical === 'retail' ? (
         // 🛒 GIAO DIỆN BÁN LẺ
         <View className="flex-1 px-4 pt-2">
 
@@ -978,10 +945,15 @@ export default function PosScreen() {
             <TouchableOpacity
               activeOpacity={0.8}
               onPress={handleRefresh}
+              disabled={isLoading}
               className="bg-white border border-slate-200 p-2 rounded-xl active:bg-slate-100 ml-2"
-              style={{ shadowColor: '#000000', shadowOffset: { width: 0, height: 1.5 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2 }}
+              style={{ shadowColor: '#000000', shadowOffset: { width: 0, height: 1.5 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2, width: 34, height: 34, justifyContent: 'center', alignItems: 'center' }}
             >
-              <Ionicons name="sync" size={14} color="#fa5908" />
+              {isLoading ? (
+                <ActivityIndicator size="small" color="#fa5908" />
+              ) : (
+                <Ionicons name="sync" size={14} color="#fa5908" />
+              )}
             </TouchableOpacity>
           </View>
 
@@ -998,7 +970,16 @@ export default function PosScreen() {
             }}
             scrollEventThrottle={400}
           >
-            {filteredProducts.length === 0 ? (
+            {isLoading ? (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', width: '100%', marginTop: 8 }}>
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <View
+                    key={i}
+                    style={{ width: '48%', height: 160, borderRadius: 12, backgroundColor: '#f1f5f9', marginBottom: 16 }}
+                  />
+                ))}
+              </View>
+            ) : filteredProducts.length === 0 ? (
               <View className="items-center justify-center py-16 bg-white border border-slate-100 rounded-2xl mt-2">
                 <Ionicons name="basket-outline" size={32} color="#cbd5e1" />
                 <Text className="text-xs text-slate-400 font-medium mt-2">Không tìm thấy sản phẩm nào.</Text>
@@ -1065,13 +1046,21 @@ export default function PosScreen() {
               </Text>
               <TouchableOpacity
                 onPress={() => {
+                  if (isLoading) return;
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
                   handleRefresh();
                 }}
+                disabled={isLoading}
                 className="flex-row items-center bg-slate-100 px-2.5 py-1.5 rounded-lg border border-slate-200"
               >
-                <Ionicons name="sync-outline" size={14} color="#fa5908" />
-                <Text className="text-xs font-medium text-slate-600 ml-1">Làm mới</Text>
+                {isLoading ? (
+                  <ActivityIndicator size="small" color="#fa5908" style={{ width: 14, height: 14 }} />
+                ) : (
+                  <Ionicons name="sync-outline" size={14} color="#fa5908" />
+                )}
+                <Text className="text-xs font-medium text-slate-600 ml-1">
+                  {isLoading ? 'Đang tải...' : 'Làm mới'}
+                </Text>
               </TouchableOpacity>
             </View>
 
@@ -1160,7 +1149,16 @@ export default function PosScreen() {
             </ScrollView>
           </View>
 
-          {tables.length === 0 ? (
+          {isLoading ? (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', width: '100%', marginTop: 16 }}>
+              {Array.from({ length: 6 }).map((_, i) => (
+                <View
+                  key={i}
+                  style={{ width: '48%', height: 100, borderRadius: 12, backgroundColor: '#f1f5f9', marginBottom: 16 }}
+                />
+              ))}
+            </View>
+          ) : tables.length === 0 ? (
             <View className="items-center justify-center py-16 bg-white border border-slate-100 rounded-2xl">
               <Ionicons name="football-outline" size={36} color="#cbd5e1" />
               <Text className="text-xs text-slate-400 font-medium mt-2">Không tìm thấy bàn nào.</Text>
@@ -1190,7 +1188,9 @@ export default function PosScreen() {
               )}
 
               {(() => {
-                const filteredZones = Object.entries(groupedZones).map(([zoneName, zoneTables]) => {
+                const filteredZones = Object.entries(groupedZones)
+                  .sort((a, b) => a[0].localeCompare(b[0], 'vi', { numeric: true, sensitivity: 'base' }))
+                  .map(([zoneName, zoneTables]) => {
                   const filteredTables = zoneTables.filter(t => {
                     const isActive = t.status === 'playing' || t.status === 'occupied';
                     const matchesSearch = !tableSearchQuery.trim() || (t.name && t.name.toLowerCase().includes(tableSearchQuery.toLowerCase()));
@@ -1198,7 +1198,7 @@ export default function PosScreen() {
                       (tableStatusFilter === 'available' && !isActive) || 
                       (tableStatusFilter === 'occupied' && isActive);
                     return matchesSearch && matchesStatus;
-                  });
+                  }).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'vi', { numeric: true, sensitivity: 'base' }));
                   return [zoneName, filteredTables] as const;
                 }).filter(([_, tables]) => tables.length > 0);
 
