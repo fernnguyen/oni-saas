@@ -131,7 +131,8 @@ export function ResourceSlideOver({
   slug,
   enableRealtimeSync = false,
   broadcastSyncEvent,
-  syncTick = 0
+  syncTick = 0,
+  onOpenShiftModal
 }: Props) {
   const tpl = resourceTemplate ?? DEFAULT_TEMPLATE
   const sec = tpl.sections
