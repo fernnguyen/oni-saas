@@ -138,9 +138,9 @@ export function SignInForm({
       <div className="mb-8 text-center lg:text-left">
         {tenantName ? (
           <>
-            <Image src="/logo.png" alt="ONI.vn" width={40} height={40} className="mb-4 mx-auto lg:mx-0 rounded-xl lg:hidden shadow-sm" />
+            <Image src="/logo.png" alt="ONI.vn" width={40} height={40} className="mb-4 mx-auto lg:mx-0 rounded-xl lg:hidden" />
             <div className="hidden lg:inline-flex items-center gap-2.5 mb-6">
-              <Image src="/logo.png" alt="ONI.vn" width={32} height={32} className="rounded-lg shadow-sm" />
+              <Image src="/logo.png" alt="ONI.vn" width={32} height={32} className="rounded-lg" />
               <span className="font-bold text-slate-900 text-lg" title={tenantName}>{tenantName}</span>
             </div>
             <h1 className="text-2xl font-bold text-slate-900">Đăng nhập vào quản lý</h1>
@@ -149,10 +149,10 @@ export function SignInForm({
         ) : (
           <>
             <Link href="/" className="inline-flex items-center gap-2.5 mb-4 lg:hidden">
-              <Image src="/logo.png" alt="ONI.vn" width={40} height={40} className="rounded-xl shadow-sm" />
+              <Image src="/logo.png" alt="ONI.vn" width={40} height={40} className="rounded-xl" />
             </Link>
             <div className="hidden lg:inline-flex items-center gap-2.5 mb-6">
-              <Image src="/logo.png" alt="ONI.vn" width={32} height={32} className="rounded-lg shadow-sm" />
+              <Image src="/logo.png" alt="ONI.vn" width={32} height={32} className="rounded-lg" />
               <span className="font-bold text-slate-900 text-lg">ONI.vn</span>
             </div>
             <h1 className="text-2xl font-bold text-slate-900">Đăng nhập</h1>

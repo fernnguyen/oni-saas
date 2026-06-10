@@ -71,7 +71,7 @@ export function SignUpForm() {
     <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50 p-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <Image src="/logo.png" alt="ONI.vn" width={40} height={40} className="mx-auto mb-4 rounded-xl shadow-sm" />
+          <Image src="/logo.png" alt="ONI.vn" width={40} height={40} className="mx-auto mb-4 rounded-xl" />
           <h1 className="text-2xl font-bold text-slate-900">Tạo tài khoản</h1>
           <p className="mt-1 text-sm text-slate-500">Bắt đầu quản lý bán hàng miễn phí</p>
         </div>

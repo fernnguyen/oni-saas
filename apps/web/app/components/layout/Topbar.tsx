@@ -87,10 +87,10 @@ export function Topbar({
           collapsed ? 'w-[64px] justify-center' : 'w-[220px] px-3'
         }`}>
           {collapsed ? (
-             <Image src="/logo.png" alt="ONI Logo" width={32} height={32} className="shrink-0 rounded-lg shadow-sm" />
+             <Image src="/logo.png" alt="ONI Logo" width={32} height={32} className="shrink-0 rounded-lg" />
           ) : (
              <div className="flex items-center gap-2.5 overflow-hidden">
-                <Image src="/logo.png" alt="ONI Logo" width={32} height={32} className="shrink-0 rounded-lg shadow-sm" />
+                <Image src="/logo.png" alt="ONI Logo" width={32} height={32} className="shrink-0 rounded-lg" />
                 <div className="flex flex-col justify-center min-w-0 gap-0.5">
                   <div className="flex items-center gap-1.5">
                     <span className="font-extrabold text-slate-900 text-sm tracking-wide leading-none truncate">

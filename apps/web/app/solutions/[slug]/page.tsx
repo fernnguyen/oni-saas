@@ -180,7 +180,7 @@ export default async function IndustrySolutionPage({ params }: Props) {
       <nav className="fixed top-0 left-0 right-0 z-50 border-b border-slate-200 bg-white/95 backdrop-blur-md shadow-sm">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
           <Link href="/" className="flex items-center gap-2.5">
-            <Image src="/logo.png" alt="ONI.vn" width={32} height={32} className="rounded-lg shadow-md" />
+            <Image src="/logo.png" alt="ONI.vn" width={32} height={32} className="rounded-lg" />
             <span className="text-xl font-extrabold tracking-tight text-primary">ONI.vn</span>
           </Link>
           <div className="hidden md:flex items-center gap-8 text-sm font-semibold text-slate-650">
@@ -438,7 +438,7 @@ export default async function IndustrySolutionPage({ params }: Props) {
           <div className="grid gap-12 md:grid-cols-4 lg:grid-cols-5 mb-16 pb-12 border-b border-slate-800">
             <div className="lg:col-span-2 space-y-4">
               <Link href="/" className="flex items-center gap-3 text-left">
-                <Image src="/logo.png" alt="ONI.vn" width={44} height={44} className="rounded-xl shadow-lg border border-slate-800" />
+                <Image src="/logo.png" alt="ONI.vn" width={44} height={44} className="rounded-xl border border-slate-800" />
                 <span className="text-xl font-black tracking-tight text-white">ONI.vn</span>
               </Link>
               <p className="text-sm text-slate-500 font-medium max-w-sm leading-relaxed text-left">

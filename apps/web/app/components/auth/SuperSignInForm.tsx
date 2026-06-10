@@ -91,7 +91,7 @@ export function SuperSignInForm() {
     <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-900 to-slate-800 p-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center flex flex-col items-center">
-          <Image src="/logo.png" alt="ONI.vn" width={48} height={48} className="mb-4 rounded-xl shadow-lg shadow-primary/30" />
+          <Image src="/logo.png" alt="ONI.vn" width={48} height={48} className="mb-4 rounded-xl" />
           <h1 className="text-2xl font-bold text-white">ONI Superadmin</h1>
           <p className="mt-1 text-sm text-slate-400">Chỉ dành cho quản trị hệ thống</p>
         </div>

@@ -109,7 +109,7 @@ export default function ProvisioningPage() {
       ]}
     >
       <div className="mb-8 text-center lg:text-left">
-        <Image src="/logo.png" alt="ONI.vn" width={40} height={40} className="mb-4 mx-auto lg:mx-0 rounded-xl shadow-sm" />
+        <Image src="/logo.png" alt="ONI.vn" width={40} height={40} className="mb-4 mx-auto lg:mx-0 rounded-xl" />
         <h1 className="text-2xl font-bold text-slate-900">Đang thiết lập cửa hàng</h1>
         <p className="mt-1 text-sm text-slate-500">Thường mất chưa đến 30 giây. Vui lòng đừng đóng trang này.</p>
       </div>

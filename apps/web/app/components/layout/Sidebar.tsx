@@ -144,7 +144,7 @@ function SidebarContent({
       {/* Logo + close button (only for mobile drawer) */}
       {onClose && (
         <div className="flex items-center px-3 py-[13px] gap-2 border-b border-slate-200">
-          <Image src="/logo.png" alt="ONI Logo" width={32} height={32} className="shrink-0 rounded-lg shadow-sm" />
+          <Image src="/logo.png" alt="ONI Logo" width={32} height={32} className="shrink-0 rounded-lg" />
           <span className="font-bold text-slate-900 text-base tracking-wide flex-1 truncate">
             ONI.vn
           </span>
