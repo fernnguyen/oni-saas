@@ -220,7 +220,7 @@ export function useTableManager(props: UseTableManagerProps) {
       // A. Tải chi tiết vị trí (room) từ cloud để lấy metadata mới nhất
       let latestResource: any = null;
       try {
-        const resourceRes = await fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${tableId}`, { headers });
+        const resourceRes = await fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${tableId}?t=${Date.now()}`, { headers });
         if (resourceRes.ok) {
           latestResource = await resourceRes.json();
         }
@@ -242,7 +242,7 @@ export function useTableManager(props: UseTableManagerProps) {
       // TỰ ĐỘNG CHỮA LÀNH (Self-heal): Nếu không có orderId cục bộ nhưng trạng thái là đang ở/chơi
       // thì truy vấn danh sách order in_progress trên server để đối chiếu resource_id.
       if (!resolvedOrderId) {
-        const ordersRes = await fetch(`${currentUrl}/api/shops/${shopId}/orders?status=in_progress&limit=100`, { headers });
+        const ordersRes = await fetch(`${currentUrl}/api/shops/${shopId}/orders?status=in_progress&limit=100&t=${Date.now()}`, { headers });
         if (ordersRes.ok) {
           const ordersData = await ordersRes.json();
           const list = ordersData.data || [];
@@ -270,7 +270,7 @@ export function useTableManager(props: UseTableManagerProps) {
       }
 
       if (!orderData) {
-        const orderRes = await fetch(`${currentUrl}/api/shops/${shopId}/orders/${resolvedOrderId}`, { headers });
+        const orderRes = await fetch(`${currentUrl}/api/shops/${shopId}/orders/${resolvedOrderId}?t=${Date.now()}`, { headers });
         if (!orderRes.ok) {
           return latestResource ? { order: null, items: [], resource: latestResource } : null;
         }
@@ -278,7 +278,7 @@ export function useTableManager(props: UseTableManagerProps) {
       }
 
       // 2. Tải chi tiết các Món ăn/Dịch vụ gọi kèm của đơn hàng
-      const itemsRes = await fetch(`${currentUrl}/api/shops/${shopId}/order-items?order_id=${resolvedOrderId}&limit=200`, { headers });
+      const itemsRes = await fetch(`${currentUrl}/api/shops/${shopId}/order-items?order_id=${resolvedOrderId}&limit=200&t=${Date.now()}`, { headers });
       if (!itemsRes.ok) {
         return { order: orderData, items: [], resource: latestResource };
       }

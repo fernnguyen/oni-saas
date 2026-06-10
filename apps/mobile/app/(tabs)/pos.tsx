@@ -316,6 +316,7 @@ export default function PosScreen() {
   // States cho nghiệp vụ phòng/bàn/sân nâng cao & CRM
 
   const { broadcastSync, isEnabled: isRealtimeEnabled } = useRealtimeSync(activeShopId, isOnline, (payload) => {
+    showToast('Đã cập nhật dữ liệu mới từ thiết bị khác', 'info');
     // Kích hoạt state để useEffect bên dưới xử lý auto-refresh
     if (payload?.tableId && syncTableSilentRef.current) {
       syncTableSilentRef.current(payload.tableId);

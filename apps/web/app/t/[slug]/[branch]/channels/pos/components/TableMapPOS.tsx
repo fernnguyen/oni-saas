@@ -683,6 +683,7 @@ export function TableMapPOS({
   }
 
   function handleSessionClosed() {
+    const tableIdToSync = activeSlideResource?.id
     setActiveSlideResource(null)
     fetchResources()
 
@@ -692,11 +693,11 @@ export function TableMapPOS({
     bc.close()
 
     // Cross-device Supabase Broadcast
-    if (shopSettings?.enable_realtime_sync && syncChannelRef.current) {
+    if (shopSettings?.enable_realtime_sync && syncChannelRef.current && tableIdToSync) {
       syncChannelRef.current.send({
         type: 'broadcast',
         event: 'sync_event',
-        payload: { source: 'web_app', event: 'SESSION_CLOSED', tableId: activeSlideResource?.id }
+        payload: { source: 'web_app', event: 'SESSION_CLOSED', tableId: tableIdToSync }
       })
     }
   }

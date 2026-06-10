@@ -609,7 +609,7 @@ export function ResourceSlideOver({
       }
 
       toast.success('Đã lưu thông tin')
-      if (broadcastSyncEvent) broadcastSyncEvent("ITEMS_UPDATED", { tableId: resource.id })
+      console.log("[ResourceSlideOver] Broadcasting ITEMS_UPDATED", { tableId: resource.id, fn: typeof broadcastSyncEvent }); if (broadcastSyncEvent) { broadcastSyncEvent("ITEMS_UPDATED", { tableId: resource.id }); }
       void fetchOrder()
     } catch (err) {
       console.error(err)
@@ -736,6 +736,7 @@ export function ResourceSlideOver({
       setExistingItems(finalizedItems)
       toast.success(`Đã thêm ${item.product_name}`)
       localStorage.setItem(`table_order_items:${order.id}`, JSON.stringify(finalizedItems))
+      if (broadcastSyncEvent) { broadcastSyncEvent("ITEMS_UPDATED", { tableId: resource.id }); }
     } catch {
       pushOfflineAction(order.id, { type: 'ADD', tempId, item: newItem })
       toast.warning(`Mất kết nối. Đã lưu tạm ${item.product_name} trên thiết bị này.`)
@@ -798,6 +799,7 @@ export function ResourceSlideOver({
         setExistingItems(iData.data || [])
         localStorage.setItem(`table_order_items:${order.id}`, JSON.stringify(iData.data || []))
       }
+      if (broadcastSyncEvent) { broadcastSyncEvent("ITEMS_UPDATED", { tableId: resource.id }); }
     } catch {
       pushOfflineAction(order.id, { type: 'UPDATE', itemId: p.id, qty: String(newQty), line_total: String(newLineTotal) })
       toast.warning(`Mất kết nối. Đã lưu tạm số lượng mới (x${newQty}) cho ${p.product_name} trên thiết bị này.`)
@@ -831,7 +833,7 @@ export function ResourceSlideOver({
         const iData = await itemsRes.json()
         setExistingItems(iData.data || [])
       }
-      if (broadcastSyncEvent) broadcastSyncEvent("ITEMS_UPDATED", { tableId: resource.id })
+      console.log("[ResourceSlideOver] Broadcasting ITEMS_UPDATED", { tableId: resource.id, fn: typeof broadcastSyncEvent }); if (broadcastSyncEvent) { broadcastSyncEvent("ITEMS_UPDATED", { tableId: resource.id }); }
     } catch {
       toast.error('Lỗi khi lưu cập nhật')
     } finally {
@@ -909,7 +911,7 @@ export function ResourceSlideOver({
         if (!res.ok) throw new Error()
         toast.success('Đã xóa món')
       }
-      if (broadcastSyncEvent) broadcastSyncEvent("ITEMS_UPDATED", { tableId: resource.id })
+      console.log("[ResourceSlideOver] Broadcasting ITEMS_UPDATED", { tableId: resource.id, fn: typeof broadcastSyncEvent }); if (broadcastSyncEvent) { broadcastSyncEvent("ITEMS_UPDATED", { tableId: resource.id }); }
       await fetchOrder()
     } catch {
       pushOfflineAction(order.id, { type: 'DELETE', itemId })
@@ -988,7 +990,7 @@ export function ResourceSlideOver({
           body: JSON.stringify({ status: 'checking_out' }),
         })
         toast.success('Đã gửi yêu cầu thanh toán / kiểm phòng')
-        if (broadcastSyncEvent) broadcastSyncEvent("ITEMS_UPDATED", { tableId: resource.id })
+        console.log("[ResourceSlideOver] Broadcasting ITEMS_UPDATED", { tableId: resource.id, fn: typeof broadcastSyncEvent }); if (broadcastSyncEvent) { broadcastSyncEvent("ITEMS_UPDATED", { tableId: resource.id }); }
         fetchOrder()
         onRefresh?.()
       } else {
