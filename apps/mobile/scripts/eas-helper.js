@@ -169,21 +169,29 @@ function runBuild(profile) {
     return;
   }
 
-  console.log(`${COLORS.cyan}Lệnh sẽ chạy: npx eas build --platform android --profile ${profile}${COLORS.reset}\n`);
-  
-  const buildProcess = spawnSync('npx', ['eas', 'build', '--platform', 'android', '--profile', profile], {
-    stdio: 'inherit',
-    cwd: MOBILE_DIR
-  });
+  rl.question('Bạn có muốn xóa cache (clear cache) khi build không? Lựa chọn này giúp tránh lỗi cache cũ (y/N): ', (answer) => {
+    const clearCache = answer.trim().toLowerCase() === 'y';
+    const args = ['eas', 'build', '--platform', 'android', '--profile', profile];
+    if (clearCache) {
+      args.push('--clear-cache');
+    }
 
-  if (buildProcess.status === 0) {
-    console.log(`\n${COLORS.green}✅ Build hoàn thành thành công!${COLORS.reset}`);
-  } else {
-    console.log(`\n${COLORS.red}❌ Build thất bại hoặc bị hủy bởi người dùng.${COLORS.reset}`);
-  }
+    console.log(`\n${COLORS.cyan}Lệnh sẽ chạy: npx ${args.join(' ')}${COLORS.reset}\n`);
+    
+    const buildProcess = spawnSync('npx', args, {
+      stdio: 'inherit',
+      cwd: MOBILE_DIR
+    });
 
-  rl.question('\nNhấn Enter để quay lại...', () => {
-    mainMenu();
+    if (buildProcess.status === 0) {
+      console.log(`\n${COLORS.green}✅ Build hoàn thành thành công!${COLORS.reset}`);
+    } else {
+      console.log(`\n${COLORS.red}❌ Build thất bại hoặc bị hủy bởi người dùng.${COLORS.reset}`);
+    }
+
+    rl.question('\nNhấn Enter để quay lại...', () => {
+      mainMenu();
+    });
   });
 }
 
