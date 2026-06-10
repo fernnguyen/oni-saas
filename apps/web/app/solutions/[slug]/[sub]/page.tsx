@@ -87,12 +87,21 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const detail = resolveSubIndustry(slug, sub);
   if (!detail) return {};
 
+  const canonicalUrl = `https://oni.vn/solutions/${slug}/${sub}`;
+
   return {
     title: `Phần mềm quản lý ${detail.label} chuyên sâu - ONI ERP`,
     description: `${detail.highlight} Giải pháp chuyển đổi số bán lẻ và quản trị dòng tiền tự động, kết nối đa nguồn dữ liệu BYOD bảo mật tuyệt đối.`,
+    alternates: {
+      canonical: canonicalUrl,
+    },
     openGraph: {
       title: `Phần mềm quản lý ${detail.label} chuyên sâu - ONI ERP`,
       description: `${detail.highlight} Giải pháp chuyển đổi số bán lẻ và quản trị dòng tiền tự động, kết nối đa nguồn dữ liệu BYOD bảo mật tuyệt đối.`,
+      url: canonicalUrl,
+      siteName: 'ONI.vn',
+      locale: 'vi_VN',
+      type: 'website',
     }
   };
 }
@@ -162,11 +171,35 @@ export default async function SubIndustrySolutionPage({ params }: Props) {
       iconBg: 'bg-cyan-500 text-white'
     }
   };
-
   const currentTheme = themeColors[slug] || themeColors.retail;
+
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'SoftwareApplication',
+    'name': `ONI - Phần mềm quản lý ${detail.label}`,
+    'operatingSystem': 'All',
+    'applicationCategory': 'BusinessApplication',
+    'description': `${detail.highlight} Giải pháp chuyển đổi số và quản lý dòng tiền tự động chuyên biệt cho ${detail.label.toLowerCase()}.`,
+    'offers': {
+      '@type': 'Offer',
+      'price': '0',
+      'priceCurrency': 'VND',
+      'description': 'Miễn phí dùng thử 3 năm'
+    },
+    'publisher': {
+      '@type': 'Organization',
+      'name': 'ONI.vn',
+      'url': 'https://oni.vn'
+    }
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 overflow-x-hidden" style={{ fontFamily: "'Inter', sans-serif" }}>
+      {/* JSON-LD Structured Data for Google SEO */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
 
       {/* ═══ NAVBAR ═══ */}
       <nav className="fixed top-0 left-0 right-0 z-50 border-b border-slate-200 bg-white/95 backdrop-blur-md shadow-sm">

@@ -58,13 +58,21 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const config = getVerticalConfig(indType);
   const indInfo = INDUSTRIES_LIST.find(i => i.slug === slug);
   const name = indInfo?.label || config.label;
+  const canonicalUrl = `https://oni.vn/solutions/${slug}`;
 
   return {
     title: `Phần mềm quản lý ${name} chuyên sâu - ONI ${config.label}`,
     description: `Giải pháp quản lý ${config.label.toLowerCase()} chuyên biệt của ONI: ${config.description}. Hỗ trợ POS ${config.posLabel.toLowerCase()}, tự động tính toán, BYOD bảo mật dữ liệu tuyệt đối.`,
+    alternates: {
+      canonical: canonicalUrl,
+    },
     openGraph: {
       title: `Phần mềm quản lý ${name} chuyên sâu - ONI ${config.label}`,
       description: `Giải pháp quản lý ${config.label.toLowerCase()} chuyên biệt của ONI: ${config.description}. Hỗ trợ POS ${config.posLabel.toLowerCase()}, tự động tính toán, BYOD bảo mật dữ liệu tuyệt đối.`,
+      url: canonicalUrl,
+      siteName: 'ONI.vn',
+      locale: 'vi_VN',
+      type: 'website',
     }
   };
 }
@@ -173,8 +181,33 @@ export default async function IndustrySolutionPage({ params }: Props) {
     },
   ];
 
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'SoftwareApplication',
+    'name': `ONI - Phần mềm quản lý ${indInfo.label}`,
+    'operatingSystem': 'All',
+    'applicationCategory': 'BusinessApplication',
+    'description': `Giải pháp quản lý ${config.label.toLowerCase()} chuyên biệt của ONI: ${config.description}.`,
+    'offers': {
+      '@type': 'Offer',
+      'price': '0',
+      'priceCurrency': 'VND',
+      'description': 'Miễn phí dùng thử 3 năm'
+    },
+    'publisher': {
+      '@type': 'Organization',
+      'name': 'ONI.vn',
+      'url': 'https://oni.vn'
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 overflow-x-hidden" style={{ fontFamily: "'Inter', sans-serif" }}>
+      {/* JSON-LD Structured Data for Google SEO */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
 
       {/* ═══ NAVBAR ═══ */}
       <nav className="fixed top-0 left-0 right-0 z-50 border-b border-slate-200 bg-white/95 backdrop-blur-md shadow-sm">
