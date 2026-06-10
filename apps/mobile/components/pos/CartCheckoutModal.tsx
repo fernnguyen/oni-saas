@@ -135,9 +135,9 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
       setPaymentRows(prev => {
         let changed = false;
         const next = prev.map(p => {
-          if ((!p.fund_id || p.fund_id === 'cash') && p.method !== 'debt' && p.method !== 'prepaid') {
+          if ((!p.fund_id || p.fund_id === 'cash') && p.method !== 'debt' && !p.method?.startsWith('debt-') && p.method !== 'prepaid' && !p.method?.startsWith('prepaid-')) {
             const methodObj = resolvedMethods.find(m => m.value === p.method);
-            const fundType = methodObj ? (methodObj.type || 'bank') : (p.method === 'cash' ? 'cash' : 'bank');
+            const fundType = methodObj ? (methodObj.type || 'bank') : (p.method === 'cash' || p.method?.startsWith('cash-') ? 'cash' : 'bank');
             const matching = paymentFundsList.filter(f => f.type === fundType);
             const defaultFund = matching.find(f => f.is_default === 'TRUE') || matching[0];
             if (defaultFund && defaultFund.id !== p.fund_id) {
@@ -209,7 +209,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
   // --- Debt & prepaid logic ---
   const customerDebt = Number(activeCustomer?.debt_amount || 0);
   const currentOrderDebtAmount = paymentRows
-    .filter(p => p.method === 'debt')
+    .filter(p => p.method === 'debt' || p.method?.startsWith('debt-'))
     .reduce((s, p) => s + p.amount, 0);
   const prepaidBalance = Number(activeCustomer?.prepaid_balance || 0);
 
@@ -242,7 +242,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
    * Nếu không có row đơn nào đủ → dùng row lớn nhất.
    */
   const selectDebtFund = (): { fund_id: string; method: string } => {
-    const real = paymentRows.filter(r => r.method !== 'debt' && r.method !== 'prepaid');
+    const real = paymentRows.filter(r => r.method !== 'debt' && !r.method?.startsWith('debt-') && r.method !== 'prepaid' && !r.method?.startsWith('prepaid-'));
     if (!real.length) return { fund_id: paymentRows[0]?.fund_id || '', method: paymentRows[0]?.method || 'cash' };
     const covering = real.filter(r => r.amount >= clampedDebtRepay);
     if (covering.length > 0) {
@@ -255,8 +255,8 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
 
   const handlePressCheckout = () => {
     // 1. Kiểm tra khách lẻ (no selectedCustomer) dùng Ghi nợ hoặc Ví trả trước
-    const hasDebt = paymentRows.some((p) => p.method === 'debt' && p.amount > 0);
-    const hasPrepaid = paymentRows.some((p) => p.method === 'prepaid' && p.amount > 0);
+    const hasDebt = paymentRows.some((p) => (p.method === 'debt' || p.method?.startsWith('debt-')) && p.amount > 0);
+    const hasPrepaid = paymentRows.some((p) => (p.method === 'prepaid' || p.method?.startsWith('prepaid-')) && p.amount > 0);
 
     if (hasDebt && !selectedCustomer) {
       Alert.alert('Lỗi thanh toán', 'Phương thức Ghi nợ yêu cầu phải chọn Khách hàng.');
@@ -271,7 +271,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
     // 2. Kiểm tra số dư ví trả trước
     if (hasPrepaid && selectedCustomer) {
       const prepaidSpent = paymentRows
-        .filter((p) => p.method === 'prepaid')
+        .filter((p) => p.method === 'prepaid' || p.method?.startsWith('prepaid-'))
         .reduce((sum, p) => sum + p.amount, 0);
       const customerPrepaid = Number(activeCustomer?.prepaid_balance || 0);
       if (prepaidSpent > customerPrepaid) {
@@ -721,8 +721,8 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                     if (activeMethodObj) {
                       fundType = activeMethodObj.type || 'bank';
                     } else {
-                      if (row.method === 'cash') fundType = 'cash';
-                      else if (['momo', 'zalopay', 'vnpay', 'wallet'].includes(row.method)) fundType = 'wallet';
+                      if (row.method === 'cash' || row.method?.startsWith('cash-')) fundType = 'cash';
+                      else if (['momo', 'zalopay', 'vnpay', 'wallet'].includes(row.method) || row.method?.startsWith('momo-') || row.method?.startsWith('zalopay-') || row.method?.startsWith('vnpay-')) fundType = 'wallet';
                     }
                     
                     const matchingFunds = paymentFundsList.filter(f => f.type === fundType);
@@ -792,7 +792,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                       </View>
 
                       {/* Chọn Quỹ (Nếu có >= 1 quỹ) */}
-                      {matchingFunds.length >= 1 && row.method !== 'debt' && row.method !== 'prepaid' && (
+                      {matchingFunds.length >= 1 && row.method !== 'debt' && !row.method?.startsWith('debt-') && row.method !== 'prepaid' && !row.method?.startsWith('prepaid-') && (
                         <View className="mt-2 flex-row items-center relative">
                           <View className="w-6 items-center justify-center">
                             <View className="w-px h-full bg-slate-300 absolute" />
@@ -834,13 +834,13 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                       )}
 
                       {/* Info for PrePaid / Debt */}
-                      {row.method === 'prepaid' && (
+                      {(row.method === 'prepaid' || row.method?.startsWith('prepaid-')) && (
                         <View className="mt-2 flex-row justify-between bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-100">
                           <Text className="text-xs font-medium text-emerald-800">Ví khả dụng:</Text>
                           <Text className="text-xs font-bold text-emerald-700">{selectedCustomer ? formatCurrency(selectedCustomer.prepaid_balance || 0) : '0 ₫'}</Text>
                         </View>
                       )}
-                      {row.method === 'debt' && (
+                      {(row.method === 'debt' || row.method?.startsWith('debt-')) && (
                         <View className="mt-2 flex-row justify-between bg-rose-50 px-2.5 py-1.5 rounded-lg border border-rose-100">
                           <Text className="text-xs font-medium text-rose-800">Nợ hiện tại:</Text>
                           <Text className="text-xs font-bold text-rose-700">{selectedCustomer ? formatCurrency(selectedCustomer.debt_amount || 0) : '0 ₫'}</Text>

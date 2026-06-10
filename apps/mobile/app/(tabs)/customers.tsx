@@ -1240,7 +1240,7 @@ export default function CustomersScreen() {
                               </Text>
                               <View className="mt-1.5 px-1.5 py-0.5 bg-slate-200 rounded border border-slate-300">
                                 <Text className="text-micro font-semibold text-slate-655">
-                                  {tx.method === 'cash' ? 'Tiền mặt' : 'Chuyển khoản'}
+                                  {tx.method === 'cash' || tx.method?.startsWith('cash-') ? 'Tiền mặt' : 'Chuyển khoản'}
                                 </Text>
                               </View>
                             </View>

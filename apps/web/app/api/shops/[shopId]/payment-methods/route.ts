@@ -40,14 +40,14 @@ export async function GET(
     // Auto-seed default methods if none exists for this branch
     if (result.total === 0) {
       const defaults = [
-        { id: 'cash', name: 'Tiền mặt', type: 'cash', code: 'cash', is_default: 'TRUE' },
-        { id: 'bank_transfer', name: 'Chuyển khoản', type: 'bank', code: 'bank_transfer', is_default: 'TRUE' },
-        { id: 'card', name: 'Thẻ ATM / POS', type: 'bank', code: 'card', is_default: 'FALSE' },
-        { id: 'momo', name: 'Ví MoMo', type: 'wallet', code: 'momo', is_default: 'TRUE' },
-        { id: 'zalopay', name: 'Ví ZaloPay', type: 'wallet', code: 'zalopay', is_default: 'FALSE' },
-        { id: 'vnpay', name: 'Ví VNPay', type: 'wallet', code: 'vnpay', is_default: 'FALSE' },
-        { id: 'prepaid', name: 'Ví trả trước', type: 'prepaid', code: 'prepaid', is_default: 'TRUE' },
-        { id: 'debt', name: 'Ghi nợ', type: 'debt', code: 'debt', is_default: 'TRUE' },
+        { id: `cash-${shopId}`, name: 'Tiền mặt', type: 'cash', code: 'cash', is_default: 'TRUE' },
+        { id: `bank_transfer-${shopId}`, name: 'Chuyển khoản', type: 'bank', code: 'bank_transfer', is_default: 'TRUE' },
+        { id: `card-${shopId}`, name: 'Thẻ ATM / POS', type: 'bank', code: 'card', is_default: 'FALSE' },
+        { id: `momo-${shopId}`, name: 'Ví MoMo', type: 'wallet', code: 'momo', is_default: 'TRUE' },
+        { id: `zalopay-${shopId}`, name: 'Ví ZaloPay', type: 'wallet', code: 'zalopay', is_default: 'FALSE' },
+        { id: `vnpay-${shopId}`, name: 'Ví VNPay', type: 'wallet', code: 'vnpay', is_default: 'FALSE' },
+        { id: `prepaid-${shopId}`, name: 'Ví trả trước', type: 'prepaid', code: 'prepaid', is_default: 'TRUE' },
+        { id: `debt-${shopId}`, name: 'Ghi nợ', type: 'debt', code: 'debt', is_default: 'TRUE' },
       ]
 
       for (const item of defaults) {
@@ -87,10 +87,11 @@ export async function POST(
     // Force strict branch scoping on write
     payload.branch_id = shopId
 
-    const cleanId = payload.id?.trim() || generateCodeFromName(payload.name)
-    if (!cleanId) {
+    const baseId = payload.id?.trim() || generateCodeFromName(payload.name)
+    if (!baseId) {
       return NextResponse.json({ error: 'Mã phương thức thanh toán không hợp lệ!' }, { status: 400 })
     }
+    const cleanId = `${baseId}-${shopId}`
 
     // Check duplicates by ID or Code
     const existingList = await connector.list('payment-methods', {

@@ -83,10 +83,10 @@ export async function PUT(
       const rawMethod = (cb.method || 'cash').toLowerCase()
       const type = cb.type // 'receipt' | 'payment' | 'expense'
 
-      const isCash = rawMethod === 'cash'
-      const isBank = ['bank_transfer', 'bank', 'banking'].includes(rawMethod)
-      const isCard = ['card', 'card_pos', 'credit', 'debit'].includes(rawMethod)
-      const isMomo = ['momo', 'zalopay', 'vnpay', 'wallet', 'moca', 'shopeepay'].includes(rawMethod)
+      const isCash = rawMethod === 'cash' || rawMethod.startsWith('cash-')
+      const isBank = ['bank_transfer', 'bank', 'banking'].includes(rawMethod) || rawMethod.startsWith('bank_transfer-') || rawMethod.startsWith('bank-')
+      const isCard = ['card', 'card_pos', 'credit', 'debit'].includes(rawMethod) || rawMethod.startsWith('card-')
+      const isMomo = ['momo', 'zalopay', 'vnpay', 'wallet', 'moca', 'shopeepay'].includes(rawMethod) || rawMethod.startsWith('momo-') || rawMethod.startsWith('zalopay-') || rawMethod.startsWith('vnpay-') || rawMethod.startsWith('wallet-')
 
       console.log(`[Shift Close] Cashbook item: ID=${cb.id || cb.transaction_id}, Type=${type}, Method=${rawMethod}, Amount=${amount}`)
 

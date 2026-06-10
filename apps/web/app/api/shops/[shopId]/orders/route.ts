@@ -105,7 +105,7 @@ export async function POST(
     })
 
     // Cập nhật expected_closing_cash của ca nếu thanh toán bằng tiền mặt
-    if (isShiftEnabled && activeShift && data.payment_method === 'cash') {
+    if (isShiftEnabled && activeShift && (data.payment_method === 'cash' || data.payment_method?.startsWith('cash-'))) {
       const currentExpected = parseFloat(activeShift.expected_closing_cash || '0')
       const paid = parseFloat(data.paid_amount || '0')
       await connector.update('shop-shifts', activeShift.id, {

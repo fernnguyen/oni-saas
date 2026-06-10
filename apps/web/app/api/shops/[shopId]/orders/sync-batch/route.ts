@@ -403,16 +403,16 @@ export async function POST(
         paid_at:      getGMT7Time(),
       })
 
-      if (pay.method !== 'debt') {
+      if (pay.method !== 'debt' && !pay.method?.startsWith('debt-')) {
         const isRefund = Number(pay.amount) < 0
         const amount = Math.abs(Number(pay.amount))
         
         // Find matching payment fund (either explicit fund_id from client, or smart matching by type)
         const targetFund = pay.fund_id
           ? (funds.find(f => f.id === pay.fund_id) || fallbackFund)
-          : (pay.method === 'cash'
+          : (pay.method === 'cash' || pay.method?.startsWith('cash-')
               ? (defaultCashFund || fallbackFund)
-              : (['momo', 'zalopay', 'vnpay', 'wallet'].includes(pay.method)
+              : (['momo', 'zalopay', 'vnpay', 'wallet'].includes(pay.method) || pay.method?.startsWith('momo-') || pay.method?.startsWith('zalopay-') || pay.method?.startsWith('vnpay-') || pay.method?.startsWith('prepaid-')
                   ? (defaultWalletFund || defaultBankFund || defaultCashFund || fallbackFund)
                   : (defaultBankFund || defaultCashFund || fallbackFund)))
 
@@ -719,7 +719,7 @@ export async function POST(
           // 3. Prepaid balance
           const currentPrepaid = parseFloat(stats?.prepaid_balance || '0')
           const prepaidSpent = payments
-            .filter((p) => p.method === 'prepaid')
+            .filter((p) => p.method === 'prepaid' || p.method?.startsWith('prepaid-'))
             .reduce((s, p) => s + Number(p.amount), 0)
           if (prepaidSpent > 0) {
             const newPrepaid = Math.max(0, currentPrepaid - prepaidSpent)

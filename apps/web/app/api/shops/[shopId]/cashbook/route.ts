@@ -298,7 +298,7 @@ export async function POST(
     }
 
     // Cập nhật expected_closing_cash của ca nếu giao dịch bằng tiền mặt
-    if (isShiftEnabled && activeShift && payload.method === 'cash') {
+    if (isShiftEnabled && activeShift && (payload.method === 'cash' || payload.method?.startsWith('cash-'))) {
       const currentExpected = parseFloat(activeShift.expected_closing_cash || '0')
       const amountFloat = payload.amount
       let newExpected = currentExpected

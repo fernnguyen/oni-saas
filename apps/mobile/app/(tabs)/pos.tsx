@@ -213,6 +213,11 @@ export default function PosScreen() {
   const [productSearchQuery, setProductSearchQuery] = useState('');
   const [displayLimit, setDisplayLimit] = useState(20);
 
+  // Trạng thái bộ lọc sơ đồ phòng/bàn
+  const [tableSearchQuery, setTableSearchQuery] = useState('');
+  const [tableStatusFilter, setTableStatusFilter] = useState<'all' | 'available' | 'occupied'>('all');
+  const [tableViewMode, setTableViewMode] = useState<'card' | 'list'>('card');
+
   // Trạng thái Giỏ hàng & Thanh toán Chi tiết
   const [isCartModalOpen, setIsCartModalOpen] = useState(false);
 
@@ -1047,14 +1052,113 @@ export default function PosScreen() {
       ) : (
         // 🎱 PHÂN HỆ ĐẶC THÙ PHÒNG BÀN (BI-A / CAFE / SÂN / PHÒNG NGHỈ)
         <ScrollView className="flex-1 px-4 pt-3" showsVerticalScrollIndicator={false}>
-          <Text className="text-xxs font-semibold text-slate-450 mb-3 px-1">
-            {
-              shopVertical === 'fnb' ? 'Sơ đồ bàn Cafe hoạt động' :
-                shopVertical === 'sports_court' ? 'Sơ đồ sân thể thao / sân bóng' :
-                  shopVertical === 'lodging' ? 'Sơ đồ phòng homestay / khách sạn' :
-                    'Sơ đồ bàn bi-a ngoại tuyến'
-            }
-          </Text>
+          {/* Header Filter cho sơ đồ phòng bàn */}
+          <View className="mb-4">
+            <View className="flex-row items-center justify-between mb-3 px-1">
+              <Text className="text-sm font-bold text-slate-800">
+                {
+                  shopVertical === 'fnb' ? 'Sơ đồ bàn' :
+                    shopVertical === 'sports_court' ? 'Sơ đồ sân' :
+                      shopVertical === 'lodging' ? 'Sơ đồ phòng' :
+                        'Sơ đồ bàn'
+                }
+              </Text>
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                  handleRefresh();
+                }}
+                className="flex-row items-center bg-slate-100 px-2.5 py-1.5 rounded-lg border border-slate-200"
+              >
+                <Ionicons name="sync-outline" size={14} color="#fa5908" />
+                <Text className="text-xs font-medium text-slate-600 ml-1">Làm mới</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View className="flex-row items-center space-x-2">
+              <View className="flex-1 flex-row items-center bg-white border border-slate-200 rounded-xl px-3 py-2 mr-2">
+                <Ionicons name="search-outline" size={16} color="#94a3b8" />
+                <TextInput
+                  placeholder="Tìm kiếm..."
+                  className="flex-1 ml-2 text-sm text-slate-800"
+                  value={tableSearchQuery}
+                  onChangeText={setTableSearchQuery}
+                  placeholderTextColor="#94a3b8"
+                />
+                {tableSearchQuery.length > 0 && (
+                  <TouchableOpacity onPress={() => setTableSearchQuery('')}>
+                    <Ionicons name="close-circle" size={16} color="#cbd5e1" />
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              <View className="flex-row bg-slate-100 p-1 rounded-xl border border-slate-200">
+                <Pressable
+                  onPress={() => setTableViewMode('card')}
+                  className="p-1.5 rounded-lg"
+                  style={tableViewMode === 'card' ? {
+                    backgroundColor: '#ffffff',
+                    ...Platform.select({
+                      ios: {
+                        shadowColor: '#000',
+                        shadowOffset: { width: 0, height: 1 },
+                        shadowOpacity: 0.05,
+                        shadowRadius: 2,
+                      },
+                      android: {
+                        elevation: 1,
+                      },
+                    }),
+                  } : undefined}
+                >
+                  <Ionicons name="grid-outline" size={16} color={tableViewMode === 'card' ? '#0f172a' : '#94a3b8'} />
+                </Pressable>
+                <Pressable
+                  onPress={() => setTableViewMode('list')}
+                  className="p-1.5 rounded-lg"
+                  style={tableViewMode === 'list' ? {
+                    backgroundColor: '#ffffff',
+                    ...Platform.select({
+                      ios: {
+                        shadowColor: '#000',
+                        shadowOffset: { width: 0, height: 1 },
+                        shadowOpacity: 0.05,
+                        shadowRadius: 2,
+                      },
+                      android: {
+                        elevation: 1,
+                      },
+                    }),
+                  } : undefined}
+                >
+                  <Ionicons name="list-outline" size={16} color={tableViewMode === 'list' ? '#0f172a' : '#94a3b8'} />
+                </Pressable>
+              </View>
+            </View>
+            
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mt-3">
+              <TouchableOpacity
+                onPress={() => setTableStatusFilter('all')}
+                className={`px-3 py-1.5 rounded-full border mr-2 ${tableStatusFilter === 'all' ? 'bg-slate-800 border-slate-800' : 'bg-white border-slate-200'}`}
+              >
+                <Text className={`text-xs font-medium ${tableStatusFilter === 'all' ? 'text-white' : 'text-slate-600'}`}>Tất cả</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setTableStatusFilter('available')}
+                className={`px-3 py-1.5 rounded-full border mr-2 flex-row items-center ${tableStatusFilter === 'available' ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-slate-200'}`}
+              >
+                <View className="w-2 h-2 rounded-full bg-emerald-500 mr-1.5" />
+                <Text className={`text-xs font-medium ${tableStatusFilter === 'available' ? 'text-emerald-700' : 'text-slate-600'}`}>Trống</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setTableStatusFilter('occupied')}
+                className={`px-3 py-1.5 rounded-full border flex-row items-center ${tableStatusFilter === 'occupied' ? 'bg-rose-50 border-rose-200' : 'bg-white border-slate-200'}`}
+              >
+                <View className="w-2 h-2 rounded-full bg-rose-500 mr-1.5" />
+                <Text className={`text-xs font-medium ${tableStatusFilter === 'occupied' ? 'text-rose-700' : 'text-slate-600'}`}>Đang sử dụng</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
 
           {tables.length === 0 ? (
             <View className="items-center justify-center py-16 bg-white border border-slate-100 rounded-2xl">
@@ -1085,29 +1189,88 @@ export default function PosScreen() {
                 </TouchableOpacity>
               )}
 
-              {Object.entries(groupedZones).map(([zoneName, zoneTables]) => (
-                <View key={zoneName} className="mb-6">
-                  {/* Tiêu đề Khu vực/Tầng */}
-                  <View className="flex-row items-center justify-between mb-3 px-1">
-                    <Text className="text-xs font-semibold text-slate-700">
-                      🏢 {zoneName}
-                    </Text>
-                    <Text className="text-tiny text-slate-400 font-medium">
-                      {zoneTables.length} {shopVertical === 'fnb' ? 'vị trí' : shopVertical === 'sports_court' ? 'sân' : shopVertical === 'lodging' ? 'phòng' : 'bàn'}
-                    </Text>
-                  </View>
+              {(() => {
+                const filteredZones = Object.entries(groupedZones).map(([zoneName, zoneTables]) => {
+                  const filteredTables = zoneTables.filter(t => {
+                    const isActive = t.status === 'playing' || t.status === 'occupied';
+                    const matchesSearch = !tableSearchQuery.trim() || (t.name && t.name.toLowerCase().includes(tableSearchQuery.toLowerCase()));
+                    const matchesStatus = tableStatusFilter === 'all' || 
+                      (tableStatusFilter === 'available' && !isActive) || 
+                      (tableStatusFilter === 'occupied' && isActive);
+                    return matchesSearch && matchesStatus;
+                  });
+                  return [zoneName, filteredTables] as const;
+                }).filter(([_, tables]) => tables.length > 0);
 
-                  {/* Grid phòng bàn trong Khu vực */}
-                  <View className="flex-row flex-wrap justify-between">
-                    {zoneTables.map(t => {
-                      const isActive = t.status === 'playing' || t.status === 'occupied';
-                      const billing = calculateBilling(t);
-                      const cartItemsCount = tableCarts[t.id] ? Object.values(tableCarts[t.id]).reduce((sum, item) => sum + item.quantity, 0) : 0;
-                      const guestName = tableCustomers[t.id]?.name || t.customerName || 'Khách lẻ';
+                if (filteredZones.length === 0) {
+                   return (
+                     <View className="items-center justify-center py-10 bg-white border border-slate-100 rounded-2xl mb-6">
+                       <Ionicons name="search-outline" size={32} color="#cbd5e1" />
+                       <Text className="text-xs text-slate-400 font-medium mt-2">Không tìm thấy kết quả phù hợp</Text>
+                     </View>
+                   );
+                }
 
-                      return (
-                        <TouchableOpacity
-                          key={t.id}
+                return filteredZones.map(([zoneName, zoneTables]) => (
+                  <View key={zoneName} className="mb-6">
+                    {/* Tiêu đề Khu vực/Tầng */}
+                    <View className="flex-row items-center justify-between mb-3 px-1">
+                      <Text className="text-xs font-semibold text-slate-700">
+                        🏢 {zoneName}
+                      </Text>
+                      <Text className="text-tiny text-slate-400 font-medium">
+                        {zoneTables.length} {shopVertical === 'fnb' ? 'vị trí' : shopVertical === 'sports_court' ? 'sân' : shopVertical === 'lodging' ? 'phòng' : 'bàn'}
+                      </Text>
+                    </View>
+
+                    {/* Grid/List phòng bàn trong Khu vực */}
+                    <View className={tableViewMode === 'card' ? "flex-row flex-wrap justify-between" : "flex-col"}>
+                      {zoneTables.map(t => {
+                        const isActive = t.status === 'playing' || t.status === 'occupied';
+                        const billing = calculateBilling(t);
+                        const cartItemsCount = tableCarts[t.id] ? Object.values(tableCarts[t.id]).reduce((sum, item) => sum + item.quantity, 0) : 0;
+                        const guestName = tableCustomers[t.id]?.name || t.customerName || 'Khách lẻ';
+
+                        if (tableViewMode === 'list') {
+                          return (
+                            <Pressable
+                              key={`list-${t.id}`}
+                              className={`mb-3 p-3 rounded-xl border flex-row items-center justify-between ${isActive ? 'bg-rose-50 border-rose-200' : 'bg-white border-slate-200'}`}
+                              onPress={() => handleTablePress(t)}
+                            >
+                              <View className="flex-row items-center flex-1">
+                                <View className={`w-1.5 h-10 rounded-full mr-3 ${isActive ? 'bg-rose-500' : 'bg-emerald-500'}`} />
+                                <View className="flex-1">
+                                  <Text className="font-semibold text-sm text-slate-800">{t.name}</Text>
+                                  <View className="flex-row items-center mt-1">
+                                    <Ionicons name="person-outline" size={12} color="#94a3b8" />
+                                    <Text className="text-xs text-slate-500 ml-1 mr-3">{isActive ? guestName : `${t.capacity || '4'} người`}</Text>
+                                    {isActive && (
+                                      <View className="flex-row items-center">
+                                        <Ionicons name="time-outline" size={12} color="#94a3b8" />
+                                        <Text className="text-xs text-slate-500 ml-1">{billing.hours}h {billing.minutes}m</Text>
+                                      </View>
+                                    )}
+                                  </View>
+                                </View>
+                              </View>
+                              <View className="items-end">
+                                <View className={`px-2 py-1 rounded border ${isActive ? 'bg-rose-100 border-rose-200' : 'bg-emerald-100 border-emerald-200'}`}>
+                                  <Text className={`text-xxs font-medium ${isActive ? 'text-rose-700' : 'text-emerald-700'}`}>
+                                    {isActive ? 'Đang sử dụng' : 'Trống'}
+                                  </Text>
+                                </View>
+                                {isActive && (
+                                  <Text className="text-rose-600 font-semibold text-sm mt-1.5">{formatCurrency(billing.cost)}</Text>
+                                )}
+                              </View>
+                            </Pressable>
+                          );
+                        }
+
+                        return (
+                          <TouchableOpacity
+                          key={`card-${t.id}`}
                           activeOpacity={0.85}
                           className={`w-[48%] mb-4 rounded-2xl border ${isActive
                               ? ''
@@ -1216,7 +1379,8 @@ export default function PosScreen() {
                     })}
                   </View>
                 </View>
-              ))}
+                ));
+              })()}
 
               {/* Nút refresh thủ công để kéo dữ liệu SQLite */}
               <View className="items-center justify-center mt-4 mb-20 px-2">
