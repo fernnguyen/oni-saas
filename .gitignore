@@ -15,3 +15,7 @@ tests/
 # Firebase credentials
 google-services.json
 GoogleService-Info.plist
+
+# Expo native directories (Managed Workflow)
+apps/mobile/ios/
+apps/mobile/android/
