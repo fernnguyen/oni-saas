@@ -1,7 +1,7 @@
 import React, {useState, useEffect} from 'react';
 import {Tabs} from 'expo-router';
 import {Ionicons, MaterialCommunityIcons} from '@expo/vector-icons';
-import {Platform, TouchableOpacity, View, Text} from 'react-native';
+import {Platform, TouchableOpacity, View, Text, DeviceEventEmitter} from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {NotificationProvider} from '../../lib/notifications/NotificationContext';
 import {PermissionsProvider, usePermissions} from '../../lib/auth/PermissionsContext';
@@ -38,6 +38,14 @@ function TabLayoutContent() {
       }
     };
     loadIndustry();
+
+    const subscription = DeviceEventEmitter.addListener('branch-changed', () => {
+      loadIndustry();
+    });
+
+    return () => {
+      subscription.remove();
+    };
   }, []);
 
   return (

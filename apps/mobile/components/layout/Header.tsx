@@ -1,5 +1,5 @@
 import React, {useEffect, useState} from 'react';
-import {Text, View, TouchableOpacity, Platform, Modal, ScrollView, TouchableWithoutFeedback} from 'react-native';
+import {Text, View, TouchableOpacity, Platform, Modal, ScrollView, TouchableWithoutFeedback, DeviceEventEmitter} from 'react-native';
 import {Ionicons} from '@expo/vector-icons';
 import {router} from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -80,9 +80,15 @@ export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false,
 }
 };
 
- useEffect(() => {
- loadHeaderData();
-}, []);
+  useEffect(() => {
+    loadHeaderData();
+    const subscription = DeviceEventEmitter.addListener('branch-changed', () => {
+      loadHeaderData();
+    });
+    return () => {
+      subscription.remove();
+    };
+  }, []);
 
  const handleDropdownPress = () => {
  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
@@ -144,8 +150,15 @@ export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false,
  await AsyncStorage.setItem('active_shop_name', newShopName);
  await AsyncStorage.setItem('active_shop_industry', selectedBranchToSwitch.industry_type);
 
- setActiveBranchId(newShopId);
- setActiveBranchName(newShopName);
+  setActiveBranchId(newShopId);
+  setActiveBranchName(newShopName);
+
+  // Emit event to update other Header instances and the Tab layout label
+  DeviceEventEmitter.emit('branch-changed', {
+    shopId: newShopId,
+    shopName: newShopName,
+    industry: selectedBranchToSwitch.industry_type
+  });
 
  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
  setIsSwitchingLoading(false);

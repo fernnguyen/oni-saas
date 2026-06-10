@@ -1,5 +1,5 @@
 import React, {useState, useEffect} from 'react';
-import {Text, View, ScrollView, TouchableOpacity, ActivityIndicator, Alert, TextInput, Modal, Platform, Pressable} from 'react-native';
+import {Text, View, ScrollView, TouchableOpacity, ActivityIndicator, Alert, TextInput, Modal, Platform, Pressable, DeviceEventEmitter} from 'react-native';
 import {useRouter} from 'expo-router';
 import {Ionicons} from '@expo/vector-icons';
 import {SafeAreaView} from 'react-native-safe-area-context';
@@ -288,6 +288,13 @@ export default function SelectBranchScreen() {
       await AsyncStorage.setItem('active_shop_id', branch.id);
       await AsyncStorage.setItem('active_shop_name', branch.name);
       await AsyncStorage.setItem('active_shop_industry', branch.industry_type);
+
+      // Emit event to update mounted Header components and the Tab layout label
+      DeviceEventEmitter.emit('branch-changed', {
+        shopId: branch.id,
+        shopName: branch.name,
+        industry: branch.industry_type
+      });
 
       // Kích hoạt Sync toàn phần tải dữ liệu từ Cloud về ghi SQLite offline
       const syncSuccess = await SyncManager.pullFullDatabase(
