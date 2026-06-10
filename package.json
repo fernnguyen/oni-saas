@@ -18,7 +18,8 @@
     "mobile:start": "pnpm --filter @oni/mobile start",
     "mobile:ios": "pnpm --filter @oni/mobile ios",
     "mobile:android": "pnpm --filter @oni/mobile android",
-    "mobile:eas": "pnpm --filter @oni/mobile eas:helper"
+    "mobile:eas": "pnpm --filter @oni/mobile eas:helper",
+    "mobile:eas:local": "pnpm --filter @oni/mobile eas:helper local"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",

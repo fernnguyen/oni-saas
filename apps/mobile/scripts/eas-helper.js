@@ -160,7 +160,8 @@ function listSecrets() {
 
 function runBuild(profile) {
   printHeader();
-  console.log(`${COLORS.bold}${COLORS.yellow}🚀 Bắt đầu chạy EAS Build [Profile: ${profile.toUpperCase()}]${COLORS.reset}\n`);
+  const isLocalArg = process.argv.includes('local') || process.argv.includes('--local');
+  console.log(`${COLORS.bold}${COLORS.yellow}🚀 Bắt đầu chạy EAS Build [Profile: ${profile.toUpperCase()}]${isLocalArg ? ' [Local Build]' : ''}${COLORS.reset}\n`);
 
   if (!checkEasLogin()) {
     rl.question('\nNhấn Enter để quay lại...', () => {
@@ -169,30 +170,44 @@ function runBuild(profile) {
     return;
   }
 
-  rl.question('Bạn có muốn xóa cache (clear cache) khi build không? Lựa chọn này giúp tránh lỗi cache cũ (y/N): ', (answer) => {
-    const clearCache = answer.trim().toLowerCase() === 'y';
-    const args = ['eas', 'build', '--platform', 'android', '--profile', profile];
-    if (clearCache) {
-      args.push('--clear-cache');
-    }
+  const proceedWithLocal = (buildLocal) => {
+    rl.question('Bạn có muốn xóa cache (clear cache) khi build không? Lựa chọn này giúp tránh lỗi cache cũ (y/N): ', (answer) => {
+      const clearCache = answer.trim().toLowerCase() === 'y';
+      const args = ['eas', 'build', '--platform', 'android', '--profile', profile];
+      if (buildLocal) {
+        args.push('--local');
+      }
+      if (clearCache) {
+        args.push('--clear-cache');
+      }
 
-    console.log(`\n${COLORS.cyan}Lệnh sẽ chạy: npx ${args.join(' ')}${COLORS.reset}\n`);
-    
-    const buildProcess = spawnSync('npx', args, {
-      stdio: 'inherit',
-      cwd: MOBILE_DIR
+      console.log(`\n${COLORS.cyan}Lệnh sẽ chạy: npx ${args.join(' ')}${COLORS.reset}\n`);
+      
+      const buildProcess = spawnSync('npx', args, {
+        stdio: 'inherit',
+        cwd: MOBILE_DIR
+      });
+
+      if (buildProcess.status === 0) {
+        console.log(`\n${COLORS.green}✅ Build hoàn thành thành công!${COLORS.reset}`);
+      } else {
+        console.log(`\n${COLORS.red}❌ Build thất bại hoặc bị hủy bởi người dùng.${COLORS.reset}`);
+      }
+
+      rl.question('\nNhấn Enter để quay lại...', () => {
+        mainMenu();
+      });
     });
+  };
 
-    if (buildProcess.status === 0) {
-      console.log(`\n${COLORS.green}✅ Build hoàn thành thành công!${COLORS.reset}`);
-    } else {
-      console.log(`\n${COLORS.red}❌ Build thất bại hoặc bị hủy bởi người dùng.${COLORS.reset}`);
-    }
-
-    rl.question('\nNhấn Enter để quay lại...', () => {
-      mainMenu();
+  if (isLocalArg) {
+    proceedWithLocal(true);
+  } else {
+    rl.question('Bạn có muốn build cục bộ (local build) thay vì build trên Cloud không? (y/N): ', (localAnswer) => {
+      const buildLocal = localAnswer.trim().toLowerCase() === 'y';
+      proceedWithLocal(buildLocal);
     });
-  });
+  }
 }
 
 function mainMenu() {

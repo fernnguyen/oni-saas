@@ -12,11 +12,12 @@ supabase/.temp
 .pnpm-store
 scratch/
 tests/
-# Firebase credentials
-google-services.json
-GoogleService-Info.plist
 
-# Expo native directories (Managed Workflow)
+# DO NOT ignore Firebase credentials so EAS Local Build can use them
+# google-services.json
+# GoogleService-Info.plist
+
+# Expo native directories
 apps/mobile/ios/
 apps/mobile/android/
 apps/mobile/.expo/
