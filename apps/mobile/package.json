@@ -9,7 +9,7 @@
     "ios": "EXPO_NO_METRO_LAZY=1 expo start --ios",
     "web": "EXPO_NO_METRO_LAZY=1 expo start --web",
     "ts:check": "tsc",
-    "eas-build-post-install": "bash scripts/setup-google-services.sh",
+    "eas-build-pre-install": "bash scripts/setup-google-services.sh",
     "eas:helper": "node scripts/eas-helper.js"
   },
   "dependencies": {
@@ -49,6 +49,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
+    "babel-preset-expo": "~54.0.11",
     "@types/react": "~19.1.10",
     "typescript": "~5.9.2"
   }
