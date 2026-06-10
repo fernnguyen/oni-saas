@@ -19,3 +19,4 @@ GoogleService-Info.plist
 # Expo native directories (Managed Workflow)
 apps/mobile/ios/
 apps/mobile/android/
+apps/mobile/.expo/

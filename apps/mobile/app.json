@@ -1,23 +1,38 @@
 {
   "expo": {
-    "name": "ONI Mobile",
-    "slug": "oni-mobile",
+    "name": "ONI POS",
+    "slug": "oni-pos",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "vn.oni.mobile",
       "infoPlist": {
         "UIBackgroundModes": [
           "remote-notification"
-        ]
+        ],
+        "NSCameraUsageDescription": "Ứng dụng cần quyền truy cập camera để quét mã vạch sản phẩm."
       }
     },
     "android": {
       "package": "vn.oni.mobile",
       "googleServicesFile": "./google-services.json",
-      "useNextNotificationsApi": true
+      "useNextNotificationsApi": true,
+      "permissions": [
+        "CAMERA",
+        "NOTIFICATIONS"
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#ffffff"
+      }
     },
     "plugins": [
       [
@@ -38,7 +53,7 @@
         }
       ]
     ],
-    "scheme": "oni-mobile",
+    "scheme": "oni-pos",
     "extra": {
       "router": {
         "headers": {
