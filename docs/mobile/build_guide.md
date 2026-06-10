@@ -61,7 +61,7 @@ Nếu bạn gặp lỗi:
      ```bash
      pnpm --filter @oni/mobile ios
      ```
-  * *Mẹo:* Bạn cũng có thể mở trực tiếp dự án Xcode bằng cách nhấp đúp vào file [apps/mobile/ios/ONIMobile.xcworkspace](file:///Users/fern/Coding/ERP/oni-saas-starter/apps/mobile/ios/ONIMobile.xcworkspace), chọn thiết bị Simulator trên thanh công cụ Xcode và bấm nút **Play (Run)**.
+  * *Mẹo:* Bạn cũng có thể mở trực tiếp dự án Xcode bằng cách nhấp đúp vào file [apps/mobile/ios/ONIPOS.xcworkspace](file:///Users/fern/Coding/ERP/oni-saas-starter/apps/mobile/ios/ONIPOS.xcworkspace), chọn thiết bị Simulator trên thanh công cụ Xcode và bấm nút **Play (Run)**.
 
 ### Chạy trên Android Emulator
 1. Mở Device Manager trong Android Studio và khởi chạy một máy ảo Android Emulator.
@@ -135,8 +135,8 @@ EAS CLI có thể giao tiếp trực tiếp với cổng thông tin Apple Develo
 5. Từ đây, bất cứ khi nào bạn chạy lệnh build, EAS sẽ tự động lấy các thông tin này từ máy chủ an toàn của Expo để ký số cho ứng dụng.
 
 #### Cách B: Tự cấu hình bằng Xcode (Dành cho Xcode Build trực tiếp tại local)
-1. Mở file [ONIMobile.xcworkspace](file:///Users/fern/Coding/ERP/oni-saas-starter/apps/mobile/ios/ONIMobile.xcworkspace) trong Xcode.
-2. Chọn dự án **ONIMobile** trên thanh điều hướng bên trái -> Chọn tab **Signing & Capabilities**.
+1. Mở file [ONIPOS.xcworkspace](file:///Users/fern/Coding/ERP/oni-saas-starter/apps/mobile/ios/ONIPOS.xcworkspace) trong Xcode.
+2. Chọn dự án **ONIPOS** trên thanh điều hướng bên trái -> Chọn tab **Signing & Capabilities**.
 3. Tích chọn **Automatically manage signing**.
 4. Tại mục **Team**, chọn Tài khoản Developer của bạn.
 5. Xcode sẽ tự động liên hệ với máy chủ Apple để tạo ra Provisioning Profile và ký trực tiếp khi bạn thực hiện build.
