@@ -160,3 +160,11 @@ export const stockMovements = sqliteTable('stock_movements', {
   sync_status: text('sync_status').notNull().default('synced'), // synced | pending
 });
 
+// 10. BỘ NHỚ ĐỆM CỤC BỘ (Local Caches)
+export const localCaches = sqliteTable('local_caches', {
+  cache_key: text('cache_key').primaryKey(),
+  cache_value: text('cache_value').notNull(),
+  updated_at: integer('updated_at').notNull(),
+});
+
+

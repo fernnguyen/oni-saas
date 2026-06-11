@@ -952,7 +952,7 @@ export default function PosScreen() {
               {isLoading ? (
                 <ActivityIndicator size="small" color="#fa5908" />
               ) : (
-                <Ionicons name="sync" size={14} color="#fa5908" />
+                <Ionicons name="sync-outline" size={14} color="#fa5908" />
               )}
             </TouchableOpacity>
           </View>
@@ -1389,7 +1389,7 @@ export default function PosScreen() {
                   className="bg-slate-50 border border-slate-200 px-6 py-3.5 rounded-xl flex-row items-center justify-center w-full"
                   onPress={handleRefresh}
                 >
-                  <Ionicons name="refresh-circle-outline" size={20} color="#fa5908" />
+                  <Ionicons name="sync-outline" size={16} color="#fa5908" />
                   <Text className="text-xs font-semibold text-slate-700 ml-2">Đồng bộ lại sơ đồ {shopVertical === 'lodging' ? 'phòng nghỉ' : shopVertical === 'sports_court' ? 'sân chơi' : shopVertical === 'fnb' ? 'bàn cafe' : 'bàn bi-a'}</Text>
                 </TouchableOpacity>
               </View>

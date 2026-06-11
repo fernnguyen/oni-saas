@@ -296,6 +296,12 @@ export function initializeLocalDatabase(customDb?: any) {
         created_at TEXT NOT NULL,
         sync_status TEXT NOT NULL DEFAULT 'synced'
       );
+
+      CREATE TABLE IF NOT EXISTS local_caches (
+        cache_key TEXT PRIMARY KEY NOT NULL,
+        cache_value TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
     `);
     
     // Nâng cấp bổ sung cột cho các DB đã chạy trước đó để không bị mất dữ liệu
