@@ -239,6 +239,38 @@ function runSubmit(platform) {
   });
 }
 
+function showGooglePlayGuide() {
+  printHeader();
+  console.log(`${COLORS.bold}${COLORS.yellow}👉 Hướng dẫn cấu hình Google Play Console & API Access để tự động Submit:${COLORS.reset}\n`);
+  console.log(` 1. Truy cập ${COLORS.bold}${COLORS.blue}Google Play Console${COLORS.reset} & đăng ký tài khoản Developer ($25).`);
+  console.log(` 2. Tạo một Google Cloud Project hoặc dùng project Firebase hiện tại.`);
+  console.log(` 3. Kích hoạt API Google Play Android Developer API:`);
+  console.log(`    - Vào APIs & Services -> Enabled APIs & services -> Tìm "Google Play Android Developer API" -> Enable.`);
+  console.log(` 4. Tạo Service Account (Tài khoản dịch vụ):`);
+  console.log(`    - Vào IAM & Admin -> Service Accounts -> Chọn "Create Service Account".`);
+  console.log(`    - Đặt tên (ví dụ: "eas-submit-play-store").`);
+  console.log(`    - Cấp quyền (Role): Chọn "Service Account User" và "Browser" (hoặc phân quyền trực tiếp ở Play Console).`);
+  console.log(` 5. Tạo JSON Key cho Service Account:`);
+  console.log(`    - Nhấp vào Service Account mới tạo -> Tab "Keys" -> Add Key -> Create new key -> Chọn định dạng JSON.`);
+  console.log(`    - File JSON chứa private key sẽ được tải về máy của bạn.`);
+  console.log(` 6. Liên kết Service Account với Google Play Console:`);
+  console.log(`    - Trong Play Console, chọn "Users and permissions" -> "Invite new users".`);
+  console.log(`    - Điền email của Service Account vừa tạo.`);
+  console.log(`    - Ở tab "App permissions", cấp quyền "Release manager" hoặc "Admin" cho app Oni POS.`);
+  console.log(` 7. Cấu hình credentials trong EAS:`);
+  console.log(`    - Chạy lệnh: ${COLORS.bold}${COLORS.cyan}npx eas credentials${COLORS.reset}`);
+  console.log(`    - Chọn platform: ${COLORS.bold}android${COLORS.reset} -> profile: ${COLORS.bold}production${COLORS.reset}.`);
+  console.log(`    - Chọn "Google Service Account Key" -> Upload file JSON key vừa tải ở bước 5.`);
+  console.log(`    - EAS sẽ lưu trữ bảo mật key này để dùng cho lệnh 'eas submit' tự động.\n`);
+  console.log(`${COLORS.yellow}⚠️  Lưu ý quan trọng: Đối với app mới tinh, bạn bắt buộc phải upload bản AAB đầu tiên`);
+  console.log(`   thủ công lên Google Play Console (tạo Draft Release) để Play Console nhận dạng Package Name`);
+  console.log(`   trước khi EAS Submit có thể chạy tự động ở các lần sau.${COLORS.reset}\n`);
+
+  rl.question('Nhấn Enter để quay lại menu chính...', () => {
+    mainMenu();
+  });
+}
+
 function mainMenu() {
   printHeader();
   console.log(`Chọn một tùy chọn dưới đây:\n`);
@@ -252,11 +284,14 @@ function mainMenu() {
   console.log('----------------------------------------------------');
   console.log(` ${COLORS.bold}7.${COLORS.reset} ${COLORS.green}Build Android Production (AAB) - Local Only${COLORS.reset}`);
   console.log(` ${COLORS.bold}8.${COLORS.reset} ${COLORS.blue}Build iOS Production (IPA) - Local Only${COLORS.reset}`);
-  console.log(` ${COLORS.bold}9.${COLORS.reset} ${COLORS.magenta}Submit iOS (IPA) lên TestFlight${COLORS.reset}`);
-  console.log(` ${COLORS.bold}10.${COLORS.reset} Thoát`);
+  console.log('----------------------------------------------------');
+  console.log(` ${COLORS.bold}9.${COLORS.reset} ${COLORS.magenta}Submit Android (AAB) lên Google Play${COLORS.reset}`);
+  console.log(` ${COLORS.bold}10.${COLORS.reset} ${COLORS.magenta}Submit iOS (IPA) lên TestFlight${COLORS.reset}`);
+  console.log(` ${COLORS.bold}11.${COLORS.reset} ${COLORS.yellow}Hướng dẫn cấu hình Google Play Store API & Service Account${COLORS.reset}`);
+  console.log(` ${COLORS.bold}12.${COLORS.reset} Thoát`);
   console.log(`\n----------------------------------------------------`);
 
-  rl.question('\nNhập lựa chọn của bạn (1-10): ', (choice) => {
+  rl.question('\nNhập lựa chọn của bạn (1-12): ', (choice) => {
     switch (choice.trim()) {
       case '1':
         showGuide();
@@ -283,15 +318,21 @@ function mainMenu() {
         runBuild('ios', 'production', { local: true, autoSubmit: false });
         break;
       case '9':
-        runSubmit('ios');
+        runSubmit('android');
         break;
       case '10':
+        runSubmit('ios');
+        break;
+      case '11':
+        showGooglePlayGuide();
+        break;
+      case '12':
         console.log(`\nTạm biệt! Chúc bạn một ngày tốt lành!`);
         rl.close();
         process.exit(0);
         break;
       default:
-        console.log(`${COLORS.red}\nLựa chọn không hợp lệ! Vui lòng chọn từ 1 đến 10.${COLORS.reset}`);
+        console.log(`${COLORS.red}\nLựa chọn không hợp lệ! Vui lòng chọn từ 1 đến 12.${COLORS.reset}`);
         setTimeout(mainMenu, 1500);
         break;
     }
