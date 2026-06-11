@@ -104,6 +104,9 @@ const METHODS = [
   { value: 'debt', label: 'Ghi nợ', type: 'debt' },
 ]
 
+const EMPTY_ARRAY: any[] = []
+const DEFAULT_METHODS = METHODS.map((m) => ({ ...m, code: m.value }))
+
 interface PaymentRow {
   id: string
   method: string
@@ -238,7 +241,16 @@ export function CheckoutModal({
   const [localCheckoutTime, setLocalCheckoutTime] = useState('')
   const [isEditingCheckout, setIsEditingCheckout] = useState(false)
   const [checkoutInput, setCheckoutInput] = useState('')
+  const [timeTicker, setTimeTicker] = useState(0)
   const [paymentsLoaded, setPaymentsLoaded] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    const timer = setInterval(() => {
+      setTimeTicker((prev) => prev + 1)
+    }, 10000)
+    return () => clearInterval(timer)
+  }, [open])
   const [hidePrepaidSuggest, setHidePrepaidSuggest] = useState(false)
 
   const [showQrGate, setShowQrGate] = useState(false)
@@ -279,7 +291,7 @@ export function CheckoutModal({
     },
     enabled: !!shopId && !!branchId && open,
   })
-  const methodsList = methodsData || []
+  const methodsList = methodsData || EMPTY_ARRAY
 
   // Lấy danh sách quỹ thanh toán để liên kết dòng tiền mặt/ngân hàng/ví điện tử
   const { data: fundsData } = useQuery({
@@ -292,7 +304,7 @@ export function CheckoutModal({
     },
     enabled: !!shopId && !!branchId && open,
   })
-  const fundsList = fundsData || []
+  const fundsList = fundsData || EMPTY_ARRAY
 
   const resolvedMethods = useMemo(() => {
     if (methodsList.length > 0) {
@@ -303,12 +315,19 @@ export function CheckoutModal({
         code: m.code,
       }))
     }
-    return METHODS.map((m) => ({ ...m, code: m.value }))
+    return DEFAULT_METHODS
   }, [methodsList])
 
   const defaultCashMethod = useMemo(() => {
     return resolvedMethods.find(
-      (m) => m.code === 'cash' || m.type === 'cash' || m.value === 'cash' || m.label.toLowerCase().includes('tiền mặt')
+      (m) =>
+        m.code === 'cash' ||
+        m.code?.startsWith('cash-') ||
+        m.type === 'cash' ||
+        m.type?.startsWith('cash-') ||
+        m.value === 'cash' ||
+        m.value?.startsWith('cash-') ||
+        m.label.toLowerCase().includes('tiền mặt')
     )
   }, [resolvedMethods])
 
@@ -397,7 +416,7 @@ export function CheckoutModal({
       if (b.product_id === 'TIME_CHARGE') return 1
       return 0
     })
-  }, [items, localCheckoutTime, customCheckoutTime, metadata, hourlyRate, localRentalType])
+  }, [items, localCheckoutTime, customCheckoutTime, metadata, hourlyRate, localRentalType, timeTicker])
 
   const computedSubtotal = computedItems.reduce((s, it) => s + (it.line_total || 0), 0)
 
@@ -450,7 +469,7 @@ export function CheckoutModal({
       config: metadata.advanced_pricing
     })
     return pricingResult.durationLabel
-  }, [metadata, localRentalType, localCheckoutTime, customCheckoutTime, hourlyRate])
+  }, [metadata, localRentalType, localCheckoutTime, customCheckoutTime, hourlyRate, timeTicker])
 
 
   const maxDebtDays = Number(settings?.default_max_debt_days ?? 30)
@@ -490,7 +509,16 @@ export function CheckoutModal({
     if (list.length === 0) return undefined
 
     const methodObj = resolvedMethods.find((m) => m.value === method)
-    const targetType = methodObj?.type || 'bank'
+    let targetType = methodObj?.type || 'bank'
+
+    // Normalize type (handles 'cash-*' -> 'cash', 'bank-*' -> 'bank')
+    if (targetType === 'cash' || targetType.startsWith('cash-')) {
+      targetType = 'cash'
+    } else if (targetType === 'bank' || targetType.startsWith('bank-')) {
+      targetType = 'bank'
+    } else if (targetType === 'wallet' || targetType.startsWith('wallet-')) {
+      targetType = 'wallet'
+    }
 
     const typedFunds = list.filter(f => f.type === targetType)
     if (typedFunds.length === 0) {

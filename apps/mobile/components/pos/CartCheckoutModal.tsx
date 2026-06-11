@@ -118,6 +118,23 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
   const [isEditingDiscount, setIsEditingDiscount] = useState(false);
   const [selectingMethodRow, setSelectingMethodRow] = useState<{ rowId: string; idx: number } | null>(null);
+  const [currentTime, setCurrentTime] = useState(() => new Date());
+
+  React.useEffect(() => {
+    if (!visible || !cartOwnerTable) return;
+    let rmd: any = {};
+    try {
+      rmd = typeof cartOwnerTable.metadata === 'string' ? JSON.parse(cartOwnerTable.metadata) : (cartOwnerTable.metadata || {});
+    } catch (e) {
+      console.warn('Cannot parse table metadata:', e);
+    }
+    if (rmd.actual_checkout_requested_at) return;
+
+    const interval = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [visible, cartOwnerTable]);
 
   const billingInfo = React.useMemo(() => {
     if (!cartOwnerTable || !cartOwnerTable.startTime) return null;
@@ -133,7 +150,8 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
 
     const rentalType = rmd.rental_type || 'hourly';
     const checkInDate = new Date(cartOwnerTable.startTime);
-    const checkOutDate = new Date();
+    const actualCheckout = rmd.actual_checkout_requested_at ? new Date(rmd.actual_checkout_requested_at) : currentTime;
+    const checkOutDate = actualCheckout;
 
     let durationLabel = '';
     if (rentalType === 'overnight') {
@@ -165,7 +183,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
       duration: durationLabel,
       rentalType
     };
-  }, [cartOwnerTable]);
+  }, [cartOwnerTable, currentTime]);
   const [selectingFundRow, setSelectingFundRow] = useState<{ rowId: string; idx: number; matchingFunds: any[] } | null>(null);
   const [hidePrepaidSuggest, setHidePrepaidSuggest] = useState(false);
   const [hideDebtRepaySuggest, setHideDebtRepaySuggest] = useState(false);

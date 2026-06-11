@@ -137,6 +137,54 @@ export function useTableManager(props: UseTableManagerProps) {
     return () => clearInterval(timer);
   }, [isNavReady]);
 
+  // Tự động cập nhật tiền giờ trong giỏ hàng theo thời gian thực mỗi 10 giây khi đang mở modal thanh toán
+  useEffect(() => {
+    if (!isNavReady || !cartOwnerTable) return;
+    
+    // Nếu có mốc thời gian checkout yêu cầu trước hoặc phòng đã khóa giờ ra, không tick động nữa
+    let rmd: any = {};
+    try {
+      rmd = typeof cartOwnerTable.metadata === 'string' ? JSON.parse(cartOwnerTable.metadata) : (cartOwnerTable.metadata || {});
+    } catch (e) {
+      console.warn('Cannot parse table metadata:', e);
+    }
+    if (rmd.actual_checkout_requested_at) return;
+
+    const updateRealtimeBilliardTime = () => {
+      const now = new Date();
+      // 1. Tính toán lại tiền giờ tại thời điểm hiện tại
+      const billing = calculateBilling(cartOwnerTable, now);
+      
+      const billingName = cartOwnerTable.type === 'room'
+        ? `Tiền phòng - ${cartOwnerTable.name} (${billing.label})`
+        : `Tiền giờ - ${cartOwnerTable.name} (${billing.label})`;
+
+      setCart((prevCart: any) => {
+        if (!prevCart || !prevCart['TIME_CHARGE']) return prevCart;
+        
+        // Nếu giá tiền không đổi, không cập nhật để tránh re-render thừa
+        if (prevCart['TIME_CHARGE'].price === billing.cost && prevCart['TIME_CHARGE'].name === billingName) {
+          return prevCart;
+        }
+
+        return {
+          ...prevCart,
+          'TIME_CHARGE': {
+            ...prevCart['TIME_CHARGE'],
+            name: billingName,
+            price: billing.cost
+          }
+        };
+      });
+    };
+
+    // Chạy lần đầu và thiết lập interval mỗi 10 giây
+    updateRealtimeBilliardTime();
+    const interval = setInterval(updateRealtimeBilliardTime, 10000);
+
+    return () => clearInterval(interval);
+  }, [cartOwnerTable, timeTicker, isNavReady]);
+
 
 
   // Tính tiền giờ bàn bi-a
@@ -166,7 +214,7 @@ export function useTableManager(props: UseTableManagerProps) {
 
     const hourlyRate = Number(table.hourly_rate) || 0;
     const checkInDate = new Date(table.startTime);
-    const checkOutDate = customCheckoutTime || new Date();
+    const checkOutDate = customCheckoutTime || (table.checkoutTime ? new Date(table.checkoutTime) : new Date());
 
     const pricingResult = calculateHourlyBilling({
       checkIn: checkInDate,
@@ -1050,7 +1098,6 @@ export function useTableManager(props: UseTableManagerProps) {
     }
   };
 
-  // Bấm thanh toán phòng/bàn
   const triggerPayTable = (table: any) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => { });
 
