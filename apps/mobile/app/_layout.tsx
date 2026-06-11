@@ -117,13 +117,14 @@ export default function RootLayout() {
 
  return (
  <SafeAreaProvider>
- <StatusBar style="dark" />
- <Stack screenOptions={{headerShown: false}}>
- <Stack.Screen name="index" />
- <Stack.Screen name="(auth)" />
- <Stack.Screen name="(tabs)" />
- </Stack>
+  <NotificationProvider>
+    <StatusBar style="dark" />
+    <Stack screenOptions={{headerShown: false}}>
+      <Stack.Screen name="index" />
+      <Stack.Screen name="(auth)" />
+      <Stack.Screen name="(tabs)" />
+    </Stack>
+  </NotificationProvider>
  </SafeAreaProvider>
  );
 }
-

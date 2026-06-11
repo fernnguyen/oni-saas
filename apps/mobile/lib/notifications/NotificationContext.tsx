@@ -11,7 +11,7 @@
  */
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { Platform, AppState, AppStateStatus } from 'react-native';
+import { Platform, AppState, AppStateStatus, DeviceEventEmitter } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, getAuthToken } from '../supabase';
 import { getApiBaseUrl, getApiHeaders } from '../api/config';
@@ -90,11 +90,11 @@ interface ProviderProps {
 export function NotificationProvider({ children }: ProviderProps) {
   const [notifications, setNotifications] = useState<MobileNotification[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [shopId, setShopId] = useState<string | null>(null);
+  const [tenantId, setTenantId] = useState<string | null>(null);
 
   // Refs cho stable callbacks
   const authUserRef = useRef<any>(null);
-  const shopIdRef = useRef<string>('');
-  const tenantIdRef = useRef<string>('');
   const toastedIdsRef = useRef<Set<string>>(new Set());
 
   // ─────────────────────────────────────────────────
@@ -102,12 +102,12 @@ export function NotificationProvider({ children }: ProviderProps) {
   // ─────────────────────────────────────────────────
   const loadSessionContext = useCallback(async () => {
     try {
-      const [shopId, tenantId] = await Promise.all([
+      const [sId, tId] = await Promise.all([
         AsyncStorage.getItem('active_shop_id'),
         AsyncStorage.getItem('active_tenant_id'),
       ]);
-      shopIdRef.current = shopId || '';
-      tenantIdRef.current = tenantId || '';
+      setShopId(sId || '');
+      setTenantId(tId || '');
     } catch (err) {
       console.error('[NotificationContext] Failed to load session context:', err);
     }
@@ -117,8 +117,6 @@ export function NotificationProvider({ children }: ProviderProps) {
   // 2. Fetch notifications từ REST API
   // ─────────────────────────────────────────────────
   const fetchNotifications = useCallback(async () => {
-    const tenantId = tenantIdRef.current;
-    const shopId = shopIdRef.current;
     if (!tenantId) return;
 
     try {
@@ -127,7 +125,7 @@ export function NotificationProvider({ children }: ProviderProps) {
       const headers = await getApiHeaders();
 
       const res = await fetch(
-        `${baseUrl}/api/notifications?tenantId=${tenantId}&shopId=${shopId}&limit=50`,
+        `${baseUrl}/api/notifications?tenantId=${tenantId}&shopId=${shopId || ''}&limit=50`,
         { headers }
       );
 
@@ -155,26 +153,25 @@ export function NotificationProvider({ children }: ProviderProps) {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [tenantId, shopId]);
 
   // ─────────────────────────────────────────────────
   // 3. Initialize — Load context + auth + initial data
   // ─────────────────────────────────────────────────
   useEffect(() => {
-    const init = async () => {
-      await loadSessionContext();
+    loadSessionContext();
 
-      // Cache authenticated user
-      const { data } = await supabase.auth.getUser();
+    // Lắng nghe sự kiện branch-changed để cập nhật shopId/tenantId ngay lập tức
+    const branchSub = DeviceEventEmitter.addListener('branch-changed', () => {
+      void loadSessionContext();
+    });
+
+    // Cache authenticated user
+    supabase.auth.getUser().then(({ data }) => {
       if (data?.user) {
         authUserRef.current = data.user;
       }
-
-      // Fetch initial notifications
-      await fetchNotifications();
-    };
-
-    init();
+    });
 
     // Track auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -182,16 +179,23 @@ export function NotificationProvider({ children }: ProviderProps) {
     });
 
     return () => {
+      branchSub.remove();
       subscription.unsubscribe();
     };
-  }, [loadSessionContext, fetchNotifications]);
+  }, [loadSessionContext]);
+
+  // Fetch notifications whenever context loads/changes
+  useEffect(() => {
+    if (tenantId) {
+      void fetchNotifications();
+    }
+  }, [tenantId, shopId, fetchNotifications]);
 
   // ─────────────────────────────────────────────────
   // 4. Supabase Realtime Subscription (Tầng 1)
   //    Y hệt web NotificationContext — lắng nghe INSERT trên in_app_notifications
   // ─────────────────────────────────────────────────
   useEffect(() => {
-    const tenantId = tenantIdRef.current;
     if (!tenantId) return;
 
     const channelName = `mobile-notifications-${tenantId}-${Math.random().toString(36).slice(2, 9)}`;
@@ -207,8 +211,6 @@ export function NotificationProvider({ children }: ProviderProps) {
         (payload) => {
           const newNoti = payload.new as any;
           if (!newNoti) return;
-
-          const shopId = shopIdRef.current;
 
           // Client-side scope filtering (y hệt web)
           if (newNoti.tenant_id !== tenantId) return;
@@ -234,7 +236,7 @@ export function NotificationProvider({ children }: ProviderProps) {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [fetchNotifications]);
+  }, [tenantId, shopId, fetchNotifications]);
 
   // ─────────────────────────────────────────────────
   // 5. Refresh khi app trở lại foreground
@@ -243,13 +245,15 @@ export function NotificationProvider({ children }: ProviderProps) {
     const handleAppStateChange = (nextState: AppStateStatus) => {
       if (nextState === 'active') {
         // Reload session context (có thể đã chuyển branch)
-        loadSessionContext().then(() => fetchNotifications());
+        loadSessionContext().then(() => {
+          if (tenantId) void fetchNotifications();
+        });
       }
     };
 
     const subscription = AppState.addEventListener('change', handleAppStateChange);
     return () => subscription.remove();
-  }, [loadSessionContext, fetchNotifications]);
+  }, [loadSessionContext, tenantId, fetchNotifications]);
 
   // ─────────────────────────────────────────────────
   // 6. Mark as read
@@ -281,8 +285,6 @@ export function NotificationProvider({ children }: ProviderProps) {
     setNotifications(prev => prev.map(n => ({ ...n, status: 'read' as const })));
 
     // Persist to server
-    const tenantId = tenantIdRef.current;
-    const shopId = shopIdRef.current;
     if (tenantId) {
       try {
         const baseUrl = getApiBaseUrl();
@@ -296,7 +298,7 @@ export function NotificationProvider({ children }: ProviderProps) {
         console.error('[NotificationContext] Failed to mark all as read:', err);
       }
     }
-  }, []);
+  }, [tenantId, shopId]);
 
   // ─────────────────────────────────────────────────
   // 7. Computed values
