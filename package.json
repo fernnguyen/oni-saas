@@ -19,7 +19,11 @@
     "mobile:ios": "pnpm --filter @oni/mobile ios",
     "mobile:android": "pnpm --filter @oni/mobile android",
     "mobile:eas": "pnpm --filter @oni/mobile eas:helper",
-    "mobile:eas:local": "pnpm --filter @oni/mobile eas:helper local"
+    "mobile:eas:local": "pnpm --filter @oni/mobile eas:helper local",
+    "mobile:ios:build": "pnpm --filter @oni/mobile build:ios:local",
+    "mobile:ios:submit": "pnpm --filter @oni/mobile submit:ios:local",
+    "mobile:android:build": "pnpm --filter @oni/mobile build:android:local",
+    "mobile:android:submit": "pnpm --filter @oni/mobile submit:android:local"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",

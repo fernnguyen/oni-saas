@@ -40,7 +40,7 @@ function showGuide() {
   console.log(` 2. Chọn project của bạn (hoặc tạo mới nếu chưa có).`);
   console.log(` 3. Nhấp vào ${COLORS.bold}Add App${COLORS.reset} (hoặc biểu tượng bánh răng cài đặt -> Project Settings -> Add App).`);
   console.log(` 4. Chọn nền tảng ${COLORS.bold}Android${COLORS.reset}.`);
-  console.log(` 5. Nhập Package Name chính xác từ app.json: ${COLORS.bold}${COLORS.green}vn.oni.mobile${COLORS.reset}`);
+  console.log(` 5. Nhập Package Name chính xác từ app.json: ${COLORS.bold}${COLORS.green}vn.oni.pos${COLORS.reset}`);
   console.log(` 6. Nhấp ${COLORS.bold}Register app${COLORS.reset}, sau đó tải xuống file ${COLORS.bold}google-services.json${COLORS.reset}.`);
   console.log(` 7. Copy file vừa tải vào thư mục sau:`);
   console.log(`    ${COLORS.cyan}${GOOGLE_SERVICES_PATH}${COLORS.reset}\n`);
@@ -158,10 +158,13 @@ function listSecrets() {
   });
 }
 
-function runBuild(profile) {
+function runBuild(platform, profile, options = {}) {
   printHeader();
-  const isLocalArg = process.argv.includes('local') || process.argv.includes('--local');
-  console.log(`${COLORS.bold}${COLORS.yellow}🚀 Bắt đầu chạy EAS Build [Profile: ${profile.toUpperCase()}]${isLocalArg ? ' [Local Build]' : ''}${COLORS.reset}\n`);
+  
+  const isLocalArg = process.argv.includes('local') || process.argv.includes('--local') || options.local === true;
+  const isSubmitArg = process.argv.includes('submit') || process.argv.includes('--submit') || options.autoSubmit === true;
+  
+  console.log(`${COLORS.bold}${COLORS.yellow}🚀 Bắt đầu chạy EAS Build [Platform: ${platform.toUpperCase()}] [Profile: ${profile.toUpperCase()}]${isLocalArg ? ' [Local Build]' : ''}${isSubmitArg ? ' [Auto-Submit]' : ''}${COLORS.reset}\n`);
 
   if (!checkEasLogin()) {
     rl.question('\nNhấn Enter để quay lại...', () => {
@@ -170,12 +173,15 @@ function runBuild(profile) {
     return;
   }
 
-  const proceedWithLocal = (buildLocal) => {
+  const proceedWithBuild = (buildLocal, buildSubmit) => {
     rl.question('Bạn có muốn xóa cache (clear cache) khi build không? Lựa chọn này giúp tránh lỗi cache cũ (y/N): ', (answer) => {
       const clearCache = answer.trim().toLowerCase() === 'y';
-      const args = ['eas', 'build', '--platform', 'android', '--profile', profile];
+      const args = ['eas', 'build', '--platform', platform, '--profile', profile];
       if (buildLocal) {
         args.push('--local');
+      }
+      if (buildSubmit) {
+        args.push('--auto-submit');
       }
       if (clearCache) {
         args.push('--clear-cache');
@@ -200,14 +206,37 @@ function runBuild(profile) {
     });
   };
 
-  if (isLocalArg) {
-    proceedWithLocal(true);
-  } else {
-    rl.question('Bạn có muốn build cục bộ (local build) thay vì build trên Cloud không? (y/N): ', (localAnswer) => {
-      const buildLocal = localAnswer.trim().toLowerCase() === 'y';
-      proceedWithLocal(buildLocal);
+  proceedWithBuild(isLocalArg, isSubmitArg);
+}
+
+function runSubmit(platform) {
+  printHeader();
+  console.log(`${COLORS.bold}${COLORS.yellow}🚀 Bắt đầu gửi ứng dụng [Platform: ${platform.toUpperCase()}] lên Store${COLORS.reset}\n`);
+
+  if (!checkEasLogin()) {
+    rl.question('\nNhấn Enter để quay lại...', () => {
+      mainMenu();
     });
+    return;
   }
+
+  const args = ['eas', 'submit', '--platform', platform];
+  console.log(`\n${COLORS.cyan}Lệnh sẽ chạy: npx ${args.join(' ')}${COLORS.reset}\n`);
+  
+  const submitProcess = spawnSync('npx', args, {
+    stdio: 'inherit',
+    cwd: MOBILE_DIR
+  });
+
+  if (submitProcess.status === 0) {
+    console.log(`\n${COLORS.green}✅ Submit hoàn thành thành công!${COLORS.reset}`);
+  } else {
+    console.log(`\n${COLORS.red}❌ Submit thất bại hoặc bị hủy bởi người dùng.${COLORS.reset}`);
+  }
+
+  rl.question('\nNhấn Enter để quay lại...', () => {
+    mainMenu();
+  });
 }
 
 function mainMenu() {
@@ -216,13 +245,18 @@ function mainMenu() {
   console.log(` ${COLORS.bold}1.${COLORS.reset} Hướng dẫn lấy file ${COLORS.bold}google-services.json${COLORS.reset} từ Firebase`);
   console.log(` ${COLORS.bold}2.${COLORS.reset} ${COLORS.green}Mã hóa & Cài đặt EAS Secret (${SECRET_NAME})${COLORS.reset}`);
   console.log(` ${COLORS.bold}3.${COLORS.reset} Xem danh sách EAS Secrets hiện có`);
-  console.log(` ${COLORS.bold}4.${COLORS.reset} ${COLORS.cyan}Build Android Development Client (APK)${COLORS.reset}`);
-  console.log(` ${COLORS.bold}5.${COLORS.reset} ${COLORS.blue}Build Android Production (AAB)${COLORS.reset}`);
-  console.log(` ${COLORS.bold}6.${COLORS.reset} Build Android Preview (APK)`);
-  console.log(` ${COLORS.bold}7.${COLORS.reset} Thoát`);
+  console.log('----------------------------------------------------');
+  console.log(` ${COLORS.bold}4.${COLORS.reset} ${COLORS.cyan}Build Android Development Client (APK) - Cloud${COLORS.reset}`);
+  console.log(` ${COLORS.bold}5.${COLORS.reset} Build Android Production (AAB) - Cloud`);
+  console.log(` ${COLORS.bold}6.${COLORS.reset} Build Android Preview (APK) - Cloud`);
+  console.log('----------------------------------------------------');
+  console.log(` ${COLORS.bold}7.${COLORS.reset} ${COLORS.green}Build Android Production (AAB) - Local Only${COLORS.reset}`);
+  console.log(` ${COLORS.bold}8.${COLORS.reset} ${COLORS.blue}Build iOS Production (IPA) - Local Only${COLORS.reset}`);
+  console.log(` ${COLORS.bold}9.${COLORS.reset} ${COLORS.magenta}Submit iOS (IPA) lên TestFlight${COLORS.reset}`);
+  console.log(` ${COLORS.bold}10.${COLORS.reset} Thoát`);
   console.log(`\n----------------------------------------------------`);
 
-  rl.question('\nNhập lựa chọn của bạn (1-7): ', (choice) => {
+  rl.question('\nNhập lựa chọn của bạn (1-10): ', (choice) => {
     switch (choice.trim()) {
       case '1':
         showGuide();
@@ -234,21 +268,30 @@ function mainMenu() {
         listSecrets();
         break;
       case '4':
-        runBuild('development');
+        runBuild('android', 'development', { local: false });
         break;
       case '5':
-        runBuild('production');
+        runBuild('android', 'production', { local: false });
         break;
       case '6':
-        runBuild('preview');
+        runBuild('android', 'preview', { local: false });
         break;
       case '7':
+        runBuild('android', 'production', { local: true });
+        break;
+      case '8':
+        runBuild('ios', 'production', { local: true, autoSubmit: false });
+        break;
+      case '9':
+        runSubmit('ios');
+        break;
+      case '10':
         console.log(`\nTạm biệt! Chúc bạn một ngày tốt lành!`);
         rl.close();
         process.exit(0);
         break;
       default:
-        console.log(`${COLORS.red}\nLựa chọn không hợp lệ! Vui lòng chọn từ 1 đến 7.${COLORS.reset}`);
+        console.log(`${COLORS.red}\nLựa chọn không hợp lệ! Vui lòng chọn từ 1 đến 10.${COLORS.reset}`);
         setTimeout(mainMenu, 1500);
         break;
     }

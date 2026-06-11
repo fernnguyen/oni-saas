@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "ONI POS",
+    "name": "Oni POS",
     "slug": "oni-pos",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -13,16 +13,17 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "vn.oni.mobile",
+      "bundleIdentifier": "vn.oni.pos",
       "infoPlist": {
         "UIBackgroundModes": [
           "remote-notification"
         ],
-        "NSCameraUsageDescription": "Ứng dụng cần quyền truy cập camera để quét mã vạch sản phẩm."
+        "NSCameraUsageDescription": "Ứng dụng cần quyền truy cập camera để quét mã vạch sản phẩm.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
-      "package": "vn.oni.mobile",
+      "package": "vn.oni.pos",
       "googleServicesFile": "./google-services.json",
       "permissions": [
         "CAMERA",
