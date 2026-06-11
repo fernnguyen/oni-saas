@@ -1,5 +1,5 @@
 import React, {useState, useEffect} from 'react';
-import {Text, View, TextInput, TouchableOpacity, ActivityIndicator, Alert, Modal, Platform, Image, Pressable, KeyboardAvoidingView, ScrollView} from 'react-native';
+import {Text, View, TextInput, TouchableOpacity, ActivityIndicator, Alert, Modal, Platform, Image, Pressable, KeyboardAvoidingView, ScrollView, Linking} from 'react-native';
 import {useRouter} from 'expo-router';
 import {Ionicons} from '@expo/vector-icons';
 import {SafeAreaView} from 'react-native-safe-area-context';
@@ -16,6 +16,7 @@ export default function LoginScreen() {
  const [showPassword, setShowPassword] = useState(false);
  const [isLoading, setIsLoading] = useState(false);
  const [isBiometricAvailable, setIsBiometricAvailable] = useState(false);
+ const [isTenantCodeSaved, setIsTenantCodeSaved] = useState(false);
 
  // States cài đặt Server URL
  const [isServerModalOpen, setIsServerModalOpen] = useState(false);
@@ -28,6 +29,7 @@ export default function LoginScreen() {
  const savedCode = await AsyncStorage.getItem('saved_tenant_code');
  if (savedCode) {
  setTenantCode(savedCode);
+ setIsTenantCodeSaved(true);
 }
  
  const savedEmail = await AsyncStorage.getItem('saved_email');
@@ -79,6 +81,7 @@ export default function LoginScreen() {
  await AsyncStorage.setItem('saved_tenant_code', trimmedTenant);
  await AsyncStorage.setItem('saved_email', trimmedEmail);
  await AsyncStorage.setItem('active_tenant_code', trimmedTenant);
+ setIsTenantCodeSaved(true);
 
  // Gọi Supabase Auth thực tế
  const {data, error} = await supabase.auth.signInWithPassword({
@@ -199,7 +202,7 @@ export default function LoginScreen() {
  style={{width: 76, height: 76, resizeMode: 'contain', marginBottom: 12}} 
  />
  {/* Tên thương hiệu và khẩu hiệu cực kỳ thân thiện với hộ kinh doanh */}
- <Text style={{fontSize: 26, fontWeight: '800', color: '#1e293b', letterSpacing: 0.5}}>Bán hàng với ONI</Text>
+ <Text style={{fontSize: 26, fontWeight: '800', color: '#1e293b', letterSpacing: 0.5}}>Oni POS</Text>
  <Text style={{fontSize: 13, color: '#64748b', marginTop: 8, fontWeight: '500', textAlign: 'center', lineHeight: 18, paddingHorizontal: 16}}>
  Giải pháp bán hàng và quản trị đơn giản, hiệu quả
  </Text>
@@ -221,98 +224,154 @@ export default function LoginScreen() {
 }}>
  <Text style={{fontSize: 20, fontWeight: '700', color: '#1e293b', marginBottom: 20}}>Đăng nhập</Text>
 
- {/* Gian hàng (Mã Tenant) */}
- <Text style={{fontSize: 16, color: '#64748b', fontWeight: '600', letterSpacing: 0.5, marginBottom: 6}}>
- Gian hàng
- </Text>
- <View style={{
- flexDirection: 'row', 
- alignItems: 'center', 
- borderWidth: 1, 
- borderColor: '#cbd5e1', 
- borderRadius: 12, 
- backgroundColor: '#ffffff', 
- paddingHorizontal: 14, 
- height: 52, 
- marginBottom: 16 
-}}>
- <Ionicons name="storefront-outline" size={16} color="#94a3b8" />
- <TextInput
- placeholder="ten-cua-hang"
- placeholderTextColor="#cbd5e1"
- value={tenantCode}
- onChangeText={setTenantCode}
- autoCapitalize="none"
- style={Platform.OS === 'web' 
- ? ({flex: 1, marginLeft: 10, fontSize: 16, fontWeight: '600', color: '#1e293b', outlineStyle: 'none', borderStyle: 'none', borderWidth: 0, padding: 0} as any)
- : {flex: 1, marginLeft: 10, fontSize: 16, fontWeight: '600', color: '#1e293b', padding: 0}
-}
- />
- <Text style={{fontSize: 16, fontWeight: '600', color: '#94a3b8', marginLeft: 8}}>.oni.vn</Text>
- </View>
+  {isTenantCodeSaved ? (
+    <>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+        <Text style={{fontSize: 14, color: '#64748b', fontWeight: '600', letterSpacing: 0.5}}>
+          Gian hàng
+        </Text>
+        <TouchableOpacity 
+          activeOpacity={0.6} 
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+            setIsTenantCodeSaved(false);
+          }}
+        >
+          <Text style={{ fontSize: 13, color: '#fa5908', fontWeight: '600' }}>
+            Thay đổi
+          </Text>
+        </TouchableOpacity>
+      </View>
+      <View style={{
+        flexDirection: 'row', 
+        alignItems: 'center', 
+        borderWidth: 1, 
+        borderColor: '#e2e8f0', 
+        borderRadius: 12, 
+        backgroundColor: '#f8fafc', 
+        paddingHorizontal: 14, 
+        height: 52, 
+        marginBottom: 16 
+      }}>
+        <Ionicons name="storefront-outline" size={16} color="#fa5908" />
+        <Text style={{flex: 1, marginLeft: 10, fontSize: 16, fontWeight: '600', color: '#1e293b'}}>
+          {tenantCode}.oni.vn
+        </Text>
+      </View>
+    </>
+  ) : (
+    <>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+        <Text style={{fontSize: 14, color: '#64748b', fontWeight: '600', letterSpacing: 0.5}}>
+          Gian hàng
+        </Text>
+      </View>
+      <View style={{
+        flexDirection: 'row', 
+        alignItems: 'center', 
+        borderWidth: 1, 
+        borderColor: '#cbd5e1', 
+        borderRadius: 12, 
+        backgroundColor: '#ffffff', 
+        paddingHorizontal: 14, 
+        height: 52, 
+        marginBottom: 16 
+      }}>
+        <Ionicons name="storefront-outline" size={16} color="#94a3b8" />
+        <TextInput
+          placeholder="ten-cua-hang"
+          placeholderTextColor="#cbd5e1"
+          value={tenantCode}
+          onChangeText={setTenantCode}
+          autoCapitalize="none"
+          style={Platform.OS === 'web' 
+            ? ({flex: 1, marginLeft: 10, fontSize: 16, fontWeight: '600', color: '#1e293b', outlineStyle: 'none', borderStyle: 'none', borderWidth: 0, padding: 0} as any)
+            : {flex: 1, marginLeft: 10, fontSize: 16, fontWeight: '600', color: '#1e293b', padding: 0}
+          }
+        />
+        <Text style={{fontSize: 16, fontWeight: '600', color: '#94a3b8', marginLeft: 8}}>.oni.vn</Text>
+      </View>
+    </>
+  )}
 
- {/* Tên Đăng nhập / Email */}
- <Text style={{fontSize: 16, color: '#64748b', fontWeight: '600', letterSpacing: 0.5, marginBottom: 6}}>
- Tên đăng nhập / Email
- </Text>
- <View style={{
- flexDirection: 'row', 
- alignItems: 'center', 
- borderWidth: 1, 
- borderColor: '#cbd5e1', 
- borderRadius: 12, 
- backgroundColor: '#ffffff', 
- paddingHorizontal: 14, 
- height: 52, 
- marginBottom: 16 
-}}>
- <Ionicons name="mail-outline" size={16} color="#94a3b8" />
- <TextInput
- placeholder="admin@oni.vn"
- placeholderTextColor="#cbd5e1"
- value={email}
- onChangeText={setEmail}
- keyboardType="email-address"
- autoCapitalize="none"
- style={Platform.OS === 'web' 
- ? ({flex: 1, marginLeft: 10, fontSize: 16, fontWeight: '600', color: '#1e293b', outlineStyle: 'none', borderStyle: 'none', borderWidth: 0, padding: 0} as any)
- : {flex: 1, marginLeft: 10, fontSize: 16, fontWeight: '600', color: '#1e293b', padding: 0}
-}
- />
- </View>
+  {/* Tên Đăng nhập / Email */}
+  <Text style={{fontSize: 14, color: '#64748b', fontWeight: '600', letterSpacing: 0.5, marginBottom: 6}}>
+    Tên đăng nhập / Email
+  </Text>
+  <View style={{
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    borderWidth: 1, 
+    borderColor: '#cbd5e1', 
+    borderRadius: 12, 
+    backgroundColor: '#ffffff', 
+    paddingHorizontal: 14, 
+    height: 52, 
+    marginBottom: 16 
+  }}>
+    <Ionicons name="mail-outline" size={16} color="#94a3b8" />
+    <TextInput
+      placeholder="admin@oni.vn"
+      placeholderTextColor="#cbd5e1"
+      value={email}
+      onChangeText={setEmail}
+      keyboardType="email-address"
+      autoCapitalize="none"
+      style={Platform.OS === 'web' 
+        ? ({flex: 1, marginLeft: 10, fontSize: 16, fontWeight: '600', color: '#1e293b', outlineStyle: 'none', borderStyle: 'none', borderWidth: 0, padding: 0} as any)
+        : {flex: 1, marginLeft: 10, fontSize: 16, fontWeight: '600', color: '#1e293b', padding: 0}
+      }
+    />
+  </View>
 
- {/* Mật khẩu */}
- <Text style={{fontSize: 16, color: '#64748b', fontWeight: '600', letterSpacing: 0.5, marginBottom: 6}}>
- Mật khẩu
- </Text>
- <View style={{
- flexDirection: 'row', 
- alignItems: 'center', 
- borderWidth: 1, 
- borderColor: '#cbd5e1', 
- borderRadius: 12, 
- backgroundColor: '#ffffff', 
- paddingHorizontal: 14, 
- height: 52, 
- marginBottom: 20 
-}}>
- <Ionicons name="lock-closed-outline" size={16} color="#94a3b8" />
- <TextInput
- placeholder="••••••••"
- placeholderTextColor="#cbd5e1"
- value={password}
- onChangeText={setPassword}
- secureTextEntry={!showPassword}
- autoCapitalize="none"
- style={Platform.OS === 'web' 
- ? ({flex: 1, marginLeft: 10, fontSize: 16, fontWeight: '500', color: '#1e293b', outlineStyle: 'none', borderStyle: 'none', borderWidth: 0, padding: 0} as any)
- : {flex: 1, marginLeft: 10, fontSize: 16, fontWeight: '500', color: '#1e293b', padding: 0}
-}
- />
- <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={{padding: 4}}>
- <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={18} color="#94a3b8" />
- </TouchableOpacity>
- </View>
+  {/* Nhãn Mật khẩu & Quên mật khẩu? */}
+  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+    <Text style={{fontSize: 14, color: '#64748b', fontWeight: '600', letterSpacing: 0.5}}>
+      Mật khẩu
+    </Text>
+    <TouchableOpacity 
+      activeOpacity={0.6} 
+      onPress={() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+        Alert.alert(
+          'Quên mật khẩu', 
+          `Vui lòng liên hệ chủ Doanh nghiệp ${tenantCode ? `'${tenantCode}'` : 'của bạn'} để được cấp lại mật khẩu.`
+        );
+      }}
+    >
+      <Text style={{ fontSize: 13, color: '#fa5908', fontWeight: '600' }}>
+        Quên mật khẩu?
+      </Text>
+    </TouchableOpacity>
+  </View>
+  <View style={{
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    borderWidth: 1, 
+    borderColor: '#cbd5e1', 
+    borderRadius: 12, 
+    backgroundColor: '#ffffff', 
+    paddingHorizontal: 14, 
+    height: 52, 
+    marginBottom: 20 
+  }}>
+    <Ionicons name="lock-closed-outline" size={16} color="#94a3b8" />
+    <TextInput
+      placeholder="••••••••"
+      placeholderTextColor="#cbd5e1"
+      value={password}
+      onChangeText={setPassword}
+      secureTextEntry={!showPassword}
+      autoCapitalize="none"
+      style={Platform.OS === 'web' 
+        ? ({flex: 1, marginLeft: 10, fontSize: 16, fontWeight: '500', color: '#1e293b', outlineStyle: 'none', borderStyle: 'none', borderWidth: 0, padding: 0} as any)
+        : {flex: 1, marginLeft: 10, fontSize: 16, fontWeight: '500', color: '#1e293b', padding: 0}
+      }
+    />
+    <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={{padding: 4}}>
+      <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={18} color="#94a3b8" />
+    </TouchableOpacity>
+  </View>
 
  {/* Nút Đăng nhập & Sinh trắc học */}
  <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
@@ -367,14 +426,67 @@ export default function LoginScreen() {
  </View>
  </View>
 
- {/* 3. CHÂN TRANG FOOTER - Loại bỏ Hotline */}
- <View style={{alignItems: 'center', marginBottom: 10}}>
- <TouchableOpacity activeOpacity={0.6} style={{marginVertical: 10, alignSelf: 'center'}}>
- <Text style={{fontSize: 12, color: '#64748b', fontWeight: '700', letterSpacing: 0.5}}>
- QUÊN MẬT KHẨU?
- </Text>
- </TouchableOpacity>
- </View>
+  {/* 3. CHÂN TRANG FOOTER - Loại bỏ Hotline */}
+  <View style={{alignItems: 'center', marginBottom: 10}}>
+
+    {/* Chưa có gian hàng? Tạo ngay */}
+    <View style={{flexDirection: 'row', alignItems: 'center', marginTop: 10, marginBottom: 8}}>
+      <Text style={{fontSize: 14, color: '#64748b', fontWeight: '500'}}>
+        Chưa có gian hàng?{' '}
+      </Text>
+      <TouchableOpacity 
+        activeOpacity={0.7} 
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+          Linking.openURL('https://oni.vn/register').catch(err => console.error('Không thể mở trang đăng ký:', err));
+        }}
+      >
+        <Text style={{fontSize: 14, color: '#fa5908', fontWeight: '700'}}>
+          Tạo ngay
+        </Text>
+      </TouchableOpacity>
+    </View>
+
+    {/* Cộng đồng hỗ trợ Zalo */}
+    <TouchableOpacity 
+      activeOpacity={0.7} 
+      onPress={async () => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+        const webUrl = 'https://zalo.me/g/owlxjd9bqfhocunnrjos';
+        const appUrl = 'zalo://qr/g/owlxjd9bqfhocunnrjos';
+        try {
+          await Linking.openURL(appUrl);
+        } catch (err) {
+          Linking.openURL(webUrl).catch(webErr => {
+            console.error('Không thể mở liên kết Zalo:', webErr);
+            Alert.alert('Thông báo', 'Không thể mở liên kết Zalo. Vui lòng truy cập https://zalo.me/g/owlxjd9bqfhocunnrjos bằng trình duyệt.');
+          });
+        }
+      }}
+      style={{ 
+        flexDirection: 'row', 
+        alignItems: 'center', 
+        backgroundColor: '#eff6ff', 
+        paddingVertical: 6, 
+        paddingHorizontal: 12, 
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: '#dbeafe',
+        marginTop: 6
+      }}
+    >
+      <Text style={{ fontSize: 13, color: '#1e40af', fontWeight: '600', marginRight: 6 }}>
+        Cần hỗ trợ?
+      </Text>
+      <Image 
+        source={require('../../assets/zalo.png')} 
+        style={{ width: 16, height: 16, borderRadius: 3, marginRight: 4 }} 
+      />
+      <Text style={{ fontSize: 13, color: '#0068ff', fontWeight: '700' }}>
+        Tham gia nhóm Zalo
+      </Text>
+    </TouchableOpacity>
+  </View>
 
       </View>
     </ScrollView>
