@@ -174,7 +174,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
       const y = date.getFullYear();
       const h = pad(date.getHours());
       const min = pad(date.getMinutes());
-      return `${d}/${m}/${y} ${h}:${min}`;
+      return `${h}:${min} ${d}/${m}/${y}`;
     };
 
     return {

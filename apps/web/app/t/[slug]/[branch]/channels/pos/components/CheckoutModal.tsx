@@ -160,7 +160,8 @@ export function fmtDateTimeVN(d: Date) {
   const mm = d.getMinutes().toString().padStart(2, '0')
   const dd = d.getDate().toString().padStart(2, '0')
   const mo = (d.getMonth() + 1).toString().padStart(2, '0')
-  return `${hh}:${mm} ${dd}/${mo}`
+  const yyyy = d.getFullYear()
+  return `${hh}:${mm} ${dd}/${mo}/${yyyy}`
 }
 
 function nextId() {
