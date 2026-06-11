@@ -746,7 +746,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                       disabled={loading}
                     >
                       <Ionicons name="add-circle-outline" size={13} color="#fa5908" />
-                      <Text className="text-xs font-semibold text-orange-500 ml-1">+ Thêm</Text>
+                      <Text className="text-xs font-semibold text-orange-500 ml-1">Thêm</Text>
                     </TouchableOpacity>
                   )}
                 </View>
