@@ -19,6 +19,7 @@
           "remote-notification"
         ],
         "NSCameraUsageDescription": "Ứng dụng cần quyền truy cập camera để quét mã vạch sản phẩm.",
+        "NSFaceIDUsageDescription": "Ứng dụng cần sử dụng Face ID để đăng nhập nhanh chóng và bảo mật tài khoản.",
         "ITSAppUsesNonExemptEncryption": false
       }
     },

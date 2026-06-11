@@ -190,11 +190,12 @@ export default function SettingsScreen() {
         const hasHardware = await LocalAuthentication.hasHardwareAsync();
         const isEnrolled = await LocalAuthentication.isEnrolledAsync();
 
-        if (!hasHardware || !isEnrolled) {
-          Alert.alert(
-            'Không khả dụng',
-            'Thiết bị của bạn chưa cài đặt hoặc không hỗ trợ sinh trắc học (Face ID/Vân tay).'
-          );
+        if (!hasHardware) {
+          Alert.alert('Không khả dụng', 'Thiết bị của bạn không hỗ trợ tính năng bảo mật sinh trắc học.');
+          return;
+        }
+        if (!isEnrolled) {
+          Alert.alert('Không khả dụng', 'Thiết bị chưa được đăng ký Vân tay hoặc Face ID trong Cài đặt hệ thống.');
           return;
         }
 

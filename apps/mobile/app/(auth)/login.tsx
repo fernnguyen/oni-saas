@@ -249,11 +249,12 @@ export default function LoginScreen() {
       const hasHardware = await LocalAuthentication.hasHardwareAsync();
       const isEnrolled = await LocalAuthentication.isEnrolledAsync();
 
-      if (!hasHardware || !isEnrolled) {
-        Alert.alert(
-          'Thông báo', 
-          'Thiết bị chưa cấu hình hoặc không hỗ trợ xác thực Face ID/Vân tay.'
-        );
+      if (!hasHardware) {
+        Alert.alert('Thông báo', 'Thiết bị của bạn không hỗ trợ tính năng bảo mật sinh trắc học.');
+        return;
+      }
+      if (!isEnrolled) {
+        Alert.alert('Thông báo', 'Thiết bị chưa được đăng ký Vân tay hoặc Face ID trong Cài đặt hệ thống.');
         return;
       }
 
