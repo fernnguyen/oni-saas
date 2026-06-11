@@ -12,6 +12,9 @@ import {supabase} from '../../lib/supabase';
 import * as Haptics from 'expo-haptics';
 import {getApiBaseUrl, getApiHeaders} from '../../lib/api/config';
 import {formatCurrency} from '../../lib/utils/format';
+import * as LocalAuthentication from 'expo-local-authentication';
+import * as SecureStore from 'expo-secure-store';
+
 
 // Import các UI dùng chung
 import {Header} from '../../components/layout/Header';
@@ -48,6 +51,10 @@ export default function SettingsScreen() {
  const [autoSyncOnPrint, setAutoSyncOnPrint] = useState(true);
  const [soundFeedback, setSoundFeedback] = useState(true);
  const [mobileShiftEnabled, setMobileShiftEnabled] = useState(false);
+ const [biometricsEnabled, setBiometricsEnabled] = useState(false);
+ const [showBiometricPasswordModal, setShowBiometricPasswordModal] = useState(false);
+ const [biometricPassword, setBiometricPassword] = useState('');
+ const [isVerifyingBiometricPass, setIsVerifyingBiometricPass] = useState(false);
  const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
  const [isShiftOpen, setIsShiftOpen] = useState(false);
  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -130,6 +137,17 @@ export default function SettingsScreen() {
  setCustomerCount(2);
  setPendingOrdersCount(0);
 }
+
+  // Lấy cấu hình sinh trắc học
+  try {
+    const secureStoreAvailable = await SecureStore.isAvailableAsync();
+    if (secureStoreAvailable) {
+      const savedBiometricCreds = await SecureStore.getItemAsync('biometric_credentials');
+      setBiometricsEnabled(!!savedBiometricCreds);
+    }
+  } catch (e) {
+    console.warn('Lỗi lấy thông tin sinh trắc học:', e);
+  }
 } catch (err) {
  console.error('Lỗi khi tải số liệu cài đặt SQLite:', err);
 }
@@ -149,7 +167,107 @@ export default function SettingsScreen() {
       );
     }
   };
+  // 4. Cài đặt Sinh trắc học
+  const handleToggleBiometrics = async (val: boolean) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    
+    if (!val) {
+      // Tắt sinh trắc học
+      try {
+        const secureStoreAvailable = await SecureStore.isAvailableAsync();
+        if (secureStoreAvailable) {
+          await SecureStore.deleteItemAsync('biometric_credentials');
+        }
+        await AsyncStorage.setItem('biometrics_declined', 'true');
+        setBiometricsEnabled(false);
+        Alert.alert('Sinh trắc học', 'Đã tắt đăng nhập bằng sinh trắc học và xóa dữ liệu đã lưu.');
+      } catch (err) {
+        Alert.alert('Lỗi', 'Không thể tắt sinh trắc học.');
+      }
+    } else {
+      // Bật sinh trắc học
+      try {
+        const hasHardware = await LocalAuthentication.hasHardwareAsync();
+        const isEnrolled = await LocalAuthentication.isEnrolledAsync();
 
+        if (!hasHardware || !isEnrolled) {
+          Alert.alert(
+            'Không khả dụng',
+            'Thiết bị của bạn chưa cài đặt hoặc không hỗ trợ sinh trắc học (Face ID/Vân tay).'
+          );
+          return;
+        }
+
+        setBiometricPassword('');
+        setShowBiometricPasswordModal(true);
+      } catch (err) {
+        Alert.alert('Lỗi', 'Không thể khởi động cài đặt sinh trắc học.');
+      }
+    }
+  };
+
+  const handleConfirmBiometricPassword = async () => {
+    if (!biometricPassword.trim()) {
+      Alert.alert('Thông báo', 'Vui lòng nhập mật khẩu tài khoản.');
+      return;
+    }
+
+    setIsVerifyingBiometricPass(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+
+    try {
+      let emailToVerify = userEmail;
+      if (!emailToVerify) {
+        const savedEmail = await AsyncStorage.getItem('saved_email');
+        emailToVerify = savedEmail || '';
+      }
+
+      if (!emailToVerify) {
+        Alert.alert('Lỗi', 'Không tìm thấy thông tin tài khoản hiện tại. Vui lòng đăng nhập lại.');
+        setIsVerifyingBiometricPass(false);
+        return;
+      }
+
+      // Thử đăng nhập lại bằng email hiện tại & mật khẩu vừa nhập để kiểm tra
+      const { error } = await supabase.auth.signInWithPassword({
+        email: emailToVerify.trim(),
+        password: biometricPassword,
+      });
+
+      if (error) {
+        Alert.alert('Xác thực thất bại', 'Mật khẩu đăng nhập không chính xác. Vui lòng thử lại.');
+        setIsVerifyingBiometricPass(false);
+        return;
+      }
+
+      // Mật khẩu đúng, gọi quét Vân tay/Face ID
+      const authResult = await LocalAuthentication.authenticateAsync({
+        promptMessage: 'Xác thực sinh trắc học để liên kết thiết bị',
+      });
+
+      if (authResult.success) {
+        const tenantCode = await AsyncStorage.getItem('active_tenant_code') || 'default';
+        const secureStoreAvailable = await SecureStore.isAvailableAsync();
+        if (secureStoreAvailable) {
+          await SecureStore.setItemAsync(
+            'biometric_credentials',
+            JSON.stringify({ tenant: tenantCode, email: emailToVerify, password: biometricPassword })
+          );
+        }
+        await AsyncStorage.removeItem('biometrics_declined');
+        setBiometricsEnabled(true);
+        setShowBiometricPasswordModal(false);
+        Alert.alert('Thành công', 'Đã bật đăng nhập bằng sinh trắc học (Face ID/Vân tay) thành công!');
+      } else {
+        Alert.alert('Thất bại', 'Xác thực vân tay/Face ID không thành công.');
+      }
+    } catch (err) {
+      console.error('Lỗi khi bật sinh trắc học:', err);
+      Alert.alert('Lỗi', 'Có lỗi xảy ra trong quá trình thiết lập.');
+    } finally {
+      setIsVerifyingBiometricPass(false);
+    }
+  };
  useFocusEffect(
  useCallback(() => {
  loadSettingsData();
@@ -826,7 +944,7 @@ export default function SettingsScreen() {
   />
   </View>
 
-  <View className="flex-row justify-between items-center py-3">
+  <View className="flex-row justify-between items-center py-3 border-b border-slate-100">
  <View className="flex-1 mr-4">
  <Text className="text-xs font-medium text-slate-800">
  Phản hồi âm thanh (Beep!)
@@ -836,6 +954,19 @@ export default function SettingsScreen() {
  <Switch
  value={soundFeedback}
  onValueChange={setSoundFeedback}
+ />
+ </View>
+
+  <View className="flex-row justify-between items-center py-3">
+ <View className="flex-1 mr-4">
+ <Text className="text-xs font-medium text-slate-800">
+ Đăng nhập bằng Sinh trắc học
+ </Text>
+ <Text className="text-xxs text-slate-400 font-medium mt-0.5">Sử dụng Vân tay / Face ID để đăng nhập nhanh</Text>
+ </View>
+ <Switch
+ value={biometricsEnabled}
+ onValueChange={handleToggleBiometrics}
  />
  </View>
  </View>
@@ -1037,7 +1168,71 @@ export default function SettingsScreen() {
     </View>
   </Modal>
 
- {/* Drawer Hamburger Sidebar */}
+   {/* Modal Nhập Mật khẩu kích hoạt Sinh trắc học */}
+   <Modal
+     visible={showBiometricPasswordModal}
+     animationType="fade"
+     transparent={true}
+     onRequestClose={() => setShowBiometricPasswordModal(false)}
+   >
+     <View className="flex-1 justify-center items-center px-6">
+       <Pressable
+         className="absolute inset-0 bg-black/60"
+         onPress={() => setShowBiometricPasswordModal(false)}
+       />
+       <View className="bg-white w-full rounded-3xl p-6 shadow-2xl border border-slate-100 max-w-[340px]">
+         <View className="items-center mb-4">
+           <View className="bg-orange-50 p-3 rounded-full mb-3 border border-orange-100">
+             <Ionicons name="finger-print" size={24} color="#fa5908" />
+           </View>
+           <Text className="text-base font-bold text-slate-800 text-center">Xác nhận mật khẩu</Text>
+           <Text className="text-xxs text-slate-400 text-center mt-1 leading-relaxed">
+             Vui lòng nhập mật khẩu tài khoản của bạn để kích hoạt đăng nhập nhanh bằng sinh trắc học.
+           </Text>
+         </View>
+
+         <TextInput
+           value={biometricPassword}
+           onChangeText={setBiometricPassword}
+           placeholder="Mật khẩu tài khoản"
+           placeholderTextColor="#cbd5e1"
+           secureTextEntry={true}
+           autoCapitalize="none"
+           className="bg-slate-50 border rounded-xl px-4 py-3 text-xs text-slate-800 mb-6 text-center"
+           style={{
+             borderColor: '#cbd5e1',
+             fontSize: 14,
+             fontWeight: '500',
+             ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+           }}
+         />
+
+         <View className="flex-row gap-3">
+           <TouchableOpacity
+             className="flex-1 py-3 rounded-xl border bg-slate-50 items-center justify-center"
+             style={{ borderColor: '#cbd5e1' }}
+             onPress={() => setShowBiometricPasswordModal(false)}
+             disabled={isVerifyingBiometricPass}
+           >
+             <Text className="text-slate-500 font-semibold text-xs">Hủy bỏ</Text>
+           </TouchableOpacity>
+           <TouchableOpacity
+             className="flex-1 py-3 rounded-xl bg-orange-500 items-center justify-center flex-row"
+             onPress={handleConfirmBiometricPassword}
+             disabled={isVerifyingBiometricPass}
+           >
+             {isVerifyingBiometricPass ? (
+               <ActivityIndicator size="small" color="white" />
+             ) : (
+               <Text className="text-white font-semibold text-xs">Xác nhận</Text>
+             )}
+           </TouchableOpacity>
+         </View>
+       </View>
+     </View>
+   </Modal>
+
+  {/* Drawer Hamburger Sidebar */}
  <DrawerMenu 
  visible={isDrawerOpen} 
  onClose={() => setIsDrawerOpen(false)} 

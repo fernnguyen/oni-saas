@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
 // Paths that are public on the MAIN domain (no auth required)
-const MAIN_DOMAIN_PUBLIC = ['/auth', '/api', '/_next', '/favicon', '/register', '/admin-login', '/qr-order', '/solutions', '/icons'];
+const MAIN_DOMAIN_PUBLIC = ['/auth', '/api', '/_next', '/favicon', '/register', '/admin-login', '/qr-order', '/solutions', '/icons', '/logos', '/fonts', '/.well-known'];
 
 // Paths on subdomain that bypass AAL check (auth flows themselves)
 const SUBDOMAIN_AUTH_BYPASS = ['/auth/', '/api/', '/_next/'];
@@ -45,8 +45,16 @@ export async function proxy(req: NextRequest) {
   // Must be checked FIRST — subdomain /auth/signin must serve the
   // workspace login form, not the superadmin form.
   if (subdomain) {
-    // API routes, Next.js internals, and public QR ordering routes do not require rewrite/auth — pass through
-    if (pathname.startsWith('/api/') || pathname.startsWith('/_next/') || pathname.startsWith('/qr-order/')) {
+    // API routes, Next.js internals, and public QR ordering routes/assets do not require rewrite/auth — pass through
+    if (
+      pathname.startsWith('/api/') ||
+      pathname.startsWith('/_next/') ||
+      pathname.startsWith('/qr-order/') ||
+      pathname.startsWith('/icons/') ||
+      pathname.startsWith('/logos/') ||
+      pathname.startsWith('/fonts/') ||
+      pathname.startsWith('/.well-known/')
+    ) {
       return withSupabaseSession(req, NextResponse.next());
     }
 
@@ -215,5 +223,5 @@ async function withSupabaseSession(req: NextRequest, res: NextResponse): Promise
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:wav|mp3|svg|png|jpg|jpeg|gif|webp|ico|webmanifest)$).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|icons/|logos/|fonts/|\\.well-known/|.*\\.(?:wav|mp3|svg|png|jpg|jpeg|gif|webp|ico|webmanifest|ttf|woff|woff2)$).*)'],
 };

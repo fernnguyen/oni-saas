@@ -7,6 +7,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {supabase} from '../../lib/supabase';
 import {loadApiBaseUrl, saveApiBaseUrl} from '../../lib/api/config';
 import * as Haptics from 'expo-haptics';
+import * as LocalAuthentication from 'expo-local-authentication';
+import * as SecureStore from 'expo-secure-store';
+
 
 export default function LoginScreen() {
  const router = useRouter();
@@ -17,6 +20,7 @@ export default function LoginScreen() {
  const [isLoading, setIsLoading] = useState(false);
  const [isBiometricAvailable, setIsBiometricAvailable] = useState(false);
  const [isTenantCodeSaved, setIsTenantCodeSaved] = useState(false);
+ const [isBiometricSaved, setIsBiometricSaved] = useState(false);
 
  // States cài đặt Server URL
  const [isServerModalOpen, setIsServerModalOpen] = useState(false);
@@ -38,6 +42,15 @@ export default function LoginScreen() {
  setIsBiometricAvailable(true);
 }
 
+ // Kiểm tra sinh trắc học đã lưu
+ const secureStoreAvailable = await SecureStore.isAvailableAsync();
+ if (secureStoreAvailable) {
+   const savedBiometricCreds = await SecureStore.getItemAsync('biometric_credentials');
+   if (savedBiometricCreds) {
+     setIsBiometricSaved(true);
+   }
+ }
+
  // Tải server URL hiện tại
  const url = await loadApiBaseUrl();
  setCustomServerUrl(url);
@@ -50,19 +63,116 @@ export default function LoginScreen() {
 
  // 2. Xử lý lưu URL Server mới
  const handleSaveServerUrl = async () => {
- Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
- if (!customServerUrl.trim()) {
- Alert.alert('Thông báo', 'Vui lòng nhập địa chỉ Server hợp lệ!');
- return;
-}
- try {
- await saveApiBaseUrl(customServerUrl.trim());
- setIsServerModalOpen(false);
- Alert.alert('Thành công', 'Đã cập nhật địa chỉ Server API thành công.');
-} catch (err) {
- Alert.alert('Lỗi', 'Không thể lưu địa chỉ Server mới.');
-}
-};
+  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+  if (!customServerUrl.trim()) {
+    Alert.alert('Thông báo', 'Vui lòng nhập địa chỉ Server hợp lệ!');
+    return;
+  }
+  try {
+    await saveApiBaseUrl(customServerUrl.trim());
+    setIsServerModalOpen(false);
+    Alert.alert('Thành công', 'Đã cập nhật địa chỉ Server API thành công.');
+  } catch (err) {
+    Alert.alert('Lỗi', 'Không thể lưu địa chỉ Server mới.');
+  }
+ };
+
+ const checkAndOfferBiometrics = async (tenant: string, loginEmail: string, loginPass: string) => {
+    try {
+      const secureStoreAvailable = await SecureStore.isAvailableAsync();
+      if (!secureStoreAvailable) return false;
+
+      // Kiểm tra nếu người dùng đã từ chối trước đó thì không nhắc lại
+      const declined = await AsyncStorage.getItem('biometrics_declined');
+      if (declined === 'true') {
+        return false;
+      }
+
+      const hasHardware = await LocalAuthentication.hasHardwareAsync();
+      const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+
+      if (hasHardware && isEnrolled) {
+        const savedBiometricCreds = await SecureStore.getItemAsync('biometric_credentials');
+        let shouldOffer = false;
+        let alertTitle = 'Kích hoạt sinh trắc học';
+        let alertMsg = 'Bạn có muốn kích hoạt đăng nhập nhanh bằng Vân tay / Face ID cho lần sau không?';
+
+        if (!savedBiometricCreds) {
+          shouldOffer = true;
+        } else {
+          try {
+            const creds = JSON.parse(savedBiometricCreds);
+            if (creds.tenant !== tenant || creds.email !== loginEmail) {
+              shouldOffer = true;
+              alertTitle = 'Cập nhật sinh trắc học';
+              alertMsg = `Bạn muốn cập nhật đăng nhập sinh trắc học cho tài khoản mới: ${loginEmail} (${tenant})?`;
+            }
+          } catch (e) {
+            shouldOffer = true;
+          }
+        }
+
+        if (shouldOffer) {
+          Alert.alert(
+            alertTitle,
+            alertMsg,
+            [
+              {
+                text: 'Để sau',
+                style: 'cancel',
+                onPress: async () => {
+                  try {
+                    await AsyncStorage.setItem('biometrics_declined', 'true');
+                  } catch (e) {}
+                  router.push('/(auth)/select-branch');
+                }
+              },
+              {
+                text: savedBiometricCreds ? 'Cập nhật' : 'Kích hoạt',
+                onPress: async () => {
+                  try {
+                    const authResult = await LocalAuthentication.authenticateAsync({
+                      promptMessage: 'Xác thực để liên kết sinh trắc học',
+                    });
+
+                    if (authResult.success) {
+                      await SecureStore.setItemAsync(
+                        'biometric_credentials',
+                        JSON.stringify({ tenant, email: loginEmail, password: loginPass })
+                      );
+                      setIsBiometricSaved(true);
+                      try {
+                        await AsyncStorage.removeItem('biometrics_declined');
+                      } catch (e) {}
+                      Alert.alert('Thành công', 'Đã lưu cấu hình đăng nhập sinh trắc học!', [
+                        {
+                          text: 'OK',
+                          onPress: () => router.push('/(auth)/select-branch')
+                        }
+                      ]);
+                    } else {
+                      Alert.alert('Thất bại', 'Xác thực không thành công, vui lòng thử lại sau.', [
+                        {
+                          text: 'OK',
+                          onPress: () => router.push('/(auth)/select-branch')
+                        }
+                      ]);
+                    }
+                  } catch (ae) {
+                    router.push('/(auth)/select-branch');
+                  }
+                }
+              }
+            ]
+          );
+          return true;
+        }
+      }
+    } catch (err) {
+      console.log('Lỗi kiểm tra đề xuất sinh trắc học:', err);
+    }
+    return false;
+  };
 
  // 3. Xử lý Đăng nhập
  const handleLogin = async () => {
@@ -103,8 +213,12 @@ export default function LoginScreen() {
 
  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
  setIsLoading(false);
- // Đi tới chọn Chi nhánh
- router.push('/(auth)/select-branch');
+
+ // Đề xuất sinh trắc học nếu khả dụng
+ const didOffer = await checkAndOfferBiometrics(trimmedTenant, trimmedEmail, password);
+ if (!didOffer) {
+   router.push('/(auth)/select-branch');
+ }
 } catch (error: any) {
  console.error('Lỗi khi đăng nhập:', error);
  Alert.alert('Lỗi kết nối', error.message || 'Không thể kết nối đến máy chủ.');
@@ -112,41 +226,98 @@ export default function LoginScreen() {
 }
 };
 
- // 4. Giả lập đăng nhập Sinh trắc học (Vân tay / Face ID)
- const handleBiometricLogin = async () => {
- Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
- if (!tenantCode) {
- Alert.alert('Thông báo', 'Vui lòng điền Gian hàng trước khi sử dụng sinh trắc học.');
- return;
-}
+  // 4. Đăng nhập Sinh trắc học thực tế
+  const handleBiometricLogin = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
+    
+    try {
+      const secureStoreAvailable = await SecureStore.isAvailableAsync();
+      if (!secureStoreAvailable) {
+        Alert.alert('Thông báo', 'Thiết bị hoặc nền tảng không hỗ trợ bảo mật sinh trắc học.');
+        return;
+      }
 
- setIsLoading(true);
- // Quét sinh trắc học giả lập
- setTimeout(async () => {
- try {
- const {data: {session}} = await supabase.auth.getSession();
- if (session) {
- await AsyncStorage.setItem('saved_tenant_code', tenantCode.trim().toLowerCase());
- await AsyncStorage.setItem('active_tenant_code', tenantCode.trim().toLowerCase());
- if (session.user) {
-    const fullName = session.user.user_metadata?.full_name || session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Nhân viên';
-    await AsyncStorage.setItem('user_name', fullName);
-  }
- setIsLoading(false);
- router.push('/(auth)/select-branch');
-} else {
- setIsLoading(false);
- Alert.alert(
- 'Xác thực sinh trắc học',
- 'Đã nhận diện thành công!\n\nVui lòng đăng nhập bằng mật khẩu thủ công một lần để liên kết Sinh trắc học trên thiết bị di động này.'
- );
-}
-} catch (err) {
- setIsLoading(false);
- Alert.alert('Thất bại', 'Không khớp sinh trắc học.');
-}
-}, 800);
-};
+      const savedBiometricCreds = await SecureStore.getItemAsync('biometric_credentials');
+      if (!savedBiometricCreds) {
+        Alert.alert(
+          'Xác thực sinh trắc học',
+          'Bạn chưa liên kết Sinh trắc học. Vui lòng đăng nhập bằng mật khẩu thủ công một lần để kích hoạt.'
+        );
+        return;
+      }
+
+      const hasHardware = await LocalAuthentication.hasHardwareAsync();
+      const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+
+      if (!hasHardware || !isEnrolled) {
+        Alert.alert(
+          'Thông báo', 
+          'Thiết bị chưa cấu hình hoặc không hỗ trợ xác thực Face ID/Vân tay.'
+        );
+        return;
+      }
+
+      setIsLoading(true);
+
+      const result = await LocalAuthentication.authenticateAsync({
+        promptMessage: 'Xác thực sinh trắc học để đăng nhập',
+        fallbackLabel: 'Nhập mật khẩu thiết bị',
+        disableDeviceFallback: false,
+      });
+
+      if (result.success) {
+        let creds;
+        try {
+          creds = JSON.parse(savedBiometricCreds);
+        } catch (e) {
+          setIsLoading(false);
+          Alert.alert('Lỗi', 'Dữ liệu đăng nhập sinh trắc học bị hỏng. Vui lòng đăng nhập bằng mật khẩu để liên kết lại.');
+          return;
+        }
+
+        const { tenant, email: savedEmail, password: savedPassword } = creds;
+        
+        setTenantCode(tenant);
+        setEmail(savedEmail);
+        setPassword(savedPassword);
+        setIsTenantCodeSaved(true);
+
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: savedEmail.trim(),
+          password: savedPassword,
+        });
+
+        if (error) {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+          Alert.alert('Đăng nhập thất bại', 'Thông tin đăng nhập đã lưu không hợp lệ hoặc tài khoản đã bị đổi mật khẩu.');
+          setIsLoading(false);
+          return;
+        }
+
+        if (data?.user) {
+          const fullName = data.user.user_metadata?.full_name || data.user.user_metadata?.name || savedEmail.split('@')[0];
+          await AsyncStorage.setItem('user_name', fullName);
+        }
+
+        await AsyncStorage.setItem('saved_tenant_code', tenant);
+        await AsyncStorage.setItem('saved_email', savedEmail);
+        await AsyncStorage.setItem('active_tenant_code', tenant);
+
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+        setIsLoading(false);
+        router.push('/(auth)/select-branch');
+      } else {
+        setIsLoading(false);
+        if (result.error !== 'user_cancel') {
+          Alert.alert('Xác thực thất bại', 'Không khớp sinh trắc học hoặc xác thực bị từ chối.');
+        }
+      }
+    } catch (error: any) {
+      setIsLoading(false);
+      console.error('Lỗi khi đăng nhập sinh trắc học:', error);
+      Alert.alert('Lỗi kết nối', error.message || 'Không thể kết nối đến máy chủ.');
+    }
+  };
 
  return (
  <SafeAreaView style={{flex: 1, backgroundColor: '#f8fafc', position: 'relative'}}>
