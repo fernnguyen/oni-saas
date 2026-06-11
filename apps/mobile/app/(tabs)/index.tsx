@@ -267,12 +267,16 @@ export default function DashboardScreen() {
           if (amount > maxAmount) maxAmount = amount;
           return { day, amount };
         });
-        const finalChartData = chartDataMapped.map(item => ({
-          day: item.day,
-          amount: item.amount,
-          height: Math.max(5, Math.round((item.amount / maxAmount) * 85)),
-          isPeak: false
-        }));
+        const finalChartData = chartDataMapped.map(item => {
+          const parts = item.day.split('-');
+          const displayDay = parts.length === 2 ? `${parts[1]}/${parts[0]}` : item.day;
+          return {
+            day: displayDay,
+            amount: item.amount,
+            height: Math.max(5, Math.round((item.amount / maxAmount) * 85)),
+            isPeak: false
+          };
+        });
         const peakAmount = Math.max(...finalChartData.map((c: any) => c.amount));
         finalChartData.forEach((c: any) => {
           c.isPeak = c.amount === peakAmount && c.amount > 0;
@@ -423,8 +427,10 @@ export default function DashboardScreen() {
               });
               const chartDataMapped = last7Days.map((item: any) => {
                 const day = item.date.substring(5, 10);
+                const parts = day.split('-');
+                const displayDay = parts.length === 2 ? `${parts[1]}/${parts[0]}` : day;
                 return {
-                  day,
+                  day: displayDay,
                   amount: item.revenue,
                   height: Math.max(5, Math.round((item.revenue / maxAmount) * 85)),
                   isPeak: false
@@ -565,12 +571,16 @@ export default function DashboardScreen() {
                   if (amount > maxAmount) maxAmount = amount;
                   return { day, amount };
                 });
-                const finalChartData = chartDataMapped.map((item: any) => ({
-                  day: item.day,
-                  amount: item.amount,
-                  height: Math.max(5, Math.round((item.amount / maxAmount) * 85)),
-                  isPeak: false
-                }));
+                const finalChartData = chartDataMapped.map((item: any) => {
+                  const parts = item.day.split('-');
+                  const displayDay = parts.length === 2 ? `${parts[1]}/${parts[0]}` : item.day;
+                  return {
+                    day: displayDay,
+                    amount: item.amount,
+                    height: Math.max(5, Math.round((item.amount / maxAmount) * 85)),
+                    isPeak: false
+                  };
+                });
                 const peakAmount = Math.max(...finalChartData.map((c: any) => c.amount));
                 finalChartData.forEach((c: any) => {
                   c.isPeak = c.amount === peakAmount && c.amount > 0;
