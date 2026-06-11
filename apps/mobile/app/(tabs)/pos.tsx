@@ -2196,6 +2196,7 @@ export default function PosScreen() {
         selectedCustomer={selectedCustomer}
         setSelectedCustomer={setSelectedCustomer}
         customersList={customersList}
+        setCustomersList={setCustomersList}
         paymentRows={paymentRows}
         setPaymentRows={setPaymentRows}
         paymentFundsList={paymentFundsList}

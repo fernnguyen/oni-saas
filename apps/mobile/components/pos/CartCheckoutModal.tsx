@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, ScrollView, Platform, Modal, Alert, Pressable } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, ScrollView, Platform, Modal, Alert, Pressable, ActivityIndicator } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { Dialog } from '../ui/Dialog';
+import { db } from '../../lib/db/client';
+import * as schema from '../../lib/db/schema';
+import { eq } from 'drizzle-orm';
 
 interface CartCheckoutModalProps {
   visible: boolean;
@@ -20,6 +23,7 @@ interface CartCheckoutModalProps {
   selectedCustomer: any;
   setSelectedCustomer: (val: any) => void;
   customersList: any[];
+  setCustomersList?: React.Dispatch<React.SetStateAction<any[]>>;
   paymentRows: {id: string; method: string; fund_id: string; amount: number}[];
   setPaymentRows: React.Dispatch<React.SetStateAction<any[]>>;
   paymentFundsList: any[];
@@ -62,7 +66,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
   const {
     visible, onClose, cart, updateCartItemQuantity, removeFromCart, getCartTotal,
     discountAmount, setDiscountAmount, orderNote, setOrderNote,
-    selectedCustomer, setSelectedCustomer, customersList,
+    selectedCustomer, setSelectedCustomer, customersList, setCustomersList,
     paymentRows, setPaymentRows, paymentFundsList, productsList, getCartCount, onCheckout,
     shopId, isOnline = true, apiBaseUrl, apiHeaders, loading = false,
     paymentMethodsList = []
@@ -120,6 +124,173 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
   const [enrichedCustomer, setEnrichedCustomer] = useState<any>(null);
   const [isLoadingCustomer, setIsLoadingCustomer] = useState(false);
   const [isConfirmVisible, setIsConfirmVisible] = useState(false);
+
+  // Trạng thái cho thêm nhanh khách hàng
+  const [isQuickAddModalOpen, setIsQuickAddModalOpen] = useState(false);
+  const [quickCustName, setQuickCustName] = useState('');
+  const [quickCustPhone, setQuickCustPhone] = useState('');
+  const [quickCustType, setQuickCustType] = useState('Thành viên'); // VIP, Thân thiết, Thành viên
+  const [quickCustEmail, setQuickCustEmail] = useState('');
+  const [quickCustAddress, setQuickCustAddress] = useState('');
+  const [quickCustNote, setQuickCustNote] = useState('');
+  const [isQuickSaving, setIsQuickSaving] = useState(false);
+
+  const handleOpenQuickAddCustomer = () => {
+    const query = customerSearchQuery.trim();
+    // Reset form
+    setQuickCustName('');
+    setQuickCustPhone('');
+    setQuickCustType('Thành viên');
+    setQuickCustEmail('');
+    setQuickCustAddress('');
+    setQuickCustNote('');
+    
+    // Tự động phân tích và điền thông tin từ ô tìm kiếm
+    if (query) {
+      const isPhone = /^[0-9+\s-]+$/.test(query);
+      if (isPhone) {
+        setQuickCustPhone(query);
+      } else {
+        setQuickCustName(query);
+      }
+    }
+    
+    setIsQuickAddModalOpen(true);
+  };
+
+  const handleSaveQuickCustomer = async () => {
+    if (!quickCustName || !quickCustPhone) {
+      Alert.alert('Thông báo', 'Vui lòng nhập Tên và Số điện thoại!');
+      return;
+    }
+
+    setIsQuickSaving(true);
+    try {
+      const activeShopId = shopId || (await AsyncStorage.getItem('active_shop_id')) || 'default-shop';
+      const custId = `CUST-${Date.now()}`;
+      const custCode = `KH-${Date.now().toString().substring(8)}`;
+      
+      const newCustomerData: any = {
+        id: custId,
+        name: quickCustName,
+        phone: quickCustPhone,
+        customer_type: quickCustType,
+        customer_code: custCode,
+        total_spent: 0,
+        orders_count: 0,
+        sync_status: 'pending',
+        email: quickCustEmail || null,
+        address: quickCustAddress || null,
+        credit_limit: 0,
+        note: quickCustNote || null,
+        prepaid_balance: 0,
+        loyalty_points: 0,
+        debt_amount: 0,
+      };
+
+      // 1. Lưu offline vào SQLite di động
+      if (Platform.OS !== 'web') {
+        try {
+          await db.insert(schema.customers).values({
+            id: custId,
+            name: quickCustName,
+            phone: quickCustPhone,
+            customer_type: quickCustType,
+            customer_code: custCode,
+            total_spent: 0,
+            orders_count: 0,
+            sync_status: 'pending',
+            email: quickCustEmail || null,
+            address: quickCustAddress || null,
+            credit_limit: 0,
+            note: quickCustNote || null,
+            prepaid_balance: 0,
+            loyalty_points: 0,
+            debt_amount: 0,
+          });
+        } catch (dbErr) {
+          console.error('[CartCheckoutModal] SQLite insert error:', dbErr);
+        }
+      }
+
+      // 2. Cập nhật danh sách local và tự động chọn khách
+      if (setCustomersList) {
+        setCustomersList(prev => [newCustomerData, ...prev]);
+      }
+      
+      setSelectedCustomer(newCustomerData);
+      setIsQuickAddModalOpen(false);
+      setCustomerSearchQuery('');
+
+      // Clean inputs
+      setQuickCustName('');
+      setQuickCustPhone('');
+      setQuickCustType('Thành viên');
+      setQuickCustEmail('');
+      setQuickCustAddress('');
+      setQuickCustNote('');
+
+      // 3. API request đồng bộ lên Cloud
+      if (isOnline && apiBaseUrl) {
+        try {
+          const response = await fetch(`${apiBaseUrl}/api/shops/${activeShopId}/customers`, {
+            method: 'POST',
+            headers: {
+              ...(apiHeaders || {}),
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              name: quickCustName,
+              phone: quickCustPhone,
+              customer_type: quickCustType,
+              customer_code: custCode,
+              email: quickCustEmail || `${quickCustPhone}@oni-pos.vn`,
+              address: quickCustAddress || 'Tạo nhanh từ POS',
+              credit_limit: '0',
+              note: quickCustNote || '',
+            }),
+          });
+
+          if (response.ok) {
+            const serverCust = await response.json();
+            const serverCustId = serverCust.id || serverCust.customer_id || custId;
+            
+            if (Platform.OS !== 'web') {
+              try {
+                await db
+                  .update(schema.customers)
+                  .set({ 
+                    id: serverCustId,
+                    sync_status: 'synced' 
+                  })
+                  .where(eq(schema.customers.id, custId));
+              } catch (dbErr) {
+                console.error('[CartCheckoutModal] SQLite update synced error:', dbErr);
+              }
+            }
+
+            const finalCust = { ...newCustomerData, id: serverCustId, sync_status: 'synced' };
+            setSelectedCustomer(finalCust);
+            if (setCustomersList) {
+              setCustomersList(prev => 
+                prev.map(c => c.id === custId ? finalCust : c)
+              );
+            }
+            console.log(`[CartCheckoutModal] Synced quick customer #${serverCustId} to Cloud!`);
+          }
+        } catch (apiErr) {
+          console.warn('[CartCheckoutModal] Cloud sync failed for quick customer creation:', apiErr);
+        }
+      }
+      
+      Alert.alert('Thành công', 'Đã tạo và chọn khách hàng mới.');
+    } catch (err) {
+      console.error('[CartCheckoutModal] Quick add customer error:', err);
+      Alert.alert('Lỗi', 'Không thể tạo khách hàng mới.');
+    } finally {
+      setIsQuickSaving(false);
+    }
+  };
 
   // Reset khi đổi khách
   React.useEffect(() => {
@@ -451,44 +622,70 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                         }}
                       />
                       {customerSearchQuery.length > 0 && (
-                        <TouchableOpacity onPress={() => setCustomerSearchQuery('')}>
+                        <TouchableOpacity onPress={() => setCustomerSearchQuery('')} className="mr-1">
                           <Ionicons name="close" size={14} color="#cbd5e1" />
                         </TouchableOpacity>
                       )}
+                      <View className="w-px h-4 bg-slate-200 mx-1.5" />
+                      <TouchableOpacity 
+                        onPress={handleOpenQuickAddCustomer}
+                        disabled={loading}
+                        className="p-1"
+                      >
+                        <Ionicons name="person-add-outline" size={15} color="#fa5908" />
+                      </TouchableOpacity>
                     </View>
                   </>
                 )}
 
                 {/* Danh sách gợi ý */}
-                {customerSearchQuery.trim().length > 0 && (
-                  <View className="bg-white border border-slate-200 rounded-xl mt-2 max-h-40 overflow-hidden z-50" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 4}, shadowOpacity: 0.08, shadowRadius: 8, elevation: 5}}>
-                    <ScrollView nestedScrollEnabled={true}>
-                      {customersList
-                        .filter(c => {
-                          const nameStr = (c.name || '').toLowerCase();
-                          const phoneStr = (c.phone || '');
-                          const queryStr = customerSearchQuery.toLowerCase();
-                          return nameStr.includes(queryStr) || phoneStr.includes(queryStr);
-                        })
-                        .map(cust => (
-                          <TouchableOpacity 
-                            key={cust.id} 
-                            className="p-3 border-b border-slate-100 flex-row justify-between items-center active:bg-slate-50"
-                            onPress={() => {
-                              setSelectedCustomer(cust);
-                              setCustomerSearchQuery('');
-                            }}
-                          >
-                            <View>
-                              <Text className="text-xs font-medium text-slate-800">{cust.name}</Text>
-                              <Text className="text-tiny text-slate-400 mt-0.5">{cust.phone}</Text>
-                            </View>
-                            <Badge variant="primary" label={cust.customer_type || 'Thành viên'} size="sm" />
-                          </TouchableOpacity>
-                        ))}
-                    </ScrollView>
-                  </View>
-                )}
+                {customerSearchQuery.trim().length > 0 && (() => {
+                  const filtered = customersList.filter(c => {
+                    const nameStr = (c.name || '').toLowerCase();
+                    const phoneStr = (c.phone || '');
+                    const queryStr = customerSearchQuery.toLowerCase();
+                    return nameStr.includes(queryStr) || phoneStr.includes(queryStr);
+                  });
+
+                  if (filtered.length > 0) {
+                    return (
+                      <View className="bg-white border border-slate-200 rounded-xl mt-2 max-h-40 overflow-hidden z-50" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 4}, shadowOpacity: 0.08, shadowRadius: 8, elevation: 5}}>
+                        <ScrollView nestedScrollEnabled={true} keyboardShouldPersistTaps="handled">
+                          {filtered.map(cust => (
+                            <TouchableOpacity 
+                              key={cust.id} 
+                              className="p-3 border-b border-slate-100 flex-row justify-between items-center active:bg-slate-50"
+                              onPress={() => {
+                                setSelectedCustomer(cust);
+                                setCustomerSearchQuery('');
+                              }}
+                            >
+                              <View>
+                                <Text className="text-xs font-medium text-slate-800">{cust.name}</Text>
+                                <Text className="text-tiny text-slate-400 mt-0.5">{cust.phone}</Text>
+                              </View>
+                              <Badge variant="primary" label={cust.customer_type || 'Thành viên'} size="sm" />
+                            </TouchableOpacity>
+                          ))}
+                        </ScrollView>
+                      </View>
+                    );
+                  } else {
+                    return (
+                      <View className="bg-white border border-slate-200 rounded-xl mt-2 overflow-hidden z-50" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 4}, shadowOpacity: 0.08, shadowRadius: 8, elevation: 5}}>
+                        <TouchableOpacity 
+                          className="p-4 flex-row items-center active:bg-slate-55"
+                          onPress={handleOpenQuickAddCustomer}
+                        >
+                          <Ionicons name="person-add-outline" size={16} color="#fa5908" />
+                          <Text className="text-xs font-medium text-slate-800 ml-2.5">
+                            Không tìm thấy dữ liệu. Tạo mới khách hàng <Text className="font-bold text-orange-500">"{customerSearchQuery}"</Text>
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  }
+                })()}
               </View>
 
               {/* GỢI Ý VÍ TRẢ TRƯỚC — hiển thị khi khách có số dư */}
@@ -1221,6 +1418,143 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
             </View>
             </ScrollView>
           </Dialog>
+
+          {/* MODAL FORM THÊM NHANH KHÁCH HÀNG MỚI (Dùng absolute View thay vì lồng Modal để tránh đơ UI trên React Native) */}
+          {isQuickAddModalOpen && (
+            <View className="absolute inset-0 z-50 justify-end" style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)' }}>
+              <Pressable
+                className="absolute inset-0"
+                onPress={() => setIsQuickAddModalOpen(false)}
+              />
+              <View className="h-[80%] rounded-t-[32px] p-6 justify-between bg-white relative">
+                <View className="flex-row justify-between items-center border-b border-slate-100 pb-3">
+                  <Text className="text-lg font-medium text-slate-800">Thêm khách hàng mới</Text>
+                  <TouchableOpacity onPress={() => setIsQuickAddModalOpen(false)} className="p-1">
+                    <Ionicons name="close" size={24} color="#64748b" />
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView className="flex-1 my-4" showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                  <Text className="text-xs text-slate-500 font-medium mb-1.5">Tên khách hàng <Text className="text-red-500">*</Text></Text>
+                  <TextInput
+                    placeholder="Nguyễn Văn A"
+                    placeholderTextColor="#cbd5e1"
+                    className="bg-slate-50 px-4 py-3 rounded-xl border border-slate-200 text-sm font-semibold text-slate-800 mb-4"
+                    value={quickCustName}
+                    onChangeText={setQuickCustName}
+                    style={{
+                      paddingVertical: 0,
+                      textAlignVertical: 'center',
+                      lineHeight: undefined,
+                      ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+                    }}
+                  />
+
+                  <Text className="text-xs text-slate-500 font-medium mb-1.5">Số điện thoại <Text className="text-red-500">*</Text></Text>
+                  <TextInput
+                    placeholder="0909xxxxxx"
+                    placeholderTextColor="#cbd5e1"
+                    keyboardType="phone-pad"
+                    className="bg-slate-50 px-4 py-3 rounded-xl border border-slate-200 text-sm font-semibold text-slate-800 mb-4"
+                    value={quickCustPhone}
+                    onChangeText={setQuickCustPhone}
+                    style={{
+                      paddingVertical: 0,
+                      textAlignVertical: 'center',
+                      lineHeight: undefined,
+                      ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+                    }}
+                  />
+
+                  <Text className="text-xs text-slate-500 font-medium mb-1.5">Hạng thành viên</Text>
+                  <View className="flex-row justify-between mb-4">
+                    {['Thành viên', 'Thân thiết', 'VIP'].map(tier => (
+                      <TouchableOpacity
+                        key={tier}
+                        className="flex-1 mx-1 py-2.5 rounded-xl border-2 items-center"
+                        style={quickCustType === tier ? {
+                          backgroundColor: '#fff7ed', // bg-orange-50
+                          borderColor: '#fa5908', // border-orange-500
+                        } : {
+                          backgroundColor: '#ffffff', // bg-white
+                          borderColor: '#e2e8f0', // border-slate-200
+                        }}
+                        onPress={() => setQuickCustType(tier)}
+                      >
+                        <Text className={`text-tiny font-semibold ${
+                          quickCustType === tier ? 'text-orange-500' : 'text-slate-500'
+                        }`}>
+                          {tier}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  <Text className="text-xs text-slate-500 font-medium mb-1.5">Địa chỉ Email</Text>
+                  <TextInput
+                    placeholder="email@example.com"
+                    placeholderTextColor="#cbd5e1"
+                    keyboardType="email-address"
+                    className="bg-slate-50 px-4 py-3 rounded-xl border border-slate-200 text-sm font-semibold text-slate-800 mb-4"
+                    value={quickCustEmail}
+                    onChangeText={setQuickCustEmail}
+                    style={{
+                      paddingVertical: 0,
+                      textAlignVertical: 'center',
+                      lineHeight: undefined,
+                      ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+                    }}
+                  />
+
+                  <Text className="text-xs text-slate-500 font-medium mb-1.5">Địa chỉ nhà</Text>
+                  <TextInput
+                    placeholder="Số nhà, đường, phường/xã..."
+                    placeholderTextColor="#cbd5e1"
+                    className="bg-slate-50 px-4 py-3 rounded-xl border border-slate-200 text-sm font-semibold text-slate-800 mb-4"
+                    value={quickCustAddress}
+                    onChangeText={setQuickCustAddress}
+                    style={{
+                      paddingVertical: 0,
+                      textAlignVertical: 'center',
+                      lineHeight: undefined,
+                      ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+                    }}
+                  />
+
+                  <Text className="text-xs text-slate-500 font-medium mb-1.5">Ghi chú đặc biệt</Text>
+                  <TextInput
+                    placeholder="Nhập ghi chú khách hàng..."
+                    placeholderTextColor="#cbd5e1"
+                    multiline={true}
+                    numberOfLines={3}
+                    className="bg-slate-50 px-4 py-3 rounded-xl border border-slate-200 text-sm font-semibold text-slate-800 mb-4 h-20"
+                    value={quickCustNote}
+                    onChangeText={setQuickCustNote}
+                    style={{
+                      lineHeight: undefined,
+                      textAlignVertical: 'top',
+                      ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+                    }}
+                  />
+                </ScrollView>
+
+                <TouchableOpacity 
+                  className="bg-orange-500 active:bg-orange-600 py-4 rounded-2xl items-center shadow-lg flex-row justify-center mt-2"
+                  onPress={handleSaveQuickCustomer}
+                  disabled={isQuickSaving}
+                >
+                  {isQuickSaving ? (
+                    <ActivityIndicator size="small" color="white" />
+                  ) : (
+                    <>
+                      <Ionicons name="checkmark-circle-outline" size={16} color="white" />
+                      <Text className="text-white font-medium text-sm ml-1.5">Lưu khách hàng (Offline & Sync)</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
         </View>
       </Modal>
     </>
