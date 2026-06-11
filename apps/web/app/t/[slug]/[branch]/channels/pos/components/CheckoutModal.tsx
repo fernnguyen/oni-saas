@@ -306,6 +306,12 @@ export function CheckoutModal({
     return METHODS.map((m) => ({ ...m, code: m.value }))
   }, [methodsList])
 
+  const defaultCashMethod = useMemo(() => {
+    return resolvedMethods.find(
+      (m) => m.code === 'cash' || m.type === 'cash' || m.value === 'cash' || m.label.toLowerCase().includes('tiền mặt')
+    )
+  }, [resolvedMethods])
+
   const bankTransferAmt = useMemo(() => {
     const checkIsBankTransfer = (methodId: string) => {
       const m = resolvedMethods.find((rm) => rm.value === methodId)
@@ -342,9 +348,10 @@ export function CheckoutModal({
 
   // Recalculate time charge when checkout time or rental type changes
   const computedItems = useMemo(() => {
+    let result = items
     if (localRentalType === 'overnight') {
       const overnightRate = Number(metadata?.overnight_rate) || Number(hourlyRate) || 0
-      return items.map(item => {
+      result = items.map(item => {
         if (item.product_id === 'TIME_CHARGE') {
           return {
             ...item,
@@ -356,35 +363,39 @@ export function CheckoutModal({
         }
         return item
       })
+    } else if (metadata?.check_in && (hourlyRate > 0 || metadata?.advanced_pricing?.enabled)) {
+      const checkInDate = new Date(metadata.check_in)
+      const effectiveCheckout = metadata?.actual_checkout_requested_at 
+        ? new Date(metadata.actual_checkout_requested_at)
+        : (localCheckoutTime ? new Date(localCheckoutTime) : (customCheckoutTime ? new Date(customCheckoutTime) : new Date()))
+
+      const pricingResult = calculateHourlyBilling({
+        checkIn: checkInDate,
+        checkOut: effectiveCheckout,
+        standardRate: hourlyRate,
+        config: metadata.advanced_pricing
+      })
+
+      const newTimeCharge = pricingResult.totalAmount
+
+      result = items.map(item => {
+        if (item.product_id === 'TIME_CHARGE') {
+          return {
+            ...item,
+            qty: 1,
+            unit_price: newTimeCharge,
+            line_total: newTimeCharge,
+            product_name: `Tiền giờ sử dụng (${pricingResult.durationLabel})`
+          }
+        }
+        return item
+      })
     }
 
-    if (!metadata?.check_in || hourlyRate <= 0) return items
-    const checkInDate = new Date(metadata.check_in)
-    const effectiveCheckout = metadata?.actual_checkout_requested_at 
-      ? new Date(metadata.actual_checkout_requested_at)
-      : (localCheckoutTime ? new Date(localCheckoutTime) : (customCheckoutTime ? new Date(customCheckoutTime) : new Date()))
-
-    const pricingResult = calculateHourlyBilling({
-      checkIn: checkInDate,
-      checkOut: effectiveCheckout,
-      standardRate: hourlyRate,
-      config: metadata.advanced_pricing
-    })
-
-    const newBillableHours = pricingResult.billableQty
-    const newTimeCharge = pricingResult.totalAmount
-
-    return items.map(item => {
-      if (item.product_id === 'TIME_CHARGE') {
-        return {
-          ...item,
-          qty: 1,
-          unit_price: newTimeCharge,
-          line_total: newTimeCharge,
-          product_name: `Tiền giờ sử dụng (${pricingResult.durationLabel})`
-        }
-      }
-      return item
+    return [...result].sort((a, b) => {
+      if (a.product_id === 'TIME_CHARGE') return -1
+      if (b.product_id === 'TIME_CHARGE') return 1
+      return 0
     })
   }, [items, localCheckoutTime, customCheckoutTime, metadata, hourlyRate, localRentalType])
 
@@ -422,6 +433,24 @@ export function CheckoutModal({
       Number(localCustomer.debt_amount || 0)
     )
   }, [customerOrders, customerTransactions, localCustomer])
+
+  const webBillingDuration = useMemo(() => {
+    if (!metadata?.check_in) return ''
+    if (localRentalType === 'overnight') return 'Qua đêm'
+
+    const checkInDate = new Date(metadata.check_in)
+    const effectiveCheckout = metadata?.actual_checkout_requested_at 
+      ? new Date(metadata.actual_checkout_requested_at)
+      : (localCheckoutTime ? new Date(localCheckoutTime) : (customCheckoutTime ? new Date(customCheckoutTime) : new Date()))
+
+    const pricingResult = calculateHourlyBilling({
+      checkIn: checkInDate,
+      checkOut: effectiveCheckout,
+      standardRate: hourlyRate,
+      config: metadata.advanced_pricing
+    })
+    return pricingResult.durationLabel
+  }, [metadata, localRentalType, localCheckoutTime, customCheckoutTime, hourlyRate])
 
 
   const maxDebtDays = Number(settings?.default_max_debt_days ?? 30)
@@ -547,16 +576,18 @@ export function CheckoutModal({
               })))
             } else {
               const newRemaining = Math.max(0, finalTotal - orderPaidAmount)
-              const autoFund = getAutoMatchedFund('cash', fundsList)
-              setPayments([{ id: nextId(), method: 'cash', amount: String(newRemaining), fund_id: autoFund?.id || '' }])
+              const defaultMethodId = defaultCashMethod?.value || 'cash'
+              const autoFund = getAutoMatchedFund(defaultMethodId, fundsList)
+              setPayments([{ id: nextId(), method: defaultMethodId, amount: String(newRemaining), fund_id: autoFund?.id || '' }])
             }
             setPaymentsLoaded(true)
           })
           .catch((err) => {
             console.error('Failed to load existing payments:', err)
             const newRemaining = Math.max(0, finalTotal - orderPaidAmount)
-            const autoFund = getAutoMatchedFund('cash', fundsList)
-            setPayments([{ id: nextId(), method: 'cash', amount: String(newRemaining), fund_id: autoFund?.id || '' }])
+            const defaultMethodId = defaultCashMethod?.value || 'cash'
+            const autoFund = getAutoMatchedFund(defaultMethodId, fundsList)
+            setPayments([{ id: nextId(), method: defaultMethodId, amount: String(newRemaining), fund_id: autoFund?.id || '' }])
             setPaymentsLoaded(true)
           })
       } else {
@@ -567,6 +598,58 @@ export function CheckoutModal({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, existingOrder])
+
+  // Auto-migrate fallback 'cash' method to dynamic database payment method UUID and match the correct Cash Fund
+  useEffect(() => {
+    if (!open || !paymentsLoaded) return
+    const defaultMethodId = defaultCashMethod?.value
+    if (!defaultMethodId || defaultMethodId === 'cash') return
+
+    const hasCash = payments.some(p => p.method === 'cash')
+    if (hasCash) {
+      setPayments(prev => prev.map(p => {
+        if (p.method === 'cash') {
+          const autoFund = getAutoMatchedFund(defaultMethodId, fundsList)
+          return {
+            ...p,
+            method: defaultMethodId,
+            fund_id: p.fund_id || autoFund?.id || ''
+          }
+        }
+        return p
+      }))
+    }
+
+    const hasCashA = paymentsA.some(p => p.method === 'cash')
+    if (hasCashA) {
+      setPaymentsA(prev => prev.map(p => {
+        if (p.method === 'cash') {
+          const autoFund = getAutoMatchedFund(defaultMethodId, fundsList)
+          return {
+            ...p,
+            method: defaultMethodId,
+            fund_id: p.fund_id || autoFund?.id || ''
+          }
+        }
+        return p
+      }))
+    }
+
+    const hasCashB = paymentsB.some(p => p.method === 'cash')
+    if (hasCashB) {
+      setPaymentsB(prev => prev.map(p => {
+        if (p.method === 'cash') {
+          const autoFund = getAutoMatchedFund(defaultMethodId, fundsList)
+          return {
+            ...p,
+            method: defaultMethodId,
+            fund_id: p.fund_id || autoFund?.id || ''
+          }
+        }
+        return p
+      }))
+    }
+  }, [open, paymentsLoaded, defaultCashMethod, fundsList, payments, paymentsA, paymentsB])
 
   // Reset prepaid + debt repay suggest banner when modal opens or customer changes
   useEffect(() => {
@@ -718,19 +801,20 @@ export function CheckoutModal({
     if (existingOrder && paymentsLoaded) return
     if (existingOrder && !paymentsLoaded) return
 
+    const defaultMethodId = defaultCashMethod?.value || 'cash'
     if (isSplitActive) {
       const remainingTotalA = Math.max(0, finalTotalA - orderPaidAmount)
       const remainingTotalB = finalTotalB
-      const autoFund = getAutoMatchedFund('cash', fundsList)
-      setPaymentsA([{ id: nextId(), method: 'cash', amount: String(remainingTotalA), fund_id: autoFund?.id || '' }])
-      setPaymentsB([{ id: nextId(), method: 'cash', amount: String(remainingTotalB), fund_id: autoFund?.id || '' }])
+      const autoFund = getAutoMatchedFund(defaultMethodId, fundsList)
+      setPaymentsA([{ id: nextId(), method: defaultMethodId, amount: String(remainingTotalA), fund_id: autoFund?.id || '' }])
+      setPaymentsB([{ id: nextId(), method: defaultMethodId, amount: String(remainingTotalB), fund_id: autoFund?.id || '' }])
     } else {
       const newRemaining = Math.max(0, finalTotal - orderPaidAmount)
-      const autoFund = getAutoMatchedFund('cash', fundsList)
-      setPayments([{ id: nextId(), method: 'cash', amount: String(newRemaining), fund_id: autoFund?.id || '' }])
+      const autoFund = getAutoMatchedFund(defaultMethodId, fundsList)
+      setPayments([{ id: nextId(), method: defaultMethodId, amount: String(newRemaining), fund_id: autoFund?.id || '' }])
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [localCheckoutTime, localRentalType, finalTotal, finalTotalA, finalTotalB, isSplitActive, fundsList.length, paymentsLoaded, existingOrder])
+  }, [localCheckoutTime, localRentalType, finalTotal, finalTotalA, finalTotalB, isSplitActive, fundsList.length, paymentsLoaded, existingOrder, defaultCashMethod])
 
   const overPaid = Math.max(0, orderPaidAmount - finalTotal)
   
@@ -783,7 +867,7 @@ export function CheckoutModal({
   function selectDebtFundWeb(): { fund_id: string; method: string } {
     const activePays = isSplitActive ? [...paymentsA, ...paymentsB] : payments
     const real = activePays.filter(p => p.method !== 'debt' && p.method !== 'prepaid')
-    if (!real.length) return { fund_id: '', method: 'cash' }
+    if (!real.length) return { fund_id: '', method: defaultCashMethod?.value || 'cash' }
     const covering = real.filter(p => (parseFloat(p.amount) || 0) >= clampedDebtRepay)
     if (covering.length > 0) {
       const smallest = [...covering].sort((a, b) => (parseFloat(a.amount) || 0) - (parseFloat(b.amount) || 0))[0]
@@ -812,10 +896,10 @@ export function CheckoutModal({
   }, [isSplitActive, remainingA, remainingB, remaining])
 
   const cashRows = isSplitActive
-    ? [...paymentsA, ...paymentsB].filter((p) => p.method === 'cash')
-    : payments.filter((p) => p.method === 'cash')
+    ? [...paymentsA, ...paymentsB].filter((p) => p.method === 'cash' || p.method === defaultCashMethod?.value)
+    : payments.filter((p) => p.method === 'cash' || p.method === defaultCashMethod?.value)
     
-  const cashChange = overPaid + cashRows.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0) - (remainingTotal - (isSplitActive ? [...paymentsA, ...paymentsB] : payments).filter((p) => p.method !== 'cash').reduce((s, p) => s + (parseFloat(p.amount) || 0), 0))
+  const cashChange = overPaid + cashRows.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0) - (remainingTotal - (isSplitActive ? [...paymentsA, ...paymentsB] : payments).filter((p) => p.method !== 'cash' && p.method !== defaultCashMethod?.value).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0))
 
   function updatePayment(id: string, field: 'method' | 'amount' | 'fund_id', value: string) {
     setPayments((prev) => prev.map((p) => {
@@ -873,7 +957,9 @@ export function CheckoutModal({
     setDiscountInput(String(d))
     setIsEditingDiscount(false)
     const newTotal = Math.max(0, subtotal - d)
-    setPayments([{ id: nextId(), method: 'cash', amount: String(newTotal) }])
+    const defaultMethodId = defaultCashMethod?.value || 'cash'
+    const autoFund = getAutoMatchedFund(defaultMethodId, fundsList)
+    setPayments([{ id: nextId(), method: defaultMethodId, amount: String(newTotal), fund_id: autoFund?.id || '' }])
   }
 
   function playSuccessSound() {
@@ -1457,9 +1543,9 @@ export function CheckoutModal({
         : actualPayments
 
       const localPayments: any[] = nonQrPayments.map((p) => {
-        let fundType = 'bank'
-        if (p.method === 'cash') fundType = 'cash'
-        else if (['momo', 'zalopay', 'vnpay', 'wallet'].includes(p.method)) fundType = 'wallet'
+        const methodObj = resolvedMethods.find((m) => m.value === p.method)
+        let fundType = methodObj?.type || (p.method === 'cash' ? 'cash' : 'bank')
+        if (['momo', 'zalopay', 'vnpay', 'wallet'].includes(p.method)) fundType = 'wallet'
 
         const matching = fundsList.filter((f) => f.type === fundType)
         const resolvedFundId = p.fund_id || matching.find((f) => f.is_default === 'TRUE')?.id || matching[0]?.id || ''
@@ -1479,11 +1565,12 @@ export function CheckoutModal({
 
       if (cashChange > 0) {
         const changeLocalId = crypto.randomUUID()
+        const defaultMethodId = defaultCashMethod?.value || 'cash'
         localPayments.push({
           id: changeLocalId,
           local_id: changeLocalId,
           order_local_id: local_id,
-          method: 'cash',
+          method: defaultMethodId,
           amount: -cashChange,
           reference_no: '',
           note: isSplitActive ? `[Folio ${activeFolioTab}] Tiền thừa trả khách` : 'Tiền thừa trả khách',
@@ -1794,8 +1881,9 @@ export function CheckoutModal({
 
   const renderItemRow = (item: any, idx: number) => {
     const isSelectedInA = folioAIndices.has(idx)
+    const isTimeCharge = item.product_id === 'TIME_CHARGE'
     return (
-      <div key={`${item.product_id}-${idx}`} className="flex flex-col py-1.5 border-b border-slate-200/40 last:border-0">
+      <div key={`${item.product_id}-${idx}`} className={`flex flex-col py-2 px-2.5 rounded-lg border-b border-slate-200/40 last:border-0 ${isTimeCharge ? 'bg-emerald-50/70 border border-emerald-100 my-1' : ''}`}>
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0 flex-1">
             {isSplitActive && (
@@ -1816,12 +1904,12 @@ export function CheckoutModal({
                 className="h-3.5 w-3.5 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer shrink-0"
               />
             )}
-            <span className="text-slate-800 font-medium text-sm leading-tight truncate">
+            <span className={`${isTimeCharge ? 'text-emerald-800 font-bold' : 'text-slate-800 font-medium'} text-sm leading-tight truncate`}>
               {item.product_name}
-              <span className="text-slate-400 text-xs font-normal ml-1.5 whitespace-nowrap">× {item.qty}</span>
+              <span className={`${isTimeCharge ? 'text-emerald-600' : 'text-slate-400'} text-xs font-normal ml-1.5 whitespace-nowrap`}>× {item.qty}</span>
             </span>
           </div>
-          <span className="text-slate-950 font-bold text-sm shrink-0">{fmtVND(item.line_total)}</span>
+          <span className={`${isTimeCharge ? 'text-emerald-700 font-extrabold' : 'text-slate-950 font-bold'} text-sm shrink-0`}>{fmtVND(item.line_total)}</span>
         </div>
         {/* Variant or Modifier details underneath */}
         {(item.variant_label || (item.modifiers && item.modifiers.length > 0)) && (
@@ -2006,7 +2094,7 @@ export function CheckoutModal({
               )}
             </span>
           </div>
-          {!isSplit && rem < 0 && paymentRows.filter(p => p.method === 'cash').length > 0 && change > 0 && (
+          {!isSplit && rem < 0 && paymentRows.filter(p => p.method === 'cash' || p.method === defaultCashMethod?.value).length > 0 && change > 0 && (
             <div className="flex items-center justify-between border-t border-slate-200 pt-1">
               <span className="text-slate-500">Trả lại tiền thừa:</span>
               <span className="font-bold text-red-500">{fmtVND(change)}</span>
@@ -2255,10 +2343,12 @@ export function CheckoutModal({
                       const balance = Number(localCustomer.prepaid_balance || 0)
                       setPayments(() => {
                         const payAmount = Math.min(balance, finalTotal)
-                        const rows = [{ id: nextId(), method: 'prepaid', amount: String(payAmount) }]
+                        const rows = [{ id: nextId(), method: 'prepaid', amount: String(payAmount), fund_id: '' }]
                         const remaining = finalTotal - payAmount
                         if (remaining > 0) {
-                          rows.push({ id: nextId(), method: 'cash', amount: String(remaining) })
+                          const defaultMethodId = defaultCashMethod?.value || 'cash'
+                          const autoFund = getAutoMatchedFund(defaultMethodId, fundsList)
+                          rows.push({ id: nextId(), method: defaultMethodId, amount: String(remaining), fund_id: autoFund?.id || '' })
                         }
                         return rows
                       })
@@ -2275,9 +2365,9 @@ export function CheckoutModal({
               {/* Hotel / Hourly rate details */}
               {metadata?.check_in && (
                 <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-xs text-slate-600 space-y-1.5">
-                  <div className="font-bold text-slate-800 text-[10px] uppercase tracking-wider mb-1 flex items-center justify-between">
-                    <span>🏨 Chi tiết thời gian thuê</span>
-                    {!metadata?.actual_checkout_requested_at && (
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-500">CHI TIẾT THỜI GIAN THUÊ</span>
+                    {!metadata?.actual_checkout_requested_at && isAccommodation && Number(metadata.overnight_rate) > 0 && (
                       <div className="flex border border-slate-200 rounded-lg overflow-hidden shrink-0">
                         <button
                           type="button"
@@ -2340,6 +2430,12 @@ export function CheckoutModal({
                       </button>
                     )}
                   </div>
+                  {webBillingDuration && (
+                    <div className="flex justify-between items-center mt-1.5 border-t border-slate-200/60 pt-1.5">
+                      <span className="text-slate-600">Tổng thời gian:</span>
+                      <span className="font-bold text-emerald-600">{webBillingDuration}</span>
+                    </div>
+                  )}
                 </div>
               )}
 

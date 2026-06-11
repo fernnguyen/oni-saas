@@ -2208,6 +2208,7 @@ export default function PosScreen() {
         apiBaseUrl={getApiBaseUrl()}
         apiHeaders={apiAuthHeaders}
         loading={isPayingTableLoading || isPayingCartLoading}
+        cartOwnerTable={cartOwnerTable}
         onCheckout={(opts) => {
           handlePayCart(selectedCustomer, discountAmount, orderNote, paymentRows, opts);
         }}

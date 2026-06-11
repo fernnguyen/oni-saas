@@ -37,8 +37,7 @@ export function calculateHourlyBilling({
   
   const enabled = config?.enabled ?? false;
   const baseHours = enabled ? (Number(config?.base_hours) || 1) : 1;
-  const basePrice = enabled ? (Number(config?.base_price) ?? standardRate) : standardRate;
-  const nextRate = enabled ? (Number(config?.next_hourly_rate) ?? standardRate) : standardRate;
+  const basePrice = enabled ? (Number(config?.base_price) || standardRate) : standardRate;
   const graceMinutes = enabled ? (Number(config?.grace_minutes) || 0) : 0;
   const progRates = config?.progressive_rates ?? {};
 
@@ -81,27 +80,30 @@ export function calculateHourlyBilling({
   const totalBillableHours = baseHours + extraHours;
   let totalAmount = basePrice;
 
+  // Map resolved hourly rates sequentially for inheritance
+  const resolvedHourlyRates: Record<number, number> = {};
+  const baseHourlyRate = baseHours > 0 ? (basePrice / baseHours) : standardRate;
+  for (let i = 1; i <= baseHours; i++) {
+    resolvedHourlyRates[i] = baseHourlyRate;
+  }
+
   // Calculate pricing progressively for each extra hour
   for (let hourIdx = baseHours + 1; hourIdx <= totalBillableHours; hourIdx++) {
     const specificRate = getProgRate(hourIdx);
-    if (specificRate !== undefined && !isNaN(specificRate)) {
+    if (specificRate !== undefined && !isNaN(specificRate) && specificRate > 0) {
+      resolvedHourlyRates[hourIdx] = specificRate;
       totalAmount += specificRate;
     } else {
-      // Find closest previous configured hour
-      let fallbackRate: number | null = null;
-      for (let prevH = hourIdx - 1; prevH > baseHours; prevH--) {
-        const prevRate = getProgRate(prevH);
-        if (prevRate !== undefined && !isNaN(prevRate)) {
-          fallbackRate = prevRate;
-          break;
-        }
+      const prevRate = resolvedHourlyRates[hourIdx - 1];
+      let rateToUse = prevRate;
+      
+      const confNext = enabled ? Number(config?.next_hourly_rate) : NaN;
+      if (!isNaN(confNext) && confNext > 0) {
+        rateToUse = confNext;
       }
       
-      if (fallbackRate !== null) {
-        totalAmount += fallbackRate;
-      } else {
-        totalAmount += nextRate;
-      }
+      resolvedHourlyRates[hourIdx] = rateToUse || 0;
+      totalAmount += resolvedHourlyRates[hourIdx];
     }
   }
 

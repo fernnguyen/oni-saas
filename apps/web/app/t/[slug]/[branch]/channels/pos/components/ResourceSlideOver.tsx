@@ -455,7 +455,7 @@ export function ResourceSlideOver({
       timeCharge = overnightRate
       durationLabel = 'Qua đêm'
       detailsLabel = 'Trọn gói qua đêm'
-    } else if (hourlyRate > 0) {
+    } else if (hourlyRate > 0 || orderMeta?.advanced_pricing?.enabled || safeParse(resource.metadata).advanced_pricing?.enabled) {
       let checkInDate = new Date(order.created_at)
       if (orderMeta?.check_in) {
         checkInDate = new Date(orderMeta.check_in)

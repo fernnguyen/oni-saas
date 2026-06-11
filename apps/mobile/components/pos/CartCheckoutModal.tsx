@@ -8,6 +8,7 @@ import { Dialog } from '../ui/Dialog';
 import { db } from '../../lib/db/client';
 import * as schema from '../../lib/db/schema';
 import { eq } from 'drizzle-orm';
+import { calculateHourlyBilling } from '@oni/core';
 
 interface CartCheckoutModalProps {
   visible: boolean;
@@ -37,6 +38,7 @@ interface CartCheckoutModalProps {
   apiHeaders?: Record<string, string>;
   loading?: boolean;
   paymentMethodsList?: any[];
+  cartOwnerTable?: any;
 }
 
 export function formatCurrency(value: number): string {
@@ -69,7 +71,8 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
     selectedCustomer, setSelectedCustomer, customersList, setCustomersList,
     paymentRows, setPaymentRows, paymentFundsList, productsList, getCartCount, onCheckout,
     shopId, isOnline = true, apiBaseUrl, apiHeaders, loading = false,
-    paymentMethodsList = []
+    paymentMethodsList = [],
+    cartOwnerTable
   } = props;
 
   const resolvedMethods = React.useMemo(() => {
@@ -115,6 +118,54 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
   const [isEditingDiscount, setIsEditingDiscount] = useState(false);
   const [selectingMethodRow, setSelectingMethodRow] = useState<{ rowId: string; idx: number } | null>(null);
+
+  const billingInfo = React.useMemo(() => {
+    if (!cartOwnerTable || !cartOwnerTable.startTime) return null;
+
+    let rmd: any = {};
+    try {
+      rmd = typeof cartOwnerTable.metadata === 'string'
+        ? JSON.parse(cartOwnerTable.metadata)
+        : (cartOwnerTable.metadata || {});
+    } catch (e) {
+      console.warn('Cannot parse table metadata:', e);
+    }
+
+    const rentalType = rmd.rental_type || 'hourly';
+    const checkInDate = new Date(cartOwnerTable.startTime);
+    const checkOutDate = new Date();
+
+    let durationLabel = '';
+    if (rentalType === 'overnight') {
+      durationLabel = 'Qua đêm';
+    } else {
+      const hourlyRate = Number(cartOwnerTable.hourly_rate) || 0;
+      const pricingResult = calculateHourlyBilling({
+        checkIn: checkInDate,
+        checkOut: checkOutDate,
+        standardRate: hourlyRate,
+        config: rmd.advanced_pricing
+      });
+      durationLabel = pricingResult.durationLabel;
+    }
+
+    const formatDateTime = (date: Date) => {
+      const pad = (n: number) => n.toString().padStart(2, '0');
+      const d = pad(date.getDate());
+      const m = pad(date.getMonth() + 1);
+      const y = date.getFullYear();
+      const h = pad(date.getHours());
+      const min = pad(date.getMinutes());
+      return `${d}/${m}/${y} ${h}:${min}`;
+    };
+
+    return {
+      checkIn: formatDateTime(checkInDate),
+      checkOut: formatDateTime(checkOutDate),
+      duration: durationLabel,
+      rentalType
+    };
+  }, [cartOwnerTable]);
   const [selectingFundRow, setSelectingFundRow] = useState<{ rowId: string; idx: number; matchingFunds: any[] } | null>(null);
   const [hidePrepaidSuggest, setHidePrepaidSuggest] = useState(false);
   const [hideDebtRepaySuggest, setHideDebtRepaySuggest] = useState(false);
@@ -688,6 +739,29 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                 })()}
               </View>
 
+              {/* CHI TIẾT THỜI GIAN THUÊ */}
+              {billingInfo && (
+                <View className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4">
+                  <View className="flex-row justify-between items-center mb-2.5">
+                    <Text className="text-xxs font-semibold text-slate-400">CHI TIẾT THỜI GIAN THUÊ</Text>
+                  </View>
+                  <View className="space-y-2">
+                    <View className="flex-row justify-between items-center">
+                      <Text className="text-xs text-slate-500">Giờ vào:</Text>
+                      <Text className="text-xs font-semibold text-slate-850">{billingInfo.checkIn}</Text>
+                    </View>
+                    <View className="flex-row justify-between items-center">
+                      <Text className="text-xs text-slate-500">Giờ ra:</Text>
+                      <Text className="text-xs font-semibold text-slate-850">{billingInfo.checkOut}</Text>
+                    </View>
+                    <View className="flex-row justify-between items-center border-t border-slate-200 pt-2">
+                      <Text className="text-xs text-slate-500">Tổng thời gian:</Text>
+                      <Text className="text-xs font-bold text-emerald-600">{billingInfo.duration}</Text>
+                    </View>
+                  </View>
+                </View>
+              )}
+
               {/* GỢI Ý VÍ TRẢ TRƯỚC — hiển thị khi khách có số dư */}
               {selectedCustomer && prepaidBalance > 0 && !hidePrepaidSuggest && (
                 <View className="mb-4 flex-row items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
@@ -722,52 +796,77 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
 
               {/* 2. CHI TIẾT SẢN PHẨM */}
               <View className="bg-white border border-slate-100 rounded-xl p-4 mb-4" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2}}>
-                {Object.entries(cart).map(([cartItemId, item], idx) => (
-                  <View key={cartItemId} className={`py-3 ${idx > 0 ? 'border-t border-slate-100' : ''}`}>
-                    {/* Top Row: Name, Quantity, Total Price */}
-                    <View className="flex-row justify-between items-start mb-1">
-                      {/* Name & Modifiers */}
-                      <View className="flex-1 pr-2">
-                        <Text className="font-medium text-sm text-slate-800 leading-tight">{item.name}</Text>
-                        {item.variant_label && (!item.modifiers || item.modifiers.length === 0) && (
-                          <Text className="text-xs text-violet-600 font-medium mt-0.5">{item.variant_label}</Text>
-                        )}
-                        {item.modifiers && item.modifiers.length > 0 && (
-                          <Text className="text-xs text-amber-600 mt-0.5">
-                            {item.modifiers.map((m: any) => m.option).join(' · ')}
-                            {(item.modifier_total || 0) > 0 && (
-                              <Text className="text-emerald-600 font-medium"> +{formatCurrency(item.modifier_total || 0)}</Text>
-                            )}
-                          </Text>
-                        )}
-                      </View>
-
-                      <View className="flex-row items-center">
-                        {/* Quantity Control */}
-                        <View className="flex-row items-center bg-slate-50 border border-slate-200 rounded-md overflow-hidden mr-2">
-                          <TouchableOpacity onPress={() => !loading && updateCartItemQuantity(cartItemId, item.quantity - 1)} disabled={loading} className="w-7 h-7 items-center justify-center border-r border-slate-200 bg-white active:bg-slate-100"><Text className="text-slate-600 font-medium">-</Text></TouchableOpacity>
-                          <Text className="w-8 text-center text-xs font-semibold text-slate-800 bg-white" style={{lineHeight: 28}}>{item.quantity}</Text>
-                          <TouchableOpacity onPress={() => !loading && updateCartItemQuantity(cartItemId, item.quantity + 1)} disabled={loading} className="w-7 h-7 items-center justify-center border-l border-slate-200 bg-white active:bg-slate-100"><Text className="text-slate-600 font-medium">+</Text></TouchableOpacity>
+                {Object.entries(cart)
+                .sort(([, aItem], [, bItem]) => {
+                  if (aItem.productId === 'TIME_CHARGE') return -1;
+                  if (bItem.productId === 'TIME_CHARGE') return 1;
+                  return 0;
+                })
+                .map(([cartItemId, item], idx) => {
+                  const isTimeCharge = item.productId === 'TIME_CHARGE';
+                  return (
+                    <View key={cartItemId} className={`py-3 px-2 rounded-xl ${idx > 0 && !isTimeCharge ? 'border-t border-slate-100' : ''} ${isTimeCharge ? 'bg-emerald-50/60 border border-emerald-100 my-1.5' : ''}`}>
+                      {/* Top Row: Name, Quantity, Total Price */}
+                      <View className="flex-row justify-between items-start mb-1">
+                        {/* Name & Modifiers */}
+                        <View className="flex-1 pr-2">
+                          <Text className={`font-semibold text-sm leading-tight ${isTimeCharge ? 'text-emerald-800' : 'text-slate-800'}`}>{item.name}</Text>
+                          {item.variant_label && (!item.modifiers || item.modifiers.length === 0) && (
+                            <Text className="text-xs text-violet-600 font-medium mt-0.5">{item.variant_label}</Text>
+                          )}
+                          {item.modifiers && item.modifiers.length > 0 && (
+                            <Text className="text-xs text-amber-600 mt-0.5">
+                              {item.modifiers.map((m: any) => m.option).join(' · ')}
+                              {(item.modifier_total || 0) > 0 && (
+                                <Text className="text-emerald-600 font-medium"> +{formatCurrency(item.modifier_total || 0)}</Text>
+                              )}
+                            </Text>
+                          )}
                         </View>
 
-                        {/* Total Price */}
-                        <View className="w-[85px] items-end">
-                           <Text className="font-bold text-[15px] text-slate-800">{formatCurrency((item.price + (item.modifier_total || 0)) * item.quantity)}</Text>
+                        <View className="flex-row items-center">
+                          {/* Quantity Control */}
+                          <View className="flex-row items-center bg-slate-50 border border-slate-200 rounded-md overflow-hidden mr-2">
+                            <TouchableOpacity 
+                              onPress={() => !loading && updateCartItemQuantity(cartItemId, item.quantity - 1)} 
+                              disabled={loading || isTimeCharge} 
+                              className={`w-7 h-7 items-center justify-center border-r border-slate-200 bg-white active:bg-slate-100 ${(loading || isTimeCharge) ? 'opacity-30' : ''}`}
+                            >
+                              <Text className="text-slate-600 font-medium">-</Text>
+                            </TouchableOpacity>
+                            <Text className="w-8 text-center text-xs font-semibold text-slate-800 bg-white" style={{lineHeight: 28}}>{item.quantity}</Text>
+                            <TouchableOpacity 
+                              onPress={() => !loading && updateCartItemQuantity(cartItemId, item.quantity + 1)} 
+                              disabled={loading || isTimeCharge} 
+                              className={`w-7 h-7 items-center justify-center border-l border-slate-200 bg-white active:bg-slate-100 ${(loading || isTimeCharge) ? 'opacity-30' : ''}`}
+                            >
+                              <Text className="text-slate-600 font-medium">+</Text>
+                            </TouchableOpacity>
+                          </View>
+
+                          {/* Total Price */}
+                          <View className="w-[85px] items-end">
+                             <Text className={`font-bold text-[15px] ${isTimeCharge ? 'text-emerald-700' : 'text-slate-800'}`}>{formatCurrency((item.price + (item.modifier_total || 0)) * item.quantity)}</Text>
+                          </View>
                         </View>
                       </View>
-                    </View>
 
-                    {/* Bottom Row: Unit Price, Delete */}
-                    <View className="flex-row justify-between items-center mt-1">
-                      <Text className="text-xs text-slate-500 font-medium">
-                        Đơn giá: {formatCurrency(item.price + (item.modifier_total || 0))} {productsList.find(pr => pr.id === item.productId)?.unit ? `/ ${productsList.find(pr => pr.id === item.productId)?.unit}` : ''}
-                      </Text>
-                      <TouchableOpacity onPress={() => !loading && removeFromCart(cartItemId)} disabled={loading} className="p-1">
-                        <Ionicons name="trash-outline" size={16} color="#f43f5e" />
-                      </TouchableOpacity>
+                      {/* Bottom Row: Unit Price, Delete */}
+                      <View className="flex-row justify-between items-center mt-1">
+                        <Text className="text-xs text-slate-500 font-medium">
+                          Đơn giá: {formatCurrency(item.price + (item.modifier_total || 0))} {productsList.find(pr => pr.id === item.productId)?.unit ? `/ ${productsList.find(pr => pr.id === item.productId)?.unit}` : ''}
+                        </Text>
+                        <TouchableOpacity 
+                          onPress={() => !loading && removeFromCart(cartItemId)} 
+                          disabled={loading || isTimeCharge} 
+                          className={`p-1 ${(loading || isTimeCharge) ? 'opacity-30' : ''}`}
+                        >
+                          <Ionicons name="trash-outline" size={16} color="#f43f5e" />
+                        </TouchableOpacity>
+                      </View>
                     </View>
-                  </View>
-                ))}
+                  );
+                })}
 
                 {/* Hàng Giảm giá */}
                 <TouchableOpacity 
