@@ -68,9 +68,18 @@ function WarehouseContent() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showReasonSelector, setShowReasonSelector] = useState(false);
 
+  // Warehouse states
+  const [warehouses, setWarehouses] = useState<any[]>([]);
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState('');
+  const [toWarehouseId, setToWarehouseId] = useState('');
+  const [showWarehouseSelector, setShowWarehouseSelector] = useState(false);
+  const [showToWarehouseSelector, setShowToWarehouseSelector] = useState(false);
+  const [noteInput, setNoteInput] = useState('');
+
   // Sync states
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'synced' | 'pending'>('synced');
+  const [pendingCount, setPendingCount] = useState(0);
   const [isRefreshingProduct, setIsRefreshingProduct] = useState(false);
 
   // Toast states
@@ -187,6 +196,49 @@ function WarehouseContent() {
         </Text>
       </Animated.View>
     );
+  };
+
+  const loadWarehouses = async () => {
+    try {
+      const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+      // Load from cache first
+      const cached = await AsyncStorage.getItem(`cached_warehouses_${shopId}`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        setWarehouses(parsed);
+        const saleWh = parsed.find((w: any) => w.code === 'sale') || parsed[0];
+        if (saleWh) {
+          setSelectedWarehouseId(saleWh.id || saleWh.warehouse_id);
+          const otherWh = parsed.find((w: any) => (w.id || w.warehouse_id) !== (saleWh.id || saleWh.warehouse_id)) || parsed[0];
+          if (otherWh) {
+            setToWarehouseId(otherWh.id || otherWh.warehouse_id);
+          }
+        }
+      }
+
+      // Fetch from API
+      const headers = await getApiHeaders();
+      const res = await fetch(`${getApiBaseUrl()}/api/shops/${shopId}/warehouses?limit=100`, { headers });
+      if (res.ok) {
+        const json = await res.json();
+        const list = json.data || [];
+        setWarehouses(list);
+        await AsyncStorage.setItem(`cached_warehouses_${shopId}`, JSON.stringify(list));
+        
+        if (list.length > 0) {
+          const saleWh = list.find((w: any) => w.code === 'sale') || list[0];
+          if (saleWh) {
+            setSelectedWarehouseId(prev => prev || saleWh.id || saleWh.warehouse_id);
+            const otherWh = list.find((w: any) => (w.id || w.warehouse_id) !== (saleWh.id || saleWh.warehouse_id)) || list[0];
+            if (otherWh) {
+              setToWarehouseId(prev => prev || otherWh.id || otherWh.warehouse_id);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Lỗi tải danh sách kho:', err);
+    }
   };
 
   const loadProducts = async () => {
@@ -306,14 +358,17 @@ function WarehouseContent() {
 
       // Cập nhật syncStatus dựa trên xem có dòng nào pending không
       let hasPending = false;
+      let pCount = 0;
       if (Platform.OS !== 'web') {
         const pendingMovements = await db
           .select()
           .from(schema.stockMovements)
           .where(eq(schema.stockMovements.sync_status, 'pending'));
         hasPending = pendingMovements.length > 0;
+        pCount = pendingMovements.length;
       }
       setSyncStatus(hasPending ? 'pending' : 'synced');
+      setPendingCount(pCount);
     } catch (error) {
       console.error('Lỗi tải sản phẩm:', error);
     } finally {
@@ -325,6 +380,7 @@ function WarehouseContent() {
   useFocusEffect(
     useCallback(() => {
       loadProducts();
+      loadWarehouses();
     }, [])
   );
 
@@ -351,6 +407,17 @@ function WarehouseContent() {
     setCostInput('');
     setReferenceNo('');
     setReason('Kiểm kê định kỳ');
+    setNoteInput('');
+    
+    if (warehouses.length > 0) {
+      const saleWh = warehouses.find((w: any) => w.code === 'sale') || warehouses[0];
+      setSelectedWarehouseId(saleWh.id || saleWh.warehouse_id);
+      const otherWh = warehouses.find((w: any) => (w.id || w.warehouse_id) !== (saleWh.id || saleWh.warehouse_id)) || warehouses[0];
+      if (otherWh) {
+        setToWarehouseId(otherWh.id || otherWh.warehouse_id);
+      }
+    }
+    
     setShowAdjustModal(true);
   };
 
@@ -400,6 +467,27 @@ function WarehouseContent() {
       }
     }
 
+    // Validate warehouses
+    if (['transfer_out', 'transfer_in'].includes(movementType)) {
+      if (!selectedWarehouseId) {
+        Alert.alert('Lỗi', 'Vui lòng chọn kho nguồn.');
+        return;
+      }
+      if (!toWarehouseId) {
+        Alert.alert('Lỗi', 'Vui lòng chọn kho đích.');
+        return;
+      }
+      if (selectedWarehouseId === toWarehouseId) {
+        Alert.alert('Lỗi', 'Kho nguồn và kho đích không được trùng nhau.');
+        return;
+      }
+    } else {
+      if (!selectedWarehouseId) {
+        Alert.alert('Lỗi', 'Vui lòng chọn kho hàng.');
+        return;
+      }
+    }
+
     // Validate pricing if purchase_in & user has permission
     let unitCostVal = 0;
     if (movementType === 'purchase_in' && hasPricingPermission) {
@@ -433,16 +521,32 @@ function WarehouseContent() {
       confirmMsg += `• Tồn kho sau: ${newStockQty} ${selectedProduct.unit || 'đv'}\n`;
     }
 
+    const sourceWhName = warehouses.find((w: any) => (w.id || w.warehouse_id) === selectedWarehouseId)?.name || 'Không xác định';
+    const destWhName = warehouses.find((w: any) => (w.id || w.warehouse_id) === toWarehouseId)?.name || 'Không xác định';
+
+    if (['transfer_out', 'transfer_in'].includes(movementType)) {
+      confirmMsg += `• Kho nguồn: ${sourceWhName}\n`;
+      confirmMsg += `• Kho đích: ${destWhName}\n`;
+    } else {
+      confirmMsg += `• Kho hàng: ${sourceWhName}\n`;
+    }
+
     if (movementType === 'purchase_in' && hasPricingPermission) {
       confirmMsg += `• Đơn giá mua: ${formatCurrency(unitCostVal)}\n`;
       confirmMsg += `• Tổng giá trị: ${formatCurrency(unitCostVal * parseInt(qtyInput || '0', 10))}\n`;
     }
+
+    const userEmail = await AsyncStorage.getItem('saved_email') || 'mobile-app';
+    confirmMsg += `• Người thực hiện: ${userEmail}\n`;
 
     if (referenceNo) {
       confirmMsg += `• Mã chứng từ: ${referenceNo}\n`;
     }
     
     confirmMsg += `• Lý do: ${reason}\n`;
+    if (noteInput.trim()) {
+      confirmMsg += `• Ghi chú: ${noteInput.trim()}\n`;
+    }
 
     Alert.alert(
       'Xác nhận giao dịch kho',
@@ -468,8 +572,11 @@ function WarehouseContent() {
       const movementId = `sm-local-${Date.now()}`;
       const nowStr = new Date().toISOString();
 
-      // Hậu tố [Mobile] để dễ quản lý, kiểm soát nguồn gốc phiếu phát sinh
-      const finalReason = reason ? `${reason} [Mobile]` : 'Giao dịch kho từ di động [Mobile]';
+      let baseReason = reason || 'Giao dịch kho từ di động';
+      if (noteInput.trim()) {
+        baseReason = `${baseReason} - ${noteInput.trim()}`;
+      }
+      const finalReason = `${baseReason} [Mobile]`;
 
       // 1. Lưu phiếu giao dịch stock_movements vào SQLite
       if (Platform.OS !== 'web') {
@@ -488,6 +595,8 @@ function WarehouseContent() {
           workflow_status: 'completed',
           created_at: nowStr,
           sync_status: 'pending',
+          warehouse_id: selectedWarehouseId || null,
+          to_warehouse_id: ['transfer_out', 'transfer_in'].includes(movementType) ? (toWarehouseId || null) : null,
         });
 
         // 2. Cập nhật tồn kho sản phẩm trực tiếp trong bảng products SQLite cục bộ
@@ -501,11 +610,15 @@ function WarehouseContent() {
       setSelectedProduct(null);
       showToast('Đã lưu phiếu kho ngoại tuyến và cập nhật tồn kho di động thành công!', 'success');
       
+      // Gọi đồng bộ nền ngay và chờ hoàn tất để hiển thị trạng thái chuẩn xác nhất
+      try {
+        await KeepAliveManager.triggerSyncIfNeeded(false);
+      } catch (syncErr) {
+        console.warn('Lỗi đồng bộ tự động sau khi tạo phiếu kho:', syncErr);
+      }
+
       // Load lại sản phẩm
       await loadProducts();
-
-      // Gọi đồng bộ nền ngay
-      KeepAliveManager.triggerSyncIfNeeded(false);
     } catch (err: any) {
       showToast(`Lỗi lưu phiếu kho: ${err.message}`, 'error');
     } finally {
@@ -522,6 +635,8 @@ function WarehouseContent() {
         syncStatus={syncStatus}
         isSyncing={isSyncing}
         onPressSync={handleManualSync}
+        pendingCount={pendingCount}
+        entityName="phiếu"
       />
 
       {/* Tìm kiếm & Quét Barcode */}
@@ -573,6 +688,14 @@ function WarehouseContent() {
         >
           <Ionicons name="scan" size={16} color="white" />
         </TouchableOpacity>
+      </View>
+
+      {/* Thông báo phiếu kho di động */}
+      <View className="mx-4 mb-3 p-3 bg-orange-50 border border-orange-200 rounded-2xl flex-row items-start">
+        <Ionicons name="information-circle-outline" size={16} color="#ea580c" style={{ marginTop: 2, marginRight: 8 }} />
+        <Text className="flex-1 text-[11px] text-orange-800 leading-normal font-medium">
+          Mục phiếu kho trên di động chỉ hỗ trợ sản phẩm đơn. Nếu cần lập phiếu kho nhiều sản phẩm hoặc quản lý lô hàng, vui lòng sử dụng phiên bản Web.
+        </Text>
       </View>
 
       {/* Danh sách sản phẩm */}
@@ -769,6 +892,40 @@ function WarehouseContent() {
                   </View>
                 )}
 
+                {/* Chọn Kho Hàng / Kho Nguồn */}
+                <View className="mb-4">
+                  <Text className="text-xxs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+                    {['transfer_out', 'transfer_in'].includes(movementType) ? 'Kho nguồn *' : 'Kho hàng *'}
+                  </Text>
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() => setShowWarehouseSelector(true)}
+                    className="flex-row justify-between items-center border border-slate-200 rounded-xl px-4 py-3 bg-slate-50"
+                  >
+                    <Text className="text-xs font-semibold text-slate-800">
+                      {warehouses.find((w: any) => (w.id || w.warehouse_id) === selectedWarehouseId)?.name || 'Chọn kho hàng'}
+                    </Text>
+                    <Ionicons name="chevron-down" size={16} color="#64748b" />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Chọn Kho Đích (Chỉ khi Chuyển kho) */}
+                {['transfer_out', 'transfer_in'].includes(movementType) && (
+                  <View className="mb-4">
+                    <Text className="text-xxs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Kho đích *</Text>
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={() => setShowToWarehouseSelector(true)}
+                      className="flex-row justify-between items-center border border-slate-200 rounded-xl px-4 py-3 bg-slate-50"
+                    >
+                      <Text className="text-xs font-semibold text-slate-800">
+                        {warehouses.find((w: any) => (w.id || w.warehouse_id) === toWarehouseId)?.name || 'Chọn kho đích'}
+                      </Text>
+                      <Ionicons name="chevron-down" size={16} color="#64748b" />
+                    </TouchableOpacity>
+                  </View>
+                )}
+
                 {/* Nhập đơn giá nếu có quyền (chỉ dành cho Nhập kho) */}
                 {movementType === 'purchase_in' && hasPricingPermission && (
                   <View className="mb-4">
@@ -864,6 +1021,24 @@ function WarehouseContent() {
                   </TouchableOpacity>
                 </View>
 
+                {/* Ghi chú */}
+                <View className="mb-4">
+                  <Text className="text-xxs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Ghi chú / Chi tiết lý do</Text>
+                  <TextInput
+                    value={noteInput}
+                    onChangeText={setNoteInput}
+                    placeholder="Nhập ghi chú chi tiết nếu có..."
+                    placeholderTextColor="#cbd5e1"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs text-slate-850 font-semibold"
+                    style={{
+                      paddingVertical: 0,
+                      textAlignVertical: 'center',
+                      lineHeight: undefined,
+                      ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+                    }}
+                  />
+                </View>
+
                 {/* Actions */}
                 <View className="flex-row gap-3 mt-4">
                   <TouchableOpacity
@@ -920,6 +1095,76 @@ function WarehouseContent() {
                       )}
                     </TouchableOpacity>
                   ))}
+                </ScrollView>
+              </View>
+            )}
+
+            {/* Warehouse Selector Overlay */}
+            {showWarehouseSelector && (
+              <View className="absolute inset-0 bg-white rounded-t-3xl p-6 z-50">
+                <View className="flex-row justify-between items-center mb-6">
+                  <Text className="text-base font-bold text-slate-800">Chọn kho hàng</Text>
+                  <TouchableOpacity onPress={() => setShowWarehouseSelector(false)}>
+                    <Ionicons name="close" size={24} color="#64748b" />
+                  </TouchableOpacity>
+                </View>
+                <ScrollView showsVerticalScrollIndicator={false}>
+                  {warehouses.map(w => {
+                    const wId = w.id || w.warehouse_id;
+                    const isSelected = selectedWarehouseId === wId;
+                    return (
+                      <TouchableOpacity
+                        key={wId}
+                        onPress={() => {
+                          setSelectedWarehouseId(wId);
+                          setShowWarehouseSelector(false);
+                        }}
+                        className="py-3.5 border-b border-slate-100 flex-row justify-between items-center"
+                      >
+                        <Text className={`text-xs ${isSelected ? 'font-bold text-orange-500' : 'text-slate-700'}`}>
+                          {w.name} {w.code ? `(${w.code})` : ''}
+                        </Text>
+                        {isSelected && (
+                          <Ionicons name="checkmark" size={18} color="#fa5908" />
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            )}
+
+            {/* Destination Warehouse Selector Overlay */}
+            {showToWarehouseSelector && (
+              <View className="absolute inset-0 bg-white rounded-t-3xl p-6 z-50">
+                <View className="flex-row justify-between items-center mb-6">
+                  <Text className="text-base font-bold text-slate-800">Chọn kho đích</Text>
+                  <TouchableOpacity onPress={() => setShowToWarehouseSelector(false)}>
+                    <Ionicons name="close" size={24} color="#64748b" />
+                  </TouchableOpacity>
+                </View>
+                <ScrollView showsVerticalScrollIndicator={false}>
+                  {warehouses.map(w => {
+                    const wId = w.id || w.warehouse_id;
+                    const isSelected = toWarehouseId === wId;
+                    return (
+                      <TouchableOpacity
+                        key={wId}
+                        onPress={() => {
+                          setToWarehouseId(wId);
+                          setShowToWarehouseSelector(false);
+                        }}
+                        className="py-3.5 border-b border-slate-100 flex-row justify-between items-center"
+                      >
+                        <Text className={`text-xs ${isSelected ? 'font-bold text-orange-500' : 'text-slate-700'}`}>
+                          {w.name} {w.code ? `(${w.code})` : ''}
+                        </Text>
+                        {isSelected && (
+                          <Ionicons name="checkmark" size={18} color="#fa5908" />
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
                 </ScrollView>
               </View>
             )}

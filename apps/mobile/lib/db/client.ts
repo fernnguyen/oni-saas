@@ -294,7 +294,9 @@ export function initializeLocalDatabase(customDb?: any) {
         reason TEXT,
         workflow_status TEXT NOT NULL DEFAULT 'completed',
         created_at TEXT NOT NULL,
-        sync_status TEXT NOT NULL DEFAULT 'synced'
+        sync_status TEXT NOT NULL DEFAULT 'synced',
+        warehouse_id TEXT,
+        to_warehouse_id TEXT
       );
 
       CREATE TABLE IF NOT EXISTS local_caches (
@@ -320,6 +322,8 @@ export function initializeLocalDatabase(customDb?: any) {
     try { targetDb.execSync(`ALTER TABLE customers ADD COLUMN loyalty_points INTEGER DEFAULT 0;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE customers ADD COLUMN debt_amount INTEGER DEFAULT 0;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE payment_methods ADD COLUMN code TEXT NOT NULL DEFAULT 'cash';`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE stock_movements ADD COLUMN warehouse_id TEXT;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE stock_movements ADD COLUMN to_warehouse_id TEXT;`); } catch (e) {}
     
     console.log(`CSDL SQLite [${activeDbName}]: Khởi tạo các bảng/migrations offline-first thành công!`);
   } catch (error) {

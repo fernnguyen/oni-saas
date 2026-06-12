@@ -16,6 +16,16 @@ export async function GET(
 
     const row = await connector.findById('products', id)
     if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+    // Fetch inventory for this product and branch to compute actual stock level
+    const inventoryRes = await connector.list('inventory', {
+      filters: { product_id: id, branch_id: shopId },
+      limit: 1000
+    })
+    const inventories = inventoryRes.data as any[]
+    const totalStock = inventories.reduce((sum, inv) => sum + (parseFloat(inv.stock_qty || '0') || 0), 0)
+    row.stock_qty = String(totalStock)
+
     return NextResponse.json(row)
   } catch (e) {
     return handleApiError(e, 'GET product')

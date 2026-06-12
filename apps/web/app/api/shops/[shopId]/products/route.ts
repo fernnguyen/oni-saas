@@ -61,10 +61,28 @@ export async function GET(
           return acc
         }, {})
 
-        prodResult.data = prodResult.data.map((p: any) => ({
-          ...p,
-          product_units: unitsByProduct[p.id] || []
-        }))
+        // Fetch inventory records to aggregate actual stock quantity per product for this branch
+        const inventoryRes = await connector.list('inventory', {
+          filters: { branch_id: shopId },
+          limit: 10000
+        })
+        const inventories = inventoryRes.data as any[]
+        const stockByProduct = inventories.reduce((acc: Record<string, number>, inv: any) => {
+          const pId = inv.product_id
+          const qty = parseFloat(inv.stock_qty || '0')
+          acc[pId] = (acc[pId] || 0) + (isNaN(qty) ? 0 : qty)
+          return acc
+        }, {})
+
+        prodResult.data = prodResult.data.map((p: any) => {
+          const pId = p.id || p.product_id
+          const computedStock = stockByProduct[pId] !== undefined ? String(stockByProduct[pId]) : (p.stock_qty || '0')
+          return {
+            ...p,
+            stock_qty: computedStock,
+            product_units: unitsByProduct[pId] || []
+          }
+        })
       }
       return prodResult
     }

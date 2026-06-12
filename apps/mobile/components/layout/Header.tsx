@@ -22,9 +22,20 @@ export interface HeaderProps {
  isSyncing?: boolean;
  title?: string;
  showBack?: boolean;
+ pendingCount?: number;
+ entityName?: string;
 }
 
-export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false, title, showBack = false}: HeaderProps) {
+export function Header({
+  onPressMenu, 
+  syncStatus, 
+  onPressSync, 
+  isSyncing = false, 
+  title, 
+  showBack = false,
+  pendingCount,
+  entityName
+}: HeaderProps) {
  const insets = useSafeAreaInsets();
  const [activeBranchName, setActiveBranchName] = useState('Tạp hóa Linh Ka');
  const [activeBranchId, setActiveBranchId] = useState('');
@@ -254,9 +265,15 @@ export function Header({onPressMenu, syncStatus, onPressSync, isSyncing = false,
   )}
   </View>
 
- {/* SyncStatusBar và Chuông thông báo Right */}
- <View className="flex-row items-center gap-2">
- <SyncBanner forceStatus={syncStatus} onPressSync={handleSyncPress} isSyncing={isSyncing} />
+  {/* SyncStatusBar và Chuông thông báo Right */}
+  <View className="flex-row items-center gap-2">
+  <SyncBanner 
+    forceStatus={syncStatus} 
+    onPressSync={handleSyncPress} 
+    isSyncing={isSyncing} 
+    pendingCount={pendingCount}
+    entityName={entityName}
+  />
  
  <TouchableOpacity 
  activeOpacity={0.7}

@@ -585,14 +585,39 @@ export class SyncManager {
         .from(schema.stockMovements)
         .where(eq(schema.stockMovements.sync_status, 'pending'));
 
-      if (pending.length === 0) return { successCount: 0, failedCount: 0 };
+      if (pending.length === 0) {
+        console.log('[Sync Debug] Không có phiếu điều chỉnh kho offline nào chờ đồng bộ.');
+        return { successCount: 0, failedCount: 0 };
+      }
 
-      console.log(`Phát hiện ${pending.length} phiếu điều chỉnh kho offline. Đang đồng bộ...`);
+      console.log(`[Sync Debug] Phát hiện ${pending.length} phiếu điều chỉnh kho offline. Đang lấy Api Headers...`);
       const headers = await getApiHeaders();
+      console.log(`[Sync Debug] Đã lấy Api Headers thành công. Bắt đầu gửi ${pending.length} phiếu...`);
 
       for (const item of pending) {
         try {
-          const response = await fetch(`${getApiBaseUrl()}/api/shops/${shopId}/stock-movements`, {
+          const url = `${getApiBaseUrl()}/api/shops/${shopId}/stock-movements`;
+          console.log(`[Sync Debug] Đang gửi POST tới: ${url} cho phiếu #${item.id}...`);
+          console.log(`[Sync Debug] Payload gửi đi:`, {
+            type: item.type,
+            product_id: item.product_id,
+            sku: item.sku,
+            qty: String(item.qty),
+            unit_cost: String(item.unit_cost),
+            warehouse_id: item.warehouse_id,
+            to_warehouse_id: item.to_warehouse_id,
+            reason: item.reason,
+            reference_no: item.reference_no,
+          });
+
+          // Thêm timeout 10 giây cho fetch tránh bị treo vĩnh viễn
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => {
+            console.warn(`[Sync Debug] Yêu cầu gửi phiếu kho #${item.id} quá thời gian (Timeout 10s) và đã bị hủy.`);
+            controller.abort();
+          }, 10000);
+
+          const response = await fetch(url, {
             method: 'POST',
             headers,
             body: JSON.stringify({
@@ -607,8 +632,14 @@ export class SyncManager {
               reason: item.reason || 'Điều chỉnh tồn kho di động',
               workflow_status: item.workflow_status,
               reference_no: item.reference_no || '',
+              warehouse_id: item.warehouse_id || '',
+              to_warehouse_id: item.to_warehouse_id || '',
             }),
+            signal: controller.signal,
           });
+
+          clearTimeout(timeoutId);
+          console.log(`[Sync Debug] Nhận phản hồi từ server cho phiếu #${item.id}. Status: ${response.status}`);
 
           if (response.ok) {
             const resJson = await response.json().catch(() => ({}));
@@ -626,18 +657,20 @@ export class SyncManager {
                 .set({ sync_status: 'synced' })
                 .where(eq(schema.stockMovements.id, item.id));
             }
+            console.log(`[Sync Debug] Đồng bộ phiếu kho #${item.id} thành công!`);
             successCount++;
           } else {
             failedCount++;
-            console.warn(`Đồng bộ phiếu kho #${item.id} lỗi từ server: ${response.status}`);
+            const errorText = await response.text().catch(() => '');
+            console.warn(`[Sync Debug] Đồng bộ phiếu kho #${item.id} lỗi từ server: ${response.status}. Chi tiết: ${errorText}`);
           }
-        } catch (e) {
+        } catch (e: any) {
           failedCount++;
-          console.error(`Lỗi kết nối khi đồng bộ phiếu kho #${item.id}:`, e);
+          console.error(`[Sync Debug] Lỗi kết nối khi đồng bộ phiếu kho #${item.id}:`, e.message || e);
         }
       }
     } catch (err) {
-      console.error('Lỗi nghiêm trọng khi đồng bộ điều chỉnh kho:', err);
+      console.error('[Sync Debug] Lỗi nghiêm trọng khi đồng bộ điều chỉnh kho:', err);
     }
     return { successCount, failedCount };
   }
