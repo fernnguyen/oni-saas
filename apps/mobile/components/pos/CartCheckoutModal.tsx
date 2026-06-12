@@ -1418,10 +1418,12 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
           <Dialog
             visible={isConfirmVisible}
             onClose={() => setIsConfirmVisible(false)}
-            onConfirm={async () => {
+            onConfirm={() => {
               const debtOpts = clampedDebtRepay > 0 ? { debtRepayAmount: clampedDebtRepay, ...selectDebtFund() } : undefined;
-              await onCheckout(debtOpts);
               setIsConfirmVisible(false);
+              setTimeout(async () => {
+                await onCheckout(debtOpts);
+              }, 400);
             }}
             title="Xác nhận Thanh toán"
             description="Bạn có chắc chắn muốn hoàn tất thanh toán hóa đơn này không?"

@@ -611,9 +611,6 @@ export default function PosScreen() {
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
 
-      // Tắt trạng thái Loading thanh toán bán lẻ
-      setIsPayingCartLoading(false);
-
       // Hiển thị QR thanh toán hoặc Toast báo thành công bằng server ID
       const hasTransfer = processedPayments.some(p => checkIsQrPayment(p.method) && p.amount > 0);
       if (hasTransfer) {
@@ -655,8 +652,9 @@ export default function PosScreen() {
       }
     } catch (err) {
       console.error('Lỗi khi thanh toán đơn lẻ SQLite:', err);
+      showToast("Lỗi khi xử lý thanh toán!", "error");
+    } finally {
       setIsPayingCartLoading(false);
-
     }
   };
 
@@ -849,23 +847,29 @@ export default function PosScreen() {
                   onPress={async () => {
                     if (!cartOwnerTable) return;
                     setIsSavingCart(true);
-                    // 1. Lưu món vào phòng/bàn cục bộ
-                    setTableCarts(prev => ({
-                      ...prev,
-                      [cartOwnerTable.id]: cart
-                    }));
+                    try {
+                      // 1. Lưu món vào phòng/bàn cục bộ
+                      setTableCarts(prev => ({
+                        ...prev,
+                        [cartOwnerTable.id]: cart
+                      }));
 
-                    // 2. Đồng bộ trực tuyến lên server nếu có mạng
-                    if (cartOwnerTable.current_order_id) {
-                      await syncOrderItemsOnline(cartOwnerTable.current_order_id, cart);
+                      // 2. Đồng bộ trực tuyến lên server nếu có mạng
+                      if (cartOwnerTable.current_order_id) {
+                        await syncOrderItemsOnline(cartOwnerTable.current_order_id, cart);
+                      }
+
+                      setCart({});
+                      setCartOwnerTable(null);
+                      setActiveVertical(shopVertical);
+                      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
+                      showToast("Đã lưu và đồng bộ món thành công!", "success");
+                    } catch (err) {
+                      console.error('Lỗi khi lưu món phòng bàn:', err);
+                      showToast("Có lỗi xảy ra khi lưu món!", "error");
+                    } finally {
+                      setIsSavingCart(false);
                     }
-
-                    setCart({});
-                    setCartOwnerTable(null);
-                    setActiveVertical(shopVertical);
-                    setIsSavingCart(false);
-                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
-                    showToast("Đã lưu và đồng bộ món thành công!", "success");
                   }}
                 >
                   <Text className="text-xxs font-semibold text-white">Lưu món</Text>
@@ -1422,23 +1426,29 @@ export default function PosScreen() {
             onPress={async () => {
               if (cartOwnerTable) {
                 setIsSavingCart(true);
-                // 1. Lưu vào bàn/phòng cục bộ
-                setTableCarts(prev => ({
-                  ...prev,
-                  [cartOwnerTable.id]: cart
-                }));
+                try {
+                  // 1. Lưu vào bàn/phòng cục bộ
+                  setTableCarts(prev => ({
+                    ...prev,
+                    [cartOwnerTable.id]: cart
+                  }));
 
-                // 2. Đồng bộ trực tuyến lên server nếu có mạng
-                if (cartOwnerTable.current_order_id) {
-                  await syncOrderItemsOnline(cartOwnerTable.current_order_id, cart);
+                  // 2. Đồng bộ trực tuyến lên server nếu có mạng
+                  if (cartOwnerTable.current_order_id) {
+                    await syncOrderItemsOnline(cartOwnerTable.current_order_id, cart);
+                  }
+
+                  setCart({});
+                  setCartOwnerTable(null);
+                  setActiveVertical(shopVertical);
+                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
+                  showToast("Đã lưu và đồng bộ món thành công!", "success");
+                } catch (err) {
+                  console.error('Lỗi khi lưu vào phòng bàn từ giỏ hàng:', err);
+                  showToast("Có lỗi xảy ra khi lưu món!", "error");
+                } finally {
+                  setIsSavingCart(false);
                 }
-
-                setCart({});
-                setCartOwnerTable(null);
-                setActiveVertical(shopVertical);
-                setIsSavingCart(false);
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
-                showToast("Đã lưu và đồng bộ món thành công!", "success");
               } else {
                 handleCheckoutPress(() => {
                   setIsCartModalOpen(true);

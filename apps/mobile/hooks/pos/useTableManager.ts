@@ -1402,8 +1402,6 @@ export function useTableManager(props: UseTableManagerProps) {
       setCartOwnerTable(null);
 
       setIsCartModalOpen(false);
-      setIsPayingTableLoading(false);
-
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
 
@@ -1432,9 +1430,9 @@ export function useTableManager(props: UseTableManagerProps) {
       }
     } catch (err) {
       console.error('Lỗi thanh toán phòng bàn:', err);
-      setIsPayingTableLoading(false);
-
       showToast("Lỗi khi xử lý thanh toán!", "error");
+    } finally {
+      setIsPayingTableLoading(false);
     }
   };
 
