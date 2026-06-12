@@ -66,9 +66,67 @@ import {Button} from '../../components/ui/Button';
 import {Dialog} from '../../components/ui/Dialog';
 import {Skeleton} from '../../components/ui/Skeleton';
 import {DrawerMenu} from '../../components/erp/DrawerMenu';
+import {usePermissions} from '../../lib/auth/PermissionsContext';
 
 export default function OrdersScreen() {
- const [ordersList, setOrdersList] = useState<any[]>([]);
+  const {hasPermission} = usePermissions();
+  const [selectedOrderPayments, setSelectedOrderPayments] = useState<any[]>([]);
+  const [selectedOrderReturns, setSelectedOrderReturns] = useState<any[]>([]);
+  const [selectedOrderCashbook, setSelectedOrderCashbook] = useState<any[]>([]);
+  const [shopSettings, setShopSettings] = useState<any>({});
+
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [cancelReason, setCancelReason] = useState('Sai sót hệ thống');
+  const [customCancelReason, setCustomCancelReason] = useState('');
+
+  const [showReturnForm, setShowReturnForm] = useState(false);
+  const [isReturning, setIsReturning] = useState(false);
+  const [returnItems, setReturnItems] = useState<Record<string, number>>({});
+  const [returnReason, setReturnReason] = useState('other');
+  const [returnRefundMethod, setReturnRefundMethod] = useState('cash');
+  const [returnRefundAmount, setReturnRefundAmount] = useState('');
+  const [returnNote, setReturnNote] = useState('');
+  const [showConfirmReturn, setShowConfirmReturn] = useState(false);
+
+  const paymentCbMap = React.useMemo(() => {
+   const map = new Map<string, string>();
+   const usedCb = new Set<string>();
+   for (const p of selectedOrderPayments) {
+    const pId = p.payment_id || p.id;
+    const cbMatch = selectedOrderCashbook.find(cb => {
+     const cbId = cb.id || cb.transaction_id;
+     if (usedCb.has(cbId)) return false;
+     return Math.abs(Number(cb.amount)) === Math.abs(Number(p.amount)) && 
+            cb.method === p.method && 
+            (Number(p.amount) < 0 ? cb.type === 'expense' : cb.type === 'receipt');
+    });
+    if (cbMatch) {
+     const cbId = cbMatch.id || cbMatch.transaction_id;
+     usedCb.add(cbId);
+     map.set(pId, cbId);
+    }
+   }
+   return map;
+  }, [selectedOrderPayments, selectedOrderCashbook]);
+
+  const alreadyReturnedQty = React.useMemo(() => {
+   const qtyMap: Record<string, number> = {};
+   selectedOrderReturns.forEach(ret => {
+    if (ret.status === 'rejected' || ret.status === 'deleted') return;
+    if (Array.isArray(ret.items)) {
+     ret.items.forEach((item: any) => {
+      const id = item.order_item_id || item.product_id;
+      if (id) {
+       qtyMap[id] = (qtyMap[id] || 0) + parseInt(item.qty_returned || '0', 10);
+      }
+     });
+    }
+   });
+   return qtyMap;
+  }, [selectedOrderReturns]);
+
+  const [ordersList, setOrdersList] = useState<any[]>([]);
  const [shiftsList, setShiftsList] = useState<any[]>([{id: 'all', label: 'Tất cả ca'}]);
  const [isLoading, setIsLoading] = useState(true);
  const [limit, setLimit] = useState(10);
@@ -464,46 +522,333 @@ export default function OrdersScreen() {
     return () => clearTimeout(delayDebounceFn);
   }, [searchQuery]);
 
- // Xem chi tiết
- const handleViewOrderDetails = async (order: any) => {
- Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
- try {
- let items = [];
- let customerPhone: string | null = null;
- if (Platform.OS === 'web') {
- items = [
- {id: 'it1', product_name: 'Cà phê Phin Sữa Đá', qty: 2, unit_price: 29000, line_total: 58000},
- {id: 'it2', product_name: 'Trà Đào Cam Sả', qty: 1, unit_price: 39000, line_total: 39000}
- ];
- } else {
- items = await db
- .select()
- .from(schema.order_items)
- .where(eq(schema.order_items.order_id, order.id));
- // Lấy số điện thoại từ bảng customers
- if (order.customer_id) {
- const customerRows = await db
- .select()
- .from(schema.customers)
- .where(eq(schema.customers.id, order.customer_id));
- if (customerRows.length > 0) customerPhone = customerRows[0].phone || null;
- }
- // Fallback: lấy từ metadata nếu có
- if (!customerPhone && order.metadata) {
- try {
- const meta = JSON.parse(order.metadata);
- customerPhone = meta.customer_phone || null;
- } catch {}
- }
- }
- 
- setSelectedOrderItems(items);
- setSelectedOrderCustomerPhone(customerPhone);
- setSelectedOrder(order);
-} catch (err) {
- console.error('Lỗi tải chi tiết dòng sản phẩm:', err);
-}
-};
+  // Xem chi tiết
+  const handleViewOrderDetails = async (order: any) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    
+    // Reset details to avoid showing stale data
+    setSelectedOrderItems([]);
+    setSelectedOrderPayments([]);
+    setSelectedOrderReturns([]);
+    setSelectedOrderCashbook([]);
+    setShopSettings({});
+    setSelectedOrderCustomerPhone(null);
+
+    try {
+      const shopId = await AsyncStorage.getItem('active_shop_id') || '';
+      const headers = await getApiHeaders();
+      const url = getApiBaseUrl();
+      
+      let fetchedOnline = false;
+
+      // Only attempt online fetch if synced and shopId exists
+      if (shopId && order.sync_status !== 'pending') {
+        try {
+          const [itemsRes, paymentsRes, returnsRes, settingsRes, cashbookRes] = await Promise.all([
+            fetch(`${url}/api/shops/${shopId}/order-items?order_id=${order.id}&limit=100`, { headers }),
+            fetch(`${url}/api/shops/${shopId}/payments?order_id=${order.id}&limit=50`, { headers }),
+            fetch(`${url}/api/shops/${shopId}/returns?order_id=${order.id}&limit=50`, { headers }),
+            fetch(`${url}/api/shops/${shopId}/settings`, { headers }),
+            fetch(`${url}/api/shops/${shopId}/cashbook?reference_id=${order.id}&limit=100`, { headers })
+          ]);
+
+          if (itemsRes.ok && paymentsRes.ok && returnsRes.ok && settingsRes.ok && cashbookRes.ok) {
+            const itemsJson = await itemsRes.json();
+            const paymentsJson = await paymentsRes.json();
+            const returnsJson = await returnsRes.json();
+            const settingsJson = await settingsRes.json();
+            const cashbookJson = await cashbookRes.json();
+
+            const rawReturns = returnsJson.data || [];
+            const returnsWithItems = await Promise.all(
+              rawReturns.map(async (ret: any) => {
+                try {
+                  const retItemsRes = await fetch(`${url}/api/shops/${shopId}/return-items?return_id=${ret.return_id}&limit=100`, { headers });
+                  if (retItemsRes.ok) {
+                    const retItemsJson = await retItemsRes.json();
+                    return { ...ret, items: retItemsJson.data || [] };
+                  }
+                } catch (e) {
+                  console.warn(`Lỗi tải chi tiết sản phẩm trả ${ret.return_id}:`, e);
+                }
+                return { ...ret, items: [] };
+              })
+            );
+
+            setSelectedOrderItems(itemsJson.data || []);
+            setSelectedOrderPayments(paymentsJson.data || []);
+            setSelectedOrderReturns(returnsWithItems);
+            setShopSettings(settingsJson || {});
+
+            const cbData = cashbookJson.data || [];
+            // Load transactions for returned items as well
+            for (const ret of returnsWithItems) {
+              const retRef = ret.return_no || ret.return_id;
+              if (retRef) {
+                try {
+                  const retCbRes = await fetch(`${url}/api/shops/${shopId}/cashbook?reference_id=${retRef}&limit=10`, { headers });
+                  if (retCbRes.ok) {
+                    const retCbJson = await retCbRes.json();
+                    cbData.push(...(retCbJson.data || []));
+                  }
+                } catch (e) {
+                  console.warn(`Lỗi tải dòng tiền của phiếu trả ${retRef}:`, e);
+                }
+              }
+            }
+            setSelectedOrderCashbook(cbData);
+            fetchedOnline = true;
+          }
+        } catch (err) {
+          console.warn('Lỗi tải dữ liệu trực tuyến, tự động chuyển về ngoại tuyến:', err);
+        }
+      }
+
+      // SQLite fallback if offline or failed online fetch
+      if (!fetchedOnline) {
+        let items = [];
+        if (Platform.OS === 'web') {
+          items = [
+            {id: 'it1', product_name: 'Cà phê Phin Sữa Đá', qty: 2, unit_price: 29000, line_total: 58000},
+            {id: 'it2', product_name: 'Trà Đào Cam Sả', qty: 1, unit_price: 39000, line_total: 39000}
+          ];
+        } else {
+          items = await db
+            .select()
+            .from(schema.order_items)
+            .where(eq(schema.order_items.order_id, order.id));
+        }
+        setSelectedOrderItems(items);
+
+        let localPayments: any[] = [];
+        const pm = order.payment_method;
+        if (pm && (pm.startsWith('[') || pm.startsWith('{'))) {
+          try {
+            const parsed = JSON.parse(pm);
+            if (Array.isArray(parsed)) {
+              localPayments = parsed.map((p: any, i: number) => ({
+                id: `local-pm-${i}`,
+                method: p.METHOD || p.method || 'cash',
+                amount: p.AMOUNT || p.amount || order.total_amount,
+                fund_id: p.FUND_ID || p.fund_id || null,
+                reference_no: p.REFERENCE_NO || p.reference_no || null,
+                note: p.NOTE || p.note || null
+              }));
+            }
+          } catch {}
+        }
+        if (localPayments.length === 0) {
+          localPayments = [{
+            id: 'local-pm-0',
+            method: pm || 'cash',
+            amount: order.total_amount,
+            fund_id: null
+          }];
+        }
+        setSelectedOrderPayments(localPayments);
+      }
+
+      // Retrieve customer phone
+      let customerPhone: string | null = null;
+      if (Platform.OS !== 'web') {
+        if (order.customer_id) {
+          const customerRows = await db
+            .select()
+            .from(schema.customers)
+            .where(eq(schema.customers.id, order.customer_id));
+          if (customerRows.length > 0) customerPhone = customerRows[0].phone || null;
+        }
+        if (!customerPhone && order.metadata) {
+          try {
+            const meta = JSON.parse(order.metadata);
+            customerPhone = meta.customer_phone || null;
+          } catch {}
+        }
+      }
+      setSelectedOrderCustomerPhone(customerPhone);
+      setSelectedOrder(order);
+    } catch (err) {
+      console.error('Lỗi tải chi tiết dòng sản phẩm:', err);
+    }
+  };
+
+  // Hủy đơn hàng trực tuyến
+  const handleCancelOrder = async () => {
+    if (!selectedOrder) return;
+    setIsCancelling(true);
+    try {
+      const shopId = await AsyncStorage.getItem('active_shop_id') || '';
+      const headers = await getApiHeaders();
+      const url = getApiBaseUrl();
+      const reason = cancelReason === 'other' ? customCancelReason : cancelReason;
+
+      const res = await fetch(`${url}/api/shops/${shopId}/orders/${selectedOrder.id}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify({ reason: reason || 'Không rõ' })
+      });
+
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json.error || 'Hủy đơn hàng thất bại');
+      }
+
+      if (Platform.OS !== 'web') {
+        await db.update(schema.orders)
+          .set({ status: 'cancelled' })
+          .where(eq(schema.orders.id, selectedOrder.id));
+      }
+
+      await loadOrdersData();
+      setSelectedOrder((prev: any) => prev ? { ...prev, status: 'cancelled' } : null);
+      setShowCancelDialog(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    } catch (err: any) {
+      console.error('Lỗi khi hủy đơn hàng:', err);
+      alert(err.message || 'Lỗi khi hủy đơn hàng. Vui lòng thử lại.');
+    } finally {
+      setIsCancelling(false);
+    }
+  };
+
+  const handleCreateReturn = async () => {
+    if (!selectedOrder) return;
+    
+    const returningItems = selectedOrderItems
+      .map(i => ({ ...i, retQty: returnItems[i.item_id || i.product_id] || 0 }))
+      .filter(i => i.retQty > 0);
+
+    if (returningItems.length === 0) {
+      alert('Vui lòng chọn ít nhất 1 sản phẩm để trả');
+      return;
+    }
+
+    setIsReturning(true);
+    try {
+      const shopId = await AsyncStorage.getItem('active_shop_id') || '';
+      const headers = await getApiHeaders();
+      const url = getApiBaseUrl();
+
+      const totalRefund = returnRefundAmount !== '' 
+        ? parseFloat(returnRefundAmount) 
+        : returningItems.reduce((s, i) => {
+            const effPrice = Number(i.unit_price) + Number(i.modifier_total || 0);
+            return s + effPrice * i.retQty;
+          }, 0);
+
+      // 1. Create return header
+      const retRes = await fetch(`${url}/api/shops/${shopId}/returns`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify({
+          order_id:      selectedOrder.id,
+          order_no:      selectedOrder.order_no || selectedOrder.id,
+          customer_id:   selectedOrder.customer_id || '',
+          customer_name: selectedOrder.customer_name || '',
+          reason:        returnReason,
+          refund_method: returnRefundMethod,
+          total_refund:  String(totalRefund),
+          status:        'pending',
+          note:          returnNote,
+        }),
+      });
+
+      if (!retRes.ok) {
+        const errJson = await retRes.json().catch(() => ({}));
+        throw new Error(errJson.error || 'Tạo phiếu trả hàng thất bại');
+      }
+
+      const ret = await retRes.json();
+
+      // 2. Create return items
+      await Promise.allSettled(
+        returningItems.map((item) => {
+          const effPrice = Number(item.unit_price) + Number(item.modifier_total || 0);
+          const retLineTotal = effPrice * item.retQty;
+          return fetch(`${url}/api/shops/${shopId}/return-items`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...headers },
+            body: JSON.stringify({
+              return_id:    ret.return_id,
+              return_no:    ret.return_no || ret.return_id,
+              order_item_id: item.item_id || '',
+              product_id:   item.product_id,
+              product_name: item.product_name || '',
+              sku:          item.sku || '',
+              qty_returned: String(item.retQty),
+              unit_price:   String(item.unit_price),
+              line_total:   String(retLineTotal),
+              variant_label: item.variant_label || '',
+              modifiers: typeof item.modifiers === 'object' ? JSON.stringify(item.modifiers) : (item.modifiers || ''),
+              modifier_total: String(item.modifier_total || '0'),
+            }),
+          });
+        })
+      );
+
+      let processed = false;
+      let processErrorStr = '';
+
+      if (shopSettings?.skip_return_confirmation) {
+        const processRes = await fetch(`${url}/api/shops/${shopId}/returns/${ret.return_id}/process`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+          body: JSON.stringify({ processed_by: 'Hệ thống (Tự động)' })
+        });
+        if (processRes.ok) {
+          processed = true;
+        } else {
+          const errData = await processRes.json().catch(() => ({}));
+          processErrorStr = errData.message || errData.error || 'Thiếu quyền duyệt phiếu trả';
+        }
+      }
+
+      // Fetch updated order status
+      const orderRes = await fetch(`${url}/api/shops/${shopId}/orders/${selectedOrder.id}`, {
+        headers
+      });
+      let updatedOrder = null;
+      if (orderRes.ok) {
+        updatedOrder = await orderRes.json();
+      }
+
+      if (updatedOrder && Platform.OS !== 'web') {
+        await db.update(schema.orders)
+          .set({ status: updatedOrder.status })
+          .where(eq(schema.orders.id, selectedOrder.id));
+      }
+
+      await loadOrdersData();
+      
+      setShowReturnForm(false);
+      setShowConfirmReturn(false);
+
+      if (updatedOrder) {
+        setSelectedOrder(updatedOrder);
+        await handleViewOrderDetails(updatedOrder);
+      } else {
+        await handleViewOrderDetails(selectedOrder);
+      }
+
+      alert(processed ? 'Đã tạo và tự động duyệt phiếu trả hàng thành công' : 'Đã tạo phiếu trả hàng thành công (chờ duyệt)');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+
+    } catch (err: any) {
+      console.error('Lỗi khi tạo phiếu trả hàng:', err);
+      alert(err.message || 'Lỗi khi tạo phiếu trả hàng. Vui lòng thử lại.');
+    } finally {
+      setIsReturning(false);
+    }
+  };
+
+  const canCancel = selectedOrder && selectedOrder.sync_status === 'synced' && (
+    (selectedOrder.status !== 'cancelled' && selectedOrder.status !== 'in_progress' && hasPermission('orders.delete')) ||
+    (selectedOrder.status === 'in_progress' && hasPermission('orders.delete') && (hasPermission('owner') || hasPermission('admin')))
+  );
+
+  const canReturn = selectedOrder && selectedOrder.sync_status === 'synced' && hasPermission('returns.create') && (
+    selectedOrder.status === 'completed' || selectedOrder.status === 'partially_refunded'
+  );
 
  // Đồng bộ
  const handleSyncSingleOrder = async (orderId: string) => {
@@ -882,172 +1227,616 @@ export default function OrdersScreen() {
  </TouchableOpacity>
  </View>
 
- {/* Body Modal */}
- <ScrollView className="flex-1 my-4" showsVerticalScrollIndicator={false}>
- <Text className="text-xxs font-semibold text-slate-400 mb-2.5 px-1">Thông tin chi tiết</Text>
- <View className="p-4 rounded-xl bg-slate-50 border border-slate-200/60 mb-4">
- <View className="flex-row justify-between py-1">
- <Text className="text-tiny text-slate-500 font-medium">Mốc thời gian:</Text>
- <Text className="text-tiny font-semibold text-slate-800">
- {selectedOrder.created_at ? formatDateTime(selectedOrder.created_at) : 'Ngoại tuyến'}
- </Text>
- </View>
-  <View className="flex-row justify-between py-1 items-center">
-  <Text className="text-tiny text-slate-500 font-medium">Mã hóa đơn:</Text>
-  <TouchableOpacity
-    onPress={() => handleCopyOrderNo(selectedOrder.id)}
-    className="flex-row items-center active:opacity-75"
-  >
-    <Text className="text-tiny font-semibold text-slate-700 mr-1">{selectedOrder.id}</Text>
-    <Ionicons name={copiedId ? "checkmark" : "copy-outline"} size={11} color={copiedId ? "#10b981" : "#64748b"} />
-  </TouchableOpacity>
-  </View>
- <View className="flex-row justify-between py-1">
- <Text className="text-tiny text-slate-500 font-medium">Khách hàng:</Text>
- <View className="items-end">
- <Text className="text-tiny font-semibold text-slate-800">{selectedOrder.customer_name || 'Khách lẻ'}</Text>
- {selectedOrderCustomerPhone && (
- <Text className="text-tiny text-slate-500 mt-0.5">📞 {selectedOrderCustomerPhone}</Text>
- )}
- </View>
- </View>
- {selectedOrder.note && (
- <View className="border-t border-slate-200 mt-2 pt-2">
- <Text className="text-tiny text-slate-450 font-medium">Ghi chú đơn:</Text>
- <Text className="text-xs text-slate-700 mt-1 font-semibold">{selectedOrder.note}</Text>
- </View>
- )}
- </View>
+   {/* Body Modal */}
+  <ScrollView className="flex-1 my-4" showsVerticalScrollIndicator={false}>
+    <Text className="text-xxs font-semibold text-slate-400 mb-2.5 px-1">Thông tin chi tiết</Text>
+    <View className="p-4 rounded-xl bg-slate-50 border border-slate-200/60 mb-4">
+      <View className="flex-row justify-between py-1">
+        <Text className="text-tiny text-slate-500 font-medium">Mốc thời gian:</Text>
+        <Text className="text-tiny font-semibold text-slate-800">
+          {selectedOrder.created_at ? formatDateTime(selectedOrder.created_at) : 'Ngoại tuyến'}
+        </Text>
+      </View>
+      <View className="flex-row justify-between py-1 items-center">
+        <Text className="text-tiny text-slate-500 font-medium">Mã hóa đơn:</Text>
+        <TouchableOpacity
+          onPress={() => handleCopyOrderNo(selectedOrder.id)}
+          className="flex-row items-center active:opacity-75"
+        >
+          <Text className="text-tiny font-semibold text-slate-700 mr-1">{selectedOrder.id}</Text>
+          <Ionicons name={copiedId ? "checkmark" : "copy-outline"} size={11} color={copiedId ? "#10b981" : "#64748b"} />
+        </TouchableOpacity>
+      </View>
+      <View className="flex-row justify-between py-1">
+        <Text className="text-tiny text-slate-500 font-medium">Khách hàng:</Text>
+        <View className="items-end">
+          <Text className="text-tiny font-semibold text-slate-800">{selectedOrder.customer_name || 'Khách lẻ'}</Text>
+          {selectedOrderCustomerPhone && (
+            <Text className="text-tiny text-slate-500 mt-0.5">📞 {selectedOrderCustomerPhone}</Text>
+          )}
+        </View>
+      </View>
+      {selectedOrder.note && (
+        <View className="border-t border-slate-200 mt-2 pt-2">
+          <Text className="text-tiny text-slate-455 font-medium">Ghi chú đơn:</Text>
+          <Text className="text-xs text-slate-700 mt-1 font-semibold">{selectedOrder.note}</Text>
+        </View>
+      )}
+    </View>
 
- {/* Thanh toán chi tiết theo từng phương thức + quỹ */}
- <Text className="text-xxs font-semibold text-slate-400 mb-2.5 px-1">Thanh toán</Text>
- <View className="mb-4">
- {(() => {
- const pm = selectedOrder.payment_method;
- let rows: {method: string; fund_id?: string; amount?: number}[] = [];
- if (pm && (pm.startsWith('[') || pm.startsWith('{'))) {
- try { rows = JSON.parse(pm); } catch {}
- }
- if (rows.length === 0) {
- rows = [{method: pm || 'cash', amount: selectedOrder.total_amount}];
- }
- return rows.map((row: any, i: number) => {
- const method = row.METHOD || row.method || 'cash';
- const amount = row.AMOUNT || row.amount;
- const fund = paymentFundsList.find((f: any) => f.id === (row.FUND_ID || row.fund_id));
- const methodLabel = translateMethod(method);
- const isDebt = method === 'debt';
- const isPrepaid = method === 'prepaid';
- return (
- <View key={i} className={`flex-row justify-between items-start py-2.5 border-b border-slate-100 ${i === 0 ? '' : ''}`}>
- <View className="flex-1">
- <Text className={`text-xs font-semibold ${isDebt ? 'text-rose-600' : isPrepaid ? 'text-emerald-700' : 'text-slate-800'}`}>
- {methodLabel}
- </Text>
- {fund && (
- <Text className={`text-tiny font-medium mt-0.5 ${isDebt ? 'text-rose-400' : isPrepaid ? 'text-emerald-500' : 'text-orange-600'}`}>
- 🏦 {fund.name}{fund.bank_name ? ` (${fund.bank_name})` : ''}
- </Text>
- )}
- </View>
- {amount != null && (
- <Text className={`text-xs font-bold ml-3 ${isDebt ? 'text-rose-600' : isPrepaid ? 'text-emerald-700' : 'text-slate-800'}`}>
- {formatCurrency(Number(amount))}
- </Text>
- )}
- </View>
- );
- });
- })()}
- </View>
+    {/* Thanh toán chi tiết theo từng phương thức + quỹ */}
+    <Text className="text-xxs font-semibold text-slate-400 mb-2.5 px-1">Thanh toán</Text>
+    <View className="mb-4">
+      {selectedOrderPayments.map((p, i) => {
+        const method = p.method || 'cash';
+        const amount = p.amount;
+        const fund = paymentFundsList.find(f => f.id === p.fund_id);
+        const methodLabel = translateMethod(method);
+        const isDebt = method === 'debt';
+        const isPrepaid = method === 'prepaid';
+        return (
+          <View key={i} className="flex-row justify-between items-start py-2.5 border-b border-slate-100">
+            <View className="flex-1">
+              <View className="flex-row items-center">
+                <Ionicons 
+                  name={
+                    method === 'cash' ? 'cash-outline' :
+                    method === 'debt' ? 'warning-outline' :
+                    method === 'prepaid' ? 'wallet-outline' : 'card-outline'
+                  } 
+                  size={14} 
+                  color={
+                    method === 'cash' ? '#10b981' :
+                    method === 'debt' ? '#ef4444' :
+                    method === 'prepaid' ? '#047857' : '#4f46e5'
+                  } 
+                />
+                <Text className={`text-xs font-semibold ml-1.5 ${isDebt ? 'text-rose-600' : isPrepaid ? 'text-emerald-700' : 'text-slate-800'}`}>
+                  {methodLabel}
+                </Text>
+                {p.reference_no ? (
+                  <Text className="text-[10px] text-slate-400 ml-2">#{p.reference_no}</Text>
+                ) : null}
+              </View>
+              {fund && (
+                <View className="flex-row items-center mt-1">
+                  <Ionicons name="business-outline" size={11} color="#f97316" />
+                  <Text className="text-tiny font-medium text-orange-600 ml-1">
+                    {fund.name}{fund.bank_name ? ` (${fund.bank_name})` : ''}
+                  </Text>
+                </View>
+              )}
+              {p.note ? (
+                <Text className="text-[10px] text-slate-400 mt-0.5 italic">— {p.note}</Text>
+              ) : null}
+            </View>
+            {amount != null && (
+              <Text className={`text-xs font-bold ml-3 ${isDebt ? 'text-rose-600' : isPrepaid ? 'text-emerald-700' : 'text-slate-800'}`}>
+                {formatCurrency(Number(amount))}
+              </Text>
+            )}
+          </View>
+        );
+      })}
+      
+      {/* Hiển thị các giao dịch Sổ quỹ khác (ví dụ: Phiếu chi hoàn tiền) */}
+      {selectedOrderCashbook
+        .filter(cb => !Array.from(paymentCbMap.values()).includes(cb.id || cb.transaction_id))
+        .map((cb, idx) => {
+          const cbId = cb.id || cb.transaction_id;
+          const isRefund = cb.category === 'refund';
+          return (
+            <View key={`cb-${idx}`} className="flex-row justify-between items-start py-2.5 border-b border-slate-100 bg-slate-50/50 px-2 rounded-lg mt-1">
+              <View className="flex-1">
+                <View className="flex-row items-center">
+                  <Ionicons 
+                    name={cb.type === 'payment' ? 'arrow-up-circle-outline' : 'arrow-down-circle-outline'} 
+                    size={14} 
+                    color={cb.type === 'payment' ? '#ef4444' : '#10b981'} 
+                  />
+                  <Text className="text-xs font-semibold text-slate-800 ml-1.5">
+                    {translateMethod(cb.method)}
+                  </Text>
+                  {isRefund && (
+                    <View className="ml-2 border border-red-200 bg-red-50 px-1 py-0.2 rounded">
+                      <Text className="text-[8px] text-red-600 font-bold uppercase tracking-wider">Hoàn tiền</Text>
+                    </View>
+                  )}
+                </View>
+                <Text className="text-[10px] text-slate-400 mt-0.5 font-mono">#{cbId.split('-')[0]}</Text>
+                {cb.note ? (
+                  <Text className="text-[10px] text-slate-400 mt-0.5 italic">— {cb.note}</Text>
+                ) : null}
+              </View>
+              <Text className={`text-xs font-bold ml-3 ${cb.type === 'payment' ? 'text-rose-600' : 'text-emerald-700'}`}>
+                {cb.type === 'payment' ? '-' : '+'}{formatCurrency(cb.amount)}
+              </Text>
+            </View>
+          );
+        })
+      }
+    </View>
 
- <Text className="text-xxs font-semibold text-slate-400 mb-2.5 px-1">Mặt hàng đã mua</Text>
- {selectedOrderItems.map((item: any, idx: number) => (
- <View 
- key={idx} 
- className="flex-row justify-between py-3 border-b border-slate-100 items-center"
- >
- <View className="flex-1 mr-3">
- <Text className="text-xs font-medium text-slate-800">{item.product_name}</Text>
- <Text className="text-tiny text-slate-500 font-medium mt-0.5">
- {item.qty} x {formatCurrency(item.unit_price)}
- </Text>
- </View>
- <Text className="text-xs font-semibold text-slate-800">
- {formatCurrency(item.line_total)}
- </Text>
- </View>
- ))}
+    {/* Lịch sử trả hàng */}
+    {selectedOrderReturns.length > 0 && (
+      <View className="mb-4">
+        <Text className="text-xxs font-semibold text-slate-400 mb-2.5 px-1">Lịch sử trả hàng</Text>
+        {selectedOrderReturns.map((ret, rIdx) => {
+          const isApproved = ret.status === 'processed' || ret.status === 'completed';
+          return (
+            <View key={rIdx} className="p-3 mb-2.5 rounded-xl border border-orange-100 bg-orange-50/20">
+              <View className="flex-row justify-between items-center mb-1">
+                <Text className="text-xs font-semibold text-slate-800">{ret.return_no || ret.return_id}</Text>
+                <Text className="text-xs font-bold text-orange-700">-{formatCurrency(ret.total_refund)}</Text>
+              </View>
+              <View className="flex-row items-center gap-1.5 mb-2">
+                <Badge
+                  variant={isApproved ? 'success' : 'warning'}
+                  label={isApproved ? 'Đã duyệt' : 'Chờ duyệt'}
+                  size="sm"
+                />
+                <Text className="text-[10px] text-slate-400 font-semibold">
+                  {ret.created_at ? formatDateTime(ret.created_at) : ''}
+                </Text>
+              </View>
+              {ret.note ? (
+                <Text className="text-[10px] text-slate-500 mb-2 italic">Ghi chú: {ret.note}</Text>
+              ) : null}
+              {Array.isArray(ret.items) && ret.items.map((it: any, iIdx: number) => (
+                <View key={iIdx} className="flex-row justify-between py-1 border-t border-slate-100/60 items-center">
+                  <Text className="text-xxs text-slate-600">{it.product_name}</Text>
+                  <Text className="text-xxs font-semibold text-slate-800">SL: {it.qty_returned}</Text>
+                </View>
+              ))}
+            </View>
+          );
+        })}
+      </View>
+    )}
 
-  {(() => {
-    const discountAmount = Number(selectedOrder.discount_amount || 0);
-    if (discountAmount > 0) {
+    <Text className="text-xxs font-semibold text-slate-400 mb-2.5 px-1">Mặt hàng đã mua</Text>
+    {selectedOrderItems.map((item, idx) => {
+      const parsedModifiers = typeof item.modifiers === 'string' && item.modifiers.startsWith('[') 
+        ? (() => { try { return JSON.parse(item.modifiers); } catch { return []; } })() 
+        : (item.modifiers || []);
+      const effPrice = Number(item.unit_price) + Number(item.modifier_total || 0);
+      const itemReturned = alreadyReturnedQty[item.item_id || item.product_id] || 0;
+
       return (
-        <View className="border-t border-slate-200 mt-4 pt-2">
-          <View className="flex-row justify-between py-2 items-center">
-            <Text className="text-xs text-slate-500 font-medium">Tạm tính</Text>
+        <View key={idx} className="py-3 border-b border-slate-100">
+          <View className="flex-row justify-between items-start">
+            <View className="flex-1 mr-3">
+              <Text className="text-xs font-medium text-slate-800">{item.product_name}</Text>
+              {item.variant_label && parsedModifiers.length === 0 ? (
+                <Text className="text-[10px] text-violet-600 font-medium mt-0.5">{item.variant_label}</Text>
+              ) : null}
+              {parsedModifiers.length > 0 ? (
+                <Text className="text-[10px] text-amber-600 mt-0.5">
+                  {parsedModifiers.map((m: any) => m.option).join(' · ')}
+                  {Number(item.modifier_total || 0) > 0 ? (
+                    <Text className="text-emerald-600 font-medium ml-1">+{formatCurrency(Number(item.modifier_total))}</Text>
+                  ) : null}
+                </Text>
+              ) : null}
+              <Text className="text-tiny text-slate-500 font-medium mt-1">
+                SL: {item.qty} x {formatCurrency(effPrice)}
+              </Text>
+              {itemReturned > 0 ? (
+                <Text className="text-xxs text-orange-600 font-semibold mt-0.5">
+                  (Đã trả {itemReturned})
+                </Text>
+              ) : null}
+            </View>
             <Text className="text-xs font-semibold text-slate-800">
-              {formatCurrency(selectedOrder.total_amount + discountAmount)}
-            </Text>
-          </View>
-          <View className="flex-row justify-between py-2 items-center">
-            <Text className="text-xs text-slate-500 font-medium">Giảm giá</Text>
-            <Text className="text-xs font-semibold text-rose-600">
-              -{formatCurrency(discountAmount)}
-            </Text>
-          </View>
-          <View className="flex-row justify-between py-4 border-t border-slate-200 mt-2 items-center">
-            <Text className="text-xs font-semibold text-slate-800">Tổng thanh toán</Text>
-            <Text className="text-orange-500 text-base font-semibold">
-              {formatCurrency(selectedOrder.total_amount)}
+              {formatCurrency(item.line_total)}
             </Text>
           </View>
         </View>
       );
-    }
-    return (
-      <View className="flex-row justify-between py-4 border-t border-slate-200 mt-4 items-center">
-        <Text className="text-xs font-semibold text-slate-800">Tổng thanh toán</Text>
-        <Text className="text-orange-500 text-base font-semibold">
-          {formatCurrency(selectedOrder.total_amount)}
-        </Text>
+    })}
+    
+    {(() => {
+      const discountAmount = Number(selectedOrder.discount_amount || 0);
+      if (discountAmount > 0) {
+        return (
+          <View className="border-t border-slate-200 mt-4 pt-2">
+            <View className="flex-row justify-between py-2 items-center">
+              <Text className="text-xs text-slate-500 font-medium">Tạm tính</Text>
+              <Text className="text-xs font-semibold text-slate-800">
+                {formatCurrency(selectedOrder.total_amount + discountAmount)}
+              </Text>
+            </View>
+            <View className="flex-row justify-between py-2 items-center">
+              <Text className="text-xs text-slate-500 font-medium">Giảm giá</Text>
+              <Text className="text-xs font-semibold text-rose-600">
+                -{formatCurrency(discountAmount)}
+              </Text>
+            </View>
+            <View className="flex-row justify-between py-4 border-t border-slate-200 mt-2 items-center">
+              <Text className="text-xs font-semibold text-slate-800">Tổng thanh toán</Text>
+              <Text className="text-orange-500 text-base font-semibold">
+                {formatCurrency(selectedOrder.total_amount)}
+              </Text>
+            </View>
+          </View>
+        );
+      }
+      return (
+        <View className="flex-row justify-between py-4 border-t border-slate-200 mt-4 items-center">
+          <Text className="text-xs font-semibold text-slate-800">Tổng thanh toán</Text>
+          <Text className="text-orange-500 text-base font-semibold">
+            {formatCurrency(selectedOrder.total_amount)}
+          </Text>
+        </View>
+      );
+    })()}
+  </ScrollView>
+
+  {/* Actions Footer */}
+  <View className="border-t border-slate-100 pt-4 gap-3">
+    <View className="flex-row justify-between gap-3">
+      {selectedOrder.sync_status === 'pending' ? (
+        <Button
+          variant="primary"
+          title="Đồng bộ ngay"
+          icon={<Ionicons name="cloud-upload" size={14} color="white" />}
+          onPress={() => handleSyncSingleOrder(selectedOrder.id)}
+          loading={isSyncingOrder === selectedOrder.id}
+          className="flex-1 py-3 rounded-xl"
+        />
+      ) : (
+        <View className="flex-1 bg-emerald-50 py-3 rounded-xl items-center flex-row justify-center border border-emerald-200 opacity-80">
+          <Ionicons name="checkmark-done-circle-outline" size={14} color="#10b981" />
+          <Text className="font-semibold text-xxs ml-1 text-emerald-700">ĐÃ ĐỒNG BỘ</Text>
+        </View>
+      )}
+
+      <Button
+        variant={selectedOrder.sync_status === 'pending' ? 'outline' : 'primary'}
+        title="In hóa đơn"
+        icon={<Ionicons name="print-outline" size={14} color={selectedOrder.sync_status === 'pending' ? '#475569' : 'white'} />}
+        onPress={handleReprint}
+        loading={isReprinting}
+        className="flex-1 py-3 rounded-xl"
+      />
+    </View>
+
+    {(canCancel || canReturn) && (
+      <View className="flex-row justify-between gap-3">
+        {canCancel && (
+          <Button
+            variant="danger"
+            title={selectedOrder.status === 'in_progress' ? 'Gỡ kẹt đơn' : 'Hủy đơn hàng'}
+            icon={<Ionicons name="ban-outline" size={14} color="white" />}
+            onPress={() => {
+              setCancelReason('Sai sót hệ thống');
+              setCustomCancelReason('');
+              setShowCancelDialog(true);
+            }}
+            className="flex-1 py-3 rounded-xl"
+          />
+        )}
+        {canReturn && (
+          <Button
+            variant="outline"
+            title="Tạo phiếu trả"
+            icon={<Ionicons name="refresh-outline" size={14} color="#fa5908" />}
+            onPress={() => {
+              setReturnItems({});
+              setReturnReason('other');
+              setReturnRefundMethod('cash');
+              setReturnRefundAmount('');
+              setReturnNote('');
+              setShowReturnForm(true);
+            }}
+            className="flex-1 py-3 rounded-xl"
+            style={{ borderColor: '#f97316' }}
+          />
+        )}
       </View>
-    );
-  })()}
- </ScrollView>
+    )}
+    
+    {selectedOrder.status === 'cancelled' && (
+      <View className="bg-rose-50 py-3 rounded-xl items-center flex-row justify-center border border-rose-200">
+        <Ionicons name="close-circle-outline" size={14} color="#ef4444" />
+        <Text className="font-semibold text-xxs ml-1 text-rose-700">ĐƠN HÀNG ĐÃ HỦY</Text>
+      </View>
+    )}
+    {selectedOrder.status === 'refunded' && (
+      <View className="bg-slate-50 py-3 rounded-xl items-center flex-row justify-center border border-slate-200">
+        <Ionicons name="arrow-undo-outline" size={14} color="#64748b" />
+        <Text className="font-semibold text-xxs ml-1 text-slate-700">ĐƠN HÀNG ĐÃ HOÀN TIỀN</Text>
+      </View>
+    )}
+  </View>
 
- {/* Actions Footer */}
- <View className="flex-row border-t border-slate-100 pt-4 justify-between gap-3">
- {selectedOrder.sync_status === 'pending' ? (
- <Button
- variant="primary"
- title="Đồng bộ ngay"
- icon={<Ionicons name="cloud-upload" size={14} color="white" />}
- onPress={() => handleSyncSingleOrder(selectedOrder.id)}
- loading={isSyncingOrder === selectedOrder.id}
- className="flex-1 py-3.5 rounded-xl"
- />
- ) : (
- <View className="flex-1 bg-emerald-50 py-3.5 rounded-xl items-center flex-row justify-center border border-emerald-200 opacity-80">
- <Ionicons name="checkmark-done-circle-outline" size={14} color="#10b981" />
- <Text className="font-medium text-tiny ml-1 text-emerald-700">ĐÃ ĐỒNG BỘ</Text>
- </View>
- )}
+  </View>
+  )}
+  </View>
+  </Modal>
 
- <Button
- variant={selectedOrder.sync_status === 'pending' ? 'outline' : 'primary'}
- title="In lại hóa đơn"
- icon={<Ionicons name="print" size={14} color={selectedOrder.sync_status === 'pending' ? '#475569' : 'white'} />}
- onPress={handleReprint}
- loading={isReprinting}
- className="flex-1 py-3.5 rounded-xl"
- />
- </View>
+  {/* DIALOG HỦY ĐƠN HÀNG */}
+  <Dialog
+    visible={showCancelDialog}
+    onClose={() => setShowCancelDialog(false)}
+    onConfirm={handleCancelOrder}
+    title="Xác nhận hủy đơn hàng"
+    confirmLabel="Hủy đơn"
+    cancelLabel="Quay lại"
+    variant="danger"
+    loading={isCancelling}
+  >
+    <View className="gap-2">
+      <Text className="text-xxs font-semibold text-slate-400 mb-1">Chọn lý do hủy:</Text>
+      {[
+        'Sai sót hệ thống',
+        'Nhập nhầm đơn',
+        'Khách không nhận hàng',
+        'Khách hủy trước khi giao',
+        'other'
+      ].map((reason) => {
+        const isSelected = cancelReason === reason;
+        return (
+          <TouchableOpacity
+            key={reason}
+            activeOpacity={0.7}
+            className={`p-3 rounded-xl border flex-row justify-between items-center ${
+              isSelected ? 'bg-rose-50 border-rose-200' : 'bg-slate-50 border-slate-200/60'
+            }`}
+            onPress={() => setCancelReason(reason)}
+          >
+            <Text className={`text-xs font-semibold ${isSelected ? 'text-rose-700' : 'text-slate-700'}`}>
+              {reason === 'other' ? 'Lý do khác...' : reason}
+            </Text>
+            {isSelected && (
+              <Ionicons name="checkmark-done" size={16} color="#ef4444" />
+            )}
+          </TouchableOpacity>
+        );
+      })}
 
- </View>
- )}
- </View>
- </Modal>
+      {cancelReason === 'other' && (
+        <TextInput
+          className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 mt-1"
+          placeholder="Nhập lý do hủy chi tiết..."
+          value={customCancelReason}
+          onChangeText={setCustomCancelReason}
+          multiline
+          numberOfLines={3}
+        />
+      )}
+    </View>
+  </Dialog>
+
+  {/* MODAL TẠO PHIẾU TRẢ HÀNG */}
+  <Modal
+    visible={showReturnForm}
+    animationType="slide"
+    transparent={true}
+    onRequestClose={() => setShowReturnForm(false)}
+  >
+    <View className="flex-1 bg-black/60 justify-end">
+      <TouchableWithoutFeedback onPress={() => setShowReturnForm(false)}>
+        <View className="flex-1" />
+      </TouchableWithoutFeedback>
+      <View className="h-[80%] bg-white rounded-t-2xl p-6">
+        {/* Header */}
+        <View className="flex-row justify-between items-center border-b border-slate-100 pb-4">
+          <View>
+            <Text className="text-sm font-semibold text-slate-800">Tạo phiếu trả hàng</Text>
+            <Text className="text-xxs text-slate-455 mt-1 font-semibold">Hóa đơn: {selectedOrder?.id}</Text>
+          </View>
+          <TouchableOpacity onPress={() => setShowReturnForm(false)} className="p-1">
+            <Ionicons name="close" size={24} color="#64748b" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Scrollable Body */}
+        <ScrollView className="flex-1 my-4" showsVerticalScrollIndicator={false}>
+          <Text className="text-xxs font-semibold text-slate-400 mb-2 px-1">Sản phẩm trả lại</Text>
+          
+          {selectedOrderItems.map((item) => {
+            const itemId = item.item_id || item.product_id;
+            const maxReturnable = Number(item.qty) - (alreadyReturnedQty[itemId] || 0);
+            const currentRetQty = returnItems[itemId] || 0;
+            const parsedModifiers = typeof item.modifiers === 'string' && item.modifiers.startsWith('[')
+              ? (() => { try { return JSON.parse(item.modifiers); } catch { return []; } })()
+              : (item.modifiers || []);
+            const effPrice = Number(item.unit_price) + Number(item.modifier_total || 0);
+
+            if (maxReturnable <= 0) return null;
+
+            return (
+              <View key={itemId} className="py-3 border-b border-slate-100">
+                <View className="flex-row justify-between items-center">
+                  <View className="flex-1 mr-3">
+                    <Text className="text-xs font-semibold text-slate-800">{item.product_name}</Text>
+                    {item.variant_label ? (
+                      <Text className="text-[10px] text-violet-600 font-semibold mt-0.5">{item.variant_label}</Text>
+                    ) : null}
+                    {parsedModifiers.length > 0 ? (
+                      <Text className="text-[10px] text-amber-600 mt-0.5">
+                        {parsedModifiers.map((m: any) => m.option).join(' · ')}
+                      </Text>
+                    ) : null}
+                    <Text className="text-xxs text-slate-455 font-semibold mt-1">
+                      Giá: {formatCurrency(effPrice)} | Đã mua: {item.qty} (Đã trả: {alreadyReturnedQty[itemId] || 0})
+                    </Text>
+                  </View>
+                  
+                  {/* Quantity adjustment buttons */}
+                  <View className="flex-row items-center border border-slate-200 rounded-xl overflow-hidden bg-slate-50">
+                    <TouchableOpacity
+                      onPress={() => {
+                        if (currentRetQty > 0) {
+                          setReturnItems(prev => ({ ...prev, [itemId]: currentRetQty - 1 }));
+                        }
+                      }}
+                      className="px-3 py-1.5 active:bg-slate-200"
+                    >
+                      <Ionicons name="remove" size={14} color="#64748b" />
+                    </TouchableOpacity>
+                    <Text className="px-3 text-xs font-bold text-slate-800">{currentRetQty}</Text>
+                    <TouchableOpacity
+                      onPress={() => {
+                        if (currentRetQty < maxReturnable) {
+                          setReturnItems(prev => ({ ...prev, [itemId]: currentRetQty + 1 }));
+                        }
+                      }}
+                      className="px-3 py-1.5 active:bg-slate-200"
+                    >
+                      <Ionicons name="add" size={14} color="#64748b" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            );
+          })}
+
+          {/* Refund details form */}
+          <View className="mt-4 gap-4">
+            {/* Lý do trả hàng */}
+            <View>
+              <Text className="text-xxs font-semibold text-slate-400 mb-2 px-1">Lý do trả hàng</Text>
+              <View className="flex-row flex-wrap gap-2">
+                {[
+                  { value: 'wrong_item', label: 'Sai sản phẩm' },
+                  { value: 'changed_mind', label: 'Đổi ý' },
+                  { value: 'defective', label: 'Lỗi sản phẩm' },
+                  { value: 'damaged', label: 'Hư hỏng' },
+                  { value: 'other', label: 'Khác' }
+                ].map((item) => {
+                  const isSelected = returnReason === item.value;
+                  return (
+                    <TouchableOpacity
+                      key={item.value}
+                      activeOpacity={0.7}
+                      className={`px-3 py-2 rounded-xl border ${
+                        isSelected ? 'bg-orange-50 border-orange-200' : 'bg-slate-50 border-slate-200/60'
+                      }`}
+                      onPress={() => setReturnReason(item.value)}
+                    >
+                      <Text className={`text-xxs font-bold ${isSelected ? 'text-orange-600' : 'text-slate-600'}`}>
+                        {item.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* Phương thức hoàn tiền */}
+            <View>
+              <Text className="text-xxs font-semibold text-slate-400 mb-2 px-1">Phương thức hoàn tiền</Text>
+              <View className="flex-row gap-2">
+                {[
+                  { value: 'cash', label: 'Tiền mặt', icon: 'cash-outline' as const },
+                  { value: 'bank_transfer', label: 'Chuyển khoản', icon: 'card-outline' as const },
+                  { value: 'none', label: 'Không hoàn tiền', icon: 'close-circle-outline' as const }
+                ].map((item) => {
+                  const isSelected = returnRefundMethod === item.value;
+                  return (
+                    <TouchableOpacity
+                      key={item.value}
+                      activeOpacity={0.7}
+                      className={`flex-1 p-2.5 rounded-xl border items-center flex-row justify-center gap-1.5 ${
+                        isSelected ? 'bg-orange-50 border-orange-200' : 'bg-slate-50 border-slate-200/60'
+                      }`}
+                      onPress={() => setReturnRefundMethod(item.value)}
+                    >
+                      <Ionicons name={item.icon} size={13} color={isSelected ? '#f97316' : '#64748b'} />
+                      <Text className={`text-[10px] font-bold ${isSelected ? 'text-orange-600' : 'text-slate-600'}`}>
+                        {item.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* Số tiền hoàn lại */}
+            {returnRefundMethod !== 'none' && (
+              <View>
+                <Text className="text-xxs font-semibold text-slate-400 mb-2 px-1">
+                  Số tiền hoàn (để trống = tự động tính: {
+                    (() => {
+                      const total = selectedOrderItems
+                        .map(i => ({ ...i, retQty: returnItems[i.item_id || i.product_id] || 0 }))
+                        .filter(i => i.retQty > 0)
+                        .reduce((s, i) => s + (Number(i.unit_price) + Number(i.modifier_total || 0)) * i.retQty, 0);
+                      return formatCurrency(total);
+                    })()
+                  })
+                </Text>
+                <TextInput
+                  className="p-3 bg-slate-50 border border-slate-200/60 rounded-xl text-xs font-semibold text-slate-700"
+                  keyboardType="numeric"
+                  placeholder="Nhập số tiền hoàn..."
+                  value={returnRefundAmount}
+                  onChangeText={setReturnRefundAmount}
+                />
+              </View>
+            )}
+
+            {/* Ghi chú */}
+            <View>
+              <Text className="text-xxs font-semibold text-slate-400 mb-2 px-1">Ghi chú phiếu trả</Text>
+              <TextInput
+                className="p-3 bg-slate-50 border border-slate-200/60 rounded-xl text-xs font-semibold text-slate-700"
+                placeholder="Nhập ghi chú chi tiết..."
+                value={returnNote}
+                onChangeText={setReturnNote}
+                multiline
+                numberOfLines={2}
+              />
+            </View>
+          </View>
+        </ScrollView>
+
+        {/* Action Button */}
+        <View className="border-t border-slate-100 pt-4 flex-row gap-3">
+          <Button
+            variant="outline"
+            title="Hủy bỏ"
+            onPress={() => setShowReturnForm(false)}
+            className="flex-1 py-3 rounded-xl"
+          />
+          <Button
+            variant="primary"
+            title="Xác nhận trả hàng"
+            onPress={() => setShowConfirmReturn(true)}
+            className="flex-1 py-3 rounded-xl"
+            style={{ backgroundColor: '#f97316' }}
+            disabled={
+              Object.values(returnItems).reduce((sum, q) => sum + q, 0) === 0
+            }
+          />
+        </View>
+      </View>
+    </View>
+  </Modal>
+
+  {/* DIALOG XÁC NHẬN TẠO PHIẾU TRẢ HÀNG */}
+  <Dialog
+    visible={showConfirmReturn}
+    onClose={() => setShowConfirmReturn(false)}
+    onConfirm={handleCreateReturn}
+    title="Xác nhận tạo phiếu trả"
+    description={`Bạn có chắc chắn muốn tạo phiếu trả hàng cho các sản phẩm đã chọn với số tiền hoàn lại là ${
+      (() => {
+        if (returnRefundAmount !== '') return formatCurrency(Number(returnRefundAmount));
+        const total = selectedOrderItems
+          .map(i => ({ ...i, retQty: returnItems[i.item_id || i.product_id] || 0 }))
+          .filter(i => i.retQty > 0)
+          .reduce((s, i) => s + (Number(i.unit_price) + Number(i.modifier_total || 0)) * i.retQty, 0);
+        return formatCurrency(total);
+      })()
+    }?`}
+    confirmLabel="Đồng ý"
+    cancelLabel="Quay lại"
+    variant="default"
+    loading={isReturning}
+  />
  </View>
  )}
 
