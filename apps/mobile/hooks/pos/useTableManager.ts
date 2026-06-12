@@ -1133,11 +1133,13 @@ export function useTableManager(props: UseTableManagerProps) {
     const totalCartValue = Math.max(0, Object.values(newCart).reduce((sum: number, item: any) => sum + ((item.price + (item.modifier_total || 0)) * item.quantity), 0));
     setPaymentRows([{ id: 'pay-cash', method: 'cash', fund_id: paymentFundsList.find(f => f.type === 'cash')?.id || 'cash', amount: totalCartValue }]);
 
-    // 5. Mở modal giỏ hàng chính để thanh toán hệ thống
-    handleCheckoutPress(() => {
-      setIsCartModalOpen(true);
-      setActiveTable(null); // Đóng modal sơ đồ phòng bàn hiện tại
-    });
+    // 5. Mở modal giỏ hàng chính để thanh toán hệ thống (Trì hoãn để tránh đơ UI trên iOS)
+    setActiveTable(null); // Đóng modal sơ đồ phòng bàn hiện tại trước
+    setTimeout(() => {
+      handleCheckoutPress(() => {
+        setIsCartModalOpen(true);
+      });
+    }, 400);
   };
 
   // Xác nhận Thanh toán bàn chơi / phòng lưu trú (Unified Flow)
@@ -1153,6 +1155,18 @@ export function useTableManager(props: UseTableManagerProps) {
       const selectedTableForPay = cartOwnerTable;
       const billing = calculateBilling(selectedTableForPay);
       const tableCartItems = tableCarts[selectedTableForPay.id] || {};
+
+      let rentalType = 'hourly';
+      if (selectedTableForPay.metadata) {
+        try {
+          const parsed = typeof selectedTableForPay.metadata === 'string'
+            ? JSON.parse(selectedTableForPay.metadata)
+            : selectedTableForPay.metadata;
+          rentalType = parsed?.rental_type || 'hourly';
+        } catch (e) {
+          console.warn('Error parsing metadata in handlePayTableConfirmUnified:', e);
+        }
+      }
 
       const itemsCost = Object.values(tableCartItems).reduce((sum, item) => sum + ((item.price + (item.modifier_total || 0)) * item.quantity), 0);
       const subtotal = billing.cost + itemsCost;
@@ -1219,7 +1233,7 @@ export function useTableManager(props: UseTableManagerProps) {
             billing_cost: billing.cost,
             billing_duration: billing.label,
             check_out: nowStr,
-            rental_type: selectedTableForPay.metadata ? JSON.parse(selectedTableForPay.metadata).rental_type : 'hourly',
+            rental_type: rentalType,
             server_order_id: selectedTableForPay.current_order_id || ''
           }),
         });
@@ -1288,7 +1302,7 @@ export function useTableManager(props: UseTableManagerProps) {
               billing_cost: billing.cost,
               billing_duration: billing.label,
               check_out: nowStr,
-              rental_type: selectedTableForPay.metadata ? JSON.parse(selectedTableForPay.metadata).rental_type : 'hourly'
+              rental_type: rentalType
             })
           },
           items: [
@@ -1399,7 +1413,9 @@ export function useTableManager(props: UseTableManagerProps) {
         const transferAmount = payments.filter(p => checkIsQrPayment(p.method)).reduce((sum, p) => sum + p.amount, 0);
         const transferP = payments.find(p => checkIsQrPayment(p.method) && p.amount > 0);
         setQrPayload({ amount: transferAmount, orderNo: serverOrderNo, fund_id: transferP ? transferP.fund_id : 'bank' });
-        setIsQrModalOpen(true);
+        setTimeout(() => {
+          setIsQrModalOpen(true);
+        }, 400);
       } else {
         if (syncSucceeded) {
           showToast(`Thanh toán & Giải phóng thành công Hóa đơn ${serverOrderNo}!`, "success");

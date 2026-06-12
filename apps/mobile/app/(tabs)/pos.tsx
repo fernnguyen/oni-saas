@@ -620,7 +620,9 @@ export default function PosScreen() {
         const transferAmount = processedPayments.filter(p => checkIsQrPayment(p.method)).reduce((sum, p) => sum + p.amount, 0);
         const transferP = processedPayments.find(p => checkIsQrPayment(p.method) && p.amount > 0);
         setQrPayload({ amount: transferAmount, orderNo: serverOrderNo, fund_id: transferP ? transferP.fund_id : 'bank' });
-        setIsQrModalOpen(true);
+        setTimeout(() => {
+          setIsQrModalOpen(true);
+        }, 400);
       } else {
         if (serverOrderNo !== orderNo) {
           showToast(`Đã thanh toán Hóa đơn ${serverOrderNo} thành công!`, 'success');
@@ -2209,9 +2211,7 @@ export default function PosScreen() {
         apiHeaders={apiAuthHeaders}
         loading={isPayingTableLoading || isPayingCartLoading}
         cartOwnerTable={cartOwnerTable}
-        onCheckout={(opts) => {
-          handlePayCart(selectedCustomer, discountAmount, orderNote, paymentRows, opts);
-        }}
+        onCheckout={(opts) => handlePayCart(selectedCustomer, discountAmount, orderNote, paymentRows, opts)}
       />
 
       {/* 8. MODAL DYNAMIC QR CODE THANH TOÁN CHUYỂN KHOẢN */}
