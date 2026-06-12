@@ -68,12 +68,38 @@ import {Skeleton} from '../../components/ui/Skeleton';
 import {DrawerMenu} from '../../components/erp/DrawerMenu';
 import {usePermissions} from '../../lib/auth/PermissionsContext';
 
+const getOrderStatusBadgeProps = (status: string): { label: string; variant: 'primary' | 'secondary' | 'success' | 'warning' | 'danger' | 'info' } => {
+  switch (status) {
+    case 'completed':
+      return { label: 'Hoàn thành', variant: 'success' };
+    case 'cancelled':
+      return { label: 'Đã hủy', variant: 'danger' };
+    case 'draft':
+      return { label: 'Nháp', variant: 'warning' };
+    case 'confirmed':
+      return { label: 'Đã xác nhận', variant: 'info' };
+    case 'processing':
+      return { label: 'Đang xử lý', variant: 'primary' };
+    case 'in_progress':
+      return { label: 'Đang sử dụng', variant: 'info' };
+    case 'returning':
+      return { label: 'Đang trả hàng', variant: 'warning' };
+    case 'partially_refunded':
+      return { label: 'Hoàn 1 phần', variant: 'warning' };
+    case 'refunded':
+      return { label: 'Hoàn tiền', variant: 'secondary' };
+    default:
+      return { label: status || 'Không rõ', variant: 'secondary' };
+  }
+};
+
 export default function OrdersScreen() {
   const {hasPermission} = usePermissions();
   const [selectedOrderPayments, setSelectedOrderPayments] = useState<any[]>([]);
   const [selectedOrderReturns, setSelectedOrderReturns] = useState<any[]>([]);
   const [selectedOrderCashbook, setSelectedOrderCashbook] = useState<any[]>([]);
   const [shopSettings, setShopSettings] = useState<any>({});
+  const [isDetailLoading, setIsDetailLoading] = useState(false);
 
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
@@ -147,6 +173,7 @@ export default function OrdersScreen() {
  const [isReprinting, setIsReprinting] = useState(false);
  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
  const [copiedId, setCopiedId] = useState(false);
+ const [copiedCbId, setCopiedCbId] = useState<string | null>(null);
 
  const handleCopyOrderNo = async (text: string) => {
    await Clipboard.setStringAsync(text);
@@ -156,6 +183,15 @@ export default function OrdersScreen() {
      setCopiedId(false);
    }, 1500);
  };
+
+  const handleCopyCbNo = async (text: string) => {
+    await Clipboard.setStringAsync(text);
+    setCopiedCbId(text);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    setTimeout(() => {
+      setCopiedCbId(null);
+    }, 1500);
+  };
 
  // Dialog xác nhận in và sync thay Alert.alert
  const [isReprintSuccessVisible, setIsReprintSuccessVisible] = useState(false);
@@ -523,25 +559,103 @@ export default function OrdersScreen() {
   }, [searchQuery]);
 
   // Xem chi tiết
-  const handleViewOrderDetails = async (order: any) => {
+  const handleViewOrderDetails = async (order: any, isRefresh = false) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     
-    // Reset details to avoid showing stale data
-    setSelectedOrderItems([]);
-    setSelectedOrderPayments([]);
-    setSelectedOrderReturns([]);
-    setSelectedOrderCashbook([]);
-    setShopSettings({});
-    setSelectedOrderCustomerPhone(null);
+    if (!isRefresh) {
+      setSelectedOrder(order);
+      // Reset details to avoid showing stale data
+      setSelectedOrderItems([]);
+      setSelectedOrderPayments([]);
+      setSelectedOrderReturns([]);
+      setSelectedOrderCashbook([]);
+      setShopSettings({});
+      setSelectedOrderCustomerPhone(null);
+    }
+    
+    setIsDetailLoading(true);
 
     try {
       const shopId = await AsyncStorage.getItem('active_shop_id') || '';
       const headers = await getApiHeaders();
       const url = getApiBaseUrl();
       
+      let localItems: any[] = [];
+      let localPayments: any[] = [];
+      let customerPhone: string | null = null;
+
+      // 1. Tải nhanh dữ liệu từ SQLite cục bộ trước
+      if (Platform.OS !== 'web') {
+        try {
+          localItems = await db
+            .select()
+            .from(schema.order_items)
+            .where(eq(schema.order_items.order_id, order.id));
+
+          if (order.customer_id) {
+            const customerRows = await db
+              .select()
+              .from(schema.customers)
+              .where(eq(schema.customers.id, order.customer_id));
+            if (customerRows.length > 0) customerPhone = customerRows[0].phone || null;
+          }
+
+          if (!customerPhone && order.metadata) {
+            try {
+              const meta = JSON.parse(order.metadata);
+              customerPhone = meta.customer_phone || null;
+            } catch {}
+          }
+
+          const pm = order.payment_method;
+          if (pm && (pm.startsWith('[') || pm.startsWith('{'))) {
+            try {
+              const parsed = JSON.parse(pm);
+              if (Array.isArray(parsed)) {
+                localPayments = parsed.map((p: any, i: number) => ({
+                  id: `local-pm-${i}`,
+                  method: p.METHOD || p.method || 'cash',
+                  amount: p.AMOUNT || p.amount || order.total_amount,
+                  fund_id: p.FUND_ID || p.fund_id || null,
+                  reference_no: p.REFERENCE_NO || p.reference_no || null,
+                  note: p.NOTE || p.note || null
+                }));
+              }
+            } catch {}
+          }
+          if (localPayments.length === 0) {
+            localPayments = [{
+              id: 'local-pm-0',
+              method: pm || 'cash',
+              amount: order.total_amount,
+              fund_id: null
+            }];
+          }
+        } catch (sqliteErr) {
+          console.warn('Lỗi tải dữ liệu SQLite cục bộ:', sqliteErr);
+        }
+      } else {
+        // Mock data cho Web
+        localItems = [
+          {id: 'it1', product_name: 'Cà phê Phin Sữa Đá', qty: 2, unit_price: 29000, line_total: 58000},
+          {id: 'it2', product_name: 'Trà Đào Cam Sả', qty: 1, unit_price: 39000, line_total: 39000}
+        ];
+        localPayments = [{
+          id: 'local-pm-0',
+          method: order.payment_method || 'cash',
+          amount: order.total_amount,
+          fund_id: null
+        }];
+      }
+
+      // Hiển thị ngay lập tức dữ liệu SQLite
+      setSelectedOrderItems(localItems);
+      setSelectedOrderPayments(localPayments);
+      setSelectedOrderCustomerPhone(customerPhone);
+
       let fetchedOnline = false;
 
-      // Only attempt online fetch if synced and shopId exists
+      // 2. Chỉ thực hiện fetch online ngầm nếu đã đồng bộ và có shopId
       if (shopId && order.sync_status !== 'pending') {
         try {
           const [itemsRes, paymentsRes, returnsRes, settingsRes, cashbookRes] = await Promise.all([
@@ -575,13 +689,13 @@ export default function OrdersScreen() {
               })
             );
 
-            setSelectedOrderItems(itemsJson.data || []);
-            setSelectedOrderPayments(paymentsJson.data || []);
+            setSelectedOrderItems(itemsJson.data || localItems);
+            setSelectedOrderPayments(paymentsJson.data || localPayments);
             setSelectedOrderReturns(returnsWithItems);
             setShopSettings(settingsJson || {});
 
             const cbData = cashbookJson.data || [];
-            // Load transactions for returned items as well
+            // Tải thêm dòng tiền của các phiếu trả hàng liên quan
             for (const ret of returnsWithItems) {
               const retRef = ret.return_no || ret.return_id;
               if (retRef) {
@@ -600,75 +714,13 @@ export default function OrdersScreen() {
             fetchedOnline = true;
           }
         } catch (err) {
-          console.warn('Lỗi tải dữ liệu trực tuyến, tự động chuyển về ngoại tuyến:', err);
+          console.warn('Lỗi tải dữ liệu trực tuyến, sử dụng dữ liệu cục bộ:', err);
         }
       }
-
-      // SQLite fallback if offline or failed online fetch
-      if (!fetchedOnline) {
-        let items = [];
-        if (Platform.OS === 'web') {
-          items = [
-            {id: 'it1', product_name: 'Cà phê Phin Sữa Đá', qty: 2, unit_price: 29000, line_total: 58000},
-            {id: 'it2', product_name: 'Trà Đào Cam Sả', qty: 1, unit_price: 39000, line_total: 39000}
-          ];
-        } else {
-          items = await db
-            .select()
-            .from(schema.order_items)
-            .where(eq(schema.order_items.order_id, order.id));
-        }
-        setSelectedOrderItems(items);
-
-        let localPayments: any[] = [];
-        const pm = order.payment_method;
-        if (pm && (pm.startsWith('[') || pm.startsWith('{'))) {
-          try {
-            const parsed = JSON.parse(pm);
-            if (Array.isArray(parsed)) {
-              localPayments = parsed.map((p: any, i: number) => ({
-                id: `local-pm-${i}`,
-                method: p.METHOD || p.method || 'cash',
-                amount: p.AMOUNT || p.amount || order.total_amount,
-                fund_id: p.FUND_ID || p.fund_id || null,
-                reference_no: p.REFERENCE_NO || p.reference_no || null,
-                note: p.NOTE || p.note || null
-              }));
-            }
-          } catch {}
-        }
-        if (localPayments.length === 0) {
-          localPayments = [{
-            id: 'local-pm-0',
-            method: pm || 'cash',
-            amount: order.total_amount,
-            fund_id: null
-          }];
-        }
-        setSelectedOrderPayments(localPayments);
-      }
-
-      // Retrieve customer phone
-      let customerPhone: string | null = null;
-      if (Platform.OS !== 'web') {
-        if (order.customer_id) {
-          const customerRows = await db
-            .select()
-            .from(schema.customers)
-            .where(eq(schema.customers.id, order.customer_id));
-          if (customerRows.length > 0) customerPhone = customerRows[0].phone || null;
-        }
-        if (!customerPhone && order.metadata) {
-          try {
-            const meta = JSON.parse(order.metadata);
-            customerPhone = meta.customer_phone || null;
-          } catch {}
-        }
-      }
-      setSelectedOrderCustomerPhone(customerPhone);
-      setSelectedOrder(order);
     } catch (err) {
       console.error('Lỗi tải chi tiết dòng sản phẩm:', err);
+    } finally {
+      setIsDetailLoading(false);
     }
   };
 
@@ -1097,14 +1149,15 @@ export default function OrdersScreen() {
  onPress={() => handleViewOrderDetails(order)}
  >
  <View className="flex-1 mr-3">
- <View className="flex-row items-center">
-  <Text className="text-xs font-semibold text-slate-800">
-  {order.id}
-  </Text>
- <View className="mx-1.5 w-1 h-1 bg-slate-300 rounded-full" />
- <Text className="text-tiny text-slate-500 font-medium" numberOfLines={1}>
- {order.customer_name || 'Khách mua lẻ'}
- </Text>
+ <View className="flex-row items-center mb-1">
+   <View className={"w-1.5 h-1.5 rounded-full mr-1.5 " + (isSyncingOrder === order.id ? "bg-amber-500" : (order.sync_status === 'synced' ? "bg-emerald-500" : order.sync_status === 'pending' ? "bg-amber-500" : "bg-rose-500"))} />
+   <Text className="text-xs font-semibold text-slate-800">
+   {order.id}
+   </Text>
+   <View className="mx-1.5 w-1 h-1 bg-slate-300 rounded-full" />
+   <Text className="text-tiny text-slate-500 font-medium flex-1" numberOfLines={1}>
+   {order.customer_name || 'Khách mua lẻ'}
+   </Text>
  </View>
 
  <Text className="text-xxs text-slate-400 font-semibold mt-1">
@@ -1112,15 +1165,16 @@ export default function OrdersScreen() {
  </Text>
 
  <View className="flex-row items-center mt-3">
- <Badge 
- variant={isPending ? 'warning' : 'success'} 
- label={isPending ? 'Chờ đồng bộ' : 'Đã đồng bộ'} 
- size="sm" 
- />
-
- <Text className="text-xxs text-slate-500 font-medium ml-3.5">
- 💳 {getPaymentMethodDisplay(order.payment_method)}
- </Text>
+   <Text className="text-xxs text-slate-500 font-medium mr-2">
+     💳 {getPaymentMethodDisplay(order.payment_method)}
+   </Text>
+   <Text className="text-xxs text-slate-300 font-medium mr-2">|</Text>
+   {(() => {
+     const { label, variant } = getOrderStatusBadgeProps(order.status);
+     return (
+       <Badge variant={variant} label={label} size="sm" />
+     );
+   })()}
  </View>
  </View>
 
@@ -1181,697 +1235,866 @@ export default function OrdersScreen() {
  </ScrollView>
 
  {/* 5. MODAL CHI TIẾT HÓA ĐƠN */}
- <Modal
- visible={!!selectedOrder}
- animationType="slide"
- transparent={true}
- onRequestClose={() => setSelectedOrder(null)}
- >
- <View className="flex-1 bg-black/60">
-  {/* Vùng backdrop phía trên — bấm để đóng */}
-  <TouchableWithoutFeedback onPress={() => setSelectedOrder(null)}>
-   <View className="flex-1" />
-  </TouchableWithoutFeedback>
-
-  {/* Panel nội dung phía dưới */}
-  {selectedOrder && (
-  <View className="h-[75%] rounded-t-2xl p-6 justify-between bg-white shadow-2xl">
- 
- {/* Header Modal */}
- <View className="flex-row justify-between items-center border-b border-slate-100 pb-4">
- <View>
- <View className="flex-row items-center">
-  <Text className="text-sm font-semibold text-slate-800">
-  {selectedOrder.id}
-  </Text>
-  <TouchableOpacity
-    onPress={() => handleCopyOrderNo(selectedOrder.id)}
-    className="ml-1.5 p-1 bg-slate-100 active:bg-slate-200 rounded"
-  >
-    <Ionicons name={copiedId ? "checkmark" : "copy-outline"} size={12} color={copiedId ? "#10b981" : "#64748b"} />
-  </TouchableOpacity>
-  <Badge 
-  variant={selectedOrder.sync_status === 'pending' ? 'warning' : 'success'} 
-  label={selectedOrder.sync_status === 'pending' ? 'Chờ đồng bộ' : 'Đã đồng bộ'} 
-  size="sm"
-  className="ml-2"
-  />
- </View>
- <Text className="text-tiny text-slate-450 mt-1 font-medium">
- Khách hàng: {selectedOrder.customer_name || 'Khách lẻ'}
- </Text>
- </View>
-
- <TouchableOpacity onPress={() => setSelectedOrder(null)} className="p-1">
- <Ionicons name="close" size={24} color="#64748b" />
- </TouchableOpacity>
- </View>
-
-   {/* Body Modal */}
-  <ScrollView className="flex-1 my-4" showsVerticalScrollIndicator={false}>
-    <Text className="text-xxs font-semibold text-slate-400 mb-2.5 px-1">Thông tin chi tiết</Text>
-    <View className="p-4 rounded-xl bg-slate-50 border border-slate-200/60 mb-4">
-      <View className="flex-row justify-between py-1">
-        <Text className="text-tiny text-slate-500 font-medium">Mốc thời gian:</Text>
-        <Text className="text-tiny font-semibold text-slate-800">
-          {selectedOrder.created_at ? formatDateTime(selectedOrder.created_at) : 'Ngoại tuyến'}
-        </Text>
-      </View>
-      <View className="flex-row justify-between py-1 items-center">
-        <Text className="text-tiny text-slate-500 font-medium">Mã hóa đơn:</Text>
-        <TouchableOpacity
-          onPress={() => handleCopyOrderNo(selectedOrder.id)}
-          className="flex-row items-center active:opacity-75"
-        >
-          <Text className="text-tiny font-semibold text-slate-700 mr-1">{selectedOrder.id}</Text>
-          <Ionicons name={copiedId ? "checkmark" : "copy-outline"} size={11} color={copiedId ? "#10b981" : "#64748b"} />
-        </TouchableOpacity>
-      </View>
-      <View className="flex-row justify-between py-1">
-        <Text className="text-tiny text-slate-500 font-medium">Khách hàng:</Text>
-        <View className="items-end">
-          <Text className="text-tiny font-semibold text-slate-800">{selectedOrder.customer_name || 'Khách lẻ'}</Text>
-          {selectedOrderCustomerPhone && (
-            <Text className="text-tiny text-slate-500 mt-0.5">📞 {selectedOrderCustomerPhone}</Text>
-          )}
-        </View>
-      </View>
-      {selectedOrder.note && (
-        <View className="border-t border-slate-200 mt-2 pt-2">
-          <Text className="text-tiny text-slate-455 font-medium">Ghi chú đơn:</Text>
-          <Text className="text-xs text-slate-700 mt-1 font-semibold">{selectedOrder.note}</Text>
-        </View>
-      )}
-    </View>
-
-    {/* Thanh toán chi tiết theo từng phương thức + quỹ */}
-    <Text className="text-xxs font-semibold text-slate-400 mb-2.5 px-1">Thanh toán</Text>
-    <View className="mb-4">
-      {selectedOrderPayments.map((p, i) => {
-        const method = p.method || 'cash';
-        const amount = p.amount;
-        const fund = paymentFundsList.find(f => f.id === p.fund_id);
-        const methodLabel = translateMethod(method);
-        const isDebt = method === 'debt';
-        const isPrepaid = method === 'prepaid';
-        return (
-          <View key={i} className="flex-row justify-between items-start py-2.5 border-b border-slate-100">
-            <View className="flex-1">
-              <View className="flex-row items-center">
-                <Ionicons 
-                  name={
-                    method === 'cash' ? 'cash-outline' :
-                    method === 'debt' ? 'warning-outline' :
-                    method === 'prepaid' ? 'wallet-outline' : 'card-outline'
-                  } 
-                  size={14} 
-                  color={
-                    method === 'cash' ? '#10b981' :
-                    method === 'debt' ? '#ef4444' :
-                    method === 'prepaid' ? '#047857' : '#4f46e5'
-                  } 
-                />
-                <Text className={`text-xs font-semibold ml-1.5 ${isDebt ? 'text-rose-600' : isPrepaid ? 'text-emerald-700' : 'text-slate-800'}`}>
-                  {methodLabel}
-                </Text>
-                {p.reference_no ? (
-                  <Text className="text-[10px] text-slate-400 ml-2">#{p.reference_no}</Text>
-                ) : null}
-              </View>
-              {fund && (
-                <View className="flex-row items-center mt-1">
-                  <Ionicons name="business-outline" size={11} color="#f97316" />
-                  <Text className="text-tiny font-medium text-orange-600 ml-1">
-                    {fund.name}{fund.bank_name ? ` (${fund.bank_name})` : ''}
-                  </Text>
-                </View>
-              )}
-              {p.note ? (
-                <Text className="text-[10px] text-slate-400 mt-0.5 italic">— {p.note}</Text>
-              ) : null}
-            </View>
-            {amount != null && (
-              <Text className={`text-xs font-bold ml-3 ${isDebt ? 'text-rose-600' : isPrepaid ? 'text-emerald-700' : 'text-slate-800'}`}>
-                {formatCurrency(Number(amount))}
-              </Text>
-            )}
-          </View>
-        );
-      })}
-      
-      {/* Hiển thị các giao dịch Sổ quỹ khác (ví dụ: Phiếu chi hoàn tiền) */}
-      {selectedOrderCashbook
-        .filter(cb => !Array.from(paymentCbMap.values()).includes(cb.id || cb.transaction_id))
-        .map((cb, idx) => {
-          const cbId = cb.id || cb.transaction_id;
-          const isRefund = cb.category === 'refund';
-          return (
-            <View key={`cb-${idx}`} className="flex-row justify-between items-start py-2.5 border-b border-slate-100 bg-slate-50/50 px-2 rounded-lg mt-1">
-              <View className="flex-1">
-                <View className="flex-row items-center">
-                  <Ionicons 
-                    name={cb.type === 'payment' ? 'arrow-up-circle-outline' : 'arrow-down-circle-outline'} 
-                    size={14} 
-                    color={cb.type === 'payment' ? '#ef4444' : '#10b981'} 
-                  />
-                  <Text className="text-xs font-semibold text-slate-800 ml-1.5">
-                    {translateMethod(cb.method)}
-                  </Text>
-                  {isRefund && (
-                    <View className="ml-2 border border-red-200 bg-red-50 px-1 py-0.2 rounded">
-                      <Text className="text-[8px] text-red-600 font-bold uppercase tracking-wider">Hoàn tiền</Text>
-                    </View>
-                  )}
-                </View>
-                <Text className="text-[10px] text-slate-400 mt-0.5 font-mono">#{cbId.split('-')[0]}</Text>
-                {cb.note ? (
-                  <Text className="text-[10px] text-slate-400 mt-0.5 italic">— {cb.note}</Text>
-                ) : null}
-              </View>
-              <Text className={`text-xs font-bold ml-3 ${cb.type === 'payment' ? 'text-rose-600' : 'text-emerald-700'}`}>
-                {cb.type === 'payment' ? '-' : '+'}{formatCurrency(cb.amount)}
-              </Text>
-            </View>
-          );
-        })
-      }
-    </View>
-
-    {/* Lịch sử trả hàng */}
-    {selectedOrderReturns.length > 0 && (
-      <View className="mb-4">
-        <Text className="text-xxs font-semibold text-slate-400 mb-2.5 px-1">Lịch sử trả hàng</Text>
-        {selectedOrderReturns.map((ret, rIdx) => {
-          const isApproved = ret.status === 'processed' || ret.status === 'completed';
-          return (
-            <View key={rIdx} className="p-3 mb-2.5 rounded-xl border border-orange-100 bg-orange-50/20">
-              <View className="flex-row justify-between items-center mb-1">
-                <Text className="text-xs font-semibold text-slate-800">{ret.return_no || ret.return_id}</Text>
-                <Text className="text-xs font-bold text-orange-700">-{formatCurrency(ret.total_refund)}</Text>
-              </View>
-              <View className="flex-row items-center gap-1.5 mb-2">
-                <Badge
-                  variant={isApproved ? 'success' : 'warning'}
-                  label={isApproved ? 'Đã duyệt' : 'Chờ duyệt'}
-                  size="sm"
-                />
-                <Text className="text-[10px] text-slate-400 font-semibold">
-                  {ret.created_at ? formatDateTime(ret.created_at) : ''}
-                </Text>
-              </View>
-              {ret.note ? (
-                <Text className="text-[10px] text-slate-500 mb-2 italic">Ghi chú: {ret.note}</Text>
-              ) : null}
-              {Array.isArray(ret.items) && ret.items.map((it: any, iIdx: number) => (
-                <View key={iIdx} className="flex-row justify-between py-1 border-t border-slate-100/60 items-center">
-                  <Text className="text-xxs text-slate-600">{it.product_name}</Text>
-                  <Text className="text-xxs font-semibold text-slate-800">SL: {it.qty_returned}</Text>
-                </View>
-              ))}
-            </View>
-          );
-        })}
-      </View>
-    )}
-
-    <Text className="text-xxs font-semibold text-slate-400 mb-2.5 px-1">Mặt hàng đã mua</Text>
-    {selectedOrderItems.map((item, idx) => {
-      const parsedModifiers = typeof item.modifiers === 'string' && item.modifiers.startsWith('[') 
-        ? (() => { try { return JSON.parse(item.modifiers); } catch { return []; } })() 
-        : (item.modifiers || []);
-      const effPrice = Number(item.unit_price) + Number(item.modifier_total || 0);
-      const itemReturned = alreadyReturnedQty[item.item_id || item.product_id] || 0;
-
-      return (
-        <View key={idx} className="py-3 border-b border-slate-100">
-          <View className="flex-row justify-between items-start">
-            <View className="flex-1 mr-3">
-              <Text className="text-xs font-medium text-slate-800">{item.product_name}</Text>
-              {item.variant_label && parsedModifiers.length === 0 ? (
-                <Text className="text-[10px] text-violet-600 font-medium mt-0.5">{item.variant_label}</Text>
-              ) : null}
-              {parsedModifiers.length > 0 ? (
-                <Text className="text-[10px] text-amber-600 mt-0.5">
-                  {parsedModifiers.map((m: any) => m.option).join(' · ')}
-                  {Number(item.modifier_total || 0) > 0 ? (
-                    <Text className="text-emerald-600 font-medium ml-1">+{formatCurrency(Number(item.modifier_total))}</Text>
-                  ) : null}
-                </Text>
-              ) : null}
-              <Text className="text-tiny text-slate-500 font-medium mt-1">
-                SL: {item.qty} x {formatCurrency(effPrice)}
-              </Text>
-              {itemReturned > 0 ? (
-                <Text className="text-xxs text-orange-600 font-semibold mt-0.5">
-                  (Đã trả {itemReturned})
-                </Text>
-              ) : null}
-            </View>
-            <Text className="text-xs font-semibold text-slate-800">
-              {formatCurrency(item.line_total)}
-            </Text>
-          </View>
-        </View>
-      );
-    })}
-    
-    {(() => {
-      const discountAmount = Number(selectedOrder.discount_amount || 0);
-      if (discountAmount > 0) {
-        return (
-          <View className="border-t border-slate-200 mt-4 pt-2">
-            <View className="flex-row justify-between py-2 items-center">
-              <Text className="text-xs text-slate-500 font-medium">Tạm tính</Text>
-              <Text className="text-xs font-semibold text-slate-800">
-                {formatCurrency(selectedOrder.total_amount + discountAmount)}
-              </Text>
-            </View>
-            <View className="flex-row justify-between py-2 items-center">
-              <Text className="text-xs text-slate-500 font-medium">Giảm giá</Text>
-              <Text className="text-xs font-semibold text-rose-600">
-                -{formatCurrency(discountAmount)}
-              </Text>
-            </View>
-            <View className="flex-row justify-between py-4 border-t border-slate-200 mt-2 items-center">
-              <Text className="text-xs font-semibold text-slate-800">Tổng thanh toán</Text>
-              <Text className="text-orange-500 text-base font-semibold">
-                {formatCurrency(selectedOrder.total_amount)}
-              </Text>
-            </View>
-          </View>
-        );
-      }
-      return (
-        <View className="flex-row justify-between py-4 border-t border-slate-200 mt-4 items-center">
-          <Text className="text-xs font-semibold text-slate-800">Tổng thanh toán</Text>
-          <Text className="text-orange-500 text-base font-semibold">
-            {formatCurrency(selectedOrder.total_amount)}
-          </Text>
-        </View>
-      );
-    })()}
-  </ScrollView>
-
-  {/* Actions Footer */}
-  <View className="border-t border-slate-100 pt-4 gap-3">
-    <View className="flex-row justify-between gap-3">
-      {selectedOrder.sync_status === 'pending' ? (
-        <Button
-          variant="primary"
-          title="Đồng bộ ngay"
-          icon={<Ionicons name="cloud-upload" size={14} color="white" />}
-          onPress={() => handleSyncSingleOrder(selectedOrder.id)}
-          loading={isSyncingOrder === selectedOrder.id}
-          className="flex-1 py-3 rounded-xl"
-        />
-      ) : (
-        <View className="flex-1 bg-emerald-50 py-3 rounded-xl items-center flex-row justify-center border border-emerald-200 opacity-80">
-          <Ionicons name="checkmark-done-circle-outline" size={14} color="#10b981" />
-          <Text className="font-semibold text-xxs ml-1 text-emerald-700">ĐÃ ĐỒNG BỘ</Text>
-        </View>
-      )}
-
-      <Button
-        variant={selectedOrder.sync_status === 'pending' ? 'outline' : 'primary'}
-        title="In hóa đơn"
-        icon={<Ionicons name="print-outline" size={14} color={selectedOrder.sync_status === 'pending' ? '#475569' : 'white'} />}
-        onPress={handleReprint}
-        loading={isReprinting}
-        className="flex-1 py-3 rounded-xl"
-      />
-    </View>
-
-    {(canCancel || canReturn) && (
-      <View className="flex-row justify-between gap-3">
-        {canCancel && (
-          <Button
-            variant="danger"
-            title={selectedOrder.status === 'in_progress' ? 'Gỡ kẹt đơn' : 'Hủy đơn hàng'}
-            icon={<Ionicons name="ban-outline" size={14} color="white" />}
-            onPress={() => {
-              setCancelReason('Sai sót hệ thống');
-              setCustomCancelReason('');
-              setShowCancelDialog(true);
-            }}
-            className="flex-1 py-3 rounded-xl"
-          />
-        )}
-        {canReturn && (
-          <Button
-            variant="outline"
-            title="Tạo phiếu trả"
-            icon={<Ionicons name="refresh-outline" size={14} color="#fa5908" />}
-            onPress={() => {
-              setReturnItems({});
-              setReturnReason('other');
-              setReturnRefundMethod('cash');
-              setReturnRefundAmount('');
-              setReturnNote('');
-              setShowReturnForm(true);
-            }}
-            className="flex-1 py-3 rounded-xl"
-            style={{ borderColor: '#f97316' }}
-          />
-        )}
-      </View>
-    )}
-    
-    {selectedOrder.status === 'cancelled' && (
-      <View className="bg-rose-50 py-3 rounded-xl items-center flex-row justify-center border border-rose-200">
-        <Ionicons name="close-circle-outline" size={14} color="#ef4444" />
-        <Text className="font-semibold text-xxs ml-1 text-rose-700">ĐƠN HÀNG ĐÃ HỦY</Text>
-      </View>
-    )}
-    {selectedOrder.status === 'refunded' && (
-      <View className="bg-slate-50 py-3 rounded-xl items-center flex-row justify-center border border-slate-200">
-        <Ionicons name="arrow-undo-outline" size={14} color="#64748b" />
-        <Text className="font-semibold text-xxs ml-1 text-slate-700">ĐƠN HÀNG ĐÃ HOÀN TIỀN</Text>
-      </View>
-    )}
-  </View>
-
-  </View>
-  )}
-  </View>
-  </Modal>
-
-  {/* DIALOG HỦY ĐƠN HÀNG */}
-  <Dialog
-    visible={showCancelDialog}
-    onClose={() => setShowCancelDialog(false)}
-    onConfirm={handleCancelOrder}
-    title="Xác nhận hủy đơn hàng"
-    confirmLabel="Hủy đơn"
-    cancelLabel="Quay lại"
-    variant="danger"
-    loading={isCancelling}
-  >
-    <View className="gap-2">
-      <Text className="text-xxs font-semibold text-slate-400 mb-1">Chọn lý do hủy:</Text>
-      {[
-        'Sai sót hệ thống',
-        'Nhập nhầm đơn',
-        'Khách không nhận hàng',
-        'Khách hủy trước khi giao',
-        'other'
-      ].map((reason) => {
-        const isSelected = cancelReason === reason;
-        return (
-          <TouchableOpacity
-            key={reason}
-            activeOpacity={0.7}
-            className={`p-3 rounded-xl border flex-row justify-between items-center ${
-              isSelected ? 'bg-rose-50 border-rose-200' : 'bg-slate-50 border-slate-200/60'
-            }`}
-            onPress={() => setCancelReason(reason)}
-          >
-            <Text className={`text-xs font-semibold ${isSelected ? 'text-rose-700' : 'text-slate-700'}`}>
-              {reason === 'other' ? 'Lý do khác...' : reason}
-            </Text>
-            {isSelected && (
-              <Ionicons name="checkmark-done" size={16} color="#ef4444" />
-            )}
-          </TouchableOpacity>
-        );
-      })}
-
-      {cancelReason === 'other' && (
-        <TextInput
-          className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 mt-1"
-          placeholder="Nhập lý do hủy chi tiết..."
-          value={customCancelReason}
-          onChangeText={setCustomCancelReason}
-          multiline
-          numberOfLines={3}
-        />
-      )}
-    </View>
-  </Dialog>
-
-  {/* MODAL TẠO PHIẾU TRẢ HÀNG */}
   <Modal
-    visible={showReturnForm}
+    visible={!!selectedOrder}
     animationType="slide"
     transparent={true}
-    onRequestClose={() => setShowReturnForm(false)}
+    onRequestClose={() => {
+      if (showConfirmReturn) {
+        setShowConfirmReturn(false);
+      } else if (showReturnForm) {
+        setShowReturnForm(false);
+      } else if (showCancelDialog) {
+        setShowCancelDialog(false);
+      } else {
+        setSelectedOrder(null);
+      }
+    }}
   >
     <View className="flex-1 bg-black/60 justify-end">
-      <TouchableWithoutFeedback onPress={() => setShowReturnForm(false)}>
+      {/* Vùng backdrop phía trên — bấm để đóng */}
+      <TouchableWithoutFeedback onPress={() => {
+        if (!showCancelDialog && !showReturnForm && !showConfirmReturn) {
+          setSelectedOrder(null);
+        }
+      }}>
         <View className="flex-1" />
       </TouchableWithoutFeedback>
-      <View className="h-[80%] bg-white rounded-t-2xl p-6">
-        {/* Header */}
-        <View className="flex-row justify-between items-center border-b border-slate-100 pb-4">
-          <View>
-            <Text className="text-sm font-semibold text-slate-800">Tạo phiếu trả hàng</Text>
-            <Text className="text-xxs text-slate-455 mt-1 font-semibold">Hóa đơn: {selectedOrder?.id}</Text>
+
+      {/* Panel nội dung phía dưới */}
+      {selectedOrder && (
+        <View className="h-[75%] rounded-t-2xl p-6 justify-between bg-white shadow-2xl">
+  
+          {/* Header Modal */}
+          <View className="flex-row justify-between items-center border-b border-slate-100 pb-4">
+            <View className="flex-1 mr-2">
+              <View className="flex-row items-center flex-wrap gap-1">
+                <Text className="text-xs font-semibold text-slate-800" numberOfLines={1}>
+                  {selectedOrder.id}
+                </Text>
+                <TouchableOpacity
+                  onPress={() => handleCopyOrderNo(selectedOrder.id)}
+                  className="p-1 bg-slate-100 active:bg-slate-200 rounded"
+                >
+                  <Ionicons name={copiedId ? "checkmark" : "copy-outline"} size={11} color={copiedId ? "#10b981" : "#64748b"} />
+                </TouchableOpacity>
+                <Badge 
+                  variant={selectedOrder.sync_status === 'pending' ? 'warning' : 'success'} 
+                  label={selectedOrder.sync_status === 'pending' ? 'Chờ đồng bộ' : 'Đã đồng bộ'} 
+                  size="sm"
+                />
+                {selectedOrder.sync_status === 'pending' && (
+                  <TouchableOpacity
+                    onPress={() => handleSyncSingleOrder(selectedOrder.id)}
+                    disabled={isSyncingOrder === selectedOrder.id}
+                    className="p-1 bg-amber-50 active:bg-amber-100 border border-amber-200 rounded items-center justify-center"
+                  >
+                    {isSyncingOrder === selectedOrder.id ? (
+                      <ActivityIndicator size="small" color="#d97706" style={{ transform: [{ scale: 0.6 }] }} />
+                    ) : (
+                      <Ionicons name="cloud-upload-outline" size={11} color="#d97706" />
+                    )}
+                  </TouchableOpacity>
+                )}
+              </View>
+              <Text className="text-[10px] text-slate-400 mt-1 font-semibold">
+                Khách hàng: {selectedOrder.customer_name || 'Khách lẻ'}
+              </Text>
+            </View>
+           
+            <View className="flex-row items-center">
+              <TouchableOpacity 
+                onPress={() => handleViewOrderDetails(selectedOrder, true)} 
+                disabled={isDetailLoading}
+                className="p-1.5 mr-2 bg-slate-50 active:bg-slate-150 rounded-full border border-slate-100"
+              >
+                {isDetailLoading ? (
+                  <ActivityIndicator size="small" color="#fa5908" style={{ transform: [{ scale: 0.75 }] }} />
+                ) : (
+                  <Ionicons name="sync-outline" size={16} color="#64748b" />
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity onPress={() => setSelectedOrder(null)} className="p-1">
+                <Ionicons name="close" size={24} color="#64748b" />
+              </TouchableOpacity>
+            </View>
           </View>
-          <TouchableOpacity onPress={() => setShowReturnForm(false)} className="p-1">
-            <Ionicons name="close" size={24} color="#64748b" />
-          </TouchableOpacity>
-        </View>
 
-        {/* Scrollable Body */}
-        <ScrollView className="flex-1 my-4" showsVerticalScrollIndicator={false}>
-          <Text className="text-xxs font-semibold text-slate-400 mb-2 px-1">Sản phẩm trả lại</Text>
-          
-          {selectedOrderItems.map((item) => {
-            const itemId = item.item_id || item.product_id;
-            const maxReturnable = Number(item.qty) - (alreadyReturnedQty[itemId] || 0);
-            const currentRetQty = returnItems[itemId] || 0;
-            const parsedModifiers = typeof item.modifiers === 'string' && item.modifiers.startsWith('[')
-              ? (() => { try { return JSON.parse(item.modifiers); } catch { return []; } })()
-              : (item.modifiers || []);
-            const effPrice = Number(item.unit_price) + Number(item.modifier_total || 0);
-
-            if (maxReturnable <= 0) return null;
-
-            return (
-              <View key={itemId} className="py-3 border-b border-slate-100">
-                <View className="flex-row justify-between items-center">
-                  <View className="flex-1 mr-3">
-                    <Text className="text-xs font-semibold text-slate-800">{item.product_name}</Text>
-                    {item.variant_label ? (
-                      <Text className="text-[10px] text-violet-600 font-semibold mt-0.5">{item.variant_label}</Text>
-                    ) : null}
-                    {parsedModifiers.length > 0 ? (
-                      <Text className="text-[10px] text-amber-600 mt-0.5">
-                        {parsedModifiers.map((m: any) => m.option).join(' · ')}
-                      </Text>
-                    ) : null}
-                    <Text className="text-xxs text-slate-455 font-semibold mt-1">
-                      Giá: {formatCurrency(effPrice)} | Đã mua: {item.qty} (Đã trả: {alreadyReturnedQty[itemId] || 0})
-                    </Text>
-                  </View>
-                  
-                  {/* Quantity adjustment buttons */}
-                  <View className="flex-row items-center border border-slate-200 rounded-xl overflow-hidden bg-slate-50">
-                    <TouchableOpacity
-                      onPress={() => {
-                        if (currentRetQty > 0) {
-                          setReturnItems(prev => ({ ...prev, [itemId]: currentRetQty - 1 }));
-                        }
-                      }}
-                      className="px-3 py-1.5 active:bg-slate-200"
-                    >
-                      <Ionicons name="remove" size={14} color="#64748b" />
-                    </TouchableOpacity>
-                    <Text className="px-3 text-xs font-bold text-slate-800">{currentRetQty}</Text>
-                    <TouchableOpacity
-                      onPress={() => {
-                        if (currentRetQty < maxReturnable) {
-                          setReturnItems(prev => ({ ...prev, [itemId]: currentRetQty + 1 }));
-                        }
-                      }}
-                      className="px-3 py-1.5 active:bg-slate-200"
-                    >
-                      <Ionicons name="add" size={14} color="#64748b" />
-                    </TouchableOpacity>
-                  </View>
+          {/* Body Modal */}
+          <ScrollView className="flex-1 my-4" showsVerticalScrollIndicator={false}>
+            <Text className="text-xxs font-semibold text-slate-400 mb-2.5 px-1">Thông tin chi tiết</Text>
+            <View className="p-4 rounded-xl bg-slate-50 border border-slate-200/60 mb-4">
+              <View className="flex-row justify-between py-1">
+                <Text className="text-tiny text-slate-500 font-medium">Mốc thời gian:</Text>
+                <Text className="text-tiny font-semibold text-slate-800">
+                  {selectedOrder.created_at ? formatDateTime(selectedOrder.created_at) : 'Ngoại tuyến'}
+                </Text>
+              </View>
+              <View className="flex-row justify-between py-1 items-center">
+                <Text className="text-tiny text-slate-500 font-medium">Mã hóa đơn:</Text>
+                <TouchableOpacity
+                  onPress={() => handleCopyOrderNo(selectedOrder.id)}
+                  className="flex-row items-center active:opacity-75"
+                >
+                  <Text className="text-tiny font-semibold text-slate-700 mr-1">{selectedOrder.id}</Text>
+                  <Ionicons name={copiedId ? "checkmark" : "copy-outline"} size={11} color={copiedId ? "#10b981" : "#64748b"} />
+                </TouchableOpacity>
+              </View>
+              <View className="flex-row justify-between py-1">
+                <Text className="text-tiny text-slate-500 font-medium">Khách hàng:</Text>
+                <View className="items-end">
+                  <Text className="text-tiny font-semibold text-slate-800">{selectedOrder.customer_name || 'Khách lẻ'}</Text>
+                  {selectedOrderCustomerPhone && (
+                    <Text className="text-tiny text-slate-500 mt-0.5">📞 {selectedOrderCustomerPhone}</Text>
+                  )}
                 </View>
               </View>
-            );
-          })}
-
-          {/* Refund details form */}
-          <View className="mt-4 gap-4">
-            {/* Lý do trả hàng */}
-            <View>
-              <Text className="text-xxs font-semibold text-slate-400 mb-2 px-1">Lý do trả hàng</Text>
-              <View className="flex-row flex-wrap gap-2">
-                {[
-                  { value: 'wrong_item', label: 'Sai sản phẩm' },
-                  { value: 'changed_mind', label: 'Đổi ý' },
-                  { value: 'defective', label: 'Lỗi sản phẩm' },
-                  { value: 'damaged', label: 'Hư hỏng' },
-                  { value: 'other', label: 'Khác' }
-                ].map((item) => {
-                  const isSelected = returnReason === item.value;
-                  return (
-                    <TouchableOpacity
-                      key={item.value}
-                      activeOpacity={0.7}
-                      className={`px-3 py-2 rounded-xl border ${
-                        isSelected ? 'bg-orange-50 border-orange-200' : 'bg-slate-50 border-slate-200/60'
-                      }`}
-                      onPress={() => setReturnReason(item.value)}
-                    >
-                      <Text className={`text-xxs font-bold ${isSelected ? 'text-orange-600' : 'text-slate-600'}`}>
-                        {item.label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
+              {selectedOrder.note && (
+                <View className="border-t border-slate-200 mt-2 pt-2">
+                  <Text className="text-tiny text-slate-455 font-medium">Ghi chú đơn:</Text>
+                  <Text className="text-xs text-slate-700 mt-1 font-semibold">{selectedOrder.note}</Text>
+                </View>
+              )}
             </View>
 
-            {/* Phương thức hoàn tiền */}
-            <View>
-              <Text className="text-xxs font-semibold text-slate-400 mb-2 px-1">Phương thức hoàn tiền</Text>
-              <View className="flex-row gap-2">
-                {[
-                  { value: 'cash', label: 'Tiền mặt', icon: 'cash-outline' as const },
-                  { value: 'bank_transfer', label: 'Chuyển khoản', icon: 'card-outline' as const },
-                  { value: 'none', label: 'Không hoàn tiền', icon: 'close-circle-outline' as const }
-                ].map((item) => {
-                  const isSelected = returnRefundMethod === item.value;
-                  return (
-                    <TouchableOpacity
-                      key={item.value}
-                      activeOpacity={0.7}
-                      className={`flex-1 p-2.5 rounded-xl border items-center flex-row justify-center gap-1.5 ${
-                        isSelected ? 'bg-orange-50 border-orange-200' : 'bg-slate-50 border-slate-200/60'
-                      }`}
-                      onPress={() => setReturnRefundMethod(item.value)}
-                    >
-                      <Ionicons name={item.icon} size={13} color={isSelected ? '#f97316' : '#64748b'} />
-                      <Text className={`text-[10px] font-bold ${isSelected ? 'text-orange-600' : 'text-slate-600'}`}>
-                        {item.label}
+            {/* Thanh toán chi tiết theo từng phương thức + quỹ */}
+            <Text className="text-xxs font-semibold text-slate-400 mb-2.5 px-1">Thanh toán</Text>
+            <View className="mb-4">
+              {selectedOrderPayments.map((p, i) => {
+                const method = p.method || 'cash';
+                const amount = p.amount;
+                const fund = paymentFundsList.find(f => f.id === p.fund_id);
+                const methodLabel = translateMethod(method);
+                const isDebt = method === 'debt';
+                const isPrepaid = method === 'prepaid';
+                return (
+                  <View key={i} className="flex-row justify-between items-start py-2.5 border-b border-slate-100">
+                    <View className="flex-1">
+                      <View className="flex-row items-center">
+                        <Ionicons 
+                          name={
+                            method === 'cash' ? 'cash-outline' :
+                            method === 'debt' ? 'warning-outline' :
+                            method === 'prepaid' ? 'wallet-outline' : 'card-outline'
+                          } 
+                          size={14} 
+                          color={
+                            method === 'cash' ? '#10b981' :
+                            method === 'debt' ? '#ef4444' :
+                            method === 'prepaid' ? '#047857' : '#4f46e5'
+                          } 
+                        />
+                        <Text className={"text-xs font-semibold ml-1.5 " + (isDebt ? "text-rose-600" : isPrepaid ? "text-emerald-700" : "text-slate-800")}>
+                          {methodLabel}
+                        </Text>
+                        {p.reference_no ? (
+                          <Text className="text-[10px] text-slate-400 ml-2">#{p.reference_no}</Text>
+                        ) : null}
+                      </View>
+                      {fund && (
+                        <View className="flex-row items-center mt-1">
+                          <Ionicons name="business-outline" size={11} color="#f97316" />
+                          <Text className="text-tiny font-medium text-orange-600 ml-1">
+                            {fund.name}{fund.bank_name ? " (" + fund.bank_name + ")" : ''}
+                          </Text>
+                        </View>
+                      )}
+                      {p.note ? (
+                        <Text className="text-[10px] text-slate-400 mt-0.5 italic">— {p.note}</Text>
+                      ) : null}
+                    </View>
+                    {amount != null && (
+                      <Text className={"text-xs font-bold ml-3 " + (isDebt ? "text-rose-600" : isPrepaid ? "text-emerald-700" : "text-slate-800")}>
+                        {formatCurrency(Number(amount))}
                       </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-
-            {/* Số tiền hoàn lại */}
-            {returnRefundMethod !== 'none' && (
-              <View>
-                <Text className="text-xxs font-semibold text-slate-400 mb-2 px-1">
-                  Số tiền hoàn (để trống = tự động tính: {
-                    (() => {
-                      const total = selectedOrderItems
-                        .map(i => ({ ...i, retQty: returnItems[i.item_id || i.product_id] || 0 }))
-                        .filter(i => i.retQty > 0)
-                        .reduce((s, i) => s + (Number(i.unit_price) + Number(i.modifier_total || 0)) * i.retQty, 0);
-                      return formatCurrency(total);
-                    })()
+                    )}
+                  </View>
+                );
+              })}
+              
+              {/* Hiển thị các giao dịch Sổ quỹ khác (ví dụ: Phiếu chi hoàn tiền) */}
+              {isDetailLoading && selectedOrderCashbook.length === 0 ? (
+                <View className="flex-row items-center py-2.5 px-2 gap-2 mt-1">
+                  <Text className="text-[10px] text-slate-400 font-semibold">Đang cập nhật dòng tiền...</Text>
+                  <ActivityIndicator size="small" color="#fa5908" style={{ transform: [{ scale: 0.7 }] }} />
+                </View>
+              ) : (
+                selectedOrderCashbook
+                  .filter(cb => !Array.from(paymentCbMap.values()).includes(cb.id || cb.transaction_id))
+                  .map((cb, idx) => {
+                    const cbId = cb.id || cb.transaction_id;
+                    const isRefund = cb.category === 'refund';
+                    return (
+                      <View key={"cb-" + idx} className="flex-row justify-between items-start py-2.5 border-b border-slate-100 bg-slate-50/50 px-2 rounded-lg mt-1">
+                        <View className="flex-1">
+                          <View className="flex-row items-center">
+                            <Ionicons 
+                              name={cb.type === 'payment' ? 'arrow-up-circle-outline' : 'arrow-down-circle-outline'} 
+                              size={14} 
+                              color={cb.type === 'payment' ? '#ef4444' : '#10b981'} 
+                            />
+                            <Text className="text-xs font-semibold text-slate-800 ml-1.5">
+                              {translateMethod(cb.method)}
+                            </Text>
+                            {isRefund && (
+                              <View className="ml-2 border border-red-200 bg-red-50 px-1 py-0.2 rounded">
+                                <Text className="text-[8px] text-red-600 font-bold uppercase tracking-wider">Hoàn tiền</Text>
+                              </View>
+                            )}
+                          </View>
+                          {(() => {
+                            const displayCbId = cbId.startsWith('CB') ? cbId : (cbId.length > 15 && cbId.includes('-') ? cbId.substring(0, 8) : cbId);
+                            return (
+                              <TouchableOpacity
+                                onPress={() => handleCopyCbNo(cbId)}
+                                className="flex-row items-center active:opacity-75 mt-0.5"
+                              >
+                                <Text className="text-[10px] text-slate-400 font-mono mr-1.5">#{displayCbId}</Text>
+                                <Ionicons 
+                                  name={copiedCbId === cbId ? "checkmark" : "copy-outline"} 
+                                  size={10} 
+                                  color={copiedCbId === cbId ? "#10b981" : "#94a3b8"} 
+                                />
+                              </TouchableOpacity>
+                            );
+                          })()}
+                          {cb.note ? (
+                            <Text className="text-[10px] text-slate-400 mt-0.5 italic">— {cb.note}</Text>
+                          ) : null}
+                        </View>
+                        <Text className={"text-xs font-bold ml-3 " + (cb.type === 'payment' ? "text-rose-600" : "text-emerald-700")}>
+                          {cb.type === 'payment' ? '-' : '+'}{formatCurrency(cb.amount)}
+                        </Text>
+                      </View>
+                    );
                   })
-                </Text>
-                <TextInput
-                  className="p-3 bg-slate-50 border border-slate-200/60 rounded-xl text-xs font-semibold text-slate-700"
-                  keyboardType="numeric"
-                  placeholder="Nhập số tiền hoàn..."
-                  value={returnRefundAmount}
-                  onChangeText={setReturnRefundAmount}
-                />
+              )}
+            </View>
+
+            {/* Lịch sử trả hàng */}
+            {isDetailLoading && selectedOrderReturns.length === 0 ? (
+              <View className="mb-4 px-1 flex-row items-center gap-2">
+                <Text className="text-xxs font-semibold text-slate-400">Đang tải lịch sử trả hàng...</Text>
+                <ActivityIndicator size="small" color="#fa5908" style={{ transform: [{ scale: 0.7 }] }} />
+              </View>
+            ) : selectedOrderReturns.length > 0 ? (
+              <View className="mb-4">
+                <Text className="text-xxs font-semibold text-slate-400 mb-2.5 px-1">Lịch sử trả hàng</Text>
+                {selectedOrderReturns.map((ret, rIdx) => {
+                  const isApproved = ret.status === 'processed' || ret.status === 'completed';
+                  return (
+                    <View key={rIdx} className="p-3 mb-2.5 rounded-xl border border-orange-100 bg-orange-50/20">
+                      <View className="flex-row justify-between items-center mb-1">
+                        <Text className="text-xs font-semibold text-slate-800">{ret.return_no || ret.return_id}</Text>
+                        <Text className="text-xs font-bold text-orange-700">-{formatCurrency(ret.total_refund)}</Text>
+                      </View>
+                      <View className="flex-row items-center gap-1.5 mb-2">
+                        <Badge
+                          variant={isApproved ? 'success' : 'warning'}
+                          label={isApproved ? 'Đã duyệt' : 'Chờ duyệt'}
+                          size="sm"
+                        />
+                        <Text className="text-[10px] text-slate-400 font-semibold">
+                          {ret.created_at ? formatDateTime(ret.created_at) : ''}
+                        </Text>
+                      </View>
+                      {ret.note ? (
+                        <Text className="text-[10px] text-slate-500 mb-2 italic">Ghi chú: {ret.note}</Text>
+                      ) : null}
+                      {Array.isArray(ret.items) && ret.items.map((it: any, iIdx: number) => (
+                        <View key={iIdx} className="flex-row justify-between py-1 border-t border-slate-100/60 items-center">
+                          <Text className="text-xxs text-slate-600">{it.product_name}</Text>
+                          <Text className="text-xxs font-semibold text-slate-800">SL: {it.qty_returned}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  );
+                })}
+              </View>
+            ) : null}
+
+            <Text className="text-xxs font-semibold text-slate-400 mb-2.5 px-1">Mặt hàng đã mua</Text>
+            {selectedOrderItems.map((item, idx) => {
+              const parsedModifiers = typeof item.modifiers === 'string' && item.modifiers.startsWith('[') 
+                ? (() => { try { return JSON.parse(item.modifiers); } catch { return []; } })() 
+                : (item.modifiers || []);
+              const effPrice = Number(item.unit_price) + Number(item.modifier_total || 0);
+              const itemReturned = alreadyReturnedQty[item.item_id || item.product_id] || 0;
+
+              return (
+                <View key={idx} className="py-3 border-b border-slate-100">
+                  <View className="flex-row justify-between items-start">
+                    <View className="flex-1 mr-3">
+                      <Text className="text-xs font-medium text-slate-800">{item.product_name}</Text>
+                      {item.variant_label && parsedModifiers.length === 0 ? (
+                        <Text className="text-[10px] text-violet-600 font-medium mt-0.5">{item.variant_label}</Text>
+                      ) : null}
+                      {parsedModifiers.length > 0 ? (
+                        <Text className="text-[10px] text-amber-600 mt-0.5">
+                          {parsedModifiers.map((m: any) => m.option).join(' · ')}
+                          {Number(item.modifier_total || 0) > 0 ? (
+                            <Text className="text-emerald-600 font-medium ml-1">+{formatCurrency(Number(item.modifier_total))}</Text>
+                          ) : null}
+                        </Text>
+                      ) : null}
+                      <Text className="text-tiny text-slate-500 font-medium mt-1">
+                        SL: {item.qty} x {formatCurrency(effPrice)}
+                      </Text>
+                      {itemReturned > 0 ? (
+                        <Text className="text-xxs text-orange-600 font-semibold mt-0.5">
+                          (Đã trả {itemReturned})
+                        </Text>
+                      ) : null}
+                    </View>
+                    <Text className="text-xs font-semibold text-slate-800">
+                      {formatCurrency(item.line_total)}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })}
+            
+            {(() => {
+              const discountAmount = Number(selectedOrder.discount_amount || 0);
+              if (discountAmount > 0) {
+                return (
+                  <View className="border-t border-slate-200 mt-4 pt-2">
+                    <View className="flex-row justify-between py-2 items-center">
+                      <Text className="text-xs text-slate-500 font-medium">Tạm tính</Text>
+                      <Text className="text-xs font-semibold text-slate-800">
+                        {formatCurrency(selectedOrder.total_amount + discountAmount)}
+                      </Text>
+                    </View>
+                    <View className="flex-row justify-between py-2 items-center">
+                      <Text className="text-xs text-slate-500 font-medium">Giảm giá</Text>
+                      <Text className="text-xs font-semibold text-rose-600">
+                        -{formatCurrency(discountAmount)}
+                      </Text>
+                    </View>
+                    <View className="flex-row justify-between py-4 border-t border-slate-200 mt-2 items-center">
+                      <Text className="text-xs font-semibold text-slate-800">Tổng thanh toán</Text>
+                      <Text className="text-orange-500 text-base font-semibold">
+                        {formatCurrency(selectedOrder.total_amount)}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              }
+              return (
+                <View className="flex-row justify-between py-4 border-t border-slate-200 mt-4 items-center">
+                  <Text className="text-xs font-semibold text-slate-800">Tổng thanh toán</Text>
+                  <Text className="text-orange-500 text-base font-semibold">
+                    {formatCurrency(selectedOrder.total_amount)}
+                  </Text>
+                </View>
+              );
+            })()}
+          </ScrollView>
+
+          {/* Actions Footer */}
+          <View className="border-t border-slate-100 pt-3 gap-2">
+            {selectedOrder.status === 'cancelled' && (
+              <View className="bg-rose-50 py-2 rounded-lg items-center flex-row justify-center border border-rose-100">
+                <Ionicons name="close-circle-outline" size={12} color="#ef4444" />
+                <Text className="font-semibold text-[10px] ml-1 text-rose-700">ĐƠN HÀNG ĐÃ HỦY</Text>
+              </View>
+            )}
+            {selectedOrder.status === 'refunded' && (
+              <View className="bg-slate-50 py-2 rounded-lg items-center flex-row justify-center border border-slate-200">
+                <Ionicons name="arrow-undo-outline" size={12} color="#64748b" />
+                <Text className="font-semibold text-[10px] ml-1 text-slate-700">ĐƠN HÀNG ĐÃ HOÀN TIỀN</Text>
               </View>
             )}
 
-            {/* Ghi chú */}
-            <View>
-              <Text className="text-xxs font-semibold text-slate-400 mb-2 px-1">Ghi chú phiếu trả</Text>
-              <TextInput
-                className="p-3 bg-slate-50 border border-slate-200/60 rounded-xl text-xs font-semibold text-slate-700"
-                placeholder="Nhập ghi chú chi tiết..."
-                value={returnNote}
-                onChangeText={setReturnNote}
-                multiline
-                numberOfLines={2}
+            {/* Hàng 3 nút: In, Đổi trả, Hủy */}
+            <View className="flex-row gap-2">
+              <Button
+                variant="outline"
+                title="In"
+                icon={<Ionicons name="print-outline" size={14} color="#475569" />}
+                onPress={handleReprint}
+                loading={isReprinting}
+                className="flex-1 py-2.5 rounded-xl border-slate-200"
+                textClassName="text-slate-700 text-xxs font-bold"
+              />
+
+              <Button
+                variant="outline"
+                title="Đổi trả"
+                icon={<Ionicons name="refresh-outline" size={14} color={canReturn ? '#7c3aed' : '#cbd5e1'} />}
+                onPress={() => {
+                  if (!canReturn) return;
+                  setReturnItems({});
+                  setReturnReason('wrong_item');
+                  setReturnRefundMethod('cash');
+                  setReturnRefundAmount('');
+                  setReturnNote('');
+                  setShowReturnForm(true);
+                }}
+                disabled={!canReturn}
+                className={"flex-1 py-2.5 rounded-xl " + (canReturn ? "border-violet-500 bg-white" : "border-slate-100 bg-slate-50")}
+                textClassName={"text-xxs font-bold " + (canReturn ? "text-violet-600" : "text-slate-300")}
+                style={canReturn ? { borderColor: '#7c3aed' } : { borderColor: '#e2e8f0' }}
+              />
+
+              <Button
+                variant={canCancel ? 'danger' : 'outline'}
+                title={selectedOrder.status === 'in_progress' ? 'Gỡ kẹt' : 'Hủy'}
+                icon={<Ionicons name="ban-outline" size={14} color={canCancel ? 'white' : '#cbd5e1'} />}
+                onPress={() => {
+                  if (!canCancel) return;
+                  setCancelReason('Sai sót hệ thống');
+                  setCustomCancelReason('');
+                  setShowCancelDialog(true);
+                }}
+                disabled={!canCancel}
+                className={"flex-1 py-2.5 rounded-xl " + (canCancel ? "" : "border-slate-100 bg-slate-50")}
+                textClassName={"text-xxs font-bold " + (canCancel ? "text-white" : "text-slate-300")}
+                style={canCancel ? undefined : { borderColor: '#e2e8f0' }}
               />
             </View>
           </View>
-        </ScrollView>
-
-        {/* Action Button */}
-        <View className="border-t border-slate-100 pt-4 flex-row gap-3">
-          <Button
-            variant="outline"
-            title="Hủy bỏ"
-            onPress={() => setShowReturnForm(false)}
-            className="flex-1 py-3 rounded-xl"
-          />
-          <Button
-            variant="primary"
-            title="Xác nhận trả hàng"
-            onPress={() => setShowConfirmReturn(true)}
-            className="flex-1 py-3 rounded-xl"
-            style={{ backgroundColor: '#f97316' }}
-            disabled={
-              Object.values(returnItems).reduce((sum, q) => sum + q, 0) === 0
-            }
-          />
         </View>
-      </View>
+      )}
+
+      {/* CÁC DIALOG / MODAL ĐƯỢC CHUYỂN THÀNH ABSOLUTE VIEWS ĐỂ TRÁNH LỖI ĐƠ UI TRÊN IOS */}
+
+      {/* 1. DIALOG HỦY ĐƠN HÀNG */}
+      {showCancelDialog && (
+        <View className="absolute inset-0 bg-black/60 justify-center items-center px-6 z-50">
+          <TouchableWithoutFeedback onPress={() => setShowCancelDialog(false)}>
+            <View className="absolute inset-0" />
+          </TouchableWithoutFeedback>
+          <View className="w-full max-w-sm p-6 rounded-[28px] shadow-2xl bg-white border border-slate-100 items-center">
+            <View className="bg-red-50 p-4 rounded-full mb-4 items-center justify-center border border-red-100">
+              <Ionicons name="warning-outline" size={32} color="#ef4444" />
+            </View>
+            <Text className="text-base font-semibold text-slate-800 text-center mb-2 leading-tight">
+              Xác nhận hủy đơn hàng
+            </Text>
+            
+            <View className="w-full gap-2 mb-4">
+              <Text className="text-xxs font-semibold text-slate-400 mb-1">Chọn lý do hủy:</Text>
+              {[
+                'Sai sót hệ thống',
+                'Nhập nhầm đơn',
+                'Khách không nhận hàng',
+                'Khách hủy trước khi giao',
+                'other'
+              ].map((reason) => {
+                const isSelected = cancelReason === reason;
+                return (
+                  <TouchableOpacity
+                    key={reason}
+                    activeOpacity={0.7}
+                    className={"p-3 rounded-xl border flex-row justify-between items-center " + (
+                      isSelected ? 'bg-rose-50 border-rose-200' : 'bg-slate-50 border-slate-200/60'
+                    )}
+                    onPress={() => setCancelReason(reason)}
+                  >
+                    <Text className={"text-xs font-semibold " + (isSelected ? 'text-rose-700' : 'text-slate-700')}>
+                      {reason === 'other' ? 'Lý do khác...' : reason}
+                    </Text>
+                    {isSelected && (
+                      <Ionicons name="checkmark-done" size={16} color="#ef4444" />
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+
+              {cancelReason === 'other' && (
+                <TextInput
+                  className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 mt-1"
+                  placeholder="Nhập lý do hủy chi tiết..."
+                  value={customCancelReason}
+                  onChangeText={setCustomCancelReason}
+                  multiline
+                  numberOfLines={3}
+                />
+              )}
+            </View>
+
+            <View className="flex-row justify-between w-full mt-2 gap-3">
+              <Button
+                variant="outline"
+                title="Quay lại"
+                onPress={() => setShowCancelDialog(false)}
+                className="rounded-2xl flex-1"
+              />
+              <Button
+                variant="danger"
+                title="Hủy đơn"
+                loading={isCancelling}
+                onPress={handleCancelOrder}
+                className="rounded-2xl flex-[1.3]"
+              />
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* 2. FORM TẠO PHIẾU TRẢ HÀNG */}
+      {showReturnForm && (
+        <View className="absolute inset-0 bg-black/60 justify-end z-40">
+          <TouchableWithoutFeedback onPress={() => {
+            if (!showConfirmReturn) setShowReturnForm(false);
+          }}>
+            <View className="absolute inset-0" />
+          </TouchableWithoutFeedback>
+          <View className="h-[80%] bg-white rounded-t-2xl p-6 justify-between">
+            {/* Header */}
+            <View className="flex-row justify-between items-center border-b border-slate-100 pb-4">
+              <View>
+                <Text className="text-sm font-semibold text-slate-800">Tạo phiếu trả hàng</Text>
+                <Text className="text-xxs text-slate-455 mt-1 font-semibold">Hóa đơn: {selectedOrder?.id}</Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowReturnForm(false)} className="p-1">
+                <Ionicons name="close" size={24} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Scrollable Body */}
+            <ScrollView className="flex-1 my-4" showsVerticalScrollIndicator={false}>
+              <Text className="text-xxs font-semibold text-slate-400 mb-2 px-1">Sản phẩm trả lại</Text>
+              
+              {selectedOrderItems.map((item) => {
+                const itemId = item.item_id || item.product_id;
+                const maxReturnable = Number(item.qty) - (alreadyReturnedQty[itemId] || 0);
+                const currentRetQty = returnItems[itemId] || 0;
+                const parsedModifiers = typeof item.modifiers === 'string' && item.modifiers.startsWith('[')
+                  ? (() => { try { return JSON.parse(item.modifiers); } catch { return []; } })()
+                  : (item.modifiers || []);
+                const effPrice = Number(item.unit_price) + Number(item.modifier_total || 0);
+
+                if (maxReturnable <= 0) return null;
+
+                return (
+                  <View key={itemId} className="py-3 border-b border-slate-100">
+                    <View className="flex-row justify-between items-center">
+                      <View className="flex-1 mr-3">
+                        <Text className="text-xs font-semibold text-slate-800">{item.product_name}</Text>
+                        {item.variant_label ? (
+                          <Text className="text-[10px] text-violet-600 font-semibold mt-0.5">{item.variant_label}</Text>
+                        ) : null}
+                        {parsedModifiers.length > 0 ? (
+                          <Text className="text-[10px] text-amber-600 mt-0.5">
+                            {parsedModifiers.map((m: any) => m.option).join(' · ')}
+                          </Text>
+                        ) : null}
+                        <Text className="text-xxs text-slate-455 font-semibold mt-1">
+                          Giá: {formatCurrency(effPrice)} | Đã mua: {item.qty} (Đã trả: {alreadyReturnedQty[itemId] || 0})
+                        </Text>
+                      </View>
+                      
+                      {/* Quantity adjustment buttons */}
+                      <View className="flex-row items-center border border-slate-200 rounded-xl overflow-hidden bg-slate-50">
+                        <TouchableOpacity
+                          onPress={() => {
+                            if (currentRetQty > 0) {
+                              setReturnItems(prev => ({ ...prev, [itemId]: currentRetQty - 1 }));
+                            }
+                          }}
+                          className="px-3 py-1.5 active:bg-slate-200"
+                        >
+                          <Ionicons name="remove" size={14} color="#64748b" />
+                        </TouchableOpacity>
+                        <Text className="px-3 text-xs font-bold text-slate-800">{currentRetQty}</Text>
+                        <TouchableOpacity
+                          onPress={() => {
+                            if (currentRetQty < maxReturnable) {
+                              setReturnItems(prev => ({ ...prev, [itemId]: currentRetQty + 1 }));
+                            }
+                          }}
+                          className="px-3 py-1.5 active:bg-slate-200"
+                        >
+                          <Ionicons name="add" size={14} color="#64748b" />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </View>
+                );
+              })}
+
+              {/* Refund details form */}
+              <View className="mt-4 gap-4">
+                {/* Lý do trả hàng */}
+                <View>
+                  <Text className="text-xxs font-semibold text-slate-400 mb-2 px-1">Lý do trả hàng</Text>
+                  <View className="flex-row flex-wrap gap-2">
+                    {[
+                      { value: 'wrong_item', label: 'Sai sản phẩm' },
+                      { value: 'changed_mind', label: 'Đổi ý' },
+                      { value: 'defective', label: 'Lỗi sản phẩm' },
+                      { value: 'damaged', label: 'Hư hỏng' },
+                      { value: 'other', label: 'Khác' }
+                    ].map((item) => {
+                      const isSelected = returnReason === item.value;
+                      return (
+                        <TouchableOpacity
+                          key={item.value}
+                          activeOpacity={0.7}
+                          className={"px-3 py-2 rounded-xl border " + (
+                            isSelected ? 'bg-orange-50 border-orange-200' : 'bg-slate-50 border-slate-200/60'
+                          )}
+                          onPress={() => setReturnReason(item.value)}
+                        >
+                          <Text className={"text-xxs font-bold " + (isSelected ? 'text-orange-600' : 'text-slate-600')}>
+                            {item.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                {/* Phương thức hoàn tiền */}
+                <View>
+                  <Text className="text-xxs font-semibold text-slate-400 mb-2 px-1">Phương thức hoàn tiền</Text>
+                  <View className="flex-row gap-2">
+                    {[
+                      { value: 'cash', label: 'Tiền mặt', icon: 'cash-outline' },
+                      { value: 'bank_transfer', label: 'Chuyển khoản', icon: 'card-outline' },
+                      { value: 'none', label: 'Không hoàn tiền', icon: 'close-circle-outline' }
+                    ].map((item) => {
+                      const isSelected = returnRefundMethod === item.value;
+                      return (
+                        <TouchableOpacity
+                          key={item.value}
+                          activeOpacity={0.7}
+                          className={"flex-1 p-2.5 rounded-xl border items-center flex-row justify-center gap-1.5 " + (
+                            isSelected ? 'bg-orange-50 border-orange-200' : 'bg-slate-50 border-slate-200/60'
+                          )}
+                          onPress={() => setReturnRefundMethod(item.value)}
+                        >
+                          <Ionicons name={item.icon as any} size={13} color={isSelected ? '#f97316' : '#64748b'} />
+                          <Text className={"text-[10px] font-bold " + (isSelected ? 'text-orange-600' : 'text-slate-600')}>
+                            {item.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                {/* Số tiền hoàn lại */}
+                {returnRefundMethod !== 'none' && (
+                  <View>
+                    <Text className="text-xxs font-semibold text-slate-400 mb-2 px-1">
+                      Số tiền hoàn (để trống = tự động tính: {
+                        (() => {
+                          const total = selectedOrderItems
+                            .map(i => ({ ...i, retQty: returnItems[i.item_id || i.product_id] || 0 }))
+                            .filter(i => i.retQty > 0)
+                            .reduce((s, i) => s + (Number(i.unit_price) + Number(i.modifier_total || 0)) * i.retQty, 0);
+                          return formatCurrency(total);
+                        })()
+                      })
+                    </Text>
+                    <TextInput
+                      className="p-3 bg-slate-50 border border-slate-200/60 rounded-xl text-xs font-semibold text-slate-700"
+                      keyboardType="numeric"
+                      placeholder="Nhập số tiền hoàn..."
+                      value={returnRefundAmount}
+                      onChangeText={setReturnRefundAmount}
+                    />
+                  </View>
+                )}
+
+                {/* Ghi chú */}
+                <View>
+                  <Text className="text-xxs font-semibold text-slate-400 mb-2 px-1">Ghi chú phiếu trả</Text>
+                  <TextInput
+                    className="p-3 bg-slate-50 border border-slate-200/60 rounded-xl text-xs font-semibold text-slate-700"
+                    placeholder="Nhập ghi chú chi tiết..."
+                    value={returnNote}
+                    onChangeText={setReturnNote}
+                    multiline
+                    numberOfLines={2}
+                  />
+                </View>
+              </View>
+            </ScrollView>
+
+            {/* Action Button */}
+            <View className="border-t border-slate-100 pt-4 flex-row gap-3">
+              <Button
+                variant="outline"
+                title="Hủy bỏ"
+                onPress={() => setShowReturnForm(false)}
+                className="flex-1 py-3 rounded-xl"
+              />
+              <Button
+                variant="primary"
+                title="Xác nhận trả hàng"
+                onPress={() => setShowConfirmReturn(true)}
+                className="flex-1 py-3 rounded-xl"
+                disabled={
+                  Object.values(returnItems).reduce((sum, q) => sum + q, 0) === 0
+                }
+              />
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* 3. DIALOG XÁC NHẬN TẠO PHIẾU TRẢ HÀNG */}
+      {showConfirmReturn && (
+        <View className="absolute inset-0 bg-black/60 justify-center items-center px-6 z-50">
+          <TouchableWithoutFeedback onPress={() => setShowConfirmReturn(false)}>
+            <View className="absolute inset-0" />
+          </TouchableWithoutFeedback>
+          <View className="w-full max-w-sm p-6 rounded-[28px] shadow-2xl bg-white border border-slate-100 items-center">
+            <View className="bg-orange-50 p-4 rounded-full mb-4 items-center justify-center border border-orange-100">
+              <Ionicons name="information-circle-outline" size={32} color="#fa5908" />
+            </View>
+            <Text className="text-base font-semibold text-slate-800 text-center mb-2 leading-tight">
+              Xác nhận tạo phiếu trả
+            </Text>
+            <Text className="text-xs text-slate-455 mt-1 text-center font-semibold leading-relaxed mb-4">
+              {"Bạn có chắc chắn muốn tạo phiếu trả hàng cho các sản phẩm đã chọn với số tiền hoàn lại là " + (
+                returnRefundAmount !== '' 
+                  ? formatCurrency(Number(returnRefundAmount)) 
+                  : formatCurrency(selectedOrderItems.map(i => ({ ...i, retQty: returnItems[i.item_id || i.product_id] || 0 })).filter(i => i.retQty > 0).reduce((s, i) => s + (Number(i.unit_price) + Number(i.modifier_total || 0)) * i.retQty, 0))
+              ) + "?"}
+            </Text>
+            <View className="flex-row justify-between w-full mt-2 gap-3">
+              <Button
+                variant="outline"
+                title="Quay lại"
+                onPress={() => setShowConfirmReturn(false)}
+                className="rounded-2xl flex-1"
+              />
+              <Button
+                variant="primary"
+                title="Đồng ý"
+                loading={isReturning}
+                onPress={handleCreateReturn}
+                className="rounded-2xl flex-[1.3]"
+                style={{ backgroundColor: '#f97316' }}
+              />
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* 4. DIALOG BÁO IN THÀNH CÔNG */}
+      {isReprintSuccessVisible && (
+        <View className="absolute inset-0 bg-black/60 justify-center items-center px-6 z-50">
+          <TouchableWithoutFeedback onPress={() => setIsReprintSuccessVisible(false)}>
+            <View className="absolute inset-0" />
+          </TouchableWithoutFeedback>
+          <View className="w-full max-w-sm p-6 rounded-[28px] shadow-2xl bg-white border border-slate-100 items-center">
+            <View className="bg-emerald-50 p-4 rounded-full mb-4 items-center justify-center border border-emerald-100">
+              <Ionicons name="checkmark-circle-outline" size={32} color="#10b981" />
+            </View>
+            <Text className="text-base font-semibold text-slate-800 text-center mb-2 leading-tight">
+              Đã gửi lệnh in
+            </Text>
+            <Text className="text-xs text-slate-450 mt-1 text-center font-semibold leading-relaxed mb-4">
+              Lệnh in lại đã được gửi đến máy in K80 Bluetooth thành công!
+            </Text>
+            <Button
+              variant="primary"
+              title="Hoàn tất"
+              onPress={() => setIsReprintSuccessVisible(false)}
+              className="rounded-2xl w-full"
+            />
+          </View>
+        </View>
+      )}
+
+      {/* 5. DIALOG BÁO ĐỒNG BỘ THÀNH CÔNG */}
+      {isSyncSuccessVisible && (
+        <View className="absolute inset-0 bg-black/60 justify-center items-center px-6 z-50">
+          <TouchableWithoutFeedback onPress={() => setIsSyncSuccessVisible(false)}>
+            <View className="absolute inset-0" />
+          </TouchableWithoutFeedback>
+          <View className="w-full max-w-sm p-6 rounded-[28px] shadow-2xl bg-white border border-slate-100 items-center">
+            <View className="bg-emerald-50 p-4 rounded-full mb-4 items-center justify-center border border-emerald-100">
+              <Ionicons name="checkmark-circle-outline" size={32} color="#10b981" />
+            </View>
+            <Text className="text-base font-semibold text-slate-800 text-center mb-2 leading-tight">
+              Đồng bộ thành công
+            </Text>
+            <Text className="text-xs text-slate-455 mt-1 text-center font-semibold leading-relaxed mb-4">
+              Đơn hàng ngoại tuyến đã được đồng bộ lên hệ thống thành công!
+            </Text>
+            <Button
+              variant="primary"
+              title="Đóng"
+              onPress={() => setIsSyncSuccessVisible(false)}
+              className="rounded-2xl w-full"
+            />
+          </View>
+        </View>
+      )}
+
+      {/* 6. DIALOG BÁO ĐỒNG BỘ THẤT BẠI */}
+      {isSyncErrorVisible && (
+        <View className="absolute inset-0 bg-black/60 justify-center items-center px-6 z-50">
+          <TouchableWithoutFeedback onPress={() => setIsSyncErrorVisible(false)}>
+            <View className="absolute inset-0" />
+          </TouchableWithoutFeedback>
+          <View className="w-full max-w-sm p-6 rounded-[28px] shadow-2xl bg-white border border-slate-100 items-center">
+            <View className="bg-red-50 p-4 rounded-full mb-4 items-center justify-center border border-red-100">
+              <Ionicons name="warning-outline" size={32} color="#ef4444" />
+            </View>
+            <Text className="text-base font-semibold text-slate-800 text-center mb-2 leading-tight">
+              Đồng bộ thất bại
+            </Text>
+            <Text className="text-xs text-slate-455 mt-1 text-center font-semibold leading-relaxed mb-4">
+              Không thể kết nối đến máy chủ. Vui lòng thử lại sau khi có mạng ổn định.
+            </Text>
+            <Button
+              variant="danger"
+              title="Xác nhận"
+              onPress={() => setIsSyncErrorVisible(false)}
+              className="rounded-2xl w-full"
+            />
+          </View>
+        </View>
+      )}
     </View>
   </Modal>
+  </View>
+  )}
 
-  {/* DIALOG XÁC NHẬN TẠO PHIẾU TRẢ HÀNG */}
-  <Dialog
-    visible={showConfirmReturn}
-    onClose={() => setShowConfirmReturn(false)}
-    onConfirm={handleCreateReturn}
-    title="Xác nhận tạo phiếu trả"
-    description={`Bạn có chắc chắn muốn tạo phiếu trả hàng cho các sản phẩm đã chọn với số tiền hoàn lại là ${
-      (() => {
-        if (returnRefundAmount !== '') return formatCurrency(Number(returnRefundAmount));
-        const total = selectedOrderItems
-          .map(i => ({ ...i, retQty: returnItems[i.item_id || i.product_id] || 0 }))
-          .filter(i => i.retQty > 0)
-          .reduce((s, i) => s + (Number(i.unit_price) + Number(i.modifier_total || 0)) * i.retQty, 0);
-        return formatCurrency(total);
-      })()
-    }?`}
-    confirmLabel="Đồng ý"
-    cancelLabel="Quay lại"
-    variant="default"
-    loading={isReturning}
-  />
- </View>
- )}
+  {/* CÁC DIALOG BÁO CÁO KHI MODAL CHI TIẾT ĐANG ĐÓNG (TRÁNH CLASH NATIVE MODALS) */}
+  {!selectedOrder && (
+    <>
+      <Dialog
+        visible={isReprintSuccessVisible}
+        onClose={() => setIsReprintSuccessVisible(false)}
+        onConfirm={() => setIsReprintSuccessVisible(false)}
+        title="Đã gửi lệnh in"
+        description="Lệnh in lại đã được gửi đến máy in K80 Bluetooth thành công!"
+        confirmLabel="Hoàn tất"
+        variant="success"
+      />
 
- {/* CÁC DIALOG THÔNG BÁO XÁC NHẬN SANG TRỌNG */}
- <Dialog
- visible={isReprintSuccessVisible}
- onClose={() => setIsReprintSuccessVisible(false)}
- onConfirm={() => setIsReprintSuccessVisible(false)}
- title="Đã gửi lệnh in"
- description="Lệnh in lại đã được gửi đến máy in K80 Bluetooth thành công!"
- confirmLabel="Hoàn tất"
- variant="success"
- />
+      <Dialog
+        visible={isSyncSuccessVisible}
+        onClose={() => setIsSyncSuccessVisible(false)}
+        onConfirm={() => setIsSyncSuccessVisible(false)}
+        title="Đồng bộ thành công"
+        description="Đơn hàng ngoại tuyến đã được đồng bộ lên hệ thống thành công!"
+        confirmLabel="Đóng"
+        variant="success"
+      />
 
- <Dialog
- visible={isSyncSuccessVisible}
- onClose={() => setIsSyncSuccessVisible(false)}
- onConfirm={() => setIsSyncSuccessVisible(false)}
- title="Đồng bộ thành công"
- description="Đơn hàng ngoại tuyến đã được đồng bộ lên hệ thống thành công!"
- confirmLabel="Đóng"
- variant="success"
- />
-
- <Dialog
- visible={isSyncErrorVisible}
- onClose={() => setIsSyncErrorVisible(false)}
- onConfirm={() => setIsSyncErrorVisible(false)}
- title="Đồng bộ thất bại"
- description="Không thể kết nối đến máy chủ. Vui lòng thử lại sau khi có mạng ổn định."
- confirmLabel="Xác nhận"
- variant="danger"
- />
-
- {/* Drawer Hamburger Sidebar */}
+      <Dialog
+        visible={isSyncErrorVisible}
+        onClose={() => setIsSyncErrorVisible(false)}
+        onConfirm={() => setIsSyncErrorVisible(false)}
+        title="Đồng bộ thất bại"
+        description="Không thể kết nối đến máy chủ. Vui lòng thử lại sau khi có mạng ổn định."
+        confirmLabel="Xác nhận"
+        variant="danger"
+      />
+    </>
+  )}
+{/* Drawer Hamburger Sidebar */}
  <DrawerMenu 
  visible={isDrawerOpen} 
  onClose={() => setIsDrawerOpen(false)} 
