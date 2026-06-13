@@ -1015,57 +1015,70 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                 })
                 .map(([cartItemId, item], idx) => {
                   const isTimeCharge = item.productId === 'TIME_CHARGE';
+                  let itemToRender = item;
+                  if (isTimeCharge && cartOwnerTable && cartOwnerTable.startTime) {
+                    const billing = calculateBilling(cartOwnerTable, customCheckoutTime || undefined);
+                    const billingName = cartOwnerTable.type === 'room'
+                      ? `Tiền phòng - ${cartOwnerTable.name} (${billing.label})`
+                      : `Tiền giờ - ${cartOwnerTable.name} (${billing.label})`;
+                    
+                    itemToRender = {
+                      ...item,
+                      price: billing.cost,
+                      name: billingName
+                    };
+                  }
                   return (
                     <View key={cartItemId} className={`py-3 px-2 rounded-xl ${idx > 0 && !isTimeCharge ? 'border-t border-slate-100' : ''} ${isTimeCharge ? 'bg-emerald-50/60 border border-emerald-100 my-1.5' : ''}`}>
                       {/* Top Row: Name, Quantity, Total Price */}
                       <View className="flex-row justify-between items-start mb-1">
                         {/* Name & Modifiers */}
                         <View className="flex-1 pr-2">
-                          <Text className={`font-semibold text-sm leading-tight ${isTimeCharge ? 'text-emerald-800' : 'text-slate-800'}`}>{item.name}</Text>
-                          {item.variant_label && (!item.modifiers || item.modifiers.length === 0) && (
-                            <Text className="text-xs text-violet-600 font-medium mt-0.5">{item.variant_label}</Text>
+                          <Text className={`font-semibold text-sm leading-tight ${isTimeCharge ? 'text-emerald-800' : 'text-slate-800'}`}>{itemToRender.name}</Text>
+                          {itemToRender.variant_label && (!itemToRender.modifiers || itemToRender.modifiers.length === 0) && (
+                            <Text className="text-xs text-violet-600 font-medium mt-0.5">{itemToRender.variant_label}</Text>
                           )}
-                          {item.modifiers && item.modifiers.length > 0 && (
+                          {itemToRender.modifiers && itemToRender.modifiers.length > 0 && (
                             <Text className="text-xs text-amber-600 mt-0.5">
-                              {item.modifiers.map((m: any) => m.option).join(' · ')}
-                              {(item.modifier_total || 0) > 0 && (
-                                <Text className="text-emerald-600 font-medium"> +{formatCurrency(item.modifier_total || 0)}</Text>
+                              {itemToRender.modifiers.map((m: any) => m.option).join(' · ')}
+                              {(itemToRender.modifier_total || 0) > 0 && (
+                                <Text className="text-emerald-600 font-medium"> +{formatCurrency(itemToRender.modifier_total || 0)}</Text>
                               )}
                             </Text>
                           )}
                         </View>
-
+ 
                         <View className="flex-row items-center">
                           {/* Quantity Control */}
                           <View className="flex-row items-center bg-slate-50 border border-slate-200 rounded-md overflow-hidden mr-2">
                             <TouchableOpacity 
-                              onPress={() => !loading && updateCartItemQuantity(cartItemId, item.quantity - 1)} 
+                              onPress={() => !loading && updateCartItemQuantity(cartItemId, itemToRender.quantity - 1)} 
                               disabled={loading || isTimeCharge} 
                               className={`w-7 h-7 items-center justify-center border-r border-slate-200 bg-white active:bg-slate-100 ${(loading || isTimeCharge) ? 'opacity-30' : ''}`}
                             >
                               <Text className="text-slate-600 font-medium">-</Text>
                             </TouchableOpacity>
-                            <Text className="w-8 text-center text-xs font-semibold text-slate-800 bg-white" style={{lineHeight: 28}}>{item.quantity}</Text>
+                            <Text className="w-8 text-center text-xs font-semibold text-slate-800 bg-white" style={{lineHeight: 28}}>{itemToRender.quantity}</Text>
                             <TouchableOpacity 
-                              onPress={() => !loading && updateCartItemQuantity(cartItemId, item.quantity + 1)} 
+                              onPress={() => !loading && updateCartItemQuantity(cartItemId, itemToRender.quantity + 1)} 
                               disabled={loading || isTimeCharge} 
                               className={`w-7 h-7 items-center justify-center border-l border-slate-200 bg-white active:bg-slate-100 ${(loading || isTimeCharge) ? 'opacity-30' : ''}`}
                             >
                               <Text className="text-slate-600 font-medium">+</Text>
                             </TouchableOpacity>
                           </View>
-
+ 
                           {/* Total Price */}
                           <View className="w-[85px] items-end">
-                             <Text className={`font-bold text-[15px] ${isTimeCharge ? 'text-emerald-700' : 'text-slate-800'}`}>{formatCurrency((item.price + (item.modifier_total || 0)) * item.quantity)}</Text>
+                             <Text className={`font-bold text-[15px] ${isTimeCharge ? 'text-emerald-700' : 'text-slate-800'}`}>{formatCurrency((itemToRender.price + (itemToRender.modifier_total || 0)) * itemToRender.quantity)}</Text>
                           </View>
                         </View>
                       </View>
-
+ 
                       {/* Bottom Row: Unit Price, Delete */}
                       <View className="flex-row justify-between items-center mt-1">
                         <Text className="text-xs text-slate-500 font-medium">
-                          Đơn giá: {formatCurrency(item.price + (item.modifier_total || 0))} {productsList.find(pr => pr.id === item.productId)?.unit ? `/ ${productsList.find(pr => pr.id === item.productId)?.unit}` : ''}
+                          Đơn giá: {formatCurrency(itemToRender.price + (itemToRender.modifier_total || 0))} {productsList.find(pr => pr.id === itemToRender.productId)?.unit ? `/ ${productsList.find(pr => pr.id === itemToRender.productId)?.unit}` : ''}
                         </Text>
                         <TouchableOpacity 
                           onPress={() => !loading && removeFromCart(cartItemId)} 

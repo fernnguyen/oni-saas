@@ -759,7 +759,11 @@ export default function ProductsScreen() {
       {renderToast()}
 
       {/* Header */}
-      <Header onPressMenu={() => setIsDrawerOpen(true)} syncStatus="synced" />
+      <Header 
+        title="Quản lý sản phẩm" 
+        onPressMenu={() => router.push('/(tabs)')} 
+        showBack={true} 
+      />
 
       {/* Drawer */}
       <DrawerMenu visible={isDrawerOpen} onClose={() => setIsDrawerOpen(false)} />

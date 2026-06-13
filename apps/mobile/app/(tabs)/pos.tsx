@@ -434,7 +434,7 @@ export default function PosScreen() {
     discount: number,
     note: string,
     payments: { id: string; method: string; fund_id: string; amount: number }[],
-    debtRepayOpts?: { debtRepayAmount?: number; debtFundId?: string; debtMethod?: string }
+    debtRepayOpts?: { debtRepayAmount?: number; debtFundId?: string; debtMethod?: string; customCheckoutTime?: Date }
   ) => {
     const originalTotal = getCartTotal();
     const finalTotal = Math.max(0, originalTotal - discount);
@@ -442,7 +442,7 @@ export default function PosScreen() {
 
 
     if (cartOwnerTable) {
-      await handlePayTableConfirmUnified(customer, discount, note, payments);
+      await handlePayTableConfirmUnified(customer, discount, note, payments, debtRepayOpts?.customCheckoutTime);
       return;
     }
     setIsPayingCartLoading(true);
