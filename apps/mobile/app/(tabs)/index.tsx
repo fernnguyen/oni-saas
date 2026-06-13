@@ -507,7 +507,17 @@ export default function DashboardScreen() {
                   } catch (e) {}
                 }
 
-                const shiftOrders = (ordersJson.data || []).filter((o: any) => o.shift_id === activeShiftId);
+                const openTime = activeShift.opened_at ? new Date(activeShift.opened_at).getTime() : 0;
+                const closeTime = activeShift.closed_at ? new Date(activeShift.closed_at).getTime() : Infinity;
+
+                const shiftOrders = (ordersJson.data || []).filter((o: any) => {
+                  if (o.shift_id === activeShiftId) return true;
+                  if (o.created_at && openTime > 0) {
+                    const orderTime = new Date(o.created_at).getTime();
+                    return orderTime >= openTime && orderTime <= closeTime;
+                  }
+                  return false;
+                });
                 const todayRev = shiftOrders.reduce((sum: number, o: any) => sum + parseFloat(o.total_amount || '0'), 0);
                 const todayOrd = shiftOrders.length;
                 const aovVal = todayOrd > 0 ? Math.round(todayRev / todayOrd) : 0;

@@ -601,14 +601,14 @@ export default function CustomersScreen() {
             )}
           </View>
           <TouchableOpacity 
-            className="w-[44px] h-[44px] bg-orange-50 border border-orange-200 rounded-2xl items-center justify-center ml-2.5 active:bg-orange-100 shadow-sm"
+            className="w-[36px] h-[36px] bg-white border border-slate-200 rounded-2xl items-center justify-center ml-2.5 active:bg-slate-50 shadow-sm"
             onPress={handleSyncCustomersFromServer}
             disabled={isSyncing}
           >
             {isSyncing ? (
               <ActivityIndicator size="small" color="#fa5908" />
             ) : (
-              <Ionicons name="cloud-download-outline" size={20} color="#fa5908" />
+              <Ionicons name="sync-outline" size={16} color="#fa5908" />
             )}
           </TouchableOpacity>
         </View>
