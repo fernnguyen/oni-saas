@@ -186,6 +186,22 @@ export async function POST(
       }
     }
 
+    // Tra cứu ca đang mở của nhân viên nếu shift_id không được truyền lên (ví dụ Checkout từ Web POS)
+    let resolvedShiftId = order.shift_id || ''
+    if (!resolvedShiftId && order.branch_id && order.employee_id) {
+      try {
+        const shiftsRes = await connector.list('shop-shifts', {
+          filters: { branch_id: order.branch_id, user_id: order.employee_id, status: 'open' },
+          limit: 1
+        })
+        if (shiftsRes.total > 0) {
+          resolvedShiftId = (shiftsRes.data[0] as Record<string, string>).id || ''
+        }
+      } catch (err) {
+        console.warn('Lỗi tự động tra cứu ca làm việc trong sync-batch:', err)
+      }
+    }
+
     if (!serverId) {
       isNewOrder = true
       const createData: Record<string, string> = {
@@ -206,7 +222,7 @@ export async function POST(
         note:            order.note ?? '',
         payment_method:  paymentMethod ?? 'cash',
         reference_no:    local_order_id ?? '',
-        shift_id:        order.shift_id ?? '',
+        shift_id:        resolvedShiftId,
         created_at:      getGMT7Time(),
       }
       if (order.metadata !== undefined) {
@@ -237,8 +253,8 @@ export async function POST(
       if (local_order_id) {
         updateData.reference_no = local_order_id
       }
-      if (order.shift_id) {
-        updateData.shift_id = order.shift_id
+      if (resolvedShiftId) {
+        updateData.shift_id = resolvedShiftId
       }
       if (order.metadata !== undefined) {
         updateData.metadata = order.metadata
