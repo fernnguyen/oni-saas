@@ -2038,50 +2038,48 @@ export default function PosScreen() {
                     {tableCarts[activeTable.id] && Object.keys(tableCarts[activeTable.id]).length > 0 ? (
                       <View className="mb-4">
                         <Text className="text-tiny text-slate-400 font-medium mb-2">Món ăn / Dịch vụ đã gọi:</Text>
-                        <View className="bg-slate-50 border border-slate-200 rounded-xl p-3 max-h-32 overflow-hidden">
-                          <ScrollView nestedScrollEnabled={true}>
-                            {Object.entries(tableCarts[activeTable.id]).map(([cartItemId, item]) => (
-                              <View key={cartItemId} className="flex-row justify-between items-center py-2 border-b border-slate-100 last:border-0">
-                                <Text className="text-xs font-semibold text-slate-700 flex-1 mr-2" numberOfLines={1}>{item.name}</Text>
+                        <View className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+                          {Object.entries(tableCarts[activeTable.id]).map(([cartItemId, item]) => (
+                            <View key={cartItemId} className="flex-row justify-between items-center py-2 border-b border-slate-100 last:border-0">
+                              <Text className="text-xs font-semibold text-slate-700 flex-1 mr-2" numberOfLines={1}>{item.name}</Text>
 
-                                <View className="flex-row items-center gap-2">
-                                  {/* Nút giảm số lượng */}
-                                  <TouchableOpacity
-                                    onPress={() => handleDecreaseTableItemQty(activeTable.id, cartItemId)}
-                                    className="w-7 h-7 bg-slate-100 rounded-lg justify-center items-center active:bg-slate-200"
-                                  >
-                                    <Text className="text-slate-600 font-bold text-sm">-</Text>
-                                  </TouchableOpacity>
+                              <View className="flex-row items-center gap-2">
+                                {/* Nút giảm số lượng */}
+                                <TouchableOpacity
+                                  onPress={() => handleDecreaseTableItemQty(activeTable.id, cartItemId)}
+                                  className="w-7 h-7 bg-slate-100 rounded-lg justify-center items-center active:bg-slate-200"
+                                >
+                                  <Text className="text-slate-600 font-bold text-sm">-</Text>
+                                </TouchableOpacity>
 
-                                  {/* Ô hiển thị số lượng */}
-                                  <View className="min-w-[30px] h-7 bg-white border border-slate-200 rounded-lg justify-center items-center px-1">
-                                    <Text className="text-xs font-bold text-slate-800">{item.quantity}</Text>
-                                  </View>
-
-                                  {/* Nút tăng số lượng */}
-                                  <TouchableOpacity
-                                    onPress={() => handleIncreaseTableItemQty(activeTable.id, cartItemId)}
-                                    className="w-7 h-7 bg-slate-100 rounded-lg justify-center items-center active:bg-slate-200"
-                                  >
-                                    <Text className="text-slate-600 font-bold text-sm">+</Text>
-                                  </TouchableOpacity>
-
-                                  {/* Thành tiền */}
-                                  <Text className="text-xs font-bold text-slate-800 min-w-[70px] text-right ml-1">
-                                    {formatCurrency((item.price + (item.modifier_total || 0)) * item.quantity)}
-                                  </Text>
-
-                                  {/* Nút Xóa món */}
-                                  <TouchableOpacity
-                                    onPress={() => handleRemoveTableItem(activeTable.id, cartItemId)}
-                                    className="p-1 ml-1"
-                                  >
-                                    <Ionicons name="close" size={16} color="#94a3b8" />
-                                  </TouchableOpacity>
+                                {/* Ô hiển thị số lượng */}
+                                <View className="min-w-[30px] h-7 bg-white border border-slate-200 rounded-lg justify-center items-center px-1">
+                                  <Text className="text-xs font-bold text-slate-800">{item.quantity}</Text>
                                 </View>
+
+                                {/* Nút tăng số lượng */}
+                                <TouchableOpacity
+                                  onPress={() => handleIncreaseTableItemQty(activeTable.id, cartItemId)}
+                                  className="w-7 h-7 bg-slate-100 rounded-lg justify-center items-center active:bg-slate-200"
+                                >
+                                  <Text className="text-slate-600 font-bold text-sm">+</Text>
+                                </TouchableOpacity>
+
+                                {/* Thành tiền */}
+                                <Text className="text-xs font-bold text-slate-800 min-w-[70px] text-right ml-1">
+                                  {formatCurrency((item.price + (item.modifier_total || 0)) * item.quantity)}
+                                </Text>
+
+                                {/* Nút Xóa món */}
+                                <TouchableOpacity
+                                  onPress={() => handleRemoveTableItem(activeTable.id, cartItemId)}
+                                  className="p-1 ml-1"
+                                >
+                                  <Ionicons name="close" size={16} color="#94a3b8" />
+                                </TouchableOpacity>
                               </View>
-                            ))}
-                          </ScrollView>
+                            </View>
+                          ))}
                         </View>
                       </View>
                     ) : null}

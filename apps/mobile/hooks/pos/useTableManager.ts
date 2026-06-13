@@ -429,7 +429,12 @@ export function useTableManager(props: UseTableManagerProps) {
         // Bắt trạng thái đơn hàng/phòng đã thanh toán và giải phóng trên Cloud -> Tự động chữa lành cục bộ!
         if ('isFinished' in onlineSession && onlineSession.isFinished) {
           setIsSyncingTableSession(false);
-          setActiveTable(null); // Đóng modal ngay lập tức
+          setActiveTable((prev: any) => {
+            if (prev && prev.id === table.id) {
+              return null;
+            }
+            return prev;
+          }); // Chỉ đóng modal nếu đang xem đúng bàn này
 
           // A. Cập nhật SQLite nội địa sang trống
           if (Platform.OS !== 'web') {
@@ -570,7 +575,12 @@ export function useTableManager(props: UseTableManagerProps) {
           }))
           : [{ name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', address: '', note: '' }]);
 
-        setActiveTable(updatedTable);
+        setActiveTable((prev: any) => {
+          if (prev && prev.id === table.id) {
+            return updatedTable;
+          }
+          return prev;
+        }); // Chỉ cập nhật dữ liệu nếu người dùng vẫn đang xem bàn này
         return { isFinished: false };
       }
       return { isFinished: false };

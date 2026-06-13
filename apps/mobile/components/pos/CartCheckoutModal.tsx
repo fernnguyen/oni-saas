@@ -1855,10 +1855,10 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                   const isDeviationLarge = totalMinutes >= 15;
                   
                   return (
-                    <View className="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-1.5">
+                    <View className="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-1.5 mt-3">
                       <View className="flex-row items-center">
                         <Ionicons name="shield-checkmark-outline" size={14} color="#d97706" />
-                        <Text className="text-[10px] font-bold text-amber-800 ml-1">ĐẢM BẢO TÍNH MINH BẠCH</Text>
+                        <Text className="text-[10px] font-bold text-amber-800 ml-1">Cảnh báo</Text>
                       </View>
                       <Text className="text-[10px] text-amber-800 leading-relaxed font-medium">
                         {isDeviationLarge 
