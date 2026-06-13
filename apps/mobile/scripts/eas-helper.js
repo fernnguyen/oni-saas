@@ -271,6 +271,56 @@ function showGooglePlayGuide() {
   });
 }
 
+function runCleanNative() {
+  printHeader();
+  console.log(`${COLORS.bold}${COLORS.yellow}🧹 DỌN DẸP & TẠO LẠI THƯ MỤC NATIVE (PREBUILD CLEAN)${COLORS.reset}\n`);
+  console.log(`${COLORS.red}⚠️  CẢNH BÁO: Lựa chọn này sẽ:`);
+  console.log(` 1. Xóa hoàn toàn thư mục 'ios/' và 'android/' hiện có.`);
+  console.log(` 2. Chạy 'pnpm install' để đồng bộ hóa dependencies.`);
+  console.log(` 3. Chạy 'npx expo prebuild --clean' để tự động tạo lại các thư mục native sạch sẽ.`);
+  console.log(` (Phù hợp nhất khi mới cài thêm thư viện native mới hoặc app bị crash lúc khởi động)${COLORS.reset}\n`);
+
+  rl.question('Bạn có chắc chắn muốn dọn dẹp và cài đặt lại không? (y/N): ', (answer) => {
+    if (answer.trim().toLowerCase() !== 'y') {
+      console.log(`\n❌ Đã hủy thao tác.`);
+      rl.question('\nNhấn Enter để quay lại...', () => {
+        mainMenu();
+      });
+      return;
+    }
+
+    try {
+      console.log(`\n🗑️  Đang xóa các thư mục native...`);
+      const iosPath = path.join(MOBILE_DIR, 'ios');
+      const androidPath = path.join(MOBILE_DIR, 'android');
+      
+      if (fs.existsSync(iosPath)) {
+        fs.rmSync(iosPath, { recursive: true, force: true });
+        console.log(`   - Đã xóa thư mục ios/`);
+      }
+      if (fs.existsSync(androidPath)) {
+        fs.rmSync(androidPath, { recursive: true, force: true });
+        console.log(`   - Đã xóa thư mục android/`);
+      }
+
+      console.log(`\n📦 Đang chạy pnpm install để đồng bộ thư viện...`);
+      execSync('pnpm install', { stdio: 'inherit', cwd: path.resolve(MOBILE_DIR, '../..') });
+
+      console.log(`\n⚙️  Đang chạy npx expo prebuild --clean...`);
+      execSync('npx expo prebuild --clean', { stdio: 'inherit', cwd: MOBILE_DIR });
+
+      console.log(`\n${COLORS.green}✨ Hoàn thành dọn dẹp và prebuild native thành công!${COLORS.reset}`);
+    } catch (err) {
+      console.log(`\n${COLORS.red}❌ Lỗi trong quá trình dọn dẹp:${COLORS.reset}`);
+      console.error(err.message);
+    }
+
+    rl.question('\nNhấn Enter để quay lại...', () => {
+      mainMenu();
+    });
+  });
+}
+
 function mainMenu() {
   printHeader();
   console.log(`Chọn một tùy chọn dưới đây:\n`);
@@ -288,10 +338,11 @@ function mainMenu() {
   console.log(` ${COLORS.bold}9.${COLORS.reset} ${COLORS.magenta}Submit Android (AAB) lên Google Play${COLORS.reset}`);
   console.log(` ${COLORS.bold}10.${COLORS.reset} ${COLORS.magenta}Submit iOS (IPA) lên TestFlight${COLORS.reset}`);
   console.log(` ${COLORS.bold}11.${COLORS.reset} ${COLORS.yellow}Hướng dẫn cấu hình Google Play Store API & Service Account${COLORS.reset}`);
-  console.log(` ${COLORS.bold}12.${COLORS.reset} Thoát`);
+  console.log(` ${COLORS.bold}12.${COLORS.reset} ${COLORS.red}Dọn dẹp hoàn toàn & Tạo lại thư mục native (Prebuild Clean)${COLORS.reset}`);
+  console.log(` ${COLORS.bold}13.${COLORS.reset} Thoát`);
   console.log(`\n----------------------------------------------------`);
 
-  rl.question('\nNhập lựa chọn của bạn (1-12): ', (choice) => {
+  rl.question('\nNhập lựa chọn của bạn (1-13): ', (choice) => {
     switch (choice.trim()) {
       case '1':
         showGuide();
@@ -327,12 +378,15 @@ function mainMenu() {
         showGooglePlayGuide();
         break;
       case '12':
+        runCleanNative();
+        break;
+      case '13':
         console.log(`\nTạm biệt! Chúc bạn một ngày tốt lành!`);
         rl.close();
         process.exit(0);
         break;
       default:
-        console.log(`${COLORS.red}\nLựa chọn không hợp lệ! Vui lòng chọn từ 1 đến 12.${COLORS.reset}`);
+        console.log(`${COLORS.red}\nLựa chọn không hợp lệ! Vui lòng chọn từ 1 đến 13.${COLORS.reset}`);
         setTimeout(mainMenu, 1500);
         break;
     }

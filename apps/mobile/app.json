@@ -20,6 +20,7 @@
         ],
         "NSCameraUsageDescription": "Ứng dụng cần quyền truy cập camera để quét mã vạch sản phẩm.",
         "NSFaceIDUsageDescription": "Ứng dụng cần sử dụng Face ID để đăng nhập nhanh chóng và bảo mật tài khoản.",
+        "NSPhotoLibraryUsageDescription": "Ứng dụng cần truy cập thư viện ảnh để chọn ảnh sản phẩm hoặc ảnh đại diện.",
         "ITSAppUsesNonExemptEncryption": false
       }
     },
@@ -53,7 +54,21 @@
           "defaultChannel": "default"
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-local-authentication",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Ứng dụng cần quyền truy cập camera để quét mã vạch sản phẩm."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Ứng dụng cần truy cập thư viện ảnh để chọn ảnh sản phẩm hoặc ảnh đại diện.",
+          "cameraPermission": "Ứng dụng cần truy cập camera để chụp ảnh sản phẩm."
+        }
+      ]
     ],
     "scheme": "oni-pos",
     "extra": {
