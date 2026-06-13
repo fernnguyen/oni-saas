@@ -315,7 +315,7 @@ export function Header({
  </View>
 
  {/* Danh sách shops - Loại bỏ chữ cái đại diện, đổi bằng storefront icon */}
- <ScrollView className="max-h-60" showsVerticalScrollIndicator={false}>
+ <ScrollView style={{ maxHeight: 480 }} showsVerticalScrollIndicator={false}>
  {branchList.map((branch) => {
  const isSelected = branch.id === activeBranchId;
  return (
@@ -341,7 +341,7 @@ export function Header({
  <Text className={`text-xs font-semibold ${isSelected ? 'text-orange-500' : 'text-slate-800'}`}>
  {branch.name}
  </Text>
- <Text className="text-xxs text-slate-450 font-medium mt-0.5" numberOfLines={1}>
+ <Text className="text-xxs text-slate-450 font-medium mt-0.5">
  {branch.address}
  </Text>
  </View>
