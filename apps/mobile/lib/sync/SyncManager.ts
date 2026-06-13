@@ -6,6 +6,15 @@ import { eq } from 'drizzle-orm';
 import { formatDateTime } from '../utils/format';
 
 export class SyncManager {
+  private static cashbookRetries: Record<string, number> = {};
+
+  static clearCashbookRetry(id: string) {
+    delete SyncManager.cashbookRetries[id];
+  }
+
+  static clearAllCashbookRetries() {
+    SyncManager.cashbookRetries = {};
+  }
   
   // ==========================================
   // 1. TẢI TOÀN BỘ DỮ LIỆU ĐẦU PHIÊN (FULL SYNC PULL)
@@ -472,27 +481,91 @@ export class SyncManager {
       if (pendingShifts.length === 0) return true;
 
       const headers = await getApiHeaders();
-      for (const shift of pendingShifts) {
-        // Gọi API POST /api/shops/[shopId]/shifts để tạo/cập nhật ca thực tế
-        const response = await fetch(`${getApiBaseUrl()}/api/shops/${shopId}/shifts`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            id: shift.id,
-            opened_at: shift.opened_at,
-            closed_at: shift.closed_at,
-            status: shift.status,
-            opening_cash: String(shift.opening_cash),
-            actual_closing_cash: String(shift.actual_closing_cash),
-          }),
-        });
+      const baseUrl = getApiBaseUrl();
 
-        if (response.ok) {
-          await db
-            .update(schema.shop_shifts)
-            .set({ sync_status: 'synced' })
-            .where(eq(schema.shop_shifts.id, shift.id));
-          console.log(`Đồng bộ Ca làm việc #${shift.id} thành công!`);
+      for (const shift of pendingShifts) {
+        try {
+          let currentShiftId = shift.id;
+          let isNewOpeningSynced = false;
+
+          // 1. Nếu ca được mở offline (ID có tiền tố 'shift-') -> POST lên server để mở ca trước
+          if (currentShiftId.startsWith('shift-')) {
+            const openRes = await fetch(`${baseUrl}/api/shops/${shopId}/shifts`, {
+              method: 'POST',
+              headers: { ...headers, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                branch_id: shopId,
+                opening_cash: Number(shift.opening_cash),
+              }),
+            });
+
+            if (openRes.ok) {
+              const resJson = await openRes.json().catch(() => ({}));
+              const serverShiftId = resJson.id;
+
+              if (serverShiftId) {
+                // Cập nhật ID ca làm việc trong SQLite
+                await db.update(schema.shop_shifts)
+                  .set({ id: serverShiftId })
+                  .where(eq(schema.shop_shifts.id, shift.id));
+
+                // Cập nhật AsyncStorage nếu là ca đang hoạt động
+                const currentActiveShiftId = await AsyncStorage.getItem('active_shift_id');
+                if (currentActiveShiftId === shift.id) {
+                  await AsyncStorage.setItem('active_shift_id', serverShiftId);
+                }
+
+                // Cập nhật tất cả hóa đơn tham chiếu đến ca này
+                await db.update(schema.orders)
+                  .set({ shift_id: serverShiftId })
+                  .where(eq(schema.orders.shift_id, shift.id));
+
+                console.log(`[Sync Shift] Đã tạo ca thành công trên server. Cập nhật local ID ${shift.id} thành ${serverShiftId}`);
+                currentShiftId = serverShiftId;
+                isNewOpeningSynced = true;
+              }
+            } else {
+              const errorText = await openRes.text().catch(() => '');
+              console.warn(`[Sync Shift] Lỗi POST mở ca #${shift.id}: ${openRes.status}. Chi tiết: ${errorText}`);
+              
+              // Tự động dọn dẹp: Nếu server báo ca làm việc đã có ca mở hoặc trùng ca
+              if (errorText.includes('đã có một ca làm việc đang mở') || openRes.status === 400) {
+                await db.delete(schema.shop_shifts).where(eq(schema.shop_shifts.id, shift.id));
+                console.log(`[Sync Shift] Đã tự động xóa ca kíp trùng lặp #${shift.id} khỏi SQLite cục bộ.`);
+              }
+              continue;
+            }
+          }
+
+          // 2. Nếu ca đã đóng cục bộ -> Gửi PUT lên server để đóng ca
+          if (shift.status === 'closed') {
+            const closeRes = await fetch(`${baseUrl}/api/shops/${shopId}/shifts/${currentShiftId}`, {
+              method: 'PUT',
+              headers: { ...headers, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                actual_closing_cash: Number(shift.actual_closing_cash),
+                note: shift.note || '',
+              }),
+            });
+
+            if (closeRes.ok) {
+              await db.update(schema.shop_shifts)
+                .set({ sync_status: 'synced' })
+                .where(eq(schema.shop_shifts.id, currentShiftId));
+              console.log(`[Sync Shift] Đã đóng ca #${currentShiftId} thành công trên server!`);
+            } else {
+              const errorText = await closeRes.text().catch(() => '');
+              console.warn(`[Sync Shift] Lỗi PUT đóng ca #${currentShiftId}: ${closeRes.status}. Chi tiết: ${errorText}`);
+            }
+          } else if (isNewOpeningSynced) {
+            // Ca vẫn đang mở nhưng đã đồng bộ thành công việc mở ca lên server
+            await db.update(schema.shop_shifts)
+              .set({ sync_status: 'synced' })
+              .where(eq(schema.shop_shifts.id, currentShiftId));
+            console.log(`[Sync Shift] Ca đang mở #${currentShiftId} đã đồng bộ thành công!`);
+          }
+        } catch (e) {
+          console.error(`[Sync Shift] Lỗi kết nối khi đồng bộ ca #${shift.id}:`, e);
         }
       }
       return true;
@@ -560,6 +633,7 @@ export class SyncManager {
           }
 
           if (response.ok) {
+            delete SyncManager.cashbookRetries[item.id];
             const resJson = await response.json().catch(() => ({}));
             const serverId = resJson.transaction_id || resJson.id || item.id;
 
@@ -582,14 +656,35 @@ export class SyncManager {
             
             // Nếu lỗi 400 (Bad Request), đánh dấu là 'review' để xử lý bằng tay trên web
             if (response.status === 400) {
+              delete SyncManager.cashbookRetries[item.id];
               await db.update(schema.cashbook)
                 .set({ sync_status: 'review' })
                 .where(eq(schema.cashbook.id, item.id));
+            } else {
+              // Lỗi kết nối/mạng khác hoặc lỗi máy chủ (5xx)
+              const retries = (SyncManager.cashbookRetries[item.id] || 0) + 1;
+              SyncManager.cashbookRetries[item.id] = retries;
+              if (retries >= 3) {
+                delete SyncManager.cashbookRetries[item.id];
+                await db.update(schema.cashbook)
+                  .set({ sync_status: 'failed' })
+                  .where(eq(schema.cashbook.id, item.id));
+                console.warn(`Phiếu quỹ #${item.id} đạt tối đa 3 lần thử lỗi server. Đã đánh dấu 'failed'.`);
+              }
             }
           }
         } catch (e) {
           failedCount++;
           console.error(`Lỗi kết nối khi đồng bộ phiếu quỹ #${item.id}:`, e);
+          const retries = (SyncManager.cashbookRetries[item.id] || 0) + 1;
+          SyncManager.cashbookRetries[item.id] = retries;
+          if (retries >= 3) {
+            delete SyncManager.cashbookRetries[item.id];
+            await db.update(schema.cashbook)
+              .set({ sync_status: 'failed' })
+              .where(eq(schema.cashbook.id, item.id));
+            console.warn(`Phiếu quỹ #${item.id} đạt tối đa 3 lần thử lỗi mạng. Đã đánh dấu 'failed'.`);
+          }
         }
       }
     } catch (err) {

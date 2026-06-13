@@ -56,7 +56,7 @@ export function SyncBanner({
           .from(schema.orders)
           .where(and(
             eq(schema.orders.sync_status, 'pending'),
-            eq(schema.orders.branch_id, activeShopId)
+            like(schema.orders.shift_id, `shift-${activeShopId}-%`)
           ));
 
         const pendingCashbook = await db

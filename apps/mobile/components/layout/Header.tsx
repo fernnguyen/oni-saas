@@ -1,5 +1,5 @@
 import React, {useEffect, useState} from 'react';
-import {Text, View, TouchableOpacity, Platform, Modal, ScrollView, TouchableWithoutFeedback, DeviceEventEmitter} from 'react-native';
+import {Text, View, TouchableOpacity, Platform, Modal, ScrollView, TouchableWithoutFeedback, DeviceEventEmitter, Animated} from 'react-native';
 import {Ionicons} from '@expo/vector-icons';
 import {router} from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -54,6 +54,72 @@ export function Header({
     movements: 0
   });
 
+  // Toast states
+  const [toastMsg, setToastMsg] = useState<{message: string; type: 'success' | 'error' | 'info'} | null>(null);
+  const toastOpacity = React.useRef(new Animated.Value(0)).current;
+
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+    setToastMsg({message, type});
+    Haptics.notificationAsync(
+      type === 'success' ? Haptics.NotificationFeedbackType.Success :
+      type === 'error' ? Haptics.NotificationFeedbackType.Error :
+      Haptics.NotificationFeedbackType.Warning
+    ).catch(() => {});
+    
+    Animated.sequence([
+      Animated.timing(toastOpacity, {toValue: 1, duration: 250, useNativeDriver: true}),
+      Animated.delay(2000),
+      Animated.timing(toastOpacity, {toValue: 0, duration: 250, useNativeDriver: true})
+    ]).start(() => setToastMsg(null));
+  };
+
+  const renderToast = () => {
+    if (!toastMsg) return null;
+    return (
+      <Animated.View 
+        style={{
+          position: 'absolute',
+          top: Platform.OS === 'ios' ? 60 : 30,
+          left: 20,
+          right: 20,
+          zIndex: 999999,
+          opacity: toastOpacity,
+          transform: [
+            {
+              translateY: toastOpacity.interpolate({
+                inputRange: [0, 1],
+                outputRange: [-20, 0]
+              })
+            }
+          ],
+          shadowColor: '#000',
+          shadowOffset: {width: 0, height: 4},
+          shadowOpacity: 0.15,
+          shadowRadius: 8,
+          elevation: 999
+        }}
+        className={`flex-row items-center px-4 py-3.5 rounded-2xl border ${
+          toastMsg.type === 'success' ? 'bg-emerald-500 border-emerald-600' :
+          toastMsg.type === 'error' ? 'bg-rose-500 border-rose-600' :
+          'bg-blue-600 border-blue-700'
+        }`}
+      >
+        <Ionicons 
+          name={
+            toastMsg.type === 'success' ? 'checkmark-circle' :
+            toastMsg.type === 'error' ? 'alert-circle' :
+            'information-circle'
+          } 
+          size={18} 
+          color="white" 
+        />
+        <Text className="flex-1 ml-2.5 text-white font-medium text-xs">
+          {toastMsg.message}
+        </Text>
+      </Animated.View>
+    );
+  };
+
   const loadSyncCounts = async () => {
     try {
       const shopId = await AsyncStorage.getItem('active_shop_id') || '';
@@ -64,7 +130,7 @@ export function Header({
         .from(schema.orders)
         .where(and(
           eq(schema.orders.sync_status, 'pending'),
-          eq(schema.orders.branch_id, shopId)
+          like(schema.orders.shift_id, `shift-${shopId}-%`)
         ));
 
       const pCashbook = await db
@@ -203,24 +269,78 @@ export function Header({
  return;
 }
 
- // 2. Thiết lập ca làm việc di động mới trong SQLite cho chi nhánh mới
- const nowStr = new Date().toISOString();
- const shiftId = `shift-${newShopId}-${Date.now()}`;
- await AsyncStorage.setItem('active_shift_id', shiftId);
+  // 2. Thiết lập ca làm việc di động cho chi nhánh mới
+  let isShiftEnabled = false;
+  let activeShiftId = null;
 
- const loggedUserName = await AsyncStorage.getItem('user_name');
- const userEmail = await AsyncStorage.getItem('saved_email');
- const employeeName = loggedUserName || (userEmail ? (userEmail.includes('@') ? userEmail.split('@')[0] : userEmail) : 'Nhân viên');
+  const currentUrl = await loadApiBaseUrl();
+  const headers = await getApiHeaders();
+  const userEmail = (await AsyncStorage.getItem('saved_email')) || '';
 
- await db.insert(schema.shop_shifts).values({
- id: shiftId,
- opened_at: nowStr,
- status: 'open',
- opening_cash: 0,
- actual_closing_cash: 0,
- employee_name: employeeName,
- sync_status: 'pending',
-}).onConflictDoNothing();
+  // A. Kiểm tra cài đặt quản lý ca kíp
+  try {
+    const settingsRes = await fetch(`${currentUrl}/api/shops/${newShopId}/settings`, { headers });
+    if (settingsRes.ok) {
+      const settingsJson = await settingsRes.json();
+      isShiftEnabled = settingsJson.enable_shift_management ?? false;
+      await AsyncStorage.setItem(`cached_enable_shift_management_${newShopId}`, isShiftEnabled ? 'true' : 'false');
+    } else {
+      const cached = await AsyncStorage.getItem(`cached_enable_shift_management_${newShopId}`);
+      if (cached) isShiftEnabled = cached === 'true';
+    }
+  } catch (err) {
+    const cached = await AsyncStorage.getItem(`cached_enable_shift_management_${newShopId}`);
+    if (cached) isShiftEnabled = cached === 'true';
+  }
+  await AsyncStorage.setItem('enable_shift_management', isShiftEnabled ? 'true' : 'false');
+
+  if (isShiftEnabled) {
+    let activeShiftOnServer = null;
+    // B. Kiểm tra ca kíp đang mở trên server
+    try {
+      const shiftsRes = await fetch(`${currentUrl}/api/shops/${newShopId}/shifts?status=open&branch_id=${newShopId}&user_id=${userEmail}`, { headers });
+      if (shiftsRes.ok) {
+        const shiftsJson = await shiftsRes.json();
+        if (shiftsJson.total > 0 && shiftsJson.data && shiftsJson.data.length > 0) {
+          activeShiftOnServer = shiftsJson.data[0];
+        }
+      }
+    } catch (err) {
+      console.warn('Lỗi kiểm tra ca mở trên server khi chuyển chi nhánh:', err);
+    }
+
+    if (activeShiftOnServer) {
+      // Dùng ca kíp có sẵn trên server
+      activeShiftId = activeShiftOnServer.id;
+      const loggedUserName = await AsyncStorage.getItem('user_name');
+      await db.insert(schema.shop_shifts).values({
+        id: activeShiftOnServer.id,
+        opened_at: activeShiftOnServer.opened_at,
+        status: 'open',
+        opening_cash: parseFloat(activeShiftOnServer.opening_cash || '0'),
+        actual_closing_cash: 0,
+        employee_name: activeShiftOnServer.employee_name || loggedUserName || 'Nhân viên',
+        sync_status: 'synced',
+      }).onConflictDoNothing();
+      console.log(`[Switch Branch] Đã đồng bộ ca mở từ server: ${activeShiftId}`);
+    } else {
+      // Không có ca kíp trên server (hoặc lỗi offline) -> Check xem SQLite có ca nào đang mở không
+      const localOpenShifts = await db.select()
+        .from(schema.shop_shifts)
+        .where(eq(schema.shop_shifts.status, 'open'));
+      
+      if (localOpenShifts.length > 0) {
+        activeShiftId = localOpenShifts[0].id;
+        console.log(`[Switch Branch] Sử dụng ca mở sẵn có trong SQLite: ${activeShiftId}`);
+      }
+    }
+  }
+
+  if (activeShiftId) {
+    await AsyncStorage.setItem('active_shift_id', activeShiftId);
+  } else {
+    await AsyncStorage.removeItem('active_shift_id');
+  }
 }
 
  // 3. Ghi đè thông tin chi nhánh mới vào AsyncStorage
@@ -728,12 +848,23 @@ export function Header({
               try {
                 const shopId = await AsyncStorage.getItem('active_shop_id');
                 if (shopId) {
-                  alert('Bắt đầu đồng bộ dữ liệu lên cloud...');
+                  // Reset failed cashbook items to pending
+                  await db.update(schema.cashbook)
+                    .set({ sync_status: 'pending' })
+                    .where(and(
+                      eq(schema.cashbook.sync_status, 'failed'),
+                      eq(schema.cashbook.branch_id, shopId)
+                    ));
+                  
+                  // Clear retry counters
+                  SyncManager.clearAllCashbookRetries();
+
                   await KeepAliveManager.triggerSyncIfNeeded(true);
-                  alert('Đồng bộ dữ liệu hoàn tất!');
+                  showToast('Đồng bộ dữ liệu hoàn tất!', 'success');
                 }
               } catch (err) {
                 console.warn('Lỗi đồng bộ thủ công từ Header Modal:', err);
+                showToast('Đồng bộ dữ liệu thất bại!', 'error');
               } finally {
                 setIsHeaderSyncing(false);
               }
@@ -753,8 +884,9 @@ export function Header({
         </View>
       </View>
     </View>
-  </RNModal>
+   </RNModal>
 
+   {renderToast()}
  </View>
- );
-}
+  );
+ }

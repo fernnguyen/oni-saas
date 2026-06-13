@@ -12,6 +12,7 @@ import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { KeepAliveManager } from '../lib/sync/KeepAliveManager';
+import { SyncManager } from '../lib/sync/SyncManager';
 import * as Haptics from 'expo-haptics';
 import { usePermissions } from '../lib/auth/PermissionsContext';
 import { getApiBaseUrl, getApiHeaders } from '../lib/api/config';
@@ -77,6 +78,25 @@ export default function CashbookScreen() {
   const [showCategorySelector, setShowCategorySelector] = useState(false);
   const [showFundSelector, setShowFundSelector] = useState(false);
   const [showCustomerSelector, setShowCustomerSelector] = useState(false);
+
+  // Confirm Modal states
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [confirmData, setConfirmData] = useState<{
+    type: 'receipt' | 'payment';
+    isOffline: boolean;
+    amount: number;
+    category: string;
+    categoryLabel: string;
+    refName: string;
+    customerId: string;
+    currentDebt: number;
+    isDebtCollection: boolean;
+    debtToPay: number;
+    prepaidToDeposit: number;
+    remainingDebt: number;
+    shopId: string;
+    userEmail: string;
+  } | null>(null);
 
   // Sync states
   const [isSyncing, setIsSyncing] = useState(false);
@@ -437,67 +457,94 @@ export default function CashbookScreen() {
         isDeviceOffline = true;
       }
 
-      // Hàm thực thi lưu giao dịch thực sự
-      const executeSave = async (isOffline: boolean) => {
-        try {
-          let refName = '';
-          if (txType === 'receipt' && category === 'debt_collection' && customerId) {
-            const matchedCust = customers.find(c => c.id === customerId);
-            if (matchedCust) {
-              refName = matchedCust.name;
-              const currentDebt = matchedCust.debt_amount || 0;
-              
-              // Nếu số tiền thu lớn hơn số nợ hiện tại -> Tự động tách nợ và nạp ví trả trước
-              if (numericAmt > currentDebt) {
-                const excessAmt = numericAmt - currentDebt;
-                Alert.alert(
-                  'Xác nhận thu nợ & nạp ví',
-                  `Khách hàng "${refName}" đang nợ ${formatCurrency(currentDebt)}.\n\nBạn đã nhập số tiền ${formatCurrency(numericAmt)}.\n\nHệ thống sẽ thu nợ ${formatCurrency(currentDebt)} và nạp phần tiền thừa ${formatCurrency(excessAmt)} vào tài khoản ví trả trước của khách hàng.`,
-                  [
-                    { text: 'Hủy', onPress: () => setIsSubmitting(false), style: 'cancel' },
-                    { 
-                      text: 'Xác nhận', 
-                      onPress: () => saveSplitTransaction(shopId, userEmail, currentDebt, excessAmt, refName, isOffline) 
-                    }
-                  ]
-                );
-                return;
-              }
-            }
+      // Thay thế Alert.alert bằng Custom Modal Xác Nhận
+      let refName = '';
+      let currentDebt = 0;
+      let debtToPay = 0;
+      let prepaidToDeposit = 0;
+      let remainingDebt = 0;
+      const isDebtCollection = txType === 'receipt' && category === 'debt_collection' && !!customerId;
+
+      if (isDebtCollection) {
+        const matchedCust = customers.find(c => c.id === customerId);
+        if (matchedCust) {
+          refName = matchedCust.name;
+          currentDebt = matchedCust.debt_amount || 0;
+          if (numericAmt === currentDebt) {
+            debtToPay = currentDebt;
+            prepaidToDeposit = 0;
+            remainingDebt = 0;
+          } else if (numericAmt > currentDebt) {
+            debtToPay = currentDebt;
+            prepaidToDeposit = numericAmt - currentDebt;
+            remainingDebt = 0;
+          } else {
+            debtToPay = numericAmt;
+            prepaidToDeposit = 0;
+            remainingDebt = currentDebt - numericAmt;
           }
-
-          // Giao dịch bình thường
-          await saveSingleTransaction(shopId, userEmail, numericAmt, category, refName, isOffline);
-        } catch (err: any) {
-          showToast(`Lỗi khi lưu phiếu: ${err.message}`, 'error');
-          setIsSubmitting(false);
         }
-      };
-
-      if (isDeviceOffline) {
-        Alert.alert(
-          'Thiết bị ngoại tuyến',
-          `Thiết bị đang ngoại tuyến. Bạn có chắc chắn muốn lưu tạm phiếu ${txType === 'receipt' ? 'Thu' : 'Chi'} với số tiền ${formatCurrency(numericAmt)} này không? Phiếu sẽ tự động đồng bộ khi có mạng.`,
-          [
-            { text: 'Hủy', onPress: () => setIsSubmitting(false), style: 'cancel' },
-            { text: 'Tiếp tục lưu', onPress: () => executeSave(true) }
-          ]
-        );
       } else {
-        const categoryLabel = availableCategories.find(c => c.value === category)?.label || category;
-        Alert.alert(
-          'Xác nhận lập phiếu',
-          `Bạn có chắc chắn muốn lập phiếu ${txType === 'receipt' ? 'THU' : 'CHI'} số tiền ${formatCurrency(numericAmt)} thuộc phân mục "${categoryLabel}" không?`,
-          [
-            { text: 'Hủy', onPress: () => setIsSubmitting(false), style: 'cancel' },
-            { text: 'Xác nhận', onPress: () => executeSave(false) }
-          ]
-        );
+        if (customerId) {
+          const matchedCust = customers.find(c => c.id === customerId);
+          refName = matchedCust?.name || '';
+        }
       }
+
+      const categoryLabel = availableCategories.find(c => c.value === category)?.label || category;
+
+      setConfirmData({
+        type: txType,
+        isOffline: isDeviceOffline,
+        amount: numericAmt,
+        category,
+        categoryLabel,
+        refName,
+        customerId,
+        currentDebt,
+        isDebtCollection,
+        debtToPay,
+        prepaidToDeposit,
+        remainingDebt,
+        shopId,
+        userEmail,
+      });
+      setShowConfirmModal(true);
+      setIsSubmitting(false);
 
     } catch (err: any) {
       showToast(`Không thể lưu phiếu thu chi: ${err.message}`, 'error');
       setIsSubmitting(false);
+    }
+  };
+
+  const handleConfirmSave = async () => {
+    if (!confirmData) return;
+    setIsSubmitting(true);
+    setShowConfirmModal(false);
+    try {
+      const {
+        shopId,
+        userEmail,
+        amount: numericAmt,
+        category,
+        refName,
+        isOffline,
+        isDebtCollection,
+        debtToPay,
+        prepaidToDeposit,
+      } = confirmData;
+
+      if (isDebtCollection && prepaidToDeposit > 0) {
+        await saveSplitTransaction(shopId, userEmail, debtToPay, prepaidToDeposit, refName, isOffline);
+      } else {
+        await saveSingleTransaction(shopId, userEmail, numericAmt, category, refName, isOffline);
+      }
+    } catch (err: any) {
+      showToast(`Lỗi khi lưu phiếu: ${err.message}`, 'error');
+    } finally {
+      setIsSubmitting(false);
+      setConfirmData(null);
     }
   };
 
@@ -524,7 +571,6 @@ export default function CashbookScreen() {
         title="Sổ quỹ thu chi" 
         onPressMenu={() => router.push('/(tabs)')} 
         showBack={true} 
-        onPressSync={handleManualSync}
       />
 
       <ScrollView className="flex-1 px-4 py-4" showsVerticalScrollIndicator={false}>
@@ -597,10 +643,52 @@ export default function CashbookScreen() {
           transactions.map(item => {
             const isReceipt = item.type === 'receipt';
             const catName = CATEGORY_MAP[item.category] || item.category || 'Khác';
-            const isPending = item.sync_status === 'pending';
+            
+            const handleItemPress = async () => {
+              if (item.sync_status !== 'failed') return;
+              
+              Alert.alert(
+                'Đồng bộ lại giao dịch?',
+                'Giao dịch này bị lỗi đồng bộ trước đó. Bạn có muốn gửi lại lên máy chủ ERP ngay bây giờ không?',
+                [
+                  { text: 'Hủy', style: 'cancel' },
+                  { 
+                    text: 'Đồng ý', 
+                    onPress: async () => {
+                      try {
+                        showToast('Đang gửi lại giao dịch...', 'info');
+                        
+                        // Chuyển sync_status thành 'pending' trong SQLite
+                        await db.update(schema.cashbook)
+                          .set({ sync_status: 'pending' })
+                          .where(eq(schema.cashbook.id, item.id));
+                        
+                        // Reset bộ đếm retry
+                        SyncManager.clearCashbookRetry(item.id);
+
+                        // Kích hoạt đồng bộ nền ngay lập tức
+                        await KeepAliveManager.triggerSyncIfNeeded(true);
+                        
+                        // Tải lại giao dịch để cập nhật UI
+                        await loadCashbookData();
+                        showToast('Đã kích hoạt gửi lại giao dịch thành công!', 'success');
+                      } catch (err: any) {
+                        showToast(`Lỗi khi gửi lại: ${err.message}`, 'error');
+                      }
+                    }
+                  }
+                ]
+              );
+            };
+
+            const CardComponent = item.sync_status === 'failed' ? Pressable : View;
 
             return (
-              <View key={item.id} className="bg-white border border-slate-100 rounded-2xl p-4 shadow-xs mb-3 flex-row justify-between items-center">
+              <CardComponent 
+                key={item.id} 
+                onPress={item.sync_status === 'failed' ? handleItemPress : undefined}
+                className="bg-white border border-slate-100 rounded-2xl p-4 shadow-xs mb-3 flex-row justify-between items-center"
+              >
                 <View className="flex-1 mr-4">
                   <View className="flex-row items-center">
                     <View className={`w-2 h-2 rounded-full mr-2 ${isReceipt ? 'bg-emerald-500' : 'bg-rose-500'}`} />
@@ -621,6 +709,8 @@ export default function CashbookScreen() {
                     <View className="mx-1.5 w-1 h-1 rounded-full bg-slate-200" />
                     {item.sync_status === 'pending' ? (
                       <Badge variant="warning" label="OFFLINE" size="sm" />
+                    ) : item.sync_status === 'failed' ? (
+                      <Badge variant="danger" label="THẤT BẠI - BẤM ĐỂ THỬ LẠI" size="sm" />
                     ) : item.sync_status === 'review' ? (
                       <Badge variant="danger" label="LỆCH - CẦN THAO TÁC TAY TRÊN WEB" size="sm" />
                     ) : (
@@ -632,7 +722,7 @@ export default function CashbookScreen() {
                 <Text className={`font-bold text-sm ${isReceipt ? 'text-emerald-600' : 'text-rose-600'}`}>
                   {isReceipt ? '+' : '-'}{formatCurrency(item.amount)}
                 </Text>
-              </View>
+              </CardComponent>
             );
           })
         )}
@@ -935,6 +1025,177 @@ export default function CashbookScreen() {
               </View>
             )}
                       </View>
+        </View>
+      </Modal>
+      
+      {/* Custom Confirmation Modal */}
+      <Modal
+        visible={showConfirmModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          setShowConfirmModal(false);
+          setConfirmData(null);
+        }}
+      >
+        <View className="flex-1 justify-center items-center px-6">
+          <TouchableWithoutFeedback onPress={() => {
+            setShowConfirmModal(false);
+            setConfirmData(null);
+          }}>
+            <View className="absolute inset-0 bg-black/60" />
+          </TouchableWithoutFeedback>
+
+          <View className="bg-white w-full rounded-3xl p-6 shadow-2xl border border-slate-100 max-w-sm relative z-50">
+            <View className="items-center mb-4">
+              <View className={`p-3 rounded-full mb-3 border ${
+                confirmData?.isOffline 
+                  ? 'bg-amber-50 border-amber-100' 
+                  : confirmData?.type === 'receipt' 
+                    ? 'bg-emerald-50 border-emerald-100' 
+                    : 'bg-rose-50 border-rose-100'
+              }`}>
+                <Ionicons 
+                  name={
+                    confirmData?.isOffline 
+                      ? 'cloud-offline-outline' 
+                      : confirmData?.type === 'receipt' 
+                        ? 'checkmark-circle-outline' 
+                        : 'remove-circle-outline'
+                  } 
+                  size={24} 
+                  color={
+                    confirmData?.isOffline 
+                      ? '#d97706' 
+                      : confirmData?.type === 'receipt' 
+                        ? '#059669' 
+                        : '#e11d48'
+                  } 
+                />
+              </View>
+              <Text className="text-base font-bold text-slate-800 text-center font-semibold">
+                {confirmData?.isOffline ? 'Xác nhận lưu ngoại tuyến' : 'Xác nhận lập phiếu'}
+              </Text>
+              <Text className="text-xxs text-slate-400 text-center mt-1 leading-relaxed">
+                Vui lòng kiểm tra lại thông tin giao dịch trước khi lưu.
+              </Text>
+            </View>
+
+            {/* Chi tiết giao dịch */}
+            <View className="bg-slate-50 p-4 rounded-2xl border mb-5" style={{ borderColor: '#f1f5f9' }}>
+              
+              {confirmData?.isDebtCollection ? (
+                <>
+                  <View className="flex-row justify-between items-center py-2">
+                    <Text className="text-xxs text-slate-400 font-semibold">KHÁCH HÀNG:</Text>
+                    <Text className="text-xs font-bold text-slate-850">{confirmData.refName}</Text>
+                  </View>
+
+                  <View className="flex-row justify-between items-center py-2 border-t border-slate-200/50">
+                    <Text className="text-xxs text-slate-400 font-semibold">NỢ HIỆN TẠI:</Text>
+                    <Text className="text-xs font-bold text-slate-800">{formatCurrency(confirmData.currentDebt)}</Text>
+                  </View>
+
+                  <View className="flex-row justify-between items-center py-2 border-t border-slate-200/50">
+                    <Text className="text-xxs text-slate-400 font-semibold">SỐ TIỀN KHÁCH TRẢ:</Text>
+                    <Text className="text-xs font-bold text-orange-500">{formatCurrency(confirmData.amount)}</Text>
+                  </View>
+
+                  {/* Chi tiết phân bổ công nợ */}
+                  <View className="border-t border-slate-200 mt-2 pt-2">
+                    <Text className="text-[9px] font-bold text-slate-400 mb-1">PHÂN BỔ CHI TIẾT:</Text>
+                    
+                    {/* Dòng trả nợ */}
+                    <View className="flex-row justify-between items-center py-1">
+                      <Text className="text-xxs text-slate-600">Thu nợ:</Text>
+                      <Text className="text-xs font-bold text-slate-800">{formatCurrency(confirmData.debtToPay)}</Text>
+                    </View>
+
+                    {/* Dòng cộng tài khoản trả trước (nếu có tiền thừa) */}
+                    {confirmData.prepaidToDeposit > 0 && (
+                      <View className="flex-row justify-between items-center py-1">
+                        <Text className="text-xxs text-slate-600">Cộng tài khoản trả trước:</Text>
+                        <Text className="text-xs font-bold text-emerald-600">+{formatCurrency(confirmData.prepaidToDeposit)}</Text>
+                      </View>
+                    )}
+
+                    {/* Dòng nợ còn lại (nếu thu thiếu) */}
+                    {confirmData.remainingDebt > 0 && (
+                      <View className="flex-row justify-between items-center py-1">
+                        <Text className="text-xxs text-slate-600">Số tiền nợ còn lại:</Text>
+                        <Text className="text-xs font-bold text-rose-500">{formatCurrency(confirmData.remainingDebt)}</Text>
+                      </View>
+                    )}
+                  </View>
+                </>
+              ) : (
+                <>
+                  <View className="flex-row justify-between items-center py-2">
+                    <Text className="text-xxs text-slate-400 font-semibold">LOẠI PHIẾU:</Text>
+                    <Text className={`text-xs font-bold ${confirmData?.type === 'receipt' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                      {confirmData?.type === 'receipt' ? 'PHIẾU THU' : 'PHIẾU CHI'}
+                    </Text>
+                  </View>
+
+                  <View className="flex-row justify-between items-center py-2 border-t border-slate-200/50">
+                    <Text className="text-xxs text-slate-400 font-semibold">PHÂN MỤC:</Text>
+                    <Text className="text-xs font-bold text-slate-800">{confirmData?.categoryLabel}</Text>
+                  </View>
+
+                  <View className="flex-row justify-between items-center py-2 border-t border-slate-200/50">
+                    <Text className="text-xxs text-slate-400 font-semibold">SỐ TIỀN:</Text>
+                    <Text className={`text-xs font-bold ${confirmData?.type === 'receipt' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                      {formatCurrency(confirmData?.amount || 0)}
+                    </Text>
+                  </View>
+
+                  {note ? (
+                    <View className="flex-row justify-between items-start py-2 border-t border-slate-200/50">
+                      <Text className="text-xxs text-slate-400 font-semibold">GHI CHÚ:</Text>
+                      <Text className="text-xs font-semibold text-slate-600 flex-1 text-right ml-4" numberOfLines={2}>
+                        {note}
+                      </Text>
+                    </View>
+                  ) : null}
+                </>
+              )}
+            </View>
+
+            {confirmData?.isOffline && (
+              <View className="bg-amber-50 border border-amber-100 p-3 rounded-xl mb-5 flex-row items-start">
+                <Ionicons name="information-circle-outline" size={14} color="#d97706" style={{ marginTop: 1, marginRight: 6 }} />
+                <Text className="text-[10px] text-amber-800 font-medium flex-1 leading-normal">
+                  Thiết bị đang ngoại tuyến. Giao dịch này sẽ được lưu offline và tự động đồng bộ khi có kết nối mạng.
+                </Text>
+              </View>
+            )}
+
+            {/* Actions */}
+            <View className="flex-row gap-3">
+              <TouchableOpacity
+                className="flex-1 py-3.5 rounded-xl border border-slate-200 bg-slate-50 items-center justify-center"
+                onPress={() => {
+                  setShowConfirmModal(false);
+                  setConfirmData(null);
+                }}
+                disabled={isSubmitting}
+              >
+                <Text className="text-slate-500 font-semibold text-xs">Hủy</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                className="flex-1 py-3.5 rounded-xl bg-orange-500 items-center justify-center flex-row"
+                onPress={handleConfirmSave}
+                disabled={isSubmitting}
+                style={{ backgroundColor: '#fa5908' }}
+              >
+                {isSubmitting ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <Text className="text-white font-semibold text-xs">Xác nhận lưu</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
       </Modal>
 

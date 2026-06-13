@@ -574,7 +574,7 @@ export default function CustomersScreen() {
     <SafeAreaView edges={['top', 'left', 'right']} className="flex-1 bg-slate-50">
       
       {/* 1. SHARED HEADER - Thống nhất 100% */}
-      <Header onPressMenu={() => setIsDrawerOpen(true)} syncStatus="synced" />
+      <Header onPressMenu={() => setIsDrawerOpen(true)} />
 
       {/* 2. SEARCH BAR & FILTER TABS */}
       <View className="p-4 bg-white border-b border-slate-200">

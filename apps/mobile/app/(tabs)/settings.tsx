@@ -621,7 +621,7 @@ export default function SettingsScreen() {
  <SafeAreaView edges={['top', 'left', 'right']} className="flex-1 bg-slate-50">
  
  {/* 1. SHARED HEADER - Thống nhất 100% */}
- <Header onPressMenu={() => setIsDrawerOpen(true)} syncStatus={pendingOrdersCount > 0 ? 'pending' : 'synced'} />
+  <Header onPressMenu={() => setIsDrawerOpen(true)} />
 
  <ScrollView className="flex-1 px-4 py-4" showsVerticalScrollIndicator={false}>
  

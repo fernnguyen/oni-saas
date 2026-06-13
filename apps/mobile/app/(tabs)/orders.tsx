@@ -966,7 +966,7 @@ export default function OrdersScreen() {
  <SafeAreaView edges={['top', 'left', 'right']} className="flex-1 bg-slate-50">
  
  {/* 1. SHARED HEADER - Thống nhất 100% */}
- <Header onPressMenu={() => setIsDrawerOpen(true)} syncStatus={pendingCount > 0 ? 'pending' : 'synced'} />
+  <Header onPressMenu={() => setIsDrawerOpen(true)} />
 
  {isLoading ? (
  <View className="flex-1 px-4 pt-4">
