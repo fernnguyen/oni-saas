@@ -152,7 +152,8 @@ export function initializeLocalDatabase(customDb?: any) {
         id TEXT PRIMARY KEY NOT NULL,
         name TEXT NOT NULL,
         parent_id TEXT,
-        description TEXT
+        description TEXT,
+        sync_status TEXT NOT NULL DEFAULT 'synced'
       );
 
       CREATE TABLE IF NOT EXISTS products (
@@ -163,13 +164,18 @@ export function initializeLocalDatabase(customDb?: any) {
         category_id TEXT,
         unit TEXT,
         sell_price INTEGER NOT NULL DEFAULT 0,
+        cost_price INTEGER NOT NULL DEFAULT 0,
         stock_qty INTEGER NOT NULL DEFAULT 0,
         image_url TEXT,
         description TEXT,
         product_type TEXT DEFAULT 'simple',
         parent_id TEXT,
         variant_options TEXT,
-        modifier_groups TEXT
+        modifier_groups TEXT,
+        active TEXT DEFAULT 'TRUE',
+        weight INTEGER,
+        item_class TEXT DEFAULT 'commercial',
+        sync_status TEXT NOT NULL DEFAULT 'synced'
       );
 
       CREATE TABLE IF NOT EXISTS location_resources (
@@ -324,6 +330,14 @@ export function initializeLocalDatabase(customDb?: any) {
     try { targetDb.execSync(`ALTER TABLE payment_methods ADD COLUMN code TEXT NOT NULL DEFAULT 'cash';`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE stock_movements ADD COLUMN warehouse_id TEXT;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE stock_movements ADD COLUMN to_warehouse_id TEXT;`); } catch (e) {}
+    
+    // Migrations for products and categories sync features
+    try { targetDb.execSync(`ALTER TABLE products ADD COLUMN sync_status TEXT DEFAULT 'synced';`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE products ADD COLUMN active TEXT DEFAULT 'TRUE';`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE products ADD COLUMN cost_price INTEGER DEFAULT 0;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE products ADD COLUMN weight INTEGER;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE products ADD COLUMN item_class TEXT DEFAULT 'commercial';`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE categories ADD COLUMN sync_status TEXT DEFAULT 'synced';`); } catch (e) {}
     
     console.log(`CSDL SQLite [${activeDbName}]: Khởi tạo các bảng/migrations offline-first thành công!`);
   } catch (error) {

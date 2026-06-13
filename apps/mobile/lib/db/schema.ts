@@ -6,6 +6,7 @@ export const categories = sqliteTable('categories', {
   name: text('name').notNull(),
   parent_id: text('parent_id'),
   description: text('description'),
+  sync_status: text('sync_status').notNull().default('synced'), // synced | pending
 });
 
 // BẢNG QUỸ/TÀI KHOẢN THANH TOÁN (PAYMENT FUNDS)
@@ -42,6 +43,7 @@ export const products = sqliteTable('products', {
   category_id: text('category_id'),
   unit: text('unit'),
   sell_price: integer('sell_price').notNull().default(0), // Đổi về integer để đồng bộ tiền tệ Việt Nam
+  cost_price: integer('cost_price').notNull().default(0),
   stock_qty: integer('stock_qty').notNull().default(0),
   image_url: text('image_url'),
   description: text('description'),
@@ -49,6 +51,10 @@ export const products = sqliteTable('products', {
   parent_id: text('parent_id'),
   variant_options: text('variant_options'), // JSON string
   modifier_groups: text('modifier_groups'), // JSON string
+  active: text('active').default('TRUE'), // TRUE | FALSE
+  weight: integer('weight'),
+  item_class: text('item_class').default('commercial'), // commercial | supply | fixed_asset
+  sync_status: text('sync_status').notNull().default('synced'), // synced | pending
 });
 
 // 3. SƠ ĐỒ PHÒNG BÀN (Location Resources / Billiards Tables)

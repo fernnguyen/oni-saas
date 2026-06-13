@@ -397,6 +397,7 @@ export function DrawerMenu({visible, onClose, branchName = 'Chi nhánh chính'}:
  <Text className="text-[8.5px] font-bold text-slate-400 mb-1 mt-3.5 px-1.5 uppercase tracking-wider">
  Vận hành & Tài chính
  </Text>
+ {renderMenuItem('pricetags-outline', 'Quản lý Sản phẩm', '/products')}
  {renderMenuItem('cube-outline', 'Quản lý Kho hàng', '/warehouse')}
  {renderMenuItem('wallet-outline', 'Sổ quỹ (Cashbook)', '/cashbook')}
  {canViewDebt && renderMenuItem('card-outline', 'Quản lý Công nợ', '/debt')}

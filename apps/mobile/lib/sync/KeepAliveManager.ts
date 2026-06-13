@@ -80,7 +80,7 @@ export class KeepAliveManager {
   }
 
   /**
-   * Đẩy toàn bộ dữ liệu pending (Hóa đơn, Ca, Sổ quỹ, Kho)
+   * Đẩy toàn bộ dữ liệu pending (Hóa đơn, Ca, Sổ quỹ, Kho, Danh mục, Sản phẩm)
    */
   private static async pushPendingData(shopId: string) {
     try {
@@ -95,6 +95,12 @@ export class KeepAliveManager {
 
       // 4. Đẩy Điều chỉnh kho pending
       await SyncManager.pushOfflineStockMovements(shopId);
+
+      // 5. Đẩy Danh mục pending (trước sản phẩm để đảm bảo foreign key)
+      await SyncManager.pushOfflineCategories(shopId);
+
+      // 6. Đẩy Sản phẩm pending
+      await SyncManager.pushOfflineProducts(shopId);
     } catch (e) {
       console.warn('[KeepAliveManager] Lỗi đẩy dữ liệu pending:', e);
     }

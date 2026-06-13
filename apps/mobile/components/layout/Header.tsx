@@ -51,7 +51,9 @@ export function Header({
     orders: 0,
     cashbook: 0,
     shifts: 0,
-    movements: 0
+    movements: 0,
+    categories: 0,
+    products: 0
   });
 
   // Toast states
@@ -160,11 +162,23 @@ export function Header({
           eq(schema.stockMovements.branch_id, shopId)
         ));
 
+      const pCategories = await db
+        .select({ id: schema.categories.id })
+        .from(schema.categories)
+        .where(eq(schema.categories.sync_status, 'pending'));
+
+      const pProducts = await db
+        .select({ id: schema.products.id })
+        .from(schema.products)
+        .where(eq(schema.products.sync_status, 'pending'));
+
       setSyncCounts({
         orders: pOrders.length,
         cashbook: pCashbook.length,
         shifts: pShifts.length,
-        movements: pMovements.length
+        movements: pMovements.length,
+        categories: pCategories.length,
+        products: pProducts.length
       });
     } catch (e) {
       console.warn('Lỗi tải số liệu đồng bộ trong Header:', e);
@@ -829,6 +843,26 @@ export function Header({
               {syncCounts.movements}
             </Text>
           </View>
+
+          <View className="flex-row justify-between items-center py-2 border-t border-slate-200/50">
+            <View className="flex-row items-center">
+              <Ionicons name="folder-open-outline" size={14} color="#64748b" style={{ marginRight: 8 }} />
+              <Text className="text-xxs text-slate-700 font-semibold">Danh mục chờ đồng bộ:</Text>
+            </View>
+            <Text className={`text-xs font-bold ${syncCounts.categories > 0 ? 'text-orange-500' : 'text-slate-500'}`}>
+              {syncCounts.categories}
+            </Text>
+          </View>
+
+          <View className="flex-row justify-between items-center py-2 border-t border-slate-200/50">
+            <View className="flex-row items-center">
+              <Ionicons name="pricetag-outline" size={14} color="#64748b" style={{ marginRight: 8 }} />
+              <Text className="text-xxs text-slate-700 font-semibold">Sản phẩm chờ đồng bộ:</Text>
+            </View>
+            <Text className={`text-xs font-bold ${syncCounts.products > 0 ? 'text-orange-500' : 'text-slate-500'}`}>
+              {syncCounts.products}
+            </Text>
+          </View>
         </View>
 
         {/* Nút bấm */}
@@ -869,10 +903,10 @@ export function Header({
                 setIsHeaderSyncing(false);
               }
             }}
-            disabled={isHeaderSyncing || (syncCounts.orders === 0 && syncCounts.cashbook === 0 && syncCounts.shifts === 0 && syncCounts.movements === 0)}
+            disabled={isHeaderSyncing || (syncCounts.orders === 0 && syncCounts.cashbook === 0 && syncCounts.shifts === 0 && syncCounts.movements === 0 && syncCounts.categories === 0 && syncCounts.products === 0)}
             style={{ 
               backgroundColor: '#fa5908',
-              opacity: (syncCounts.orders === 0 && syncCounts.cashbook === 0 && syncCounts.shifts === 0 && syncCounts.movements === 0) ? 0.5 : 1
+              opacity: (syncCounts.orders === 0 && syncCounts.cashbook === 0 && syncCounts.shifts === 0 && syncCounts.movements === 0 && syncCounts.categories === 0 && syncCounts.products === 0) ? 0.5 : 1
             }}
           >
             {isHeaderSyncing ? (

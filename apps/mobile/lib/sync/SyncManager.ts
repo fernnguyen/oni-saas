@@ -98,8 +98,8 @@ export class SyncManager {
       
       // Xóa sạch dữ liệu cấu hình cũ để nạp mới đầu ca làm việc
       expoDb.execSync(`
-        DELETE FROM categories;
-        DELETE FROM products;
+        DELETE FROM categories WHERE sync_status != 'pending';
+        DELETE FROM products WHERE sync_status != 'pending';
         DELETE FROM location_resources;
         DELETE FROM customers;
         DELETE FROM payment_funds;
@@ -124,7 +124,16 @@ export class SyncManager {
             name: cat.name || '',
             parent_id: cat.parent_id || null,
             description: cat.description || null,
-          }).onConflictDoNothing();
+            sync_status: 'synced',
+          }).onConflictDoUpdate({
+            target: schema.categories.id,
+            set: {
+              name: cat.name || '',
+              parent_id: cat.parent_id || null,
+              description: cat.description || null,
+              sync_status: 'synced',
+            }
+          });
         }
       }
 
@@ -132,7 +141,9 @@ export class SyncManager {
       if (rawProducts.length > 0) {
         for (const prod of rawProducts) {
           const sellPrice = parseInt(prod.sell_price || '0', 10);
+          const costPrice = parseInt(prod.cost_price || '0', 10);
           const stockQty = parseInt(prod.stock_qty || '0', 10);
+          const weightVal = prod.weight ? parseInt(prod.weight, 10) : null;
           await db.insert(schema.products).values({
             id: prod.id || prod.product_id,
             name: prod.name || '',
@@ -141,10 +152,41 @@ export class SyncManager {
             category_id: prod.category_id || null,
             unit: prod.unit || '',
             sell_price: isNaN(sellPrice) ? 0 : sellPrice,
+            cost_price: isNaN(costPrice) ? 0 : costPrice,
             stock_qty: isNaN(stockQty) ? 0 : stockQty,
             image_url: prod.image_url || null,
             description: prod.description || null,
-          }).onConflictDoNothing();
+            product_type: prod.product_type || 'simple',
+            parent_id: prod.parent_id || null,
+            variant_options: typeof prod.variant_options === 'object' ? JSON.stringify(prod.variant_options) : (prod.variant_options || null),
+            modifier_groups: typeof prod.modifier_groups === 'object' ? JSON.stringify(prod.modifier_groups) : (prod.modifier_groups || null),
+            active: prod.active || 'TRUE',
+            weight: isNaN(weightVal as any) ? null : weightVal,
+            item_class: prod.item_class || 'commercial',
+            sync_status: 'synced',
+          }).onConflictDoUpdate({
+            target: schema.products.id,
+            set: {
+              name: prod.name || '',
+              sku: prod.sku || '',
+              barcode: prod.barcode || '',
+              category_id: prod.category_id || null,
+              unit: prod.unit || '',
+              sell_price: isNaN(sellPrice) ? 0 : sellPrice,
+              cost_price: isNaN(costPrice) ? 0 : costPrice,
+              stock_qty: isNaN(stockQty) ? 0 : stockQty,
+              image_url: prod.image_url || null,
+              description: prod.description || null,
+              product_type: prod.product_type || 'simple',
+              parent_id: prod.parent_id || null,
+              variant_options: typeof prod.variant_options === 'object' ? JSON.stringify(prod.variant_options) : (prod.variant_options || null),
+              modifier_groups: typeof prod.modifier_groups === 'object' ? JSON.stringify(prod.modifier_groups) : (prod.modifier_groups || null),
+              active: prod.active || 'TRUE',
+              weight: isNaN(weightVal as any) ? null : weightVal,
+              item_class: prod.item_class || 'commercial',
+              sync_status: 'synced',
+            }
+          });
         }
       }
 
@@ -795,5 +837,274 @@ export class SyncManager {
       console.error('[Sync Debug] Lỗi nghiêm trọng khi đồng bộ điều chỉnh kho:', err);
     }
     return { successCount, failedCount };
+  }
+
+  // ==========================================
+  // 6. TẢI SẢN PHẨM & DANH MỤC CHỦ ĐỘNG
+  // ==========================================
+  static async pullProductsAndCategories(
+    shopId: string,
+    onProgress: (progress: number) => void
+  ): Promise<boolean> {
+    try {
+      console.log(`Bắt đầu đồng bộ chủ động Sản phẩm & Danh mục cho: ${shopId}...`);
+      onProgress(0.1);
+      const headers = await getApiHeaders();
+      const baseUrl = getApiBaseUrl();
+      onProgress(0.2);
+
+      // Tải song song Categories & Products
+      const [catRes, prodRes] = await Promise.all([
+        fetch(`${baseUrl}/api/shops/${shopId}/categories?limit=500`, { headers }),
+        fetch(`${baseUrl}/api/shops/${shopId}/products?limit=2000&nocache=true`, { headers }),
+      ]);
+
+      if (!catRes.ok || !prodRes.ok) {
+        throw new Error('Lỗi đường truyền hoặc không thể tải dữ liệu từ Cloud');
+      }
+
+      onProgress(0.5);
+      const catData = await catRes.json();
+      const prodData = await prodRes.json();
+      onProgress(0.6);
+
+      const rawCategories = catData.data || [];
+      const rawProducts = prodData.data || [];
+
+      // Ghi Categories
+      if (rawCategories.length > 0) {
+        for (const cat of rawCategories) {
+          await db.insert(schema.categories).values({
+            id: cat.id || cat.category_id,
+            name: cat.name || '',
+            parent_id: cat.parent_id || null,
+            description: cat.description || null,
+            sync_status: 'synced',
+          }).onConflictDoUpdate({
+            target: schema.categories.id,
+            set: {
+              name: cat.name || '',
+              parent_id: cat.parent_id || null,
+              description: cat.description || null,
+              sync_status: 'synced',
+            }
+          });
+        }
+      }
+      onProgress(0.8);
+
+      // Ghi Products
+      if (rawProducts.length > 0) {
+        for (const prod of rawProducts) {
+          const sellPrice = parseInt(prod.sell_price || '0', 10);
+          const costPrice = parseInt(prod.cost_price || '0', 10);
+          const stockQty = parseInt(prod.stock_qty || '0', 10);
+          const weightVal = prod.weight ? parseInt(prod.weight, 10) : null;
+          await db.insert(schema.products).values({
+            id: prod.id || prod.product_id,
+            name: prod.name || '',
+            sku: prod.sku || '',
+            barcode: prod.barcode || '',
+            category_id: prod.category_id || null,
+            unit: prod.unit || '',
+            sell_price: isNaN(sellPrice) ? 0 : sellPrice,
+            cost_price: isNaN(costPrice) ? 0 : costPrice,
+            stock_qty: isNaN(stockQty) ? 0 : stockQty,
+            image_url: prod.image_url || null,
+            description: prod.description || null,
+            product_type: prod.product_type || 'simple',
+            parent_id: prod.parent_id || null,
+            variant_options: typeof prod.variant_options === 'object' ? JSON.stringify(prod.variant_options) : (prod.variant_options || null),
+            modifier_groups: typeof prod.modifier_groups === 'object' ? JSON.stringify(prod.modifier_groups) : (prod.modifier_groups || null),
+            active: prod.active || 'TRUE',
+            weight: isNaN(weightVal as any) ? null : weightVal,
+            item_class: prod.item_class || 'commercial',
+            sync_status: 'synced',
+          }).onConflictDoUpdate({
+            target: schema.products.id,
+            set: {
+              name: prod.name || '',
+              sku: prod.sku || '',
+              barcode: prod.barcode || '',
+              category_id: prod.category_id || null,
+              unit: prod.unit || '',
+              sell_price: isNaN(sellPrice) ? 0 : sellPrice,
+              cost_price: isNaN(costPrice) ? 0 : costPrice,
+              stock_qty: isNaN(stockQty) ? 0 : stockQty,
+              image_url: prod.image_url || null,
+              description: prod.description || null,
+              product_type: prod.product_type || 'simple',
+              parent_id: prod.parent_id || null,
+              variant_options: typeof prod.variant_options === 'object' ? JSON.stringify(prod.variant_options) : (prod.variant_options || null),
+              modifier_groups: typeof prod.modifier_groups === 'object' ? JSON.stringify(prod.modifier_groups) : (prod.modifier_groups || null),
+              active: prod.active || 'TRUE',
+              weight: isNaN(weightVal as any) ? null : weightVal,
+              item_class: prod.item_class || 'commercial',
+              sync_status: 'synced',
+            }
+          });
+        }
+      }
+
+      onProgress(1.0);
+      return true;
+    } catch (error) {
+      console.error('Lỗi khi đồng bộ Sản phẩm/Danh mục:', error);
+      return false;
+    }
+  }
+
+  // ==========================================
+  // 7. ĐẨY DANH MỤC OFFLINE LÊN CLOUD
+  // ==========================================
+  static async pushOfflineCategories(shopId: string): Promise<boolean> {
+    try {
+      const pendingCats = await db
+        .select()
+        .from(schema.categories)
+        .where(eq(schema.categories.sync_status, 'pending'));
+
+      if (pendingCats.length === 0) return true;
+
+      console.log(`Phát hiện ${pendingCats.length} danh mục offline chờ đồng bộ...`);
+      const headers = await getApiHeaders();
+      const baseUrl = getApiBaseUrl();
+
+      for (const cat of pendingCats) {
+        try {
+          const response = await fetch(`${baseUrl}/api/shops/${shopId}/categories`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              name: cat.name,
+              parent_id: cat.parent_id || '',
+              description: cat.description || '',
+            }),
+          });
+
+          if (response.ok) {
+            const resJson = await response.json().catch(() => ({}));
+            const serverId = resJson.category_id || resJson.id;
+
+            if (serverId && serverId !== cat.id) {
+              const oldId = cat.id;
+              // 1. Cập nhật category_id của các sản phẩm cục bộ đang liên kết với danh mục tạm này
+              await db.update(schema.products)
+                .set({ category_id: serverId })
+                .where(eq(schema.products.category_id, oldId));
+
+              // 2. Xóa danh mục tạm, chèn danh mục chính thức từ server vào SQLite
+              await db.delete(schema.categories).where(eq(schema.categories.id, oldId));
+              await db.insert(schema.categories).values({
+                ...cat,
+                id: serverId,
+                sync_status: 'synced',
+              }).onConflictDoNothing();
+            } else {
+              await db.update(schema.categories)
+                .set({ sync_status: 'synced' })
+                .where(eq(schema.categories.id, cat.id));
+            }
+            console.log(`Đồng bộ danh mục #${cat.name} lên Cloud thành công!`);
+          }
+        } catch (err) {
+          console.error(`Lỗi đồng bộ danh mục #${cat.name}:`, err);
+        }
+      }
+      return true;
+    } catch (err) {
+      console.error('Lỗi quy trình đồng bộ danh mục offline:', err);
+      return false;
+    }
+  }
+
+  // ==========================================
+  // 8. ĐẨY SẢN PHẨM OFFLINE LÊN CLOUD
+  // ==========================================
+  static async pushOfflineProducts(shopId: string): Promise<boolean> {
+    try {
+      const pendingProds = await db
+        .select()
+        .from(schema.products)
+        .where(eq(schema.products.sync_status, 'pending'));
+
+      if (pendingProds.length === 0) return true;
+
+      console.log(`Phát hiện ${pendingProds.length} sản phẩm offline chờ đồng bộ...`);
+      const headers = await getApiHeaders();
+      const baseUrl = getApiBaseUrl();
+
+      for (const prod of pendingProds) {
+        try {
+          const payload = {
+            name: prod.name,
+            sku: prod.sku || '',
+            barcode: prod.barcode || '',
+            category_id: prod.category_id || '',
+            unit: prod.unit || '',
+            sell_price: String(prod.sell_price || 0),
+            cost_price: String(prod.cost_price || 0),
+            active: prod.active || 'TRUE',
+            description: prod.description || '',
+            product_type: prod.product_type || 'simple',
+            parent_id: prod.parent_id || '',
+            weight: prod.weight ? String(prod.weight) : '',
+            item_class: prod.item_class || 'commercial',
+            image_url: prod.image_url || '',
+            variant_options: prod.variant_options || '',
+            modifier_groups: prod.modifier_groups || '',
+          };
+
+          const isNewProduct = prod.id.startsWith('PROD-') || prod.id.startsWith('prod-') || prod.id.startsWith('temp-');
+          const url = isNewProduct 
+            ? `${baseUrl}/api/shops/${shopId}/products` 
+            : `${baseUrl}/api/shops/${shopId}/products/${prod.id}`;
+          const method = isNewProduct ? 'POST' : 'PUT';
+
+          const response = await fetch(url, {
+            method,
+            headers,
+            body: JSON.stringify(payload),
+          });
+
+          if (response.ok) {
+            const resJson = await response.json().catch(() => ({}));
+            const serverId = resJson.product_id || resJson.id || prod.id;
+
+            if (serverId && serverId !== prod.id) {
+              const oldId = prod.id;
+              
+              // Cập nhật các bảng liên quan đến ID sản phẩm nếu có
+              await db.update(schema.order_items)
+                .set({ product_id: serverId })
+                .where(eq(schema.order_items.product_id, oldId));
+
+              await db.update(schema.stockMovements)
+                .set({ product_id: serverId })
+                .where(eq(schema.stockMovements.product_id, oldId));
+
+              // Xóa sản phẩm tạm và chèn lại sản phẩm chính thức từ Server
+              await db.delete(schema.products).where(eq(schema.products.id, oldId));
+              await db.insert(schema.products).values({
+                ...prod,
+                id: serverId,
+                sync_status: 'synced',
+              }).onConflictDoNothing();
+            } else {
+              await db.update(schema.products)
+                .set({ sync_status: 'synced' })
+                .where(eq(schema.products.id, prod.id));
+            }
+            console.log(`Đồng bộ sản phẩm #${prod.name} lên Cloud thành công!`);
+          }
+        } catch (err) {
+          console.error(`Lỗi đồng bộ sản phẩm #${prod.name}:`, err);
+        }
+      }
+      return true;
+    } catch (err) {
+      console.error('Lỗi quy trình đồng bộ sản phẩm offline:', err);
+      return false;
+    }
   }
 }

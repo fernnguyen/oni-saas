@@ -694,6 +694,7 @@ export default function DashboardScreen() {
   const canViewCashbook = hasPermission('cashbook.view');
   const canViewSettings = hasPermission('settings.view');
   const canViewDebt = hasPermission('debt.view') || hasPermission('customers.view');
+  const canViewProducts = hasPermission(['products.view', 'settings.manage', 'admin', 'owner']);
 
   const shouldShowStats = canViewReports || !!activeShiftIdState;
 
@@ -779,6 +780,18 @@ export default function DashboardScreen() {
                 {!canViewDebt && <Text style={{position: 'absolute', right: 2, top: 2, fontSize: 8}}>🔒</Text>}
               </View>
               <Text className="text-xxs font-semibold text-slate-500 text-center">Công nợ</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              activeOpacity={canViewProducts ? 0.7 : 1}
+              onPress={() => canViewProducts ? router.push('/products') : Alert.alert('Thông báo', 'Bạn không có quyền quản lý Sản phẩm!')}
+              className={`items-center w-[23%] ${!canViewProducts ? 'opacity-40' : ''}`}
+            >
+              <View className="bg-slate-50 w-11 h-11 rounded-xl items-center justify-center border border-slate-100 mb-2">
+                <Ionicons name="pricetags-outline" size={20} color="#fa5908" />
+                {!canViewProducts && <Text style={{position: 'absolute', right: 2, top: 2, fontSize: 8}}>🔒</Text>}
+              </View>
+              <Text className="text-xxs font-semibold text-slate-500 text-center">Sản phẩm</Text>
             </TouchableOpacity>
 
             <TouchableOpacity 
