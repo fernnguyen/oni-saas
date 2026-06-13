@@ -379,6 +379,286 @@ export default function PosScreen() {
     broadcastSync,
   });
 
+  // State thêm nhanh khách hàng cho sơ đồ phòng bàn
+  const [isQuickCustomerModalOpen, setIsQuickCustomerModalOpen] = useState(false);
+  const [quickCustName, setQuickCustName] = useState('');
+  const [quickCustPhone, setQuickCustPhone] = useState('');
+  const [quickCustType, setQuickCustType] = useState('Thành viên');
+  const [quickCustEmail, setQuickCustEmail] = useState('');
+  const [quickCustAddress, setQuickCustAddress] = useState('');
+  const [quickCustNote, setQuickCustNote] = useState('');
+  const [isQuickSaving, setIsQuickSaving] = useState(false);
+  const [quickCustomerSource, setQuickCustomerSource] = useState<'open_table' | 'active_table' | null>(null);
+
+  const handleOpenQuickAddCustomer = (source: 'open_table' | 'active_table') => {
+    setQuickCustomerSource(source);
+    const query = customerSearchQuery.trim();
+    const isPhone = /^\d+$/.test(query);
+    if (isPhone) {
+      setQuickCustPhone(query);
+      setQuickCustName('');
+    } else {
+      setQuickCustName(query);
+      setQuickCustPhone('');
+    }
+    setQuickCustType('Thành viên');
+    setQuickCustEmail('');
+    setQuickCustAddress('');
+    setQuickCustNote('');
+    setIsQuickCustomerModalOpen(true);
+  };
+
+  const handleSaveQuickCustomer = async () => {
+    if (!quickCustName.trim()) {
+      showToast('Vui lòng nhập Tên khách hàng!', 'error');
+      return;
+    }
+    if (!quickCustPhone.trim()) {
+      showToast('Vui lòng nhập Số điện thoại!', 'error');
+      return;
+    }
+
+    setIsQuickSaving(true);
+    try {
+      const custId = `C-TEMP-${Date.now()}`;
+      const shopId = activeShopId || 'default-shop';
+      
+      // 1. Lưu SQLite cục bộ
+      if (Platform.OS !== 'web') {
+        await db.insert(schema.customers).values({
+          id: custId,
+          name: quickCustName,
+          phone: quickCustPhone,
+          customer_type: quickCustType,
+          total_spent: 0,
+          orders_count: 0,
+          sync_status: 'pending',
+          credit_limit: 0,
+          email: quickCustEmail || null,
+          address: quickCustAddress || null,
+          note: quickCustNote || null,
+        });
+      }
+
+      const newCustomerObj = {
+        id: custId,
+        customer_id: custId,
+        name: quickCustName,
+        phone: quickCustPhone,
+        customer_type: quickCustType,
+        total_spent: 0,
+        orders_count: 0,
+        sync_status: 'pending',
+        credit_limit: 0,
+        email: quickCustEmail || null,
+        address: quickCustAddress || null,
+        note: quickCustNote || null,
+      };
+
+      // Cập nhật state list khách hàng cục bộ lập tức
+      setCustomersList(prev => [newCustomerObj, ...prev]);
+
+      // Liên kết khách hàng vào đúng context nguồn gọi
+      if (quickCustomerSource === 'open_table') {
+        setSelectedCustomer(newCustomerObj);
+      } else if (quickCustomerSource === 'active_table' && activeTable) {
+        await handleUpdateTableCustomer(activeTable.id, newCustomerObj);
+      }
+
+      setIsQuickCustomerModalOpen(false);
+      setCustomerSearchQuery('');
+      showToast('Đã thêm khách hàng mới thành công.', 'success');
+
+      // 2. Gửi API đồng bộ cloud ở chế độ nền
+      (async () => {
+        try {
+          const headers = apiAuthHeaders;
+          const baseUrl = getApiBaseUrl();
+          const response = await fetch(`${baseUrl}/api/shops/${shopId}/customers`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              name: quickCustName,
+              phone: quickCustPhone,
+              customer_type: quickCustType,
+              email: quickCustEmail || `${quickCustPhone}@oni-pos.vn`,
+              address: quickCustAddress || 'Tạo nhanh từ POS',
+              note: quickCustNote || '',
+            }),
+          });
+
+          if (response.ok) {
+            const resJson = await response.json().catch(() => ({}));
+            const serverCustId = resJson.customer_id || resJson.id;
+
+            if (Platform.OS !== 'web' && serverCustId && serverCustId !== custId) {
+              // Cập nhật SQLite ID tạm -> ID chuẩn
+              await db.update(schema.orders)
+                .set({ customer_id: serverCustId })
+                .where(eq(schema.orders.customer_id, custId));
+
+              await db.delete(schema.customers).where(eq(schema.customers.id, custId));
+              await db.insert(schema.customers).values({
+                ...newCustomerObj,
+                id: serverCustId,
+                sync_status: 'synced',
+              }).onConflictDoNothing();
+
+              // Cập nhật lại list khách hàng
+              setCustomersList(prev => prev.map(c => c.id === custId ? { ...c, id: serverCustId, sync_status: 'synced' } : c));
+              
+              // Cập nhật lại table customer hoặc selected customer đang chọn
+              if (quickCustomerSource === 'open_table') {
+                setSelectedCustomer((prev: any) => prev && prev.id === custId ? { ...prev, id: serverCustId } : prev);
+              } else if (quickCustomerSource === 'active_table' && activeTable) {
+                setTableCustomers(prev => {
+                  if (prev[activeTable.id] && prev[activeTable.id].id === custId) {
+                    return {
+                      ...prev,
+                      [activeTable.id]: { ...prev[activeTable.id], id: serverCustId }
+                    };
+                  }
+                  return prev;
+                });
+              }
+              console.log(`[POS] Đã đồng bộ khách hàng mới #${serverCustId} lên Cloud!`);
+            }
+          }
+        } catch (apiErr) {
+          console.warn('[POS] Gặp lỗi đồng bộ cloud khách hàng mới:', apiErr);
+        }
+      })();
+    } catch (err) {
+      console.error('[POS] Lỗi tạo nhanh khách hàng:', err);
+      showToast('Không thể tạo khách hàng mới!', 'error');
+    } finally {
+      setIsQuickSaving(false);
+    }
+  };
+
+  const renderQuickCustomerModal = (source: 'open_table' | 'active_table') => {
+    if (!isQuickCustomerModalOpen || quickCustomerSource !== source) return null;
+
+    return (
+      <View className="absolute inset-0 bg-black/60 justify-center items-center px-6 z-[99999]">
+        <View className="w-full bg-white rounded-3xl p-6 shadow-2xl max-w-sm">
+          <View className="flex-row justify-between items-center border-b border-slate-100 pb-3 mb-4">
+            <Text className="text-base font-bold text-slate-800">Thêm khách hàng mới</Text>
+            <TouchableOpacity onPress={() => setIsQuickCustomerModalOpen(false)} className="p-1">
+              <Ionicons name="close" size={20} color="#64748b" />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView className="max-h-96" showsVerticalScrollIndicator={false}>
+            <Text className="text-xxs text-slate-500 font-semibold mb-1.5">Tên khách hàng <Text className="text-red-500">*</Text></Text>
+            <TextInput
+              placeholder="Ví dụ: Anh Hoàng"
+              placeholderTextColor="#cbd5e1"
+              className="bg-slate-55 px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 mb-3"
+              value={quickCustName}
+              onChangeText={setQuickCustName}
+              style={{
+                paddingVertical: 0,
+                textAlignVertical: 'center',
+                lineHeight: undefined,
+                ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+              }}
+            />
+
+            <Text className="text-xxs text-slate-500 font-semibold mb-1.5">Số điện thoại <Text className="text-red-500">*</Text></Text>
+            <TextInput
+              placeholder="Ví dụ: 0987654321"
+              placeholderTextColor="#cbd5e1"
+              keyboardType="phone-pad"
+              className="bg-slate-55 px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 mb-3"
+              value={quickCustPhone}
+              onChangeText={setQuickCustPhone}
+              style={{
+                paddingVertical: 0,
+                textAlignVertical: 'center',
+                lineHeight: undefined,
+                ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+              }}
+            />
+
+            <Text className="text-xxs text-slate-500 font-semibold mb-1.5">Phân loại (CRM)</Text>
+            <View className="flex-row gap-2 mb-3">
+              {['Thành viên', 'Thân thiết', 'VIP'].map(type => (
+                <TouchableOpacity
+                  key={type}
+                  onPress={() => setQuickCustType(type)}
+                  className="flex-1 py-2 rounded-xl border items-center justify-center"
+                  style={quickCustType === type ? {
+                    backgroundColor: '#fff7ed',
+                    borderColor: '#fa5908',
+                  } : {
+                    backgroundColor: '#ffffff',
+                    borderColor: '#cbd5e1',
+                  }}
+                >
+                  <Text className={`text-[10px] font-bold ${quickCustType === type ? 'text-orange-500' : 'text-slate-500'}`}>{type}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text className="text-xxs text-slate-500 font-semibold mb-1.5">Địa chỉ</Text>
+            <TextInput
+              placeholder="Nhập địa chỉ (tùy chọn)..."
+              placeholderTextColor="#cbd5e1"
+              className="bg-slate-55 px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 mb-3"
+              value={quickCustAddress}
+              onChangeText={setQuickCustAddress}
+              style={{
+                paddingVertical: 0,
+                textAlignVertical: 'center',
+                lineHeight: undefined,
+                ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+              }}
+            />
+
+            <Text className="text-xxs text-slate-500 font-semibold mb-1.5">Ghi chú</Text>
+            <TextInput
+              placeholder="Ghi chú thêm..."
+              placeholderTextColor="#cbd5e1"
+              multiline={true}
+              numberOfLines={2}
+              className="bg-slate-55 px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 min-h-[50px] mb-4"
+              value={quickCustNote}
+              onChangeText={setQuickCustNote}
+              style={{
+                paddingVertical: 4,
+                textAlignVertical: 'top',
+                lineHeight: undefined,
+                ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+              }}
+            />
+          </ScrollView>
+
+          <View className="flex-row justify-end gap-3 border-t border-slate-100 pt-3">
+            <TouchableOpacity
+              className="px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50"
+              onPress={() => setIsQuickCustomerModalOpen(false)}
+              disabled={isQuickSaving}
+            >
+              <Text className="text-slate-500 font-semibold text-xs">Hủy</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              className="px-4 py-2.5 rounded-xl bg-orange-500 flex-row justify-center items-center"
+              style={{ backgroundColor: '#fa5908' }}
+              onPress={handleSaveQuickCustomer}
+              disabled={isQuickSaving}
+            >
+              {isQuickSaving && <ActivityIndicator size="small" color="white" className="mr-1.5" style={{ transform: [{ scale: 0.8 }] }} />}
+              <Text className="text-white font-semibold text-xs">
+                {isQuickSaving ? 'Đang lưu...' : 'Lưu khách hàng'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    );
+  };
+
   // Đồng bộ hook callback
   useEffect(() => {
     syncTableSilentRef.current = syncTableSilent;
@@ -1687,43 +1967,68 @@ export default function PosScreen() {
                           }}
                         />
                         {customerSearchQuery.length > 0 && (
-                          <TouchableOpacity onPress={() => setCustomerSearchQuery('')}>
+                          <TouchableOpacity onPress={() => setCustomerSearchQuery('')} className="mr-1">
                             <Ionicons name="close" size={14} color="#cbd5e1" />
                           </TouchableOpacity>
                         )}
+                        <View className="w-px h-4 bg-slate-200 mx-1.5" />
+                        <TouchableOpacity 
+                          onPress={() => handleOpenQuickAddCustomer('open_table')}
+                          className="p-1"
+                        >
+                          <Ionicons name="person-add-outline" size={15} color="#fa5908" />
+                        </TouchableOpacity>
                       </View>
                     )}
 
                     {/* Danh sách gợi ý */}
-                    {customerSearchQuery.trim().length > 0 && (
-                      <View className="bg-white border border-slate-200 rounded-xl mt-2 max-h-40 overflow-hidden z-50" style={{ shadowColor: '#000000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 8, elevation: 5 }}>
-                        <ScrollView nestedScrollEnabled={true} keyboardShouldPersistTaps="handled">
-                          {customersList
-                            .filter(c => {
-                              const nameStr = (c.name || '').toLowerCase();
-                              const phoneStr = (c.phone || '');
-                              const queryStr = customerSearchQuery.toLowerCase();
-                              return nameStr.includes(queryStr) || phoneStr.includes(queryStr);
-                            })
-                            .map(cust => (
-                              <TouchableOpacity
-                                key={cust.id}
-                                className="p-3 border-b border-slate-100 flex-row justify-between items-center active:bg-slate-50"
-                                onPress={() => {
-                                  setSelectedCustomer(cust);
-                                  setCustomerSearchQuery('');
-                                }}
-                              >
-                                <View>
-                                  <Text className="text-xs font-medium text-slate-800">{cust.name}</Text>
-                                  <Text className="text-tiny text-slate-400 mt-0.5">{cust.phone}</Text>
-                                </View>
-                                <Badge variant="primary" label={cust.customer_type || 'Thành viên'} size="sm" />
-                              </TouchableOpacity>
-                            ))}
-                        </ScrollView>
-                      </View>
-                    )}
+                    {customerSearchQuery.trim().length > 0 && (() => {
+                      const filtered = customersList.filter(c => {
+                        const nameStr = (c.name || '').toLowerCase();
+                        const phoneStr = (c.phone || '');
+                        const queryStr = customerSearchQuery.toLowerCase();
+                        return nameStr.includes(queryStr) || phoneStr.includes(queryStr);
+                      });
+
+                      if (filtered.length > 0) {
+                        return (
+                          <View className="bg-white border border-slate-200 rounded-xl mt-2 max-h-40 overflow-hidden z-50" style={{ shadowColor: '#000000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 8, elevation: 5 }}>
+                            <ScrollView nestedScrollEnabled={true} keyboardShouldPersistTaps="handled">
+                              {filtered.map(cust => (
+                                <TouchableOpacity
+                                  key={cust.id}
+                                  className="p-3 border-b border-slate-100 flex-row justify-between items-center active:bg-slate-50"
+                                  onPress={() => {
+                                    setSelectedCustomer(cust);
+                                    setCustomerSearchQuery('');
+                                  }}
+                                >
+                                  <View>
+                                    <Text className="text-xs font-medium text-slate-800">{cust.name}</Text>
+                                    <Text className="text-tiny text-slate-400 mt-0.5">{cust.phone}</Text>
+                                  </View>
+                                  <Badge variant="primary" label={cust.customer_type || 'Thành viên'} size="sm" />
+                                </TouchableOpacity>
+                              ))}
+                            </ScrollView>
+                          </View>
+                        );
+                      } else {
+                        return (
+                          <View className="bg-white border border-slate-200 rounded-xl mt-2 overflow-hidden z-50" style={{ shadowColor: '#000000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 8, elevation: 5 }}>
+                            <TouchableOpacity
+                              className="p-4 flex-row items-center active:bg-slate-50"
+                              onPress={() => handleOpenQuickAddCustomer('open_table')}
+                            >
+                              <Ionicons name="person-add-outline" size={16} color="#fa5908" />
+                              <Text className="text-xs font-medium text-slate-800 ml-2.5">
+                                Không tìm thấy dữ liệu. Tạo mới khách hàng <Text className="font-bold text-orange-500">"{customerSearchQuery}"</Text>
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        );
+                      }
+                    })()}
                   </View>
 
                   {/* THÔNG TIN LOẠI THUÊ (Dành riêng cho khách sạn) */}
@@ -1791,6 +2096,8 @@ export default function PosScreen() {
                 setIsDatePickerOpen(false);
               }}
             />
+
+            {renderQuickCustomerModal('open_table')}
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -1992,45 +2299,69 @@ export default function PosScreen() {
                             }}
                           />
                           {customerSearchQuery.length > 0 && (
-                            <TouchableOpacity onPress={() => setCustomerSearchQuery('')}>
+                            <TouchableOpacity onPress={() => setCustomerSearchQuery('')} className="mr-1">
                               <Ionicons name="close" size={14} color="#cbd5e1" />
                             </TouchableOpacity>
                           )}
+                          <View className="w-px h-4 bg-slate-200 mx-1.5" />
+                          <TouchableOpacity 
+                            onPress={() => handleOpenQuickAddCustomer('active_table')}
+                            className="p-1"
+                          >
+                            <Ionicons name="person-add-outline" size={15} color="#fa5908" />
+                          </TouchableOpacity>
                         </View>
 
                         {/* Danh sách gợi ý khách hàng ngay trong modal chi tiết phòng */}
-                        {customerSearchQuery.trim().length > 0 && (
-                          <View className="bg-white border border-slate-200 rounded-xl mt-2 max-h-32 overflow-hidden z-50">
-                            <ScrollView nestedScrollEnabled={true} keyboardShouldPersistTaps="handled">
-                              {customersList
-                                .filter(c => {
-                                  const nameStr = (c.name || '').toLowerCase();
-                                  const phoneStr = (c.phone || '');
-                                  const queryStr = customerSearchQuery.toLowerCase();
-                                  return nameStr.includes(queryStr) || phoneStr.includes(queryStr);
-                                })
-                                .map(cust => (
-                                  <TouchableOpacity
-                                    key={cust.id}
-                                    className="p-2.5 border-b border-slate-100 flex-row justify-between items-center active:bg-slate-50"
-                                    onPress={() => {
-                                      handleUpdateTableCustomer(activeTable.id, cust);
-                                      setCustomerSearchQuery('');
-                                    }}
-                                  >
-                                    <View>
-                                      <Text className="text-xs font-semibold text-slate-800">{cust.name}</Text>
-                                      {cust.phone ? (
-                                        <Text className="text-[9.5px] text-slate-400 mt-0.5">{cust.phone}</Text>
-                                      ) : null}
-                                    </View>
-                                    <Ionicons name="chevron-forward" size={12} color="#cbd5e1" />
-                                  </TouchableOpacity>
-                                ))
-                              }
-                            </ScrollView>
-                          </View>
-                        )}
+                        {customerSearchQuery.trim().length > 0 && (() => {
+                          const filtered = customersList.filter(c => {
+                            const nameStr = (c.name || '').toLowerCase();
+                            const phoneStr = (c.phone || '');
+                            const queryStr = customerSearchQuery.toLowerCase();
+                            return nameStr.includes(queryStr) || phoneStr.includes(queryStr);
+                          });
+
+                          if (filtered.length > 0) {
+                            return (
+                              <View className="bg-white border border-slate-200 rounded-xl mt-2 max-h-32 overflow-hidden z-50" style={{ shadowColor: '#000000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 8, elevation: 5 }}>
+                                <ScrollView nestedScrollEnabled={true} keyboardShouldPersistTaps="handled">
+                                  {filtered.map(cust => (
+                                    <TouchableOpacity
+                                      key={cust.id}
+                                      className="p-2.5 border-b border-slate-100 flex-row justify-between items-center active:bg-slate-50"
+                                      onPress={() => {
+                                        handleUpdateTableCustomer(activeTable.id, cust);
+                                        setCustomerSearchQuery('');
+                                      }}
+                                    >
+                                      <View>
+                                        <Text className="text-xs font-semibold text-slate-800">{cust.name}</Text>
+                                        {cust.phone ? (
+                                          <Text className="text-[9.5px] text-slate-400 mt-0.5">{cust.phone}</Text>
+                                        ) : null}
+                                      </View>
+                                      <Ionicons name="chevron-forward" size={12} color="#cbd5e1" />
+                                    </TouchableOpacity>
+                                  ))}
+                                </ScrollView>
+                              </View>
+                            );
+                          } else {
+                            return (
+                              <View className="bg-white border border-slate-200 rounded-xl mt-2 overflow-hidden z-50" style={{ shadowColor: '#000000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 8, elevation: 5 }}>
+                                <TouchableOpacity
+                                  className="p-4 flex-row items-center active:bg-slate-50"
+                                  onPress={() => handleOpenQuickAddCustomer('active_table')}
+                                >
+                                  <Ionicons name="person-add-outline" size={16} color="#fa5908" />
+                                  <Text className="text-xs font-medium text-slate-800 ml-2.5">
+                                    Không tìm thấy dữ liệu. Tạo mới khách hàng <Text className="font-bold text-orange-500">"{customerSearchQuery}"</Text>
+                                  </Text>
+                                </TouchableOpacity>
+                              </View>
+                            );
+                          }
+                        })()}
                       </View>
                     )}
 
@@ -2278,6 +2609,8 @@ export default function PosScreen() {
                   setIsDatePickerOpen(false);
                 }}
               />
+
+              {renderQuickCustomerModal('active_table')}
             </View>
           )}
         </KeyboardAvoidingView>
