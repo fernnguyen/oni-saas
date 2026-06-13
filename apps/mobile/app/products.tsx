@@ -662,7 +662,7 @@ export default function ProductsScreen() {
               {/* Dot trạng thái đồng bộ trước tên sản phẩm */}
               <View className={`w-2 h-2 rounded-full ${dotColor}`} />
 
-              <Text className={`font-semibold text-sm ${isInactive ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
+              <Text className={`font-semibold text-xs ${isInactive ? 'text-slate-400 line-through' : 'text-slate-855'}`}>
                 {product.name}
               </Text>
               
@@ -673,7 +673,7 @@ export default function ProductsScreen() {
               </View>
             </View>
             
-            <Text className="text-tiny text-slate-400 font-semibold mt-1">
+            <Text className="text-xxs text-slate-400 font-semibold mt-1">
               SKU: {product.sku || '—'} | ĐVT: {product.unit || '—'}
             </Text>
           </View>
@@ -697,7 +697,7 @@ export default function ProductsScreen() {
             )}
           </View>
 
-          <Text className="text-orange-600 font-bold text-sm">
+          <Text className="text-orange-600 font-bold text-xs">
             {product.sell_price ? Number(product.sell_price).toLocaleString('vi-VN') : '0'} đ
           </Text>
         </View>
