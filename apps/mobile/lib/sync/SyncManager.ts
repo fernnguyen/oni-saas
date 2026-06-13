@@ -1108,4 +1108,146 @@ export class SyncManager {
       return false;
     }
   }
+
+  // ==========================================
+  // 9. TẢI SƠ ĐỒ PHÒNG BÀN & ĐƠN HÀNG ĐANG CHẠY (POS TARGETED PULL)
+  // ==========================================
+  static async pullTableLayoutAndActiveOrders(shopId: string): Promise<boolean> {
+    try {
+      console.log(`[Sync] Bắt đầu đồng bộ riêng Sơ đồ bàn & Đơn hàng đang chạy cho: ${shopId}...`);
+      const headers = await getApiHeaders();
+      const baseUrl = getApiBaseUrl();
+
+      const [tableData, activeOrdersData] = await Promise.all([
+        fetch(`${baseUrl}/api/shops/${shopId}/location-resources?limit=500`, { headers }).then(res => res.ok ? res.json() : { data: [] }),
+        fetch(`${baseUrl}/api/shops/${shopId}/orders?status=in_progress&limit=100`, { headers }).then(res => res.ok ? res.json() : { data: [] }),
+      ]);
+
+      const rawTables = tableData.data || [];
+      const activeOrders = activeOrdersData.data || [];
+
+      // Bản đồ hóa các active order theo resource_id để tra cứu nhanh
+      const activeOrdersMap = new Map<string, any>();
+      for (const order of activeOrders) {
+        try {
+          const meta = typeof order.metadata === 'string' ? JSON.parse(order.metadata) : (order.metadata || {});
+          const rId = meta.resource_id;
+          if (rId) {
+            activeOrdersMap.set(rId, { order, meta });
+          }
+        } catch (e) {}
+      }
+
+      // Ghi dữ liệu vào SQLite
+      await db.delete(schema.location_resources);
+
+      if (rawTables.length > 0) {
+        for (const table of rawTables) {
+          const rate = parseInt(table.hourly_rate || '0', 10);
+          const isOccupied = table.status === 'occupied' || table.status === 'playing';
+          const tId = table.id || table.resource_id;
+          const activeOrderSession = activeOrdersMap.get(tId);
+          
+          let resolvedStartTime: number | null = null;
+          let mergedMetadata = typeof table.metadata === 'object' ? JSON.stringify(table.metadata) : (table.metadata || '{}');
+          
+          if (isOccupied && activeOrderSession) {
+            const checkInStr = activeOrderSession.meta.check_in;
+            if (checkInStr) {
+              resolvedStartTime = new Date(checkInStr).getTime();
+            }
+            try {
+              const tableMetaObj = JSON.parse(mergedMetadata);
+              const cloudGuests = activeOrderSession.meta.guests_list || tableMetaObj.guests_list || [];
+              mergedMetadata = JSON.stringify({
+                ...tableMetaObj,
+                rental_type: activeOrderSession.meta.rental_type || tableMetaObj.rental_type || 'hourly',
+                num_guests: cloudGuests.length > 0 ? cloudGuests.length : (activeOrderSession.meta.num_guests || tableMetaObj.num_guests || 1),
+                check_in: checkInStr || tableMetaObj.check_in,
+                guests_list: cloudGuests
+              });
+            } catch (e) {}
+          }
+          
+          if (isOccupied && !resolvedStartTime) {
+            resolvedStartTime = Date.now() - 3600000;
+          }
+
+          await db.insert(schema.location_resources).values({
+            id: tId,
+            name: table.name || '',
+            type: table.type || 'table',
+            status: isOccupied ? 'occupied' : 'available',
+            current_order_id: table.current_order_id || (activeOrderSession ? activeOrderSession.order.id : null),
+            hourly_rate: isNaN(rate) ? 0 : rate,
+            zone: table.zone || null,
+            startTime: resolvedStartTime,
+            metadata: mergedMetadata,
+          }).onConflictDoUpdate({
+            target: schema.location_resources.id,
+            set: {
+              name: table.name || '',
+              type: table.type || 'table',
+              status: isOccupied ? 'occupied' : 'available',
+              current_order_id: table.current_order_id || (activeOrderSession ? activeOrderSession.order.id : null),
+              hourly_rate: isNaN(rate) ? 0 : rate,
+              zone: table.zone || null,
+              startTime: resolvedStartTime,
+              metadata: mergedMetadata,
+            }
+          });
+        }
+      }
+      return true;
+    } catch (error) {
+      console.error('Lỗi khi đồng bộ riêng Sơ đồ bàn POS:', error);
+      return false;
+    }
+  }
+
+  // ==========================================
+  // 10. TẢI PHIẾU THU/CHI SỔ QUỸ (CASHBOOK TARGETED PULL)
+  // ==========================================
+  static async pullCashbook(shopId: string): Promise<boolean> {
+    try {
+      console.log(`[Sync] Bắt đầu đồng bộ riêng Sổ Quỹ cho: ${shopId}...`);
+      const headers = await getApiHeaders();
+      const baseUrl = getApiBaseUrl();
+
+      const res = await fetch(`${baseUrl}/api/shops/${shopId}/cashbook?limit=100`, { headers });
+      if (!res.ok) {
+        throw new Error('Lỗi đường truyền hoặc không thể tải dữ liệu Sổ Quỹ từ Cloud');
+      }
+
+      const cbData = await res.json();
+      const rawCashbook = cbData.data || [];
+
+      // Xóa các giao dịch đã đồng bộ (synced)
+      await db.delete(schema.cashbook).where(eq(schema.cashbook.sync_status, 'synced'));
+
+      if (rawCashbook.length > 0) {
+        for (const cb of rawCashbook) {
+          await db.insert(schema.cashbook).values({
+            id: cb.transaction_id || cb.id,
+            branch_id: cb.branch_id || '',
+            type: cb.type || 'receipt',
+            amount: parseInt(cb.amount || '0', 10),
+            method: cb.method || 'cash',
+            category: cb.category || 'other_expense',
+            reference_id: cb.reference_id || null,
+            reference_name: cb.reference_name || null,
+            employee_id: cb.employee_id || null,
+            note: cb.note || null,
+            date: cb.created_at || cb.date || new Date().toISOString(),
+            fund_id: cb.fund_id || null,
+            sync_status: 'synced',
+          }).onConflictDoNothing();
+        }
+      }
+      return true;
+    } catch (error) {
+      console.error('Lỗi khi đồng bộ riêng Sổ Quỹ:', error);
+      return false;
+    }
+  }
 }

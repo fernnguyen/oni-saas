@@ -124,9 +124,15 @@ export default function CashbookScreen() {
   const handleManualSync = async () => {
     if (isSyncing) return;
     setIsSyncing(true);
-    showToast('Đang tiến hành đồng bộ dữ liệu...', 'info');
+    showToast('Đang tiến hành đồng bộ sổ quỹ...', 'info');
     try {
-      await KeepAliveManager.triggerSyncIfNeeded(true);
+      const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+      if (Platform.OS !== 'web') {
+        // 1. Đẩy các phiếu thu chi pending lên Cloud
+        await SyncManager.pushOfflineCashbook(shopId);
+        // 2. Kéo các phiếu thu chi mới nhất từ Cloud
+        await SyncManager.pullCashbook(shopId);
+      }
       await loadCashbookData();
       showToast('Đồng bộ dữ liệu sổ quỹ thành công!', 'success');
     } catch (err) {

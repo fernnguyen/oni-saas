@@ -293,35 +293,18 @@ export default function ProductsScreen() {
     try {
       setIsSyncing(true);
       setSyncProgress(10);
-      showToast('Đang đẩy dữ liệu ngoại tuyến lên cloud...', 'info');
+      showToast('Đang đẩy danh mục & sản phẩm ngoại tuyến lên cloud...', 'info');
       const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
-      const tenantId = await AsyncStorage.getItem('active_tenant_id') || 'default-tenant';
 
-      // 1. Đẩy Ca làm việc pending
-      await SyncManager.pushOfflineShifts(shopId);
-      setSyncProgress(20);
-
-      // 2. Đẩy Hóa đơn pending
-      await SyncManager.pushOfflineOrders(shopId);
-      setSyncProgress(35);
-
-      // 3. Đẩy Sổ quỹ pending
-      await SyncManager.pushOfflineCashbook(shopId);
-      setSyncProgress(50);
-
-      // 4. Đẩy Điều chỉnh kho pending
-      await SyncManager.pushOfflineStockMovements(shopId);
-      setSyncProgress(65);
-
-      // 5. Đẩy Danh mục pending
+      // 1. Chỉ đẩy Danh mục pending
       await SyncManager.pushOfflineCategories(shopId);
-      setSyncProgress(75);
+      setSyncProgress(30);
 
-      // 6. Đẩy Sản phẩm pending
+      // 2. Chỉ đẩy Sản phẩm pending
       await SyncManager.pushOfflineProducts(shopId);
-      setSyncProgress(85);
+      setSyncProgress(60);
 
-      // 7. Kéo dữ liệu mới nhất (2 chiều)
+      // 3. Kéo dữ liệu mới nhất (chỉ Danh mục + Sản phẩm)
       showToast('Đang tải dữ liệu mới nhất từ cloud...', 'info');
       
       if (Platform.OS === 'web') {
@@ -331,7 +314,7 @@ export default function ProductsScreen() {
         await loadProductsData(1, false);
       } else {
         const success = await SyncManager.pullProductsAndCategories(shopId, (p) => {
-          setSyncProgress(Math.round(85 + p * 15));
+          setSyncProgress(Math.round(60 + p * 40));
         });
 
         if (success) {

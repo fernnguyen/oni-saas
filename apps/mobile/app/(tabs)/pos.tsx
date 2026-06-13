@@ -422,10 +422,9 @@ export default function PosScreen() {
     if (Platform.OS !== 'web') {
       try {
         const activeShopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
-        const activeTenantId = await AsyncStorage.getItem('active_tenant_id') || 'default-tenant';
-        await SyncManager.pullFullDatabase(activeShopId, activeTenantId, () => { });
+        await SyncManager.pullTableLayoutAndActiveOrders(activeShopId);
       } catch (syncErr) {
-        console.warn('Lỗi đồng bộ SQLite đầu ca khi làm mới:', syncErr);
+        console.warn('Lỗi đồng bộ SQLite sơ đồ phòng bàn khi làm mới:', syncErr);
       }
     }
     await loadPosData(true);

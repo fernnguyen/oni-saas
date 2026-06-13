@@ -13,6 +13,7 @@ import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { BarcodeScannerModal } from '../components/ui/BarcodeScannerModal';
 import { KeepAliveManager } from '../lib/sync/KeepAliveManager';
+import { SyncManager } from '../lib/sync/SyncManager';
 import { usePermissions } from '../lib/auth/PermissionsContext';
 import * as Haptics from 'expo-haptics';
 import { getApiBaseUrl, getApiHeaders } from '../lib/api/config';
@@ -104,9 +105,15 @@ function WarehouseContent() {
   const handleManualSync = async () => {
     if (isSyncing) return;
     setIsSyncing(true);
-    showToast('Đang tiến hành đồng bộ dữ liệu...', 'info');
+    showToast('Đang tiến hành đồng bộ kho hàng...', 'info');
     try {
-      await KeepAliveManager.triggerSyncIfNeeded(true);
+      const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+      if (Platform.OS !== 'web') {
+        // 1. Đẩy các phiếu điều chỉnh kho pending lên Cloud
+        await SyncManager.pushOfflineStockMovements(shopId);
+        // 2. Kéo thông tin sản phẩm và danh mục mới nhất để cập nhật tồn kho
+        await SyncManager.pullProductsAndCategories(shopId, () => {});
+      }
       await loadProducts();
       showToast('Đồng bộ dữ liệu kho hàng thành công!', 'success');
     } catch (err) {
