@@ -100,6 +100,7 @@ export async function POST(
 
     const created = await connector.create('orders', {
       ...data,
+      shift_id: data.shift_id || (activeShift ? activeShift.id : ''),
       customer_id: finalCustomerId,
       created_at: getGMT7Time()
     })

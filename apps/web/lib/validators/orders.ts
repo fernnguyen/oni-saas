@@ -31,6 +31,7 @@ export const orderCreateSchema = z.object({
   metadata:          z.string().optional().default('{}'),
   group_booking_id:  z.string().optional(),
   parent_order_id:   z.string().optional(),
+  shift_id:          z.string().optional().default(''),
 })
 
 export const orderUpdateSchema = orderCreateSchema.partial()

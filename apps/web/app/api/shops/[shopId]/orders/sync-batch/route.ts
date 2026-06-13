@@ -72,6 +72,7 @@ interface SyncOrder {
   note?: string
   metadata?: string
   payment_method?: string
+  shift_id?: string
 }
 
 export async function POST(
@@ -205,6 +206,7 @@ export async function POST(
         note:            order.note ?? '',
         payment_method:  paymentMethod ?? 'cash',
         reference_no:    local_order_id ?? '',
+        shift_id:        order.shift_id ?? '',
         created_at:      getGMT7Time(),
       }
       if (order.metadata !== undefined) {
@@ -234,6 +236,9 @@ export async function POST(
       }
       if (local_order_id) {
         updateData.reference_no = local_order_id
+      }
+      if (order.shift_id) {
+        updateData.shift_id = order.shift_id
       }
       if (order.metadata !== undefined) {
         updateData.metadata = order.metadata

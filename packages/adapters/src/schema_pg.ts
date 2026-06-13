@@ -38,6 +38,7 @@ export const orders = pgTable('orders', {
   parent_order_id: varchar('parent_order_id', { length: 255 }),
   group_booking_id: varchar('group_booking_id', { length: 255 }),
   override_reason: text('override_reason'),
+  shift_id: varchar('shift_id', { length: 255 }),
   metadata: jsonb('metadata'),
 });
 
