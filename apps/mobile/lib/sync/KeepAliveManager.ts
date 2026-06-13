@@ -19,7 +19,7 @@ export class KeepAliveManager {
     this.appStateSubscription = AppState.addEventListener('change', this.handleAppStateChange);
     
     // Tự động chạy một lần khi ứng dụng vừa khởi động
-    setTimeout(() => this.triggerSyncIfNeeded(true), 1500);
+    setTimeout(() => this.triggerSyncIfNeeded(false), 1500);
   }
 
   static destroy() {

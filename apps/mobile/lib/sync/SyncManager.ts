@@ -336,6 +336,7 @@ export class SyncManager {
 
       onProgress(1.0);
       console.log('Đồng bộ tải dữ liệu Cloud về SQLite thành công mỹ mãn!');
+      await AsyncStorage.setItem('last_keep_alive_sync_time', String(Date.now()));
       return true;
     } catch (error) {
       console.error('Lỗi nghiêm trọng khi đồng bộ tải dữ liệu từ Cloud:', error);
