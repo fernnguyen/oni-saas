@@ -13,7 +13,9 @@ import {Dialog} from '../ui/Dialog';
 import {Button} from '../ui/Button';
 import {formatCurrency} from '../../lib/utils/format';
 import {getApiBaseUrl, getApiHeaders} from '../../lib/api/config';
+import Constants from 'expo-constants';
 import {usePermissions} from '../../lib/auth/PermissionsContext';
+
 
 export interface DrawerMenuProps {
  visible: boolean;
@@ -26,6 +28,14 @@ const DRAWER_WIDTH = SCREEN_WIDTH * 0.78;
 
 export function DrawerMenu({visible, onClose, branchName = 'Chi nhánh chính'}: DrawerMenuProps) {
  const {hasPermission} = usePermissions();
+ const appVersion = Constants.expoConfig?.version || '1.0.0';
+ const buildNumber = Platform.select({
+   ios: Constants.expoConfig?.ios?.buildNumber,
+   android: Constants.expoConfig?.android?.versionCode?.toString(),
+   default: '',
+ });
+ const displayVersion = buildNumber ? `v${appVersion} (${buildNumber})` : `v${appVersion}`;
+
  const canViewDebt = hasPermission('debt.view') || hasPermission('customers.view');
 
  const [userInfo, setUserInfo] = useState<{name: string, email: string} | null>(null);
@@ -444,7 +454,10 @@ export function DrawerMenu({visible, onClose, branchName = 'Chi nhánh chính'}:
     </TouchableOpacity>
   </View>
  </View>
- 
+ <Text className="text-center text-[10px] text-slate-400 mt-3 font-medium">
+   Phiên bản {displayVersion}
+ </Text>
+
  <TouchableOpacity 
  activeOpacity={0.7}
  onPress={onClose}
