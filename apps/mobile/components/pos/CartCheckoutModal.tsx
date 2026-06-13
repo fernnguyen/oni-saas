@@ -45,6 +45,16 @@ export function formatCurrency(value: number): string {
   return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value);
 }
 
+export function formatDateTime(date: Date): string {
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  const hours = pad(date.getHours());
+  const minutes = pad(date.getMinutes());
+  const day = pad(date.getDate());
+  const month = pad(date.getMonth() + 1);
+  const year = date.getFullYear();
+  return `${hours}:${minutes} ${day}/${month}/${year}`;
+}
+
 export function maskCurrencyInput(value: string): string {
   const numericStr = value.replace(/[^0-9]/g, '');
   if (!numericStr) return '';
@@ -126,6 +136,8 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
   const [editHour, setEditHour] = useState('');
   const [editMinute, setEditMinute] = useState('');
   const [editDate, setEditDate] = useState(''); // DD/MM/YYYY
+  const [isConfirmCheckoutTimeVisible, setIsConfirmCheckoutTimeVisible] = useState(false);
+  const [pendingCheckoutTime, setPendingCheckoutTime] = useState<Date | null>(null);
 
   const calculateBilling = React.useCallback((table: any, customCheckoutTime?: Date) => {
     if (!table.startTime) return { hours: 0, minutes: 0, cost: 0, label: '0h 0p', details: '' };
@@ -238,8 +250,8 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
         }
       }
 
-      setCustomCheckoutTime(newDate);
-      setIsEditingCheckoutTime(false);
+      setPendingCheckoutTime(newDate);
+      setIsConfirmCheckoutTimeVisible(true);
     } catch (e) {
       Alert.alert('Lỗi', 'Không thể phân tích thời gian đã nhập!');
     }
@@ -902,6 +914,14 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                     <View className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-3">
                       <Text className="text-xxs font-bold text-slate-500">NHẬP GIỜ CHECKOUT MỚI</Text>
                       
+                      {/* Cảnh báo ghi log đảm bảo tính minh bạch */}
+                      <View className="flex-row items-start bg-amber-50 border border-amber-200 rounded-lg p-2 mb-[5px]">
+                        <Ionicons name="warning-outline" size={14} color="#d97706" style={{ marginTop: 1 }} />
+                        <Text className="text-[10px] text-amber-800 flex-1 leading-relaxed ml-1.5 font-medium">
+                          Mọi thao tác thay đổi giờ checkout sẽ được ghi lại trong nhật ký hệ thống để đảm bảo tính minh bạch.
+                        </Text>
+                      </View>
+                      
                       <View className="flex-row gap-3">
                         <View className="flex-1">
                           <Text className="text-[9px] font-semibold text-slate-400 mb-1">GIỜ (0-23)</Text>
@@ -911,8 +931,13 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                             keyboardType="numeric"
                             maxLength={2}
                             placeholder="HH"
-                            className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-center text-xs font-semibold text-slate-800"
-                            style={Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {}}
+                            className="bg-slate-50 border border-slate-200 rounded-lg h-9 px-2 text-center text-xs font-semibold text-slate-800"
+                            style={{
+                              paddingVertical: 0,
+                              textAlignVertical: 'center',
+                              lineHeight: undefined,
+                              ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+                            }}
                           />
                         </View>
                         <View className="flex-1">
@@ -923,8 +948,13 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                             keyboardType="numeric"
                             maxLength={2}
                             placeholder="mm"
-                            className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-center text-xs font-semibold text-slate-800"
-                            style={Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {}}
+                            className="bg-slate-50 border border-slate-200 rounded-lg h-9 px-2 text-center text-xs font-semibold text-slate-800"
+                            style={{
+                              paddingVertical: 0,
+                              textAlignVertical: 'center',
+                              lineHeight: undefined,
+                              ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+                            }}
                           />
                         </View>
                         <View className="flex-[2]">
@@ -933,11 +963,28 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                             value={editDate}
                             onChangeText={setEditDate}
                             placeholder="DD/MM/YYYY"
-                            className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-center text-xs font-semibold text-slate-800"
-                            style={Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {}}
+                            className="bg-slate-50 border border-slate-200 rounded-lg h-9 px-2 text-center text-xs font-semibold text-slate-800"
+                            style={{
+                              paddingVertical: 0,
+                              textAlignVertical: 'center',
+                              lineHeight: undefined,
+                              ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+                            }}
                           />
                         </View>
                       </View>
+                      
+                      {/* Nút khôi phục sử dụng giờ hệ thống */}
+                      <TouchableOpacity
+                        onPress={() => {
+                          setCustomCheckoutTime(null);
+                          setIsEditingCheckoutTime(false);
+                        }}
+                        className="py-2.5 mt-[5px] bg-blue-50 border border-dashed border-blue-300 rounded-lg flex-row items-center justify-center active:bg-blue-100"
+                      >
+                        <Ionicons name="refresh-outline" size={12} color="#1d4ed8" style={{ marginRight: 4 }} />
+                        <Text className="text-[10px] font-semibold text-blue-700">Sử dụng giờ hệ thống (Khôi phục)</Text>
+                      </TouchableOpacity>
                       
                       <View className="flex-row gap-2.5 pt-1">
                         <TouchableOpacity
@@ -1746,6 +1793,84 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
               </View>
             </View>
             </ScrollView>
+          </Dialog>
+
+          {/* Dialog xác nhận thay đổi giờ ra */}
+          <Dialog
+            visible={isConfirmCheckoutTimeVisible}
+            onClose={() => setIsConfirmCheckoutTimeVisible(false)}
+            onConfirm={() => {
+              if (pendingCheckoutTime) {
+                setCustomCheckoutTime(pendingCheckoutTime);
+                setIsEditingCheckoutTime(false);
+                setIsConfirmCheckoutTimeVisible(false);
+                setPendingCheckoutTime(null);
+              }
+            }}
+            title="Xác nhận thay đổi giờ ra"
+            confirmLabel="Xác nhận"
+            cancelLabel="Hủy"
+            variant="default"
+          >
+            {pendingCheckoutTime && (
+              <View className="space-y-3.5 w-full">
+                {/* 1. Các mốc thời gian so sánh */}
+                <View className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2.5">
+                  <View className="flex-row justify-between items-center">
+                    <Text className="text-[10px] text-slate-500 font-semibold">GIỜ VÀO:</Text>
+                    <Text className="text-xs font-bold text-slate-800">
+                      {cartOwnerTable?.startTime ? formatDateTime(new Date(cartOwnerTable.startTime)) : 'N/A'}
+                    </Text>
+                  </View>
+                  <View className="flex-row justify-between items-center border-t border-slate-100 pt-2.5">
+                    <Text className="text-[10px] text-slate-500 font-semibold">GIỜ RA (ĐÃ SỬA):</Text>
+                    <Text className="text-xs font-bold text-orange-600">
+                      {formatDateTime(pendingCheckoutTime)}
+                    </Text>
+                  </View>
+                  <View className="flex-row justify-between items-center border-t border-slate-100 pt-2.5">
+                    <Text className="text-[10px] text-slate-500 font-semibold">GIỜ HIỆN TẠI (HỆ THỐNG):</Text>
+                    <Text className="text-xs font-bold text-slate-600">
+                      {formatDateTime(new Date())}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* 2. Phần thông báo nếu lệch quá lớn */}
+                {(() => {
+                  const now = new Date();
+                  const diffMs = Math.abs(pendingCheckoutTime.getTime() - now.getTime());
+                  const totalMinutes = Math.floor(diffMs / (1000 * 60));
+                  
+                  const days = Math.floor(totalMinutes / (24 * 60));
+                  const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
+                  const mins = totalMinutes % 60;
+                  
+                  const parts = [];
+                  if (days > 0) parts.push(`${days} ngày`);
+                  if (hours > 0) parts.push(`${hours} giờ`);
+                  if (mins > 0) parts.push(`${mins} phút`);
+                  const diffLabel = parts.join(' ');
+
+                  const isDeviationLarge = totalMinutes >= 15;
+                  
+                  return (
+                    <View className="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-1.5">
+                      <View className="flex-row items-center">
+                        <Ionicons name="shield-checkmark-outline" size={14} color="#d97706" />
+                        <Text className="text-[10px] font-bold text-amber-800 ml-1">ĐẢM BẢO TÍNH MINH BẠCH</Text>
+                      </View>
+                      <Text className="text-[10px] text-amber-800 leading-relaxed font-medium">
+                        {isDeviationLarge 
+                          ? `Chú ý: Giờ ra lệch ${diffLabel} so với giờ thực tế. Hành động thay đổi giờ giấc này sẽ được ghi nhận chi tiết vào lịch sử hệ thống.`
+                          : 'Hành động thay đổi giờ ra này sẽ được ghi lại trong nhật ký hệ thống để đảm bảo tính minh bạch.'
+                        }
+                      </Text>
+                    </View>
+                  );
+                })()}
+              </View>
+            )}
           </Dialog>
 
           {/* MODAL FORM THÊM NHANH KHÁCH HÀNG MỚI (Dùng absolute View thay vì lồng Modal để tránh đơ UI trên React Native) */}
