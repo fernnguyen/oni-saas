@@ -30,7 +30,7 @@ interface CartCheckoutModalProps {
   paymentFundsList: any[];
   productsList: any[];
   getCartCount: () => number;
-  onCheckout: (opts?: { debtRepayAmount?: number; debtFundId?: string; debtMethod?: string }) => void; // Called to trigger final payment or show QR
+  onCheckout: (opts?: { debtRepayAmount?: number; debtFundId?: string; debtMethod?: string; customCheckoutTime?: Date }) => void; // Called to trigger final payment or show QR
   // Tích hợp realtime khách hàng
   shopId?: string;
   isOnline?: boolean;
@@ -120,6 +120,131 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
   const [selectingMethodRow, setSelectingMethodRow] = useState<{ rowId: string; idx: number } | null>(null);
   const [currentTime, setCurrentTime] = useState(() => new Date());
 
+  // Thêm các state phục vụ chỉnh sửa giờ ra
+  const [customCheckoutTime, setCustomCheckoutTime] = useState<Date | null>(null);
+  const [isEditingCheckoutTime, setIsEditingCheckoutTime] = useState(false);
+  const [editHour, setEditHour] = useState('');
+  const [editMinute, setEditMinute] = useState('');
+  const [editDate, setEditDate] = useState(''); // DD/MM/YYYY
+
+  const calculateBilling = React.useCallback((table: any, customCheckoutTime?: Date) => {
+    if (!table.startTime) return { hours: 0, minutes: 0, cost: 0, label: '0h 0p', details: '' };
+
+    let rmd: any = {};
+    try {
+      rmd = typeof table.metadata === 'string' ? JSON.parse(table.metadata) : (table.metadata || {});
+    } catch (e) {
+      console.warn('Cannot parse table metadata:', e);
+    }
+
+    const rentalType = rmd.rental_type || 'hourly';
+
+    if (rentalType === 'overnight') {
+      const overnightRate = Number(rmd.overnight_rate) || Number(table.hourly_rate) || 0;
+      return {
+        hours: 0,
+        minutes: 0,
+        cost: overnightRate,
+        label: 'Qua đêm',
+        details: 'Trọn gói qua đêm'
+      };
+    }
+
+    const hourlyRate = Number(table.hourly_rate) || 0;
+    const checkInDate = new Date(table.startTime);
+    const checkOutDate = customCheckoutTime || (table.checkoutTime ? new Date(table.checkoutTime) : new Date());
+
+    const pricingResult = calculateHourlyBilling({
+      checkIn: checkInDate,
+      checkOut: checkOutDate,
+      standardRate: hourlyRate,
+      config: rmd.advanced_pricing
+    });
+
+    const diffMs = Math.max(0, checkOutDate.getTime() - checkInDate.getTime());
+    const totalMinutes = Math.ceil(diffMs / 60000);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+
+    return {
+      hours,
+      minutes,
+      cost: pricingResult.totalAmount,
+      label: pricingResult.durationLabel,
+      details: pricingResult.detailsLabel
+    };
+  }, []);
+
+  const localCartTotal = React.useMemo(() => {
+    return Object.entries(cart).reduce((sum, [key, item]) => {
+      if (key === 'TIME_CHARGE') {
+        if (cartOwnerTable && cartOwnerTable.startTime) {
+          const billing = calculateBilling(cartOwnerTable, customCheckoutTime || undefined);
+          return sum + billing.cost;
+        }
+      }
+      return sum + ((item.price + (item.modifier_total || 0)) * item.quantity);
+    }, 0);
+  }, [cart, cartOwnerTable, customCheckoutTime, calculateBilling]);
+
+  const handleStartEditCheckoutTime = () => {
+    let currentMeta: any = {};
+    if (cartOwnerTable && cartOwnerTable.metadata) {
+      try {
+        currentMeta = typeof cartOwnerTable.metadata === 'string' ? JSON.parse(cartOwnerTable.metadata) : cartOwnerTable.metadata;
+      } catch (e) {}
+    }
+    const currentCheckout = customCheckoutTime || (currentMeta.actual_checkout_requested_at ? new Date(currentMeta.actual_checkout_requested_at) : currentTime);
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    setEditHour(pad(currentCheckout.getHours()));
+    setEditMinute(pad(currentCheckout.getMinutes()));
+    setEditDate(`${pad(currentCheckout.getDate())}/${pad(currentCheckout.getMonth() + 1)}/${currentCheckout.getFullYear()}`);
+    setIsEditingCheckoutTime(true);
+  };
+
+  const handleConfirmEditCheckoutTime = () => {
+    try {
+      const hour = parseInt(editHour, 10);
+      const minute = parseInt(editMinute, 10);
+      if (isNaN(hour) || hour < 0 || hour > 23 || isNaN(minute) || minute < 0 || minute > 59) {
+        Alert.alert('Lỗi', 'Giờ (0-23) hoặc Phút (0-59) không hợp lệ!');
+        return;
+      }
+      
+      const dateParts = editDate.split('/');
+      if (dateParts.length !== 3) {
+        Alert.alert('Lỗi', 'Định dạng ngày phải là DD/MM/YYYY!');
+        return;
+      }
+      const day = parseInt(dateParts[0], 10);
+      const month = parseInt(dateParts[1], 10);
+      const year = parseInt(dateParts[2], 10);
+      if (isNaN(day) || day < 1 || day > 31 || isNaN(month) || month < 1 || month > 12 || isNaN(year) || year < 2000) {
+        Alert.alert('Lỗi', 'Ngày, tháng hoặc năm không hợp lệ!');
+        return;
+      }
+      
+      const newDate = new Date(year, month - 1, day, hour, minute, 0);
+      if (isNaN(newDate.getTime())) {
+        Alert.alert('Lỗi', 'Thời gian đã nhập không hợp lệ!');
+        return;
+      }
+      
+      if (cartOwnerTable && cartOwnerTable.startTime) {
+        const checkInDate = new Date(cartOwnerTable.startTime);
+        if (newDate.getTime() < checkInDate.getTime()) {
+          Alert.alert('Lỗi', 'Giờ ra không được nhỏ hơn giờ vào!');
+          return;
+        }
+      }
+
+      setCustomCheckoutTime(newDate);
+      setIsEditingCheckoutTime(false);
+    } catch (e) {
+      Alert.alert('Lỗi', 'Không thể phân tích thời gian đã nhập!');
+    }
+  };
+
   React.useEffect(() => {
     if (!visible || !cartOwnerTable) return;
     let rmd: any = {};
@@ -150,7 +275,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
 
     const rentalType = rmd.rental_type || 'hourly';
     const checkInDate = new Date(cartOwnerTable.startTime);
-    const actualCheckout = rmd.actual_checkout_requested_at ? new Date(rmd.actual_checkout_requested_at) : currentTime;
+    const actualCheckout = customCheckoutTime || (rmd.actual_checkout_requested_at ? new Date(rmd.actual_checkout_requested_at) : currentTime);
     const checkOutDate = actualCheckout;
 
     let durationLabel = '';
@@ -183,7 +308,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
       duration: durationLabel,
       rentalType
     };
-  }, [cartOwnerTable, currentTime]);
+  }, [cartOwnerTable, currentTime, customCheckoutTime]);
   const [selectingFundRow, setSelectingFundRow] = useState<{ rowId: string; idx: number; matchingFunds: any[] } | null>(null);
   const [hidePrepaidSuggest, setHidePrepaidSuggest] = useState(false);
   const [hideDebtRepaySuggest, setHideDebtRepaySuggest] = useState(false);
@@ -487,7 +612,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
   // Customer thực tế dùng cho hiển thị: ưu tiên enriched (realtime), fallback local
   const activeCustomer = enrichedCustomer || selectedCustomer;
 
-  const finalTotal = Math.max(0, getCartTotal() - discountAmount);
+  const finalTotal = Math.max(0, localCartTotal - discountAmount);
   const paidSum = paymentRows.reduce((sum, p) => sum + p.amount, 0);
 
   // --- Debt & prepaid logic ---
@@ -762,21 +887,89 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                 <View className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4">
                   <View className="flex-row justify-between items-center mb-2.5">
                     <Text className="text-xxs font-semibold text-slate-400">CHI TIẾT THỜI GIAN THUÊ</Text>
+                    {!isEditingCheckoutTime && (
+                      <TouchableOpacity 
+                        onPress={handleStartEditCheckoutTime}
+                        className="flex-row items-center bg-orange-50 border border-orange-200 px-2 py-1 rounded-lg"
+                      >
+                        <Ionicons name="create-outline" size={12} color="#fa5908" />
+                        <Text className="text-[10px] font-semibold text-orange-500 ml-1">Sửa giờ ra</Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
-                  <View className="space-y-2">
-                    <View className="flex-row justify-between items-center">
-                      <Text className="text-xs text-slate-500">Giờ vào:</Text>
-                      <Text className="text-xs font-semibold text-slate-850">{billingInfo.checkIn}</Text>
+                  
+                  {isEditingCheckoutTime ? (
+                    <View className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-3">
+                      <Text className="text-xxs font-bold text-slate-500">NHẬP GIỜ CHECKOUT MỚI</Text>
+                      
+                      <View className="flex-row gap-3">
+                        <View className="flex-1">
+                          <Text className="text-[9px] font-semibold text-slate-400 mb-1">GIỜ (0-23)</Text>
+                          <TextInput
+                            value={editHour}
+                            onChangeText={setEditHour}
+                            keyboardType="numeric"
+                            maxLength={2}
+                            placeholder="HH"
+                            className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-center text-xs font-semibold text-slate-800"
+                            style={Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {}}
+                          />
+                        </View>
+                        <View className="flex-1">
+                          <Text className="text-[9px] font-semibold text-slate-400 mb-1">PHÚT (0-59)</Text>
+                          <TextInput
+                            value={editMinute}
+                            onChangeText={setEditMinute}
+                            keyboardType="numeric"
+                            maxLength={2}
+                            placeholder="mm"
+                            className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-center text-xs font-semibold text-slate-800"
+                            style={Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {}}
+                          />
+                        </View>
+                        <View className="flex-[2]">
+                          <Text className="text-[9px] font-semibold text-slate-400 mb-1">NGÀY (DD/MM/YYYY)</Text>
+                          <TextInput
+                            value={editDate}
+                            onChangeText={setEditDate}
+                            placeholder="DD/MM/YYYY"
+                            className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-center text-xs font-semibold text-slate-800"
+                            style={Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {}}
+                          />
+                        </View>
+                      </View>
+                      
+                      <View className="flex-row gap-2.5 pt-1">
+                        <TouchableOpacity
+                          onPress={() => setIsEditingCheckoutTime(false)}
+                          className="flex-1 py-2 bg-slate-100 border border-slate-200 rounded-lg items-center"
+                        >
+                          <Text className="text-[10px] font-semibold text-slate-600">Hủy</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={handleConfirmEditCheckoutTime}
+                          className="flex-1 py-2 bg-orange-500 rounded-lg items-center"
+                        >
+                          <Text className="text-[10px] font-semibold text-white">Xác nhận</Text>
+                        </TouchableOpacity>
+                      </View>
                     </View>
-                    <View className="flex-row justify-between items-center">
-                      <Text className="text-xs text-slate-500">Giờ ra:</Text>
-                      <Text className="text-xs font-semibold text-slate-850">{billingInfo.checkOut}</Text>
+                  ) : (
+                    <View className="space-y-2">
+                      <View className="flex-row justify-between items-center">
+                        <Text className="text-xs text-slate-500">Giờ vào:</Text>
+                        <Text className="text-xs font-semibold text-slate-850">{billingInfo.checkIn}</Text>
+                      </View>
+                      <View className="flex-row justify-between items-center">
+                        <Text className="text-xs text-slate-500">Giờ ra:</Text>
+                        <Text className="text-xs font-semibold text-slate-850">{billingInfo.checkOut}</Text>
+                      </View>
+                      <View className="flex-row justify-between items-center border-t border-slate-200 pt-2">
+                        <Text className="text-xs text-slate-500">Tổng thời gian:</Text>
+                        <Text className="text-xs font-bold text-emerald-600">{billingInfo.duration}</Text>
+                      </View>
                     </View>
-                    <View className="flex-row justify-between items-center border-t border-slate-200 pt-2">
-                      <Text className="text-xs text-slate-500">Tổng thời gian:</Text>
-                      <Text className="text-xs font-bold text-emerald-600">{billingInfo.duration}</Text>
-                    </View>
-                  </View>
+                  )}
                 </View>
               )}
 
@@ -1420,9 +1613,13 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
             onClose={() => setIsConfirmVisible(false)}
             onConfirm={() => {
               const debtOpts = clampedDebtRepay > 0 ? { debtRepayAmount: clampedDebtRepay, ...selectDebtFund() } : undefined;
+              const checkoutOpts = {
+                ...debtOpts,
+                customCheckoutTime: customCheckoutTime || undefined
+              };
               setIsConfirmVisible(false);
               setTimeout(async () => {
-                await onCheckout(debtOpts);
+                await onCheckout(checkoutOpts);
               }, 400);
             }}
             title="Xác nhận Thanh toán"

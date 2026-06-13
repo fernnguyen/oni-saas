@@ -642,6 +642,10 @@ export function useTableManager(props: UseTableManagerProps) {
   // Cập nhật thông tin khách lưu trú của phòng đang ở
   const handleUpdateActiveRoomGuests = async () => {
     if (!activeTable) return;
+    const targetTable = activeTable;
+    const targetGuests = lodgingGuests;
+    const targetGuestCount = roomGuestCount;
+    const targetRoomRentalType = roomRentalType;
 
     // Dialog xác nhận an toàn trước khi cập nhật
     const confirmUpdate = Platform.OS === 'web'
@@ -663,10 +667,9 @@ export function useTableManager(props: UseTableManagerProps) {
       setIsUpdatingGuestsLoading(true);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => { });
       const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
-      let syncSucceeded = false;
 
       // 1. Chuẩn hóa metadata khách lưu trú
-      const updatedGuests = lodgingGuests
+      const updatedGuests = targetGuests
         .filter(g => g.name || g.id_number || g.idCard)
         .map(g => ({
           id: g.id || undefined,
@@ -685,28 +688,28 @@ export function useTableManager(props: UseTableManagerProps) {
       // Đọc metadata hiện tại và ghi đè
       let currentMeta: any = {};
       try {
-        currentMeta = typeof activeTable.metadata === 'string' ? JSON.parse(activeTable.metadata) : (activeTable.metadata || {});
+        currentMeta = typeof targetTable.metadata === 'string' ? JSON.parse(targetTable.metadata) : (targetTable.metadata || {});
       } catch (e) { }
 
       const updatedMeta = JSON.stringify({
         ...currentMeta,
-        resource_id: activeTable.id,
-        resource_name: activeTable.name,
-        check_in: activeTable.startTime || new Date().toISOString(),
-        num_guests: roomGuestCount,
-        rental_type: roomRentalType,
+        resource_id: targetTable.id,
+        resource_name: targetTable.name,
+        check_in: targetTable.startTime || new Date().toISOString(),
+        num_guests: targetGuestCount,
+        rental_type: targetRoomRentalType,
         guests_list: updatedGuests,
         guests: updatedGuests
       });
 
-      // 2. Offline-First: Cập nhật SQLite nội địa và State
+      // 2. Offline-First: Cập nhật SQLite nội địa và State lập tức
       if (Platform.OS === 'web') {
-        setTables(prev => prev.map(t => t.id === activeTable.id ? { ...t, metadata: updatedMeta } : t));
+        setTables(prev => prev.map(t => t.id === targetTable.id ? { ...t, metadata: updatedMeta } : t));
       } else {
         await db
           .update(schema.location_resources)
           .set({ metadata: updatedMeta })
-          .where(eq(schema.location_resources.id, activeTable.id));
+          .where(eq(schema.location_resources.id, targetTable.id));
         const updated = await db.select().from(schema.location_resources);
         setTables(updated);
       }
@@ -714,48 +717,50 @@ export function useTableManager(props: UseTableManagerProps) {
       // Cập nhật thông tin phòng đang mở để đồng bộ trực quan tức thì
       setActiveTable((prev: any) => prev ? { ...prev, metadata: updatedMeta } : null);
 
-      // 3. Online Sync lên Cloud Next.js nếu đang có mạng
-      try {
-        const currentUrl = getApiBaseUrl();
-        const headers = await getApiHeaders();
+      setIsUpdatingGuestsLoading(false);
+      showToast("Đã cập nhật khách cục bộ! Đang đồng bộ...", "info");
 
-        // A. PATCH location-resources metadata
-        const patchRes = await fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${activeTable.id}`, {
-          method: 'PATCH',
-          headers: { ...headers, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            metadata: updatedMeta
-          }),
-        });
+      // 3. Online Sync lên Cloud Next.js ở chế độ nền
+      if (isOnline) {
+        (async () => {
+          try {
+            const currentUrl = getApiBaseUrl();
+            const headers = await getApiHeaders();
 
-        // B. PUT active order metadata nếu tồn tại current_order_id
-        if (activeTable.current_order_id) {
-          await fetch(`${currentUrl}/api/shops/${shopId}/orders/${activeTable.current_order_id}`, {
-            method: 'PUT',
-            headers: { ...headers, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              metadata: updatedMeta
-            })
-          });
-        }
+            // A. PATCH location-resources metadata
+            const patchRes = await fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${targetTable.id}`, {
+              method: 'PATCH',
+              headers: { ...headers, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                metadata: updatedMeta
+              }),
+            });
 
-        if (patchRes.ok) {
-          syncSucceeded = true;
-        }
-      } catch (syncErr) {
-        console.log('Mất mạng hoặc lỗi server, bỏ qua đồng bộ metadata khách trực tuyến:', syncErr);
-      }
+            // B. PUT active order metadata nếu tồn tại current_order_id
+            if (targetTable.current_order_id) {
+              await fetch(`${currentUrl}/api/shops/${shopId}/orders/${targetTable.current_order_id}`, {
+                method: 'PUT',
+                headers: { ...headers, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  metadata: updatedMeta
+                })
+              });
+            }
 
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
-      if (syncSucceeded) {
-        showToast("Cập nhật thông tin khách lưu trú thành công!", "success");
-      } else {
-        showToast("Đã cập nhật thông tin khách ngoại tuyến!", "info");
+            if (patchRes.ok) {
+              showToast("Đã đồng bộ thông tin khách lưu trú thành công!", "success");
+            } else {
+              showToast("Đã lưu thông tin khách ngoại tuyến (Cloud lỗi).", "info");
+            }
+          } catch (syncErr) {
+            console.log('Mất mạng hoặc lỗi server, bỏ qua đồng bộ metadata khách trực tuyến:', syncErr);
+            showToast("Mất kết nối, thông tin khách đã được lưu ngoại tuyến.", "info");
+          }
+        })();
       }
     } catch (err) {
       console.error('Không thể cập nhật khách lưu trú:', err);
       showToast("Có lỗi xảy ra khi cập nhật khách!", "error");
-    } finally {
       setIsUpdatingGuestsLoading(false);
     }
   };
@@ -770,29 +775,34 @@ export function useTableManager(props: UseTableManagerProps) {
   // Mở bàn
   const handleConfirmOpenTable = async () => {
     if (!selectedTableForOpen) return;
+    const targetTableForOpen = selectedTableForOpen;
+    const targetCustomer = selectedCustomer;
+    const targetGuestCount = roomGuestCount;
+    const targetRoomRentalType = roomRentalType;
+    const targetLodgingGuests = lodgingGuests;
+
     try {
       const nowTime = Date.now();
-      let syncSucceeded = false;
-      let orderId = `ORD-T-INPROG-${Date.now()}`;
+      const orderId = `ORD-T-INPROG-${Date.now()}`;
 
       let tMeta: any = {};
       try {
-        tMeta = selectedTableForOpen.metadata ? JSON.parse(selectedTableForOpen.metadata) : {};
+        tMeta = targetTableForOpen.metadata ? JSON.parse(targetTableForOpen.metadata) : {};
       } catch (e) { }
 
       // 1. Chuẩn hóa metadata nhận phòng để dùng chung cho cả Server và SQLite
       const openTableMeta = JSON.stringify({
-        resource_id: selectedTableForOpen.id,
-        resource_name: selectedTableForOpen.name,
+        resource_id: targetTableForOpen.id,
+        resource_name: targetTableForOpen.name,
         check_in: new Date(nowTime).toISOString(),
-        num_guests: roomGuestCount,
-        rental_type: roomRentalType,
+        num_guests: targetGuestCount,
+        rental_type: targetRoomRentalType,
         advanced_pricing: tMeta.advanced_pricing,
         overnight_rate: tMeta.overnight_rate,
         weekend_rate: tMeta.weekend_rate,
         room_class: tMeta.room_class,
         bed_type: tMeta.bed_type,
-        guests_list: lodgingGuests
+        guests_list: targetLodgingGuests
           .filter(g => g.name || g.id_number || g.idCard)
           .map(g => ({
             id: g.id || undefined,
@@ -807,7 +817,7 @@ export function useTableManager(props: UseTableManagerProps) {
             address: g.address || '',
             note: g.note || ''
           })),
-        guests: lodgingGuests
+        guests: targetLodgingGuests
           .filter(g => g.name || g.id_number || g.idCard)
           .map(g => ({
             id: g.id || undefined,
@@ -824,62 +834,9 @@ export function useTableManager(props: UseTableManagerProps) {
           })),
       });
 
-      // 2. Đồng bộ trực tuyến lên Server Next.js nếu đang có mạng (cho cả Web lẫn Native SQLite)
-      try {
-        const currentUrl = getApiBaseUrl();
-        const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
-        const headers = await getApiHeaders();
-
-        // A. Tạo order in_progress trên Next.js Server
-        const orderRes = await fetch(`${currentUrl}/api/shops/${shopId}/orders`, {
-          method: 'POST',
-          headers: { ...headers, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            status: 'in_progress',
-            channel: 'pos-mobile',
-            customer_id: selectedCustomer?.id || '',
-            customer_name: selectedCustomer?.name || 'Khách lẻ',
-            branch_id: shopId,
-            employee_id: currentUserEmail,
-            subtotal: '0',
-            total_amount: '0',
-            paid_amount: '0',
-            resource_id: selectedTableForOpen.id,
-            metadata: openTableMeta
-          }),
-        });
-
-        if (orderRes.ok) {
-          const createdOrder = await orderRes.json();
-          orderId = createdOrder.id || createdOrder.order_id;
-
-          // B. Cập nhật vị trí sang occupied
-          const patchRes = await fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${selectedTableForOpen.id}`, {
-            method: 'PATCH',
-            headers: { ...headers, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              status: 'occupied',
-              current_order_id: orderId,
-              startTime: nowTime
-            }),
-          });
-          if (patchRes.ok) {
-            syncSucceeded = true;
-          } else {
-            const errBody = await patchRes.text().catch(() => '');
-            console.warn(`[Open Table PATCH Failed] Status ${patchRes.status}:`, errBody);
-          }
-        } else {
-          const errBody = await orderRes.text().catch(() => '');
-          console.warn(`[Open Table POST Failed] Status ${orderRes.status}:`, errBody);
-        }
-      } catch (syncErr) {
-        console.log('Mất mạng hoặc lỗi server, bỏ qua sync check-in trực tiếp:', syncErr);
-      }
-
-      // 3. Ghi đè vào DB Cục bộ hoặc State cục bộ
+      // 2. Ghi đè vào DB Cục bộ hoặc State cục bộ lập tức (Offline-First)
       if (Platform.OS === 'web') {
-        setTables(prev => prev.map(t => t.id === selectedTableForOpen.id ? {
+        setTables(prev => prev.map(t => t.id === targetTableForOpen.id ? {
           ...t,
           status: 'occupied',
           current_order_id: orderId,
@@ -895,38 +852,36 @@ export function useTableManager(props: UseTableManagerProps) {
             startTime: nowTime,
             metadata: openTableMeta
           })
-          .where(eq(schema.location_resources.id, selectedTableForOpen.id));
+          .where(eq(schema.location_resources.id, targetTableForOpen.id));
 
-        // Nhập đơn hàng in_progress ngoại tuyến nếu chưa đồng bộ thành công
-        if (!syncSucceeded) {
-          const activeShiftId = await AsyncStorage.getItem('active_shift_id') || 'default-shift';
-          await db.insert(schema.orders).values({
-            id: orderId,
-            order_no: `HD-T-${Date.now().toString().substring(9)}`,
-            status: 'in_progress',
-            customer_id: selectedCustomer?.id || null,
-            customer_name: selectedCustomer?.name || 'Khách lẻ',
-            total_amount: 0,
-            paid_amount: 0,
-            payment_method: '',
-            created_at: new Date(nowTime).toISOString(),
-            shift_id: activeShiftId,
-            sync_status: 'pending',
-            note: '',
-            discount_amount: 0,
-            metadata: openTableMeta,
-          });
-        }
+        // Nhập đơn hàng in_progress ngoại tuyến ngay lập tức
+        const activeShiftId = await AsyncStorage.getItem('active_shift_id') || 'default-shift';
+        await db.insert(schema.orders).values({
+          id: orderId,
+          order_no: `HD-T-${Date.now().toString().substring(9)}`,
+          status: 'in_progress',
+          customer_id: targetCustomer?.id || null,
+          customer_name: targetCustomer?.name || 'Khách lẻ',
+          total_amount: 0,
+          paid_amount: 0,
+          payment_method: '',
+          created_at: new Date(nowTime).toISOString(),
+          shift_id: activeShiftId,
+          sync_status: 'pending',
+          note: '',
+          discount_amount: 0,
+          metadata: openTableMeta,
+        });
 
         const updated = await db.select().from(schema.location_resources);
         setTables(updated);
       }
 
       // Gán thông tin khách hàng nhận phòng bàn
-      if (selectedCustomer) {
+      if (targetCustomer) {
         setTableCustomers(prev => ({
           ...prev,
-          [selectedTableForOpen.id]: selectedCustomer
+          [targetTableForOpen.id]: targetCustomer
         }));
       }
 
@@ -935,12 +890,80 @@ export function useTableManager(props: UseTableManagerProps) {
       // Reset các tab check-in
       setCheckInTab('info');
 
-      // Hiển thị Toast thông báo thành công sang trọng giống WebUI
-      if (syncSucceeded) {
-        showToast(`Đã nhận ${shopVertical === 'lodging' ? 'Phòng' : shopVertical === 'sports_court' ? 'Sân' : 'Bàn'} & Đồng bộ thành công!`, 'success');
-        broadcastSync?.({ event: 'TABLE_OPENED', tableId: selectedTableForOpen.id, orderId: orderId });
-      } else {
-        showToast(`Nhận ${shopVertical === 'lodging' ? 'Phòng' : shopVertical === 'sports_court' ? 'Sân' : 'Bàn'} ngoại tuyến thành công!`, 'info');
+      const roomLabel = shopVertical === 'lodging' ? 'Phòng' : shopVertical === 'sports_court' ? 'Sân' : 'Bàn';
+      showToast(`Đã nhận ${roomLabel} ${targetTableForOpen.name}! Đang đồng bộ...`, 'info');
+
+      // 3. Đồng bộ trực tuyến lên Server Next.js ở chế độ nền
+      if (isOnline) {
+        (async () => {
+          try {
+            const currentUrl = getApiBaseUrl();
+            const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+            const headers = await getApiHeaders();
+
+            // A. Tạo order in_progress trên Next.js Server
+            const orderRes = await fetch(`${currentUrl}/api/shops/${shopId}/orders`, {
+              method: 'POST',
+              headers: { ...headers, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                status: 'in_progress',
+                channel: 'pos-mobile',
+                customer_id: targetCustomer?.id || '',
+                customer_name: targetCustomer?.name || 'Khách lẻ',
+                branch_id: shopId,
+                employee_id: currentUserEmail,
+                subtotal: '0',
+                total_amount: '0',
+                paid_amount: '0',
+                resource_id: targetTableForOpen.id,
+                metadata: openTableMeta
+              }),
+            });
+
+            if (orderRes.ok) {
+              const createdOrder = await orderRes.json();
+              const serverOrderId = createdOrder.id || createdOrder.order_id;
+
+              // B. Cập nhật vị trí sang occupied
+              const patchRes = await fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${targetTableForOpen.id}`, {
+                method: 'PATCH',
+                headers: { ...headers, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  status: 'occupied',
+                  current_order_id: serverOrderId,
+                  startTime: nowTime
+                }),
+              });
+              if (patchRes.ok) {
+                // Đồng bộ thành công, cập nhật SQLite để chuyển sang synced và khớp orderId của Server
+                if (Platform.OS !== 'web') {
+                  await db
+                    .update(schema.location_resources)
+                    .set({ current_order_id: serverOrderId })
+                    .where(eq(schema.location_resources.id, targetTableForOpen.id));
+
+                  await db.update(schema.orders)
+                    .set({ id: serverOrderId, sync_status: 'synced' })
+                    .where(eq(schema.orders.id, orderId));
+
+                  const updated = await db.select().from(schema.location_resources);
+                  setTables(updated);
+                } else {
+                  setTables(prev => prev.map(t => t.id === targetTableForOpen.id ? { ...t, current_order_id: serverOrderId } : t));
+                }
+                
+                showToast(`Đồng bộ thành công ${roomLabel} ${targetTableForOpen.name}!`, 'success');
+                broadcastSync?.({ event: 'TABLE_OPENED', tableId: targetTableForOpen.id, orderId: serverOrderId });
+              } else {
+                console.warn(`[Open Table PATCH Failed] Status ${patchRes.status}`);
+              }
+            } else {
+              console.warn(`[Open Table POST Failed] Status ${orderRes.status}`);
+            }
+          } catch (syncErr) {
+            console.log('Mất mạng hoặc lỗi server, bỏ qua sync check-in trực tiếp:', syncErr);
+          }
+        })();
       }
     } catch (err) {
       console.error('Không thể mở bàn bi-a:', err);
@@ -1021,17 +1044,15 @@ export function useTableManager(props: UseTableManagerProps) {
   };
 
   const syncCustomerUpdate = async (orderId: string, custId: string, custName: string, custPhone: string) => {
-    if (!isOnline) return;
     try {
-      const currentUrl = getApiBaseUrl();
-      const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
-      const headers = await getApiHeaders();
+      const targetTable = activeTable;
+      if (!targetTable) return;
 
       // Lấy metadata hiện tại
       let currentMeta: any = {};
-      if (activeTable && activeTable.metadata) {
+      if (targetTable.metadata) {
         try {
-          currentMeta = typeof activeTable.metadata === 'string' ? JSON.parse(activeTable.metadata) : (activeTable.metadata || {});
+          currentMeta = typeof targetTable.metadata === 'string' ? JSON.parse(targetTable.metadata) : (targetTable.metadata || {});
         } catch (e) { }
       }
 
@@ -1040,11 +1061,11 @@ export function useTableManager(props: UseTableManagerProps) {
         customer_phone: custPhone
       });
 
-      // Cập nhật SQLite metadata cục bộ và đơn hàng in_progress cục bộ
-      if (Platform.OS !== 'web' && activeTable) {
+      // Cập nhật SQLite metadata cục bộ và đơn hàng in_progress cục bộ lập tức
+      if (Platform.OS !== 'web') {
         await db.update(schema.location_resources)
           .set({ metadata: updatedMeta })
-          .where(eq(schema.location_resources.id, activeTable.id));
+          .where(eq(schema.location_resources.id, targetTable.id));
 
         await db.update(schema.orders)
           .set({
@@ -1055,22 +1076,34 @@ export function useTableManager(props: UseTableManagerProps) {
           .where(eq(schema.orders.id, orderId));
       }
 
-      // Cập nhật state activeTable và tables
+      // Cập nhật state activeTable và tables lập tức
       setActiveTable((prev: any) => prev ? { ...prev, metadata: updatedMeta } : null);
-      setTables(prev => prev.map(t => t.id === activeTable.id ? { ...t, metadata: updatedMeta } : t));
+      setTables(prev => prev.map(t => t.id === targetTable.id ? { ...t, metadata: updatedMeta } : t));
 
-      // Gọi PUT đồng bộ lên server Next.js
-      await fetch(`${currentUrl}/api/shops/${shopId}/orders/${orderId}`, {
-        method: 'PUT',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customer_id: custId,
-          customer_name: custName,
-          metadata: updatedMeta
-        })
-      });
+      // Gọi PUT đồng bộ lên server Next.js ở background
+      if (isOnline) {
+        (async () => {
+          try {
+            const currentUrl = getApiBaseUrl();
+            const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+            const headers = await getApiHeaders();
+            
+            await fetch(`${currentUrl}/api/shops/${shopId}/orders/${orderId}`, {
+              method: 'PUT',
+              headers: { ...headers, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                customer_id: custId,
+                customer_name: custName,
+                metadata: updatedMeta
+              })
+            });
+          } catch (e) {
+            console.warn('Lỗi khi đồng bộ khách hàng đại diện lên server trong nền:', e);
+          }
+        })();
+      }
     } catch (e) {
-      console.warn('Lỗi khi đồng bộ khách hàng đại diện lên server:', e);
+      console.warn('Lỗi khi cập nhật khách hàng đại diện cục bộ:', e);
     }
   };
 
@@ -1147,13 +1180,14 @@ export function useTableManager(props: UseTableManagerProps) {
     customer: any,
     discount: number,
     note: string,
-    payments: { id: string; method: string; fund_id: string; amount: number }[]
+    payments: { id: string; method: string; fund_id: string; amount: number }[],
+    customCheckoutTime?: Date
   ) => {
     if (!cartOwnerTable) return;
     setIsPayingTableLoading(true);
     try {
       const selectedTableForPay = cartOwnerTable;
-      const billing = calculateBilling(selectedTableForPay);
+      const billing = calculateBilling(selectedTableForPay, customCheckoutTime);
       const tableCartItems = tableCarts[selectedTableForPay.id] || {};
 
       let rentalType = 'hourly';
@@ -1190,6 +1224,7 @@ export function useTableManager(props: UseTableManagerProps) {
       const orderId = selectedTableForPay.current_order_id || `ORD-T-${Date.now()}`;
       const orderNo = `HD-${shopVertical === 'lodging' ? '🏩' : '🎱'}-${Date.now().toString().substring(9)}`;
       const nowStr = new Date().toISOString();
+      const checkoutTimeStr = customCheckoutTime ? customCheckoutTime.toISOString() : nowStr;
       let syncSucceeded = false;
       let serverOrderNo = orderNo;
 
@@ -1222,7 +1257,7 @@ export function useTableManager(props: UseTableManagerProps) {
           total_amount: totalAmount,
           paid_amount: Math.min(totalAmount, paidSum),
           payment_method: paymentMethodString,
-          created_at: nowStr,
+          created_at: checkoutTimeStr,
           shift_id: shiftId,
           sync_status: 'pending',
           note: note,
@@ -1232,7 +1267,7 @@ export function useTableManager(props: UseTableManagerProps) {
             resource_name: selectedTableForPay.name,
             billing_cost: billing.cost,
             billing_duration: billing.label,
-            check_out: nowStr,
+            check_out: checkoutTimeStr,
             rental_type: rentalType,
             server_order_id: selectedTableForPay.current_order_id || ''
           }),
@@ -1341,12 +1376,13 @@ export function useTableManager(props: UseTableManagerProps) {
               paid_amount: Math.min(totalAmount, paidSum),
               debt_amount: Math.max(0, totalAmount - Math.min(totalAmount, paidSum)),
               note: note || `Thanh toán phòng/bàn từ di động.`,
+              created_at: checkoutTimeStr,
               metadata: JSON.stringify({
                 resource_id: selectedTableForPay.id,
                 resource_name: selectedTableForPay.name,
                 billing_cost: billing.cost,
                 billing_duration: billing.label,
-                check_out: nowStr,
+                check_out: checkoutTimeStr,
                 rental_type: rentalType
               }),
               shift_id: shiftId,

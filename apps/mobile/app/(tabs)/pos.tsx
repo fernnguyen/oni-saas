@@ -919,29 +919,40 @@ export default function PosScreen() {
                   className="bg-orange-500 border border-orange-600 px-3 py-1 rounded-lg active:scale-95"
                   onPress={async () => {
                     if (!cartOwnerTable) return;
-                    setIsSavingCart(true);
-                    try {
-                      // 1. Lưu món vào phòng/bàn cục bộ
-                      setTableCarts(prev => ({
-                        ...prev,
-                        [cartOwnerTable.id]: cart
-                      }));
+                    
+                    const targetTable = cartOwnerTable;
+                    const targetCart = cart;
 
-                      // 2. Đồng bộ trực tuyến lên server nếu có mạng
-                      if (cartOwnerTable.current_order_id) {
-                        await syncOrderItemsOnline(cartOwnerTable.current_order_id, cart);
-                      }
+                    // 1. Lưu món vào phòng/bàn cục bộ lập tức (Offline-First)
+                    setTableCarts(prev => ({
+                      ...prev,
+                      [targetTable.id]: targetCart
+                    }));
 
-                      setCart({});
-                      setCartOwnerTable(null);
-                      setActiveVertical(shopVertical);
-                      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
-                      showToast("Đã lưu và đồng bộ món thành công!", "success");
-                    } catch (err) {
-                      console.error('Lỗi khi lưu món phòng bàn:', err);
-                      showToast("Có lỗi xảy ra khi lưu món!", "error");
-                    } finally {
-                      setIsSavingCart(false);
+                    // Reset trạng thái giỏ hàng & chuyển màn hình ngay lập tức (Zero-Lag)
+                    setCart({});
+                    setCartOwnerTable(null);
+                    setActiveVertical(shopVertical);
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
+                    
+                    // Thông báo lưu local thành công & đang sync
+                    showToast(`Đã lưu món vào ${targetTable.name}! Đang đồng bộ...`, "info");
+
+                    // 2. Đồng bộ trực tuyến lên server ở chế độ nền
+                    if (targetTable.current_order_id) {
+                      (async () => {
+                        try {
+                          const success = await syncOrderItemsOnline(targetTable.current_order_id, targetCart, targetTable.id);
+                          if (success) {
+                            showToast(`Đã đồng bộ món ăn cho ${targetTable.name} thành công!`, "success");
+                          } else {
+                            showToast(`Lỗi đồng bộ trực tuyến, món ăn đã được lưu cục bộ tại ${targetTable.name}.`, "error");
+                          }
+                        } catch (err) {
+                          console.error('Lỗi khi đồng bộ nền món phòng bàn:', err);
+                          showToast(`Mất kết nối, món ăn đã được lưu cục bộ tại ${targetTable.name}.`, "error");
+                        }
+                      })();
                     }
                   }}
                 >
@@ -1498,29 +1509,37 @@ export default function PosScreen() {
             size="md"
             onPress={async () => {
               if (cartOwnerTable) {
-                setIsSavingCart(true);
-                try {
-                  // 1. Lưu vào bàn/phòng cục bộ
-                  setTableCarts(prev => ({
-                    ...prev,
-                    [cartOwnerTable.id]: cart
-                  }));
+                const targetTable = cartOwnerTable;
+                const targetCart = cart;
 
-                  // 2. Đồng bộ trực tuyến lên server nếu có mạng
-                  if (cartOwnerTable.current_order_id) {
-                    await syncOrderItemsOnline(cartOwnerTable.current_order_id, cart);
-                  }
+                // 1. Lưu vào bàn/phòng cục bộ lập tức
+                setTableCarts(prev => ({
+                  ...prev,
+                  [targetTable.id]: targetCart
+                }));
 
-                  setCart({});
-                  setCartOwnerTable(null);
-                  setActiveVertical(shopVertical);
-                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
-                  showToast("Đã lưu và đồng bộ món thành công!", "success");
-                } catch (err) {
-                  console.error('Lỗi khi lưu vào phòng bàn từ giỏ hàng:', err);
-                  showToast("Có lỗi xảy ra khi lưu món!", "error");
-                } finally {
-                  setIsSavingCart(false);
+                // Reset trạng thái giỏ hàng & chuyển màn hình ngay lập tức
+                setCart({});
+                setCartOwnerTable(null);
+                setActiveVertical(shopVertical);
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
+                showToast(`Đã lưu món vào ${targetTable.name}! Đang đồng bộ...`, "info");
+
+                // 2. Đồng bộ trực tuyến lên server ở chế độ nền
+                if (targetTable.current_order_id) {
+                  (async () => {
+                    try {
+                      const success = await syncOrderItemsOnline(targetTable.current_order_id, targetCart, targetTable.id);
+                      if (success) {
+                        showToast(`Đã đồng bộ món ăn cho ${targetTable.name} thành công!`, "success");
+                      } else {
+                        showToast(`Lỗi đồng bộ trực tuyến, món ăn đã được lưu cục bộ tại ${targetTable.name}.`, "error");
+                      }
+                    } catch (err) {
+                      console.error('Lỗi khi đồng bộ nền món phòng bàn:', err);
+                      showToast(`Mất kết nối, món ăn đã được lưu cục bộ tại ${targetTable.name}.`, "error");
+                    }
+                  })();
                 }
               } else {
                 handleCheckoutPress(() => {
