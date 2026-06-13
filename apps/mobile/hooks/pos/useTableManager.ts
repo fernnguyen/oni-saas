@@ -1274,116 +1274,7 @@ export function useTableManager(props: UseTableManagerProps) {
         setTables(updated);
       }
 
-      // B. Đồng bộ trực tiếp lên Cloud Next.js Server nếu đang có mạng
-      try {
-        const currentUrl = getApiBaseUrl();
-        const headers = await getApiHeaders();
-
-        const payload = {
-          local_order_id: selectedTableForPay.current_order_id || orderId,
-          server_order_id: selectedTableForPay.current_order_id || '',
-          order: {
-            status: 'completed',
-            channel: 'pos-mobile',
-            customer_id: customer?.id || '',
-            customer_name: customer?.name || 'Khách lẻ',
-            branch_id: shopId,
-            employee_id: currentUserEmail,
-            subtotal: subtotal,
-            discount_amount: discount,
-            tax_amount: 0,
-            total_amount: totalAmount,
-            paid_amount: Math.min(totalAmount, paidSum),
-            debt_amount: Math.max(0, totalAmount - Math.min(totalAmount, paidSum)),
-            note: note || `Thanh toán phòng/bàn từ di động.`,
-            metadata: JSON.stringify({
-              resource_id: selectedTableForPay.id,
-              resource_name: selectedTableForPay.name,
-              billing_cost: billing.cost,
-              billing_duration: billing.label,
-              check_out: nowStr,
-              rental_type: rentalType
-            })
-          },
-          items: [
-            ...(billing.cost > 0 ? [{
-              product_id: 'billiard-time',
-              product_name: selectedTableForPay.type === 'room'
-                ? `Tiền phòng - ${selectedTableForPay.name} (${billing.label})`
-                : `Tiền giờ - ${selectedTableForPay.name} (${billing.label})`,
-              qty: 1,
-              unit_price: billing.cost,
-              discount_amount: 0,
-              line_total: billing.cost,
-            }] : []),
-            ...Array.from(Object.entries(tableCartItems)).map(([prodId, item]: [string, any]) => ({
-              product_id: item.productId,
-              product_name: item.name,
-              qty: item.quantity,
-              unit_price: (item.price + (item.modifier_total || 0)),
-              discount_amount: 0,
-              line_total: (item.price + (item.modifier_total || 0)) * item.quantity,
-            }))
-          ],
-          payments: processedPayments.map(p => {
-            const fund = paymentFundsList.find(f => f.id === p.fund_id);
-            return {
-              method: p.method,
-              amount: p.amount,
-              meta: {
-                fund_id: p.fund_id,
-                fund_name: fund ? fund.name : ''
-              }
-            };
-          }),
-          stock_movements: Array.from(Object.entries(tableCartItems)).map(([prodId, item]: [string, any]) => ({
-            type: 'sale_out',
-            product_id: item.productId,
-            qty: -item.quantity,
-            branch_id: shopId,
-          }))
-        };
-
-        const syncRes = await fetch(`${currentUrl}/api/shops/${shopId}/orders/sync-batch`, {
-          method: 'POST',
-          headers: { ...headers, 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-
-        if (syncRes.ok) {
-          const syncData = await syncRes.json().catch(() => ({}));
-          if (syncData.order_no) serverOrderNo = syncData.order_no;
-          // Cập nhật vị trí sang available trên Server Cloud
-          const patchRes = await fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${selectedTableForPay.id}`, {
-            method: 'PATCH',
-            headers: { ...headers, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              status: 'available',
-              current_order_id: '',
-              startTime: null
-            }),
-          });
-
-          if (patchRes.ok) {
-            syncSucceeded = true;
-            if (Platform.OS !== 'web' && syncData.order_id) {
-              const serverId = syncData.order_id;
-              if (serverId !== orderId) {
-                await db.update(schema.order_items)
-                  .set({ order_id: serverId })
-                  .where(eq(schema.order_items.order_id, orderId));
-              }
-              await db.update(schema.orders)
-                .set({ id: serverId, order_no: syncData.order_no || orderNo, sync_status: 'synced', reference_no: orderId })
-                .where(eq(schema.orders.id, orderId));
-            }
-          }
-        }
-      } catch (syncErr) {
-        console.log('Bỏ qua sync checkout trực tiếp (sẽ sync sau):', syncErr);
-      }
-
-      // Xóa giỏ hàng của bàn và khách hàng phòng bàn sau khi thanh toán
+      // Xóa giỏ hàng của bàn và khách hàng phòng bàn sau khi thanh toán cục bộ ngay lập tức
       setTableCarts(prev => {
         const copy = { ...prev };
         delete copy[selectedTableForPay.id];
@@ -1402,36 +1293,161 @@ export function useTableManager(props: UseTableManagerProps) {
       setCartOwnerTable(null);
 
       setIsCartModalOpen(false);
+      setIsPayingTableLoading(false); // UI unblocked!
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
 
-      // Hiển thị Toast thông báo kết quả sang trọng giống WebUI
+      // Hiển thị QR thanh toán hoặc Toast báo thành công bằng local orderNo ngay lập tức
       const hasTransfer = payments.some(p => checkIsQrPayment(p.method) && p.amount > 0);
       if (hasTransfer) {
         const transferAmount = payments.filter(p => checkIsQrPayment(p.method)).reduce((sum, p) => sum + p.amount, 0);
         const transferP = payments.find(p => checkIsQrPayment(p.method) && p.amount > 0);
-        setQrPayload({ amount: transferAmount, orderNo: serverOrderNo, fund_id: transferP ? transferP.fund_id : 'bank' });
+        setQrPayload({ amount: transferAmount, orderNo: orderNo, fund_id: transferP ? transferP.fund_id : 'bank' });
         setTimeout(() => {
           setIsQrModalOpen(true);
         }, 400);
       } else {
-        if (syncSucceeded) {
-          showToast(`Thanh toán & Giải phóng thành công Hóa đơn ${serverOrderNo}!`, "success");
-          broadcastSync?.({ event: 'TABLE_PAID', tableId: selectedTableForPay.id, orderId: orderId });
-        } else {
-          showToast(`Thanh toán ngoại tuyến thành công Hóa đơn ${orderNo}! Sẽ sync sau.`, "info");
-        }
+        showToast(`Thanh toán Hóa đơn ${orderNo} thành công! Hệ thống đang đồng bộ trong nền.`, "success");
       }
 
-      if (Platform.OS !== 'web') {
-        setTimeout(() => {
-          SyncManager.pushOfflineOrders(shopId);
-        }, 800); // Trì hoãn 800ms để nhường luồng cho UI Animation đóng Modal mượt mà
-      }
+      // B. Đồng bộ hóa trong nền không làm nghẽn giao diện chính
+      (async () => {
+        const currentUrl = isOnline ? getApiBaseUrl() : null;
+        if (!currentUrl) {
+          if (Platform.OS !== 'web') {
+            setTimeout(() => {
+              SyncManager.pushOfflineOrders(shopId).catch(() => {});
+            }, 800);
+          }
+          return;
+        }
+
+        try {
+          const headers = await getApiHeaders();
+          const payload = {
+            local_order_id: selectedTableForPay.current_order_id || orderId,
+            server_order_id: selectedTableForPay.current_order_id || '',
+            order: {
+              status: 'completed',
+              channel: 'pos-mobile',
+              customer_id: customer?.id || '',
+              customer_name: customer?.name || 'Khách lẻ',
+              branch_id: shopId,
+              employee_id: currentUserEmail,
+              subtotal: subtotal,
+              discount_amount: discount,
+              tax_amount: 0,
+              total_amount: totalAmount,
+              paid_amount: Math.min(totalAmount, paidSum),
+              debt_amount: Math.max(0, totalAmount - Math.min(totalAmount, paidSum)),
+              note: note || `Thanh toán phòng/bàn từ di động.`,
+              metadata: JSON.stringify({
+                resource_id: selectedTableForPay.id,
+                resource_name: selectedTableForPay.name,
+                billing_cost: billing.cost,
+                billing_duration: billing.label,
+                check_out: nowStr,
+                rental_type: rentalType
+              }),
+              shift_id: shiftId,
+            },
+            items: [
+              ...(billing.cost > 0 ? [{
+                product_id: 'billiard-time',
+                product_name: selectedTableForPay.type === 'room'
+                  ? `Tiền phòng - ${selectedTableForPay.name} (${billing.label})`
+                  : `Tiền giờ - ${selectedTableForPay.name} (${billing.label})`,
+                qty: 1,
+                unit_price: billing.cost,
+                discount_amount: 0,
+                line_total: billing.cost,
+              }] : []),
+              ...Array.from(Object.entries(tableCartItems)).map(([prodId, item]: [string, any]) => ({
+                product_id: item.productId,
+                product_name: item.name,
+                qty: item.quantity,
+                unit_price: (item.price + (item.modifier_total || 0)),
+                discount_amount: 0,
+                line_total: (item.price + (item.modifier_total || 0)) * item.quantity,
+              }))
+            ],
+            payments: processedPayments.map(p => {
+              const fund = paymentFundsList.find(f => f.id === p.fund_id);
+              return {
+                method: p.method,
+                amount: p.amount,
+                meta: {
+                  fund_id: p.fund_id,
+                  fund_name: fund ? fund.name : ''
+                }
+              };
+            }),
+            stock_movements: Array.from(Object.entries(tableCartItems)).map(([prodId, item]: [string, any]) => ({
+              type: 'sale_out',
+              product_id: item.productId,
+              qty: -item.quantity,
+              branch_id: shopId,
+            }))
+          };
+
+          const syncRes = await fetch(`${currentUrl}/api/shops/${shopId}/orders/sync-batch`, {
+            method: 'POST',
+            headers: { ...headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+
+          if (syncRes.ok) {
+            const syncData = await syncRes.json().catch(() => ({}));
+            let serverOrderNo = orderNo;
+            if (syncData.order_no) serverOrderNo = syncData.order_no;
+
+            // Cập nhật vị trí sang available trên Server Cloud
+            const patchRes = await fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${selectedTableForPay.id}`, {
+              method: 'PATCH',
+              headers: { ...headers, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                status: 'available',
+                current_order_id: '',
+                startTime: null
+              }),
+            });
+
+            if (patchRes.ok) {
+              if (Platform.OS !== 'web' && syncData.order_id) {
+                const serverId = syncData.order_id;
+                if (serverId !== orderId) {
+                  await db.update(schema.order_items)
+                    .set({ order_id: serverId })
+                    .where(eq(schema.order_items.order_id, orderId));
+                }
+                await db.update(schema.orders)
+                  .set({ id: serverId, order_no: serverOrderNo, sync_status: 'synced', reference_no: orderId })
+                  .where(eq(schema.orders.id, orderId));
+              }
+              broadcastSync?.({ event: 'TABLE_PAID', tableId: selectedTableForPay.id, orderId: orderId });
+            } else {
+              console.warn('[POS] Patch location-resources lỗi trên cloud:', patchRes.status);
+            }
+          } else {
+            console.warn('[POS] Sync batch phòng bàn lỗi server:', syncRes.status);
+            if (Platform.OS !== 'web') {
+              setTimeout(() => {
+                SyncManager.pushOfflineOrders(shopId).catch(() => {});
+              }, 800);
+            }
+          }
+        } catch (syncErr) {
+          console.warn('[POS] Sync phòng bàn trực tiếp thất bại, sẽ gửi qua hàng đợi sau:', syncErr);
+          if (Platform.OS !== 'web') {
+            setTimeout(() => {
+              SyncManager.pushOfflineOrders(shopId).catch(() => {});
+            }, 800);
+          }
+        }
+      })();
     } catch (err) {
       console.error('Lỗi thanh toán phòng bàn:', err);
       showToast("Lỗi khi xử lý thanh toán!", "error");
-    } finally {
       setIsPayingTableLoading(false);
     }
   };

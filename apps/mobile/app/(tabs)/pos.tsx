@@ -480,6 +480,8 @@ export default function PosScreen() {
 
       const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
       const shiftId = await AsyncStorage.getItem('active_shift_id') || 'default-shift';
+      const debtShopId = shopId;
+      const currentUrl = isOnline ? getApiBaseUrl() : null;
       const orderId = `ORD-R-${Date.now()}`;
       const orderNo = `HD-R-${Date.now().toString().substring(9)}`;
       const nowStr = new Date().toISOString();
@@ -526,13 +528,68 @@ export default function PosScreen() {
         setProductsList(updatedProds);
       }
 
-      // Thu nợ cũ kèm đơn hàng — thử sync trực tiếp để lấy server order_no
-      const debtShopId = await AsyncStorage.getItem('active_shop_id') || '';
-      const currentUrl = isOnline ? getApiBaseUrl() : null;
+      // A. Ghi nhận Sổ quỹ (cashbook) ngoại tuyến trước nếu có thu nợ
+      const cashbookId = `CASH-R-${Date.now()}`;
+      if (Platform.OS !== 'web' && debtRepay > 0 && customer && customer.id) {
+        try {
+          await db.insert(schema.cashbook).values({
+            id: cashbookId,
+            branch_id: debtShopId || shopId,
+            type: 'receipt',
+            amount: debtRepay,
+            method: debtRepayOpts?.debtMethod || 'cash',
+            category: 'debt_collection',
+            reference_id: customer.id,
+            reference_name: customer.name || '',
+            employee_id: currentUserEmail,
+            note: `Thu nợ cũ kèm đơn ${orderNo}`,
+            date: new Date().toISOString().split('T')[0], // YYYY-MM-DD
+            fund_id: debtRepayOpts?.debtFundId || '',
+            sync_status: 'pending',
+          });
+        } catch (cbDbErr) {
+          console.error('[POS] Không ghi nhận được cashbook offline:', cbDbErr);
+        }
+      }
 
-      // Thử sync-batch trực tiếp để lấy server order_no cho note cashbook
-      let serverOrderNo = orderNo; // fallback là local orderNo
-      if (currentUrl && debtShopId) {
+      // Giải phóng giao diện và loader ngay lập tức
+      setCart({});
+      setDiscountAmount(0);
+      setOrderNote('');
+      setSelectedCustomer(null);
+      setIsCartModalOpen(false);
+      setIsPayingCartLoading(false); // UI unblocked!
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
+
+      // Hiển thị QR thanh toán hoặc Toast báo thành công bằng local orderNo ngay lập tức
+      const hasTransfer = processedPayments.some(p => checkIsQrPayment(p.method) && p.amount > 0);
+      if (hasTransfer) {
+        const transferAmount = processedPayments.filter(p => checkIsQrPayment(p.method)).reduce((sum, p) => sum + p.amount, 0);
+        const transferP = processedPayments.find(p => checkIsQrPayment(p.method) && p.amount > 0);
+        setQrPayload({ amount: transferAmount, orderNo: orderNo, fund_id: transferP ? transferP.fund_id : 'bank' });
+        setTimeout(() => {
+          setIsQrModalOpen(true);
+        }, 400);
+      } else {
+        showToast(`Đã thanh toán Hóa đơn ${orderNo} thành công! Hệ thống đang đồng bộ trong nền.`, 'success');
+      }
+
+      // B. Thực hiện đồng bộ hóa trong nền không làm nghẽn giao diện chính
+      (async () => {
+        if (!currentUrl || !debtShopId) {
+          // Nếu mất kết nối hoàn toàn, để SyncManager xếp hàng gửi sau
+          if (Platform.OS !== 'web') {
+            setTimeout(() => {
+              SyncManager.pushOfflineOrders(debtShopId || shopId).catch(() => {});
+              if (debtRepay > 0) {
+                SyncManager.pushOfflineCashbook(debtShopId || shopId).catch(() => {});
+              }
+            }, 800);
+          }
+          return;
+        }
+
         try {
           const syncHeaders = await getApiHeaders();
           const directSyncRes = await fetch(`${currentUrl}/api/shops/${debtShopId}/orders/sync-batch`, {
@@ -547,13 +604,14 @@ export default function PosScreen() {
                 customer_name: customer ? customer.name : 'Khách mua lẻ',
                 branch_id: debtShopId,
                 employee_id: currentUserEmail,
-                subtotal: finalTotal + discountAmount,
-                discount_amount: discountAmount,
+                subtotal: finalTotal + discount,
+                discount_amount: discount,
                 tax_amount: 0,
                 total_amount: finalTotal,
                 paid_amount: orderPaidAmt,
                 debt_amount: orderDebtAmt,
                 note: note || '',
+                shift_id: shiftId,
               },
               items: Object.entries(cart).map(([cartItemId, item]: [string, any]) => ({
                 product_id: item.productId,
@@ -578,8 +636,10 @@ export default function PosScreen() {
 
           if (directSyncRes.ok) {
             const syncData = await directSyncRes.json().catch(() => ({}));
+            let serverOrderNo = orderNo;
             if (syncData.order_no) serverOrderNo = syncData.order_no;
-            // Mark as synced in SQLite
+
+            // Đánh dấu đã đồng bộ (synced) trong SQLite bảng orders/order_items
             if (Platform.OS !== 'web' && syncData.order_id) {
               const serverId = syncData.order_id;
               if (serverId !== orderId) {
@@ -588,74 +648,86 @@ export default function PosScreen() {
                   .where(eq(schema.order_items.order_id, orderId));
               }
               await db.update(schema.orders)
-                .set({ id: serverId, order_no: syncData.order_no || orderNo, sync_status: 'synced', reference_no: orderId })
+                .set({ id: serverId, order_no: serverOrderNo, sync_status: 'synced', reference_no: orderId })
                 .where(eq(schema.orders.id, orderId));
+            }
+
+            // Ghi nhận cashbook khi đã có mã serverOrderNo
+            if (debtRepay > 0 && customer && customer.id) {
+              try {
+                const cbHeaders = await getApiHeaders();
+                const cbRes = await fetch(`${currentUrl}/api/shops/${debtShopId}/cashbook`, {
+                  method: 'POST',
+                  headers: { ...(cbHeaders || {}), 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    type: 'receipt',
+                    category: 'debt_collection',
+                    amount: debtRepay,
+                    method: debtRepayOpts?.debtMethod || 'cash',
+                    fund_id: debtRepayOpts?.debtFundId || '',
+                    reference_id: customer.id,
+                    reference_name: customer.name || '',
+                    note: `Thu nợ cũ kèm đơn ${serverOrderNo}`,
+                    branch_id: debtShopId,
+                    date: new Date().toISOString().split('T')[0],
+                    employee_id: currentUserEmail,
+                  })
+                });
+
+                if (cbRes.ok) {
+                  const cbJson = await cbRes.json().catch(() => ({}));
+                  const serverCbId = cbJson.transaction_id || cbJson.id;
+                  if (Platform.OS !== 'web' && serverCbId) {
+                    await db.delete(schema.cashbook).where(eq(schema.cashbook.id, cashbookId));
+                    await db.insert(schema.cashbook).values({
+                      id: serverCbId,
+                      branch_id: debtShopId,
+                      type: 'receipt',
+                      amount: debtRepay,
+                      method: debtRepayOpts?.debtMethod || 'cash',
+                      category: 'debt_collection',
+                      reference_id: customer.id,
+                      reference_name: customer.name || '',
+                      employee_id: currentUserEmail,
+                      note: `Thu nợ cũ kèm đơn ${serverOrderNo}`,
+                      date: new Date().toISOString().split('T')[0],
+                      fund_id: debtRepayOpts?.debtFundId || '',
+                      sync_status: 'synced',
+                    }).onConflictDoNothing();
+                  }
+                } else {
+                  console.warn('[POS] Gửi cashbook nợ lỗi, lưu trữ SQLite để SyncManager xử lý lại:', cbRes.status);
+                }
+              } catch (cbErr) {
+                console.warn('[POS] Lỗi gửi cashbook nợ lên cloud:', cbErr);
+              }
+            }
+          } else {
+            console.warn('[POS] Sync batch lỗi từ server, sẽ thử lại bằng hàng đợi:', directSyncRes.status);
+            if (Platform.OS !== 'web') {
+              setTimeout(() => {
+                SyncManager.pushOfflineOrders(debtShopId).catch(() => {});
+                if (debtRepay > 0) {
+                  SyncManager.pushOfflineCashbook(debtShopId).catch(() => {});
+                }
+              }, 800);
             }
           }
         } catch (syncErr) {
-          console.warn('[POS] Sync trực tiếp thất bại, sẽ queue:', syncErr);
-          // Fallback: push via SyncManager queue
+          console.warn('[POS] Sync trực tiếp thất bại, sẽ gửi qua hàng đợi sau:', syncErr);
           if (Platform.OS !== 'web') {
-            setTimeout(() => SyncManager.pushOfflineOrders(debtShopId), 800);
+            setTimeout(() => {
+              SyncManager.pushOfflineOrders(debtShopId).catch(() => {});
+              if (debtRepay > 0) {
+                SyncManager.pushOfflineCashbook(debtShopId).catch(() => {});
+              }
+            }, 800);
           }
         }
-      } else if (Platform.OS !== 'web') {
-        // Offline: queue to sync later
-        setTimeout(() => SyncManager.pushOfflineOrders(debtShopId || shopId), 800);
-      }
-
-      setCart({});
-      setDiscountAmount(0);
-      setOrderNote('');
-      setSelectedCustomer(null);
-      setIsCartModalOpen(false);
-
-
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
-
-      // Hiển thị QR thanh toán hoặc Toast báo thành công bằng server ID
-      const hasTransfer = processedPayments.some(p => checkIsQrPayment(p.method) && p.amount > 0);
-      if (hasTransfer) {
-        const transferAmount = processedPayments.filter(p => checkIsQrPayment(p.method)).reduce((sum, p) => sum + p.amount, 0);
-        const transferP = processedPayments.find(p => checkIsQrPayment(p.method) && p.amount > 0);
-        setQrPayload({ amount: transferAmount, orderNo: serverOrderNo, fund_id: transferP ? transferP.fund_id : 'bank' });
-        setTimeout(() => {
-          setIsQrModalOpen(true);
-        }, 400);
-      } else {
-        if (serverOrderNo !== orderNo) {
-          showToast(`Đã thanh toán Hóa đơn ${serverOrderNo} thành công!`, 'success');
-        } else {
-          showToast(`Đã thanh toán Hóa đơn ngoại tuyến ${orderNo} thành công! Sẽ đồng bộ sau.`, 'info');
-        }
-      }
-
-      // Ghi cashbook debt_collection với server order_no (hoặc local nếu offline)
-      if (debtRepay > 0 && customer && customer.id && currentUrl && debtShopId) {
-        try {
-          await fetch(`${currentUrl}/api/shops/${debtShopId}/cashbook`, {
-            method: 'POST',
-            headers: { ...(apiAuthHeaders || {}), 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              type: 'receipt',
-              category: 'debt_collection',
-              amount: debtRepay,
-              method: debtRepayOpts?.debtMethod || 'cash',
-              fund_id: debtRepayOpts?.debtFundId || '',
-              reference_id: customer.id,
-              reference_name: customer.name || '',
-              note: `Thu nợ cũ kèm đơn ${serverOrderNo}`,
-              branch_id: debtShopId,
-            })
-          });
-        } catch (e) {
-          console.warn('[POS] Không gửi được debt_collection:', e);
-        }
-      }
+      })();
     } catch (err) {
       console.error('Lỗi khi thanh toán đơn lẻ SQLite:', err);
       showToast("Lỗi khi xử lý thanh toán!", "error");
-    } finally {
       setIsPayingCartLoading(false);
     }
   };
