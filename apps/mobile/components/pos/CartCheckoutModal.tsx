@@ -640,19 +640,23 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
   const changeToReturn = paidSum - effectiveTotal;
 
   const prevEffectiveTotalRef = React.useRef(effectiveTotal);
+  const prevCustomCheckoutTimeRef = React.useRef(customCheckoutTime);
   // Tự động điều chỉnh số tiền ở dòng thanh toán duy nhất khớp với effectiveTotal
   React.useEffect(() => {
     if (paymentRows.length === 1) {
       const targetVal = effectiveTotal;
       const prevVal = prevEffectiveTotalRef.current;
-      if (paymentRows[0].amount === prevVal || paymentRows[0].amount === 0) {
+      const customTimeChanged = customCheckoutTime?.getTime() !== prevCustomCheckoutTimeRef.current?.getTime();
+      
+      if (customTimeChanged || paymentRows[0].amount === prevVal || paymentRows[0].amount === 0) {
         if (paymentRows[0].amount !== targetVal) {
           setPaymentRows([{ ...paymentRows[0], amount: targetVal }]);
         }
       }
     }
     prevEffectiveTotalRef.current = effectiveTotal;
-  }, [effectiveTotal, paymentRows, setPaymentRows]);
+    prevCustomCheckoutTimeRef.current = customCheckoutTime;
+  }, [effectiveTotal, paymentRows, setPaymentRows, customCheckoutTime]);
 
   // Cảnh báo khi khách có nợ cũ (chưa được trả hết)
   const hasDebtWarning = !!activeCustomer && customerDebt > 0 && isOnline && !!enrichedCustomer;
