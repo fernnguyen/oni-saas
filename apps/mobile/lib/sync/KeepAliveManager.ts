@@ -17,9 +17,6 @@ export class KeepAliveManager {
 
     console.log('[KeepAliveManager] Đang khởi tạo bộ lắng nghe trạng thái AppState...');
     this.appStateSubscription = AppState.addEventListener('change', this.handleAppStateChange);
-    
-    // Tự động chạy một lần khi ứng dụng vừa khởi động
-    setTimeout(() => this.triggerSyncIfNeeded(false), 1500);
   }
 
   static destroy() {

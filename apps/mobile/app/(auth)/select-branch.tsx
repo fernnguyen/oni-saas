@@ -102,6 +102,9 @@ export default function SelectBranchScreen() {
 
   // 1. Tải danh sách chi nhánh thực tế từ Next.js REST API
   useEffect(() => {
+    // Xóa active_shop_id để chặn KeepAliveManager chạy ngầm trước khi chọn xong chi nhánh
+    AsyncStorage.removeItem('active_shop_id').catch(() => {});
+
     const fetchBranches = async () => {
       try {
         setIsLoading(true);
