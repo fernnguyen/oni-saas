@@ -259,7 +259,9 @@ export default function PosScreen() {
       const activeShopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
       const currentUrl = await getApiBaseUrl();
       const headers = await getApiHeaders();
+      const loggedUserName = await AsyncStorage.getItem('user_name');
       const userEmail = await AsyncStorage.getItem('saved_email') || 'mobile-app';
+      const employeeName = loggedUserName || userEmail.split('@')[0];
       const cash = parseInt(openingCashInput.replace(/\D/g, ''), 10) || 0;
       const nowStr = new Date().toISOString();
 
@@ -292,7 +294,7 @@ export default function PosScreen() {
         status: 'open',
         opening_cash: cash,
         actual_closing_cash: 0,
-        employee_name: userEmail.split('@')[0],
+        employee_name: employeeName,
         sync_status: syncStatus,
       }).onConflictDoNothing();
 

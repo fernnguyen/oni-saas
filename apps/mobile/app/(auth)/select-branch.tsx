@@ -384,6 +384,8 @@ export default function SelectBranchScreen() {
           // Đã có ca mở trên server -> dùng luôn ca này
           await AsyncStorage.setItem('active_shift_id', activeShiftOnServer.id);
           
+          const loggedUserName = await AsyncStorage.getItem('user_name');
+
           // Lưu ca vào SQLite cục bộ
           await db.insert(schema.shop_shifts).values({
             id: activeShiftOnServer.id,
@@ -391,7 +393,13 @@ export default function SelectBranchScreen() {
             status: 'open',
             opening_cash: parseFloat(activeShiftOnServer.opening_cash || '0'),
             actual_closing_cash: 0,
-            employee_name: activeShiftOnServer.employee_name || 'Thu ngân',
+            employee_name: (() => {
+              const name = activeShiftOnServer.employee_name;
+              if (!name || name === 'Thu ngân' || name === 'Thu ngân viên chính') {
+                return loggedUserName || 'Nhân viên';
+              }
+              return name;
+            })(),
             sync_status: 'synced',
           }).onConflictDoNothing();
 
@@ -457,13 +465,16 @@ export default function SelectBranchScreen() {
       }
 
       // 2. Lưu vào SQLite cục bộ
+      const loggedUserName = await AsyncStorage.getItem('user_name');
+      const employeeName = loggedUserName || userEmail.split('@')[0];
+
       await db.insert(schema.shop_shifts).values({
         id: shiftId,
         opened_at: nowStr,
         status: 'open',
         opening_cash: cash,
         actual_closing_cash: 0,
-        employee_name: userEmail.split('@')[0],
+        employee_name: employeeName,
         sync_status: syncStatus,
       }).onConflictDoNothing();
 

@@ -522,10 +522,16 @@ export default function OrdersScreen() {
 
    const mappedShifts = [
      { id: 'all', label: 'Tất cả ca' },
-     ...shiftsData.map((s: any) => ({
-       id: s.id,
-       label: `Ca ${s.employee_name || 'Thu ngân'} (${s.opened_at.substring(11, 16)} - ${s.closed_at ? s.closed_at.substring(11, 16) : 'Đang mở'})`
-     }))
+      ...shiftsData.map((s: any) => {
+        let name = s.employee_name || 'Nhân viên';
+        if (name === 'Thu ngân' || name === 'Thu ngân viên chính') {
+          name = 'Nhân viên';
+        }
+        return {
+          id: s.id,
+          label: `Ca ${name} (${s.opened_at.substring(11, 16)} - ${s.closed_at ? s.closed_at.substring(11, 16) : 'Đang mở'})`
+        };
+      })
    ];
    setShiftsList(mappedShifts);
   } catch (err) {

@@ -145,13 +145,17 @@ export function Header({
  const shiftId = `shift-${newShopId}-${Date.now()}`;
  await AsyncStorage.setItem('active_shift_id', shiftId);
 
+ const loggedUserName = await AsyncStorage.getItem('user_name');
+ const userEmail = await AsyncStorage.getItem('saved_email');
+ const employeeName = loggedUserName || (userEmail ? (userEmail.includes('@') ? userEmail.split('@')[0] : userEmail) : 'Nhân viên');
+
  await db.insert(schema.shop_shifts).values({
  id: shiftId,
  opened_at: nowStr,
  status: 'open',
  opening_cash: 0,
  actual_closing_cash: 0,
- employee_name: 'Thu ngân viên chính',
+ employee_name: employeeName,
  sync_status: 'pending',
 }).onConflictDoNothing();
 }
