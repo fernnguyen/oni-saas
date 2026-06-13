@@ -4,15 +4,13 @@ import {Ionicons, MaterialCommunityIcons} from '@expo/vector-icons';
 import {Platform, TouchableOpacity, View, Text, DeviceEventEmitter} from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {NotificationProvider} from '../../lib/notifications/NotificationContext';
-import {PermissionsProvider, usePermissions} from '../../lib/auth/PermissionsContext';
+import {usePermissions} from '../../lib/auth/PermissionsContext';
 
 export default function TabLayout() {
   return (
-    <PermissionsProvider>
-      <NotificationProvider>
-        <TabLayoutContent />
-      </NotificationProvider>
-    </PermissionsProvider>
+    <NotificationProvider>
+      <TabLayoutContent />
+    </NotificationProvider>
   );
 }
 

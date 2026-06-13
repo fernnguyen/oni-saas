@@ -13,6 +13,7 @@ import {Dialog} from '../ui/Dialog';
 import {Button} from '../ui/Button';
 import {formatCurrency} from '../../lib/utils/format';
 import {getApiBaseUrl, getApiHeaders} from '../../lib/api/config';
+import {usePermissions} from '../../lib/auth/PermissionsContext';
 
 export interface DrawerMenuProps {
  visible: boolean;
@@ -24,6 +25,9 @@ const {width: SCREEN_WIDTH} = Dimensions.get('window');
 const DRAWER_WIDTH = SCREEN_WIDTH * 0.78;
 
 export function DrawerMenu({visible, onClose, branchName = 'Chi nhánh chính'}: DrawerMenuProps) {
+ const {hasPermission} = usePermissions();
+ const canViewDebt = hasPermission('debt.view') || hasPermission('customers.view');
+
  const [userInfo, setUserInfo] = useState<{name: string, email: string} | null>(null);
  const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
  const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -385,6 +389,7 @@ export function DrawerMenu({visible, onClose, branchName = 'Chi nhánh chính'}:
  </Text>
  {renderMenuItem('cube-outline', 'Quản lý Kho hàng', '/warehouse')}
  {renderMenuItem('wallet-outline', 'Sổ quỹ (Cashbook)', '/cashbook')}
+ {canViewDebt && renderMenuItem('card-outline', 'Quản lý Công nợ', '/debt')}
 
  {/* Group 3: Hệ thống */}
  <Text className="text-[8.5px] font-bold text-slate-400 mb-1 mt-3.5 px-1.5 uppercase tracking-wider">

@@ -522,27 +522,46 @@ export class SyncManager {
 
       for (const item of pending) {
         try {
-          const response = await fetch(`${getApiBaseUrl()}/api/shops/${shopId}/cashbook`, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-              type: item.type,
-              amount: Number(item.amount),
-              method: item.method,
-              category: item.category,
-              reference_id: item.reference_id || undefined,
-              reference_name: item.reference_name || undefined,
-              note: item.note ? `${item.note} [Mobile]` : `Phiếu ghi nhận từ di động lúc ${item.date.includes('T') ? formatDateTime(item.date) : item.date}`,
-              fund_id: item.fund_id || undefined,
-              date: item.date,
-              branch_id: shopId,
-              employee_id: item.employee_id || undefined,
-            }),
-          });
+          let response;
+          if (item.category === 'prepaid_deposit' && item.reference_id) {
+            // Định tuyến nạp ví trả trước qua API deposit để tự động cập nhật số dư ví trên server
+            response = await fetch(`${getApiBaseUrl()}/api/shops/${shopId}/customers/${item.reference_id}/deposit`, {
+              method: 'POST',
+              headers: { ...headers, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                amount: Number(item.amount),
+                method: item.method,
+                note: item.note || `Nạp tiền ví trả trước [Mobile]`,
+                fund_id: item.fund_id || undefined,
+                employee_id: item.employee_id || undefined,
+                branch_id: shopId,
+                auto_deduct_debt: false,
+              }),
+            });
+          } else {
+            // Định tuyến các loại phiếu thu chi thường qua API cashbook
+            response = await fetch(`${getApiBaseUrl()}/api/shops/${shopId}/cashbook`, {
+              method: 'POST',
+              headers: { ...headers, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                type: item.type,
+                amount: Number(item.amount),
+                method: item.method,
+                category: item.category,
+                reference_id: item.reference_id || undefined,
+                reference_name: item.reference_name || undefined,
+                note: item.note ? `${item.note} [Mobile]` : `Phiếu ghi nhận từ di động lúc ${item.date.includes('T') ? formatDateTime(item.date) : item.date}`,
+                fund_id: item.fund_id || undefined,
+                date: item.date,
+                branch_id: shopId,
+                employee_id: item.employee_id || undefined,
+              }),
+            });
+          }
 
           if (response.ok) {
             const resJson = await response.json().catch(() => ({}));
-            const serverId = resJson.transaction_id || resJson.id;
+            const serverId = resJson.transaction_id || resJson.id || item.id;
 
             if (serverId && serverId !== item.id) {
               await db.delete(schema.cashbook).where(eq(schema.cashbook.id, item.id));
@@ -560,6 +579,13 @@ export class SyncManager {
           } else {
             failedCount++;
             console.warn(`Đồng bộ phiếu quỹ #${item.id} lỗi từ server: ${response.status}`);
+            
+            // Nếu lỗi 400 (Bad Request), đánh dấu là 'review' để xử lý bằng tay trên web
+            if (response.status === 400) {
+              await db.update(schema.cashbook)
+                .set({ sync_status: 'review' })
+                .where(eq(schema.cashbook.id, item.id));
+            }
           }
         } catch (e) {
           failedCount++;

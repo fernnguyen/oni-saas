@@ -13,6 +13,8 @@ import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { KeepAliveManager } from '../lib/sync/KeepAliveManager';
 import * as Haptics from 'expo-haptics';
+import { usePermissions } from '../lib/auth/PermissionsContext';
+import { getApiBaseUrl, getApiHeaders } from '../lib/api/config';
 
 const CATEGORY_MAP: Record<string, string> = {
   sales: 'Bán hàng',
@@ -45,6 +47,8 @@ const PAYMENT_CATEGORIES = [
 
 export default function CashbookScreen() {
   const router = useRouter();
+  const { hasPermission } = usePermissions();
+  const canManage = hasPermission('cashbook.manage');
   const { customer_id } = useLocalSearchParams<{ customer_id?: string }>();
   const [transactions, setTransactions] = useState<any[]>([]);
   const [funds, setFunds] = useState<any[]>([]);
@@ -66,6 +70,7 @@ export default function CashbookScreen() {
   const [fundId, setFundId] = useState('');
   const [note, setNote] = useState('');
   const [customerId, setCustomerId] = useState('');
+  const [customerSearch, setCustomerSearch] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // States hiển thị selector dropdown
@@ -161,6 +166,11 @@ export default function CashbookScreen() {
   // Tự động mở modal thu nợ khi chuyển hướng từ danh sách khách hàng
   React.useEffect(() => {
     if (customer_id && customers.length > 0) {
+      if (!canManage) {
+        Alert.alert('Không có quyền', 'Bạn không có quyền thực hiện lập phiếu thu nợ.');
+        router.replace('/cashbook');
+        return;
+      }
       const matchedCust = customers.find(c => c.id === customer_id);
       if (matchedCust) {
         setTxType('receipt');
@@ -177,14 +187,19 @@ export default function CashbookScreen() {
         setShowAddModal(true);
       }
     }
-  }, [customer_id, customers]);
+  }, [customer_id, customers, canManage]);
 
   const loadCashbookData = async () => {
     try {
       setIsLoading(true);
 
-      // 1. Tải danh sách quỹ
-      const localFunds = await db.select().from(schema.paymentFunds);
+      const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+
+      // 1. Tải danh sách quỹ (Lọc theo chi nhánh an toàn)
+      const localFunds = await db
+        .select()
+        .from(schema.paymentFunds)
+        .where(eq(schema.paymentFunds.branch_id, shopId));
       setFunds(localFunds);
       if (localFunds.length > 0 && !fundId) {
         const defaultFund = localFunds.find((f: any) => f.is_default) || localFunds[0];
@@ -195,12 +210,13 @@ export default function CashbookScreen() {
       const localCustomers = await db.select().from(schema.customers);
       setCustomers(localCustomers);
 
-      // 3. Tải danh sách giao dịch sổ quỹ
+      // 3. Tải danh sách giao dịch sổ quỹ (Lọc theo chi nhánh an toàn)
       let localTx: any[] = [];
       if (Platform.OS !== 'web') {
         localTx = await db
           .select()
           .from(schema.cashbook)
+          .where(eq(schema.cashbook.branch_id, shopId))
           .orderBy(desc(schema.cashbook.date), desc(schema.cashbook.id));
       } else {
         // Mock data cho web simulator
@@ -242,10 +258,147 @@ export default function CashbookScreen() {
     }, [])
   );
 
+  const saveSingleTransaction = async (
+    shopId: string, 
+    userEmail: string, 
+    amt: number, 
+    cat: string, 
+    refName: string, 
+    isOffline: boolean
+  ) => {
+    const txId = `cb-local-${Date.now()}`;
+    const todayStr = new Date().toISOString();
+
+    if (txType === 'receipt' && cat === 'debt_collection' && customerId) {
+      // Khấu trừ công nợ của khách hàng trực tiếp trong SQLite
+      if (Platform.OS !== 'web') {
+        const matchedCust = customers.find(c => c.id === customerId);
+        const currentDebt = matchedCust?.debt_amount || 0;
+        const newDebt = Math.max(0, currentDebt - amt);
+        await db
+          .update(schema.customers)
+          .set({ debt_amount: newDebt })
+          .where(eq(schema.customers.id, customerId));
+      }
+    }
+
+    // Ghi phiếu thu chi vào SQLite cục bộ
+    if (Platform.OS !== 'web') {
+      const isBank = fundId && funds.find(f => f.id === fundId)?.type === 'bank';
+      await db.insert(schema.cashbook).values({
+        id: txId,
+        branch_id: shopId,
+        type: txType,
+        amount: amt,
+        method: isBank ? 'bank_transfer' : 'cash',
+        category: cat,
+        reference_id: customerId || null,
+        reference_name: refName || null,
+        employee_id: userEmail,
+        note,
+        date: todayStr,
+        fund_id: fundId || null,
+        sync_status: 'pending',
+      });
+    }
+
+    finishSubmit(`Đã lưu phiếu ${txType === 'receipt' ? 'Thu' : 'Chi'} ${isOffline ? 'ngoại tuyến ' : ''}thành công!`);
+  };
+
+  const saveSplitTransaction = async (
+    shopId: string, 
+    userEmail: string, 
+    debtAmt: number, 
+    prepaidAmt: number, 
+    refName: string, 
+    isOffline: boolean
+  ) => {
+    const todayStr = new Date().toISOString();
+    const isBank = fundId && funds.find(f => f.id === fundId)?.type === 'bank';
+    const payMethod = isBank ? 'bank_transfer' : 'cash';
+
+    // 1. Cập nhật SQLite
+    if (Platform.OS !== 'web' && customerId) {
+      const matchedCust = customers.find(c => c.id === customerId);
+      const currentPrepaid = matchedCust?.prepaid_balance || 0;
+      await db
+        .update(schema.customers)
+        .set({ debt_amount: 0, prepaid_balance: currentPrepaid + prepaidAmt })
+        .where(eq(schema.customers.id, customerId));
+    }
+
+    // 2. Tạo 2 phiếu thu chi locally
+    if (Platform.OS !== 'web') {
+      // Phiếu 1: Thu nợ (debt_collection)
+      if (debtAmt > 0) {
+        await db.insert(schema.cashbook).values({
+          id: `cb-local-debt-${Date.now()}`,
+          branch_id: shopId,
+          type: 'receipt',
+          amount: debtAmt,
+          method: payMethod,
+          category: 'debt_collection',
+          reference_id: customerId || null,
+          reference_name: refName || null,
+          employee_id: userEmail,
+          note: note ? `${note} (Khấu trừ nợ)` : 'Thu nợ đối tác',
+          date: todayStr,
+          fund_id: fundId || null,
+          sync_status: 'pending',
+        });
+      }
+
+      // Phiếu 2: Nạp ví trả trước (prepaid_deposit)
+      if (prepaidAmt > 0) {
+        await db.insert(schema.cashbook).values({
+          id: `cb-local-prepaid-${Date.now() + 1}`,
+          branch_id: shopId,
+          type: 'receipt',
+          amount: prepaidAmt,
+          method: payMethod,
+          category: 'prepaid_deposit',
+          reference_id: customerId || null,
+          reference_name: refName || null,
+          employee_id: userEmail,
+          note: note ? `${note} (Nạp ví trả trước)` : 'Nạp tiền ví trả trước',
+          date: todayStr,
+          fund_id: fundId || null,
+          sync_status: 'pending',
+        });
+      }
+    }
+
+    finishSubmit(`Đã khấu trừ nợ ${formatCurrency(debtAmt)} và nạp ví ${formatCurrency(prepaidAmt)} thành công!`);
+  };
+
+  const finishSubmit = async (msg: string) => {
+    setShowAddModal(false);
+    setAmount('');
+    setNote('');
+    setCustomerId('');
+    setCustomerSearch('');
+    
+    showToast(msg, 'success');
+    
+    // Đợi đồng bộ nền hoàn thành (nếu đang online) trước khi tải lại dữ liệu để UI cập nhật trạng thái 'synced'
+    try {
+      await KeepAliveManager.triggerSyncIfNeeded(false);
+    } catch (e) {}
+
+    // Tải lại dữ liệu
+    await loadCashbookData();
+    setIsSubmitting(false);
+  };
+
   const handleCreateTransaction = async () => {
     const numericAmt = parseInt(amount.replace(/\D/g, ''), 10) || 0;
     if (numericAmt <= 0) {
       Alert.alert('Lỗi', 'Số tiền giao dịch phải lớn hơn 0đ');
+      return;
+    }
+
+    if (!canManage) {
+      Alert.alert('Không có quyền', 'Bạn không có quyền thực hiện lập phiếu thu/chi.');
       return;
     }
 
@@ -255,64 +408,115 @@ export default function CashbookScreen() {
     try {
       const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
       const userEmail = await AsyncStorage.getItem('saved_email') || 'mobile-app';
-      const txId = `cb-local-${Date.now()}`;
-      const todayStr = new Date().toISOString();
 
-      let refName = '';
-      if (txType === 'receipt' && category === 'debt_collection' && customerId) {
-        const matchedCust = customers.find(c => c.id === customerId);
-        if (matchedCust) {
-          refName = matchedCust.name;
-          
-          // Khấu trừ công nợ của khách hàng trực tiếp trong SQLite
-          if (Platform.OS !== 'web') {
-            const currentDebt = matchedCust.debt_amount || 0;
-            const newDebt = Math.max(0, currentDebt - numericAmt);
-            await db
-              .update(schema.customers)
-              .set({ debt_amount: newDebt })
-              .where(eq(schema.customers.id, customerId));
-          }
-        }
+      // --- 1. KIỂM TRA CA LÀM VIỆC (SHIFT VALIDATION) ---
+      const isShiftEnabled = (await AsyncStorage.getItem('enable_shift_management')) === 'true';
+      const activeShiftId = await AsyncStorage.getItem('active_shift_id');
+      const hasBypassShift = hasPermission('cashbook.shift.manage');
+
+      if (isShiftEnabled && !activeShiftId && !hasBypassShift) {
+        Alert.alert(
+          'Yêu cầu mở ca làm việc',
+          'Vui lòng mở ca làm việc tại POS trước khi thực hiện thu/chi!'
+        );
+        setIsSubmitting(false);
+        return;
       }
 
-      // Ghi phiếu thu chi vào SQLite cục bộ
-      if (Platform.OS !== 'web') {
-        await db.insert(schema.cashbook).values({
-          id: txId,
-          branch_id: shopId,
-          type: txType,
-          amount: numericAmt,
-          method: 'cash', // hoặc bank_transfer tùy vào Quỹ
-          category,
-          reference_id: customerId || null,
-          reference_name: refName || null,
-          employee_id: userEmail,
-          note,
-          date: todayStr,
-          fund_id: fundId || null,
-          sync_status: 'pending',
+      // --- 2. KIỂM TRA MẠNG (CONNECTIVITY CHECK) ---
+      let isDeviceOffline = false;
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
+        await fetch(getApiBaseUrl(), {
+          method: 'HEAD',
+          signal: controller.signal
         });
+        clearTimeout(timeoutId);
+      } catch (err) {
+        isDeviceOffline = true;
       }
 
-      setShowAddModal(false);
-      setAmount('');
-      setNote('');
-      setCustomerId('');
-      
-      showToast(`Đã lưu phiếu ${txType === 'receipt' ? 'Thu' : 'Chi'} ngoại tuyến thành công!`, 'success');
-      
-      // Tải lại dữ liệu
-      await loadCashbookData();
+      // Hàm thực thi lưu giao dịch thực sự
+      const executeSave = async (isOffline: boolean) => {
+        try {
+          let refName = '';
+          if (txType === 'receipt' && category === 'debt_collection' && customerId) {
+            const matchedCust = customers.find(c => c.id === customerId);
+            if (matchedCust) {
+              refName = matchedCust.name;
+              const currentDebt = matchedCust.debt_amount || 0;
+              
+              // Nếu số tiền thu lớn hơn số nợ hiện tại -> Tự động tách nợ và nạp ví trả trước
+              if (numericAmt > currentDebt) {
+                const excessAmt = numericAmt - currentDebt;
+                Alert.alert(
+                  'Xác nhận thu nợ & nạp ví',
+                  `Khách hàng "${refName}" đang nợ ${formatCurrency(currentDebt)}.\n\nBạn đã nhập số tiền ${formatCurrency(numericAmt)}.\n\nHệ thống sẽ thu nợ ${formatCurrency(currentDebt)} và nạp phần tiền thừa ${formatCurrency(excessAmt)} vào tài khoản ví trả trước của khách hàng.`,
+                  [
+                    { text: 'Hủy', onPress: () => setIsSubmitting(false), style: 'cancel' },
+                    { 
+                      text: 'Xác nhận', 
+                      onPress: () => saveSplitTransaction(shopId, userEmail, currentDebt, excessAmt, refName, isOffline) 
+                    }
+                  ]
+                );
+                return;
+              }
+            }
+          }
 
-      // Kích hoạt đồng bộ nền ngay lập tức để đẩy lên cloud
-      KeepAliveManager.triggerSyncIfNeeded(false);
+          // Giao dịch bình thường
+          await saveSingleTransaction(shopId, userEmail, numericAmt, category, refName, isOffline);
+        } catch (err: any) {
+          showToast(`Lỗi khi lưu phiếu: ${err.message}`, 'error');
+          setIsSubmitting(false);
+        }
+      };
+
+      if (isDeviceOffline) {
+        Alert.alert(
+          'Thiết bị ngoại tuyến',
+          `Thiết bị đang ngoại tuyến. Bạn có chắc chắn muốn lưu tạm phiếu ${txType === 'receipt' ? 'Thu' : 'Chi'} với số tiền ${formatCurrency(numericAmt)} này không? Phiếu sẽ tự động đồng bộ khi có mạng.`,
+          [
+            { text: 'Hủy', onPress: () => setIsSubmitting(false), style: 'cancel' },
+            { text: 'Tiếp tục lưu', onPress: () => executeSave(true) }
+          ]
+        );
+      } else {
+        const categoryLabel = availableCategories.find(c => c.value === category)?.label || category;
+        Alert.alert(
+          'Xác nhận lập phiếu',
+          `Bạn có chắc chắn muốn lập phiếu ${txType === 'receipt' ? 'THU' : 'CHI'} số tiền ${formatCurrency(numericAmt)} thuộc phân mục "${categoryLabel}" không?`,
+          [
+            { text: 'Hủy', onPress: () => setIsSubmitting(false), style: 'cancel' },
+            { text: 'Xác nhận', onPress: () => executeSave(false) }
+          ]
+        );
+      }
+
     } catch (err: any) {
       showToast(`Không thể lưu phiếu thu chi: ${err.message}`, 'error');
-    } finally {
       setIsSubmitting(false);
     }
   };
+
+  if (!hasPermission('cashbook.view')) {
+    return (
+      <SafeAreaView edges={['top', 'left', 'right']} className="flex-1 bg-slate-50 justify-center items-center px-6">
+        <Ionicons name="lock-closed-outline" size={48} color="#ef4444" />
+        <Text className="text-slate-800 font-bold text-base mt-4 text-center">Không có quyền truy cập</Text>
+        <Text className="text-slate-400 text-xs text-center mt-2">Bạn không có quyền xem Sổ quỹ. Vui lòng liên hệ quản trị viên.</Text>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          className="mt-6 bg-orange-500 px-6 py-2.5 rounded-xl"
+          style={{ backgroundColor: '#fa5908' }}
+        >
+          <Text className="text-white font-bold text-xs">Quay lại</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView edges={['top', 'left', 'right']} className="flex-1 bg-slate-50">
@@ -320,8 +524,6 @@ export default function CashbookScreen() {
         title="Sổ quỹ thu chi" 
         onPressMenu={() => router.push('/(tabs)')} 
         showBack={true} 
-        syncStatus={syncStatus}
-        isSyncing={isSyncing}
         onPressSync={handleManualSync}
       />
 
@@ -344,26 +546,28 @@ export default function CashbookScreen() {
           </View>
         </View>
 
-        {/* Nút Tạo Phiếu Nhanh */}
-        <View className="flex-row justify-between gap-3 mb-5">
-          <TouchableOpacity 
-            activeOpacity={0.8}
-            onPress={() => { setTxType('receipt'); setCategory('other'); setShowAddModal(true); }}
-            className="flex-1 bg-emerald-50 border border-emerald-100 py-3.5 rounded-2xl items-center flex-row justify-center"
-          >
-            <Ionicons name="add-circle" size={18} color="#059669" />
-            <Text className="text-emerald-800 font-semibold text-xs ml-2">Lập phiếu THU</Text>
-          </TouchableOpacity>
+        {/* Nút Tạo Phiếu Nhanh (Chỉ hiển thị nếu có quyền manage) */}
+        {canManage && (
+          <View className="flex-row justify-between gap-3 mb-5">
+            <TouchableOpacity 
+              activeOpacity={0.8}
+              onPress={() => { setTxType('receipt'); setCategory('other'); setShowAddModal(true); }}
+              className="flex-1 bg-emerald-50 border border-emerald-100 py-3.5 rounded-2xl items-center flex-row justify-center"
+            >
+              <Ionicons name="add-circle" size={18} color="#059669" />
+              <Text className="text-emerald-800 font-semibold text-xs ml-2">Lập phiếu THU</Text>
+            </TouchableOpacity>
 
-          <TouchableOpacity 
-            activeOpacity={0.8}
-            onPress={() => { setTxType('payment'); setCategory('other'); setShowAddModal(true); }}
-            className="flex-1 bg-rose-50 border border-rose-100 py-3.5 rounded-2xl items-center flex-row justify-center"
-          >
-            <Ionicons name="remove-circle" size={18} color="#e11d48" />
-            <Text className="text-rose-800 font-semibold text-xs ml-2">Lập phiếu CHI</Text>
-          </TouchableOpacity>
-        </View>
+            <TouchableOpacity 
+              activeOpacity={0.8}
+              onPress={() => { setTxType('payment'); setCategory('other'); setShowAddModal(true); }}
+              className="flex-1 bg-rose-50 border border-rose-100 py-3.5 rounded-2xl items-center flex-row justify-center"
+            >
+              <Ionicons name="remove-circle" size={18} color="#e11d48" />
+              <Text className="text-rose-800 font-semibold text-xs ml-2">Lập phiếu CHI</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         <View className="flex-row justify-between items-center mb-3 px-1">
           <Text className="text-xxs font-semibold text-slate-500">Lịch sử giao dịch sổ quỹ</Text>
@@ -415,8 +619,10 @@ export default function CashbookScreen() {
                       {item.date.includes('T') || item.date.includes(' ') ? formatDateTime(item.date) : formatDate(item.date)}
                     </Text>
                     <View className="mx-1.5 w-1 h-1 rounded-full bg-slate-200" />
-                    {isPending ? (
+                    {item.sync_status === 'pending' ? (
                       <Badge variant="warning" label="OFFLINE" size="sm" />
+                    ) : item.sync_status === 'review' ? (
+                      <Badge variant="danger" label="LỆCH - CẦN THAO TÁC TAY TRÊN WEB" size="sm" />
                     ) : (
                       <Badge variant="success" label="SYNCED" size="sm" />
                     )}
@@ -650,39 +856,82 @@ export default function CashbookScreen() {
             {/* Customer Selector Overlay */}
             {showCustomerSelector && (
               <View className="absolute inset-0 bg-white rounded-t-3xl p-6 z-50">
-                <View className="flex-row justify-between items-center mb-6">
+                <View className="flex-row justify-between items-center mb-4">
                   <Text className="text-base font-bold text-slate-800">Chọn khách hàng cần thu nợ</Text>
-                  <TouchableOpacity onPress={() => setShowCustomerSelector(false)}>
+                  <TouchableOpacity onPress={() => {
+                    setCustomerSearch('');
+                    setShowCustomerSelector(false);
+                  }}>
                     <Ionicons name="close" size={24} color="#64748b" />
                   </TouchableOpacity>
                 </View>
-                {customers.filter(c => (c.debt_amount || 0) > 0).length === 0 ? (
-                  <Text className="text-xs text-slate-500 py-4 text-center">Không có khách hàng nào có dư nợ.</Text>
-                ) : (
-                  <ScrollView showsVerticalScrollIndicator={false}>
-                    {customers.filter(c => (c.debt_amount || 0) > 0).map(c => (
-                      <TouchableOpacity
-                        key={c.id}
-                        onPress={() => {
-                          setCustomerId(c.id);
-                          const debt = c.debt_amount || 0;
-                          if (debt > 0) {
-                            setAmount(debt.toLocaleString('vi-VN'));
-                          }
-                          setShowCustomerSelector(false);
-                        }}
-                        className="py-3.5 border-b border-slate-100 flex-row justify-between items-center"
-                      >
-                        <Text className={`text-xs ${customerId === c.id ? 'font-bold text-orange-500' : 'text-slate-700'}`}>
-                          {c.name} (Nợ: {formatCurrency(c.debt_amount || 0)})
-                        </Text>
-                        {customerId === c.id && (
-                          <Ionicons name="checkmark" size={18} color="#fa5908" />
-                        )}
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-                )}
+
+                {/* Thanh tìm kiếm nhanh khách hàng */}
+                <View className="flex-row items-center bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 mb-4">
+                  <Ionicons name="search-outline" size={16} color="#94a3b8" className="mr-2" />
+                  <TextInput
+                    value={customerSearch}
+                    onChangeText={setCustomerSearch}
+                    placeholder="Tìm kiếm tên hoặc số điện thoại..."
+                    className="flex-1 text-xs text-slate-800 h-8 p-0"
+                    style={{
+                      paddingVertical: 0,
+                      textAlignVertical: 'center',
+                      lineHeight: undefined,
+                      ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+                    }}
+                  />
+                  {customerSearch.length > 0 && (
+                    <TouchableOpacity onPress={() => setCustomerSearch('')}>
+                      <Ionicons name="close-circle" size={16} color="#94a3b8" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                {(() => {
+                  const filtered = customers.filter(c => {
+                    const hasDebt = (c.debt_amount || 0) > 0;
+                    if (!hasDebt) return false;
+                    if (!customerSearch) return true;
+                    const s = customerSearch.toLowerCase();
+                    return (
+                      (c.name || '').toLowerCase().includes(s) ||
+                      (c.phone || '').toLowerCase().includes(s) ||
+                      (c.customer_code || '').toLowerCase().includes(s)
+                    );
+                  });
+
+                  if (filtered.length === 0) {
+                    return <Text className="text-xs text-slate-500 py-4 text-center">Không tìm thấy khách hàng phù hợp.</Text>;
+                  }
+
+                  return (
+                    <ScrollView showsVerticalScrollIndicator={false}>
+                      {filtered.map(c => (
+                        <TouchableOpacity
+                          key={c.id}
+                          onPress={() => {
+                            setCustomerId(c.id);
+                            const debt = c.debt_amount || 0;
+                            if (debt > 0) {
+                              setAmount(debt.toLocaleString('vi-VN'));
+                            }
+                            setCustomerSearch('');
+                            setShowCustomerSelector(false);
+                          }}
+                          className="py-3.5 border-b border-slate-100 flex-row justify-between items-center"
+                        >
+                          <Text className={`text-xs ${customerId === c.id ? 'font-bold text-orange-500' : 'text-slate-700'}`}>
+                            {c.name} (Nợ: {formatCurrency(c.debt_amount || 0)})
+                          </Text>
+                          {customerId === c.id && (
+                            <Ionicons name="checkmark" size={18} color="#fa5908" />
+                          )}
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  );
+                })()}
               </View>
             )}
                       </View>

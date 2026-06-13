@@ -16,6 +16,7 @@ import {
  Inter_900Black 
 } from '@expo-google-fonts/inter';
 import {NotificationProvider} from '../lib/notifications/NotificationContext';
+import {PermissionsProvider} from '../lib/auth/PermissionsContext';
 import {initializePushNotifications, addNotificationResponseListener} from '../lib/notifications/push';
 import {KeepAliveManager} from '../lib/sync/KeepAliveManager';
 import '../global.css';
@@ -117,14 +118,16 @@ export default function RootLayout() {
 
  return (
  <SafeAreaProvider>
-  <NotificationProvider>
-    <StatusBar style="dark" />
-    <Stack screenOptions={{headerShown: false}}>
-      <Stack.Screen name="index" />
-      <Stack.Screen name="(auth)" />
-      <Stack.Screen name="(tabs)" />
-    </Stack>
-  </NotificationProvider>
+  <PermissionsProvider>
+    <NotificationProvider>
+      <StatusBar style="dark" />
+      <Stack screenOptions={{headerShown: false}}>
+        <Stack.Screen name="index" />
+        <Stack.Screen name="(auth)" />
+        <Stack.Screen name="(tabs)" />
+      </Stack>
+    </NotificationProvider>
+  </PermissionsProvider>
  </SafeAreaProvider>
  );
 }

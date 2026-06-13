@@ -26,6 +26,7 @@ import {Header} from '../../components/layout/Header';
 import {DrawerMenu} from '../../components/erp/DrawerMenu';
 import * as Clipboard from 'expo-clipboard';
 import {formatCurrency, formatDateTime} from '../../lib/utils/format';
+import { usePermissions } from '../../lib/auth/PermissionsContext';
 
 const PAYMENT_METHOD_VI: Record<string, string> = {
   cash: 'Tiền mặt',
@@ -75,6 +76,7 @@ const getPaymentMethodDisplay = (pm: string) => {
 
 export default function CustomersScreen() {
   const router = useRouter();
+  const { hasPermission } = usePermissions();
   const [customersList, setCustomersList] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -1102,7 +1104,7 @@ export default function CustomersScreen() {
                       </Text>
                     </View>
 
-                    {parseFloat(selectedCustomer?.debt_amount || '0') > 0 && (
+                    {parseFloat(selectedCustomer?.debt_amount || '0') > 0 && hasPermission('cashbook.manage') && (
                       <TouchableOpacity
                         onPress={() => {
                           setIsDetailModalOpen(false);

@@ -8,6 +8,7 @@ import {db} from '../../lib/db/client';
 import * as schema from '../../lib/db/schema';
 import {usePermissions} from '../../lib/auth/PermissionsContext';
 import {eq} from 'drizzle-orm';
+import {KeepAliveManager} from '../../lib/sync/KeepAliveManager';
 import {getApiBaseUrl, getApiHeaders} from '../../lib/api/config';
 
 // Import UI components dùng chung cao cấp
@@ -309,6 +310,11 @@ export default function DashboardScreen() {
     try {
       if (force) {
         setIsRefreshing(true);
+        try {
+          await KeepAliveManager.triggerSyncIfNeeded(true);
+        } catch (syncErr) {
+          console.warn('[Dashboard] Lỗi đồng bộ khi nhấn làm mới:', syncErr);
+        }
       } else {
         setIsLoading(true);
       }
@@ -677,6 +683,7 @@ export default function DashboardScreen() {
   const canViewWarehouse = hasPermission(['inventory.view', 'products.view']);
   const canViewCashbook = hasPermission('cashbook.view');
   const canViewSettings = hasPermission('settings.view');
+  const canViewDebt = hasPermission('debt.view') || hasPermission('customers.view');
 
   const shouldShowStats = canViewReports || !!activeShiftIdState;
 
@@ -706,7 +713,7 @@ export default function DashboardScreen() {
     <SafeAreaView edges={['top', 'left', 'right']} className="flex-1 bg-slate-50">
       
       {/* 1. SHARED HEADER - Thống nhất 100% */}
-      <Header onPressMenu={() => setIsDrawerOpen(true)} syncStatus="synced" />
+      <Header onPressMenu={() => setIsDrawerOpen(true)} />
 
       <ScrollView className="flex-1 px-4 py-4" showsVerticalScrollIndicator={false}>
       
@@ -715,7 +722,7 @@ export default function DashboardScreen() {
           <Text className="text-xxs font-semibold text-slate-455 mb-3 px-1">
             ⚡ Lối tắt phân hệ ERP
           </Text>
-          <View className="flex-row justify-between">
+          <View className="flex-row flex-wrap justify-between gap-y-3">
             <TouchableOpacity 
               activeOpacity={canUsePos ? 0.7 : 1}
               onPress={() => canUsePos ? router.push('/(tabs)/pos') : Alert.alert('Thông báo', 'Bạn không có quyền sử dụng POS!')}
@@ -750,6 +757,18 @@ export default function DashboardScreen() {
                 {!canViewCashbook && <Text style={{position: 'absolute', right: 2, top: 2, fontSize: 8}}>🔒</Text>}
               </View>
               <Text className="text-xxs font-semibold text-slate-500 text-center">Sổ Quỹ</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              activeOpacity={canViewDebt ? 0.7 : 1}
+              onPress={() => canViewDebt ? router.push('/debt') : Alert.alert('Thông báo', 'Bạn không có quyền quản lý Công nợ!')}
+              className={`items-center w-[23%] ${!canViewDebt ? 'opacity-40' : ''}`}
+            >
+              <View className="bg-slate-50 w-11 h-11 rounded-xl items-center justify-center border border-slate-100 mb-2">
+                <Ionicons name="card-outline" size={20} color="#fa5908" />
+                {!canViewDebt && <Text style={{position: 'absolute', right: 2, top: 2, fontSize: 8}}>🔒</Text>}
+              </View>
+              <Text className="text-xxs font-semibold text-slate-500 text-center">Công nợ</Text>
             </TouchableOpacity>
 
             <TouchableOpacity 

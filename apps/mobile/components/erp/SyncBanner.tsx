@@ -3,8 +3,9 @@ import {Text, View, Platform, TouchableOpacity} from 'react-native';
 import {Ionicons} from '@expo/vector-icons';
 import {db} from '../../lib/db/client';
 import * as schema from '../../lib/db/schema';
-import {eq} from 'drizzle-orm';
+import {eq, and, or, like} from 'drizzle-orm';
 import {Badge} from '../ui/Badge';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export interface SyncBannerProps {
   shopId?: string;
@@ -21,7 +22,7 @@ export function SyncBanner({
   onPressSync, 
   isSyncing = false,
   pendingCount: customPendingCount,
-  entityName = 'đơn'
+  entityName = 'mục'
 }: SyncBannerProps) {
   const [pendingCount, setPendingCount] = useState(0);
   const [isOnline, setIsOnline] = useState(true);
@@ -41,29 +42,65 @@ export function SyncBanner({
     return () => clearInterval(interval);
   }, []);
 
-  // Truy vấn SQLite liên tục (mỗi 4 giây) để đếm số đơn hàng chưa đồng bộ
+  // Truy vấn SQLite liên tục (mỗi 4 giây) để đếm số dữ liệu chưa đồng bộ
   useEffect(() => {
-    if (forceStatus) return; // Nếu truyền cứng status thì không tự query
-
-    const checkPendingOrders = async () => {
+    const checkPendingData = async () => {
       try {
         if (Platform.OS === 'web') return; // SQLite giả lập trên Web không cần kiểm tra đơn
         
+        const activeShopId = shopId || await AsyncStorage.getItem('active_shop_id') || '';
+        if (!activeShopId) return;
+
         const pendingOrders = await db
-          .select()
+          .select({ id: schema.orders.id })
           .from(schema.orders)
-          .where(eq(schema.orders.sync_status, 'pending'));
+          .where(and(
+            eq(schema.orders.sync_status, 'pending'),
+            eq(schema.orders.branch_id, activeShopId)
+          ));
+
+        const pendingCashbook = await db
+          .select({ id: schema.cashbook.id })
+          .from(schema.cashbook)
+          .where(and(
+            or(
+              eq(schema.cashbook.sync_status, 'pending'),
+              eq(schema.cashbook.sync_status, 'failed')
+            ),
+            eq(schema.cashbook.branch_id, activeShopId)
+          ));
+
+        const pendingShifts = await db
+          .select({ id: schema.shop_shifts.id })
+          .from(schema.shop_shifts)
+          .where(and(
+            eq(schema.shop_shifts.sync_status, 'pending'),
+            like(schema.shop_shifts.id, `shift-${activeShopId}-%`)
+          ));
+
+        const pendingMovements = await db
+          .select({ id: schema.stockMovements.id })
+          .from(schema.stockMovements)
+          .where(and(
+            eq(schema.stockMovements.sync_status, 'pending'),
+            eq(schema.stockMovements.branch_id, activeShopId)
+          ));
         
-        setPendingCount(pendingOrders.length);
+        setPendingCount(
+          pendingOrders.length + 
+          pendingCashbook.length + 
+          pendingShifts.length + 
+          pendingMovements.length
+        );
       } catch (err) {
-        console.warn('Lỗi đếm số đơn pending trong SyncBanner:', err);
+        console.warn('Lỗi đếm số mục pending trong SyncBanner:', err);
       }
     };
 
-    checkPendingOrders();
-    const interval = setInterval(checkPendingOrders, 4000);
+    checkPendingData();
+    const interval = setInterval(checkPendingData, 4000);
     return () => clearInterval(interval);
-  }, [forceStatus]);
+  }, [shopId]);
 
   // Nếu đang đồng bộ chạy ngầm, hiển thị chỉ báo đang tải
   if (isSyncing) {

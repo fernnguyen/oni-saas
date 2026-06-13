@@ -9,6 +9,9 @@ import {SyncManager} from '../../lib/sync/SyncManager';
 import {db} from '../../lib/db/client';
 import * as schema from '../../lib/db/schema';
 import * as Haptics from 'expo-haptics';
+import {KeepAliveManager} from '../../lib/sync/KeepAliveManager';
+import {eq, and, or, like} from 'drizzle-orm';
+import {ActivityIndicator, Modal as RNModal} from 'react-native';
 
 // UI components
 import {SyncBanner} from '../erp/SyncBanner';
@@ -41,6 +44,66 @@ export function Header({
  const [activeBranchId, setActiveBranchId] = useState('');
  const [tenantId, setTenantId] = useState('');
  const [branchList, setBranchList] = useState<any[]>([]);
+
+  // States hiển thị chi tiết đồng bộ cục bộ
+  const [isSyncModalVisible, setIsSyncModalVisible] = useState(false);
+  const [syncCounts, setSyncCounts] = useState({
+    orders: 0,
+    cashbook: 0,
+    shifts: 0,
+    movements: 0
+  });
+
+  const loadSyncCounts = async () => {
+    try {
+      const shopId = await AsyncStorage.getItem('active_shop_id') || '';
+      if (!shopId) return;
+
+      const pOrders = await db
+        .select({ id: schema.orders.id })
+        .from(schema.orders)
+        .where(and(
+          eq(schema.orders.sync_status, 'pending'),
+          eq(schema.orders.branch_id, shopId)
+        ));
+
+      const pCashbook = await db
+        .select({ id: schema.cashbook.id })
+        .from(schema.cashbook)
+        .where(and(
+          or(
+            eq(schema.cashbook.sync_status, 'pending'),
+            eq(schema.cashbook.sync_status, 'failed')
+          ),
+          eq(schema.cashbook.branch_id, shopId)
+        ));
+
+      const pShifts = await db
+        .select({ id: schema.shop_shifts.id })
+        .from(schema.shop_shifts)
+        .where(and(
+          eq(schema.shop_shifts.sync_status, 'pending'),
+          like(schema.shop_shifts.id, `shift-${shopId}-%`)
+        ));
+
+      const pMovements = await db
+        .select({ id: schema.stockMovements.id })
+        .from(schema.stockMovements)
+        .where(and(
+          eq(schema.stockMovements.sync_status, 'pending'),
+          eq(schema.stockMovements.branch_id, shopId)
+        ));
+
+      setSyncCounts({
+        orders: pOrders.length,
+        cashbook: pCashbook.length,
+        shifts: pShifts.length,
+        movements: pMovements.length
+      });
+    } catch (e) {
+      console.warn('Lỗi tải số liệu đồng bộ trong Header:', e);
+    }
+  };
 
  // States chọn chi nhánh dropdown
  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -217,12 +280,17 @@ export function Header({
 }
 };
 
-  const handleSyncPress = () => {
+  const [isHeaderSyncing, setIsHeaderSyncing] = useState(false);
+
+  const handleSyncPress = async () => {
     if (onPressSync) {
       onPressSync();
-    } else {
-      alert('Dữ liệu đang được đồng bộ tự động ngầm. Không cần thao tác thủ công.');
+      return;
     }
+    if (isHeaderSyncing) return;
+    
+    await loadSyncCounts();
+    setIsSyncModalVisible(true);
   };
 
  return (
@@ -272,9 +340,10 @@ export function Header({
   {/* SyncStatusBar và Chuông thông báo Right */}
   <View className="flex-row items-center gap-2">
   <SyncBanner 
+    shopId={activeBranchId}
     forceStatus={syncStatus} 
     onPressSync={handleSyncPress} 
-    isSyncing={isSyncing} 
+    isSyncing={isSyncing || isHeaderSyncing} 
     pendingCount={pendingCount}
     entityName={entityName}
   />
@@ -576,6 +645,115 @@ export function Header({
  cancelLabel="Hủy"
  variant="default"
  />
+
+ {/* Modal Chi Tiết Đồng Bộ Cục Bộ */}
+  <RNModal
+    visible={isSyncModalVisible}
+    transparent={true}
+    animationType="fade"
+    onRequestClose={() => setIsSyncModalVisible(false)}
+  >
+    <View className="flex-1 justify-center items-center px-6">
+      <TouchableWithoutFeedback onPress={() => setIsSyncModalVisible(false)}>
+        <View className="absolute inset-0 bg-black/60" />
+      </TouchableWithoutFeedback>
+      <View className="bg-white w-full rounded-3xl p-6 shadow-2xl border border-slate-100 max-h-[80%] relative z-50">
+        <View className="items-center mb-4">
+          <View className="bg-orange-50 p-3 rounded-full mb-3 border border-orange-100">
+            <Ionicons name="sync-outline" size={24} color="#fa5908" />
+          </View>
+          <Text className="text-base font-bold text-slate-800 text-center">Đồng bộ dữ liệu cục bộ</Text>
+          <Text className="text-xxs text-slate-400 text-center mt-1 leading-relaxed">
+            Các mục dữ liệu được lưu tạm cục bộ trên máy và chờ đẩy lên máy chủ ERP.
+          </Text>
+        </View>
+
+        {/* Bảng chi tiết các bảng */}
+        <View className="bg-slate-50 p-4 rounded-2xl border mb-5" style={{ borderColor: '#f1f5f9' }}>
+          <View className="flex-row justify-between items-center py-2">
+            <View className="flex-row items-center">
+              <Ionicons name="cart-outline" size={14} color="#64748b" style={{ marginRight: 8 }} />
+              <Text className="text-xxs text-slate-700 font-semibold">Đơn hàng chờ đồng bộ:</Text>
+            </View>
+            <Text className={`text-xs font-bold ${syncCounts.orders > 0 ? 'text-orange-500' : 'text-slate-500'}`}>
+              {syncCounts.orders}
+            </Text>
+          </View>
+
+          <View className="flex-row justify-between items-center py-2 border-t border-slate-200/50">
+            <View className="flex-row items-center">
+              <Ionicons name="wallet-outline" size={14} color="#64748b" style={{ marginRight: 8 }} />
+              <Text className="text-xxs text-slate-700 font-semibold">Phiếu thu/chi chờ đồng bộ:</Text>
+            </View>
+            <Text className={`text-xs font-bold ${syncCounts.cashbook > 0 ? 'text-orange-500' : 'text-slate-500'}`}>
+              {syncCounts.cashbook}
+            </Text>
+          </View>
+
+          <View className="flex-row justify-between items-center py-2 border-t border-slate-200/50">
+            <View className="flex-row items-center">
+              <Ionicons name="lock-closed-outline" size={14} color="#64748b" style={{ marginRight: 8 }} />
+              <Text className="text-xxs text-slate-700 font-semibold">Ca làm việc chờ đồng bộ:</Text>
+            </View>
+            <Text className={`text-xs font-bold ${syncCounts.shifts > 0 ? 'text-orange-500' : 'text-slate-500'}`}>
+              {syncCounts.shifts}
+            </Text>
+          </View>
+
+          <View className="flex-row justify-between items-center py-2 border-t border-slate-200/50">
+            <View className="flex-row items-center">
+              <Ionicons name="cube-outline" size={14} color="#64748b" style={{ marginRight: 8 }} />
+              <Text className="text-xxs text-slate-700 font-semibold">Phiếu kho chờ đồng bộ:</Text>
+            </View>
+            <Text className={`text-xs font-bold ${syncCounts.movements > 0 ? 'text-orange-500' : 'text-slate-500'}`}>
+              {syncCounts.movements}
+            </Text>
+          </View>
+        </View>
+
+        {/* Nút bấm */}
+        <View className="flex-row gap-3">
+          <TouchableOpacity
+            className="flex-1 py-3 rounded-xl border border-slate-200 bg-slate-50 items-center justify-center"
+            onPress={() => setIsSyncModalVisible(false)}
+            disabled={isHeaderSyncing}
+          >
+            <Text className="text-slate-500 font-semibold text-xs">Đóng</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            className="flex-1 py-3 rounded-xl bg-orange-500 items-center justify-center flex-row"
+            onPress={async () => {
+              setIsSyncModalVisible(false);
+              setIsHeaderSyncing(true);
+              try {
+                const shopId = await AsyncStorage.getItem('active_shop_id');
+                if (shopId) {
+                  alert('Bắt đầu đồng bộ dữ liệu lên cloud...');
+                  await KeepAliveManager.triggerSyncIfNeeded(true);
+                  alert('Đồng bộ dữ liệu hoàn tất!');
+                }
+              } catch (err) {
+                console.warn('Lỗi đồng bộ thủ công từ Header Modal:', err);
+              } finally {
+                setIsHeaderSyncing(false);
+              }
+            }}
+            disabled={isHeaderSyncing || (syncCounts.orders === 0 && syncCounts.cashbook === 0 && syncCounts.shifts === 0 && syncCounts.movements === 0)}
+            style={{ 
+              backgroundColor: '#fa5908',
+              opacity: (syncCounts.orders === 0 && syncCounts.cashbook === 0 && syncCounts.shifts === 0 && syncCounts.movements === 0) ? 0.5 : 1
+            }}
+          >
+            {isHeaderSyncing ? (
+              <ActivityIndicator size="small" color="white" />
+            ) : (
+              <Text className="text-white font-semibold text-xs">Đồng bộ ngay</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  </RNModal>
 
  </View>
  );

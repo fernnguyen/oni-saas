@@ -13,7 +13,7 @@ import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { BarcodeScannerModal } from '../components/ui/BarcodeScannerModal';
 import { KeepAliveManager } from '../lib/sync/KeepAliveManager';
-import { PermissionsProvider, usePermissions } from '../lib/auth/PermissionsContext';
+import { usePermissions } from '../lib/auth/PermissionsContext';
 import * as Haptics from 'expo-haptics';
 import { getApiBaseUrl, getApiHeaders } from '../lib/api/config';
 
@@ -1184,9 +1184,5 @@ function WarehouseContent() {
 }
 
 export default function WarehouseScreen() {
-  return (
-    <PermissionsProvider>
-      <WarehouseContent />
-    </PermissionsProvider>
-  );
+  return <WarehouseContent />;
 }
