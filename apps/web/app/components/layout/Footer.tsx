@@ -42,6 +42,7 @@ export function Footer() {
             <Link href="/#how" className="hover:text-white transition-colors">Cách hoạt động</Link>
             <Link href="/#pricing" className="hover:text-white transition-colors">Bảng giá gói cước</Link>
             <Link href="/privacy" className="hover:text-white transition-colors">Chính sách bảo mật</Link>
+            <Link href="/support" className="hover:text-white transition-colors">Liên hệ hỗ trợ</Link>
             <a href="https://zalo.me/g/owlxjd9bqfhocunnrjos" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">Cộng đồng Zalo hỗ trợ</a>
           </div>
           <div className="text-[10px] text-slate-600">

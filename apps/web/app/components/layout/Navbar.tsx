@@ -16,7 +16,7 @@ export function Navbar() {
           <Link href="/#features" className="hover:text-primary transition-colors">Tính năng</Link>
           <Link href="/#how" className="hover:text-primary transition-colors">Cách hoạt động</Link>
           <Link href="/#pricing" className="hover:text-primary transition-colors">Bảng giá</Link>
-          <a href="https://zalo.me/g/owlxjd9bqfhocunnrjos" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors text-blue-600 font-bold">Cộng đồng Zalo</a>
+          <Link href="/support" className="hover:text-primary transition-colors">Hỗ trợ</Link>
         </div>
         <div className="flex items-center gap-3">
           <LoginButton />

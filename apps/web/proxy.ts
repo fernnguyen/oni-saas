@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
 // Paths that are public on the MAIN domain (no auth required)
-const MAIN_DOMAIN_PUBLIC = ['/auth', '/api', '/_next', '/favicon', '/register', '/admin-login', '/qr-order', '/solutions', '/icons', '/logos', '/fonts', '/.well-known'];
+const MAIN_DOMAIN_PUBLIC = ['/auth', '/api', '/_next', '/favicon', '/register', '/admin-login', '/qr-order', '/solutions', '/icons', '/logos', '/fonts', '/.well-known', '/support', '/privacy'];
 
 // Paths on subdomain that bypass AAL check (auth flows themselves)
 const SUBDOMAIN_AUTH_BYPASS = ['/auth/', '/api/', '/_next/'];
