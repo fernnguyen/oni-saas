@@ -22,9 +22,10 @@ export default function LoginScreen() {
  const [isTenantCodeSaved, setIsTenantCodeSaved] = useState(false);
  const [isBiometricSaved, setIsBiometricSaved] = useState(false);
 
- // States cài đặt Server URL
+ // States cài đặt Server URL & Hỗ trợ kỹ thuật
  const [isServerModalOpen, setIsServerModalOpen] = useState(false);
  const [customServerUrl, setCustomServerUrl] = useState('');
+ const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
 
  // 1. Tự động tải dữ liệu & URL Server đã cấu hình
  useEffect(() => {
@@ -323,7 +324,7 @@ export default function LoginScreen() {
  return (
  <SafeAreaView style={{flex: 1, backgroundColor: '#f8fafc', position: 'relative'}}>
  
- {/* Nút Cấu hình Server (Góc phải trên) - Loại bỏ hoàn toàn viền đen bằng thuộc tính border chuẩn */}
+ {/* Nút Cấu hình Server (Góc phải trên) */}
  <TouchableOpacity 
  activeOpacity={0.7}
  onPress={() => {
@@ -363,24 +364,21 @@ export default function LoginScreen() {
       showsVerticalScrollIndicator={false}
     >
       <View style={{flex: 1, justifyContent: 'space-between'}}>
-        {/* Spacer trên để đẩy phần logo xuống hợp lý */}
         <View style={{height: 20}} />
 
  {/* 1. BRAND HEADER & LOGO THƯƠNG HIỆU */}
  <View style={{alignItems: 'center', marginTop: 30}}>
- {/* Logo thực tế được copy từ WebUI */}
  <Image 
  source={require('../../assets/logo.png')} 
  style={{width: 76, height: 76, resizeMode: 'contain', marginBottom: 12}} 
  />
- {/* Tên thương hiệu và khẩu hiệu cực kỳ thân thiện với hộ kinh doanh */}
  <Text style={{fontSize: 26, fontWeight: '800', color: '#1e293b', letterSpacing: 0.5}}>Oni POS</Text>
  <Text style={{fontSize: 13, color: '#64748b', marginTop: 8, fontWeight: '500', textAlign: 'center', lineHeight: 18, paddingHorizontal: 16}}>
  Giải pháp bán hàng và quản trị đơn giản, hiệu quả
  </Text>
  </View>
 
- {/* 2. CREDENTIAL CARD (Bố trí chuẩn, thoáng rộng, cực kỳ mượt mà, loại bỏ mọi viền đen thô sơ) */}
+ {/* 2. CREDENTIAL CARD */}
  <View style={{
  backgroundColor: '#ffffff', 
  borderRadius: 28, 
@@ -598,64 +596,35 @@ export default function LoginScreen() {
  </View>
  </View>
 
-  {/* 3. CHÂN TRANG FOOTER - Loại bỏ Hotline */}
-  <View style={{alignItems: 'center', marginBottom: 10}}>
+  {/* 3. CHÂN TRANG FOOTER */}
+  <View style={{alignItems: 'center', marginBottom: 20, paddingHorizontal: 24}}>
+    {/* Chú thích tính chất ứng dụng nội bộ */}
+    <Text style={{fontSize: 12, color: '#94a3b8', textAlign: 'center', lineHeight: 18, marginBottom: 12, fontStyle: 'italic'}}>
+      Lưu ý: Đây là ứng dụng nội bộ B2B. Nếu chưa có tài khoản, vui lòng liên hệ Quản lý cửa hàng hoặc Quản trị viên (Admin) doanh nghiệp của bạn.
+    </Text>
 
-    {/* Chưa có gian hàng? Tạo ngay */}
-    <View style={{flexDirection: 'row', alignItems: 'center', marginTop: 10, marginBottom: 8}}>
-      <Text style={{fontSize: 14, color: '#64748b', fontWeight: '500'}}>
-        Chưa có gian hàng?{' '}
-      </Text>
-      <TouchableOpacity 
-        activeOpacity={0.7} 
-        onPress={() => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-          Linking.openURL('https://oni.vn/register').catch(err => console.error('Không thể mở trang đăng ký:', err));
-        }}
-      >
-        <Text style={{fontSize: 14, color: '#fa5908', fontWeight: '700'}}>
-          Tạo ngay
-        </Text>
-      </TouchableOpacity>
-    </View>
-
-    {/* Cộng đồng hỗ trợ Zalo */}
+    {/* Nút Cần hỗ trợ? */}
     <TouchableOpacity 
       activeOpacity={0.7} 
-      onPress={async () => {
+      onPress={() => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-        const webUrl = 'https://zalo.me/g/owlxjd9bqfhocunnrjos';
-        const appUrl = 'zalo://qr/g/owlxjd9bqfhocunnrjos';
-        try {
-          await Linking.openURL(appUrl);
-        } catch (err) {
-          Linking.openURL(webUrl).catch(webErr => {
-            console.error('Không thể mở liên kết Zalo:', webErr);
-            Alert.alert('Thông báo', 'Không thể mở liên kết Zalo. Vui lòng truy cập https://zalo.me/g/owlxjd9bqfhocunnrjos bằng trình duyệt.');
-          });
-        }
+        setIsSupportModalOpen(true);
       }}
       style={{ 
         flexDirection: 'row', 
         alignItems: 'center', 
         backgroundColor: '#eff6ff', 
-        paddingVertical: 6, 
-        paddingHorizontal: 12, 
-        borderRadius: 16,
+        paddingVertical: 8, 
+        paddingHorizontal: 16, 
+        borderRadius: 20,
         borderWidth: 1,
         borderColor: '#dbeafe',
-        marginTop: 6
+        marginTop: 4
       }}
     >
-      <Text style={{ fontSize: 13, color: '#1e40af', fontWeight: '600', marginRight: 6 }}>
-        Cần hỗ trợ?
-      </Text>
-      <Image 
-        source={require('../../assets/zalo.png')} 
-        style={{ width: 16, height: 16, borderRadius: 3, marginRight: 4 }} 
-      />
-      <Text style={{ fontSize: 13, color: '#0068ff', fontWeight: '700' }}>
-        Tham gia nhóm Zalo
+      <Ionicons name="help-circle-outline" size={16} color="#1e40af" style={{ marginRight: 6 }} />
+      <Text style={{ fontSize: 14, color: '#1e40af', fontWeight: '600' }}>
+        Cần hỗ trợ kỹ thuật?
       </Text>
     </TouchableOpacity>
   </View>
@@ -758,6 +727,133 @@ export default function LoginScreen() {
             <Text style={{color: '#ffffff', fontWeight: '600', fontSize: 14}}>Lưu cấu hình</Text>
           </TouchableOpacity>
         </View>
+
+      </View>
+    </View>
+  </Modal>
+
+  {/* MODAL HỖ TRỢ KỸ THUẬT */}
+  <Modal
+    visible={isSupportModalOpen}
+    animationType="fade"
+    transparent={true}
+    onRequestClose={() => setIsSupportModalOpen(false)}
+  >
+    <View style={{flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0, 0, 0, 0.6)', paddingHorizontal: 24}}>
+      <Pressable style={{position: 'absolute', top: 0, left: 0, right: 0, bottom: 0}} onPress={() => setIsSupportModalOpen(false)} />
+      <View style={{backgroundColor: '#ffffff', borderRadius: 28, padding: 24, width: '100%', maxWidth: 360, shadowColor: '#000', shadowOffset: {width: 0, height: 10}, shadowOpacity: 0.1, shadowRadius: 20, elevation: 5}}>
+        
+        {/* Header Modal */}
+        <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#f1f5f9', paddingBottom: 14, marginBottom: 16}}>
+          <View style={{flexDirection: 'row', alignItems: 'center'}}>
+            <Ionicons name="help-circle-outline" size={18} color="#fa5908" style={{marginRight: 8}} />
+            <Text style={{fontSize: 16, fontWeight: '700', color: '#1e293b'}}>Hỗ trợ kỹ thuật</Text>
+          </View>
+          <TouchableOpacity onPress={() => setIsSupportModalOpen(false)} style={{padding: 4}}>
+            <Ionicons name="close" size={20} color="#64748b" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Thân Modal */}
+        <View style={{marginBottom: 24}}>
+          <Text style={{fontSize: 14, color: '#475569', fontWeight: '500', marginBottom: 16, lineHeight: 20}}>
+            Bạn cần hỗ trợ kỹ thuật, vui lòng chọn các phương thức liên hệ dưới đây:
+          </Text>
+
+          {/* Option 1: Nhóm hỗ trợ Zalo */}
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={async () => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+              const webUrl = 'https://zalo.me/g/owlxjd9bqfhocunnrjos';
+              const appUrl = 'zalo://qr/g/owlxjd9bqfhocunnrjos';
+              try {
+                await Linking.openURL(appUrl);
+              } catch (err) {
+                Linking.openURL(webUrl).catch(webErr => {
+                  console.error('Không thể mở liên kết Zalo:', webErr);
+                  Alert.alert('Thông báo', 'Không thể mở liên kết Zalo. Vui lòng truy cập https://zalo.me/g/owlxjd9bqfhocunnrjos bằng trình duyệt.');
+                });
+              }
+            }}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              backgroundColor: '#f8fafc',
+              borderWidth: 1,
+              borderColor: '#e2e8f0',
+              borderRadius: 16,
+              padding: 14,
+              marginBottom: 12
+            }}
+          >
+            <Image 
+              source={require('../../assets/zalo.png')} 
+              style={{ width: 24, height: 24, borderRadius: 5, marginRight: 12 }} 
+            />
+            <View style={{flex: 1}}>
+              <Text style={{fontSize: 14, fontWeight: '700', color: '#1e293b'}}>Cộng đồng hỗ trợ kỹ thuật</Text>
+              <Text style={{fontSize: 12, color: '#64748b', marginTop: 2}}>Tham gia nhóm Zalo hỗ trợ 24/7</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="#94a3b8" />
+          </TouchableOpacity>
+
+          {/* Option 2: Email hỗ trợ */}
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+              Linking.openURL('mailto:hello@oni.vn').catch(err => {
+                Alert.alert('Thông báo', 'Không thể mở ứng dụng Email. Email hỗ trợ: hello@oni.vn');
+              });
+            }}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              backgroundColor: '#f8fafc',
+              borderWidth: 1,
+              borderColor: '#e2e8f0',
+              borderRadius: 16,
+              padding: 14
+            }}
+          >
+            <View style={{
+              width: 24,
+              height: 24,
+              borderRadius: 5,
+              backgroundColor: '#ffedd5',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginRight: 12
+            }}>
+              <Ionicons name="mail" size={14} color="#fa5908" />
+            </View>
+            <View style={{flex: 1}}>
+              <Text style={{fontSize: 14, fontWeight: '700', color: '#1e293b'}}>Email: hello@oni.vn</Text>
+              <Text style={{fontSize: 12, color: '#64748b', marginTop: 2}}>Gửi yêu cầu hỗ trợ qua Email</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="#94a3b8" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Nút Đóng */}
+        <TouchableOpacity 
+          onPress={() => setIsSupportModalOpen(false)}
+          style={{
+            backgroundColor: '#fa5908', 
+            height: 48, 
+            borderRadius: 14, 
+            alignItems: 'center', 
+            justifyContent: 'center', 
+            shadowColor: '#fa5908',
+            shadowOffset: {width: 0, height: 4},
+            shadowOpacity: 0.15,
+            shadowRadius: 8,
+            elevation: 2
+          }}
+        >
+          <Text style={{color: '#ffffff', fontWeight: '600', fontSize: 14}}>Đóng</Text>
+        </TouchableOpacity>
 
       </View>
     </View>
