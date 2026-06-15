@@ -143,7 +143,7 @@ export async function POST(
     try {
       const { data: shopInfo } = await admin
         .from('shops')
-        .select('name, slug')
+        .select('name, slug, industry_type')
         .eq('id', shopId)
         .maybeSingle()
 
@@ -154,7 +154,8 @@ export async function POST(
         await NotificationDispatcher.sendQrOrderCreated(tenantId, {
           id: shopId,
           name: shopInfo.name,
-          slug: shopInfo.slug
+          slug: shopInfo.slug,
+          industry_type: shopInfo.industry_type || 'fnb'
         }, {
           id: orderRequest.id,
           resource_id: session.resource_id,

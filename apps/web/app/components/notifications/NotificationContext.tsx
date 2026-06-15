@@ -92,6 +92,12 @@ export function NotificationProvider({ shopId, tenantId, children }: ProviderPro
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [isMuted, setIsMuted] = useState(false);
   const [tables, setTables] = useState<Record<string, string>>({});
+  const [industryType, setIndustryType] = useState('fnb');
+
+  const industryTypeRef = useRef(industryType);
+  useEffect(() => {
+    industryTypeRef.current = industryType;
+  }, [industryType]);
   
   // QR Drawer states
   const [isQRDrawerOpen, setIsQRDrawerOpen] = useState(false);
@@ -197,6 +203,17 @@ export function NotificationProvider({ shopId, tenantId, children }: ProviderPro
   // Fetch initial pending QR details & table mapping
   const fetchData = useCallback(async () => {
     try {
+      // 0. Fetch shop settings to get industry_type
+      let currentIndustry = 'fnb';
+      const settingsRes = await fetch(`/api/shops/${shopId}/settings`);
+      if (settingsRes.ok) {
+        const settings = await settingsRes.json();
+        if (settings && settings.industry_type) {
+          currentIndustry = settings.industry_type.toLowerCase();
+          setIndustryType(currentIndustry);
+        }
+      }
+
       // 1. Fetch tables map to render human-friendly names
       const tabRes = await fetch(`/api/shops/${shopId}/location-resources?limit=200`);
       const tableMap: Record<string, string> = {};
@@ -218,13 +235,25 @@ export function NotificationProvider({ shopId, tenantId, children }: ProviderPro
       if (reqRes.ok) {
         const orders = await reqRes.json();
         qrOrderNotifications = (orders || []).map((o: any) => {
-          const tableName = tableMap[o.resource_id] || 'Bàn ăn ẩn danh';
+          const defaultTableName = currentIndustry === 'sports_court' ? 'Sân' : currentIndustry === 'lodging' ? 'Phòng' : currentIndustry === 'retail' ? 'Khách mua' : 'Bàn ăn';
+          const tableName = tableMap[o.resource_id] || `${defaultTableName} ẩn danh`;
           const qty = Array.isArray(o.items) ? o.items.length : 0;
+          
+          let title = 'Yêu cầu gọi món mới';
+          let description = `${tableName} vừa gửi yêu cầu duyệt ${qty} món mới.`;
+          if (currentIndustry === 'sports_court' || currentIndustry === 'lodging') {
+            title = 'Yêu cầu dịch vụ mới';
+            description = `${tableName} vừa gửi yêu cầu duyệt ${qty} dịch vụ mới.`;
+          } else if (currentIndustry === 'retail') {
+            title = 'Yêu cầu đơn hàng QR mới';
+            description = `${tableName} vừa gửi yêu cầu duyệt ${qty} sản phẩm mới.`;
+          }
+
           return {
             id: `qr_order_${o.id}`,
             type: 'qr_order' as const,
-            title: 'Yêu cầu gọi món mới',
-            description: `${tableName} vừa gửi yêu cầu duyệt ${qty} món ăn mới.`,
+            title,
+            description,
             status: 'unread' as const,
             priority: 'high' as const,
             createdAt: o.created_at,
@@ -246,12 +275,27 @@ export function NotificationProvider({ shopId, tenantId, children }: ProviderPro
       if (sessRes.ok) {
         const sessions = await sessRes.json();
         qrSessionNotifications = (sessions || []).map((s: any) => {
-          const tableName = tableMap[s.resource_id] || 'Bàn ăn ẩn danh';
+          const defaultTableName = currentIndustry === 'sports_court' ? 'Sân' : currentIndustry === 'lodging' ? 'Phòng' : currentIndustry === 'retail' ? 'Khách mua' : 'Bàn ăn';
+          const tableName = tableMap[s.resource_id] || `${defaultTableName} ẩn danh`;
+
+          let title = 'Yêu cầu mở bàn ăn';
+          let description = `${tableName} vừa quét mã QR và yêu cầu mở bàn.`;
+          if (currentIndustry === 'sports_court') {
+            title = 'Yêu cầu nhận sân';
+            description = `${tableName} vừa quét mã QR và yêu cầu nhận sân.`;
+          } else if (currentIndustry === 'lodging') {
+            title = 'Yêu cầu nhận phòng';
+            description = `${tableName} vừa quét mã QR và yêu cầu nhận phòng.`;
+          } else if (currentIndustry === 'retail') {
+            title = 'Yêu cầu kết nối khách hàng';
+            description = `${tableName} vừa quét mã QR và kết nối.`;
+          }
+
           return {
             id: `qr_session_${s.id}`,
             type: 'qr_session' as const,
-            title: 'Yêu cầu mở bàn ăn',
-            description: `${tableName} vừa quét mã QR và yêu cầu mở bàn.`,
+            title,
+            description,
             status: 'unread' as const,
             priority: 'high' as const,
             createdAt: s.created_at,
@@ -367,13 +411,26 @@ export function NotificationProvider({ shopId, tenantId, children }: ProviderPro
               setNotifications((prev) => {
                 if (prev.some((n) => n.id === notiId)) return prev;
                 
-                const tableName = tablesRef.current[newReq.resource_id] || 'Bàn ăn ẩn danh';
+                const currentIndustry = industryTypeRef.current;
+                const defaultTableName = currentIndustry === 'sports_court' ? 'Sân' : currentIndustry === 'lodging' ? 'Phòng' : 'Bàn';
+                const tableName = tablesRef.current[newReq.resource_id] || `${defaultTableName} ẩn danh`;
                 const qty = Array.isArray(newReq.items) ? newReq.items.length : 0;
+                
+                let title = 'Yêu cầu gọi món mới';
+                let description = `${tableName} vừa gửi yêu cầu duyệt ${qty} món mới.`;
+                if (currentIndustry === 'sports_court') {
+                  title = 'Yêu cầu gọi món/dịch vụ';
+                  description = `${tableName} vừa gửi yêu cầu duyệt ${qty} món mới.`;
+                } else if (currentIndustry === 'lodging') {
+                  title = 'Yêu cầu dịch vụ phòng';
+                  description = `${tableName} vừa gửi yêu cầu duyệt ${qty} dịch vụ mới.`;
+                }
+
                 const newNoti: AppNotification = {
                   id: notiId,
                   type: 'qr_order',
-                  title: 'Yêu cầu gọi món mới',
-                  description: `${tableName} vừa gửi yêu cầu duyệt ${qty} món ăn mới.`,
+                  title,
+                  description,
                   status: 'unread',
                   priority: 'high',
                   createdAt: newReq.created_at,
@@ -391,11 +448,20 @@ export function NotificationProvider({ shopId, tenantId, children }: ProviderPro
               });
 
               if (shouldAlert) {
-                const tableName = tablesRef.current[newReq.resource_id] || 'Bàn ăn ẩn danh';
+                const currentIndustry = industryTypeRef.current;
+                const defaultTableName = currentIndustry === 'sports_court' ? 'Sân' : currentIndustry === 'lodging' ? 'Phòng' : 'Bàn';
+                const tableName = tablesRef.current[newReq.resource_id] || `${defaultTableName} ẩn danh`;
                 const qty = Array.isArray(newReq.items) ? newReq.items.length : 0;
                 
+                let toastMsg = `🔔 ${tableName} vừa gọi ${qty} món mới!`;
+                if (currentIndustry === 'sports_court') {
+                  toastMsg = `🔔 ${tableName} vừa gọi ${qty} món/dịch vụ mới!`;
+                } else if (currentIndustry === 'lodging') {
+                  toastMsg = `🔔 ${tableName} vừa gọi ${qty} dịch vụ mới!`;
+                }
+
                 playChimeRef.current();
-                toast.info(`🔔 ${tableName} vừa gọi ${qty} món mới!`, {
+                toast.info(toastMsg, {
                   duration: 8000,
                   action: {
                     label: 'Xem ngay',
@@ -415,13 +481,27 @@ export function NotificationProvider({ shopId, tenantId, children }: ProviderPro
               } else {
                 setNotifications((prev) => {
                   if (prev.some((n) => n.id === notiId)) return prev;
-                  const tableName = tablesRef.current[req.resource_id] || 'Bàn ăn ẩn danh';
+                  
+                  const currentIndustry = industryTypeRef.current;
+                  const defaultTableName = currentIndustry === 'sports_court' ? 'Sân' : currentIndustry === 'lodging' ? 'Phòng' : 'Bàn';
+                  const tableName = tablesRef.current[req.resource_id] || `${defaultTableName} ẩn danh`;
                   const qty = Array.isArray(req.items) ? req.items.length : 0;
+
+                  let title = 'Yêu cầu gọi món mới';
+                  let description = `${tableName} vừa gửi yêu cầu duyệt ${qty} món mới.`;
+                  if (currentIndustry === 'sports_court') {
+                    title = 'Yêu cầu gọi món/dịch vụ';
+                    description = `${tableName} vừa gửi yêu cầu duyệt ${qty} món mới.`;
+                  } else if (currentIndustry === 'lodging') {
+                    title = 'Yêu cầu dịch vụ phòng';
+                    description = `${tableName} vừa gửi yêu cầu duyệt ${qty} dịch vụ mới.`;
+                  }
+
                   return [{
                     id: notiId,
                     type: 'qr_order',
-                    title: 'Yêu cầu gọi món mới',
-                    description: `${tableName} vừa gửi yêu cầu duyệt ${qty} món ăn mới.`,
+                    title,
+                    description,
                     status: 'unread',
                     priority: 'high',
                     createdAt: req.created_at,
@@ -474,12 +554,25 @@ export function NotificationProvider({ shopId, tenantId, children }: ProviderPro
               setNotifications((prev) => {
                 if (prev.some((n) => n.id === notiId)) return prev;
                 
-                const tableName = tablesRef.current[sess.resource_id] || 'Bàn ăn ẩn danh';
+                const currentIndustry = industryTypeRef.current;
+                const defaultTableName = currentIndustry === 'sports_court' ? 'Sân' : currentIndustry === 'lodging' ? 'Phòng' : 'Bàn';
+                const tableName = tablesRef.current[sess.resource_id] || `${defaultTableName} ẩn danh`;
+
+                let title = 'Yêu cầu mở bàn';
+                let description = `${tableName} vừa quét mã QR và yêu cầu mở bàn.`;
+                if (currentIndustry === 'sports_court') {
+                  title = 'Yêu cầu mở sân';
+                  description = `${tableName} vừa quét mã QR và yêu cầu mở sân.`;
+                } else if (currentIndustry === 'lodging') {
+                  title = 'Yêu cầu mở phòng';
+                  description = `${tableName} vừa quét mã QR và yêu cầu mở phòng.`;
+                }
+
                 const newNoti: AppNotification = {
                   id: notiId,
                   type: 'qr_session',
-                  title: 'Yêu cầu mở bàn ăn',
-                  description: `${tableName} vừa quét mã QR và yêu cầu mở bàn.`,
+                  title,
+                  description,
                   status: 'unread',
                   priority: 'high',
                   createdAt: sess.created_at,
@@ -495,13 +588,25 @@ export function NotificationProvider({ shopId, tenantId, children }: ProviderPro
               });
 
               if (shouldAlert) {
-                const tableName = tablesRef.current[sess.resource_id] || 'Bàn ăn ẩn danh';
+                const currentIndustry = industryTypeRef.current;
+                const defaultTableName = currentIndustry === 'sports_court' ? 'Sân' : currentIndustry === 'lodging' ? 'Phòng' : 'Bàn';
+                const tableName = tablesRef.current[sess.resource_id] || `${defaultTableName} ẩn danh`;
                 
+                let toastMsg = `🔔 ${tableName} yêu cầu mở bàn!`;
+                let toastLabel = 'Mở bàn';
+                if (currentIndustry === 'sports_court') {
+                  toastMsg = `🔔 ${tableName} yêu cầu mở sân!`;
+                  toastLabel = 'Mở sân';
+                } else if (currentIndustry === 'lodging') {
+                  toastMsg = `🔔 ${tableName} yêu cầu mở phòng!`;
+                  toastLabel = 'Mở phòng';
+                }
+
                 playChimeRef.current();
-                toast.info(`🔔 ${tableName} yêu cầu mở bàn!`, {
+                toast.info(toastMsg, {
                   duration: 8000,
                   action: {
-                    label: 'Mở bàn',
+                    label: toastLabel,
                     onClick: () => {
                       openQRDrawer('sessions', sess.id);
                     }
@@ -518,12 +623,26 @@ export function NotificationProvider({ shopId, tenantId, children }: ProviderPro
               } else {
                 setNotifications((prev) => {
                   if (prev.some((n) => n.id === notiId)) return prev;
-                  const tableName = tablesRef.current[sess.resource_id] || 'Bàn ăn ẩn danh';
+                  
+                  const currentIndustry = industryTypeRef.current;
+                  const defaultTableName = currentIndustry === 'sports_court' ? 'Sân' : currentIndustry === 'lodging' ? 'Phòng' : 'Bàn';
+                  const tableName = tablesRef.current[sess.resource_id] || `${defaultTableName} ẩn danh`;
+
+                  let title = 'Yêu cầu mở bàn';
+                  let description = `${tableName} vừa quét mã QR và yêu cầu mở bàn.`;
+                  if (currentIndustry === 'sports_court') {
+                    title = 'Yêu cầu mở sân';
+                    description = `${tableName} vừa quét mã QR và yêu cầu mở sân.`;
+                  } else if (currentIndustry === 'lodging') {
+                    title = 'Yêu cầu mở phòng';
+                    description = `${tableName} vừa quét mã QR và yêu cầu mở phòng.`;
+                  }
+
                   return [{
                     id: notiId,
                     type: 'qr_session',
-                    title: 'Yêu cầu mở bàn ăn',
-                    description: `${tableName} vừa quét mã QR và yêu cầu mở bàn.`,
+                    title,
+                    description,
                     status: 'unread',
                     priority: 'high',
                     createdAt: sess.created_at,

@@ -144,7 +144,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ shop
 
   const { data: shopData } = await admin
     .from('shops')
-    .select('address, phone')
+    .select('address, phone, industry_type')
     .eq('id', shopId)
     .maybeSingle();
 
@@ -153,6 +153,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ shop
   if (shopData) {
     settings.address = shopData.address;
     settings.phone = shopData.phone;
+    settings.industry_type = shopData.industry_type || 'retail';
   }
   
   // Inject CRM access flag

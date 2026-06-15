@@ -11,6 +11,7 @@ interface ShopContext {
   id: string;
   name: string;
   slug: string;
+  industry_type?: string;
 }
 
 /**
@@ -334,10 +335,29 @@ export class NotificationDispatcher {
     shop: ShopContext,
     order: { id: string; resource_id: string; table_name?: string; item_count: number }
   ): Promise<void> {
-    const tableName = order.table_name || 'Bàn ăn';
+    const industry = (shop.industry_type || 'fnb').toLowerCase();
+    
+    let defaultTableName = 'Bàn';
+    let title = 'Yêu cầu gọi món QR mới';
+    let itemName = 'món';
+
+    if (industry === 'sports_court') {
+      defaultTableName = 'Sân';
+      title = 'Yêu cầu đặt dịch vụ QR mới';
+      itemName = 'dịch vụ';
+    } else if (industry === 'lodging') {
+      defaultTableName = 'Phòng';
+      title = 'Yêu cầu gọi dịch vụ QR mới';
+      itemName = 'dịch vụ';
+    } else if (industry === 'retail') {
+      defaultTableName = 'Khách mua';
+      title = 'Yêu cầu đặt đơn QR mới';
+      itemName = 'sản phẩm';
+    }
+
+    const tableName = order.table_name || defaultTableName;
     const path = this.makeBranchUrl(shop.slug, `/channels/pos`);
-    const title = 'Yêu cầu gọi món QR mới';
-    const content = `${tableName} vừa gửi yêu cầu duyệt ${order.item_count} món ăn mới tại chi nhánh ${shop.name}.`;
+    const content = `${tableName} vừa gửi yêu cầu duyệt ${order.item_count} ${itemName} mới tại chi nhánh ${shop.name}.`;
 
     // Kênh 1: In-App Realtime Notification (Lưu lịch sử Noti History & Đẩy cho staff trong chi nhánh)
     try {
