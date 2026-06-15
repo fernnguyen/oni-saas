@@ -1766,8 +1766,8 @@ export default function PosScreen() {
                               elevation: 2,
                             },
                             isActive ? {
-                              borderColor: 'rgba(244, 63, 94, 0.25)', // border-rose-300 mờ sang trọng
-                              backgroundColor: 'rgba(255, 241, 242, 0.65)', // bg-rose-50 mờ cực dịu mắt
+                              borderColor: '#fda4af', // border-rose-300 mờ sang trọng
+                              backgroundColor: '#fff1f2', // bg-rose-50 mờ cực dịu mắt
                             } : {}
                           ]}
                           onPress={() => handleTablePress(t)}
@@ -1825,8 +1825,8 @@ export default function PosScreen() {
                               <View
                                 className="border p-2 rounded-lg mb-2"
                                 style={{
-                                  backgroundColor: 'rgba(244, 63, 94, 0.05)', // bg-rose-50 mờ nhạt
-                                  borderColor: 'rgba(244, 63, 94, 0.15)', // border-rose-200 mờ nhạt
+                                  backgroundColor: '#fee8eb', // bg-rose-50 mờ nhạt (solid)
+                                  borderColor: '#fecdd3', // border-rose-200 mờ nhạt (solid)
                                 }}
                               >
                                 <Text className="text-[8.5px] text-rose-700 font-semibold">
@@ -1847,7 +1847,7 @@ export default function PosScreen() {
                             )}
 
                             {/* Nút Trạng thái ở đáy card */}
-                            <View className={`w-full py-2 rounded-lg items-center justify-center border ${isActive ? 'bg-rose-100/30 border-rose-200' : 'bg-slate-50 border-slate-200'
+                            <View className={`w-full py-2 rounded-lg items-center justify-center border ${isActive ? 'bg-[#ffeef0] border-rose-200' : 'bg-slate-50 border-slate-200'
                               }`}>
                               <Text className={`text-tiny font-semibold ${isActive ? 'text-rose-600' : 'text-emerald-600'
                                 }`} numberOfLines={1}>

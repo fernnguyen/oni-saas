@@ -652,13 +652,13 @@ export default function SelectBranchScreen() {
  return (
  <TouchableOpacity
  key={branch.id}
- className={`mb-4 p-4 rounded-3xl border-2 shadow-sm ${
- !isActive 
- ? 'bg-slate-100/50 border-slate-200 opacity-60'
- : (isSelected 
- ? 'bg-orange-50/40 border-orange-500' 
- : 'bg-white border-slate-200')
-}`}
+  className={`mb-4 p-4 rounded-3xl border-2 shadow-sm ${
+  !isActive 
+  ? 'bg-[#f1f5f9] border-slate-200 opacity-60'
+  : (isSelected 
+  ? 'bg-[#fff7ed] border-orange-500' 
+  : 'bg-white border-slate-200')
+ }`}
  onPress={() => isActive && setSelectedBranchId(branch.id)}
  disabled={isSyncing}
  >

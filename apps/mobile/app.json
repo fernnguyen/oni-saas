@@ -3,7 +3,7 @@
     "name": "Oni POS",
     "slug": "oni-pos",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "userInterfaceStyle": "light",
     "icon": "./assets/icon.png",
     "splash": {
