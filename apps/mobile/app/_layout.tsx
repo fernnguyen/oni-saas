@@ -108,6 +108,31 @@ export default function RootLayout() {
           return false;
         };
 
+        const mapPathToMobileRoute = (path?: string, metadata?: any) => {
+          if (!path) return '/(tabs)';
+          if (path.startsWith('/(tabs)/') || path === '/(tabs)') {
+            return path;
+          }
+          if (path.includes('/orders')) {
+            const orderId = metadata?.order_id || '';
+            if (orderId) {
+              return `/(tabs)/orders?id=${orderId}`;
+            }
+            const searchMatch = path.match(/[?&]search=([^&]+)/);
+            if (searchMatch) {
+              return `/(tabs)/orders?id=${searchMatch[1]}`;
+            }
+            return '/(tabs)/orders';
+          }
+          if (path.includes('/cashbook')) {
+            return '/cashbook';
+          }
+          if (path.includes('/warehouse')) {
+            return '/warehouse';
+          }
+          return path;
+        };
+
         if (isWebOnlyNotification(data?.type, data?.path)) {
           Alert.alert(
             'Chi tiết thông báo',
@@ -118,7 +143,8 @@ export default function RootLayout() {
 
         try {
           const { router } = require('expo-router');
-          router.push(data.path);
+          const targetRoute = mapPathToMobileRoute(data.path, data);
+          router.push(targetRoute);
         } catch (err) {
           console.warn('Failed to route from push notification:', err);
           Alert.alert(

@@ -324,6 +324,8 @@ export function ShopSettingsForm({
     { id: 'CUSTOMER_CREATED', label: 'Khách hàng mới' },
     { id: 'ORDER_CANCELLED', label: 'Hủy đơn hàng' },
     { id: 'ORDER_RETURNED', label: 'Khách trả hàng' },
+    { id: 'QR_ORDER_CREATED', label: 'Gọi món qua QR' },
+    { id: 'QR_SESSION_CREATED', label: 'Yêu cầu mở bàn ăn QR' },
   ];
 
   const [localTelegramConfig, setLocalTelegramConfig] = useState<typeof telegramConfig>(telegramConfig);
@@ -333,7 +335,9 @@ export function ShopSettingsForm({
   const [events, setEvents] = useState<Record<string, boolean>>(() => {
     return AVAILABLE_EVENTS.reduce((acc, ev) => {
       const cfg = eventsConfig?.[ev.id];
-      const isEnabled = typeof cfg === 'boolean' ? cfg : (cfg?.is_enabled ?? false);
+      const isEnabled = typeof cfg === 'boolean' 
+        ? cfg 
+        : (cfg?.is_enabled ?? (ev.id === 'QR_ORDER_CREATED' || ev.id === 'QR_SESSION_CREATED'));
       return { ...acc, [ev.id]: isEnabled };
     }, {} as Record<string, boolean>);
   });
@@ -344,9 +348,14 @@ export function ShopSettingsForm({
   }>>(() => {
     return AVAILABLE_EVENTS.reduce((acc, ev) => {
       const cfg = eventsConfig?.[ev.id];
+      const isQr = ev.id === 'QR_ORDER_CREATED' || ev.id === 'QR_SESSION_CREATED';
+      const defaultChannels = {
+        telegram: { enabled: !isQr },
+        push: { enabled: true, roles: [] }
+      };
       const channels = (cfg && typeof cfg === 'object' && cfg.channels_config) 
         ? cfg.channels_config 
-        : { telegram: { enabled: true }, push: { enabled: true, roles: [] } };
+        : defaultChannels;
       return { ...acc, [ev.id]: channels };
     }, {} as Record<string, any>);
   });
@@ -806,7 +815,7 @@ export function ShopSettingsForm({
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
               </svg>
             ), 
-            desc: 'Cấu hình thông báo Telegram', 
+            desc: 'Cấu hình Telegram Bot & Mobile Push', 
             permission: canManage 
           },
           { 
@@ -2165,9 +2174,9 @@ export function ShopSettingsForm({
           ) : (
             <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-6">
               <div>
-                <h2 className="text-lg font-semibold text-slate-900">Cấu hình Telegram Bot</h2>
+                <h2 className="text-lg font-semibold text-slate-900">Cấu hình Nhận Thông Báo</h2>
                 <p className="text-sm text-slate-500 mt-1">
-                  Nhận thông báo tự động về các hoạt động của hệ thống qua Telegram.
+                  Cài đặt nhận thông báo tự động về các hoạt động của hệ thống qua Telegram Bot hoặc thiết bị di động (Mobile Push).
                 </p>
               </div>
 
@@ -2305,12 +2314,12 @@ export function ShopSettingsForm({
 
                       {events[ev.id] && (
                         <div className="ml-13 mt-3 space-y-3 p-3 bg-slate-50/60 rounded-xl border border-slate-100 max-w-lg">
-                          <label className="flex items-center cursor-pointer">
+                          <label className={`flex items-center ${localTelegramConfig?.chat_id ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'}`}>
                             <input
                               type="checkbox"
                               className="rounded border-slate-300 text-[#fa5907] focus:ring-[#fa5907] h-4 w-4"
-                              checked={eventChannels[ev.id]?.telegram?.enabled ?? true}
-                              disabled={!canManage || isPending}
+                              checked={!!localTelegramConfig?.chat_id && (eventChannels[ev.id]?.telegram?.enabled ?? true)}
+                              disabled={!canManage || isPending || !localTelegramConfig?.chat_id}
                               onChange={(e) => {
                                 const prevCfg = eventChannels[ev.id] || { telegram: { enabled: true }, push: { enabled: true, roles: [] } };
                                 setEventChannels({
@@ -2322,7 +2331,9 @@ export function ShopSettingsForm({
                                 });
                               }}
                             />
-                            <span className="ml-2 text-xs text-slate-600 font-medium">Gửi tới Telegram Group</span>
+                            <span className="ml-2 text-xs text-slate-600 font-medium">
+                              Gửi tới Telegram Group {!localTelegramConfig?.chat_id && <span className="text-red-500 font-normal">(Chưa kết nối Telegram)</span>}
+                            </span>
                           </label>
 
                           <div className="space-y-2">

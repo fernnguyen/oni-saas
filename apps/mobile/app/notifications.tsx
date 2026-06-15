@@ -32,6 +32,31 @@ const isWebOnlyNotification = (type?: string, path?: string) => {
   return false;
 };
 
+const mapPathToMobileRoute = (path?: string, metadata?: any) => {
+  if (!path) return '/(tabs)';
+  if (path.startsWith('/(tabs)/') || path === '/(tabs)') {
+    return path;
+  }
+  if (path.includes('/orders')) {
+    const orderId = metadata?.order_id || '';
+    if (orderId) {
+      return `/(tabs)/orders?id=${orderId}`;
+    }
+    const searchMatch = path.match(/[?&]search=([^&]+)/);
+    if (searchMatch) {
+      return `/(tabs)/orders?id=${searchMatch[1]}`;
+    }
+    return '/(tabs)/orders';
+  }
+  if (path.includes('/cashbook')) {
+    return '/cashbook';
+  }
+  if (path.includes('/warehouse')) {
+    return '/warehouse';
+  }
+  return path;
+};
+
 export default function NotificationCenterScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -73,7 +98,8 @@ export default function NotificationCenterScreen() {
         return;
       }
       try {
-        router.push(n.metadata.path);
+        const targetRoute = mapPathToMobileRoute(n.metadata.path, n.metadata);
+        router.push(targetRoute);
       } catch (err) {
         console.warn('Failed to route:', err);
         Alert.alert(
@@ -194,11 +220,11 @@ export default function NotificationCenterScreen() {
           let iconBg = 'bg-blue-50';
           let iconColor = '#3b82f6';
 
-          if (nType === 'qr_order') {
+          if (nType === 'qr_order' || nType === 'QR_ORDER_CREATED') {
             iconName = 'restaurant-outline';
             iconBg = 'bg-orange-50';
             iconColor = '#fa5908';
-          } else if (nType === 'qr_session') {
+          } else if (nType === 'qr_session' || nType === 'QR_SESSION_CREATED') {
             iconName = 'enter-outline';
             iconBg = 'bg-emerald-50';
             iconColor = '#10b981';

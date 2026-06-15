@@ -55,17 +55,23 @@ export async function POST(
         const admin = getSupabaseAdminClient();
         const { data: shop } = await admin
           .from('shops')
-          .select('tenant_id, name')
+          .select('tenant_id, name, slug')
           .eq('id', shopId)
           .maybeSingle();
 
         if (shop) {
           const amountText = `${Number(data.amount).toLocaleString('vi-VN')}đ`;
           const message = `Mã đơn: #${data.order_no || ''}\nSố tiền thanh toán: ${amountText}\nPhương thức: ${data.method || 'Khác'}\n${data.note ? `Ghi chú: ${data.note}\n` : ''}`;
+          const path = `/${shop.slug}/orders?search=${data.order_no || ''}`;
           
           await dispatchNotification(shop.tenant_id, shopId, 'PAYMENT_RECEIVED', {
             title: `💰 Thanh toán thành công - ${shop.name}`,
             message,
+            url: path,
+            data: {
+              order_id: data.order_id,
+              order_no: data.order_no
+            }
           });
         }
       } catch (err) {

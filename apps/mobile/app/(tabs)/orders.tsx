@@ -2,11 +2,11 @@ import React, {useState, useCallback, useEffect} from 'react';
 import {Text, View, ScrollView, TouchableOpacity, TouchableWithoutFeedback, TextInput, Modal, Platform, ActivityIndicator, RefreshControl} from 'react-native';
 import {Ionicons} from '@expo/vector-icons';
 import {SafeAreaView} from 'react-native-safe-area-context';
-import {useFocusEffect} from 'expo-router';
+import {useFocusEffect, useLocalSearchParams} from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {db} from '../../lib/db/client';
 import * as schema from '../../lib/db/schema';
-import {eq, desc} from 'drizzle-orm';
+import {eq, desc, or} from 'drizzle-orm';
 import {SyncManager} from '../../lib/sync/SyncManager';
 import {getApiBaseUrl, getApiHeaders} from '../../lib/api/config';
 import * as Clipboard from 'expo-clipboard';
@@ -95,6 +95,8 @@ const getOrderStatusBadgeProps = (status: string): { label: string; variant: 'pr
 
 export default function OrdersScreen() {
   const {hasPermission} = usePermissions();
+  const params = useLocalSearchParams();
+  const orderIdParam = params?.id as string | undefined;
   const [selectedOrderPayments, setSelectedOrderPayments] = useState<any[]>([]);
   const [selectedOrderReturns, setSelectedOrderReturns] = useState<any[]>([]);
   const [selectedOrderCashbook, setSelectedOrderCashbook] = useState<any[]>([]);
@@ -939,6 +941,67 @@ export default function OrdersScreen() {
       setIsDetailLoading(false);
     }
   };
+
+  // Tự động mở chi tiết đơn hàng khi nhận được orderIdParam từ Deep Link / Push Notification
+  useEffect(() => {
+    if (!orderIdParam) return;
+
+    const autoLoadOrder = async () => {
+      try {
+        // 1. Tìm trong DB cục bộ trước
+        if (Platform.OS !== 'web') {
+          const localOrders = await db
+            .select()
+            .from(schema.orders)
+            .where(
+              or(
+                eq(schema.orders.id, orderIdParam),
+                eq(schema.orders.order_no, orderIdParam),
+                eq(schema.orders.reference_no, orderIdParam)
+              )
+            );
+          
+          if (localOrders && localOrders.length > 0) {
+            handleViewOrderDetails(localOrders[0]);
+            return;
+          }
+        }
+
+        // 2. Nếu không có ở cục bộ, tiến hành fetch online từ API
+        const url = getApiBaseUrl();
+        const headers = await getApiHeaders();
+        const shopId = await AsyncStorage.getItem('active_shop_id') || '';
+        
+        if (shopId) {
+          const res = await fetch(`${url}/api/shops/${shopId}/orders/${orderIdParam}`, { headers });
+          if (res.ok) {
+            const orderData = await res.json();
+            if (orderData && (orderData.id || orderData.order_id)) {
+              const orderObj = {
+                id: orderData.id || orderData.order_id,
+                order_no: orderData.order_no || orderData.id,
+                total_amount: Number(orderData.total_amount || 0),
+                paid_amount: Number(orderData.paid_amount || 0),
+                payment_method: orderData.payment_method || 'cash',
+                created_at: orderData.created_at,
+                status: orderData.status || 'completed',
+                customer_id: orderData.customer_id,
+                customer_name: orderData.customer_name,
+                note: orderData.note,
+                metadata: orderData.metadata,
+                sync_status: 'synced'
+              };
+              handleViewOrderDetails(orderObj);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Lỗi khi tải đơn hàng tự động từ tham số đường dẫn:', err);
+      }
+    };
+
+    autoLoadOrder();
+  }, [orderIdParam]);
 
   // Hủy đơn hàng trực tuyến
   const handleCancelOrder = async () => {

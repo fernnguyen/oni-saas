@@ -41,22 +41,27 @@ export async function dispatchNotification(
       .eq('event_name', eventName)
       .maybeSingle();
 
-    if (!eventData || !eventData.is_enabled) {
+    const isEnabledByDefault = eventName === 'QR_ORDER_CREATED' || eventName === 'QR_SESSION_CREATED';
+    const isEnabled = eventData ? eventData.is_enabled : isEnabledByDefault;
+
+    if (!isEnabled) {
       return; // Event not enabled globally
     }
 
     // 3. Resolve channel configurations from channels_config
-    let isTelegramEnabled = true;
+    const isQrEvent = eventName === 'QR_ORDER_CREATED' || eventName === 'QR_SESSION_CREATED';
+    let isTelegramEnabled = !isQrEvent;
     let isPushEnabled = true;
 
-    if (eventData.channels_config && typeof eventData.channels_config === 'object') {
-      const tgConfig = (eventData.channels_config as any).telegram;
-      if (tgConfig && tgConfig.enabled === false) {
-        isTelegramEnabled = false;
+    const channelsConfig = eventData?.channels_config;
+    if (channelsConfig && typeof channelsConfig === 'object') {
+      const tgConfig = (channelsConfig as any).telegram;
+      if (tgConfig && typeof tgConfig.enabled === 'boolean') {
+        isTelegramEnabled = tgConfig.enabled;
       }
-      const pushConfig = (eventData.channels_config as any).push;
-      if (pushConfig && pushConfig.enabled === false) {
-        isPushEnabled = false;
+      const pushConfig = (channelsConfig as any).push;
+      if (pushConfig && typeof pushConfig.enabled === 'boolean') {
+        isPushEnabled = pushConfig.enabled;
       }
     }
 

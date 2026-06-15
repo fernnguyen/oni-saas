@@ -25,10 +25,12 @@ async function sendExpoPushNotifications(msg: RealtimeMessage): Promise<void> {
         .eq('event_name', msg.type)
         .maybeSingle();
 
-      if (eventConfig) {
-        // If event is disabled globally
-        if (eventConfig.is_enabled === false) return;
+      const isEnabledByDefault = msg.type === 'QR_ORDER_CREATED' || msg.type === 'QR_SESSION_CREATED';
+      const isEnabled = eventConfig ? eventConfig.is_enabled : isEnabledByDefault;
 
+      if (!isEnabled) return;
+
+      if (eventConfig) {
         const config = eventConfig.channels_config;
         if (config && typeof config === 'object') {
           const pushConfig = (config as any).push;

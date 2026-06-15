@@ -182,11 +182,30 @@ export async function POST(
           ? `${data.customer_name}${customerPhone ? ` (${customerPhone})` : ''}` 
           : 'Khách lẻ';
 
-        const message = `Mã đơn: #${data.order_no}\nKhách hàng: ${customerDisplay}\n${data.note ? `Ghi chú: ${data.note}\n` : ''}\n🛍 MẶT HÀNG:\n${itemsList}\n\n💰 THANH TOÁN:\nTiền hàng: ${Number(data.subtotal).toLocaleString('vi-VN')}đ\nGiảm giá: ${Number(data.discount_amount).toLocaleString('vi-VN')}đ\nTổng cộng: ${Number(data.total_amount).toLocaleString('vi-VN')}đ\nĐã thu: ${paidText}\nCòn nợ: ${Number(data.debt_amount || 0).toLocaleString('vi-VN')}đ\n\n📝 Người tạo phiếu: ${creatorEmail} (${domainName})`;
+        const message = `Mã đơn: #${data.order_no || (created.id || created.order_id)}
+Khách hàng: ${customerDisplay}
+${data.note ? `Ghi chú: ${data.note}\n` : ''}
+🛍 MẶT HÀNG:
+${itemsList}
 
+💰 THANH TOÁN:
+Tiền hàng: ${Number(data.subtotal || 0).toLocaleString('vi-VN')}đ
+Giảm giá: ${Number(data.discount_amount || 0).toLocaleString('vi-VN')}đ
+Tổng cộng: ${Number(data.total_amount || 0).toLocaleString('vi-VN')}đ
+Đã thu: ${paidText}
+Còn nợ: ${Number(data.debt_amount || 0).toLocaleString('vi-VN')}đ
+
+📝 Người tạo phiếu: ${creatorEmail} (${domainName})`;
+
+        const path = `/${shop.slug}/orders?search=${data.order_no}`;
         await dispatchNotification(shop.tenant_id, shopId, 'ORDER_CREATED', {
           title: `📦 Đơn hàng mới (Online) - ${shop.name}`,
           message,
+          url: path,
+          data: {
+            order_id: created.id || created.order_id,
+            order_no: data.order_no
+          }
         });
       } catch (err) {
         console.error('Background notification error:', err)

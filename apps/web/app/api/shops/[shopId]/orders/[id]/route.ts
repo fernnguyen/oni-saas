@@ -19,7 +19,32 @@ export async function GET(
     const { shopId, id } = await params
     const { connector } = await requireShopAccess(shopId, 'orders.view')
 
-    const row = await connector.findById('orders', id)
+    let row = await connector.findById('orders', id)
+    
+    // Fallback to order_no search if not found
+    if (!row) {
+      const orderList = await connector.list('orders', {
+        page: 1,
+        limit: 1,
+        filters: { order_no: id }
+      })
+      if (orderList.total > 0) {
+        row = orderList.data[0]
+      }
+    }
+
+    // Fallback to reference_no / local ID search if still not found
+    if (!row) {
+      const refList = await connector.list('orders', {
+        page: 1,
+        limit: 1,
+        filters: { reference_no: id }
+      })
+      if (refList.total > 0) {
+        row = refList.data[0]
+      }
+    }
+
     if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     return NextResponse.json(row)
   } catch (e) {
