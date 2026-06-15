@@ -5,6 +5,7 @@ import {Platform, TouchableOpacity, View, Text, DeviceEventEmitter} from 'react-
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {NotificationProvider} from '../../lib/notifications/NotificationContext';
 import {usePermissions} from '../../lib/auth/PermissionsContext';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 
 export default function TabLayout() {
   return (
@@ -17,6 +18,7 @@ export default function TabLayout() {
 function TabLayoutContent() {
   const {hasPermission} = usePermissions();
   const [posLabel, setPosLabel] = useState('Bán hàng');
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     const loadIndustry = async () => {
@@ -56,8 +58,12 @@ function TabLayoutContent() {
         tabBarStyle: {
           backgroundColor: '#ffffff',
           borderTopColor: '#e2e8f0',
-          height: Platform.OS === 'ios' ? 68 : 56, // Chiều cao chuẩn gọn gàng
-          paddingBottom: Platform.OS === 'ios' ? 20 : 8,
+          height: Platform.OS === 'ios' 
+            ? (48 + Math.max(insets.bottom, 20)) 
+            : (48 + Math.max(insets.bottom, 8)),
+          paddingBottom: Platform.OS === 'ios' 
+            ? Math.max(insets.bottom, 20) 
+            : Math.max(insets.bottom, 8),
           paddingTop: 6,
           elevation: 12,
           shadowColor: '#000000',
