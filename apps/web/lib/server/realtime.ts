@@ -17,7 +17,7 @@ async function sendExpoPushNotifications(msg: RealtimeMessage): Promise<void> {
     const admin = getSupabaseAdminClient();
 
     // 1. Check shop level notification settings for this event type
-    if (msg.branchId) {
+    if (msg.branchId && msg.type !== 'system_broadcast') {
       const { data: eventConfig } = await admin
         .from('tenant_notification_events')
         .select('is_enabled, channels_config')
@@ -81,6 +81,22 @@ async function sendExpoPushNotifications(msg: RealtimeMessage): Promise<void> {
             }
           }
         }
+      }
+    } else if (msg.branchId && msg.type === 'system_broadcast') {
+      // For system broadcasts targeted to a specific shop, restrict recipients to users in that shop
+      const { data: shopUsers } = await admin
+        .from('user_shops')
+        .select('user_id')
+        .eq('shop_id', msg.branchId);
+
+      const allowedUserIds = (shopUsers || []).map(u => u.user_id);
+
+      if (allowedUserIds.length === 0) return; // No users in this shop
+
+      if (msg.recipientId) {
+        if (!allowedUserIds.includes(msg.recipientId)) return;
+      } else {
+        (msg as any)._restrictToUserIds = allowedUserIds;
       }
     }
 
@@ -214,8 +230,8 @@ export class SupabaseRealtimeAdapter implements RealtimeAdapter {
       throw new Error(`Supabase real-time trigger failed: ${error.message}`);
     }
 
-    // Fire-and-forget: send Expo push notifications
-    sendExpoPushNotifications(msg).catch((err) =>
+    // Await sending Expo push notifications to ensure completion in serverless environments
+    await sendExpoPushNotifications(msg).catch((err) =>
       console.error('⚠️ Expo push (Supabase adapter) failed:', err),
     );
   }
@@ -291,8 +307,8 @@ export class RedisSocketIoAdapter implements RealtimeAdapter {
 
     await this.client.publish(channel, payload);
 
-    // Fire-and-forget: send Expo push notifications
-    sendExpoPushNotifications(msg).catch((err) =>
+    // Await sending Expo push notifications to ensure completion in serverless environments
+    await sendExpoPushNotifications(msg).catch((err) =>
       console.error('⚠️ Expo push (Redis adapter) failed:', err),
     );
   }

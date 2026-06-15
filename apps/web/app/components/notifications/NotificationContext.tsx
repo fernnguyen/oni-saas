@@ -710,6 +710,11 @@ export function NotificationProvider({ shopId, tenantId, children }: ProviderPro
                 // Play bell chime sound for all operational in-app events (QR events have dedicated table listeners that chime & toast)
                 if (!isQrEvent) {
                   playChimeRef.current();
+                  if (data.type === 'system_broadcast') {
+                    toast.info(`📢 ${data.title}: ${data.content}`, {
+                      duration: 10000,
+                    });
+                  }
                 }
 
                 // Pull latest notification list from the server
@@ -790,6 +795,12 @@ export function NotificationProvider({ shopId, tenantId, children }: ProviderPro
               // Play bell chime sound for all operational in-app events (QR table events have dedicated table listeners that chime & toast)
               if (!isQrEvent) {
                 playChimeRef.current();
+                
+                if (newNoti.type === 'system_broadcast') {
+                  toast.info(`📢 ${newNoti.title}: ${newNoti.content}`, {
+                    duration: 10000,
+                  });
+                }
               }
 
               // Pull latest notifications (quietly updates Noti Center)
