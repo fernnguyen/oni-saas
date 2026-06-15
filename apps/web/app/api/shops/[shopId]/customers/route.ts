@@ -162,7 +162,7 @@ export async function GET(
 
       // Inject virtual Khach le if no search or matches search
       const s = search.toLowerCase()
-      if (!s || 'khách lẻ'.includes(s) || 'khach le'.includes(s) || s === 'c-default-retail') {
+      if (!s || 'khách lẻ'.includes(s) || 'khach le'.includes(s) || 'khách mua lẻ'.includes(s) || 'khach mua le'.includes(s) || s === 'c-default-retail') {
         const exists = res.data.some((c: any) => c.customer_id === 'C-DEFAULT-RETAIL')
         if (!exists) {
           res.data.unshift({

@@ -870,7 +870,7 @@ export function useTableManager(props: UseTableManagerProps) {
           id: orderId,
           order_no: `HD-T-${Date.now().toString().substring(9)}`,
           status: 'in_progress',
-          customer_id: targetCustomer?.id || null,
+          customer_id: targetCustomer?.id || 'C-DEFAULT-RETAIL',
           customer_name: targetCustomer?.name || 'Khách lẻ',
           total_amount: 0,
           paid_amount: 0,
@@ -918,7 +918,7 @@ export function useTableManager(props: UseTableManagerProps) {
               body: JSON.stringify({
                 status: 'in_progress',
                 channel: 'pos-mobile',
-                customer_id: targetCustomer?.id || '',
+                customer_id: targetCustomer?.id || 'C-DEFAULT-RETAIL',
                 customer_name: targetCustomer?.name || 'Khách lẻ',
                 branch_id: shopId,
                 employee_id: currentUserEmail,
@@ -1079,7 +1079,7 @@ export function useTableManager(props: UseTableManagerProps) {
 
         await db.update(schema.orders)
           .set({
-            customer_id: custId === 'C-DEFAULT-RETAIL' ? null : custId,
+            customer_id: custId,
             customer_name: custName,
             metadata: updatedMeta
           })
@@ -1263,7 +1263,7 @@ export function useTableManager(props: UseTableManagerProps) {
           order_no: orderNo,
           status: 'completed',
           customer_name: customer?.name || 'Khách lẻ',
-          customer_id: customer?.id || null,
+          customer_id: customer?.id || 'C-DEFAULT-RETAIL',
           total_amount: totalAmount,
           paid_amount: Math.min(totalAmount, paidSum),
           payment_method: paymentMethodString,
@@ -1375,7 +1375,7 @@ export function useTableManager(props: UseTableManagerProps) {
             order: {
               status: 'completed',
               channel: 'pos-mobile',
-              customer_id: customer?.id || '',
+              customer_id: customer?.id || 'C-DEFAULT-RETAIL',
               customer_name: customer?.name || 'Khách lẻ',
               branch_id: shopId,
               employee_id: currentUserEmail,

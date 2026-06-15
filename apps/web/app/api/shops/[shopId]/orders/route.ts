@@ -85,7 +85,7 @@ export async function POST(
     let finalCustomerId = data.customer_id ?? ''
     
     // Auto-create customer if name is provided but no ID
-    const isRetailGuest = !data.customer_name || data.customer_name.trim().toLowerCase() === 'khách lẻ' || data.customer_name.trim().toLowerCase() === 'khach le';
+    const isRetailGuest = !data.customer_name || ['khách lẻ', 'khach le', 'khách mua lẻ', 'khach mua le'].includes(data.customer_name.trim().toLowerCase());
     if (isRetailGuest) {
       finalCustomerId = 'C-DEFAULT-RETAIL'
       data.customer_name = 'Khách lẻ'

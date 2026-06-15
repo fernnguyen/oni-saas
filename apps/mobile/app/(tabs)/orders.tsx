@@ -1223,24 +1223,22 @@ export default function OrdersScreen() {
  {/* 1. SHARED HEADER - Thống nhất 100% */}
   <Header onPressMenu={() => setIsDrawerOpen(true)} />
 
- {isLoading ? (
- <View className="flex-1 px-4 pt-4">
- <View className="flex-row justify-between mb-6">
- <Skeleton width="30%" height={70} borderRadius={12} />
- <Skeleton width="30%" height={70} borderRadius={12} />
- <Skeleton width="30%" height={70} borderRadius={12} />
- </View>
- <Skeleton.Text lines={5} gap={16} height={20} />
- </View>
- ) : (
  <View className="flex-1">
  
  {/* 2. THỐNG KÊ DOANH THU NHANH CA - Giảm góc bo về rounded-2xl */}
  <View className="p-4 flex-row justify-between">
  <View className="flex-1 mr-2 p-3 rounded-2xl border bg-white border-slate-100 shadow-sm justify-between">
  <Text className="text-xxs font-semibold text-slate-400">Tổng doanh số ca</Text>
- <Text className="text-orange-500 font-semibold text-xs mt-1.5">{formatCurrency(totalRevenue)}</Text>
- <Text className="text-xxs text-slate-455 font-medium mt-0.5">{shiftOrdersCount} hóa đơn</Text>
+ {isLoading ? (
+   <Skeleton width="60%" height={16} borderRadius={4} className="mt-1.5" />
+ ) : (
+   <Text className="text-orange-500 font-semibold text-xs mt-1.5">{formatCurrency(totalRevenue)}</Text>
+ )}
+ {isLoading ? (
+   <Skeleton width="40%" height={10} borderRadius={3} className="mt-1" />
+ ) : (
+   <Text className="text-xxs text-slate-455 font-medium mt-0.5">{shiftOrdersCount} hóa đơn</Text>
+ )}
  </View>
 
  <View className="flex-1 mx-1 p-3 rounded-2xl border bg-white border-slate-100 shadow-sm justify-between">
@@ -1392,7 +1390,31 @@ export default function OrdersScreen() {
       />
     }
   >
- {ordersList.length === 0 ? (
+  {isLoading ? (
+    <View className="mt-2">
+      {[1, 2, 3, 4, 5].map((key) => (
+        <View key={key} className="mb-3 p-4 rounded-2xl border bg-white border-slate-100 flex-row justify-between items-center shadow-sm">
+          <View className="flex-1 mr-3">
+            <View className="flex-row items-center mb-1">
+              <View className="w-1.5 h-1.5 rounded-full mr-1.5 bg-slate-200" />
+              <Skeleton width={100} height={12} borderRadius={4} />
+              <View className="mx-1.5 w-1 h-1 bg-slate-200 rounded-full" />
+              <Skeleton width={80} height={10} borderRadius={3} />
+            </View>
+            <Skeleton width={120} height={10} borderRadius={3} className="mt-2" />
+            <View className="flex-row items-center mt-3">
+              <Skeleton width={70} height={10} borderRadius={3} className="mr-2" />
+              <Skeleton width={60} height={14} borderRadius={4} />
+            </View>
+          </View>
+          <View className="items-end">
+            <Skeleton width={70} height={14} borderRadius={4} />
+            <Skeleton width={14} height={14} borderRadius={7} className="mt-3" />
+          </View>
+        </View>
+      ))}
+    </View>
+  ) : ordersList.length === 0 ? (
  <View className="py-12 items-center justify-center bg-white rounded-2xl border border-slate-100 mt-2 shadow-sm">
  <Ionicons name="receipt-outline" size={36} color="#cbd5e1" />
  <Text className="text-xs text-slate-455 font-medium mt-3">Không tìm thấy hóa đơn nào phù hợp</Text>
@@ -1417,7 +1439,7 @@ export default function OrdersScreen() {
    </Text>
    <View className="mx-1.5 w-1 h-1 bg-slate-300 rounded-full" />
    <Text className="text-tiny text-slate-500 font-medium flex-1" numberOfLines={1}>
-   {order.customer_name || 'Khách mua lẻ'}
+   {order.customer_name || 'Khách lẻ'}
    </Text>
  </View>
 
@@ -2318,8 +2340,6 @@ export default function OrdersScreen() {
       )}
     </View>
   </Modal>
-  </View>
-  )}
 
   {/* CÁC DIALOG BÁO CÁO KHI MODAL CHI TIẾT ĐANG ĐÓNG (TRÁNH CLASH NATIVE MODALS) */}
   {!selectedOrder && (
@@ -2362,6 +2382,7 @@ export default function OrdersScreen() {
  branchName="Chi nhánh chính"
  />
 
+ </View>
  </SafeAreaView>
  );
 }

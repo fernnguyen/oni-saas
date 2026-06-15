@@ -405,7 +405,7 @@ export class SyncManager {
             order: {
               status: order.status,
               channel: 'pos-mobile',
-              customer_id: order.customer_id || '',
+              customer_id: order.customer_id || 'C-DEFAULT-RETAIL',
               customer_name: order.customer_name || 'Khách lẻ',
               branch_id: shopId,
               employee_id: userEmail,
