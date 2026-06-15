@@ -243,7 +243,18 @@ npx expo start --dev-client
 - Apple Developer Account (cần cho APNs)
 - Thiết bị iOS thật (push không chạy trên simulator)
 
-### 5.2 Tạo APNs Key
+### 5.2 Kích hoạt Push Notifications trên App ID (Apple Developer Portal)
+
+Đây là bước cực kỳ quan trọng và dễ bị bỏ quên khi đăng ký App ID mới:
+
+1. Đăng nhập vào [Apple Developer Console](https://developer.apple.com/account/).
+2. Vào mục **Certificates, Identifiers & Profiles** → **Identifiers**.
+3. Tìm và chọn App ID của bạn (ví dụ: `vn.oni.pos`).
+4. Cuộn xuống danh sách Capabilities, tích chọn mục **Push Notifications** (chuyển sang trạng thái **Enabled**).
+5. Nhấn **Save** ở góc trên cùng bên phải.
+6. **Lưu ý**: Sau khi bật tính năng này, bạn bắt buộc phải chạy lại lệnh build/archive (hoặc prebuild và build Xcode) để Apple ký lại App thì TestFlight mới nhận được quyền Push.
+
+### 5.3 Tạo APNs Key
 
 1. Đăng nhập [Apple Developer Console](https://developer.apple.com/account/)
 2. Vào **Certificates, Identifiers & Profiles** → **Keys**
@@ -251,15 +262,15 @@ npx expo start --dev-client
 4. Tải file `.p8` key
 5. Ghi nhận **Key ID** và **Team ID**
 
-### 5.3 Upload APNs Key lên Expo
+### 5.4 Upload APNs Key lên Expo
 
 ```bash
 # Upload APNs key cho Expo sử dụng khi gửi push
 eas credentials
-
-# Chọn: iOS → Production → Push Notifications
-# Upload file .p8 key đã tải
 ```
+
+Chọn: iOS → Production → Push Notifications  
+Upload file `.p8` key đã tải.
 
 Hoặc cấu hình thủ công:
 ```bash
@@ -268,19 +279,19 @@ eas credentials --platform ios
 # Chọn "Upload a new key" → Chọn file .p8
 ```
 
-### 5.4 Build Development cho iOS
+### 5.5 Build Development cho iOS
 
 ```bash
 cd apps/mobile
 
 # Build cho thiết bị iOS thật
 eas build --platform ios --profile development
-
-# Sau khi build xong, quét QR code hoặc tải IPA
-# Cài trên thiết bị qua Expo Orbit hoặc Apple Configurator
 ```
 
-### 5.5 Cấu hình Info.plist (đã tự động)
+Sau khi build xong, quét QR code hoặc tải IPA  
+Cài trên thiết bị qua Expo Orbit hoặc Apple Configurator.
+
+### 5.6 Cấu hình Info.plist (đã tự động)
 
 File `app.json` đã cấu hình:
 ```json
