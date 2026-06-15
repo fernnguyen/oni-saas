@@ -805,6 +805,10 @@ export default function DashboardScreen() {
               </View>
               <Text className="text-xxs font-semibold text-slate-500 text-center">Nhân Sự</Text>
             </TouchableOpacity>
+
+            {/* Placeholders để căn trái dòng 2 trong justify-between flex-wrap */}
+            <View className="w-[23%]" />
+            <View className="w-[23%]" />
           </View>
         </View>
 
