@@ -49,22 +49,7 @@ export async function registerForPushNotifications(): Promise<string | null> {
   }
 
   try {
-    // 1. Check existing permission
-    const { status: existingStatus } = await Notifications.getPermissionsAsync();
-    let finalStatus = existingStatus;
-
-    // 2. Request permission nếu chưa có
-    if (existingStatus !== 'granted') {
-      const { status } = await Notifications.requestPermissionsAsync();
-      finalStatus = status;
-    }
-
-    if (finalStatus !== 'granted') {
-      console.warn('[PushNotifications] Permission denied by user');
-      return null;
-    }
-
-    // 3. Android channel setup
+    // 1. Android channel setup — Cần tạo channel trước khi xin quyền trên Android 13+ để hệ điều hành kích hoạt hộp thoại
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync('default', {
         name: 'Thông báo chung',
@@ -82,6 +67,21 @@ export async function registerForPushNotifications(): Promise<string | null> {
         lightColor: '#fa5908',
         sound: 'default',
       });
+    }
+
+    // 2. Check existing permission
+    const { status: existingStatus } = await Notifications.getPermissionsAsync();
+    let finalStatus = existingStatus;
+
+    // 3. Request permission nếu chưa có
+    if (existingStatus !== 'granted') {
+      const { status } = await Notifications.requestPermissionsAsync();
+      finalStatus = status;
+    }
+
+    if (finalStatus !== 'granted') {
+      console.warn('[PushNotifications] Permission denied by user');
+      return null;
     }
 
     // 4. Lấy Expo Push Token
