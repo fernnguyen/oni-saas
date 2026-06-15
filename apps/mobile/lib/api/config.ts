@@ -37,40 +37,30 @@ export async function saveApiBaseUrl(newUrl: string): Promise<void> {
 loadApiBaseUrl();
 
 // 3.5 Global Fetch Middleware Interceptor to catch 401 Unauthorized (Lost Session)
-let isSessionExpiredAlertShowing = false;
 const originalFetch = global.fetch;
 global.fetch = async (input, init) => {
   try {
     const response = await originalFetch(input, init);
     
     // Bắt mã lỗi 401 Unauthorized từ REST API Next.js hoặc các dịch vụ khác
-    if (response.status === 401 && !isSessionExpiredAlertShowing) {
-      isSessionExpiredAlertShowing = true;
+    if (response.status === 401) {
       console.warn('[API Middleware] Bắt được phản hồi 401 Unauthorized - Hết hạn phiên!');
       
-      Alert.alert(
-        'Phiên làm việc hết hạn',
-        'Phiên làm việc của bạn đã hết hạn hoặc bị thu hồi. Vui lòng đăng nhập lại để tiếp tục (Dữ liệu ngoại tuyến và giỏ hàng của ca hiện tại vẫn được giữ nguyên).',
-        [
-          {
-            text: 'Đăng nhập lại',
-            onPress: async () => {
-              try {
-                // Chỉ đăng xuất khỏi Supabase Auth để người dùng đăng nhập lại
-                // TUYỆT ĐỐI KHÔNG xóa các cấu hình CSDL offline (active_tenant_id), giỏ hàng tạm (temp_cart), vv.
-                await supabase.auth.signOut();
-                isSessionExpiredAlertShowing = false;
-                router.replace('/(auth)/login');
-              } catch (err) {
-                console.error('Lỗi khi đăng xuất từ middleware:', err);
-                isSessionExpiredAlertShowing = false;
-                router.replace('/(auth)/login');
-              }
-            }
+      // Chỉ xử lý đăng xuất nếu hiện tại đang có session (tránh lặp lại khi đã đăng xuất hoặc đang ở màn login)
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        try {
+          await supabase.auth.signOut();
+          if (Platform.OS === 'android') {
+            const { ToastAndroid } = require('react-native');
+            ToastAndroid.show('Phiên làm việc hết hạn. Vui lòng đăng nhập lại.', ToastAndroid.LONG);
           }
-        ],
-        { cancelable: false }
-      );
+          router.replace('/(auth)/login');
+        } catch (err) {
+          console.error('Lỗi khi đăng xuất từ middleware:', err);
+          router.replace('/(auth)/login');
+        }
+      }
     }
     
     return response;
