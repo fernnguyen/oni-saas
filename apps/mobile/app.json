@@ -30,7 +30,7 @@
       "googleServicesFile": "./google-services.json",
       "permissions": [
         "CAMERA",
-        "NOTIFICATIONS"
+        "POST_NOTIFICATIONS"
       ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
@@ -60,7 +60,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Ứng dụng cần quyền truy cập camera để quét mã vạch sản phẩm."
+          "cameraPermission": "Ứng dụng cần quyền truy cập camera để quét mã vạch sản phẩm hoặc chụp ảnh sản phẩm."
         }
       ],
       [
