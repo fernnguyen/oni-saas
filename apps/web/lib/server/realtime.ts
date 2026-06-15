@@ -16,6 +16,72 @@ async function sendExpoPushNotifications(msg: RealtimeMessage): Promise<void> {
   try {
     const admin = getSupabaseAdminClient();
 
+    // 1. Check shop level notification settings for this event type
+    if (msg.branchId) {
+      const { data: eventConfig } = await admin
+        .from('tenant_notification_events')
+        .select('is_enabled, channels_config')
+        .eq('shop_id', msg.branchId)
+        .eq('event_name', msg.type)
+        .maybeSingle();
+
+      if (eventConfig) {
+        // If event is disabled globally
+        if (eventConfig.is_enabled === false) return;
+
+        const config = eventConfig.channels_config;
+        if (config && typeof config === 'object') {
+          const pushConfig = (config as any).push;
+          if (pushConfig) {
+            // If push is explicitly disabled for this event
+            if (pushConfig.enabled === false) return;
+
+            // If specific roles are targeted
+            const targetRoles = pushConfig.roles;
+            if (Array.isArray(targetRoles) && targetRoles.length > 0) {
+              // Get role IDs for codes
+              const { data: rolesData } = await admin
+                .from('roles')
+                .select('id')
+                .in('code', targetRoles);
+
+              const roleIds = (rolesData || []).map(r => r.id);
+
+              if (roleIds.length > 0) {
+                const { data: shopUsers } = await admin
+                  .from('user_shops')
+                  .select('user_id')
+                  .eq('shop_id', msg.branchId)
+                  .in('role_id', roleIds);
+
+                const { data: tenantUsers } = await admin
+                  .from('user_tenants')
+                  .select('user_id')
+                  .eq('tenant_id', msg.tenantId)
+                  .in('role_id', roleIds);
+
+                const allowedUserIds = Array.from(new Set([
+                  ...(shopUsers || []).map(u => u.user_id),
+                  ...(tenantUsers || []).map(u => u.user_id)
+                ]));
+
+                // If nobody has these roles, we don't send anything
+                if (allowedUserIds.length === 0) return;
+
+                // Restrict the recipient list
+                if (msg.recipientId) {
+                  if (!allowedUserIds.includes(msg.recipientId)) return; // Recipient doesn't have the required role
+                } else {
+                  // We will restrict the query below to these user IDs
+                  (msg as any)._restrictToUserIds = allowedUserIds;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
     // Build query for active tokens within the tenant scope
     let query = admin
       .from('push_tokens')
@@ -26,6 +92,8 @@ async function sendExpoPushNotifications(msg: RealtimeMessage): Promise<void> {
     // Narrow to specific recipient if provided
     if (msg.recipientId) {
       query = query.eq('user_id', msg.recipientId);
+    } else if ((msg as any)._restrictToUserIds) {
+      query = query.in('user_id', (msg as any)._restrictToUserIds);
     }
 
     const { data: tokens, error } = await query;

@@ -192,8 +192,6 @@ export function Header({
  const [isSwitchingLoading, setIsSwitchingLoading] = useState(false);
 
  // States thông báo — kết nối với NotificationContext thực tế thay vì mock data
- const [isNotificationOpen, setIsNotificationOpen] = useState(false);
- const [activeNotificationTab, setActiveNotificationTab] = useState<'all' | 'qr' | 'other'>('all');
  const { notifications, unreadCount, markAsRead, markAllAsRead, refreshNotifications } = useNotifications();
 
  // Tải thông tin chi nhánh & shops hoạt động
@@ -486,9 +484,9 @@ export function Header({
  activeOpacity={0.7}
  className="p-2 bg-slate-50 rounded-xl border border-slate-100 relative"
  onPress={() => {
- Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
- setIsNotificationOpen(true);
-}}
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    router.push('/notifications');
+  }}
  >
  <Ionicons name="notifications-outline" size={15} color="#64748b" />
  {unreadCount > 0 && (
@@ -560,206 +558,6 @@ export function Header({
 
  </View>
  </TouchableWithoutFeedback>
- </View>
- </TouchableWithoutFeedback>
- </Modal>
-
- {/* DROPDOWN MENU THÔNG BÁO THẢ XUỐNG - Kết nối NotificationContext thực tế */}
- <Modal
- visible={isNotificationOpen}
- transparent={true}
- animationType="fade"
- onRequestClose={() => setIsNotificationOpen(false)}
- >
- <TouchableWithoutFeedback onPress={() => setIsNotificationOpen(false)}>
- <View className="flex-1 bg-black/10" style={{paddingTop: insets.top + 52}}>
- <View className="px-4 items-end">
-
- {/* Mũi tên chỉ lên bell icon — visual connector */}
- <View style={{marginRight: 14, marginBottom: -1, zIndex: 60}}>
- <View style={{width: 0, height: 0, borderLeftWidth: 8, borderRightWidth: 8, borderBottomWidth: 8, borderLeftColor: 'transparent', borderRightColor: 'transparent', borderBottomColor: '#e2e8f0'}} />
- <View style={{width: 0, height: 0, borderLeftWidth: 7, borderRightWidth: 7, borderBottomWidth: 7, borderLeftColor: 'transparent', borderRightColor: 'transparent', borderBottomColor: '#ffffff', position: 'absolute', top: 1.5, left: 1}} />
- </View>
-
- <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
- <View className="bg-white rounded-2xl border border-slate-200 p-4 w-full max-w-sm z-50" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 10}, shadowOpacity: 0.12, shadowRadius: 16, elevation: 12}}>
- 
- {/* Header */}
- <View className="flex-row justify-between items-center mb-3">
- <View>
- <Text className="text-tiny font-semibold text-slate-450">THÔNG BÁO</Text>
- {unreadCount > 0 && (
- <Text className="text-xxs text-orange-500 font-medium mt-0.5">Bạn có {unreadCount} tin chưa đọc</Text>
- )}
- </View>
- 
- {unreadCount > 0 && (
- <TouchableOpacity 
- onPress={() => {
- Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
- markAllAsRead();
-}}
- className="bg-slate-50 border border-slate-200 px-2 py-1 rounded-lg active:bg-slate-100"
- >
- <Text className="text-[7.5px] text-slate-500 font-semibold">ĐỌC TẤT CẢ</Text>
- </TouchableOpacity>
- )}
- </View>
-
- {/* Filter Tabs */}
-  <View className="flex-row bg-slate-50 p-0.5 rounded-xl border border-slate-100 mb-3 gap-1">
-  {[
-  {key: 'all', label: 'Tất cả'},
-  {key: 'qr', label: 'Yêu cầu QR'},
-  {key: 'other', label: 'Cảnh báo'}
-  ].map(tab => {
-  const isActive = activeNotificationTab === tab.key;
-  return (
-  <TouchableOpacity
-  key={tab.key}
-  onPress={() => {
-  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-  setActiveNotificationTab(tab.key as any);
- }}
-  className="flex-1 py-1.5 items-center justify-center rounded-lg"
-  style={isActive ? {
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: 'rgba(226, 232, 240, 0.5)',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05,
-        shadowRadius: 1,
-      },
-      android: {
-        elevation: 1,
-      },
-    }),
-  } : {
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: 'transparent',
-  }}
-  >
-  <Text className={`text-xxs font-semibold ${isActive ? 'text-orange-500' : 'text-slate-500'}`}>
-  {tab.label}
-  </Text>
-  </TouchableOpacity>
-  );
- })}
-  </View>
-
- {/* Notification List */}
- <ScrollView className="max-h-80" showsVerticalScrollIndicator={false}>
- {notifications
- .filter(n => {
- if (activeNotificationTab === 'qr') return n.type === 'qr_order' || n.type === 'qr_session';
- if (activeNotificationTab === 'other') return n.type !== 'qr_order' && n.type !== 'qr_session';
- return true;
-})
- .map(n => {
- const isUnread = n.status === 'unread';
- 
- // Map colors & icons theo type
- let iconName = 'notifications-outline';
- let iconBg = 'bg-blue-50';
- let iconColor = '#3b82f6';
- 
- if (n.type === 'qr_order') {
- iconName = 'restaurant-outline';
- iconBg = 'bg-orange-50';
- iconColor = '#fa5908';
-} else if (n.type === 'qr_session') {
- iconName = 'enter-outline';
- iconBg = 'bg-emerald-50';
- iconColor = '#10b981';
-} else if (n.type === 'low_stock') {
- iconName = 'warning-outline';
- iconBg = 'bg-amber-50';
- iconColor = '#f59e0b';
-} else if (n.type === 'system' || n.type === 'system_broadcast') {
- iconName = 'cube-outline';
- iconBg = 'bg-indigo-50';
- iconColor = '#6366f1';
-} else if (n.type === 'payment') {
- iconName = 'card-outline';
- iconBg = 'bg-green-50';
- iconColor = '#22c55e';
-} else if (n.type === 'order_expiring') {
- iconName = 'time-outline';
- iconBg = 'bg-red-50';
- iconColor = '#ef4444';
-} else if (n.type === 'debt_alert') {
- iconName = 'alert-circle-outline';
- iconBg = 'bg-rose-50';
- iconColor = '#f43f5e';
-} else if (n.type === 'return_approval' || n.type === 'purchase_approval') {
- iconName = 'checkmark-circle-outline';
- iconBg = 'bg-violet-50';
- iconColor = '#8b5cf6';
-} else if (n.type === 'booking') {
- iconName = 'calendar-outline';
- iconBg = 'bg-cyan-50';
- iconColor = '#06b6d4';
-}
-
- return (
- <TouchableOpacity
- key={n.id}
- activeOpacity={0.8}
- onPress={() => {
- Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
- markAsRead(n.id);
-}}
- className={`p-3 my-1 rounded-xl flex-row items-start border ${
- isUnread 
- ? ' border-orange-100' 
- : ' border-slate-100'
-}`}
- >
- <View className="flex-row items-center mr-2.5 mt-0.5">
- {isUnread && (
- <View className="w-1.5 h-1.5 bg-orange-500 rounded-full mr-1.5" />
- )}
- <View className={`${iconBg} w-7 h-7 rounded-lg items-center justify-center`}>
- <Ionicons name={iconName as any} size={12} color={iconColor} />
- </View>
- </View>
-
- <View className="flex-1">
- <View className="flex-row justify-between items-center">
- <Text className={`text-tiny font-semibold ${isUnread ? 'text-slate-800' : 'text-slate-500'}`} style={{flex: 1, marginRight: 8}}>
- {n.title}
- </Text>
- <Text className="text-[7.5px] text-slate-400 font-medium">
- {new Date(n.createdAt).toLocaleTimeString('vi-VN', {hour: '2-digit', minute: '2-digit'})}
- </Text>
- </View>
- <Text className={`text-xxs mt-0.5 font-medium ${isUnread ? 'text-slate-660' : 'text-slate-450'}`} numberOfLines={2}>
- {n.description}
- </Text>
- </View>
- </TouchableOpacity>
- );
-})}
- 
- {notifications.filter(n => {
- if (activeNotificationTab === 'qr') return n.type === 'qr_order' || n.type === 'qr_session';
- if (activeNotificationTab === 'other') return n.type !== 'qr_order' && n.type !== 'qr_session';
- return true;
-}).length === 0 && (
- <View className="py-8 items-center justify-center">
- <Ionicons name="notifications-off-outline" size={24} color="#cbd5e1" />
- <Text className="text-tiny text-slate-400 font-semibold mt-2">Hộp thư thông báo trống</Text>
- </View>
- )}
- </ScrollView>
-
- </View>
- </TouchableWithoutFeedback>
- </View>
  </View>
  </TouchableWithoutFeedback>
  </Modal>

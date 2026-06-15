@@ -35,14 +35,22 @@ export async function dispatchNotification(
     // 2. Check if event is enabled for this shop
     const { data: eventData } = await admin
       .from('tenant_notification_events')
-      .select('is_enabled')
+      .select('is_enabled, channels_config')
       .eq('tenant_id', tenantId)
       .eq('shop_id', shopId)
       .eq('event_name', eventName)
       .maybeSingle();
 
     if (!eventData || !eventData.is_enabled) {
-      return; // Event not enabled
+      return; // Event not enabled globally
+    }
+
+    // Check specific channel override (Telegram)
+    if (eventData.channels_config && typeof eventData.channels_config === 'object') {
+      const tgConfig = (eventData.channels_config as any).telegram;
+      if (tgConfig && tgConfig.enabled === false) {
+        return; // Telegram channel explicitly disabled for this event
+      }
     }
 
     // 3. Fetch active channels for this shop
