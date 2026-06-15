@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Text, View, ScrollView, TouchableOpacity, Modal, TextInput, Image, Platform, Animated, ActivityIndicator, Alert, Pressable, KeyboardAvoidingView } from 'react-native';
-import { useFocusEffect } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { supabase } from '../../lib/supabase';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { db } from '../../lib/db/client';
@@ -46,6 +47,7 @@ export type CartItem = {
 
 
 export default function PosScreen() {
+  const router = useRouter();
   const {
     productsList, setProductsList,
     categoriesList, setCategoriesList,
@@ -683,16 +685,82 @@ export default function PosScreen() {
     ]);
   }, [cart, discountAmount, isNavReady, paymentFundsList]);
 
-  // Tải dữ liệu thực tế & trạng thái tạm khi màn hình POS nhận focus
+  // Trạng thái đơn QR và phiên chờ duyệt
+  const [pendingQrCount, setPendingQrCount] = useState(0);
+
+  const fetchPendingQrCount = useCallback(async () => {
+    if (!isOnline) {
+      setPendingQrCount(0);
+      return;
+    }
+    try {
+      const shopId = activeShopId || await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+      if (!shopId) return;
+      const headers = await getApiHeaders();
+      const baseUrl = getApiBaseUrl();
+
+      // Tải danh sách đơn hàng QR đang chờ duyệt
+      const ordersRes = await fetch(`${baseUrl}/api/shops/${shopId}/qr-orders?status=pending`, { headers });
+      let ordersCount = 0;
+      if (ordersRes.ok) {
+        const orders = await ordersRes.json();
+        ordersCount = Array.isArray(orders) ? orders.length : 0;
+      }
+
+      // Tải danh sách phiên gọi món QR đang chờ duyệt
+      const sessionsRes = await fetch(`${baseUrl}/api/shops/${shopId}/qr-sessions?status=pending`, { headers });
+      let sessionsCount = 0;
+      if (sessionsRes.ok) {
+        const sessions = await sessionsRes.json();
+        sessionsCount = Array.isArray(sessions) ? sessions.length : 0;
+      }
+
+      setPendingQrCount(ordersCount + sessionsCount);
+    } catch (err) {
+      console.warn('Lỗi khi tải số lượng QR order/session chờ duyệt:', err);
+    }
+  }, [isOnline, activeShopId]);
+
+  // Tải dữ liệu thực tế & trạng thái tạm khi màn hình POS nhận focus & Quản lý Realtime QR
   useFocusEffect(
     useCallback(() => {
       if (!isNavReady) return;
       let isMounted = true;
       loadPosData(isMounted);
+      fetchPendingQrCount();
+
+      let channel: any = null;
+      if (isOnline && activeShopId) {
+        const channelName = `pos-qr-badge-${activeShopId}-${Math.random().toString(36).slice(2, 9)}`;
+        channel = supabase.channel(channelName);
+
+        const handlePayload = () => {
+          if (isMounted) {
+            fetchPendingQrCount();
+          }
+        };
+
+        channel
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'qr_order_requests', filter: `branch_id=eq.${activeShopId}` },
+            handlePayload
+          )
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'qr_ordering_sessions', filter: `branch_id=eq.${activeShopId}` },
+            handlePayload
+          )
+          .subscribe();
+      }
+
       return () => {
         isMounted = false;
+        if (channel) {
+          supabase.removeChannel(channel);
+        }
       };
-    }, [isNavReady])
+    }, [isNavReady, isOnline, activeShopId, fetchPendingQrCount])
   );
 
   // Kéo đồng bộ lại sơ đồ phòng bàn từ Cloud
@@ -707,7 +775,10 @@ export default function PosScreen() {
         console.warn('Lỗi đồng bộ SQLite sơ đồ phòng bàn khi làm mới:', syncErr);
       }
     }
-    await loadPosData(true);
+    await Promise.all([
+      loadPosData(true),
+      fetchPendingQrCount()
+    ]);
   };
   const handlePayCart = async (
     customer: any,
@@ -1414,24 +1485,64 @@ export default function PosScreen() {
                         'Sơ đồ bàn'
                 }
               </Text>
-              <TouchableOpacity
-                onPress={() => {
-                  if (isLoading) return;
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                  handleRefresh();
-                }}
-                disabled={isLoading}
-                className="flex-row items-center bg-slate-100 px-2.5 py-1.5 rounded-lg border border-slate-200"
-              >
-                {isLoading ? (
-                  <ActivityIndicator size="small" color="#fa5908" style={{ width: 14, height: 14 }} />
-                ) : (
-                  <Ionicons name="sync-outline" size={14} color="#fa5908" />
-                )}
-                <Text className="text-xs font-medium text-slate-600 ml-1">
-                  {isLoading ? 'Đang tải...' : 'Làm mới'}
-                </Text>
-              </TouchableOpacity>
+              <View className="flex-row items-center space-x-2">
+                {/* Nút QR Order với Badge số lượng chờ duyệt */}
+                <TouchableOpacity
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                    if (!isOnline) {
+                      Alert.alert(
+                        'Chế độ ngoại tuyến',
+                        'Chức năng nhận đơn hàng QR yêu cầu kết nối mạng. Vui lòng kiểm tra lại kết nối Internet.',
+                        [{ text: 'Đóng', style: 'cancel' }]
+                      );
+                      return;
+                    }
+                    router.push('/qr-orders');
+                  }}
+                  className={`relative flex-row items-center px-2.5 py-1.5 rounded-lg border mr-2 ${
+                    isOnline 
+                      ? 'bg-slate-100 border-slate-200 active:bg-slate-200' 
+                      : 'bg-slate-50 border-slate-100 opacity-60'
+                  }`}
+                >
+                  <Ionicons 
+                    name="qr-code-outline" 
+                    size={14} 
+                    color={isOnline ? '#fa5908' : '#94a3b8'} 
+                  />
+                  <Text className={`text-xs font-medium ml-1 ${isOnline ? 'text-slate-600' : 'text-slate-400'}`}>
+                    Đơn QR
+                  </Text>
+                  {isOnline && pendingQrCount > 0 && (
+                    <View className="absolute -top-1.5 -right-1.5 bg-orange-500 min-w-[16px] h-[16px] rounded-full flex items-center justify-center px-1 border border-white">
+                      <Text className="text-[9px] font-bold text-white leading-none">
+                        {pendingQrCount}
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+
+                {/* Nút Làm mới */}
+                <TouchableOpacity
+                  onPress={() => {
+                    if (isLoading) return;
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                    handleRefresh();
+                  }}
+                  disabled={isLoading}
+                  className="flex-row items-center bg-slate-100 px-2.5 py-1.5 rounded-lg border border-slate-200"
+                >
+                  {isLoading ? (
+                    <ActivityIndicator size="small" color="#fa5908" style={{ width: 14, height: 14 }} />
+                  ) : (
+                    <Ionicons name="sync-outline" size={14} color="#fa5908" />
+                  )}
+                  <Text className="text-xs font-medium text-slate-600 ml-1">
+                    {isLoading ? 'Đang tải...' : 'Làm mới'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
 
             <View className="flex-row items-center space-x-2">

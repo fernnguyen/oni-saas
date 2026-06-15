@@ -88,6 +88,12 @@ export default function NotificationCenterScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     markAsRead(n.id);
 
+    const nType = n.type as string;
+    if (nType === 'qr_order' || nType === 'qr_session' || nType === 'QR_ORDER_CREATED' || nType === 'QR_SESSION_CREATED' || (n.metadata?.path && n.metadata.path.includes('/channels/pos'))) {
+      router.push('/qr-orders');
+      return;
+    }
+
     // Redirect to path if configured in metadata
     if (n.metadata?.path) {
       if (isWebOnlyNotification(n.type, n.metadata.path)) {
@@ -197,6 +203,24 @@ export default function NotificationCenterScreen() {
           );
         })}
       </View>
+
+      {activeTab === 'qr' && (
+        <View className="mx-4 mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl flex-row justify-between items-center shadow-sm">
+          <View className="flex-1 mr-2">
+            <Text className="text-xxs font-bold text-amber-800 uppercase tracking-wider">Quản lý gọi món QR</Text>
+            <Text className="text-[10px] text-amber-700 font-medium mt-0.5">Xác nhận nhanh các yêu cầu gọi món & mở bàn của khách hàng.</Text>
+          </View>
+          <TouchableOpacity
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+              router.push('/qr-orders');
+            }}
+            className="px-3 py-1.5 bg-amber-500 rounded-lg active:bg-amber-600"
+          >
+            <Text className="text-white text-xxs font-bold">Mở trang</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Notifications List */}
       <ScrollView
@@ -338,6 +362,17 @@ export default function NotificationCenterScreen() {
             <Text className="text-xs text-slate-400 mt-1 font-medium font-sans">
               Chúng tôi sẽ thông báo khi có hoạt động mới
             </Text>
+            {activeTab === 'qr' && (
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                  router.push('/qr-orders');
+                }}
+                className="mt-5 px-5 py-2.5 bg-amber-500 rounded-xl active:bg-amber-600"
+              >
+                <Text className="text-white text-xs font-bold">Mở quản lý đơn QR</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
       </ScrollView>
