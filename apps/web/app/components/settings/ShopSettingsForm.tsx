@@ -78,7 +78,8 @@ interface Props {
   canUsePushNotify?: boolean;
   canUseCustomNotify?: boolean;
   telegramConfig?: { bot_token?: string; chat_id: string } | null;
-  eventsConfig?: Record<string, boolean>;
+  eventsConfig?: Record<string, any>;
+  roles?: { id: number; code: string; name: string }[];
 }
 
 function formatWithDots(val: string | number): string {
@@ -101,7 +102,8 @@ export function ShopSettingsForm({
   canUsePushNotify = false,
   canUseCustomNotify = false,
   telegramConfig = null,
-  eventsConfig = {}
+  eventsConfig = {},
+  roles = []
 }: Props) {
   const confirm = useConfirm();
   const canManageSettings = canManage;
@@ -327,9 +329,27 @@ export function ShopSettingsForm({
   const [localTelegramConfig, setLocalTelegramConfig] = useState<typeof telegramConfig>(telegramConfig);
   const [botToken, setBotToken] = useState(telegramConfig?.bot_token || '');
   const [chatId, setChatId] = useState(telegramConfig?.chat_id || '');
-  const [events, setEvents] = useState<Record<string, boolean>>(
-    AVAILABLE_EVENTS.reduce((acc, ev) => ({ ...acc, [ev.id]: eventsConfig?.[ev.id] ?? false }), {})
-  );
+  
+  const [events, setEvents] = useState<Record<string, boolean>>(() => {
+    return AVAILABLE_EVENTS.reduce((acc, ev) => {
+      const cfg = eventsConfig?.[ev.id];
+      const isEnabled = typeof cfg === 'boolean' ? cfg : (cfg?.is_enabled ?? false);
+      return { ...acc, [ev.id]: isEnabled };
+    }, {} as Record<string, boolean>);
+  });
+
+  const [eventChannels, setEventChannels] = useState<Record<string, {
+    telegram: { enabled: boolean };
+    push: { enabled: boolean; roles: string[] };
+  }>>(() => {
+    return AVAILABLE_EVENTS.reduce((acc, ev) => {
+      const cfg = eventsConfig?.[ev.id];
+      const channels = (cfg && typeof cfg === 'object' && cfg.channels_config) 
+        ? cfg.channels_config 
+        : { telegram: { enabled: true }, push: { enabled: true, roles: [] } };
+      return { ...acc, [ev.id]: channels };
+    }, {} as Record<string, any>);
+  });
   const [telegramSuccessMsg, setTelegramSuccessMsg] = useState('');
   const [pairingCode, setPairingCode] = useState('');
   const [isGeneratingCode, setIsGeneratingCode] = useState(false);
@@ -389,7 +409,11 @@ export function ShopSettingsForm({
     startTransition(async () => {
       const eventsList = Object.keys(events).map(name => ({
         name,
-        enabled: events[name]
+        enabled: events[name],
+        channels_config: eventChannels[name] || {
+          telegram: { enabled: true },
+          push: { enabled: true, roles: [] }
+        }
       }));
       await saveNotificationSettings(tenantId, shop.id, slug, botToken, chatId, eventsList);
       setTelegramSuccessMsg('Đã lưu cấu hình thông báo');
@@ -2259,24 +2283,133 @@ export function ShopSettingsForm({
 
               <div>
                 <h3 className="text-sm font-medium text-slate-900 mb-3">Sự kiện nhận thông báo</h3>
-                <div className="space-y-3">
+                <div className="space-y-4">
                   {AVAILABLE_EVENTS.map((ev) => (
-                    <label key={ev.id} className="flex items-center cursor-pointer max-w-sm">
-                      <div className="relative">
-                        <input
-                          type="checkbox"
-                          className="sr-only"
-                          checked={events[ev.id]}
-                          disabled={!canManage || isPending}
-                          onChange={(e) => setEvents({ ...events, [ev.id]: e.target.checked })}
-                        />
-                        <div className={`block w-10 h-6 rounded-full transition-colors ${events[ev.id] ? 'bg-[#fa5907]' : 'bg-slate-300'}`}></div>
-                        <div className={`dot absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${events[ev.id] ? 'transform translate-x-4' : ''}`}></div>
-                      </div>
-                      <div className="ml-3 text-sm text-slate-700">
-                        {ev.label}
-                      </div>
-                    </label>
+                    <div key={ev.id} className="border-b border-slate-100 pb-4 last:border-b-0">
+                      <label className="flex items-center cursor-pointer max-w-sm">
+                        <div className="relative">
+                          <input
+                            type="checkbox"
+                            className="sr-only"
+                            checked={events[ev.id]}
+                            disabled={!canManage || isPending}
+                            onChange={(e) => setEvents({ ...events, [ev.id]: e.target.checked })}
+                          />
+                          <div className={`block w-10 h-6 rounded-full transition-colors ${events[ev.id] ? 'bg-[#fa5907]' : 'bg-slate-300'}`}></div>
+                          <div className={`dot absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${events[ev.id] ? 'transform translate-x-4' : ''}`}></div>
+                        </div>
+                        <div className="ml-3 text-sm font-semibold text-slate-800">
+                          {ev.label}
+                        </div>
+                      </label>
+
+                      {events[ev.id] && (
+                        <div className="ml-13 mt-3 space-y-3 p-3 bg-slate-50/60 rounded-xl border border-slate-100 max-w-lg">
+                          <label className="flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              className="rounded border-slate-300 text-[#fa5907] focus:ring-[#fa5907] h-4 w-4"
+                              checked={eventChannels[ev.id]?.telegram?.enabled ?? true}
+                              disabled={!canManage || isPending}
+                              onChange={(e) => {
+                                const prevCfg = eventChannels[ev.id] || { telegram: { enabled: true }, push: { enabled: true, roles: [] } };
+                                setEventChannels({
+                                  ...eventChannels,
+                                  [ev.id]: {
+                                    ...prevCfg,
+                                    telegram: { enabled: e.target.checked }
+                                  }
+                                });
+                              }}
+                            />
+                            <span className="ml-2 text-xs text-slate-600 font-medium">Gửi tới Telegram Group</span>
+                          </label>
+
+                          <div className="space-y-2">
+                            <label className="flex items-center cursor-pointer">
+                              <input
+                                type="checkbox"
+                                className="rounded border-slate-300 text-[#fa5907] focus:ring-[#fa5907] h-4 w-4"
+                                checked={eventChannels[ev.id]?.push?.enabled ?? true}
+                                disabled={!canManage || isPending}
+                                onChange={(e) => {
+                                  const prevCfg = eventChannels[ev.id] || { telegram: { enabled: true }, push: { enabled: true, roles: [] } };
+                                  setEventChannels({
+                                    ...eventChannels,
+                                    [ev.id]: {
+                                      ...prevCfg,
+                                      push: {
+                                        ...prevCfg.push,
+                                        enabled: e.target.checked
+                                      }
+                                    }
+                                  });
+                                }}
+                              />
+                              <span className="ml-2 text-xs text-slate-600 font-medium">Gửi Push Notification (App Mobile)</span>
+                            </label>
+
+                            {(eventChannels[ev.id]?.push?.enabled ?? true) && (
+                              <div className="ml-6 pl-3 border-l-2 border-slate-200 py-1 space-y-1.5">
+                                <span className="block text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+                                  Giới hạn người nhận theo vai trò:
+                                </span>
+                                <div className="space-y-1 max-w-sm">
+                                  {(roles && roles.length > 0 ? roles : [
+                                    { code: 'owner', name: 'Chủ sở hữu' },
+                                    { code: 'admin', name: 'Quản lý' },
+                                    { code: 'staff', name: 'Nhân viên' }
+                                  ]).map((role) => {
+                                    const selectedRoles = eventChannels[ev.id]?.push?.roles || [];
+                                    const isSelected = selectedRoles.includes(role.code);
+                                    return (
+                                      <button
+                                        key={role.code}
+                                        type="button"
+                                        disabled={!canManage || isPending}
+                                        onClick={() => {
+                                          const prevCfg = eventChannels[ev.id] || { telegram: { enabled: true }, push: { enabled: true, roles: [] } };
+                                          const nextRoles = isSelected
+                                            ? selectedRoles.filter(r => r !== role.code)
+                                            : [...selectedRoles, role.code];
+                                          setEventChannels({
+                                            ...eventChannels,
+                                            [ev.id]: {
+                                              ...prevCfg,
+                                              push: {
+                                                ...prevCfg.push,
+                                                roles: nextRoles
+                                              }
+                                            }
+                                          });
+                                        }}
+                                        className="flex items-center gap-2 w-full text-left py-1 px-2 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer group"
+                                      >
+                                        {isSelected ? (
+                                          <svg className="w-4 h-4 text-[#fa5907] flex-shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                                            <path d="M19 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-9 14l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                                          </svg>
+                                        ) : (
+                                          <svg className="w-4 h-4 text-slate-300 group-hover:text-slate-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                            <rect x="3" y="3" width="18" height="18" rx="4" />
+                                          </svg>
+                                        )}
+                                        <span className={`text-xs ${isSelected ? 'text-slate-900 font-semibold' : 'text-slate-600 font-normal'}`}>
+                                          {role.name}
+                                        </span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                                <p className="text-[10px] text-slate-400 mt-1 italic leading-relaxed">
+                                  * Bỏ chọn tất cả để gửi cho toàn bộ thành viên trong chi nhánh.
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   ))}
                 </div>
               </div>

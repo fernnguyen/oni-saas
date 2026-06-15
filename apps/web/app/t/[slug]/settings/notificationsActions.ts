@@ -9,7 +9,7 @@ export async function saveNotificationSettings(
   slug: string,
   botToken: string,
   chatId: string,
-  events: { name: string; enabled: boolean }[]
+  events: { name: string; enabled: boolean; channels_config?: any }[]
 ) {
   const admin = getSupabaseAdminClient();
 
@@ -61,10 +61,15 @@ export async function saveNotificationSettings(
       .eq('event_name', ev.name)
       .maybeSingle();
 
+    const updateObj: Record<string, any> = { is_enabled: ev.enabled };
+    if (ev.channels_config) {
+      updateObj.channels_config = ev.channels_config;
+    }
+
     if (existingEvent) {
       await admin
         .from('tenant_notification_events')
-        .update({ is_enabled: ev.enabled })
+        .update(updateObj)
         .eq('id', existingEvent.id);
     } else {
       await admin
@@ -73,7 +78,11 @@ export async function saveNotificationSettings(
           tenant_id: tenantId,
           shop_id: shopId,
           event_name: ev.name,
-          is_enabled: ev.enabled
+          is_enabled: ev.enabled,
+          channels_config: ev.channels_config || {
+            telegram: { enabled: true },
+            push: { enabled: true, roles: [] }
+          }
         });
     }
   }

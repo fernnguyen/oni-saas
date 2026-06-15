@@ -5,6 +5,8 @@ import { paymentCreateSchema } from '@/lib/validators/orders'
 import { shopTag, invalidate, shopCache } from '@/lib/server/cache'
 import { cacheTTL } from '@/lib/env'
 import { handleApiError } from '../../_helpers'
+import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
+import { dispatchNotification } from '@/lib/server/notifications'
 
 export async function GET(
   req: NextRequest,
@@ -45,7 +47,32 @@ export async function POST(
 
     const created = await connector.create('payments', data)
     invalidate(shopId, 'payments')
-    invalidate(shopId, 'orders')
+    invalidate(shopId, 'orders');
+
+    // Dispatch PAYMENT_RECEIVED notification in background
+    (async () => {
+      try {
+        const admin = getSupabaseAdminClient();
+        const { data: shop } = await admin
+          .from('shops')
+          .select('tenant_id, name')
+          .eq('id', shopId)
+          .maybeSingle();
+
+        if (shop) {
+          const amountText = `${Number(data.amount).toLocaleString('vi-VN')}đ`;
+          const message = `Mã đơn: #${data.order_no || ''}\nSố tiền thanh toán: ${amountText}\nPhương thức: ${data.method || 'Khác'}\n${data.note ? `Ghi chú: ${data.note}\n` : ''}`;
+          
+          await dispatchNotification(shop.tenant_id, shopId, 'PAYMENT_RECEIVED', {
+            title: `💰 Thanh toán thành công - ${shop.name}`,
+            message,
+          });
+        }
+      } catch (err) {
+        console.error('Failed to send PAYMENT_RECEIVED notification:', err);
+      }
+    })();
+
     return NextResponse.json(created, { status: 201 })
   } catch (e) {
     return handleApiError(e, 'POST payments')

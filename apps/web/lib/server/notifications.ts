@@ -45,43 +45,68 @@ export async function dispatchNotification(
       return; // Event not enabled globally
     }
 
-    // Check specific channel override (Telegram)
+    // 3. Resolve channel configurations from channels_config
+    let isTelegramEnabled = true;
+    let isPushEnabled = true;
+
     if (eventData.channels_config && typeof eventData.channels_config === 'object') {
       const tgConfig = (eventData.channels_config as any).telegram;
       if (tgConfig && tgConfig.enabled === false) {
-        return; // Telegram channel explicitly disabled for this event
+        isTelegramEnabled = false;
+      }
+      const pushConfig = (eventData.channels_config as any).push;
+      if (pushConfig && pushConfig.enabled === false) {
+        isPushEnabled = false;
       }
     }
 
-    // 3. Fetch active channels for this shop
-    const { data: channels } = await admin
-      .from('tenant_notification_channels')
-      .select('provider, config')
-      .eq('tenant_id', tenantId)
-      .eq('shop_id', shopId)
-      .eq('is_active', true);
+    const promises: Promise<any>[] = [];
 
-    if (!channels || channels.length === 0) {
-      return; // No active channels
+    // 4. Send Telegram message if enabled
+    if (isTelegramEnabled) {
+      const { data: channels } = await admin
+        .from('tenant_notification_channels')
+        .select('provider, config')
+        .eq('tenant_id', tenantId)
+        .eq('shop_id', shopId)
+        .eq('provider', 'telegram')
+        .eq('is_active', true);
+
+      if (channels && channels.length > 0) {
+        channels.forEach((channel) => {
+          const botToken = channel.config?.bot_token || process.env.TELEGRAM_BOT_TOKEN;
+          const chatId = channel.config?.chat_id;
+          
+          const isCustom = !!channel.config?.bot_token;
+          if (isCustom && !canUseCustom) return;
+          if (!isCustom && !canUseShared) return;
+
+          if (botToken && chatId) {
+            promises.push(sendTelegramMessage(botToken, chatId, payload));
+          }
+        });
+      }
     }
 
-    // 4. Dispatch to each provider
-    const promises = channels.map((channel) => {
-      if (channel.provider === 'telegram') {
-        const botToken = channel.config?.bot_token || process.env.TELEGRAM_BOT_TOKEN;
-        const chatId = channel.config?.chat_id;
-        
-        // Ensure they have the right permission for custom vs shared
-        const isCustom = !!channel.config?.bot_token;
-        if (isCustom && !canUseCustom) return Promise.resolve();
-        if (!isCustom && !canUseShared) return Promise.resolve();
-
-        if (botToken && chatId) {
-          return sendTelegramMessage(botToken, chatId, payload);
-        }
-      }
-      return Promise.resolve();
-    });
+    // 5. Send Mobile Push notification if enabled
+    if (isPushEnabled) {
+      const { realtimeEngine } = require('./realtime');
+      promises.push(
+        realtimeEngine.sendNotification({
+          tenantId,
+          branchId: shopId,
+          type: eventName, // Use the eventName so it maps to the correct database check in realtime.ts
+          title: payload.title,
+          content: payload.message,
+          metadata: {
+            path: payload.url || null,
+            ...(payload.data || {})
+          }
+        }).catch((err: any) => {
+          console.error('Failed to send push notification via realtimeEngine:', err);
+        })
+      );
+    }
 
     await Promise.allSettled(promises);
   } catch (error) {

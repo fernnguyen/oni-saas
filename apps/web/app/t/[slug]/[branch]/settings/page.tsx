@@ -5,6 +5,7 @@ import { getUserPermissions } from '@/lib/server/permissions';
 import { ShopSettingsForm } from '@/app/components/settings/ShopSettingsForm';
 import { PermissionGate } from '@/app/components/ui/PermissionGate';
 import { getTenantPlanMeta } from '@/lib/server/subscriptions';
+import { listRoles } from '@/lib/server/roles';
 
 interface Props {
   params: Promise<{ slug: string; branch: string }>;
@@ -52,11 +53,12 @@ export default async function BranchSettingsPage({ params }: Props) {
   const canUsePushNotify = !!planMeta?.can_use_push_notify;
   const canUseCustomNotify = !!planMeta?.can_use_custom_notify;
 
-  const [settingsResult, shopResult, channelsResult, eventsResult] = await Promise.all([
+  const [settingsResult, shopResult, channelsResult, eventsResult, roles] = await Promise.all([
     admin.from('shop_settings').select('*').eq('shop_id', shopId).maybeSingle(),
     admin.from('shops').select('phone').eq('id', shopId).maybeSingle(),
     admin.from('tenant_notification_channels').select('config').eq('shop_id', shopId).eq('provider', 'telegram').eq('is_active', true).maybeSingle(),
-    admin.from('tenant_notification_events').select('event_name, is_enabled').eq('shop_id', shopId)
+    admin.from('tenant_notification_events').select('event_name, is_enabled, channels_config').eq('shop_id', shopId),
+    listRoles(shop.tenant_id).catch(() => [])
   ]);
 
   const canManage =
@@ -88,7 +90,10 @@ export default async function BranchSettingsPage({ params }: Props) {
   };
 
   const eventsConfig = (eventsResult.data || []).reduce((acc: any, curr: any) => {
-    acc[curr.event_name] = curr.is_enabled;
+    acc[curr.event_name] = {
+      is_enabled: curr.is_enabled,
+      channels_config: curr.channels_config
+    };
     return acc;
   }, {});
 
@@ -111,6 +116,7 @@ export default async function BranchSettingsPage({ params }: Props) {
         canUseCustomNotify={canUseCustomNotify}
         telegramConfig={channelsResult.data?.config as any}
         eventsConfig={eventsConfig}
+        roles={roles}
       />
     </div>
   );

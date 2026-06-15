@@ -7,12 +7,30 @@ import {
   RefreshControl,
   SafeAreaView,
   Platform,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNotifications } from '../lib/notifications/NotificationContext';
 import * as Haptics from 'expo-haptics';
+
+const isWebOnlyNotification = (type?: string, path?: string) => {
+  const webOnlyTypes = ['purchase_approval', 'return_approval', 'debt_alert', 'low_stock'];
+  if (type && webOnlyTypes.includes(type)) {
+    return true;
+  }
+  
+  if (path) {
+    const webOnlyPathKeywords = ['/p2p/', '/debt', '/inventory', '/reports'];
+    const pathLower = path.toLowerCase();
+    if (webOnlyPathKeywords.some(keyword => pathLower.includes(keyword))) {
+      return true;
+    }
+  }
+  
+  return false;
+};
 
 export default function NotificationCenterScreen() {
   const router = useRouter();
@@ -47,7 +65,22 @@ export default function NotificationCenterScreen() {
 
     // Redirect to path if configured in metadata
     if (n.metadata?.path) {
-      router.push(n.metadata.path);
+      if (isWebOnlyNotification(n.type, n.metadata.path)) {
+        Alert.alert(
+          'Chi tiết thông báo',
+          'Tính năng này hiện chỉ hỗ trợ trên phiên bản Web. Vui lòng truy cập Web để xử lý.'
+        );
+        return;
+      }
+      try {
+        router.push(n.metadata.path);
+      } catch (err) {
+        console.warn('Failed to route:', err);
+        Alert.alert(
+          'Không tìm thấy đường dẫn',
+          'Đường dẫn liên kết với thông báo này không khả dụng trên ứng dụng.'
+        );
+      }
     }
   };
 
@@ -74,7 +107,7 @@ export default function NotificationCenterScreen() {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
               router.back();
             }}
-            className="p-2 bg-slate-50 border border-slate-150 rounded-xl mr-3"
+            className="p-2 bg-slate-50 border border-slate-100 rounded-xl mr-3"
           >
             <Ionicons name="chevron-back" size={20} color="#fa5908" />
           </TouchableOpacity>
@@ -154,45 +187,46 @@ export default function NotificationCenterScreen() {
       >
         {filteredNotifications.map((n) => {
           const isUnread = n.status === 'unread';
+          const nType = n.type as string;
 
           // Map colors & icons based on type
           let iconName = 'notifications-outline';
           let iconBg = 'bg-blue-50';
           let iconColor = '#3b82f6';
 
-          if (n.type === 'qr_order') {
+          if (nType === 'qr_order') {
             iconName = 'restaurant-outline';
             iconBg = 'bg-orange-50';
             iconColor = '#fa5908';
-          } else if (n.type === 'qr_session') {
+          } else if (nType === 'qr_session') {
             iconName = 'enter-outline';
             iconBg = 'bg-emerald-50';
             iconColor = '#10b981';
-          } else if (n.type === 'low_stock') {
+          } else if (nType === 'low_stock') {
             iconName = 'warning-outline';
             iconBg = 'bg-amber-50';
             iconColor = '#f59e0b';
-          } else if (n.type === 'system' || n.type === 'system_broadcast') {
+          } else if (nType === 'system' || nType === 'system_broadcast' || nType === 'CUSTOMER_CREATED') {
             iconName = 'cube-outline';
             iconBg = 'bg-indigo-50';
             iconColor = '#6366f1';
-          } else if (n.type === 'payment') {
+          } else if (nType === 'payment' || nType === 'PAYMENT_RECEIVED' || nType === 'ORDER_CREATED') {
             iconName = 'card-outline';
             iconBg = 'bg-green-50';
             iconColor = '#22c55e';
-          } else if (n.type === 'order_expiring') {
+          } else if (nType === 'order_expiring' || nType === 'ORDER_CANCELLED' || nType === 'ORDER_RETURNED') {
             iconName = 'time-outline';
             iconBg = 'bg-red-50';
             iconColor = '#ef4444';
-          } else if (n.type === 'debt_alert') {
+          } else if (nType === 'debt_alert') {
             iconName = 'alert-circle-outline';
             iconBg = 'bg-rose-50';
             iconColor = '#f43f5e';
-          } else if (n.type === 'return_approval' || n.type === 'purchase_approval') {
+          } else if (nType === 'return_approval' || nType === 'purchase_approval') {
             iconName = 'checkmark-circle-outline';
             iconBg = 'bg-violet-50';
             iconColor = '#8b5cf6';
-          } else if (n.type === 'booking') {
+          } else if (nType === 'booking') {
             iconName = 'calendar-outline';
             iconBg = 'bg-cyan-50';
             iconColor = '#06b6d4';

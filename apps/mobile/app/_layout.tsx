@@ -4,7 +4,7 @@ import {StatusBar} from 'expo-status-bar';
 import {SafeAreaProvider} from 'react-native-safe-area-context';
 import {useColorScheme} from 'nativewind';
 import {StyleSheet} from 'react-native-css-interop';
-import {Text, TextInput, Platform} from 'react-native';
+import {Text, TextInput, Platform, Alert} from 'react-native';
 import {initializeLocalDatabase} from '../lib/db/client';
 import {
  useFonts, 
@@ -93,10 +93,39 @@ export default function RootLayout() {
     const cleanup = addNotificationResponseListener((response) => {
       const data = response?.notification?.request?.content?.data;
       if (data?.path) {
-        // Navigate đến path cụ thể nếu notification có metadata.path
-        // VD: data.path = '/(tabs)/pos'
-        const { router } = require('expo-router');
-        router.push(data.path);
+        const isWebOnlyNotification = (type?: string, path?: string) => {
+          const webOnlyTypes = ['purchase_approval', 'return_approval', 'debt_alert', 'low_stock'];
+          if (type && webOnlyTypes.includes(type)) {
+            return true;
+          }
+          if (path) {
+            const webOnlyPathKeywords = ['/p2p/', '/debt', '/inventory', '/reports'];
+            const pathLower = path.toLowerCase();
+            if (webOnlyPathKeywords.some(keyword => pathLower.includes(keyword))) {
+              return true;
+            }
+          }
+          return false;
+        };
+
+        if (isWebOnlyNotification(data?.type, data?.path)) {
+          Alert.alert(
+            'Chi tiết thông báo',
+            'Tính năng này hiện chỉ hỗ trợ trên phiên bản Web. Vui lòng truy cập Web để xử lý.'
+          );
+          return;
+        }
+
+        try {
+          const { router } = require('expo-router');
+          router.push(data.path);
+        } catch (err) {
+          console.warn('Failed to route from push notification:', err);
+          Alert.alert(
+            'Không tìm thấy đường dẫn',
+            'Đường dẫn liên kết với thông báo này không khả dụng trên ứng dụng.'
+          );
+        }
       }
     });
 

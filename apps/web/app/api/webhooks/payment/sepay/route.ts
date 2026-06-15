@@ -333,8 +333,8 @@ export async function POST(req: NextRequest) {
     invalidate(shopId, 'payments');
     invalidate(shopId, 'cashbook');
 
-    // 15. Dispatch a beautiful desktop/Telegram notification!
-    await dispatchNotification(tenantId, shopId, 'ORDER_COMPLETED', {
+    // 15. Dispatch a beautiful desktop/Telegram/Push notification!
+    await dispatchNotification(tenantId, shopId, 'PAYMENT_RECEIVED', {
       title: `⚡️ Đối soát SEPay thành công - ${targetShop.name}`,
       message: `Đơn hàng #${resolvedOrderNo} đã được thanh toán tự động qua chuyển khoản!\nSố tiền: +${transferAmt.toLocaleString('vi-VN')}đ\nNgân hàng: ${gateway}\nMã GD: ${code}\nTrạng thái: Hoàn tất đơn & Mở bàn sảnh.`,
     });
