@@ -311,34 +311,53 @@ export default function QROrdersScreen() {
   // Duyệt mở bàn
   const handleApproveSession = async (sessionId: string) => {
     if (isProcessing) return;
-    setIsProcessing(sessionId);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
 
-    try {
-      const headers = await getApiHeaders();
-      const url = getApiBaseUrl();
-      const res = await fetch(`${url}/api/shops/${shopId}/qr-sessions`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...headers },
-        body: JSON.stringify({
-          session_id: sessionId,
-          action: 'approve',
-        }),
-      });
+    const sess = sessionRequests.find((s) => s.id === sessionId);
+    if (!sess) return;
+    const tableName = getTableName(sess.resource_id);
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || 'Duyệt mở bàn thất bại');
-      }
+    Alert.alert(
+      'Xác nhận mở bàn',
+      `Bạn có chắc chắn muốn cho phép mở bàn ăn cho ${tableName}?`,
+      [
+        {
+          text: 'Hủy',
+          style: 'cancel',
+        },
+        {
+          text: 'Mở bàn',
+          onPress: async () => {
+            setIsProcessing(sessionId);
+            try {
+              const headers = await getApiHeaders();
+              const url = getApiBaseUrl();
+              const res = await fetch(`${url}/api/shops/${shopId}/qr-sessions`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', ...headers },
+                body: JSON.stringify({
+                  session_id: sessionId,
+                  action: 'approve',
+                }),
+              });
 
-      showToast('Đã cho phép mở bàn ăn thành công!', 'success');
-      setSessionRequests((prev) => prev.filter((s) => s.id !== sessionId));
-      await syncTableLayoutSilent();
-    } catch (err: any) {
-      Alert.alert('Lỗi', err.message || 'Lỗi hệ thống khi duyệt mở bàn.');
-    } finally {
-      setIsProcessing(null);
-    }
+              if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.error || 'Duyệt mở bàn thất bại');
+              }
+
+              showToast('Đã cho phép mở bàn ăn thành công!', 'success');
+              setSessionRequests((prev) => prev.filter((s) => s.id !== sessionId));
+              await syncTableLayoutSilent();
+            } catch (err: any) {
+              Alert.alert('Lỗi', err.message || 'Lỗi hệ thống khi duyệt mở bàn.');
+            } finally {
+              setIsProcessing(null);
+            }
+          }
+        }
+      ]
+    );
   };
 
   // Từ chối mở bàn
@@ -389,61 +408,80 @@ export default function QROrdersScreen() {
   // Chấp nhận yêu cầu gọi món
   const handleAcceptOrder = async (reqId: string) => {
     if (isProcessing) return;
-    setIsProcessing(reqId);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
 
     try {
       const req = requests.find((r) => r.id === reqId);
       if (!req) return;
 
+      const tableName = getTableName(req.resource_id);
       const excluded = excludedItemIds[reqId] || [];
       const acceptedItems = req.items.filter((_, idx) => !excluded.includes(idx));
 
       if (acceptedItems.length === 0) {
         Alert.alert('Lỗi', 'Vui lòng chọn ít nhất 1 món để chấp nhận, hoặc nhấn "Từ chối" toàn bộ.');
-        setIsProcessing(null);
         return;
       }
 
-      let rejectReasonForExcluded = '';
-      if (excluded.length > 0) {
-        const rejectedItemNames = req.items
-          .filter((_, idx) => excluded.includes(idx))
-          .map((item) => `${item.qty}x ${item.product_name}`)
-          .join(', ');
-        rejectReasonForExcluded = `Từ chối các món hết hàng: ${rejectedItemNames}`;
-      }
+      Alert.alert(
+        'Xác nhận nhận món',
+        `Bạn có chắc chắn muốn nhận ${acceptedItems.length} món ăn/đồ uống này cho ${tableName}?`,
+        [
+          {
+            text: 'Hủy',
+            style: 'cancel',
+          },
+          {
+            text: 'Nhận món',
+            onPress: async () => {
+              setIsProcessing(reqId);
+              try {
+                let rejectReasonForExcluded = '';
+                if (excluded.length > 0) {
+                  const rejectedItemNames = req.items
+                    .filter((_, idx) => excluded.includes(idx))
+                    .map((item) => `${item.qty}x ${item.product_name}`)
+                    .join(', ');
+                  rejectReasonForExcluded = `Từ chối các món hết hàng: ${rejectedItemNames}`;
+                }
 
-      const headers = await getApiHeaders();
-      const url = getApiBaseUrl();
-      const res = await fetch(`${url}/api/shops/${shopId}/qr-orders`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...headers },
-        body: JSON.stringify({
-          request_id: reqId,
-          action: 'accept',
-          items: acceptedItems,
-          reject_reason: rejectReasonForExcluded || undefined,
-        }),
-      });
+                const headers = await getApiHeaders();
+                const url = getApiBaseUrl();
+                const res = await fetch(`${url}/api/shops/${shopId}/qr-orders`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json', ...headers },
+                  body: JSON.stringify({
+                    request_id: reqId,
+                    action: 'accept',
+                    items: acceptedItems,
+                    reject_reason: rejectReasonForExcluded || undefined,
+                  }),
+                });
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || 'Duyệt đơn thất bại');
-      }
+                if (!res.ok) {
+                  const err = await res.json().catch(() => ({}));
+                  throw new Error(err.error || 'Duyệt đơn thất bại');
+                }
 
-      showToast(
-        excluded.length > 0
-          ? 'Đã duyệt các món được chọn và hủy các món hết hàng!'
-          : 'Đã nhận đơn hàng và thêm vào bàn thành công!',
-        'success'
+                showToast(
+                  excluded.length > 0
+                    ? 'Đã duyệt các món được chọn và hủy các món hết hàng!'
+                    : 'Đã nhận đơn hàng và thêm vào bàn thành công!',
+                  'success'
+                );
+                setRequests((prev) => prev.filter((r) => r.id !== reqId));
+                await syncTableLayoutSilent();
+              } catch (err: any) {
+                Alert.alert('Lỗi', err.message || 'Lỗi hệ thống khi duyệt đơn.');
+              } finally {
+                setIsProcessing(null);
+              }
+            }
+          }
+        ]
       );
-      setRequests((prev) => prev.filter((r) => r.id !== reqId));
-      await syncTableLayoutSilent();
-    } catch (err: any) {
-      Alert.alert('Lỗi', err.message || 'Lỗi hệ thống khi duyệt đơn.');
-    } finally {
-      setIsProcessing(null);
+    } catch (err) {
+      console.warn('Lỗi xử lý xác nhận nhận món:', err);
     }
   };
 
