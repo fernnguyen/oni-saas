@@ -10,6 +10,7 @@ import {usePermissions} from '../../lib/auth/PermissionsContext';
 import {eq} from 'drizzle-orm';
 import {KeepAliveManager} from '../../lib/sync/KeepAliveManager';
 import {getApiBaseUrl, getApiHeaders} from '../../lib/api/config';
+import { isTimeChargeProduct } from '@oni/core';
 
 // Import UI components dùng chung cao cấp
 import {Header} from '../../components/layout/Header';
@@ -63,6 +64,9 @@ export default function DashboardScreen() {
 
       const productMap: Record<string, {name: string; qty: number}> = {};
       shiftItems.forEach((it: any) => {
+        if (isTimeChargeProduct(it.product_id, it.product_name)) {
+          return;
+        }
         if (!productMap[it.product_id]) {
           productMap[it.product_id] = {name: it.product_name, qty: 0};
         }
