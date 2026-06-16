@@ -9,6 +9,7 @@ import type { LocalCustomer } from '@/lib/localDb/schema'
 import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog'
 import { useConfirm } from '@/app/components/ui/ConfirmProvider'
 import { toast } from 'sonner'
+import { getPaymentMethodLabel } from '@oni/core'
 
 interface Props {
   open: boolean
@@ -375,7 +376,7 @@ export function OrderHistoryPanel({
                             <>
                               <span>·</span>
                               <span className="font-medium text-slate-600">
-                                {order.payment_methods.map((m) => METHOD_LABEL[m] || m).join(', ')}
+                                {order.payment_methods.map((m) => getPaymentMethodLabel(m)).join(', ')}
                               </span>
                             </>
                           )}
@@ -429,7 +430,7 @@ export function OrderHistoryPanel({
                                     <div className="flex flex-col min-w-0">
                                       <div className="flex items-center gap-1.5 flex-wrap">
                                         <span className="font-semibold text-slate-800">
-                                          {METHOD_LABEL[p.method] ?? p.method}
+                                          {getPaymentMethodLabel(p.method)}
                                         </span>
                                         {order.status !== 'cancelled' && !isEditing && (
                                           (() => {

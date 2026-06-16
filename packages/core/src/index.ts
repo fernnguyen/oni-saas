@@ -6,4 +6,5 @@ export * from './assets/assetEngine';
 export * from './utils/tenant';
 export * from './utils/datetime';
 export * from './hotelBillingEngine';
+export * from './utils/business';
 

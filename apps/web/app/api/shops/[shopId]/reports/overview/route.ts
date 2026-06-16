@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireShopAccess } from '@/lib/server/shopAccess'
 import { shopTag, shopCache } from '@/lib/server/cache'
 import { handleApiError } from '../../../_helpers'
+import { isTimeChargeProduct, normalizePaymentMethod } from '@oni/core'
 
 type Row = Record<string, string>
 
@@ -38,11 +39,13 @@ function buildOverview(orders: Row[], returns: Row[], orderItems: Row[], payment
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, revenue]) => ({ date, revenue }))
 
-  // ── Top products by revenue ───────────────────────────────────────────────
+  // ── Top products by revenue (excluding room/hour charges) ──────────────────
   const productRevenue: Record<string, { name: string; revenue: number; qty: number }> = {}
   for (const item of orderItems) {
     const pid = item.product_id
     if (!pid) continue
+    if (isTimeChargeProduct(pid, item.product_name)) continue; // Skip room/time charges
+    
     if (!productRevenue[pid]) {
       productRevenue[pid] = { name: item.product_name || pid, revenue: 0, qty: 0 }
     }
@@ -52,6 +55,43 @@ function buildOverview(orders: Row[], returns: Row[], orderItems: Row[], payment
   const topProducts = Object.entries(productRevenue)
     .map(([id, v]) => ({ id, ...v }))
     .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, 10)
+
+  // ── Top resources by frequency (rooms/tables) ──────────────────────────────
+  const resourceUsage: Record<string, { name: string; count: number; revenue: number }> = {}
+  for (const o of orders) {
+    if (o.is_return === 'TRUE') continue
+    let resourceName = ''
+    let resourceId = o.resource_id || ''
+    
+    if (o.metadata) {
+      try {
+        const meta = typeof o.metadata === 'string' ? JSON.parse(o.metadata) : o.metadata
+        if (meta?.resource_name) {
+          resourceName = meta.resource_name
+        }
+        if (meta?.resource_id) {
+          resourceId = meta.resource_id
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+    
+    const key = resourceId || resourceName
+    if (!key) continue
+    if (key.toLowerCase().startsWith('takeaway')) continue
+    
+    const finalName = resourceName || resourceId
+    if (!resourceUsage[key]) {
+      resourceUsage[key] = { name: finalName, count: 0, revenue: 0 }
+    }
+    resourceUsage[key].count += 1
+    resourceUsage[key].revenue += parseAmount(o.paid_amount ?? o.total_amount)
+  }
+  const topResources = Object.entries(resourceUsage)
+    .map(([id, v]) => ({ id, ...v }))
+    .sort((a, b) => b.count - a.count)
     .slice(0, 10)
 
   // ── Order status breakdown ────────────────────────────────────────────────
@@ -73,7 +113,7 @@ function buildOverview(orders: Row[], returns: Row[], orderItems: Row[], payment
       const orderDate = orderDateMap.get(p.order_id)
       const t = new Date(p.created_at || p.paid_at || orderDate || 0).getTime()
       if (t < monthStart) continue
-      const method = p.method || 'unknown'
+      const method = normalizePaymentMethod(p.method || 'unknown')
       paymentRevenue[method] = (paymentRevenue[method] ?? 0) + parseAmount(p.amount)
     }
   } 
@@ -82,7 +122,7 @@ function buildOverview(orders: Row[], returns: Row[], orderItems: Row[], payment
     for (const o of orders) {
       const t = new Date(o.created_at || 0).getTime()
       if (t < monthStart || o.is_return === 'TRUE') continue
-      const method = o.payment_method || 'cash'
+      const method = normalizePaymentMethod(o.payment_method || 'cash')
       paymentRevenue[method] = (paymentRevenue[method] ?? 0) + parseAmount(o.paid_amount ?? o.total_amount)
     }
   }
@@ -108,7 +148,7 @@ function buildOverview(orders: Row[], returns: Row[], orderItems: Row[], payment
     returns: { count: returnCount, refund: returnRevenue },
   }
 
-  return { kpi, revenueSeries, topProducts, statusBreakdown, paymentRevenue }
+  return { kpi, revenueSeries, topProducts, statusBreakdown, paymentRevenue, topResources }
 }
 
 export async function GET(

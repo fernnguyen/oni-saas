@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { SetupModal } from '../../components/connectors/SetupModal';
+import { getPaymentMethodLabel } from '@oni/core';
 
 interface Props {
   shop: {
@@ -23,12 +24,14 @@ interface Props {
 interface KpiPeriod   { orders: number; revenue: number }
 interface RevenueDay  { date: string; revenue: number }
 interface TopProduct  { id: string; name: string; revenue: number; qty: number }
+interface TopResource { id: string; name: string; count: number; revenue: number }
 interface OverviewData {
   kpi: { today: KpiPeriod; month: KpiPeriod; returns: { count: number; refund: number } }
   revenueSeries: RevenueDay[]
   topProducts: TopProduct[]
   statusBreakdown: Record<string, number>
   paymentRevenue: Record<string, number>
+  topResources: TopResource[]
 }
 
 // ── Formatting Helpers ───────────────────────────────────────────────────────
@@ -178,8 +181,16 @@ const generateMockData = (): OverviewData => {
       momo: 14750000,
       card: 5400000,
     },
+    topResources: [
+      { id: 'r1', name: 'Phòng 201', count: 28, revenue: 34800000 },
+      { id: 'r2', name: 'Phòng 203', count: 22, revenue: 21000000 },
+      { id: 'r3', name: 'Bàn 101', count: 18, revenue: 8400000 },
+      { id: 'r4', name: 'Phòng 205', count: 15, revenue: 7200000 },
+      { id: 'r5', name: 'Bàn 102', count: 10, revenue: 5600000 },
+    ],
   };
 };
+
 
 const STATUS_LABELS: Record<string, string> = {
   completed: 'Hoàn thành',
@@ -547,8 +558,8 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
             )}
           </div>
 
-          {/* 3. Splits layout for products and payment breakdown */}
-          <div className="grid gap-6 md:grid-cols-2">
+          {/* 3. Splits layout for products, resources and payment breakdown */}
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             
             {/* Top Products */}
             <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-[0_8px_30px_rgb(0,0,0,0.02)]">
@@ -587,6 +598,43 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
               )}
             </div>
 
+            {/* Top Resources (Rooms / Tables) */}
+            <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-[0_8px_30px_rgb(0,0,0,0.02)]">
+              <h3 className="text-base font-bold text-slate-800 tracking-tight mb-4">Phòng / Bàn sử dụng nhiều</h3>
+              {(!activeData.topResources || activeData.topResources.length === 0) ? (
+                <p className="py-12 text-center text-sm text-slate-400">Chưa có dữ liệu phòng/bàn</p>
+              ) : (
+                <div className="space-y-4">
+                  {activeData.topResources.slice(0, 5).map((r, idx) => {
+                    const maxCount = activeData.topResources[0].count || 1;
+                    const percent = (r.count / maxCount) * 100;
+                    return (
+                      <div key={r.id} className="flex items-center gap-3">
+                        <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-indigo-50 text-[10px] font-bold text-indigo-600 select-none">
+                          {idx + 1}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
+                            <p className="truncate mr-2">{r.name}</p>
+                            <p className="shrink-0 font-bold">{fmtShort(r.revenue)}đ</p>
+                          </div>
+                          <div className="mt-1.5 flex items-center gap-2">
+                            <div className="h-1.5 flex-1 rounded-full bg-slate-50 overflow-hidden border border-slate-100">
+                              <div
+                                style={{ width: `${percent}%` }}
+                                className="h-full rounded-full bg-gradient-to-r from-violet-500 to-indigo-600"
+                              />
+                            </div>
+                            <span className="shrink-0 text-[10px] text-slate-400 font-bold tracking-wider">{r.count} lượt</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
             {/* Payment Method Breakdown */}
             <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-[0_8px_30px_rgb(0,0,0,0.02)]">
               <h3 className="text-base font-bold text-slate-800 tracking-tight mb-4">Phương thức thanh toán</h3>
@@ -600,7 +648,7 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
                     return (
                       <div key={method} className="space-y-1">
                         <div className="flex items-center justify-between text-xs font-semibold">
-                          <span className="text-slate-600">{PAYMENT_LABELS[method] ?? method}</span>
+                          <span className="text-slate-600">{getPaymentMethodLabel(method)}</span>
                           <span className="font-bold text-slate-800">{fmtVND(amount)}</span>
                         </div>
                         <div className="flex items-center gap-2">

@@ -14,6 +14,7 @@ import { CopyableId } from '@/app/components/ui/CopyableId'
 import { useConfirm } from '@/app/components/ui/ConfirmProvider'
 import { printBill } from '@/lib/pos/printBill'
 import { HasPermission } from '@/app/components/ui/PermissionGate'
+import { getPaymentMethodLabel } from '@oni/core'
 
 const Eye = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
 const Ban = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>
@@ -973,7 +974,7 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
                       <div key={p.payment_id || p.id} className="flex flex-col gap-2 rounded-lg border border-slate-100 px-3 py-2 text-sm bg-white shadow-3xs">
                         <div className="flex items-center justify-between">
                           <div>
-                            <span className="font-semibold text-slate-800">{METHOD_LABEL[p.method] ?? p.method}</span>
+                            <span className="font-semibold text-slate-800">{getPaymentMethodLabel(p.method)}</span>
                             {cbId && (
                               <span 
                                 className="ml-2 cursor-pointer text-[10px] font-mono text-slate-400 hover:text-slate-600" 
@@ -1086,7 +1087,7 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
                       return (
                         <div key={cbId} className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm">
                           <div>
-                            <span className="font-medium text-slate-900">{METHOD_LABEL[cb.method] ?? cb.method}</span>
+                            <span className="font-medium text-slate-900">{getPaymentMethodLabel(cb.method)}</span>
                             <span 
                               className="ml-2 cursor-pointer text-xs font-mono text-slate-500 hover:text-slate-700" 
                               title="Nhấn để sao chép mã" 

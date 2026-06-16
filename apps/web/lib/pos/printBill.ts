@@ -1,7 +1,9 @@
 import type { LocalOrder, LocalOrderItem, LocalPayment } from '@/lib/localDb/schema'
 import { BANKS } from '@/lib/constants/banks'
+import { normalizePaymentMethod } from '@oni/core'
 
 function getMethodLabel(method: string, isBilingual: boolean) {
+  const norm = normalizePaymentMethod(method)
   const labels: Record<string, { vi: string, en: string }> = {
     cash: { vi: 'Tiền mặt', en: 'Cash' },
     card: { vi: 'Thẻ', en: 'Card' },
@@ -11,7 +13,7 @@ function getMethodLabel(method: string, isBilingual: boolean) {
     zalopay: { vi: 'ZaloPay', en: 'ZaloPay' },
     debt: { vi: 'Ghi nợ', en: 'Debt' },
   }
-  const entry = labels[method]
+  const entry = labels[norm]
   if (!entry) return method
   return isBilingual ? `${entry.vi} / ${entry.en}` : entry.vi
 }

@@ -1,18 +1,21 @@
 'use client'
 import { useQuery } from '@tanstack/react-query'
 import { PageHeader } from '@/app/components/ui/PageHeader'
+import { getPaymentMethodLabel } from '@oni/core'
 
 interface Props { shopId: string }
 
 interface KpiPeriod   { orders: number; revenue: number }
 interface RevenueDay  { date: string; revenue: number }
 interface TopProduct  { id: string; name: string; revenue: number; qty: number }
+interface TopResource { id: string; name: string; count: number; revenue: number }
 interface OverviewData {
   kpi: { today: KpiPeriod; month: KpiPeriod; returns: { count: number; refund: number } }
   revenueSeries: RevenueDay[]
   topProducts: TopProduct[]
   statusBreakdown: Record<string, number>
   paymentRevenue: Record<string, number>
+  topResources: TopResource[]
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -162,36 +165,71 @@ export function ReportsClient({ shopId }: Props) {
       </div>
 
       <div className="grid gap-5 md:grid-cols-2">
-        {/* Top products */}
-        <div className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
-          <h2 className="mb-4 text-sm font-semibold text-slate-700">Top 10 sản phẩm (doanh thu)</h2>
-          {topProducts.length === 0 ? (
-            <p className="py-4 text-center text-sm text-slate-400">Chưa có dữ liệu</p>
-          ) : (
-            <div className="space-y-2">
-              {topProducts.map((p, i) => {
-                const max = topProducts[0].revenue
-                return (
-                  <div key={p.id} className="flex items-center gap-3">
-                    <span className="w-5 text-right text-xs text-slate-400">{i + 1}</span>
-                    <div className="flex-1 overflow-hidden">
-                      <p className="truncate text-sm font-medium text-slate-700">{p.name}</p>
-                      <div className="mt-0.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
-                        <div
-                          className="h-full rounded-full bg-blue-500"
-                          style={{ width: `${(p.revenue / max) * 100}%` }}
-                        />
+        {/* Left Column: Top products & Top resources */}
+        <div className="space-y-5">
+          {/* Top products */}
+          <div className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+            <h2 className="mb-4 text-sm font-semibold text-slate-700">Top 10 sản phẩm (doanh thu)</h2>
+            {topProducts.length === 0 ? (
+              <p className="py-4 text-center text-sm text-slate-400">Chưa có dữ liệu</p>
+            ) : (
+              <div className="space-y-2">
+                {topProducts.map((p, i) => {
+                  const max = topProducts[0].revenue
+                  return (
+                    <div key={p.id} className="flex items-center gap-3">
+                      <span className="w-5 text-right text-xs text-slate-400">{i + 1}</span>
+                      <div className="flex-1 overflow-hidden">
+                        <p className="truncate text-sm font-medium text-slate-700">{p.name}</p>
+                        <div className="mt-0.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                          <div
+                            className="h-full rounded-full bg-blue-500"
+                            style={{ width: `${(p.revenue / max) * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs font-medium text-slate-700">{fmtShort(p.revenue)}đ</p>
+                        <p className="text-xs text-slate-400">{Math.round(p.qty)} sp</p>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-xs font-medium text-slate-700">{fmtShort(p.revenue)}đ</p>
-                      <p className="text-xs text-slate-400">{Math.round(p.qty)} sp</p>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Top resources */}
+          <div className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+            <h2 className="mb-4 text-sm font-semibold text-slate-700">Hiệu suất phòng / bàn (lượt dùng)</h2>
+            {!data.topResources || data.topResources.length === 0 ? (
+              <p className="py-4 text-center text-sm text-slate-400">Chưa có dữ liệu phòng/bàn</p>
+            ) : (
+              <div className="space-y-2">
+                {data.topResources.map((r, i) => {
+                  const max = data.topResources[0].count
+                  return (
+                    <div key={r.id} className="flex items-center gap-3">
+                      <span className="w-5 text-right text-xs text-slate-400">{i + 1}</span>
+                      <div className="flex-1 overflow-hidden">
+                        <p className="truncate text-sm font-medium text-slate-700">{r.name}</p>
+                        <div className="mt-0.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                          <div
+                            className="h-full rounded-full bg-indigo-500"
+                            style={{ width: max > 0 ? `${(r.count / max) * 100}%` : '0%' }}
+                          />
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs font-medium text-slate-700">{fmtShort(r.revenue)}đ</p>
+                        <p className="text-xs text-slate-400">{r.count} lượt</p>
+                      </div>
                     </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
+                  )
+                })}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Right column: status + payment */}
@@ -233,7 +271,7 @@ export function ReportsClient({ shopId }: Props) {
               <div className="space-y-2">
                 {paymentEntries.map(([method, amount]) => (
                   <div key={method} className="flex items-center justify-between text-sm">
-                    <span className="text-slate-600">{PAYMENT_LABEL[method] ?? method}</span>
+                    <span className="text-slate-600">{getPaymentMethodLabel(method)}</span>
                     <div className="flex items-center gap-3">
                       <div className="h-1.5 w-24 overflow-hidden rounded-full bg-slate-100">
                         <div

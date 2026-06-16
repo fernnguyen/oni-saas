@@ -13,6 +13,7 @@ import { SearchBar } from '@/app/components/ui/SearchBar'
 import { NumberInput } from '@/app/components/ui/NumberInput'
 import { CopyableId } from '@/app/components/ui/CopyableId'
 import { format } from 'date-fns'
+import { getPaymentMethodLabel } from '@oni/core'
 import { UserPlus, Wallet, Pencil, X, Coins, Check, Upload, ArrowLeft, Clock, AlertTriangle, ChevronRight, CheckCircle2, RefreshCw } from 'lucide-react'
 import { useShift } from '@/app/components/providers/ShiftProvider'
 import { BANKS } from '@/lib/constants/banks'
@@ -2241,16 +2242,6 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
                               phone: 'Điện thoại',
                               zalo: 'Zalo'
                             }
-                            const ORDER_PAYMENT_MAP: Record<string, string> = {
-                              cash: 'Tiền mặt',
-                              card: 'Thẻ',
-                              bank_transfer: 'Chuyển khoản',
-                              momo: 'Ví Momo',
-                              vnpay: 'VNPAY',
-                              zalopay: 'ZaloPay',
-                              debt: 'Ghi nợ',
-                              prepaid: 'Ví trả trước'
-                            }
                             
                             return customerOrders.data.map((order, i) => {
                               const subtotalVal = Number(order.subtotal || 0)
@@ -2272,7 +2263,7 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
                                       {CHANNEL_MAP[order.channel] || order.channel || 'POS'}
                                     </div>
                                     <div className="text-[10px] text-slate-400 mt-0.5">
-                                      {ORDER_PAYMENT_MAP[order.payment_method] || order.payment_method || '—'}
+                                      {getPaymentMethodLabel(order.payment_method)}
                                     </div>
                                   </td>
                                   <td className="px-3 py-2.5 text-right">

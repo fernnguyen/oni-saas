@@ -14,6 +14,7 @@ import { useSearchParams } from 'next/navigation'
 import { useDebounce } from 'use-debounce'
 import { HasPermission, PermissionsProvider } from '@/app/components/ui/PermissionGate'
 import { useConfirm } from '@/app/components/ui/ConfirmProvider'
+import { getPaymentMethodLabel } from '@oni/core'
 import { BANKS } from '@/lib/constants/banks'
 import { VietQRPreview } from '@/app/components/ui/VietQRPreview'
 
@@ -657,7 +658,7 @@ export function CashbookClient({ shopId, shopName, permissions }: Props) {
             </div>
             <div className="block">
               <span className="inline-flex items-center text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200/80 font-medium">
-                {METHOD_MAP[row.method] || row.method}
+                {getPaymentMethodLabel(row.method)}
               </span>
             </div>
           </div>
