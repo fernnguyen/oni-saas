@@ -15,7 +15,7 @@ function dayKey(isoDate: string) {
   try { return isoDate.slice(0, 10) } catch { return '' }
 }
 
-function buildOverview(orders: Row[], returns: Row[], orderItems: Row[], payments: Row[]) {
+function buildOverview(orders: Row[], returns: Row[], orderItems: Row[], payments: Row[], resources: Row[]) {
   const now     = new Date()
   const todayMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
   const day30   = todayMs - 29 * 86_400_000
@@ -59,6 +59,8 @@ function buildOverview(orders: Row[], returns: Row[], orderItems: Row[], payment
 
   // ── Top resources by frequency (rooms/tables) ──────────────────────────────
   const resourceUsage: Record<string, { name: string; count: number; revenue: number }> = {}
+  const resourceMap = new Map(resources.map(r => [r.id, r.name]))
+
   for (const o of orders) {
     if (o.is_return === 'TRUE') continue
     let resourceName = ''
@@ -82,7 +84,7 @@ function buildOverview(orders: Row[], returns: Row[], orderItems: Row[], payment
     if (!key) continue
     if (key.toLowerCase().startsWith('takeaway')) continue
     
-    const finalName = resourceName || resourceId
+    const finalName = resourceName || resourceMap.get(resourceId) || resourceId
     if (!resourceUsage[key]) {
       resourceUsage[key] = { name: finalName, count: 0, revenue: 0 }
     }
@@ -161,17 +163,24 @@ export async function GET(
 
     const result = await shopCache(
       async () => {
-        const [ordersResult, returnsResult, itemsResult, paymentsResult] = await Promise.all([
+        const [ordersResult, returnsResult, itemsResult, paymentsResult, resourcesResult] = await Promise.all([
           connector.list('orders',      { limit: 5000 }),
           // Tab Returns may not exist yet — fall back to empty gracefully
           connector.list('returns',     { limit: 1000 }).catch(() => ({ data: [], total: 0 })),
           connector.list('order-items', { limit: 5000 }),
           connector.list('payments',    { limit: 5000 }).catch(() => ({ data: [], total: 0 })),
+          connector.list('location-resources', { limit: 1000 }).catch(() => ({ data: [], total: 0 })),
         ])
-        return buildOverview(ordersResult.data, returnsResult.data, itemsResult.data, paymentsResult.data)
+        return buildOverview(
+          ordersResult.data,
+          returnsResult.data,
+          itemsResult.data,
+          paymentsResult.data,
+          resourcesResult.data
+        )
       },
       ['reports-overview', shopId],
-      { tags: [shopTag(shopId, 'orders'), shopTag(shopId, 'returns')], revalidate: 120 }
+      { tags: [shopTag(shopId, 'orders'), shopTag(shopId, 'returns'), shopTag(shopId, 'location-resources')], revalidate: 120 }
     )
 
     return NextResponse.json(result)

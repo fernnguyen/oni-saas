@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireShopAccess } from '@/lib/server/shopAccess'
 import { shopTag, shopCache } from '@/lib/server/cache'
 import { handleApiError } from '../../../_helpers'
+import { normalizePaymentMethod } from '@oni/core'
 
 type Row = Record<string, string>
 
@@ -42,7 +43,7 @@ function buildAccounting(orders: Row[], returns: Row[], payments: Row[], custome
   // ── Payment method breakdown (all time) ──────────────────────────────────
   const paymentBreakdown: Record<string, number> = {}
   for (const p of payments) {
-    const method = p.method || 'unknown'
+    const method = normalizePaymentMethod(p.method || 'unknown')
     paymentBreakdown[method] = (paymentBreakdown[method] ?? 0) + parseAmount(p.amount)
   }
 

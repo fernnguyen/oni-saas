@@ -197,6 +197,7 @@ const STATUS_LABELS: Record<string, string> = {
   processing: 'Đang xử lý',
   confirmed: 'Đã xác nhận',
   cancelled: 'Đã hủy',
+  in_progress: 'Đang sử dụng',
 };
 
 const PAYMENT_LABELS: Record<string, string> = {

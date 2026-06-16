@@ -20,7 +20,7 @@ function buildInventoryReport(inventory: Row[], movements: Row[], products: Row[
   const day30 = todayMs - 29 * 86_400_000
 
   // 1. Current Stock KPI
-  const productMap = new Map(products.map(p => [p.product_id, p]))
+  const productMap = new Map(products.map(p => [p.id, p]))
   let totalStockQty = 0
   let totalStockValue = 0
 

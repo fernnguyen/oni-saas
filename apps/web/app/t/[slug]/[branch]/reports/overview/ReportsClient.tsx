@@ -25,6 +25,7 @@ const STATUS_LABEL: Record<string, string> = {
   completed:  'Hoàn thành',
   cancelled:  'Đã hủy',
   refunded:   'Hoàn tiền',
+  in_progress: 'Đang sử dụng',
 }
 
 const PAYMENT_LABEL: Record<string, string> = {

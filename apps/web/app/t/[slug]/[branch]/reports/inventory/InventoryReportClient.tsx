@@ -25,6 +25,7 @@ const MOVEMENT_TYPES = [
   { value: 'transfer_out', label: 'Xuất chuyển kho',color: 'orange' as TagColor },
   { value: 'transfer_in',  label: 'Nhập chuyển kho',color: 'purple' as TagColor },
   { value: 'adjustment',   label: 'Điều chỉnh',     color: 'yellow' as TagColor },
+  { value: 'issue',        label: 'Hao hụt / Xuất hủy', color: 'red'    as TagColor },
 ]
 
 const MOVEMENT_TYPE_MAP = Object.fromEntries(MOVEMENT_TYPES.map(t => [t.value, t]))

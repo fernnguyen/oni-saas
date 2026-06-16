@@ -1,6 +1,8 @@
 'use client'
 import { useQuery } from '@tanstack/react-query'
 import { PageHeader } from '@/app/components/ui/PageHeader'
+import { getPaymentMethodLabel } from '@oni/core'
+
 
 interface Props { shopId: string }
 
@@ -139,7 +141,7 @@ export function AccountingClient({ shopId }: Props) {
                 return (
                   <div key={method}>
                     <div className="mb-1 flex justify-between text-sm">
-                      <span className="text-slate-600">{PAYMENT_LABEL[method] ?? method}</span>
+                      <span className="text-slate-600">{getPaymentMethodLabel(method)}</span>
                       <span className="font-medium">{fmtVND(amount)}</span>
                     </div>
                     <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
