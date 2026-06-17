@@ -33,6 +33,7 @@ import { useCart } from '../../hooks/pos/useCart';
 import { usePosData } from '../../hooks/pos/usePosData';
 import { useTableManager } from '../../hooks/pos/useTableManager';
 import { usePosToast } from '../../hooks/pos/usePosToast';
+import { usePermissions } from '../../lib/auth/PermissionsContext';
 import { useRealtimeSync } from '../../hooks/pos/useRealtimeSync';
 export type SelectedModifier = { option: string; price_adj: number };
 export type CartItem = {
@@ -361,6 +362,8 @@ export default function PosScreen() {
     handleTablePress,
     triggerPayTable,
     handlePayTableConfirmUnified,
+    handleTransferTable,
+    handleMergeTable,
     handleIncreaseTableItemQty,
     handleDecreaseTableItemQty,
     handleRemoveTableItem,
@@ -390,6 +393,14 @@ export default function PosScreen() {
   });
 
   // State thêm nhanh khách hàng cho sơ đồ phòng bàn
+  const { hasPermission } = usePermissions();
+  const canModifyOrders = hasPermission(['orders.edit', 'orders.update', 'owner', 'admin']);
+
+  const [isTransferModalVisible, setIsTransferModalVisible] = useState(false);
+  const [isMergeModalVisible, setIsMergeModalVisible] = useState(false);
+  const [transferSearchQuery, setTransferSearchQuery] = useState('');
+  const [mergeSearchQuery, setMergeSearchQuery] = useState('');
+
   const [isQuickCustomerModalOpen, setIsQuickCustomerModalOpen] = useState(false);
   const [quickCustName, setQuickCustName] = useState('');
   const [quickCustPhone, setQuickCustPhone] = useState('');
@@ -793,7 +804,7 @@ export default function PosScreen() {
     discount: number,
     note: string,
     payments: { id: string; method: string; fund_id: string; amount: number }[],
-    debtRepayOpts?: { debtRepayAmount?: number; debtFundId?: string; debtMethod?: string; customCheckoutTime?: Date }
+    debtRepayOpts?: { debtRepayAmount?: number; debtFundId?: string; debtMethod?: string; customCheckoutTime?: Date; rentalType?: 'hourly' | 'overnight' | 'daily' }
   ) => {
     const originalTotal = getCartTotal();
     const finalTotal = Math.max(0, originalTotal - discount);
@@ -801,7 +812,7 @@ export default function PosScreen() {
 
 
     if (cartOwnerTable) {
-      await handlePayTableConfirmUnified(customer, discount, note, payments, debtRepayOpts?.customCheckoutTime);
+      await handlePayTableConfirmUnified(customer, discount, note, payments, debtRepayOpts?.customCheckoutTime, debtRepayOpts?.rentalType);
       return;
     }
     setIsPayingCartLoading(true);
@@ -2034,17 +2045,87 @@ export default function PosScreen() {
               {checkInTab === 'info' || shopVertical !== 'lodging' ? (
                 <View>
                   {/* Bảng giá giờ */}
-                  {selectedTableForOpen && (
-                    <View className="bg-orange-50 border border-orange-100 p-4 rounded-2xl mb-4">
-                      <Text className="text-tiny text-orange-700 font-medium">Hình thức hoạt động:</Text>
-                      <Text className="text-orange-950 font-semibold text-sm mt-1">
-                        Tính phí theo thời gian sử dụng
-                      </Text>
-                      <Text className="text-tiny text-slate-500 mt-2 font-semibold">
-                        💵 Đơn giá: {formatCurrency(selectedTableForOpen.hourly_rate)}/{shopVertical === 'lodging' ? 'ngày' : 'giờ'}
-                      </Text>
-                    </View>
-                  )}
+                  {selectedTableForOpen && (() => {
+                    let openMeta: any = {};
+                    try {
+                      openMeta = selectedTableForOpen.metadata 
+                        ? (typeof selectedTableForOpen.metadata === 'string' ? JSON.parse(selectedTableForOpen.metadata) : selectedTableForOpen.metadata)
+                        : {};
+                    } catch (e) {}
+
+                    const hourlyRate = Number(selectedTableForOpen.hourly_rate) || 0;
+                    const overnightRate = Number(openMeta.overnight_rate) || (hourlyRate * 3) || 200000;
+                    const advPricing = openMeta.advanced_pricing;
+                    const isLodging = shopVertical === 'lodging';
+
+                    // Determine what to display based on lodging + selected rental type
+                    const showDaily = isLodging && roomRentalType === 'daily';
+
+                    return (
+                      <View className="bg-orange-50 border border-orange-100 p-4 rounded-2xl mb-4">
+                        <Text className="text-tiny text-orange-700 font-medium">Hình thức hoạt động:</Text>
+                        <Text className="text-orange-950 font-semibold text-sm mt-1">
+                          {showDaily ? 'Thuê theo ngày (ở qua đêm)' : 'Tính phí theo thời gian sử dụng'}
+                        </Text>
+                        
+                        {showDaily ? (
+                          <View className="mt-2.5">
+                            <Text className="text-xs font-semibold text-slate-800">
+                              💵 Đơn giá: <Text className="text-orange-600 font-bold">{formatCurrency(overnightRate)}</Text>/ngày
+                            </Text>
+                          </View>
+                        ) : (
+                          <View className="mt-2.5">
+                            {advPricing?.enabled ? (
+                              <View className="space-y-1.5 border-t border-orange-200/40 pt-2">
+                                <View className="flex-row justify-between items-center py-0.5">
+                                  <Text className="text-xs text-slate-600 font-medium">Block đầu ({advPricing.base_hours}h):</Text>
+                                  <Text className="text-xs text-orange-700 font-bold">{formatCurrency(advPricing.base_price)}</Text>
+                                </View>
+                                {advPricing.next_hourly_rate ? (
+                                  <View className="flex-row justify-between items-center py-0.5">
+                                    <Text className="text-xs text-slate-600 font-medium">Giờ tiếp theo mặc định:</Text>
+                                    <Text className="text-xs text-orange-700 font-bold">{formatCurrency(advPricing.next_hourly_rate)}/h</Text>
+                                  </View>
+                                ) : null}
+                                {Number(advPricing.grace_minutes) > 0 ? (
+                                  <View className="flex-row justify-between items-center py-0.5">
+                                    <Text className="text-xs text-slate-500 italic">Thời gian quá giờ cho phép (Grace):</Text>
+                                    <Text className="text-xs text-slate-500 italic">{advPricing.grace_minutes} phút</Text>
+                                  </View>
+                                ) : null}
+
+                                {advPricing.progressive_rates && Object.keys(advPricing.progressive_rates).length > 0 && (
+                                  <View className="mt-2 border-t border-orange-200/30 pt-2">
+                                    <Text className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">
+                                      Bảng giá lũy tiến các giờ tiếp theo:
+                                    </Text>
+                                    <View className="flex-row flex-wrap gap-1.5 pt-0.5">
+                                      {Object.entries(advPricing.progressive_rates)
+                                        .sort((a, b) => Number(a[0]) - Number(b[0]))
+                                        .map(([hour, rate]) => (
+                                          <View
+                                            key={hour}
+                                            className="bg-orange-100/60 border border-orange-200/40 rounded-lg px-2.5 py-1 flex-row items-center gap-1"
+                                          >
+                                            <Text className="text-[10px] text-orange-800 font-medium">Giờ thứ {hour}:</Text>
+                                            <Text className="text-[10px] text-orange-900 font-bold">{formatCurrency(Number(rate))}</Text>
+                                          </View>
+                                        ))}
+                                    </View>
+                                  </View>
+                                )}
+                              </View>
+                            ) : (
+                              <Text className="text-xs font-semibold text-slate-800">
+                                💵 Đơn giá: <Text className="text-orange-600 font-bold">{formatCurrency(hourlyRate)}</Text>/giờ
+                              </Text>
+                            )}
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })()}
 
                   {/* CHỌN KHÁCH HÀNG CRM (Premium component replicated) */}
                   <Text className="text-tiny text-slate-400 font-medium mb-2">Thông tin Khách hàng (CRM):</Text>
@@ -2359,18 +2440,49 @@ export default function PosScreen() {
                 {activeTableTab === 'billing' || shopVertical !== 'lodging' ? (
                   <View>
                     {/* Tình trạng tiền giờ */}
-                    <View className="bg-orange-50 border border-orange-100 p-4 rounded-xl mb-4">
-                      <View className="flex-row justify-between items-center">
-                        <Text className="text-xxs text-slate-455 font-semibold">Phí dịch vụ giờ lẻ:</Text>
-                        <Badge variant="primary" label={formatCurrency(activeTable.hourly_rate) + '/' + (shopVertical === 'lodging' ? 'ngày' : 'giờ')} size="sm" />
-                      </View>
-                      <Text className="text-orange-500 text-3xl font-semibold mt-1.5">
-                        {formatCurrency(calculateBilling(activeTable).cost)}
-                      </Text>
-                      <Text className="text-[9.5px] text-slate-500 mt-3 font-semibold leading-relaxed">
-                        ⏱️ Nhận lúc: {new Date(activeTable.startTime).toLocaleTimeString()} ({calculateBilling(activeTable).hours}h {calculateBilling(activeTable).minutes}m)
-                      </Text>
-                    </View>
+                    {(() => {
+                      const billing = calculateBilling(activeTable);
+                      let activeMeta: any = {};
+                      try {
+                        activeMeta = activeTable.metadata
+                          ? (typeof activeTable.metadata === 'string' ? JSON.parse(activeTable.metadata) : activeTable.metadata)
+                          : {};
+                      } catch (e) {}
+                      const activeRentalType = activeMeta.rental_type || 'hourly';
+                      const activeHourlyRate = Number(activeTable.hourly_rate) || 0;
+                      const activeOvernightRate = Number(activeMeta.overnight_rate) || (activeHourlyRate * 3) || 200000;
+                      const isLodging = shopVertical === 'lodging';
+
+                      const rateLabel = isLodging && activeRentalType === 'daily'
+                        ? `${formatCurrency(activeOvernightRate)}/ngày`
+                        : `${formatCurrency(activeHourlyRate)}/giờ`;
+
+                      const timeLabel = isLodging && activeRentalType === 'daily'
+                        ? `Nhận lúc: ${new Date(activeTable.startTime).toLocaleDateString()} ${new Date(activeTable.startTime).toLocaleTimeString()}`
+                        : `Nhận lúc: ${new Date(activeTable.startTime).toLocaleTimeString()}`;
+
+                      return (
+                        <View className="bg-orange-50 border border-orange-100 p-4 rounded-xl mb-4">
+                          <View className="flex-row justify-between items-center">
+                            <Text className="text-xxs text-slate-455 font-semibold">
+                              {isLodging && activeRentalType === 'daily' ? 'Phí phòng theo ngày:' : 'Phí dịch vụ giờ lẻ:'}
+                            </Text>
+                            <Badge variant="primary" label={rateLabel} size="sm" />
+                          </View>
+                          <Text className="text-orange-500 text-3xl font-semibold mt-1.5">
+                            {formatCurrency(billing.cost)}
+                          </Text>
+                          <Text className="text-[9.5px] text-slate-500 mt-3 font-semibold leading-relaxed">
+                            ⏱️ {timeLabel} ({billing.label})
+                          </Text>
+                          {billing.details ? (
+                            <Text className="text-[9px] text-slate-400 mt-1 italic font-medium">
+                              {billing.details}
+                            </Text>
+                          ) : null}
+                        </View>
+                      );
+                    })()}
 
                     {/* GIAO DIỆN KHÁCH HÀNG CRM TRONG CHI TIẾT PHÒNG */}
                     {tableCustomers[activeTable.id] ? (
@@ -2559,7 +2671,12 @@ export default function PosScreen() {
                         className="w-[47%] bg-slate-50 border border-slate-200 p-2.5 rounded-xl flex-row items-center active:bg-slate-100"
                         onPress={() => {
                           const label = shopVertical === 'lodging' ? 'Phòng' : shopVertical === 'sports_court' ? 'Sân' : shopVertical === 'fnb' ? 'Bàn' : 'Bàn';
-                          showToast(`Chức năng Đổi ${label} đang đồng bộ với Cloud.`);
+                          if (!canModifyOrders) {
+                            showToast(`Bạn không có quyền Đổi ${label}!`, "error");
+                            return;
+                          }
+                          setTransferSearchQuery('');
+                          setIsTransferModalVisible(true);
                         }}
                       >
                         <Ionicons name="swap-horizontal" size={16} color="#0284c7" />
@@ -2572,7 +2689,12 @@ export default function PosScreen() {
                         className="w-[47%] bg-slate-50 border border-slate-200 p-2.5 rounded-xl flex-row items-center active:bg-slate-100"
                         onPress={() => {
                           const label = shopVertical === 'lodging' ? 'Phòng' : shopVertical === 'sports_court' ? 'Sân' : shopVertical === 'fnb' ? 'Bàn' : 'Bàn';
-                          showToast(`Chức năng Gộp ${label} đang đồng bộ với Cloud.`);
+                          if (!canModifyOrders) {
+                            showToast(`Bạn không có quyền Gộp ${label}!`, "error");
+                            return;
+                          }
+                          setMergeSearchQuery('');
+                          setIsMergeModalVisible(true);
                         }}
                       >
                         <Ionicons name="git-merge-outline" size={16} color="#059669" />
@@ -2732,6 +2854,190 @@ export default function PosScreen() {
               {renderQuickCustomerModal('active_table')}
             </View>
           )}
+
+          {/* OVERLAY CHUYỂN PHÒNG/BÀN */}
+          {isTransferModalVisible && activeTable && (
+            <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, elevation: 99, justifyContent: 'flex-end', backgroundColor: 'rgba(0, 0, 0, 0.6)' }}>
+              <Pressable className="absolute inset-0" onPress={() => setIsTransferModalVisible(false)} />
+              <Pressable onPress={() => {}} className="h-[75%] rounded-t-[32px] p-6 bg-white justify-between relative" style={{ shadowColor: '#000000', shadowOffset: { width: 0, height: -10 }, shadowOpacity: 0.1, shadowRadius: 12, elevation: 12 }}>
+                <View className="flex-row justify-between items-center border-b border-slate-100 pb-3">
+                  <Text className="text-sm font-semibold text-slate-800">
+                    Đổi {shopVertical === 'lodging' ? 'Phòng' : shopVertical === 'sports_court' ? 'Sân' : shopVertical === 'fnb' ? 'Bàn' : 'Bàn'}
+                  </Text>
+                  <TouchableOpacity onPress={() => setIsTransferModalVisible(false)} className="p-1">
+                    <Ionicons name="close" size={24} color="#64748b" />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Nguồn */}
+                <View className="bg-orange-50 border border-orange-100 p-3 rounded-xl mt-3 flex-row justify-between items-center">
+                  <Text className="text-xs text-orange-850 font-medium">Nguồn: <Text className="font-bold">{activeTable.name}</Text></Text>
+                  <Badge variant="warning" label="Đang hoạt động" size="sm" />
+                </View>
+
+                {/* Tìm kiếm đích */}
+                <View className="bg-slate-100 border border-slate-200 rounded-xl px-3 py-2 mt-3 flex-row items-center">
+                  <Ionicons name="search-outline" size={16} color="#94a3b8" />
+                  <TextInput
+                    placeholder={`Tìm ${shopVertical === 'lodging' ? 'phòng' : shopVertical === 'sports_court' ? 'sân' : 'bàn'} trống để chuyển...`}
+                    placeholderTextColor="#cbd5e1"
+                    className="flex-1 ml-2 text-xs font-semibold text-slate-800"
+                    value={transferSearchQuery}
+                    onChangeText={setTransferSearchQuery}
+                    style={{
+                      paddingVertical: 0,
+                      textAlignVertical: 'center',
+                      lineHeight: undefined,
+                      ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+                    }}
+                  />
+                </View>
+
+                <ScrollView className="flex-1 my-3" showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                  {(() => {
+                    const targets = tables.filter(t => {
+                      const isAvailable = t.status !== 'playing' && t.status !== 'occupied';
+                      const matchesSearch = !transferSearchQuery.trim() || (t.name && t.name.toLowerCase().includes(transferSearchQuery.toLowerCase()));
+                      return t.id !== activeTable.id && isAvailable && matchesSearch;
+                    });
+
+                    if (targets.length === 0) {
+                      return (
+                        <View className="items-center justify-center py-10">
+                          <Ionicons name="sad-outline" size={36} color="#cbd5e1" />
+                          <Text className="text-xs text-slate-400 font-medium mt-2">Không có {shopVertical === 'lodging' ? 'phòng' : shopVertical === 'sports_court' ? 'sân' : 'bàn'} trống khả dụng</Text>
+                        </View>
+                      );
+                    }
+
+                    return (
+                      <View className="flex-row flex-wrap gap-2.5 pt-1">
+                        {targets.map(t => (
+                          <TouchableOpacity
+                            key={t.id}
+                            onPress={async () => {
+                              Alert.alert(
+                                "Xác nhận chuyển",
+                                `Bạn có chắc muốn chuyển từ ${activeTable.name} sang ${t.name} không?`,
+                                [
+                                  { text: "Hủy", style: "cancel" },
+                                  {
+                                    text: "Đồng ý",
+                                    onPress: async () => {
+                                      await handleTransferTable(activeTable.id, t.id);
+                                      setIsTransferModalVisible(false);
+                                      setActiveTable(null); // Close the active room detail modal
+                                    }
+                                  }
+                                ]
+                              );
+                            }}
+                            className="w-[48%] bg-slate-50 border border-slate-200 p-3.5 rounded-2xl items-center active:bg-orange-50 active:border-orange-200"
+                          >
+                            <Ionicons name={shopVertical === 'lodging' ? "bed-outline" : "ellipse-outline"} size={20} color="#64748b" />
+                            <Text className="text-xs font-bold text-slate-800 mt-1.5">{t.name}</Text>
+                            <Text className="text-[9px] text-slate-450 mt-0.5">{t.hourly_rate ? `${formatCurrency(t.hourly_rate)}/h` : 'Tính giờ lẻ'}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    );
+                  })()}
+                </ScrollView>
+              </Pressable>
+            </View>
+          )}
+
+          {/* OVERLAY GỘP PHÒNG/BÀN */}
+          {isMergeModalVisible && activeTable && (
+            <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, elevation: 99, justifyContent: 'flex-end', backgroundColor: 'rgba(0, 0, 0, 0.6)' }}>
+              <Pressable className="absolute inset-0" onPress={() => setIsMergeModalVisible(false)} />
+              <Pressable onPress={() => {}} className="h-[75%] rounded-t-[32px] p-6 bg-white justify-between relative" style={{ shadowColor: '#000000', shadowOffset: { width: 0, height: -10 }, shadowOpacity: 0.1, shadowRadius: 12, elevation: 12 }}>
+                <View className="flex-row justify-between items-center border-b border-slate-100 pb-3">
+                  <Text className="text-sm font-semibold text-slate-800">
+                    Gộp {shopVertical === 'lodging' ? 'Phòng' : shopVertical === 'sports_court' ? 'Sân' : shopVertical === 'fnb' ? 'Bàn' : 'Bàn'}
+                  </Text>
+                  <TouchableOpacity onPress={() => setIsMergeModalVisible(false)} className="p-1">
+                    <Ionicons name="close" size={24} color="#64748b" />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Nguồn */}
+                <View className="bg-emerald-50 border border-emerald-100 p-3 rounded-xl mt-3 flex-row justify-between items-center">
+                  <Text className="text-xs text-emerald-850 font-medium">Nguồn (sẽ giải phóng): <Text className="font-bold">{activeTable.name}</Text></Text>
+                  <Badge variant="success" label="Đang chọn" size="sm" />
+                </View>
+
+                {/* Tìm kiếm đích */}
+                <View className="bg-slate-100 border border-slate-200 rounded-xl px-3 py-2 mt-3 flex-row items-center">
+                  <Ionicons name="search-outline" size={16} color="#94a3b8" />
+                  <TextInput
+                    placeholder={`Tìm ${shopVertical === 'lodging' ? 'phòng' : shopVertical === 'sports_court' ? 'sân' : 'bàn'} đang hoạt động để gộp...`}
+                    placeholderTextColor="#cbd5e1"
+                    className="flex-1 ml-2 text-xs font-semibold text-slate-800"
+                    value={mergeSearchQuery}
+                    onChangeText={setMergeSearchQuery}
+                    style={{
+                      paddingVertical: 0,
+                      textAlignVertical: 'center',
+                      lineHeight: undefined,
+                      ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+                    }}
+                  />
+                </View>
+
+                <ScrollView className="flex-1 my-3" showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                  {(() => {
+                    const targets = tables.filter(t => {
+                      const isActive = t.status === 'playing' || t.status === 'occupied';
+                      const matchesSearch = !mergeSearchQuery.trim() || (t.name && t.name.toLowerCase().includes(mergeSearchQuery.toLowerCase()));
+                      return t.id !== activeTable.id && isActive && matchesSearch;
+                    });
+
+                    if (targets.length === 0) {
+                      return (
+                        <View className="items-center justify-center py-10">
+                          <Ionicons name="sad-outline" size={36} color="#cbd5e1" />
+                          <Text className="text-xs text-slate-400 font-medium mt-2">Không có {shopVertical === 'lodging' ? 'phòng' : shopVertical === 'sports_court' ? 'sân' : 'bàn'} đang sử dụng khác khả dụng</Text>
+                        </View>
+                      );
+                    }
+
+                    return (
+                      <View className="flex-row flex-wrap gap-2.5 pt-1">
+                        {targets.map(t => (
+                          <TouchableOpacity
+                            key={t.id}
+                            onPress={async () => {
+                              Alert.alert(
+                                "Xác nhận gộp",
+                                `Hành động này sẽ chuyển toàn bộ dịch vụ/món ăn từ ${activeTable.name} sang ${t.name}, sau đó giải phóng ${activeTable.name} về trạng thái trống.\n\nBạn chắc chắn muốn thực hiện chứ?`,
+                                [
+                                  { text: "Hủy", style: "cancel" },
+                                  {
+                                    text: "Đồng ý",
+                                    onPress: async () => {
+                                      await handleMergeTable(activeTable.id, t.id);
+                                      setIsMergeModalVisible(false);
+                                      setActiveTable(null); // Close the active room detail modal
+                                    }
+                                  }
+                                ]
+                              );
+                            }}
+                            className="w-[48%] bg-orange-50/40 border border-orange-100 p-3.5 rounded-2xl items-center active:bg-orange-50 active:border-orange-250"
+                          >
+                            <Ionicons name={shopVertical === 'lodging' ? "bed-outline" : "ellipse-outline"} size={20} color="#fa5908" />
+                            <Text className="text-xs font-bold text-slate-800 mt-1.5">{t.name}</Text>
+                            <Text className="text-[9px] text-orange-600 font-semibold mt-1">Đang hoạt động</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    );
+                  })()}
+                </ScrollView>
+              </Pressable>
+            </View>
+          )}
         </KeyboardAvoidingView>
       </Modal>
 
@@ -2763,6 +3069,7 @@ export default function PosScreen() {
         apiHeaders={apiAuthHeaders}
         loading={isPayingTableLoading || isPayingCartLoading}
         cartOwnerTable={cartOwnerTable}
+        shopVertical={shopVertical}
         onCheckout={(opts) => handlePayCart(selectedCustomer, discountAmount, orderNote, paymentRows, opts)}
       />
 
@@ -2870,7 +3177,6 @@ export default function PosScreen() {
           </View>
         </View>
       </Modal>
-
     </SafeAreaView>
   );
 }

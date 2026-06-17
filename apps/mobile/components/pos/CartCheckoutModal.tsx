@@ -30,7 +30,7 @@ interface CartCheckoutModalProps {
   paymentFundsList: any[];
   productsList: any[];
   getCartCount: () => number;
-  onCheckout: (opts?: { debtRepayAmount?: number; debtFundId?: string; debtMethod?: string; customCheckoutTime?: Date }) => void; // Called to trigger final payment or show QR
+  onCheckout: (opts?: { debtRepayAmount?: number; debtFundId?: string; debtMethod?: string; customCheckoutTime?: Date; rentalType?: 'hourly' | 'overnight' | 'daily' }) => void; // Called to trigger final payment or show QR
   // Tích hợp realtime khách hàng
   shopId?: string;
   isOnline?: boolean;
@@ -39,6 +39,7 @@ interface CartCheckoutModalProps {
   loading?: boolean;
   paymentMethodsList?: any[];
   cartOwnerTable?: any;
+  shopVertical?: string;
 }
 
 export function formatCurrency(value: number): string {
@@ -82,7 +83,8 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
     paymentRows, setPaymentRows, paymentFundsList, productsList, getCartCount, onCheckout,
     shopId, isOnline = true, apiBaseUrl, apiHeaders, loading = false,
     paymentMethodsList = [],
-    cartOwnerTable
+    cartOwnerTable,
+    shopVertical
   } = props;
 
   const resolvedMethods = React.useMemo(() => {
@@ -126,9 +128,23 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
   }, [paymentMethodsList]);
 
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
-  const [isEditingDiscount, setIsEditingDiscount] = useState(false);
+  const [isDiscountModalVisible, setIsDiscountModalVisible] = useState(false);
+  const [discountTypeTab, setDiscountTypeTab] = useState<'amount' | 'percent'>('amount');
+  const [discountInputValue, setDiscountInputValue] = useState('');
   const [selectingMethodRow, setSelectingMethodRow] = useState<{ rowId: string; idx: number } | null>(null);
   const [currentTime, setCurrentTime] = useState(() => new Date());
+
+  const [localRentalType, setLocalRentalType] = useState<'hourly' | 'overnight' | 'daily'>('hourly');
+
+  React.useEffect(() => {
+    if (visible && cartOwnerTable) {
+      let rmd: any = {};
+      try {
+        rmd = typeof cartOwnerTable.metadata === 'string' ? JSON.parse(cartOwnerTable.metadata) : (cartOwnerTable.metadata || {});
+      } catch (e) {}
+      setLocalRentalType(rmd.rental_type || 'hourly');
+    }
+  }, [visible, cartOwnerTable]);
 
   // Thêm các state phục vụ chỉnh sửa giờ ra
   const [customCheckoutTime, setCustomCheckoutTime] = useState<Date | null>(null);
@@ -139,7 +155,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
   const [isConfirmCheckoutTimeVisible, setIsConfirmCheckoutTimeVisible] = useState(false);
   const [pendingCheckoutTime, setPendingCheckoutTime] = useState<Date | null>(null);
 
-  const calculateBilling = React.useCallback((table: any, customCheckoutTime?: Date) => {
+  const calculateBilling = React.useCallback((table: any, customCheckoutTime?: Date, currentRentalType?: 'hourly' | 'overnight' | 'daily') => {
     if (!table.startTime) return { hours: 0, minutes: 0, cost: 0, label: '0h 0p', details: '' };
 
     let rmd: any = {};
@@ -149,16 +165,40 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
       console.warn('Cannot parse table metadata:', e);
     }
 
-    const rentalType = rmd.rental_type || 'hourly';
+    const rentalType = currentRentalType || rmd.rental_type || 'hourly';
 
     if (rentalType === 'overnight') {
-      const overnightRate = Number(rmd.overnight_rate) || Number(table.hourly_rate) || 0;
+      const overnightRate = Number(rmd.overnight_rate) || Number(table.hourly_rate * 3) || 200000;
       return {
         hours: 0,
         minutes: 0,
         cost: overnightRate,
         label: 'Qua đêm',
         details: 'Trọn gói qua đêm'
+      };
+    }
+
+    if (rentalType === 'daily') {
+      const dailyRate = Number(rmd.overnight_rate) || Number(table.hourly_rate * 3) || 200000;
+      const checkInDate = new Date(table.startTime);
+      const checkOutDate = customCheckoutTime || (table.checkoutTime ? new Date(table.checkoutTime) : new Date());
+      
+      const d1 = new Date(checkInDate.getFullYear(), checkInDate.getMonth(), checkInDate.getDate());
+      const d2 = new Date(checkOutDate.getFullYear(), checkOutDate.getMonth(), checkOutDate.getDate());
+      const diffDays = Math.round((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24));
+      const nights = Math.max(1, diffDays);
+      
+      const cost = nights * dailyRate;
+      const formatCurrencyLocal = (value: number) => {
+        return value.toLocaleString('vi-VN') + '₫';
+      };
+
+      return {
+        hours: 0,
+        minutes: 0,
+        cost,
+        label: `${nights} ngày`,
+        details: `Thuê theo ngày: ${nights} ngày x ${formatCurrencyLocal(dailyRate)}/ngày`
       };
     }
 
@@ -191,13 +231,13 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
     return Object.entries(cart).reduce((sum, [key, item]) => {
       if (key === 'TIME_CHARGE') {
         if (cartOwnerTable && cartOwnerTable.startTime) {
-          const billing = calculateBilling(cartOwnerTable, customCheckoutTime || undefined);
+          const billing = calculateBilling(cartOwnerTable, customCheckoutTime || undefined, localRentalType);
           return sum + billing.cost;
         }
       }
       return sum + ((item.price + (item.modifier_total || 0)) * item.quantity);
     }, 0);
-  }, [cart, cartOwnerTable, customCheckoutTime, calculateBilling]);
+  }, [cart, cartOwnerTable, customCheckoutTime, calculateBilling, localRentalType]);
 
   const handleStartEditCheckoutTime = () => {
     let currentMeta: any = {};
@@ -285,7 +325,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
       console.warn('Cannot parse table metadata:', e);
     }
 
-    const rentalType = rmd.rental_type || 'hourly';
+    const rentalType = localRentalType;
     const checkInDate = new Date(cartOwnerTable.startTime);
     const actualCheckout = customCheckoutTime || (rmd.actual_checkout_requested_at ? new Date(rmd.actual_checkout_requested_at) : currentTime);
     const checkOutDate = actualCheckout;
@@ -293,6 +333,12 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
     let durationLabel = '';
     if (rentalType === 'overnight') {
       durationLabel = 'Qua đêm';
+    } else if (rentalType === 'daily') {
+      const d1 = new Date(checkInDate.getFullYear(), checkInDate.getMonth(), checkInDate.getDate());
+      const d2 = new Date(checkOutDate.getFullYear(), checkOutDate.getMonth(), checkOutDate.getDate());
+      const diffDays = Math.round((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24));
+      const nights = Math.max(1, diffDays);
+      durationLabel = `${nights} ngày`;
     } else {
       const hourlyRate = Number(cartOwnerTable.hourly_rate) || 0;
       const pricingResult = calculateHourlyBilling({
@@ -320,7 +366,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
       duration: durationLabel,
       rentalType
     };
-  }, [cartOwnerTable, currentTime, customCheckoutTime]);
+  }, [cartOwnerTable, currentTime, customCheckoutTime, localRentalType]);
   const [selectingFundRow, setSelectingFundRow] = useState<{ rowId: string; idx: number; matchingFunds: any[] } | null>(null);
   const [hidePrepaidSuggest, setHidePrepaidSuggest] = useState(false);
   const [hideDebtRepaySuggest, setHideDebtRepaySuggest] = useState(false);
@@ -913,6 +959,53 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                       </TouchableOpacity>
                     )}
                   </View>
+
+                   {shopVertical === 'lodging' && (
+                    <View className="flex-row bg-slate-200/50 p-0.5 rounded-lg border border-slate-200 mb-3">
+                      <Pressable
+                        onPress={() => setLocalRentalType('hourly')}
+                        className="flex-1 py-1 rounded-md items-center justify-center"
+                        style={localRentalType === 'hourly' ? {
+                          backgroundColor: '#ffffff',
+                          shadowColor: '#000000',
+                          shadowOffset: { width: 0, height: 1 },
+                          shadowOpacity: 0.05,
+                          shadowRadius: 1,
+                          elevation: 1,
+                        } : undefined}
+                      >
+                        <Text className={`text-[10px] font-bold ${localRentalType === 'hourly' ? 'text-slate-800' : 'text-slate-500'}`}>⏱️ Theo giờ</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => setLocalRentalType('overnight')}
+                        className="flex-1 py-1 rounded-md items-center justify-center"
+                        style={localRentalType === 'overnight' ? {
+                          backgroundColor: '#ffffff',
+                          shadowColor: '#000000',
+                          shadowOffset: { width: 0, height: 1 },
+                          shadowOpacity: 0.05,
+                          shadowRadius: 1,
+                          elevation: 1,
+                        } : undefined}
+                      >
+                        <Text className={`text-[10px] font-bold ${localRentalType === 'overnight' ? 'text-slate-800' : 'text-slate-500'}`}>🌙 Qua đêm</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => setLocalRentalType('daily')}
+                        className="flex-1 py-1 rounded-md items-center justify-center"
+                        style={localRentalType === 'daily' ? {
+                          backgroundColor: '#ffffff',
+                          shadowColor: '#000000',
+                          shadowOffset: { width: 0, height: 1 },
+                          shadowOpacity: 0.05,
+                          shadowRadius: 1,
+                          elevation: 1,
+                        } : undefined}
+                      >
+                        <Text className={`text-[10px] font-bold ${localRentalType === 'daily' ? 'text-slate-800' : 'text-slate-500'}`}>☀️ Theo ngày</Text>
+                      </Pressable>
+                    </View>
+                  )}
                   
                   {isEditingCheckoutTime ? (
                     <View className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-3">
@@ -1068,7 +1161,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                   const isTimeCharge = item.productId === 'TIME_CHARGE';
                   let itemToRender = item;
                   if (isTimeCharge && cartOwnerTable && cartOwnerTable.startTime) {
-                    const billing = calculateBilling(cartOwnerTable, customCheckoutTime || undefined);
+                    const billing = calculateBilling(cartOwnerTable, customCheckoutTime || undefined, localRentalType);
                     const billingName = cartOwnerTable.type === 'room'
                       ? `Tiền phòng - ${cartOwnerTable.name} (${billing.label})`
                       : `Tiền giờ - ${cartOwnerTable.name} (${billing.label})`;
@@ -1101,83 +1194,65 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
  
                         <View className="flex-row items-center">
                           {/* Quantity Control */}
-                          <View className="flex-row items-center bg-slate-50 border border-slate-200 rounded-md overflow-hidden mr-2">
-                            <TouchableOpacity 
-                              onPress={() => !loading && updateCartItemQuantity(cartItemId, itemToRender.quantity - 1)} 
-                              disabled={loading || isTimeCharge} 
-                              className={`w-7 h-7 items-center justify-center border-r border-slate-200 bg-white active:bg-slate-100 ${(loading || isTimeCharge) ? 'opacity-30' : ''}`}
-                            >
-                              <Text className="text-slate-600 font-medium">-</Text>
-                            </TouchableOpacity>
-                            <Text className="w-8 text-center text-xs font-semibold text-slate-800 bg-white" style={{lineHeight: 28}}>{itemToRender.quantity}</Text>
-                            <TouchableOpacity 
-                              onPress={() => !loading && updateCartItemQuantity(cartItemId, itemToRender.quantity + 1)} 
-                              disabled={loading || isTimeCharge} 
-                              className={`w-7 h-7 items-center justify-center border-l border-slate-200 bg-white active:bg-slate-100 ${(loading || isTimeCharge) ? 'opacity-30' : ''}`}
-                            >
-                              <Text className="text-slate-600 font-medium">+</Text>
-                            </TouchableOpacity>
-                          </View>
+                          {!isTimeCharge && (
+                            <View className="flex-row items-center bg-slate-50 border border-slate-200 rounded-md overflow-hidden mr-2">
+                              <TouchableOpacity 
+                                onPress={() => !loading && updateCartItemQuantity(cartItemId, itemToRender.quantity - 1)} 
+                                disabled={loading} 
+                                className="w-7 h-7 items-center justify-center border-r border-slate-200 bg-white active:bg-slate-100"
+                              >
+                                <Text className="text-slate-600 font-medium">-</Text>
+                              </TouchableOpacity>
+                              <Text className="w-8 text-center text-xs font-semibold text-slate-800 bg-white" style={{lineHeight: 28}}>{itemToRender.quantity}</Text>
+                              <TouchableOpacity 
+                                onPress={() => !loading && updateCartItemQuantity(cartItemId, itemToRender.quantity + 1)} 
+                                disabled={loading} 
+                                className="w-7 h-7 items-center justify-center border-l border-slate-200 bg-white active:bg-slate-100"
+                              >
+                                <Text className="text-slate-600 font-medium">+</Text>
+                              </TouchableOpacity>
+                            </View>
+                          )}
  
                           {/* Total Price */}
                           <View className="w-[85px] items-end">
-                             <Text className={`font-bold text-[15px] ${isTimeCharge ? 'text-emerald-700' : 'text-slate-800'}`}>{formatCurrency((itemToRender.price + (itemToRender.modifier_total || 0)) * itemToRender.quantity)}</Text>
+                            <Text className={`font-bold text-[15px] ${isTimeCharge ? 'text-emerald-700' : 'text-slate-800'}`}>{formatCurrency((itemToRender.price + (itemToRender.modifier_total || 0)) * itemToRender.quantity)}</Text>
                           </View>
                         </View>
                       </View>
  
-                      {/* Bottom Row: Unit Price, Delete */}
-                      <View className="flex-row justify-between items-center mt-1">
-                        <Text className="text-xs text-slate-500 font-medium">
-                          Đơn giá: {formatCurrency(itemToRender.price + (itemToRender.modifier_total || 0))} {productsList.find(pr => pr.id === itemToRender.productId)?.unit ? `/ ${productsList.find(pr => pr.id === itemToRender.productId)?.unit}` : ''}
-                        </Text>
-                        <TouchableOpacity 
-                          onPress={() => !loading && removeFromCart(cartItemId)} 
-                          disabled={loading || isTimeCharge} 
-                          className={`p-1 ${(loading || isTimeCharge) ? 'opacity-30' : ''}`}
-                        >
-                          <Ionicons name="trash-outline" size={16} color="#f43f5e" />
-                        </TouchableOpacity>
+                        {/* Bottom Row: Unit Price, Delete */}
+                        <View className="flex-row justify-between items-center mt-1">
+                          <Text className="text-xs text-slate-500 font-medium">
+                            Đơn giá: {formatCurrency(itemToRender.price + (itemToRender.modifier_total || 0))} {productsList.find(pr => pr.id === itemToRender.productId)?.unit ? `/ ${productsList.find(pr => pr.id === itemToRender.productId)?.unit}` : ''}
+                          </Text>
+                          <TouchableOpacity 
+                            onPress={() => !loading && removeFromCart(cartItemId)} 
+                            disabled={loading || isTimeCharge} 
+                            className={`p-1 ${(loading || isTimeCharge) ? 'opacity-30' : ''}`}
+                          >
+                            <Ionicons name="trash-outline" size={16} color="#f43f5e" />
+                          </TouchableOpacity>
+                        </View>
                       </View>
-                    </View>
-                  );
-                })}
+                    );
+                  })}
 
                 {/* Hàng Giảm giá */}
                 <TouchableOpacity 
                   className="flex-row justify-between items-center py-2.5 border-t border-dashed border-slate-200 mt-2 active:opacity-60"
-                  onPress={() => !loading && setIsEditingDiscount(prev => !prev)}
+                  onPress={() => {
+                    if (loading) return;
+                    setDiscountTypeTab('amount');
+                    setDiscountInputValue(discountAmount > 0 ? discountAmount.toString() : '');
+                    setIsDiscountModalVisible(true);
+                  }}
                   disabled={loading}
                 >
                   <Text className="text-xs text-slate-450 font-medium">Giảm giá (Chạm để sửa):</Text>
-                  {isEditingDiscount ? (
-                    <View className="flex-row items-center bg-slate-50 border border-slate-200 rounded-xl px-2 py-0.5">
-                      <TextInput
-                        className="text-right text-xs font-semibold text-slate-800 w-28 py-0.5"
-                        keyboardType="numeric"
-                        placeholder="0"
-                        placeholderTextColor="#cbd5e1"
-                        value={discountAmount === 0 ? '' : maskCurrencyInput(discountAmount.toString())}
-                        onChangeText={(val) => {
-                          const masked = maskCurrencyInput(val);
-                          const amt = parseCurrencyToNumber(masked);
-                          setDiscountAmount(amt);
-                        }}
-                        autoFocus={true}
-                        editable={!loading}
-                        style={{
-                          paddingVertical: 0,
-                          textAlignVertical: 'center',
-                          lineHeight: undefined,
-                          ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
-                        }}
-                      />
-                    </View>
-                  ) : (
-                    <Text className="text-xs text-rose-500 font-semibold">
-                      -{formatCurrency(discountAmount)}
-                    </Text>
-                  )}
+                  <Text className="text-xs text-rose-500 font-semibold">
+                    -{formatCurrency(discountAmount)}
+                  </Text>
                 </TouchableOpacity>
 
                 {/* Hàng Tổng cộng */}
@@ -1538,12 +1613,12 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
 
           {/* Modal chọn phương thức thanh toán */}
           {selectingMethodRow !== null && (
-            <View className="absolute inset-0 z-50 justify-end" style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)' }}>
+            <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, elevation: 99, justifyContent: 'flex-end', backgroundColor: 'rgba(0, 0, 0, 0.6)' }}>
               <Pressable
                 className="absolute inset-0"
                 onPress={() => setSelectingMethodRow(null)}
               />
-              <View className="bg-white rounded-t-3xl p-6 pb-8 max-h-[70%]" style={{ shadowColor: '#000', shadowOffset: { width: 0, height: -10 }, shadowOpacity: 0.1, shadowRadius: 10, elevation: 10 }}>
+              <Pressable onPress={() => {}} className="bg-white rounded-t-3xl p-6 pb-8 max-h-[70%]" style={{ shadowColor: '#000', shadowOffset: { width: 0, height: -10 }, shadowOpacity: 0.1, shadowRadius: 10, elevation: 10 }}>
                 <View className="flex-row justify-between items-center border-b border-slate-100 pb-4 mb-4">
                   <View className="flex-row items-center">
                     <Ionicons name="wallet-outline" size={20} color="#fa5908" />
@@ -1611,18 +1686,18 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                     })}
                   </View>
                 </ScrollView>
-              </View>
+              </Pressable>
             </View>
           )}
 
           {/* Modal chọn quỹ tài chính */}
           {selectingFundRow !== null && (
-            <View className="absolute inset-0 z-50 justify-end" style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)' }}>
+            <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, elevation: 99, justifyContent: 'flex-end', backgroundColor: 'rgba(0, 0, 0, 0.6)' }}>
               <Pressable
                 className="absolute inset-0"
                 onPress={() => setSelectingFundRow(null)}
               />
-              <View className="bg-white rounded-t-3xl p-6 pb-8 max-h-[70%]" style={{ shadowColor: '#000', shadowOffset: { width: 0, height: -10 }, shadowOpacity: 0.1, shadowRadius: 10, elevation: 10 }}>
+              <Pressable onPress={() => {}} className="bg-white rounded-t-3xl p-6 pb-8 max-h-[70%]" style={{ shadowColor: '#000', shadowOffset: { width: 0, height: -10 }, shadowOpacity: 0.1, shadowRadius: 10, elevation: 10 }}>
                 <View className="flex-row justify-between items-center border-b border-slate-100 pb-4 mb-4">
                   <View className="flex-row items-center">
                     <Ionicons name="business-outline" size={20} color="#fa5908" />
@@ -1668,7 +1743,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                     })}
                   </View>
                 </ScrollView>
-              </View>
+              </Pressable>
             </View>
           )}
           {/* Dialog xác nhận thanh toán */}
@@ -1679,7 +1754,8 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
               const debtOpts = clampedDebtRepay > 0 ? { debtRepayAmount: clampedDebtRepay, ...selectDebtFund() } : undefined;
               const checkoutOpts = {
                 ...debtOpts,
-                customCheckoutTime: customCheckoutTime || undefined
+                customCheckoutTime: customCheckoutTime || undefined,
+                rentalType: localRentalType
               };
               setIsConfirmVisible(false);
               setTimeout(async () => {
@@ -1879,12 +1955,12 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
 
           {/* MODAL FORM THÊM NHANH KHÁCH HÀNG MỚI (Dùng absolute View thay vì lồng Modal để tránh đơ UI trên React Native) */}
           {isQuickAddModalOpen && (
-            <View className="absolute inset-0 z-50 justify-end" style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)' }}>
+            <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, elevation: 99, justifyContent: 'flex-end', backgroundColor: 'rgba(0, 0, 0, 0.6)' }}>
               <Pressable
                 className="absolute inset-0"
                 onPress={() => setIsQuickAddModalOpen(false)}
               />
-              <View className="h-[80%] rounded-t-[32px] p-6 justify-between bg-white relative">
+              <Pressable onPress={() => {}} className="h-[80%] rounded-t-[32px] p-6 justify-between bg-white relative">
                 <View className="flex-row justify-between items-center border-b border-slate-100 pb-3">
                   <Text className="text-lg font-medium text-slate-800">Thêm khách hàng mới</Text>
                   <TouchableOpacity onPress={() => setIsQuickAddModalOpen(false)} className="p-1">
@@ -2010,7 +2086,158 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                     </>
                   )}
                 </TouchableOpacity>
-              </View>
+              </Pressable>
+            </View>
+          )}
+
+          {/* Modal chỉnh sửa giảm giá (Dùng absolute View thay vì lồng Modal để tránh đơ UI trên React Native) */}
+          {isDiscountModalVisible && (
+            <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, elevation: 99, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0, 0, 0, 0.55)', paddingHorizontal: 20 }}>
+              <Pressable className="absolute inset-0" onPress={() => setIsDiscountModalVisible(false)} />
+              <Pressable onPress={() => {}} className="bg-white rounded-3xl p-6 w-full max-w-sm relative" style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.15, shadowRadius: 12, elevation: 10 }}>
+                {/* Header */}
+                <View className="flex-row justify-between items-center mb-4">
+                  <Text className="text-sm font-semibold text-slate-800">Cấu hình giảm giá</Text>
+                  <TouchableOpacity onPress={() => setIsDiscountModalVisible(false)} className="p-1">
+                    <Ionicons name="close" size={20} color="#64748b" />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Tabs Selector */}
+                <View className="flex-row bg-slate-100 p-1 rounded-xl mb-4 border border-slate-200">
+                  <Pressable
+                    onPress={() => {
+                      setDiscountTypeTab('amount');
+                      setDiscountInputValue('');
+                    }}
+                    className="flex-1 py-2 items-center justify-center rounded-lg"
+                    style={discountTypeTab === 'amount' ? {
+                      backgroundColor: '#ffffff',
+                      shadowColor: '#000000',
+                      shadowOffset: { width: 0, height: 1 },
+                      shadowOpacity: 0.1,
+                      shadowRadius: 2,
+                      elevation: 2,
+                    } : undefined}
+                  >
+                    <Text className={`text-xs font-semibold ${discountTypeTab === 'amount' ? 'text-slate-800' : 'text-slate-500'}`}>
+                      Số tiền (đ)
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => {
+                      setDiscountTypeTab('percent');
+                      setDiscountInputValue('');
+                    }}
+                    className="flex-1 py-2 items-center justify-center rounded-lg"
+                    style={discountTypeTab === 'percent' ? {
+                      backgroundColor: '#ffffff',
+                      shadowColor: '#000000',
+                      shadowOffset: { width: 0, height: 1 },
+                      shadowOpacity: 0.1,
+                      shadowRadius: 2,
+                      elevation: 2,
+                    } : undefined}
+                  >
+                    <Text className={`text-xs font-semibold ${discountTypeTab === 'percent' ? 'text-slate-800' : 'text-slate-500'}`}>
+                      Phần trăm (%)
+                    </Text>
+                  </Pressable>
+                </View>
+
+                {/* Input tương ứng */}
+                <View className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 mb-5 flex-row items-center">
+                  <Text className="text-xs font-semibold text-slate-500 mr-2">
+                    {discountTypeTab === 'amount' ? '💵' : '🏷️'}
+                  </Text>
+                  <TextInput
+                    className="flex-1 text-xs font-semibold text-slate-800"
+                    keyboardType="numeric"
+                    placeholder={discountTypeTab === 'amount' ? 'Nhập số tiền giảm giá...' : 'Nhập phần trăm giảm (0-100)...'}
+                    placeholderTextColor="#cbd5e1"
+                    value={discountTypeTab === 'amount' ? (discountInputValue === '' ? '' : maskCurrencyInput(discountInputValue)) : discountInputValue}
+                    onChangeText={(val) => {
+                      if (discountTypeTab === 'amount') {
+                        const masked = maskCurrencyInput(val);
+                        const amt = parseCurrencyToNumber(masked);
+                        setDiscountInputValue(amt > 0 ? amt.toString() : '');
+                      } else {
+                        const raw = val.replace(/[^\d.]/g, '');
+                        const num = parseFloat(raw);
+                        if (isNaN(num)) {
+                          setDiscountInputValue('');
+                        } else {
+                          setDiscountInputValue(Math.min(100, num).toString());
+                        }
+                      }
+                    }}
+                    autoFocus={true}
+                    style={{
+                      paddingVertical: 0,
+                      textAlignVertical: 'center',
+                      lineHeight: undefined,
+                      ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+                    }}
+                  />
+                  {discountInputValue.length > 0 && (
+                    <TouchableOpacity onPress={() => setDiscountInputValue('')} className="p-0.5">
+                      <Ionicons name="close-circle" size={16} color="#cbd5e1" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                {/* Preview giảm giá thực tế */}
+                {discountInputValue.length > 0 && (
+                  <View className="mb-5 bg-orange-50 border border-orange-100 p-3.5 rounded-xl">
+                    <Text className="text-[10px] text-orange-700 font-semibold uppercase tracking-wider mb-1">
+                      Ước tính giảm giá:
+                    </Text>
+                    <Text className="text-xs font-semibold text-slate-800">
+                      Tổng giảm giá: <Text className="text-rose-500 font-bold">
+                        {(() => {
+                          if (discountTypeTab === 'amount') {
+                            const amt = parseCurrencyToNumber(discountInputValue);
+                            return formatCurrency(Math.min(localCartTotal, amt));
+                          } else {
+                            const percent = parseFloat(discountInputValue) || 0;
+                            const amt = Math.round((localCartTotal * percent) / 100);
+                            return formatCurrency(Math.min(localCartTotal, amt));
+                          }
+                        })()}
+                      </Text>
+                    </Text>
+                  </View>
+                )}
+
+                {/* Actions Footer */}
+                <View className="flex-row gap-3">
+                  <TouchableOpacity
+                    onPress={() => setIsDiscountModalVisible(false)}
+                    className="flex-1 py-2.5 items-center justify-center rounded-xl border border-slate-200 bg-white"
+                  >
+                    <Text className="text-xs font-semibold text-slate-650">Hủy bỏ</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => {
+                      let finalAmt = 0;
+                      if (discountTypeTab === 'amount') {
+                        const parsed = parseCurrencyToNumber(discountInputValue);
+                        finalAmt = isNaN(parsed) ? 0 : parsed;
+                      } else {
+                        const percent = parseFloat(discountInputValue) || 0;
+                        const cappedPercent = Math.min(100, Math.max(0, percent));
+                        finalAmt = Math.round((localCartTotal * cappedPercent) / 100);
+                      }
+                      finalAmt = Math.min(localCartTotal, finalAmt);
+                      setDiscountAmount(finalAmt);
+                      setIsDiscountModalVisible(false);
+                    }}
+                    className="flex-[2] py-2.5 items-center justify-center rounded-xl bg-orange-500"
+                  >
+                    <Text className="text-xs font-bold text-white">Đồng ý</Text>
+                  </TouchableOpacity>
+                </View>
+              </Pressable>
             </View>
           )}
         </View>
