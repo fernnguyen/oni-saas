@@ -189,14 +189,16 @@ export default function SettingsScreen() {
     } else {
       // Bật sinh trắc học
       try {
-        const hasHardware = await LocalAuthentication.hasHardwareAsync();
-        if (!hasHardware) {
+        const supportedTypes = await LocalAuthentication.supportedAuthenticationTypesAsync();
+        const hasPhysicalHardware = supportedTypes && supportedTypes.length > 0;
+        if (!hasPhysicalHardware) {
           Alert.alert('Không khả dụng', 'Thiết bị của bạn không hỗ trợ tính năng bảo mật sinh trắc học.');
           return;
         }
 
+        const hasHardware = await LocalAuthentication.hasHardwareAsync();
         const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-        if (!isEnrolled) {
+        if (!hasHardware || !isEnrolled) {
           Alert.alert(
             'Quyền sinh trắc học',
             'Thiết bị chưa đăng ký Face ID/Vân tay hoặc quyền truy cập Face ID đã bị từ chối cho ứng dụng này. Vui lòng cho phép quyền truy cập hoặc đăng ký thiết lập sinh trắc học trong Cài đặt hệ thống.',
@@ -263,6 +265,7 @@ export default function SettingsScreen() {
       // Mật khẩu đúng, gọi quét Vân tay/Face ID
       const authResult = await LocalAuthentication.authenticateAsync({
         promptMessage: 'Xác thực sinh trắc học để liên kết thiết bị',
+        disableDeviceFallback: true,
       });
 
       if (authResult.success) {

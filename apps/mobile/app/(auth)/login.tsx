@@ -123,6 +123,7 @@ export default function LoginScreen() {
           try {
             const authResult = await LocalAuthentication.authenticateAsync({
               promptMessage: 'Xác thực để kích hoạt đăng nhập nhanh bằng sinh trắc học',
+              disableDeviceFallback: true,
             });
 
             if (authResult.success) {
@@ -230,14 +231,16 @@ export default function LoginScreen() {
         return;
       }
 
-      const hasHardware = await LocalAuthentication.hasHardwareAsync();
-      if (!hasHardware) {
+      const supportedTypes = await LocalAuthentication.supportedAuthenticationTypesAsync();
+      const hasPhysicalHardware = supportedTypes && supportedTypes.length > 0;
+      if (!hasPhysicalHardware) {
         Alert.alert('Thông báo', 'Thiết bị của bạn không hỗ trợ tính năng bảo mật sinh trắc học.');
         return;
       }
 
+      const hasHardware = await LocalAuthentication.hasHardwareAsync();
       const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-      if (!isEnrolled) {
+      if (!hasHardware || !isEnrolled) {
         Alert.alert(
           'Quyền sinh trắc học',
           'Không thể sử dụng sinh trắc học. Vui lòng kiểm tra xem bạn đã đăng ký Face ID/Vân tay và cấp quyền truy cập Face ID cho ứng dụng trong Cài đặt hệ thống chưa.',
