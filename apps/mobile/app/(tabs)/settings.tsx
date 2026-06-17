@@ -1,5 +1,5 @@
 import React, {useState, useCallback} from 'react';
-import {Text, View, ScrollView, TouchableOpacity, TextInput, Modal, Platform, Alert, ActivityIndicator, Pressable} from 'react-native';
+import {Text, View, ScrollView, TouchableOpacity, TextInput, Modal, Platform, Alert, ActivityIndicator, Pressable, Linking} from 'react-native';
 import {Ionicons} from '@expo/vector-icons';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {useFocusEffect, router} from 'expo-router';
@@ -142,8 +142,10 @@ export default function SettingsScreen() {
   try {
     const secureStoreAvailable = await SecureStore.isAvailableAsync();
     if (secureStoreAvailable) {
-      const savedBiometricCreds = await SecureStore.getItemAsync('biometric_credentials');
-      setBiometricsEnabled(!!savedBiometricCreds);
+       const savedBiometricCreds = await SecureStore.getItemAsync('biometric_credentials');
+       const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+       // Switch is ON only if credentials exist AND biometrics are enrolled/permitted in OS
+       setBiometricsEnabled(!!savedBiometricCreds && isEnrolled);
     }
   } catch (e) {
     console.warn('Lỗi lấy thông tin sinh trắc học:', e);
@@ -188,14 +190,31 @@ export default function SettingsScreen() {
       // Bật sinh trắc học
       try {
         const hasHardware = await LocalAuthentication.hasHardwareAsync();
-        const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-
         if (!hasHardware) {
           Alert.alert('Không khả dụng', 'Thiết bị của bạn không hỗ trợ tính năng bảo mật sinh trắc học.');
           return;
         }
+
+        const isEnrolled = await LocalAuthentication.isEnrolledAsync();
         if (!isEnrolled) {
-          Alert.alert('Không khả dụng', 'Thiết bị chưa được đăng ký Vân tay hoặc Face ID trong Cài đặt hệ thống.');
+          Alert.alert(
+            'Quyền sinh trắc học',
+            'Thiết bị chưa đăng ký Face ID/Vân tay hoặc quyền truy cập Face ID đã bị từ chối cho ứng dụng này. Vui lòng cho phép quyền truy cập hoặc đăng ký thiết lập sinh trắc học trong Cài đặt hệ thống.',
+            [
+              { text: 'Hủy', style: 'cancel' },
+              { 
+                text: 'Mở Cài đặt', 
+                onPress: async () => {
+                  try {
+                    await AsyncStorage.setItem('pending_restore_path', '/(tabs)/settings');
+                    await Linking.openSettings();
+                  } catch (e) {
+                    Alert.alert('Lỗi', 'Không thể mở Cài đặt hệ thống.');
+                  }
+                } 
+              }
+            ]
+          );
           return;
         }
 

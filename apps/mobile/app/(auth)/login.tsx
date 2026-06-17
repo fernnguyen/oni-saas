@@ -31,6 +31,15 @@ export default function LoginScreen() {
  useEffect(() => {
  const loadInitialData = async () => {
  try {
+   const alreadyLaunched = await AsyncStorage.getItem('already_launched');
+   const secureStoreAvailable = await SecureStore.isAvailableAsync();
+   if (!alreadyLaunched) {
+     if (secureStoreAvailable) {
+       await SecureStore.deleteItemAsync('biometric_credentials');
+     }
+     await AsyncStorage.setItem('already_launched', 'true');
+   }
+
  const savedCode = await AsyncStorage.getItem('saved_tenant_code');
  if (savedCode) {
  setTenantCode(savedCode);
@@ -44,11 +53,12 @@ export default function LoginScreen() {
 }
 
  // Kiểm tra sinh trắc học đã lưu
- const secureStoreAvailable = await SecureStore.isAvailableAsync();
  if (secureStoreAvailable) {
    const savedBiometricCreds = await SecureStore.getItemAsync('biometric_credentials');
    if (savedBiometricCreds) {
      setIsBiometricSaved(true);
+   } else {
+     setIsBiometricSaved(false);
    }
  }
 
@@ -221,14 +231,28 @@ export default function LoginScreen() {
       }
 
       const hasHardware = await LocalAuthentication.hasHardwareAsync();
-      const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-
       if (!hasHardware) {
         Alert.alert('Thông báo', 'Thiết bị của bạn không hỗ trợ tính năng bảo mật sinh trắc học.');
         return;
       }
+
+      const isEnrolled = await LocalAuthentication.isEnrolledAsync();
       if (!isEnrolled) {
-        Alert.alert('Thông báo', 'Thiết bị chưa được đăng ký Vân tay hoặc Face ID trong Cài đặt hệ thống.');
+        Alert.alert(
+          'Quyền sinh trắc học',
+          'Không thể sử dụng sinh trắc học. Vui lòng kiểm tra xem bạn đã đăng ký Face ID/Vân tay và cấp quyền truy cập Face ID cho ứng dụng trong Cài đặt hệ thống chưa.',
+          [
+            { text: 'Hủy', style: 'cancel' },
+            { 
+              text: 'Mở Cài đặt', 
+              onPress: () => {
+                Linking.openSettings().catch(() => {
+                  Alert.alert('Lỗi', 'Không thể mở Cài đặt hệ thống.');
+                });
+              } 
+            }
+          ]
+        );
         return;
       }
 
