@@ -11,6 +11,7 @@ import {eq} from 'drizzle-orm';
 import {KeepAliveManager} from '../../lib/sync/KeepAliveManager';
 import {getApiBaseUrl, getApiHeaders} from '../../lib/api/config';
 import { isTimeChargeProduct } from '@oni/core';
+import {initializePushNotifications} from '../../lib/notifications/push';
 
 // Import UI components dùng chung cao cấp
 import {Header} from '../../components/layout/Header';
@@ -689,6 +690,10 @@ export default function DashboardScreen() {
     useCallback(() => {
       reloadPermissions();
       loadDashboardData(false);
+      // Khởi tạo và đăng ký Push Notifications khi đã vào Dashboard (sau login & chọn chi nhánh)
+      initializePushNotifications().catch((err) => {
+        console.warn('[Dashboard] Push notification init skipped:', err);
+      });
     }, [loadDashboardData, reloadPermissions])
   );
 

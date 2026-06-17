@@ -83,12 +83,6 @@ export default function RootLayout() {
     // Ép buộc NativeWind luôn sử dụng chế độ Sáng (Light Theme)
     setColorScheme('light');
 
-    // Khởi tạo Push Notifications (Tầng 2)
-    // initializePushNotifications tự kiểm tra expo-notifications có sẵn không
-    initializePushNotifications().catch((err) => {
-      console.warn('[RootLayout] Push notification init skipped:', err);
-    });
-
     // Xử lý khi user tap vào push notification
     const cleanup = addNotificationResponseListener((response) => {
       const data = response?.notification?.request?.content?.data;

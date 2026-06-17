@@ -95,8 +95,6 @@ export default function LoginScreen() {
       if (hasHardware && isEnrolled) {
         const savedBiometricCreds = await SecureStore.getItemAsync('biometric_credentials');
         let shouldOffer = false;
-        let alertTitle = 'Kích hoạt sinh trắc học';
-        let alertMsg = 'Bạn có muốn kích hoạt đăng nhập nhanh bằng Vân tay / Face ID cho lần sau không?';
 
         if (!savedBiometricCreds) {
           shouldOffer = true;
@@ -105,8 +103,6 @@ export default function LoginScreen() {
             const creds = JSON.parse(savedBiometricCreds);
             if (creds.tenant !== tenant || creds.email !== loginEmail) {
               shouldOffer = true;
-              alertTitle = 'Cập nhật sinh trắc học';
-              alertMsg = `Bạn muốn cập nhật đăng nhập sinh trắc học cho tài khoản mới: ${loginEmail} (${tenant})?`;
             }
           } catch (e) {
             shouldOffer = true;
@@ -114,63 +110,40 @@ export default function LoginScreen() {
         }
 
         if (shouldOffer) {
-          Alert.alert(
-            alertTitle,
-            alertMsg,
-            [
-              {
-                text: 'Để sau',
-                style: 'cancel',
-                onPress: async () => {
-                  try {
-                    await AsyncStorage.setItem('biometrics_declined', 'true');
-                  } catch (e) {}
-                  router.push('/(auth)/select-branch');
-                }
-              },
-              {
-                text: savedBiometricCreds ? 'Cập nhật' : 'Kích hoạt',
-                onPress: async () => {
-                  try {
-                    const authResult = await LocalAuthentication.authenticateAsync({
-                      promptMessage: 'Xác thực để liên kết sinh trắc học',
-                    });
+          try {
+            const authResult = await LocalAuthentication.authenticateAsync({
+              promptMessage: 'Xác thực để kích hoạt đăng nhập nhanh bằng sinh trắc học',
+            });
 
-                    if (authResult.success) {
-                      await SecureStore.setItemAsync(
-                        'biometric_credentials',
-                        JSON.stringify({ tenant, email: loginEmail, password: loginPass })
-                      );
-                      setIsBiometricSaved(true);
-                      try {
-                        await AsyncStorage.removeItem('biometrics_declined');
-                      } catch (e) {}
-                      Alert.alert('Thành công', 'Đã lưu cấu hình đăng nhập sinh trắc học!', [
-                        {
-                          text: 'OK',
-                          onPress: () => router.push('/(auth)/select-branch')
-                        }
-                      ]);
-                    } else {
-                      Alert.alert('Thất bại', 'Xác thực không thành công, vui lòng thử lại sau.', [
-                        {
-                          text: 'OK',
-                          onPress: () => router.push('/(auth)/select-branch')
-                        }
-                      ]);
-                    }
-                  } catch (ae) {
-                    router.push('/(auth)/select-branch');
-                  }
+            if (authResult.success) {
+              await SecureStore.setItemAsync(
+                'biometric_credentials',
+                JSON.stringify({ tenant, email: loginEmail, password: loginPass })
+              );
+              setIsBiometricSaved(true);
+              try {
+                await AsyncStorage.removeItem('biometrics_declined');
+              } catch (e) {}
+              Alert.alert('Thành công', 'Đã lưu cấu hình đăng nhập sinh trắc học!', [
+                {
+                  text: 'OK',
+                  onPress: () => router.push('/(auth)/select-branch')
                 }
-              }
-            ]
-          );
+              ]);
+            } else {
+              try {
+                await AsyncStorage.setItem('biometrics_declined', 'true');
+              } catch (e) {}
+              router.push('/(auth)/select-branch');
+            }
+          } catch (ae) {
+            router.push('/(auth)/select-branch');
+          }
           return true;
         }
       }
     } catch (err) {
-      console.log('Lỗi kiểm tra đề xuất sinh trắc học:', err);
+      console.log('Lỗi kiểm tra sinh trắc học:', err);
     }
     return false;
   };

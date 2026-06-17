@@ -12,7 +12,8 @@ import {
  Easing,
  KeyboardAvoidingView,
  TouchableWithoutFeedback,
- Keyboard
+ Keyboard,
+ Linking
 } from 'react-native';
 import {CameraView, useCameraPermissions} from 'expo-camera';
 import {Ionicons} from '@expo/vector-icons';
@@ -61,6 +62,13 @@ export function BarcodeScannerModal({
  stopLaserAnimation();
 }
 }, [visible, permission?.granted]);
+
+ // Tự động gọi xin quyền camera khi mở modal lần đầu (chưa quyết định)
+ useEffect(() => {
+   if (visible && permission && permission.status === 'undetermined') {
+     requestPermission();
+   }
+ }, [visible, permission]);
 
  const startLaserAnimation = () => {
  laserAnim.setValue(0);
@@ -140,46 +148,56 @@ export function BarcodeScannerModal({
  setShowManualInput(false);
 };
 
- // Render requesting permission status
- const renderPermissionGate = () => {
- if (!permission) {
- // Loading camera status
- return (
- <View className="flex-1 justify-center items-center py-10 bg-slate-50">
- <ActivityIndicator size="large" color="#fa5908" />
- <Text className="text-xs text-slate-500 font-medium mt-3">Đang kết nối camera...</Text>
- </View>
- );
-}
+  // Render requesting permission status
+  const renderPermissionGate = () => {
+    if (!permission) {
+      // Loading camera status
+      return (
+        <View className="flex-1 justify-center items-center py-10 bg-slate-50">
+          <ActivityIndicator size="large" color="#fa5908" />
+          <Text className="text-xs text-slate-500 font-medium mt-3">Đang kết nối camera...</Text>
+        </View>
+      );
+    }
 
- if (!permission.granted) {
- // Permission not granted
- return (
- <View className="flex-1 justify-center items-center px-6 py-8 bg-slate-50">
- <View className="bg-orange-50 p-5 rounded-full mb-4 border border-orange-100">
- <Ionicons name="camera-outline" size={48} color="#fa5908" />
- </View>
- <Text className="text-base font-medium text-slate-800 text-center mb-2">
- Yêu cầu quyền truy cập Camera
- </Text>
- <Text className="text-xs text-slate-500 text-center mb-6 leading-relaxed">
- Chúng tôi cần quyền camera để bạn có thể quét mã vạch sản phẩm trực tiếp từ ống kính camera trên thiết bị di động của mình.
- </Text>
- 
- <TouchableOpacity
- activeOpacity={0.8}
- onPress={requestPermission}
- className="bg-orange-500 px-6 py-3 rounded-xl flex-row items-center justify-center active:scale-95"
- >
- <Ionicons name="shield-checkmark-outline" size={18} color="white" />
- <Text className="text-xs font-semibold text-white ml-2">Cấp quyền Camera</Text>
- </TouchableOpacity>
- </View>
- );
-}
+    // Đang chờ người dùng quyết định xin quyền từ prompt hệ thống
+    if (permission.status === 'undetermined') {
+      return (
+        <View className="flex-1 justify-center items-center py-10 bg-slate-50">
+          <ActivityIndicator size="large" color="#fa5908" />
+          <Text className="text-xs text-slate-500 font-medium mt-3">Đang yêu cầu quyền truy cập camera...</Text>
+        </View>
+      );
+    }
 
- return null;
-};
+    if (!permission.granted) {
+      // Permission denied - Hiển thị hướng dẫn mở cài đặt thiết bị
+      return (
+        <View className="flex-1 justify-center items-center px-6 py-8 bg-slate-50">
+          <View className="bg-orange-50 p-5 rounded-full mb-4 border border-orange-100">
+            <Ionicons name="camera-outline" size={48} color="#fa5908" />
+          </View>
+          <Text className="text-base font-medium text-slate-800 text-center mb-2">
+            Quyền truy cập Camera bị từ chối
+          </Text>
+          <Text className="text-xs text-slate-500 text-center mb-6 leading-relaxed">
+            Chúng tôi cần quyền camera để bạn có thể quét mã vạch sản phẩm. Vui lòng cấp quyền camera trong Cài đặt thiết bị.
+          </Text>
+          
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={() => Linking.openSettings()}
+            className="bg-orange-500 px-6 py-3 rounded-xl flex-row items-center justify-center active:scale-95"
+          >
+            <Ionicons name="settings-outline" size={18} color="white" />
+            <Text className="text-xs font-semibold text-white ml-2">Mở Cài đặt</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    return null;
+  };
 
  const isCameraReady = permission?.granted && Platform.OS !== 'web';
 
