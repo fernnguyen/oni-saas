@@ -178,6 +178,7 @@ export function ShopSettingsForm({
 
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<'general' | 'sales' | 'debt' | 'sepay' | 'crm' | 'telegram' | 'payment-methods'>('general');
+  const [isIndustryUnlocked, setIsIndustryUnlocked] = useState(false);
 
   const router = useRouter();
   
@@ -960,57 +961,73 @@ export function ShopSettingsForm({
             </Section>
 
             <Section title="Ngành kinh doanh chi nhánh" description="Cấu hình nghiệp vụ và giao diện bán hàng chuyên biệt cho chi nhánh này">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2 pr-1">
-                {INDUSTRY_TYPES.map((type) => {
-                  const config = VERTICAL_REGISTRY[type];
-                  const isActive = form.industry_type === type;
-                  const isCurrent = industryType === type;
-                  
-                  const cardVisuals = {
-                    retail: 'from-blue-500/10 to-indigo-500/10 border-blue-500/30 text-indigo-700 bg-blue-50/20',
-                    fnb: 'from-orange-500/10 to-rose-500/10 border-orange-500/30 text-rose-700 bg-orange-50/20',
-                    billiards: 'from-emerald-500/10 to-teal-500/10 border-emerald-500/30 text-emerald-700 bg-emerald-50/20',
-                    sports_court: 'from-violet-500/10 to-fuchsia-500/10 border-violet-500/30 text-violet-700 bg-violet-50/20',
-                    lodging: 'from-cyan-500/10 to-blue-500/10 border-cyan-500/30 text-blue-700 bg-cyan-50/20',
-                    fashion: 'from-pink-500/10 to-rose-500/10 border-pink-500/30 text-pink-700 bg-pink-50/20',
-                    service_hourly: 'from-amber-500/10 to-orange-500/10 border-amber-500/30 text-amber-700 bg-amber-50/20',
-                  };
-                  const vStyle = cardVisuals[type] || cardVisuals.retail;
-
-                  return (
+              <div className="relative mt-2">
+                {!isIndustryUnlocked && (
+                  <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-slate-50/70 backdrop-blur-[2px] rounded-2xl border border-slate-200/50 p-6 text-center animate-fade-in">
+                    <p className="text-xs font-semibold text-slate-700 max-w-md leading-relaxed mb-3">
+                      ⚠️ Việc thay đổi ngành nghề kinh doanh sẽ ảnh hưởng trực tiếp đến cấu trúc dữ liệu và các dữ liệu liên quan khác, hãy chắc chắn rằng bạn hiểu rõ về việc này, nếu lựa chọn sai và mất dữ liệu, chúng tôi sẽ không chịu trách nhiệm...
+                    </p>
                     <button
-                      key={type}
                       type="button"
-                      disabled={!canManage}
-                      onClick={() => set('industry_type', type)}
-                      className={`cursor-pointer group relative rounded-2xl border-2 p-3 text-left transition-all duration-300 hover:-translate-y-0.5 flex flex-col justify-between ${isActive
-                          ? `${vStyle} border-primary ring-2 ring-primary/10 shadow-sm`
-                          : 'border-slate-100 bg-white hover:border-slate-300 hover:shadow-xs'
-                        } ${!canManage ? 'opacity-65 cursor-not-allowed' : ''}`}
+                      onClick={() => setIsIndustryUnlocked(true)}
+                      className="cursor-pointer rounded-xl bg-orange-600 hover:bg-orange-700 px-4 py-2 text-xs font-bold text-white shadow-sm transition-all active:scale-95"
                     >
-                      <div className="flex items-center gap-2.5">
-                        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 transition-transform duration-300 group-hover:scale-110 shrink-0">
-                          <IndustryIcon type={type} className="h-4.5 w-4.5" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5">
-                            <p className="text-xs font-bold text-slate-800 leading-snug truncate">
-                              {config.label}
-                            </p>
-                            {isCurrent && (
-                              <span className="text-[8px] font-bold uppercase tracking-wider text-primary bg-primary/10 px-1 py-0.5 rounded-full border border-primary/20 shrink-0 scale-90">
-                                Đang dùng
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-[9px] text-slate-400 mt-0.5 line-clamp-1">
-                            {config.description}
-                          </p>
-                        </div>
-                      </div>
+                      Tôi biết mình đang làm gì...
                     </button>
-                  );
-                })}
+                  </div>
+                )}
+                <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 pr-1 transition-all duration-300 ${!isIndustryUnlocked ? 'blur-[1.5px] pointer-events-none select-none opacity-60' : ''}`}>
+                  {INDUSTRY_TYPES.map((type) => {
+                    const config = VERTICAL_REGISTRY[type];
+                    const isActive = form.industry_type === type;
+                    const isCurrent = industryType === type;
+                    
+                    const cardVisuals = {
+                      retail: 'from-blue-500/10 to-indigo-500/10 border-blue-500/30 text-indigo-700 bg-blue-50/20',
+                      fnb: 'from-orange-500/10 to-rose-500/10 border-orange-500/30 text-rose-700 bg-orange-50/20',
+                      billiards: 'from-emerald-500/10 to-teal-500/10 border-emerald-500/30 text-emerald-700 bg-emerald-50/20',
+                      sports_court: 'from-violet-500/10 to-fuchsia-500/10 border-violet-500/30 text-violet-700 bg-violet-50/20',
+                      lodging: 'from-cyan-500/10 to-blue-500/10 border-cyan-500/30 text-blue-700 bg-cyan-50/20',
+                      fashion: 'from-pink-500/10 to-rose-500/10 border-pink-500/30 text-pink-700 bg-pink-50/20',
+                      service_hourly: 'from-amber-500/10 to-orange-500/10 border-amber-500/30 text-amber-700 bg-amber-50/20',
+                    };
+                    const vStyle = cardVisuals[type] || cardVisuals.retail;
+
+                    return (
+                      <button
+                        key={type}
+                        type="button"
+                        disabled={!canManage}
+                        onClick={() => set('industry_type', type)}
+                        className={`cursor-pointer group relative rounded-2xl border-2 p-3 text-left transition-all duration-300 hover:-translate-y-0.5 flex flex-col justify-between ${isActive
+                            ? `${vStyle} border-primary ring-2 ring-primary/10 shadow-sm`
+                            : 'border-slate-100 bg-white hover:border-slate-300 hover:shadow-xs'
+                          } ${!canManage ? 'opacity-65 cursor-not-allowed' : ''}`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 transition-transform duration-300 group-hover:scale-110 shrink-0">
+                            <IndustryIcon type={type} className="h-4.5 w-4.5" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <p className="text-xs font-bold text-slate-800 leading-snug truncate">
+                                {config.label}
+                              </p>
+                              {isCurrent && (
+                                <span className="text-[8px] font-bold uppercase tracking-wider text-primary bg-primary/10 px-1 py-0.5 rounded-full border border-primary/20 shrink-0 scale-90">
+                                  Đang dùng
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[9px] text-slate-400 mt-0.5 line-clamp-1">
+                              {config.description}
+                            </p>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </Section>
 
