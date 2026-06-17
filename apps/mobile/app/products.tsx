@@ -1,4 +1,4 @@
-import React, {useState, useCallback, useRef} from 'react';
+import React, {useState, useCallback, useRef, useEffect} from 'react';
 import {
   Text,
   View,
@@ -11,7 +11,9 @@ import {
   FlatList,
   Pressable,
   Image,
-  Animated
+  Animated,
+  Linking,
+  Alert
 } from 'react-native';
 import {Ionicons, MaterialCommunityIcons} from '@expo/vector-icons';
 import {SafeAreaView} from 'react-native-safe-area-context';
@@ -73,6 +75,28 @@ export default function ProductsScreen() {
   const [showUrlInput, setShowUrlInput] = useState(false);
   const [showInlineCategoryForm, setShowInlineCategoryForm] = useState(false);
 
+  // Trạng thái cấp quyền camera và thư viện ảnh
+  const [cameraPermissionStatus, setCameraPermissionStatus] = useState<string>('undetermined');
+  const [libraryPermissionStatus, setLibraryPermissionStatus] = useState<string>('undetermined');
+
+  const checkPermissions = async () => {
+    try {
+      const cameraRes = await ImagePicker.getCameraPermissionsAsync();
+      setCameraPermissionStatus(cameraRes.status);
+
+      const libraryRes = await ImagePicker.getMediaLibraryPermissionsAsync();
+      setLibraryPermissionStatus(libraryRes.status);
+    } catch (err) {
+      console.warn('Lỗi kiểm tra quyền camera/thư viện:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (isFormModalOpen) {
+      checkPermissions();
+    }
+  }, [isFormModalOpen]);
+
   // State Confirmation Dialog
   const [confirmDialog, setConfirmDialog] = useState<{
     visible: boolean;
@@ -102,8 +126,20 @@ export default function ProductsScreen() {
   const handlePickImage = async () => {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      setLibraryPermissionStatus(status);
       if (status !== 'granted') {
         showToast('Cần quyền truy cập thư viện ảnh để thay đổi hình ảnh!', 'error');
+        Alert.alert(
+          'Quyền truy cập Thư viện ảnh',
+          'Ứng dụng cần quyền truy cập Thư viện ảnh để chọn ảnh sản phẩm từ thiết bị của bạn. Vui lòng cấp quyền trong Cài đặt.',
+          [
+            { text: 'Hủy', style: 'cancel' },
+            { 
+              text: 'Mở Cài đặt', 
+              onPress: () => Linking.openSettings().catch(() => {}) 
+            }
+          ]
+        );
         return;
       }
 
@@ -128,8 +164,20 @@ export default function ProductsScreen() {
   const handleTakePhoto = async () => {
     try {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      setCameraPermissionStatus(status);
       if (status !== 'granted') {
         showToast('Cần quyền truy cập camera để chụp ảnh sản phẩm!', 'error');
+        Alert.alert(
+          'Quyền truy cập Camera',
+          'Ứng dụng cần quyền truy cập Camera để chụp ảnh sản phẩm từ thiết bị của bạn. Vui lòng cấp quyền trong Cài đặt.',
+          [
+            { text: 'Hủy', style: 'cancel' },
+            { 
+              text: 'Mở Cài đặt', 
+              onPress: () => Linking.openSettings().catch(() => {}) 
+            }
+          ]
+        );
         return;
       }
 
@@ -755,8 +803,8 @@ export default function ProductsScreen() {
   return (
     <SafeAreaView edges={['top', 'left', 'right']} className="flex-1 bg-slate-50">
       
-      {/* Toast thông báo */}
-      {renderToast()}
+      {/* Toast thông báo ngoài màn hình chính */}
+      {!isFormModalOpen && renderToast()}
 
       {/* Header */}
       <Header 
@@ -986,6 +1034,9 @@ export default function ProductsScreen() {
                   >
                     <Ionicons name="camera-outline" size={14} color="#64748b" className="mr-1" />
                     <Text className="text-xxs font-bold text-slate-600">Chụp ảnh</Text>
+                    {cameraPermissionStatus === 'denied' && (
+                      <Ionicons name="alert-circle" size={12} color="#d97706" style={{ marginLeft: 3 }} />
+                    )}
                   </TouchableOpacity>
 
                   <TouchableOpacity 
@@ -994,6 +1045,9 @@ export default function ProductsScreen() {
                   >
                     <Ionicons name="image-outline" size={14} color="#64748b" className="mr-1" />
                     <Text className="text-xxs font-bold text-slate-600">Chọn ảnh</Text>
+                    {libraryPermissionStatus === 'denied' && (
+                      <Ionicons name="alert-circle" size={12} color="#d97706" style={{ marginLeft: 3 }} />
+                    )}
                   </TouchableOpacity>
 
                   <TouchableOpacity 
@@ -1410,6 +1464,9 @@ export default function ProductsScreen() {
               </View>
             </View>
           )}
+
+          {/* Toast thông báo bên trong Form Modal */}
+          {isFormModalOpen && renderToast()}
         </View>
       </Modal>
 
