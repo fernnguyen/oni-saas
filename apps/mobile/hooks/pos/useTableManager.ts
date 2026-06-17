@@ -384,7 +384,17 @@ export function useTableManager(props: UseTableManagerProps) {
 
       const serverItemsMap = new Map<string, any>();
       for (const item of serverItems) {
-        serverItemsMap.set(item.product_id, item);
+        let modifiersHash = 'none';
+        if (item.modifiers) {
+          try {
+            const parsed = typeof item.modifiers === 'string' ? JSON.parse(item.modifiers) : item.modifiers;
+            if (Array.isArray(parsed)) {
+              modifiersHash = parsed.map((m: any) => m.option).sort().join(',') || 'none';
+            }
+          } catch(e) {}
+        }
+        const key = `${item.product_id}_${item.variant_label || 'none'}_${modifiersHash}`;
+        serverItemsMap.set(key, item);
       }
 
       // Đồng bộ hóa vi sai (Differential Sync)
@@ -417,12 +427,15 @@ export function useTableManager(props: UseTableManagerProps) {
             body: JSON.stringify({
               order_id: orderId,
               line_no: lineNo,
-              product_id: prodId,
+              product_id: cartItem.productId,
               product_name: cartItem.name,
               qty: String(cartItem.quantity),
               unit_price: String(cartItem.price),
               line_total: String(lineTotal),
-              line_discount: '0'
+              line_discount: '0',
+              variant_label: cartItem.variant_label || '',
+              modifiers: cartItem.modifiers ? JSON.stringify(cartItem.modifiers) : '',
+              modifier_total: String(cartItem.modifier_total || 0),
             })
           });
         }
@@ -1328,7 +1341,7 @@ export function useTableManager(props: UseTableManagerProps) {
           await db.insert(schema.order_items).values({
             id: `ORDI-${orderId}-${prodId}`,
             order_id: orderId,
-            product_id: prodId,
+            product_id: item.productId,
             product_name: item.name,
             qty: item.quantity,
             unit_price: item.price,
