@@ -10,8 +10,22 @@ import {usePermissions} from '../../lib/auth/PermissionsContext';
 import {eq} from 'drizzle-orm';
 import {KeepAliveManager} from '../../lib/sync/KeepAliveManager';
 import {getApiBaseUrl, getApiHeaders} from '../../lib/api/config';
-import { isTimeChargeProduct } from '@oni/core';
 import {initializePushNotifications} from '../../lib/notifications/push';
+
+function localIsTimeChargeProduct(
+  productId: string | null | undefined,
+  productName?: string | null | undefined
+): boolean {
+  if (productId) {
+    const idLower = productId.toLowerCase();
+    return idLower.startsWith('time_charge') || 
+           idLower.includes('time_charge') || 
+           idLower.includes('time-charge') ||
+           idLower.includes('billiard-time') ||
+           idLower.includes('billiard_time');
+  }
+  return false;
+}
 
 // Import UI components dùng chung cao cấp
 import {Header} from '../../components/layout/Header';
@@ -49,7 +63,17 @@ export default function DashboardScreen() {
     todayGrowth: '+0.0%',
     monthGrowth: '+0.0%',
     aovGrowth: '+0.0%',
-    refundRate: '0.0%'
+    refundRate: '0.0%',
+    resourceStats: {
+      enabled: false,
+      resourceLabel: 'Phòng/Bàn',
+      totalResources: 0,
+      activeResources: 0,
+      occupancyRate: 0,
+      mostProductiveToday: null as any,
+      mostProductiveMonth: null as any,
+      activeResourcesList: [] as Array<{ id: string; name: string; zone: string }>
+    }
   });
 
   const getShiftTopProductsOffline = async (shiftId: string) => {
@@ -65,7 +89,7 @@ export default function DashboardScreen() {
 
       const productMap: Record<string, {name: string; qty: number}> = {};
       shiftItems.forEach((it: any) => {
-        if (isTimeChargeProduct(it.product_id, it.product_name)) {
+        if (localIsTimeChargeProduct(it.product_id, it.product_name)) {
           return;
         }
         if (!productMap[it.product_id]) {
@@ -104,6 +128,96 @@ export default function DashboardScreen() {
     try {
       let allOrders = await db.select().from(schema.orders);
       let allOrderItems = await db.select().from(schema.order_items);
+
+      // Tính toán thống kê phòng bàn cục bộ/offline
+      const activeShopIndustry = await AsyncStorage.getItem('active_shop_industry') || 'retail';
+      let resourceStats = {
+        enabled: false,
+        resourceLabel: 'Phòng/Bàn',
+        totalResources: 0,
+        activeResources: 0,
+        occupancyRate: 0,
+        mostProductiveToday: null as any,
+        mostProductiveMonth: null as any,
+        activeResourcesList: [] as Array<{ id: string; name: string; zone: string }>
+      };
+
+      const hasResources = ['fnb', 'billiards', 'sports_court', 'lodging', 'service_hourly'].includes(activeShopIndustry);
+      if (hasResources) {
+        let resourceLabel = 'Phòng/Bàn';
+        if (activeShopIndustry === 'fnb' || activeShopIndustry === 'billiards') resourceLabel = 'Bàn';
+        else if (activeShopIndustry === 'sports_court') resourceLabel = 'Sân';
+        else if (activeShopIndustry === 'lodging') resourceLabel = 'Phòng';
+        else if (activeShopIndustry === 'service_hourly') resourceLabel = 'Phòng/Máy';
+
+        const localResList = await db.select().from(schema.location_resources);
+        const totalResources = localResList.length;
+        const activeResources = localResList.filter((r: any) => r.status === 'playing' || r.status === 'occupied').length;
+        const occupancyRate = totalResources > 0 ? (activeResources / totalResources) * 100 : 0;
+
+        const resourceRevenueTodayOffline: Record<string, { name: string; revenue: number; count: number }> = {}
+        const resourceRevenueMonthOffline: Record<string, { name: string; revenue: number; count: number }> = {}
+        const localResMap = new Map<string, string>(localResList.map((r: any) => [r.id, r.name]))
+
+        const todayMs = new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()).getTime();
+        const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime();
+
+        allOrders.forEach((o: any) => {
+          if (o.status === 'returned') return;
+          const t = new Date(o.created_at || 0).getTime();
+          let resourceId = '';
+          if (o.metadata) {
+            try {
+              const meta = typeof o.metadata === 'string' ? JSON.parse(o.metadata) : o.metadata;
+              resourceId = meta?.resource_id || '';
+            } catch (e) {}
+          }
+          if (!resourceId) return;
+
+          const finalName = localResMap.get(resourceId) || resourceId;
+
+          if (t >= todayMs) {
+            if (!resourceRevenueTodayOffline[resourceId]) {
+              resourceRevenueTodayOffline[resourceId] = { name: finalName, revenue: 0, count: 0 }
+            }
+            resourceRevenueTodayOffline[resourceId].revenue += o.total_amount;
+            resourceRevenueTodayOffline[resourceId].count += 1;
+          }
+
+          if (t >= monthStart) {
+            if (!resourceRevenueMonthOffline[resourceId]) {
+              resourceRevenueMonthOffline[resourceId] = { name: finalName, revenue: 0, count: 0 }
+            }
+            resourceRevenueMonthOffline[resourceId].revenue += o.total_amount;
+            resourceRevenueMonthOffline[resourceId].count += 1;
+          }
+        });
+
+        const sortedTodayOffline = Object.entries(resourceRevenueTodayOffline)
+          .map(([id, v]) => ({ id, ...v }))
+          .sort((a, b) => b.revenue - a.revenue)
+        const sortedMonthOffline = Object.entries(resourceRevenueMonthOffline)
+          .map(([id, v]) => ({ id, ...v }))
+          .sort((a, b) => b.revenue - a.revenue)
+
+        const mostProductiveToday = sortedTodayOffline[0] || null;
+        const mostProductiveMonth = sortedMonthOffline[0] || null;
+
+        const activeResourcesList = localResList
+          .filter((r: any) => r.status === 'playing' || r.status === 'occupied')
+          .map((r: any) => ({ id: r.id, name: r.name, zone: r.zone }));
+
+        resourceStats = {
+          enabled: true,
+          resourceLabel,
+          totalResources,
+          activeResources,
+          occupancyRate,
+          mostProductiveToday,
+          mostProductiveMonth,
+          activeResourcesList
+        };
+      }
 
       if (isOwner) {
         // Tính toán thô cho Owner
@@ -145,6 +259,9 @@ export default function DashboardScreen() {
         // Bestsellers
         const productMap: Record<string, {name: string; qty: number}> = {};
         allOrderItems.forEach((it: any) => {
+          if (localIsTimeChargeProduct(it.product_id, it.product_name)) {
+            return;
+          }
           if (!productMap[it.product_id]) {
             productMap[it.product_id] = {name: it.product_name, qty: 0};
           }
@@ -214,7 +331,8 @@ export default function DashboardScreen() {
           todayGrowth,
           monthGrowth: '+4.8%',
           aovGrowth,
-          refundRate: '0.0%'
+          refundRate: '0.0%',
+          resourceStats
         });
         setCacheStatus('OFFLINE ⚠️');
 
@@ -302,7 +420,8 @@ export default function DashboardScreen() {
           todayGrowth: '+0.0%',
           monthGrowth: cashRatioStr,
           aovGrowth: '+0.0%',
-          refundRate: '0.0%'
+          refundRate: '0.0%',
+          resourceStats
         });
         setCacheStatus('OFFLINE ⚠️');
       }
@@ -327,6 +446,7 @@ export default function DashboardScreen() {
 
       const activeShopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
       const activeShopName = await AsyncStorage.getItem('active_shop_name') || 'Chi nhánh chính';
+      const activeShopIndustry = await AsyncStorage.getItem('active_shop_industry') || 'retail';
       const activeShiftId = await AsyncStorage.getItem('active_shift_id');
       const savedEmail = await AsyncStorage.getItem('saved_email') || 'mobile-app';
       const savedRole = await AsyncStorage.getItem('active_user_role_code') || 'staff';
@@ -344,6 +464,15 @@ export default function DashboardScreen() {
       const cacheKey = canViewReports 
         ? `reports_overview_${activeShopId}` 
         : `shift_overview_${activeShopId}_${savedEmail}`;
+
+      if (shouldForce) {
+        try {
+          await db.delete(schema.localCaches)
+            .where(eq(schema.localCaches.cache_key, cacheKey));
+        } catch (delErr) {
+          console.warn('Lỗi xóa cache SQLite:', delErr);
+        }
+      }
 
       if (!shouldForce) {
         try {
@@ -415,8 +544,10 @@ export default function DashboardScreen() {
                 refundRate = ((refundRev / monthRev) * 100).toFixed(1) + '%';
               }
 
-              const maxQty = resJson.topProducts && resJson.topProducts.length > 0 ? resJson.topProducts[0].qty : 1;
-              const topProductsMapped = (resJson.topProducts || []).slice(0, 5).map((p: any) => {
+              const filteredTopProducts = (resJson.topProducts || [])
+                .filter((p: any) => !localIsTimeChargeProduct(p.id, p.name));
+              const maxQty = filteredTopProducts.length > 0 ? filteredTopProducts[0].qty : 1;
+              const topProductsMapped = filteredTopProducts.slice(0, 5).map((p: any) => {
                 let icon = 'cafe-outline';
                 const nameLower = p.name.toLowerCase();
                 if (nameLower.includes('cà phê') || nameLower.includes('coffee')) icon = 'cafe-outline';
@@ -466,7 +597,17 @@ export default function DashboardScreen() {
                 todayGrowth,
                 monthGrowth,
                 aovGrowth: todayOrd > 0 ? '+4.2%' : '+0.0%',
-                refundRate
+                refundRate,
+                resourceStats: resJson.resourceStats || {
+                  enabled: false,
+                  resourceLabel: 'Phòng/Bàn',
+                  totalResources: 0,
+                  activeResources: 0,
+                  occupancyRate: 0,
+                  mostProductiveToday: null,
+                  mostProductiveMonth: null,
+                  activeResourcesList: []
+                }
               };
 
               setStats(newStats);
@@ -609,6 +750,75 @@ export default function DashboardScreen() {
 
                 const topProductsMapped = await getShiftTopProductsOffline(activeShiftId);
 
+                let resourceStats = {
+                  enabled: false,
+                  resourceLabel: 'Phòng/Bàn',
+                  totalResources: 0,
+                  activeResources: 0,
+                  occupancyRate: 0,
+                  mostProductiveToday: null as any,
+                  mostProductiveMonth: null as any,
+                  activeResourcesList: [] as any[]
+                };
+                try {
+                  const hasResources = ['fnb', 'billiards', 'sports_court', 'lodging', 'service_hourly'].includes(activeShopIndustry);
+                  if (hasResources) {
+                    let resourceLabel = 'Phòng/Bàn';
+                    if (activeShopIndustry === 'fnb' || activeShopIndustry === 'billiards') resourceLabel = 'Bàn';
+                    else if (activeShopIndustry === 'sports_court') resourceLabel = 'Sân';
+                    else if (activeShopIndustry === 'lodging') resourceLabel = 'Phòng';
+                    else if (activeShopIndustry === 'service_hourly') resourceLabel = 'Phòng/Máy';
+
+                    const localResList = await db.select().from(schema.location_resources);
+                    const totalResources = localResList.length;
+                    const activeResources = localResList.filter((r: any) => r.status === 'playing' || r.status === 'occupied').length;
+                    const occupancyRate = totalResources > 0 ? (activeResources / totalResources) * 100 : 0;
+
+                    const resourceRevenueTodayOffline: Record<string, { name: string; revenue: number; count: number }> = {}
+                    const localResMap = new Map<string, string>(localResList.map((r: any) => [r.id, r.name]))
+
+                    shiftOrders.forEach((o: any) => {
+                      let resourceId = '';
+                      if (o.metadata) {
+                        try {
+                          const meta = typeof o.metadata === 'string' ? JSON.parse(o.metadata) : o.metadata;
+                          resourceId = meta?.resource_id || '';
+                        } catch (e) {}
+                      }
+                      if (!resourceId) return;
+                      const finalName = localResMap.get(resourceId) || resourceId;
+                      if (!resourceRevenueTodayOffline[resourceId]) {
+                        resourceRevenueTodayOffline[resourceId] = { name: finalName, revenue: 0, count: 0 }
+                      }
+                      resourceRevenueTodayOffline[resourceId].revenue += parseFloat(o.total_amount || '0');
+                      resourceRevenueTodayOffline[resourceId].count += 1;
+                    });
+
+                    const sortedTodayOffline = Object.entries(resourceRevenueTodayOffline)
+                      .map(([id, v]) => ({ id, ...v }))
+                      .sort((a, b) => b.revenue - a.revenue);
+
+                    const mostProductiveToday = sortedTodayOffline[0] || null;
+
+                    const activeResourcesList = localResList
+                      .filter((r: any) => r.status === 'playing' || r.status === 'occupied')
+                      .map((r: any) => ({ id: r.id, name: r.name, zone: r.zone }));
+
+                    resourceStats = {
+                      enabled: true,
+                      resourceLabel,
+                      totalResources,
+                      activeResources,
+                      occupancyRate,
+                      mostProductiveToday,
+                      mostProductiveMonth: mostProductiveToday,
+                      activeResourcesList
+                    };
+                  }
+                } catch (e) {
+                  console.warn('Lỗi tính resourceStats cho cashier:', e);
+                }
+
                 const newStats = {
                   todayRevenue: todayRev,
                   todayOrders: todayOrd,
@@ -623,7 +833,8 @@ export default function DashboardScreen() {
                   todayGrowth,
                   monthGrowth,
                   aovGrowth,
-                  refundRate
+                  refundRate,
+                  resourceStats
                 };
 
                 setStats(newStats);
@@ -965,6 +1176,79 @@ export default function DashboardScreen() {
                 </>
               )}
             </View>
+
+            {/* Thống kê Phòng/Bàn/Sân theo ngành nghề */}
+            {stats.resourceStats?.enabled && (
+              <View className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm mb-4">
+                <Text className="text-xxs font-semibold text-slate-455 mb-3 px-1">
+                  ⚡ Trạng thái {stats.resourceStats.resourceLabel}
+                </Text>
+                
+                <View className="flex-row justify-between items-center px-1 mb-2">
+                  <View className="flex-row items-baseline">
+                    <Text className="text-2xl font-extrabold text-slate-800">
+                      {stats.resourceStats.activeResources}
+                    </Text>
+                    <Text className="text-slate-400 text-xxs font-semibold ml-1">
+                      / {stats.resourceStats.totalResources} {stats.resourceStats.resourceLabel.toLowerCase()} đang sử dụng
+                    </Text>
+                  </View>
+                  <Badge 
+                    variant={stats.resourceStats.activeResources > 0 ? 'success' : 'secondary'}
+                    label={`${Math.round(stats.resourceStats.occupancyRate)}% công suất`}
+                    size="sm"
+                  />
+                </View>
+
+                {/* Progress bar */}
+                <View className="h-2 w-[98%] bg-slate-50 rounded-full overflow-hidden border border-slate-100 mb-4 mx-1">
+                  <View 
+                    className="h-full bg-orange-500 rounded-full" 
+                    style={{
+                      width: `${Math.min(100, stats.resourceStats.occupancyRate)}%` as any,
+                      backgroundColor: '#fa5908' 
+                    }} 
+                  />
+                </View>
+
+                {/* Efficiency / Productivity split */}
+                <View className="flex-row justify-between border-t border-slate-50 pt-3 px-1 gap-x-2">
+                  <View className="flex-1">
+                    <Text className="text-micro text-slate-400 font-bold uppercase tracking-wider mb-1">Hiệu quả nhất ngày</Text>
+                    {stats.resourceStats.mostProductiveToday ? (
+                      <View>
+                        <Text className="text-xs font-bold text-slate-800" numberOfLines={1}>
+                          {stats.resourceStats.mostProductiveToday.name}
+                        </Text>
+                        <Text className="text-xxs text-[#fa5908] font-semibold mt-0.5">
+                          {formatCurrency(stats.resourceStats.mostProductiveToday.revenue)}
+                        </Text>
+                      </View>
+                    ) : (
+                      <Text className="text-xxs text-slate-400 italic">Chưa phát sinh</Text>
+                    )}
+                  </View>
+
+                  <View className="w-[1px] bg-slate-100 h-10 self-center" />
+
+                  <View className="flex-1 pl-2">
+                    <Text className="text-micro text-slate-400 font-bold uppercase tracking-wider mb-1">Năng suất nhất tháng</Text>
+                    {stats.resourceStats.mostProductiveMonth ? (
+                      <View>
+                        <Text className="text-xs font-bold text-slate-800" numberOfLines={1}>
+                          {stats.resourceStats.mostProductiveMonth.name}
+                        </Text>
+                        <Text className="text-xxs text-[#fa5908] font-semibold mt-0.5">
+                          {formatCurrency(stats.resourceStats.mostProductiveMonth.revenue)}
+                        </Text>
+                      </View>
+                    ) : (
+                      <Text className="text-xxs text-slate-400 italic">Chưa phát sinh</Text>
+                    )}
+                  </View>
+                </View>
+              </View>
+            )}
 
             {/* 4. BIỂU ĐỒ GRADIENT DOANH THU - Thu góc bo về rounded-2xl */}
             <View className="p-4 rounded-2xl border bg-white border-slate-100 shadow-sm mb-4">

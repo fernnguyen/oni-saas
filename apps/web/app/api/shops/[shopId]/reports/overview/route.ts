@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireShopAccess } from '@/lib/server/shopAccess'
 import { shopTag, shopCache } from '@/lib/server/cache'
 import { handleApiError } from '../../../_helpers'
-import { isTimeChargeProduct, normalizePaymentMethod } from '@oni/core'
+import { isTimeChargeProduct, normalizePaymentMethod, getVerticalConfig } from '@oni/core'
 
 type Row = Record<string, string>
 
@@ -15,10 +15,11 @@ function dayKey(isoDate: string) {
   try { return isoDate.slice(0, 10) } catch { return '' }
 }
 
-function buildOverview(orders: Row[], returns: Row[], orderItems: Row[], payments: Row[], resources: Row[]) {
-  const now     = new Date()
-  const todayMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
-  const day30   = todayMs - 29 * 86_400_000
+function buildOverview(orders: Row[], returns: Row[], orderItems: Row[], payments: Row[], resources: Row[], industryType: string) {
+  const now        = new Date()
+  const todayMs    = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime()
+  const day30      = todayMs - 29 * 86_400_000
 
   // ── Revenue by day (last 30 days) ────────────────────────────────────────
   const revenueByDay: Record<string, number> = {}
@@ -104,7 +105,6 @@ function buildOverview(orders: Row[], returns: Row[], orderItems: Row[], payment
   }
 
   // ── Payment method breakdown (from payments, this month) ───────────────────
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime()
   const paymentRevenue: Record<string, number> = {}
 
   if (payments && payments.length > 0) {
@@ -150,7 +150,101 @@ function buildOverview(orders: Row[], returns: Row[], orderItems: Row[], payment
     returns: { count: returnCount, refund: returnRevenue },
   }
 
-  return { kpi, revenueSeries, topProducts, statusBreakdown, paymentRevenue, topResources }
+  // ── Resource Statistics ──────────────────────────────────────────────────
+  const config = getVerticalConfig(industryType)
+  const hasResources = config.features.location_resource
+
+  const resourceRevenueToday: Record<string, { name: string; revenue: number; count: number }> = {}
+  const resourceRevenueMonth: Record<string, { name: string; revenue: number; count: number }> = {}
+  
+  for (const o of orders) {
+    if (o.is_return === 'TRUE') continue
+    const t = new Date(o.created_at || 0).getTime()
+    
+    let resourceName = ''
+    let resourceId = o.resource_id || ''
+    
+    if (o.metadata) {
+      try {
+        const meta = typeof o.metadata === 'string' ? JSON.parse(o.metadata) : o.metadata
+        if (meta?.resource_name) {
+          resourceName = meta.resource_name
+        }
+        if (meta?.resource_id) {
+          resourceId = meta.resource_id
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+    
+    const key = resourceId || resourceName
+    if (!key) continue
+    if (key.toLowerCase().startsWith('takeaway')) continue
+    
+    const finalName = resourceName || resourceMap.get(resourceId) || resourceId
+    const revenue = parseAmount(o.paid_amount ?? o.total_amount)
+
+    // Today
+    if (t >= todayMs) {
+      if (!resourceRevenueToday[key]) {
+        resourceRevenueToday[key] = { name: finalName, revenue: 0, count: 0 }
+      }
+      resourceRevenueToday[key].revenue += revenue
+      resourceRevenueToday[key].count += 1
+    }
+
+    // Month
+    if (t >= monthStart) {
+      if (!resourceRevenueMonth[key]) {
+        resourceRevenueMonth[key] = { name: finalName, revenue: 0, count: 0 }
+      }
+      resourceRevenueMonth[key].revenue += revenue
+      resourceRevenueMonth[key].count += 1
+    }
+  }
+
+  const sortedToday = Object.entries(resourceRevenueToday)
+    .map(([id, v]) => ({ id, ...v }))
+    .sort((a, b) => b.revenue - a.revenue)
+  
+  const sortedMonth = Object.entries(resourceRevenueMonth)
+    .map(([id, v]) => ({ id, ...v }))
+    .sort((a, b) => b.revenue - a.revenue)
+
+  const mostProductiveToday = sortedToday[0] ? {
+    id: sortedToday[0].id,
+    name: sortedToday[0].name,
+    revenue: sortedToday[0].revenue,
+    count: sortedToday[0].count
+  } : null
+
+  const mostProductiveMonth = sortedMonth[0] ? {
+    id: sortedMonth[0].id,
+    name: sortedMonth[0].name,
+    revenue: sortedMonth[0].revenue,
+    count: sortedMonth[0].count
+  } : null
+
+  const totalResources = resources.length
+  const activeResources = resources.filter(r => r.status === 'occupied').length
+  const occupancyRate = totalResources > 0 ? (activeResources / totalResources) * 100 : 0
+  const activeResourcesList = resources
+    .filter(r => r.status === 'occupied')
+    .map(r => ({ id: r.id, name: r.name, zone: r.zone }))
+
+  const resourceStats = {
+    enabled: hasResources,
+    resourceLabel: config.resourceLabel ?? 'Phòng/Bàn',
+    totalResources,
+    activeResources,
+    occupancyRate,
+    mostProductiveToday,
+    mostProductiveMonth,
+    activeResourcesList,
+  }
+
+  return { kpi, revenueSeries, topProducts, statusBreakdown, paymentRevenue, topResources, resourceStats }
 }
 
 export async function GET(
@@ -159,7 +253,7 @@ export async function GET(
 ) {
   try {
     const { shopId } = await params
-    const { connector } = await requireShopAccess(shopId, 'reports.view_shop')
+    const { shop, connector } = await requireShopAccess(shopId, 'reports.view_shop')
 
     const result = await shopCache(
       async () => {
@@ -171,12 +265,14 @@ export async function GET(
           connector.list('payments',    { limit: 5000 }).catch(() => ({ data: [], total: 0 })),
           connector.list('location-resources', { limit: 1000 }).catch(() => ({ data: [], total: 0 })),
         ])
+        const industryType = shop?.industry_type ?? 'retail'
         return buildOverview(
           ordersResult.data,
           returnsResult.data,
           itemsResult.data,
           paymentsResult.data,
-          resourcesResult.data
+          resourcesResult.data,
+          industryType
         )
       },
       ['reports-overview', shopId],

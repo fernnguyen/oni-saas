@@ -41,5 +41,13 @@ export function isTimeChargeProduct(
   productId: string | null | undefined,
   productName?: string | null | undefined
 ): boolean {
-  return !!productId && productId.startsWith('TIME_CHARGE');
+  if (productId) {
+    const idLower = productId.toLowerCase();
+    return idLower.startsWith('time_charge') || 
+           idLower.includes('time_charge') || 
+           idLower.includes('time-charge') ||
+           idLower.includes('billiard-time') ||
+           idLower.includes('billiard_time');
+  }
+  return false;
 }

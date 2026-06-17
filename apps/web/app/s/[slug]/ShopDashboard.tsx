@@ -25,6 +25,17 @@ interface KpiPeriod   { orders: number; revenue: number }
 interface RevenueDay  { date: string; revenue: number }
 interface TopProduct  { id: string; name: string; revenue: number; qty: number }
 interface TopResource { id: string; name: string; count: number; revenue: number }
+interface ResourceStats {
+  enabled: boolean;
+  resourceLabel: string;
+  totalResources: number;
+  activeResources: number;
+  occupancyRate: number;
+  mostProductiveToday: { id: string; name: string; revenue: number; count: number } | null;
+  mostProductiveMonth: { id: string; name: string; revenue: number; count: number } | null;
+  activeResourcesList: Array<{ id: string; name: string; zone: string }>;
+}
+
 interface OverviewData {
   kpi: { today: KpiPeriod; month: KpiPeriod; returns: { count: number; refund: number } }
   revenueSeries: RevenueDay[]
@@ -32,6 +43,7 @@ interface OverviewData {
   statusBreakdown: Record<string, number>
   paymentRevenue: Record<string, number>
   topResources: TopResource[]
+  resourceStats?: ResourceStats
 }
 
 // ── Formatting Helpers ───────────────────────────────────────────────────────
@@ -188,6 +200,21 @@ const generateMockData = (): OverviewData => {
       { id: 'r4', name: 'Phòng 205', count: 15, revenue: 7200000 },
       { id: 'r5', name: 'Bàn 102', count: 10, revenue: 5600000 },
     ],
+    resourceStats: {
+      enabled: true,
+      resourceLabel: 'Phòng',
+      totalResources: 15,
+      activeResources: 4,
+      occupancyRate: 26.7,
+      mostProductiveToday: { id: 'r1', name: 'Phòng 201', revenue: 1200000, count: 2 },
+      mostProductiveMonth: { id: 'r1', name: 'Phòng 201', revenue: 34800000, count: 28 },
+      activeResourcesList: [
+        { id: 'r1', name: 'Phòng 201', zone: 'Tầng 2' },
+        { id: 'r2', name: 'Phòng 203', zone: 'Tầng 2' },
+        { id: 'r4', name: 'Phòng 205', zone: 'Tầng 2' },
+        { id: 'r12', name: 'Phòng 302', zone: 'Tầng 3' },
+      ]
+    }
   };
 };
 
@@ -495,6 +522,112 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
 
             </div>
 
+            {/* 1.5. Thống kê tài nguyên Phòng/Bàn/Sân (nếu có kích hoạt) */}
+            {activeData?.resourceStats?.enabled && (
+              <div className="grid gap-6 md:grid-cols-3">
+                {/* Cột 1: Trạng thái & Tỷ lệ sử dụng */}
+                <div className="md:col-span-1 rounded-3xl border border-slate-100 bg-white p-6 shadow-[0_8px_30px_rgb(0,0,0,0.02)] transition-all duration-300 hover:shadow-[0_12px_30px_rgb(0,0,0,0.05)] hover:-translate-y-0.5">
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-sm font-bold text-slate-800 tracking-tight">Trạng thái {activeData.resourceStats.resourceLabel}</h3>
+                    <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                      </svg>
+                    </span>
+                  </div>
+                  
+                  <div className="flex items-baseline gap-2 mt-2">
+                    <span className="text-4xl font-extrabold text-slate-800 tracking-tight">
+                      {activeData.resourceStats.activeResources}
+                    </span>
+                    <span className="text-slate-400 text-xs font-semibold">
+                      / {activeData.resourceStats.totalResources} {activeData.resourceStats.resourceLabel.toLowerCase()} đang sử dụng
+                    </span>
+                  </div>
+
+                  <div className="mt-4">
+                    <div className="flex justify-between text-xs font-semibold text-slate-500 mb-1.5">
+                      <span>Hiệu suất sử dụng</span>
+                      <span>{Math.round(activeData.resourceStats.occupancyRate)}%</span>
+                    </div>
+                    <div className="h-2 w-full rounded-full bg-slate-50 overflow-hidden border border-slate-100">
+                      <div
+                        style={{ width: `${Math.min(100, activeData.resourceStats.occupancyRate)}%` }}
+                        className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-indigo-600"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Cột 2: Năng suất nhất trong ngày */}
+                <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-[0_8px_30px_rgb(0,0,0,0.02)] flex flex-col justify-between transition-all duration-300 hover:shadow-[0_12px_30px_rgb(0,0,0,0.05)] hover:-translate-y-0.5">
+                  <div>
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-sm font-bold text-slate-800 tracking-tight">Hiệu quả nhất hôm nay</h3>
+                      <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                      </span>
+                    </div>
+
+                    {activeData.resourceStats.mostProductiveToday ? (
+                      <div className="space-y-3 mt-4">
+                        <p className="text-xl font-extrabold text-slate-800 tracking-tight truncate">
+                          {activeData.resourceStats.mostProductiveToday.name}
+                        </p>
+                        <div className="flex justify-between text-xs text-slate-500 font-semibold border-t border-slate-50 pt-3">
+                          <span>Doanh thu ngày</span>
+                          <span className="text-slate-800 font-bold">{fmtVND(activeData.resourceStats.mostProductiveToday.revenue)}</span>
+                        </div>
+                        <div className="flex justify-between text-xs text-slate-500 font-semibold">
+                          <span>Số lượt sử dụng</span>
+                          <span className="text-slate-800 font-bold">{activeData.resourceStats.mostProductiveToday.count} lượt</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="py-8 text-center">
+                        <p className="text-xs text-slate-400 italic">Chưa phát sinh doanh thu hôm nay</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Cột 3: Năng suất nhất trong tháng */}
+                <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-[0_8px_30px_rgb(0,0,0,0.02)] flex flex-col justify-between transition-all duration-300 hover:shadow-[0_12px_30px_rgb(0,0,0,0.05)] hover:-translate-y-0.5">
+                  <div>
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-sm font-bold text-slate-800 tracking-tight">Năng suất nhất tháng</h3>
+                      <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+                        </svg>
+                      </span>
+                    </div>
+
+                    {activeData.resourceStats.mostProductiveMonth ? (
+                      <div className="space-y-3 mt-4">
+                        <p className="text-xl font-extrabold text-slate-800 tracking-tight truncate">
+                          {activeData.resourceStats.mostProductiveMonth.name}
+                        </p>
+                        <div className="flex justify-between text-xs text-slate-500 font-semibold border-t border-slate-50 pt-3">
+                          <span>Doanh thu tháng</span>
+                          <span className="text-slate-800 font-bold">{fmtVND(activeData.resourceStats.mostProductiveMonth.revenue)}</span>
+                        </div>
+                        <div className="flex justify-between text-xs text-slate-500 font-semibold">
+                          <span>Số lượt sử dụng</span>
+                          <span className="text-slate-800 font-bold">{activeData.resourceStats.mostProductiveMonth.count} lượt</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="py-8 text-center">
+                        <p className="text-xs text-slate-400 italic">Chưa phát sinh doanh thu tháng này</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
 
           {/* 2. Beautiful Custom CSS Bar Chart for Revenue Series */}
           <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-[0_8px_30px_rgb(0,0,0,0.02)]">
