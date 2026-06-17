@@ -869,7 +869,7 @@ export default function PosScreen() {
       const debtShopId = shopId;
       const currentUrl = isOnline ? getApiBaseUrl() : null;
       const orderId = `ORD-R-${Date.now()}`;
-      const orderNo = `HD-R-${Date.now().toString().substring(9)}`;
+      const orderNo = `HD-BL-${Date.now().toString().substring(9)}`; // BL = Bán Lẻ
       const nowStr = new Date().toISOString();
 
       if (Platform.OS !== 'web') {
@@ -953,10 +953,17 @@ export default function PosScreen() {
       if (hasTransfer) {
         const transferAmount = processedPayments.filter(p => checkIsQrPayment(p.method)).reduce((sum, p) => sum + p.amount, 0);
         const transferP = processedPayments.find(p => checkIsQrPayment(p.method) && p.amount > 0);
-        setQrPayload({ amount: transferAmount, orderNo: orderNo, fund_id: transferP ? transferP.fund_id : 'bank' });
-        setTimeout(() => {
-          setIsQrModalOpen(true);
-        }, 400);
+        const transferFund = transferP ? paymentFundsList.find(f => f.id === transferP.fund_id) : null;
+        // Silent skip nếu quỹ không tồn tại hoặc chưa cài đặt số tài khoản
+        const hasValidBankSetup = transferP && transferFund && transferFund.account_number && transferFund.bank_name;
+        if (hasValidBankSetup && transferP) {
+          setQrPayload({ amount: transferAmount, orderNo: orderNo, fund_id: transferP.fund_id });
+          setTimeout(() => {
+            setIsQrModalOpen(true);
+          }, 400);
+        } else {
+          showToast(`Đã thanh toán Hóa đơn ${orderNo} thành công!`, 'success');
+        }
       } else {
         showToast(`Đã thanh toán Hóa đơn ${orderNo} thành công! Hệ thống đang đồng bộ trong nền.`, 'success');
       }

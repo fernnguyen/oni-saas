@@ -1666,8 +1666,26 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                             const mFunds = paymentFundsList.filter(f => f.type === newFundType);
                             const dFund = mFunds.find(f => f.is_default === 'TRUE') || mFunds[0];
                             
-                            setPaymentRows(prev => prev.map((r, i) => i === idx ? {...r, method: m.value, fund_id: dFund?.id || ''} : r));
-                            setSelectingMethodRow(null);
+                            const isBankTransfer = m.type === 'bank' && m.code !== 'card';
+                            if (isBankTransfer && (!dFund || !dFund.account_number || dFund.account_number.trim() === '')) {
+                              Alert.alert(
+                                "Cảnh báo thông tin Quỹ",
+                                "Tài khoản đã chọn chưa được cấu hình số tài khoản, bạn có chắc muốn tiếp tục sử dụng phương thức này?",
+                                [
+                                  { text: "Quay lại", style: "cancel" },
+                                  { 
+                                    text: "Đồng ý tiếp tục", 
+                                    onPress: () => {
+                                      setPaymentRows(prev => prev.map((r, i) => i === idx ? {...r, method: m.value, fund_id: dFund?.id || ''} : r));
+                                      setSelectingMethodRow(null);
+                                    } 
+                                  }
+                                ]
+                              );
+                            } else {
+                              setPaymentRows(prev => prev.map((r, i) => i === idx ? {...r, method: m.value, fund_id: dFund?.id || ''} : r));
+                              setSelectingMethodRow(null);
+                            }
                           }}
                         >
                           <View className="w-12 h-12 rounded-full items-center justify-center" style={{ backgroundColor: `${m.color}15` }}>
@@ -1721,8 +1739,29 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                           onPress={() => {
                             if (!selectingFundRow) return;
                             const idx = selectingFundRow.idx;
-                            setPaymentRows(prev => prev.map((r, i) => i === idx ? {...r, fund_id: f.id} : r));
-                            setSelectingFundRow(null);
+                            const currentRow = paymentRows[idx];
+                            const methodObj = resolvedMethods.find(rm => rm.value === currentRow?.method);
+                            const isBankTransfer = methodObj && methodObj.type === 'bank' && methodObj.code !== 'card';
+                            
+                            if (isBankTransfer && (!f.account_number || f.account_number.trim() === '')) {
+                              Alert.alert(
+                                "Cảnh báo thông tin Quỹ",
+                                "Tài khoản đã chọn chưa được cấu hình số tài khoản, bạn có chắc muốn tiếp tục sử dụng phương thức này?",
+                                [
+                                  { text: "Quay lại", style: "cancel" },
+                                  { 
+                                    text: "Đồng ý tiếp tục", 
+                                    onPress: () => {
+                                      setPaymentRows(prev => prev.map((r, i) => i === idx ? {...r, fund_id: f.id} : r));
+                                      setSelectingFundRow(null);
+                                    } 
+                                  }
+                                ]
+                              );
+                            } else {
+                              setPaymentRows(prev => prev.map((r, i) => i === idx ? {...r, fund_id: f.id} : r));
+                              setSelectingFundRow(null);
+                            }
                           }}
                         >
                           <View className="flex-1 pr-4">

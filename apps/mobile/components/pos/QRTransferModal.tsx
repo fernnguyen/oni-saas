@@ -19,18 +19,48 @@ export function formatCurrency(value: number): string {
   return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value);
 }
 
+// Hàm chuẩn hóa mã ngân hàng theo đặc tả VietQR
+function getVietQRBankCode(bankName: string): string {
+  const name = bankName.toUpperCase().replace(/[\s-]/g, '');
+  if (name.includes('MBBANK') || name === 'MB') return 'MB';
+  if (name.includes('VIETCOMBANK') || name === 'VCB') return 'VCB';
+  if (name.includes('TECHCOMBANK') || name === 'TCB') return 'TCB';
+  if (name.includes('BIDV')) return 'BIDV';
+  if (name.includes('AGRIBANK') || name === 'VBA') return 'VBA';
+  if (name.includes('VIETINBANK') || name === 'CTG' || name === 'ICB') return 'ICB';
+  if (name.includes('ACB')) return 'ACB';
+  if (name.includes('VPBANK') || name === 'VPB') return 'VPB';
+  if (name.includes('TPBANK') || name === 'TPB') return 'TPB';
+  if (name.includes('SACOMBANK') || name === 'STB') return 'STB';
+  if (name.includes('HDBANK') || name === 'HDB') return 'HDB';
+  if (name.includes('VIB')) return 'VIB';
+  if (name.includes('SHB')) return 'SHB';
+  if (name.includes('MSB')) return 'MSB';
+  if (name.includes('OCB')) return 'OCB';
+  if (name.includes('LIENVIET') || name.includes('LPBANK') || name === 'LPB') return 'LPB';
+  if (name.includes('SEABANK') || name === 'SEAB') return 'SEAB';
+  if (name.includes('EXIMBANK') || name === 'EIB') return 'EIB';
+  return bankName; // Trả về mặc định nếu là mã ngắn sẵn
+}
+
 export default function QRTransferModal({ visible, onClose, qrPayload, onConfirm, paymentFundsList }: QRTransferModalProps) {
   if (!qrPayload) return null;
 
   // Tìm quỹ ngân hàng tương ứng để render tên, stk
-  const fund = paymentFundsList.find(f => f.id === qrPayload.fund_id);
-  const bankName = fund?.bank_name || 'MBBank';
-  const accountNo = fund?.account_number || '8888 9999 6666';
-  const accountName = fund?.account_name || 'CONG TY TNHH ONI ERP';
-  // Template: `https://img.vietqr.io/image/[bank_code]-[account]-compact.png`
-  // API tĩnh qrserver nếu ko xài vietqr
-  // const qrUrl = `https://img.vietqr.io/image/${bankName}-${accountNo}-compact2.png?amount=${qrPayload.amount}&addInfo=${qrPayload.orderNo}&accountName=${accountName}`;
-  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`STK:${accountNo}|ND:${qrPayload.orderNo}|ST:${qrPayload.amount}`)}`;
+  const fund = paymentFundsList?.find(f => f.id === qrPayload.fund_id);
+  const bankName = fund?.bank_name || '';
+  const accountNo = fund?.account_number || '';
+  const accountName = fund?.account_name || '';
+
+  // Silent skip: Nếu không có hoặc chưa cài đặt thông tin số tài khoản và ngân hàng thì không hiển thị
+  if (!bankName || !accountNo) return null;
+
+  const sanitizedBankCode = getVietQRBankCode(bankName);
+  // Loại bỏ các ký tự đặc biệt khỏi nội dung chuyển khoản để đảm bảo VietQR tương thích tốt nhất
+  const cleanOrderNo = qrPayload.orderNo.replace(/[^a-zA-Z0-9\s-_]/g, '');
+
+  // Tạo URL ảnh mã QR theo định dạng VietQR chính thức (compact2)
+  const qrUrl = `https://img.vietqr.io/image/${sanitizedBankCode}-${accountNo}-compact2.png?amount=${qrPayload.amount}&addInfo=${encodeURIComponent(cleanOrderNo)}&accountName=${encodeURIComponent(accountName)}`;
 
   return (
     <Modal
@@ -48,7 +78,7 @@ export default function QRTransferModal({ visible, onClose, qrPayload, onConfirm
           
           {/* Header */}
           <View className="w-full flex-row justify-between items-center mb-4">
-            <Text className="text-sm font-semibold text-slate-800">Dynamic QR Code</Text>
+            <Text className="text-sm font-semibold text-slate-800">Mã QR Chuyển Khoản</Text>
             <TouchableOpacity onPress={onClose} className="p-1">
               <Ionicons name="close" size={22} color="#64748b" />
             </TouchableOpacity>
@@ -57,9 +87,10 @@ export default function QRTransferModal({ visible, onClose, qrPayload, onConfirm
           {/* Bank Card Graphic */}
           <View className="w-full bg-slate-900 p-4 rounded-xl mb-4 relative overflow-hidden" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2}}>
             <View className="absolute w-24 h-24 rounded-full -top-10 -left-10" />
-            <Text className="text-micro font-semibold text-slate-400">{bankName.toUpperCase()} INTERCONNECT</Text>
-            <Text className="text-white text-xs font-medium mt-2">{accountName.toUpperCase()}</Text>
-            <Text className="text-sm font-semibold mt-0.5 text-white">{accountNo}</Text>
+            <Text className="text-micro font-semibold text-slate-400">THÔNG TIN TÀI KHOẢN</Text>
+            <Text className="text-white text-xs font-semibold mt-2">{accountName.toUpperCase()}</Text>
+            <Text className="text-sm font-bold mt-0.5 text-white">{accountNo}</Text>
+            <Text className="text-micro text-slate-300 mt-1">{bankName.toUpperCase()}</Text>
           </View>
 
           {/* QR Image Frame */}
@@ -84,7 +115,7 @@ export default function QRTransferModal({ visible, onClose, qrPayload, onConfirm
 
             <View className="flex-row justify-between">
               <Text className="text-xxs text-slate-400 font-medium">Nội dung chuyển:</Text>
-              <Text className="text-slate-800 text-xs font-semibold">{qrPayload.orderNo}</Text>
+              <Text className="text-slate-800 text-xs font-semibold">{cleanOrderNo}</Text>
             </View>
           </View>
 

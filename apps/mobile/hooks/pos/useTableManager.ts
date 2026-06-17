@@ -892,7 +892,7 @@ export function useTableManager(props: UseTableManagerProps) {
         const activeShiftId = await AsyncStorage.getItem('active_shift_id') || 'default-shift';
         await db.insert(schema.orders).values({
           id: orderId,
-          order_no: `HD-T-${Date.now().toString().substring(9)}`,
+          order_no: `HD-BAN-${Date.now().toString().substring(9)}`,
           status: 'in_progress',
           customer_id: targetCustomer?.id || 'C-DEFAULT-RETAIL',
           customer_name: targetCustomer?.name || 'Khách lẻ',
@@ -1257,7 +1257,8 @@ export function useTableManager(props: UseTableManagerProps) {
       const shiftId = await AsyncStorage.getItem('active_shift_id') || 'default-shift';
       // FIX DUPLICATE: Reuse existing order ID to prevent duplicates!
       const orderId = selectedTableForPay.current_order_id || `ORD-T-${Date.now()}`;
-      const orderNo = `HD-${shopVertical === 'lodging' ? '🏩' : '🎱'}-${Date.now().toString().substring(9)}`;
+      const orderNoType = shopVertical === 'lodging' ? 'KS' : (shopVertical === 'sports_court' ? 'SAN' : 'POS');
+      const orderNo = `HD-${orderNoType}-${Date.now().toString().substring(9)}`;
       const nowStr = new Date().toISOString();
       const checkoutTimeStr = customCheckoutTime ? customCheckoutTime.toISOString() : nowStr;
       let syncSucceeded = false;
@@ -1372,10 +1373,17 @@ export function useTableManager(props: UseTableManagerProps) {
       if (hasTransfer) {
         const transferAmount = payments.filter(p => checkIsQrPayment(p.method)).reduce((sum, p) => sum + p.amount, 0);
         const transferP = payments.find(p => checkIsQrPayment(p.method) && p.amount > 0);
-        setQrPayload({ amount: transferAmount, orderNo: orderNo, fund_id: transferP ? transferP.fund_id : 'bank' });
-        setTimeout(() => {
-          setIsQrModalOpen(true);
-        }, 400);
+        const transferFund = transferP ? paymentFundsList.find(f => f.id === transferP.fund_id) : null;
+        // Silent skip: Chỉ hiển thị QR nếu Quỹ đã cài đặt số tài khoản ngân hàng và tên ngân hàng
+        const hasValidBankSetup = transferP && transferFund && transferFund.account_number && transferFund.bank_name;
+        if (hasValidBankSetup && transferP) {
+          setQrPayload({ amount: transferAmount, orderNo: orderNo, fund_id: transferP.fund_id });
+          setTimeout(() => {
+            setIsQrModalOpen(true);
+          }, 400);
+        } else {
+          showToast(`Thanh toán Hóa đơn ${orderNo} thành công!`, "success");
+        }
       } else {
         showToast(`Thanh toán Hóa đơn ${orderNo} thành công! Hệ thống đang đồng bộ trong nền.`, "success");
       }
