@@ -171,9 +171,9 @@ export default function RootLayout() {
     <NotificationProvider>
       <StatusBar style="dark" />
       <Stack screenOptions={{headerShown: false}}>
-        <Stack.Screen name="index" />
-        <Stack.Screen name="(auth)" />
-        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="index" options={{ gestureEnabled: false }} />
+        <Stack.Screen name="(auth)" options={{ gestureEnabled: false }} />
+        <Stack.Screen name="(tabs)" options={{ gestureEnabled: false }} />
       </Stack>
     </NotificationProvider>
   </PermissionsProvider>

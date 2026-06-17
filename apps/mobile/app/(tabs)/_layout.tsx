@@ -1,7 +1,7 @@
 import React, {useState, useEffect} from 'react';
-import {Tabs} from 'expo-router';
+import {Tabs, usePathname} from 'expo-router';
 import {Ionicons, MaterialCommunityIcons} from '@expo/vector-icons';
-import {Platform, TouchableOpacity, View, Text, DeviceEventEmitter} from 'react-native';
+import {Platform, TouchableOpacity, View, Text, DeviceEventEmitter, BackHandler} from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {NotificationProvider} from '../../lib/notifications/NotificationContext';
 import {usePermissions} from '../../lib/auth/PermissionsContext';
@@ -19,6 +19,23 @@ function TabLayoutContent() {
   const {hasPermission} = usePermissions();
   const [posLabel, setPosLabel] = useState('Bán hàng');
   const insets = useSafeAreaInsets();
+  const pathname = usePathname();
+
+  useEffect(() => {
+    const onBackPress = () => {
+      // Nếu người dùng đang ở tab đầu tiên (Tổng quan), nhấn back sẽ thoát app thay vì quay về select-branch
+      if (pathname === '/' || pathname === '/(tabs)' || pathname === '/(tabs)/' || pathname === '/(tabs)/index') {
+        BackHandler.exitApp();
+        return true; // Đã xử lý, chặn bubbling lên root Stack
+      }
+      return false; // Cho phép React Navigation tự xử lý (quay lại tab mặc định hoặc đóng popup/modal)
+    };
+
+    const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => {
+      subscription.remove();
+    };
+  }, [pathname]);
 
   useEffect(() => {
     const loadIndustry = async () => {
