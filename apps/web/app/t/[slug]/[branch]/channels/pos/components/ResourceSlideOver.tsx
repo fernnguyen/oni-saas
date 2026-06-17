@@ -7,6 +7,7 @@ import { CustomerSearch } from './CustomerSearch'
 import { SlideProductSearch } from './SlideProductSearch'
 import { getVerticalConfig, calculateHourlyBilling } from '@oni/core'
 import { CheckoutModal } from './CheckoutModal'
+import { ResourceIcon } from '@/app/components/layout/IndustryIcon'
 import { CustomerCreateModal } from './CustomerCreateModal'
 import { useConfirm } from '@/app/components/ui/ConfirmProvider'
 import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog'
@@ -1278,8 +1279,8 @@ export function ResourceSlideOver({
         {/* Header */}
         <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between shrink-0 bg-white">
           <div className="flex items-center gap-3">
-            <div className={`h-10 w-10 rounded-xl flex items-center justify-center text-lg ${isOccupied ? 'bg-red-50 text-red-500' : 'bg-primary/10 text-primary'}`}>
-              {resource.id.startsWith('takeaway') ? '🛍' : tpl.icon}
+            <div className={`h-10 w-10 rounded-xl flex items-center justify-center ${isOccupied ? 'bg-red-50 text-red-500' : 'bg-primary/10 text-primary'}`}>
+              <ResourceIcon icon={resource.id.startsWith('takeaway') ? '🛍' : (tpl?.icon || '')} type={resource.type} className="h-5 w-5" />
             </div>
             <div>
               <h2 className="text-base font-bold text-slate-900">{resource.name}</h2>

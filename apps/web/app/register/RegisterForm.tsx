@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { AuthSplitLayout } from '../components/layout/AuthSplitLayout';
 import { VERTICAL_REGISTRY, INDUSTRY_TYPES, type IndustryType } from '@oni/core';
 import { Turnstile } from '../components/auth/Turnstile';
+import { IndustryIcon } from '../components/layout/IndustryIcon';
 
 const SLUG_REGEX = /^[a-z0-9-]+$/;
 const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
@@ -353,8 +354,8 @@ export function RegisterForm({ plans, initialDomain, initialIndustry, registrati
                         : 'border-slate-100 bg-white hover:border-slate-200 hover:shadow-sm'
                       }`}
                   >
-                    <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br ${visuals.bgSphere} text-xl shadow-inner border border-slate-100 transition-transform duration-200 group-hover:scale-105`}>
-                      {v.icon}
+                    <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br ${visuals.bgSphere} shadow-inner border border-slate-100 transition-transform duration-200 group-hover:scale-105`}>
+                      <IndustryIcon type={type} className="h-5 w-5" />
                     </div>
 
                     <div className="flex-1 min-w-0 pr-4">

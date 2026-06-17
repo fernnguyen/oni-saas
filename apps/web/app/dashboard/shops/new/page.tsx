@@ -4,6 +4,7 @@ import { useState, FormEvent, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { VERTICAL_REGISTRY, INDUSTRY_TYPES, type IndustryType } from '@oni/core';
+import { IndustryIcon } from '../../../components/layout/IndustryIcon';
 
 function NewShopForm() {
   const searchParams = useSearchParams();
@@ -201,8 +202,8 @@ function NewShopForm() {
                       }`}
                   >
                     <div className="flex items-center gap-2.5">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-lg transition-transform duration-300 group-hover:scale-110 shrink-0">
-                        {config.icon}
+                      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 transition-transform duration-300 group-hover:scale-110 shrink-0">
+                        <IndustryIcon type={type} className="h-4.5 w-4.5" />
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="text-xs font-bold text-slate-800 leading-snug line-clamp-1">

@@ -7,6 +7,7 @@ import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 import { getVerticalConfig } from '@oni/core'
 import { useConfirm } from '@/app/components/ui/ConfirmProvider'
+import { IndustryIcon, ResourceIcon } from '@/app/components/layout/IndustryIcon'
 import { DataTable, Column } from '@/app/components/ui/DataTable'
 import { EmptyState } from '@/app/components/ui/EmptyState'
 import { usePermissions } from '@/app/components/ui/PermissionGate'
@@ -828,7 +829,9 @@ export function ResourcesClient({ shopId, industryType }: Props) {
         const isRoomType = r.type === 'room'
         return (
           <button onClick={() => startEdit(r)} className="flex items-center gap-2 font-bold text-slate-800 hover:text-primary transition-colors cursor-pointer text-left">
-            <span className="text-lg">{tpl?.icon || (isRoomType ? '🛏️' : r.type === 'court' ? '🏸' : '🪑')}</span>
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-slate-500 shrink-0">
+              <ResourceIcon icon={tpl?.icon || ''} type={r.type} className="h-4 w-4" />
+            </div>
             <span>{r.name}</span>
           </button>
         )
@@ -922,8 +925,9 @@ export function ResourcesClient({ shopId, industryType }: Props) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900">
-            {vertical.icon} Quản lý {tpl?.label || vertical.resourceLabel || 'Vị trí'}
+          <h1 className="text-xl font-semibold text-slate-900 flex items-center gap-2">
+            <IndustryIcon type={industryType} className="h-5 w-5 text-slate-650" />
+            Quản lý {tpl?.label || vertical.resourceLabel || 'Vị trí'}
           </h1>
           <p className="mt-1 text-sm text-slate-500">
             Quản lý {(tpl?.label || 'vị trí').toLowerCase()} cho {vertical.label}. Tổng: {resources.length} vị trí

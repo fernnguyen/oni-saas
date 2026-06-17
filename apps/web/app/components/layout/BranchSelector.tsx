@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog';
 import { INDUSTRY_TYPES, VERTICAL_REGISTRY, type IndustryType } from '@oni/core';
+import { IndustryIcon } from './IndustryIcon';
 
 interface Branch {
   id: string;
@@ -154,7 +155,7 @@ function CreateBranchModal({
                         : 'border-slate-200/80 bg-white hover:border-slate-300 hover:bg-slate-50/30'
                     }`}
                   >
-                    <span className="text-base shrink-0 select-none">{config.icon}</span>
+                    <IndustryIcon type={type} className="h-4 w-4 shrink-0" />
                     <div className="min-w-0 flex-1">
                       <p className={`text-xs truncate font-semibold ${isActive ? 'text-primary' : 'text-slate-750'}`}>{config.label}</p>
                     </div>

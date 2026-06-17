@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { BANKS } from '@/lib/constants/banks';
 import { getVerticalConfig, VERTICAL_REGISTRY, INDUSTRY_TYPES, type IndustryType } from '@oni/core';
 import { useConfirm } from '@/app/components/ui/ConfirmProvider';
+import { IndustryIcon } from '../layout/IndustryIcon';
 import { saveNotificationSettings, generatePairingCode, checkSharedBotConnection, clearPairingCode, revokeSharedBotConnection } from '@/app/t/[slug]/settings/notificationsActions';
 
 interface ShopSettings {
@@ -988,8 +989,8 @@ export function ShopSettingsForm({
                         } ${!canManage ? 'opacity-65 cursor-not-allowed' : ''}`}
                     >
                       <div className="flex items-center gap-2.5">
-                        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-lg transition-transform duration-300 group-hover:scale-110 shrink-0">
-                          {config.icon}
+                        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 transition-transform duration-300 group-hover:scale-110 shrink-0">
+                          <IndustryIcon type={type} className="h-4.5 w-4.5" />
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">

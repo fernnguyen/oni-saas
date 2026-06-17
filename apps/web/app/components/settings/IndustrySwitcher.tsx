@@ -4,6 +4,8 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 import { useConfirm } from '@/app/components/ui/ConfirmProvider'
 import { VERTICAL_REGISTRY, type IndustryType, INDUSTRY_TYPES } from '@oni/core'
+import { IndustryIcon } from '../layout/IndustryIcon'
+import { MapPin, Clock, Barcode, ChefHat, Calendar, Palette } from 'lucide-react'
 
 interface Props {
   tenantId: string
@@ -120,8 +122,8 @@ export function IndustrySwitcher({ tenantId, currentIndustry }: Props) {
     <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm">
       <div className="px-6 py-5 border-b border-slate-100 bg-gradient-to-b from-slate-50/50 to-white">
         <div className="flex items-start gap-4">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-2xl text-primary border border-primary/20 shadow-sm shrink-0">
-            {currentConfig.icon}
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary border border-primary/20 shadow-sm shrink-0">
+            <IndustryIcon type={currentIndustry as IndustryType} className="h-6 w-6" />
           </div>
           <div>
             <h2 className="text-sm font-semibold text-slate-900">Ngành nghề kinh doanh chính</h2>
@@ -151,8 +153,8 @@ export function IndustrySwitcher({ tenantId, currentIndustry }: Props) {
               >
                 <div>
                   <div className="flex items-center gap-3 mb-3 shrink-0">
-                    <div className={`flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br ${visuals.bgSphere} text-xl shadow-inner border border-slate-100/50 transition-transform duration-300 group-hover:scale-110 shrink-0`}>
-                      {config.icon}
+                    <div className={`flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br ${visuals.bgSphere} shadow-inner border border-slate-100/50 transition-transform duration-300 group-hover:scale-110 shrink-0`}>
+                      <IndustryIcon type={type} className="h-6 w-6" />
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-col justify-center">
@@ -182,33 +184,39 @@ export function IndustrySwitcher({ tenantId, currentIndustry }: Props) {
 
                 <div className="mt-4 pt-3 border-t border-slate-50 flex flex-wrap gap-1.5 shrink-0">
                   {config.features.location_resource && (
-                    <span className="inline-flex items-center px-2 py-0.5 text-[9px] font-bold tracking-wide rounded-full bg-blue-50 text-blue-600 border border-blue-100">
-                      📍 {type === 'sports_court' ? 'Sân thể thao' : type === 'lodging' ? 'Quản lý Phòng' : 'Quản lý Bàn'}
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-bold tracking-wide rounded-full bg-blue-50 text-blue-600 border border-blue-100">
+                      <MapPin className="h-2.5 w-2.5 shrink-0" />
+                      {type === 'sports_court' ? 'Sân thể thao' : type === 'lodging' ? 'Quản lý Phòng' : 'Quản lý Bàn'}
                     </span>
                   )}
                   {config.features.hourly_billing && (
-                    <span className="inline-flex items-center px-2 py-0.5 text-[9px] font-bold tracking-wide rounded-full bg-amber-50 text-amber-600 border border-amber-100">
-                      ⏱ Theo giờ
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-bold tracking-wide rounded-full bg-amber-50 text-amber-600 border border-amber-100">
+                      <Clock className="h-2.5 w-2.5 shrink-0" />
+                      Theo giờ
                     </span>
                   )}
                   {config.features.barcode_scan && (
-                    <span className="inline-flex items-center px-2 py-0.5 text-[9px] font-bold tracking-wide rounded-full bg-green-50 text-green-600 border border-green-100">
-                      📷 Barcode
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-bold tracking-wide rounded-full bg-green-50 text-green-600 border border-green-100">
+                      <Barcode className="h-2.5 w-2.5 shrink-0" />
+                      Barcode
                     </span>
                   )}
                   {config.features.kitchen_display && (
-                    <span className="inline-flex items-center px-2 py-0.5 text-[9px] font-bold tracking-wide rounded-full bg-rose-50 text-rose-600 border border-rose-100">
-                      🍳 Màn KDS
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-bold tracking-wide rounded-full bg-rose-50 text-rose-600 border border-rose-100">
+                      <ChefHat className="h-2.5 w-2.5 shrink-0" />
+                      Màn KDS
                     </span>
                   )}
                   {config.features.reservation && (
-                    <span className="inline-flex items-center px-2 py-0.5 text-[9px] font-bold tracking-wide rounded-full bg-violet-50 text-violet-600 border border-violet-100">
-                      📅 Đặt chỗ trước
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-bold tracking-wide rounded-full bg-violet-50 text-violet-600 border border-violet-100">
+                      <Calendar className="h-2.5 w-2.5 shrink-0" />
+                      Đặt chỗ trước
                     </span>
                   )}
                   {config.features.product_variants && (
-                    <span className="inline-flex items-center px-2 py-0.5 text-[9px] font-bold tracking-wide rounded-full bg-pink-50 text-pink-600 border border-pink-100">
-                      🎨 Size/Màu sắc
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-bold tracking-wide rounded-full bg-pink-50 text-pink-600 border border-pink-100">
+                      <Palette className="h-2.5 w-2.5 shrink-0" />
+                      Size/Màu sắc
                     </span>
                   )}
                 </div>

@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useMemo, Fragment } from 'react'
 import { Stage, Layer, Rect, Circle, Text, Group, Line, Transformer, Shape } from 'react-konva'
 import { toast } from 'sonner'
 import { getVerticalConfig } from '@oni/core'
+import { ResourceIcon } from '@/app/components/layout/IndustryIcon'
 
 interface Resource {
   id: string
@@ -573,7 +574,7 @@ export default function MapEditor({
                     className="w-full flex items-center justify-between rounded-xl bg-white hover:bg-slate-50 border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 shadow-sm transition-all hover:scale-[1.01] text-left group cursor-pointer"
                   >
                     <span className="flex items-center gap-2">
-                      <span className="text-sm shrink-0">{tpl?.icon || (r.type === 'room' ? '🛏️' : r.type === 'court' ? '🏸' : '🪑')}</span>
+                      <ResourceIcon icon={tpl?.icon || ''} type={r.type} className="h-3.5 w-3.5 shrink-0 text-slate-500" />
                       <span className="truncate max-w-[120px] font-bold">{r.name}</span>
                     </span>
                     <span className="text-[10px] text-primary font-bold group-hover:underline">+ Xếp</span>
