@@ -39,7 +39,7 @@ export interface UseTableManagerProps {
 }
 
 import { CartItem } from '../../app/(tabs)/pos';
-import { calculateHourlyBilling } from '@oni/core';
+import { calculateHourlyBilling, isTimeChargeProduct } from '@oni/core';
 import { LodgingGuest } from '../../components/pos/LodgingGuestsForm';
 
 export function useTableManager(props: UseTableManagerProps) {
@@ -1474,12 +1474,14 @@ export function useTableManager(props: UseTableManagerProps) {
                 }
               };
             }),
-            stock_movements: Array.from(Object.entries(tableCartItems)).map(([prodId, item]: [string, any]) => ({
-              type: 'sale_out',
-              product_id: item.productId,
-              qty: -item.quantity,
-              branch_id: shopId,
-            }))
+            stock_movements: Array.from(Object.entries(tableCartItems))
+              .filter(([prodId, item]: [string, any]) => !isTimeChargeProduct(item.productId, item.name))
+              .map(([prodId, item]: [string, any]) => ({
+                type: 'sale_out',
+                product_id: item.productId,
+                qty: -item.quantity,
+                branch_id: shopId,
+              }))
           };
 
           const syncRes = await fetch(`${currentUrl}/api/shops/${shopId}/orders/sync-batch`, {

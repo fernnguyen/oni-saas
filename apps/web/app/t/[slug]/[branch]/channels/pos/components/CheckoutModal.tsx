@@ -14,7 +14,7 @@ import { printBill } from '@/lib/pos/printBill'
 import type { CartItem } from '@/hooks/useCart'
 import { CustomerSearch } from './CustomerSearch'
 import { useQuery } from '@tanstack/react-query'
-import { calculateHourlyBilling } from '@oni/core'
+import { calculateHourlyBilling, isTimeChargeProduct } from '@oni/core'
 import { VietQRPreview } from '@/app/components/ui/VietQRPreview'
 import { useConfirm } from '@/app/components/ui/ConfirmProvider'
 import { BANKS } from '@/lib/constants/banks'
@@ -728,7 +728,9 @@ export function CheckoutModal({
   // Load item_class for each product
   useEffect(() => {
     if (!open || !localDb) return
-    const productIds = computedItems.map(it => it.product_id).filter(id => id && id !== 'TIME_CHARGE')
+    const productIds = computedItems
+      .filter(it => it.product_id && !isTimeChargeProduct(it.product_id, it.product_name))
+      .map(it => it.product_id as string)
     if (productIds.length === 0) return
 
     localDb.products.bulkGet(productIds).then(prods => {
@@ -1644,13 +1646,15 @@ export function CheckoutModal({
         order: orderData,
         items: orderItems,
         payments: localPayments,
-        stockMovements: computedItems.map((item) => ({
-          type: 'sale_out',
-          product_id: item.product_id,
-          qty: -item.qty * (item.conversion_rate || 1),
-          branch_id: branchId,
-          reference_no: local_id,
-        })).filter(m => m.product_id !== 'TIME_CHARGE'),
+        stockMovements: computedItems
+          .filter((item) => !isTimeChargeProduct(item.product_id, item.product_name))
+          .map((item) => ({
+            type: 'sale_out',
+            product_id: item.product_id,
+            qty: -item.qty * (item.conversion_rate || 1),
+            branch_id: branchId,
+            reference_no: local_id,
+          })),
         customer: localCustomer ? { name: localCustomer.name, phone: localCustomer.phone } : undefined,
       }
 

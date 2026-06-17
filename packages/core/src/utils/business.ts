@@ -39,14 +39,11 @@ export function getPaymentMethodLabel(methodId: string): string {
 
 export function isTimeChargeProduct(
   productId: string | null | undefined,
-  productName: string | null | undefined
+  productName?: string | null | undefined
 ): boolean {
+  if (!productId) return false;
   if (productId === 'TIME_CHARGE') return true;
-  if (!productName) return false;
-  const nameLower = productName.toLowerCase();
-  return (
-    nameLower.includes('tiền phòng') ||
-    nameLower.includes('tiền giờ') ||
-    nameLower.includes('giờ sử dụng')
-  );
+  if (productId === 'billiard-time') return true;
+  if (productId.startsWith('TIME_CHARGE_MERGED_')) return true;
+  return false;
 }

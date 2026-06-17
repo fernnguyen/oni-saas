@@ -11,7 +11,7 @@ import { updateCustomerStats } from '@/lib/server/customerStats'
 const INBOUND_TYPES = ['purchase_in', 'p2p_purchase_in', 'return_in', 'transfer_in']
 const OUTBOUND_TYPES = ['sale_out', 'transfer_out']
 
-import { getGMT7Time } from '@oni/core'
+import { getGMT7Time, isTimeChargeProduct } from '@oni/core'
 
 function calcDelta(type: string, qty: number): number {
   if (INBOUND_TYPES.includes(type)) return Math.abs(qty)
@@ -105,7 +105,13 @@ export async function POST(
       stock_movements: SyncMovement[]
     }
 
-    const { local_order_id, server_order_id, order, items, payments, stock_movements } = body
+    const { local_order_id, server_order_id, order, items, payments, stock_movements: rawStockMovements } = body
+
+    // Filter out time charge products / non-inventory items from stock movements
+    const stock_movements = (rawStockMovements || []).filter((mv: any) => {
+      const matchingItem = items.find(it => it.product_id === mv.product_id)
+      return !isTimeChargeProduct(mv.product_id, matchingItem?.product_name)
+    })
 
     // ── Step 1: Find or create order ──
     let serverId = server_order_id ?? ''

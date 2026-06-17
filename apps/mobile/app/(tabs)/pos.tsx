@@ -12,7 +12,7 @@ import { SyncManager } from '../../lib/sync/SyncManager';
 import { getApiBaseUrl, getApiHeaders } from '../../lib/api/config';
 import * as Haptics from 'expo-haptics';
 import { formatCurrency, maskCurrencyInput, parseCurrencyToNumber } from '../../lib/utils/format';
-import { calculateHourlyBilling } from '@oni/core';
+import { calculateHourlyBilling, isTimeChargeProduct } from '@oni/core';
 
 // Import hệ thống component dùng chung
 import { Header } from '../../components/layout/Header';
@@ -1018,12 +1018,14 @@ export default function PosScreen() {
                 const fund = paymentFundsList.find((f: any) => f.id === p.fund_id);
                 return { method: p.method, amount: p.amount, fund_id: p.fund_id, meta: { fund_id: p.fund_id, fund_name: fund ? fund.name : '' } };
               }),
-              stock_movements: Object.entries(cart).map(([, item]: [string, any]) => ({
-                type: 'sale_out',
-                product_id: item.productId,
-                qty: -item.quantity,
-                branch_id: debtShopId,
-              })),
+              stock_movements: Object.entries(cart)
+                .filter(([, item]: [string, any]) => !isTimeChargeProduct(item.productId, item.name))
+                .map(([, item]: [string, any]) => ({
+                  type: 'sale_out',
+                  product_id: item.productId,
+                  qty: -item.quantity,
+                  branch_id: debtShopId,
+                })),
             }),
           });
 

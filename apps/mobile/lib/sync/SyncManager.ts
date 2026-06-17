@@ -4,6 +4,7 @@ import { getApiBaseUrl, getApiHeaders } from '../api/config';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { eq } from 'drizzle-orm';
 import { formatDateTime } from '../utils/format';
+import { isTimeChargeProduct } from '@oni/core';
 
 export class SyncManager {
   private static cashbookRetries: Record<string, number> = {};
@@ -450,12 +451,14 @@ export class SyncManager {
                 }
               ];
             })(),
-            stock_movements: items.map((it: any) => ({
-              type: 'sale_out',
-              product_id: it.product_id,
-              qty: -it.qty,
-              branch_id: shopId,
-            })),
+            stock_movements: items
+              .filter((it: any) => !isTimeChargeProduct(it.product_id, it.product_name))
+              .map((it: any) => ({
+                type: 'sale_out',
+                product_id: it.product_id,
+                qty: -it.qty,
+                branch_id: shopId,
+              })),
           };
 
           // Gửi POST đồng bộ hóa dạng Transaction Batch lên Next.js Cloud
