@@ -13,7 +13,8 @@ import {
  KeyboardAvoidingView,
  TouchableWithoutFeedback,
  Keyboard,
- Linking
+ Linking,
+ ScrollView
 } from 'react-native';
 import {CameraView, useCameraPermissions} from 'expo-camera';
 import {Ionicons} from '@expo/vector-icons';
@@ -171,28 +172,79 @@ export function BarcodeScannerModal({
     }
 
     if (!permission.granted) {
-      // Permission denied - Hiển thị hướng dẫn mở cài đặt thiết bị
+      // Permission denied - Hiển thị hướng dẫn mở cài đặt thiết bị kèm ô nhập tay trực tiếp làm phương án thay thế
       return (
-        <View className="flex-1 justify-center items-center px-6 py-8 bg-slate-50">
-          <View className="bg-orange-50 p-5 rounded-full mb-4 border border-orange-100">
-            <Ionicons name="camera-outline" size={48} color="#fa5908" />
+        <ScrollView 
+          className="flex-1 bg-slate-50" 
+          contentContainerStyle={{ padding: 20, justifyContent: 'center', flexGrow: 1 }}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* Cảnh báo từ chối camera nhẹ nhàng ở trên */}
+          <View className="bg-orange-50/85 border border-orange-100 p-4 rounded-2xl flex-row items-center mb-5">
+            <Ionicons name="camera-outline" size={24} color="#fa5908" />
+            <View className="flex-1 ml-3 mr-2">
+              <Text className="text-xs font-semibold text-slate-800">Quyền Camera bị từ chối</Text>
+              <Text className="text-[10px] text-slate-500 mt-0.5 leading-relaxed">
+                Để quét bằng camera, hãy cấp quyền trong Cài đặt. Hiện tại bạn vẫn có thể nhập mã sản phẩm thủ công dưới đây.
+              </Text>
+            </View>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => Linking.openSettings()}
+              className="bg-orange-100 px-3 py-1.5 rounded-lg border border-orange-200 active:scale-95"
+            >
+              <Text className="text-[10px] font-bold text-orange-700">Cài đặt</Text>
+            </TouchableOpacity>
           </View>
-          <Text className="text-base font-medium text-slate-800 text-center mb-2">
-            Quyền truy cập Camera bị từ chối
-          </Text>
-          <Text className="text-xs text-slate-500 text-center mb-6 leading-relaxed">
-            Chúng tôi cần quyền camera để bạn có thể quét mã vạch sản phẩm. Vui lòng cấp quyền camera trong Cài đặt thiết bị.
-          </Text>
-          
-          <TouchableOpacity
-            activeOpacity={0.8}
-            onPress={() => Linking.openSettings()}
-            className="bg-orange-500 px-6 py-3 rounded-xl flex-row items-center justify-center active:scale-95"
-          >
-            <Ionicons name="settings-outline" size={18} color="white" />
-            <Text className="text-xs font-semibold text-white ml-2">Mở Cài đặt</Text>
-          </TouchableOpacity>
-        </View>
+
+          {/* Ô nhập tay mã vạch làm phương án thay thế trực tiếp */}
+          <View className="w-full bg-white border border-slate-200 rounded-2xl p-4.5" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 2}, shadowOpacity: 0.04, shadowRadius: 4, elevation: 2}}>
+            <Text className="text-[9.5px] text-slate-400 font-medium mb-2">Nhập mã vạch thủ công:</Text>
+            <View className="flex-row items-center border border-slate-200 rounded-xl px-3 py-1 bg-slate-50 focus-within:border-orange-400">
+              <Ionicons name="barcode-outline" size={16} color="#94a3b8" />
+              <TextInput
+                className="flex-1 ml-2 text-xs text-slate-800 py-2.5"
+                placeholder={placeholder}
+                placeholderTextColor="#94a3b8"
+                value={manualBarcode}
+                onChangeText={setManualBarcode}
+                onSubmitEditing={handleManualSubmit}
+                autoFocus={true}
+                style={{
+                  paddingVertical: 0,
+                  textAlignVertical: 'center',
+                  lineHeight: undefined,
+                  ...(Platform.OS === 'web' ? {outlineStyle: 'none'} as any : {})
+                }}
+              />
+              {manualBarcode.length > 0 && (
+                <TouchableOpacity onPress={() => setManualBarcode('')}>
+                  <Ionicons name="close-circle" size={16} color="#cbd5e1" />
+                </TouchableOpacity>
+              )}
+            </View>
+            
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={handleManualSubmit}
+              disabled={!manualBarcode.trim()}
+              className={`mt-3 py-3 rounded-xl items-center justify-center flex-row ${
+                manualBarcode.trim() ? 'bg-orange-500' : 'bg-slate-200'
+              }`}
+            >
+              <Ionicons 
+                name="checkmark-circle-outline" 
+                size={16} 
+                color={manualBarcode.trim() ? "white" : "#94a3b8"} 
+              />
+              <Text className={`text-xs font-semibold ml-2 ${
+                manualBarcode.trim() ? 'text-white' : 'text-slate-400'
+              }`}>
+                Xác nhận mã vạch
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
       );
     }
 
