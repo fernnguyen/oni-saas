@@ -7,6 +7,7 @@ import { BANKS } from '@/lib/constants/banks';
 import { getVerticalConfig, VERTICAL_REGISTRY, INDUSTRY_TYPES, type IndustryType } from '@oni/core';
 import { useConfirm } from '@/app/components/ui/ConfirmProvider';
 import { IndustryIcon } from '../layout/IndustryIcon';
+import { Pencil, X } from 'lucide-react';
 import { saveNotificationSettings, generatePairingCode, checkSharedBotConnection, clearPairingCode, revokeSharedBotConnection } from '@/app/t/[slug]/settings/notificationsActions';
 
 interface ShopSettings {
@@ -179,6 +180,7 @@ export function ShopSettingsForm({
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<'general' | 'sales' | 'debt' | 'sepay' | 'crm' | 'telegram' | 'payment-methods'>('general');
   const [isIndustryUnlocked, setIsIndustryUnlocked] = useState(false);
+  const [isEditingIndustry, setIsEditingIndustry] = useState(false);
 
   const router = useRouter();
   
@@ -540,6 +542,12 @@ export function ShopSettingsForm({
   function set(key: keyof typeof form, value: any) {
     setForm((f) => ({ ...f, [key]: value }));
     setSaveStates((prev) => ({ ...prev, [activeTab]: 'idle' }));
+  }
+
+  function handleCancelEditIndustry() {
+    setForm((f) => ({ ...f, industry_type: (industryType || 'retail') }));
+    setIsEditingIndustry(false);
+    setIsIndustryUnlocked(false);
   }
 
   async function handleSaveSubForm(tab: 'general' | 'sales' | 'debt' | 'sepay' | 'crm') {
@@ -961,22 +969,62 @@ export function ShopSettingsForm({
             </Section>
 
             <Section title="Ngành kinh doanh chi nhánh" description="Cấu hình nghiệp vụ và giao diện bán hàng chuyên biệt cho chi nhánh này">
-              <div className="relative mt-2">
-                {!isIndustryUnlocked && (
-                  <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-slate-50/70 backdrop-blur-[2px] rounded-2xl border border-slate-200/50 p-6 text-center animate-fade-in">
-                    <p className="text-xs font-semibold text-slate-700 max-w-md leading-relaxed mb-3">
-                      ⚠️ Việc thay đổi ngành nghề kinh doanh sẽ ảnh hưởng trực tiếp đến cấu trúc dữ liệu và các dữ liệu liên quan khác, hãy chắc chắn rằng bạn hiểu rõ về việc này, nếu lựa chọn sai và mất dữ liệu, chúng tôi sẽ không chịu trách nhiệm...
-                    </p>
+              <div className="flex justify-between items-center pb-2 border-b border-slate-100/50">
+                <span className="text-xs font-semibold text-slate-500">
+                  Trạng thái: {!isEditingIndustry ? 'Khóa chỉnh sửa' : 'Đang điều chỉnh'}
+                </span>
+                {canManage && (
+                  !isEditingIndustry ? (
                     <button
                       type="button"
-                      onClick={() => setIsIndustryUnlocked(true)}
-                      className="cursor-pointer rounded-xl bg-orange-600 hover:bg-orange-700 px-4 py-2 text-xs font-bold text-white shadow-sm transition-all active:scale-95"
+                      onClick={() => setIsEditingIndustry(true)}
+                      className="cursor-pointer rounded-lg border border-slate-200 bg-white hover:bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-3xs flex items-center gap-1.5 active:scale-95 transition-all"
                     >
-                      Tôi biết mình đang làm gì...
+                      <Pencil className="w-3.5 h-3.5 text-slate-500" /> Thay đổi ngành
                     </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleCancelEditIndustry}
+                      className="cursor-pointer rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 px-3 py-1.5 text-xs font-semibold text-red-600 shadow-3xs flex items-center gap-1.5 active:scale-95 transition-all"
+                    >
+                      <X className="w-3.5 h-3.5 text-red-500" /> Hủy bỏ
+                    </button>
+                  )
+                )}
+              </div>
+
+              <div className="relative mt-2">
+                {isEditingIndustry && !isIndustryUnlocked && (
+                  <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-slate-50/70 backdrop-blur-[2px] rounded-2xl border border-slate-200/50 p-6 text-center animate-fade-in">
+                    <p className="text-xs font-semibold text-slate-700 max-w-md leading-relaxed mb-3">
+                      ⚠️ Việc thay đổi ngành kinh doanh sẽ tái cấu hình lại toàn bộ luồng nghiệp vụ, giao diện POS và hệ thống biểu mẫu báo cáo. Thiết lập mới có thể không tương thích hoàn toàn với dữ liệu sản phẩm, hóa đơn và tồn kho hiện có của chi nhánh.
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsIndustryUnlocked(true)}
+                        className="cursor-pointer rounded-xl bg-orange-600 hover:bg-orange-700 px-4 py-2 text-xs font-bold text-white shadow-sm transition-all active:scale-95"
+                      >
+                        Tôi đã hiểu và muốn tiếp tục
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCancelEditIndustry}
+                        className="cursor-pointer rounded-xl border border-slate-250 bg-white hover:bg-slate-50 px-4 py-2 text-xs font-bold text-slate-650 shadow-sm transition-all active:scale-95"
+                      >
+                        Hủy
+                      </button>
+                    </div>
                   </div>
                 )}
-                <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 pr-1 transition-all duration-300 ${!isIndustryUnlocked ? 'blur-[1.5px] pointer-events-none select-none opacity-60' : ''}`}>
+                <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 pr-1 transition-all duration-300 ${
+                  (isEditingIndustry && !isIndustryUnlocked)
+                    ? 'blur-[2px] opacity-35 pointer-events-none select-none'
+                    : !isEditingIndustry
+                      ? 'pointer-events-none select-none'
+                      : ''
+                }`}>
                   {INDUSTRY_TYPES.map((type) => {
                     const config = VERTICAL_REGISTRY[type];
                     const isActive = form.industry_type === type;
@@ -993,16 +1041,28 @@ export function ShopSettingsForm({
                     };
                     const vStyle = cardVisuals[type] || cardVisuals.retail;
 
+                    // State classes: selected is sharp/highlighted, others are faded/blurred when locked
+                    let buttonStateClass = '';
+                    if (!isEditingIndustry) {
+                      buttonStateClass = isActive
+                        ? 'opacity-100 blur-none ring-2 ring-primary/10 shadow-xs'
+                        : 'opacity-40 blur-[1px]';
+                    } else if (!isIndustryUnlocked) {
+                      buttonStateClass = 'opacity-50 cursor-not-allowed';
+                    } else {
+                      buttonStateClass = 'cursor-pointer hover:-translate-y-0.5 active:scale-[0.98]';
+                    }
+
                     return (
                       <button
                         key={type}
                         type="button"
-                        disabled={!canManage}
+                        disabled={!canManage || !isEditingIndustry || !isIndustryUnlocked}
                         onClick={() => set('industry_type', type)}
-                        className={`cursor-pointer group relative rounded-2xl border-2 p-3 text-left transition-all duration-300 hover:-translate-y-0.5 flex flex-col justify-between ${isActive
-                            ? `${vStyle} border-primary ring-2 ring-primary/10 shadow-sm`
+                        className={`group relative rounded-2xl border-2 p-3 text-left transition-all duration-300 flex flex-col justify-between ${isActive
+                            ? `${vStyle} border-primary shadow-xs`
                             : 'border-slate-100 bg-white hover:border-slate-300 hover:shadow-xs'
-                          } ${!canManage ? 'opacity-65 cursor-not-allowed' : ''}`}
+                          } ${buttonStateClass}`}
                       >
                         <div className="flex items-center gap-2.5">
                           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 transition-transform duration-300 group-hover:scale-110 shrink-0">
