@@ -1316,6 +1316,8 @@ export function useTableManager(props: UseTableManagerProps) {
             resource_name: selectedTableForPay.name,
             billing_cost: billing.cost,
             billing_duration: billing.label,
+            check_in: selectedTableForPay.startTime,
+            duration_minutes: (billing.hours || 0) * 60 + (billing.minutes || 0),
             check_out: checkoutTimeStr,
             rental_type: rentalType,
             server_order_id: selectedTableForPay.current_order_id || ''
@@ -1326,7 +1328,7 @@ export function useTableManager(props: UseTableManagerProps) {
           await db.insert(schema.order_items).values({
             id: `ORDI-${orderId}-time`,
             order_id: orderId,
-            product_id: 'billiard-time',
+            product_id: 'TIME_CHARGE_BILLIARD',
             product_name: selectedTableForPay.type === 'room'
               ? `Tiền phòng - ${selectedTableForPay.name} (${billing.label})`
               : `Tiền giờ - ${selectedTableForPay.name} (${billing.label})`,
@@ -1438,6 +1440,8 @@ export function useTableManager(props: UseTableManagerProps) {
                 resource_name: selectedTableForPay.name,
                 billing_cost: billing.cost,
                 billing_duration: billing.label,
+                check_in: selectedTableForPay.startTime,
+                duration_minutes: (billing.hours || 0) * 60 + (billing.minutes || 0),
                 check_out: checkoutTimeStr,
                 rental_type: rentalType
               }),
@@ -1445,7 +1449,7 @@ export function useTableManager(props: UseTableManagerProps) {
             },
             items: [
               ...(billing.cost > 0 ? [{
-                product_id: 'billiard-time',
+                product_id: 'TIME_CHARGE_BILLIARD',
                 product_name: selectedTableForPay.type === 'room'
                   ? `Tiền phòng - ${selectedTableForPay.name} (${billing.label})`
                   : `Tiền giờ - ${selectedTableForPay.name} (${billing.label})`,

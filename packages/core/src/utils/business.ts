@@ -41,9 +41,5 @@ export function isTimeChargeProduct(
   productId: string | null | undefined,
   productName?: string | null | undefined
 ): boolean {
-  if (!productId) return false;
-  if (productId === 'TIME_CHARGE') return true;
-  if (productId === 'billiard-time') return true;
-  if (productId.startsWith('TIME_CHARGE_MERGED_')) return true;
-  return false;
+  return !!productId && productId.startsWith('TIME_CHARGE');
 }
