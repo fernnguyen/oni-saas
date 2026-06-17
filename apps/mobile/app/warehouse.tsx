@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { Text, View, ScrollView, TouchableOpacity, TextInput, Modal, Platform, Alert, ActivityIndicator, Animated, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { db } from '../lib/db/client';
 import * as schema from '../lib/db/schema';
@@ -48,6 +48,7 @@ const REASONS_MAP: Record<string, { value: string; label: string }[]> = {
 
 function WarehouseContent() {
   const { hasPermission } = usePermissions();
+  const params = useLocalSearchParams<{ restore_barcode_scanner?: string }>();
   const hasPricingPermission = hasPermission(['admin', 'owner', 'purchaser', 'purchasing.manage', 'chief_accountant', 'settings.manage']);
 
   const [products, setProducts] = useState<any[]>([]);
@@ -56,6 +57,13 @@ function WarehouseContent() {
   
   // Barcode scanner state
   const [isScannerOpen, setIsScannerOpen] = useState(false);
+
+  useEffect(() => {
+    if (params.restore_barcode_scanner === 'true') {
+      router.setParams({ restore_barcode_scanner: undefined } as any);
+      setIsScannerOpen(true);
+    }
+  }, [params.restore_barcode_scanner]);
 
   // Form states giao dịch kho
   const [showAdjustModal, setShowAdjustModal] = useState(false);

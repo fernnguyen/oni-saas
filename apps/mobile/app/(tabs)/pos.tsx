@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Text, View, ScrollView, TouchableOpacity, Modal, TextInput, Image, Platform, Animated, ActivityIndicator, Alert, Pressable, KeyboardAvoidingView } from 'react-native';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../lib/supabase';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -48,6 +48,7 @@ export type CartItem = {
 
 export default function PosScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ restore_barcode_scanner?: string }>();
   const {
     productsList, setProductsList,
     categoriesList, setCategoriesList,
@@ -205,6 +206,13 @@ export default function PosScreen() {
   };
 
   const [isScannerOpen, setIsScannerOpen] = useState(false);
+
+  useEffect(() => {
+    if (params.restore_barcode_scanner === 'true') {
+      router.setParams({ restore_barcode_scanner: undefined } as any);
+      setIsScannerOpen(true);
+    }
+  }, [params.restore_barcode_scanner]);
 
   const [isSavingCart, setIsSavingCart] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);

@@ -16,8 +16,15 @@ export default function IndexPage() {
           // Kiểm tra xem đã có chi nhánh active được chọn trước đó chưa
           const activeShopId = await AsyncStorage.getItem('active_shop_id');
           if (activeShopId) {
-            // Đã chọn chi nhánh -> Vào thẳng Dashboard chính
-            router.replace('/(tabs)');
+            // Kiểm tra xem có đường dẫn chờ khôi phục không (ví dụ sau khi cấp quyền ở Settings)
+            const pendingPath = await AsyncStorage.getItem('pending_restore_path');
+            if (pendingPath) {
+              await AsyncStorage.removeItem('pending_restore_path');
+              router.replace(pendingPath as any);
+            } else {
+              // Đã chọn chi nhánh -> Vào thẳng Dashboard chính
+              router.replace('/(tabs)');
+            }
           } else {
             // Đã đăng nhập nhưng chưa chọn chi nhánh -> Vào màn chọn chi nhánh
             router.replace('/(auth)/select-branch');

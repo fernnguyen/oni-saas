@@ -20,6 +20,8 @@ import {CameraView, useCameraPermissions} from 'expo-camera';
 import {Ionicons} from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import {Audio} from 'expo-av';
+import {usePathname} from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface BarcodeScannerModalProps {
  visible: boolean;
@@ -36,6 +38,7 @@ export function BarcodeScannerModal({
  title = 'Quét mã vạch',
  placeholder = 'Nhập mã sản phẩm hoặc SKU...'
 }: BarcodeScannerModalProps) {
+ const pathname = usePathname();
  const [permission, requestPermission] = useCameraPermissions();
  const [manualBarcode, setManualBarcode] = useState('');
  const [scanned, setScanned] = useState(false);
@@ -190,7 +193,15 @@ export function BarcodeScannerModal({
             </View>
             <TouchableOpacity
               activeOpacity={0.7}
-              onPress={() => Linking.openSettings()}
+              onPress={async () => {
+                try {
+                  const path = `${pathname}?restore_barcode_scanner=true`;
+                  await AsyncStorage.setItem('pending_restore_path', path);
+                } catch (err) {
+                  console.warn('Lỗi lưu đường dẫn khôi phục scanner:', err);
+                }
+                Linking.openSettings().catch(() => {});
+              }}
               className="bg-orange-100 px-3 py-1.5 rounded-lg border border-orange-200 active:scale-95"
             >
               <Text className="text-[10px] font-bold text-orange-700">Cài đặt</Text>

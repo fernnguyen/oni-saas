@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 import {Ionicons, MaterialCommunityIcons} from '@expo/vector-icons';
 import {SafeAreaView} from 'react-native-safe-area-context';
-import {useFocusEffect, useRouter} from 'expo-router';
+import {useFocusEffect, useRouter, useLocalSearchParams} from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {db, expoDb} from '../lib/db/client';
 import * as schema from '../lib/db/schema';
@@ -39,6 +39,7 @@ const ITEM_CLASS_LABELS: Record<string, string> = {
 
 export default function ProductsScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ restore_edit_id?: string }>();
   const { hasPermission } = usePermissions();
   const hasPricingPermission = hasPermission(['admin', 'owner', 'purchaser', 'purchasing.manage', 'chief_accountant', 'settings.manage']);
 
@@ -136,7 +137,10 @@ export default function ProductsScreen() {
             { text: 'Hủy', style: 'cancel' },
             { 
               text: 'Mở Cài đặt', 
-              onPress: () => Linking.openSettings().catch(() => {}) 
+              onPress: async () => {
+                await saveRestorePath();
+                Linking.openSettings().catch(() => {});
+              } 
             }
           ]
         );
@@ -174,7 +178,10 @@ export default function ProductsScreen() {
             { text: 'Hủy', style: 'cancel' },
             { 
               text: 'Mở Cài đặt', 
-              onPress: () => Linking.openSettings().catch(() => {}) 
+              onPress: async () => {
+                await saveRestorePath();
+                Linking.openSettings().catch(() => {});
+              } 
             }
           ]
         );
@@ -423,6 +430,55 @@ export default function ProductsScreen() {
     setShowInlineCategoryForm(false);
     setIsFormModalOpen(true);
   };
+
+  const loadAndOpenProduct = async (productId: string) => {
+    try {
+      if (Platform.OS === 'web') {
+        const headers = await getApiHeaders();
+        const url = getApiBaseUrl();
+        const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+        const res = await fetch(`${url}/api/shops/${shopId}/products/${productId}`, { headers });
+        if (res.ok) {
+          const prod = await res.json();
+          if (prod) {
+            handleOpenEdit(prod);
+          }
+        }
+      } else {
+        const prods = await db.select().from(schema.products).where(eq(schema.products.id, productId));
+        if (prods.length > 0) {
+          handleOpenEdit(prods[0]);
+        }
+      }
+    } catch (err) {
+      console.warn('Lỗi khi tải thông tin sản phẩm khôi phục:', err);
+    }
+  };
+
+  const saveRestorePath = async () => {
+    try {
+      const path = editingProduct 
+        ? `/products?restore_edit_id=${editingProduct.id}` 
+        : `/products?restore_edit_id=new`;
+      await AsyncStorage.setItem('pending_restore_path', path);
+    } catch (err) {
+      console.warn('Lỗi lưu đường dẫn khôi phục:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (params.restore_edit_id) {
+      const restoreId = params.restore_edit_id;
+      // Dọn dẹp query param trong url
+      router.setParams({ restore_edit_id: undefined } as any);
+
+      if (restoreId === 'new') {
+        handleOpenCreate();
+      } else {
+        loadAndOpenProduct(restoreId);
+      }
+    }
+  }, [params.restore_edit_id]);
 
   // Lưu sản phẩm (Offline-first + Background cloud sync)
   const handleSaveProduct = async () => {
