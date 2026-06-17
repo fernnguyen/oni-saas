@@ -20,6 +20,7 @@ import { Button } from '../../components/ui/Button';
 import { Dialog } from '../../components/ui/Dialog';
 import { Badge } from '../../components/ui/Badge';
 import { Skeleton } from '../../components/ui/Skeleton';
+import { Switch } from '../../components/ui/Switch';
 import { DrawerMenu } from '../../components/erp/DrawerMenu';
 import { BarcodeScannerModal } from '../../components/ui/BarcodeScannerModal';
 import { ProductPreviewModal } from '../../components/pos/ProductPreviewModal';
@@ -400,6 +401,22 @@ export default function PosScreen() {
   const [isMergeModalVisible, setIsMergeModalVisible] = useState(false);
   const [transferSearchQuery, setTransferSearchQuery] = useState('');
   const [mergeSearchQuery, setMergeSearchQuery] = useState('');
+
+  const [confirmTransferMerge, setConfirmTransferMerge] = useState<{
+    visible: boolean;
+    type: 'transfer' | 'merge';
+    sourceTable: any;
+    targetTable: any;
+    includeStayCost: boolean;
+    loading: boolean;
+  }>({
+    visible: false,
+    type: 'transfer',
+    sourceTable: null,
+    targetTable: null,
+    includeStayCost: true,
+    loading: false,
+  });
 
   const [isQuickCustomerModalOpen, setIsQuickCustomerModalOpen] = useState(false);
   const [quickCustName, setQuickCustName] = useState('');
@@ -2915,22 +2932,15 @@ export default function PosScreen() {
                         {targets.map(t => (
                           <TouchableOpacity
                             key={t.id}
-                            onPress={async () => {
-                              Alert.alert(
-                                "Xác nhận chuyển",
-                                `Bạn có chắc muốn chuyển từ ${activeTable.name} sang ${t.name} không?`,
-                                [
-                                  { text: "Hủy", style: "cancel" },
-                                  {
-                                    text: "Đồng ý",
-                                    onPress: async () => {
-                                      await handleTransferTable(activeTable.id, t.id);
-                                      setIsTransferModalVisible(false);
-                                      setActiveTable(null); // Close the active room detail modal
-                                    }
-                                  }
-                                ]
-                              );
+                            onPress={() => {
+                              setConfirmTransferMerge({
+                                visible: true,
+                                type: 'transfer',
+                                sourceTable: activeTable,
+                                targetTable: t,
+                                includeStayCost: true,
+                                loading: false,
+                              });
                             }}
                             className="w-[48%] bg-slate-50 border border-slate-200 p-3.5 rounded-2xl items-center active:bg-orange-50 active:border-orange-200"
                           >
@@ -3007,22 +3017,15 @@ export default function PosScreen() {
                         {targets.map(t => (
                           <TouchableOpacity
                             key={t.id}
-                            onPress={async () => {
-                              Alert.alert(
-                                "Xác nhận gộp",
-                                `Hành động này sẽ chuyển toàn bộ dịch vụ/món ăn từ ${activeTable.name} sang ${t.name}, sau đó giải phóng ${activeTable.name} về trạng thái trống.\n\nBạn chắc chắn muốn thực hiện chứ?`,
-                                [
-                                  { text: "Hủy", style: "cancel" },
-                                  {
-                                    text: "Đồng ý",
-                                    onPress: async () => {
-                                      await handleMergeTable(activeTable.id, t.id);
-                                      setIsMergeModalVisible(false);
-                                      setActiveTable(null); // Close the active room detail modal
-                                    }
-                                  }
-                                ]
-                              );
+                            onPress={() => {
+                              setConfirmTransferMerge({
+                                visible: true,
+                                type: 'merge',
+                                sourceTable: activeTable,
+                                targetTable: t,
+                                includeStayCost: true,
+                                loading: false,
+                              });
                             }}
                             className="w-[48%] bg-orange-50/40 border border-orange-100 p-3.5 rounded-2xl items-center active:bg-orange-50 active:border-orange-250"
                           >
@@ -3035,6 +3038,166 @@ export default function PosScreen() {
                     );
                   })()}
                 </ScrollView>
+              </Pressable>
+            </View>
+          )}
+
+          {/* OVERLAY XÁC NHẬN CHUYỂN / GỘP PHÒNG */}
+          {confirmTransferMerge.visible && confirmTransferMerge.sourceTable && confirmTransferMerge.targetTable && (
+            <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 10000, elevation: 100, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0, 0, 0, 0.6)' }}>
+              <Pressable className="absolute inset-0" onPress={() => setConfirmTransferMerge(prev => ({ ...prev, visible: false }))} />
+              <Pressable onPress={() => {}} className="w-[88%] max-w-sm rounded-[28px] p-6 bg-white items-center relative" style={{ shadowColor: '#000000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.25, shadowRadius: 15, elevation: 15 }}>
+                
+                {/* Icon & Title */}
+                <View className="bg-orange-50 p-4 rounded-full mb-4 items-center justify-center border border-orange-100">
+                  <Ionicons name={confirmTransferMerge.type === 'transfer' ? "swap-horizontal" : "git-merge-outline"} size={32} color="#fa5908" />
+                </View>
+                
+                <Text className="text-base font-semibold text-slate-800 text-center leading-tight mb-3">
+                  {confirmTransferMerge.type === 'transfer' ? 'Xác nhận chuyển phòng' : 'Xác nhận gộp phòng'}
+                </Text>
+
+                {/* Flow Diagram: Source -> Target */}
+                <View className="flex-row items-center justify-center bg-slate-50 border border-slate-100 rounded-2xl py-3 px-4 w-full mb-4">
+                  <View className="items-center flex-1">
+                    <Text className="text-[10px] text-slate-400 font-semibold uppercase">Phòng gốc</Text>
+                    <Text className="text-sm font-bold text-slate-800 mt-0.5">{confirmTransferMerge.sourceTable.name}</Text>
+                  </View>
+                  <Ionicons name="arrow-forward-outline" size={18} color="#94a3b8" className="mx-2" />
+                  <View className="items-center flex-1">
+                    <Text className="text-[10px] text-slate-400 font-semibold uppercase">Phòng đích</Text>
+                    <Text className="text-sm font-bold text-slate-800 mt-0.5">{confirmTransferMerge.targetTable.name}</Text>
+                  </View>
+                </View>
+
+                {/* Items & Stay Cost Details */}
+                <View className="w-full bg-slate-50/50 border border-slate-100 rounded-2xl p-3 mb-4">
+                  {/* F&B Items list */}
+                  <Text className="text-[10px] text-slate-450 font-bold uppercase mb-2">Dịch vụ & món ăn chuyển đi:</Text>
+                  {(() => {
+                    const sourceCartItems = Object.values(tableCarts[confirmTransferMerge.sourceTable.id] || {}).filter((item: any) => item.productId !== 'TIME_CHARGE');
+                    if (sourceCartItems.length === 0) {
+                      return <Text className="text-xs text-slate-400 font-semibold italic mb-2">Không có dịch vụ/món ăn đi kèm</Text>;
+                    }
+                    return (
+                      <View className="mb-2">
+                        {sourceCartItems.slice(0, 3).map((item: any, idx: number) => (
+                          <Text key={idx} className="text-xs text-slate-600 font-semibold mb-1" numberOfLines={1}>
+                            • {item.quantity} x {item.name}
+                          </Text>
+                        ))}
+                        {sourceCartItems.length > 3 && (
+                          <Text className="text-[10px] text-slate-400 font-medium italic mt-0.5 ml-2">
+                            ...và {sourceCartItems.length - 3} món khác
+                          </Text>
+                        )}
+                      </View>
+                    );
+                  })()}
+
+                  {/* Stay Cost Info */}
+                  {(() => {
+                    const sourceBilling = calculateBilling(confirmTransferMerge.sourceTable);
+                    if (!sourceBilling || sourceBilling.cost === 0) return null;
+                    return (
+                      <View className="border-t border-slate-100 pt-2 mt-2">
+                        <View className="flex-row justify-between items-center">
+                          <Text className="text-xs text-slate-500 font-semibold">Tiền phòng tạm tính:</Text>
+                          <Text className="text-xs font-bold text-slate-800">{formatCurrency(sourceBilling.cost)}</Text>
+                        </View>
+                        <Text className="text-[10px] text-slate-400 font-medium mt-0.5">({sourceBilling.label} - {sourceBilling.details})</Text>
+                      </View>
+                    );
+                  })()}
+                </View>
+
+                {/* Option to waive/charge stay cost (only if there is stay cost > 0) */}
+                {(() => {
+                  const sourceBilling = calculateBilling(confirmTransferMerge.sourceTable);
+                  if (!sourceBilling || sourceBilling.cost === 0) return null;
+                  
+                  return (
+                    <View className="w-full bg-orange-50/30 border border-orange-100/60 rounded-2xl p-3 mb-5">
+                      <View className="flex-row items-center justify-between">
+                        <View className="flex-1 mr-3">
+                          <Text className="text-xs font-bold text-slate-800">
+                            {confirmTransferMerge.type === 'transfer' ? 'Giữ giờ vào gốc' : 'Cộng dồn tiền phòng'}
+                          </Text>
+                          <Text className="text-[10px] text-slate-450 font-medium leading-relaxed mt-0.5">
+                            {confirmTransferMerge.type === 'transfer' 
+                              ? 'Giữ nguyên giờ check-in từ phòng cũ sang phòng mới'
+                              : 'Tính tiền phòng cũ đến hiện tại và thêm vào bill phòng mới'}
+                          </Text>
+                        </View>
+                        <Switch
+                          value={confirmTransferMerge.includeStayCost}
+                          onValueChange={(val) => setConfirmTransferMerge(prev => ({ ...prev, includeStayCost: val }))}
+                        />
+                      </View>
+                      
+                      {!confirmTransferMerge.includeStayCost && (
+                        <View className="mt-2 pt-2 border-t border-orange-150/40">
+                          <Text className="text-[10px] text-red-500 font-semibold italic">
+                            ⚠️ Bỏ chọn sẽ MIỄN PHÍ tiền phòng cũ (bỏ qua chi phí lưu trú của phòng gốc).
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })()}
+
+                {/* Actions */}
+                <View className="flex-row gap-3 w-full">
+                  <TouchableOpacity
+                    disabled={confirmTransferMerge.loading}
+                    onPress={() => setConfirmTransferMerge(prev => ({ ...prev, visible: false }))}
+                    className="flex-1 bg-slate-100 border border-slate-200/60 py-3 rounded-2xl items-center justify-center active:opacity-70"
+                  >
+                    <Text className="text-xs font-bold text-slate-600">Hủy bỏ</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    disabled={confirmTransferMerge.loading}
+                    onPress={async () => {
+                      try {
+                        setConfirmTransferMerge(prev => ({ ...prev, loading: true }));
+                        
+                        if (confirmTransferMerge.type === 'transfer') {
+                          await handleTransferTable(
+                            confirmTransferMerge.sourceTable.id,
+                            confirmTransferMerge.targetTable.id,
+                            confirmTransferMerge.includeStayCost
+                          );
+                          setIsTransferModalVisible(false);
+                        } else {
+                          await handleMergeTable(
+                            confirmTransferMerge.sourceTable.id,
+                            confirmTransferMerge.targetTable.id,
+                            confirmTransferMerge.includeStayCost
+                          );
+                          setIsMergeModalVisible(false);
+                        }
+                        
+                        setConfirmTransferMerge(prev => ({ ...prev, visible: false, loading: false }));
+                        setActiveTable(null); // Close main detail modal
+                      } catch (err) {
+                        console.error('Lỗi khi chuyển/gộp phòng:', err);
+                        setConfirmTransferMerge(prev => ({ ...prev, loading: false }));
+                      }
+                    }}
+                    className="flex-[1.3] bg-orange-600 py-3 rounded-2xl items-center justify-center active:opacity-90 flex-row gap-1.5"
+                  >
+                    {confirmTransferMerge.loading ? (
+                      <ActivityIndicator size="small" color="#ffffff" />
+                    ) : (
+                      <>
+                        <Ionicons name="checkmark-circle-outline" size={16} color="#ffffff" />
+                        <Text className="text-xs font-bold text-white">Xác nhận</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </View>
+
               </Pressable>
             </View>
           )}

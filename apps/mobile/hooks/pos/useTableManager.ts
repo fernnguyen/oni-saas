@@ -1628,7 +1628,7 @@ export function useTableManager(props: UseTableManagerProps) {
   };
 
   // Gộp phòng/bàn
-  const handleMergeTable = async (sourceTableId: string, targetTableId: string) => {
+  const handleMergeTable = async (sourceTableId: string, targetTableId: string, includeSourceStayCost = true) => {
     try {
       const sourceTable = tables.find(t => t.id === sourceTableId);
       const targetTable = tables.find(t => t.id === targetTableId);
@@ -1643,7 +1643,7 @@ export function useTableManager(props: UseTableManagerProps) {
 
       // Calculate frozen stay fee for source room/table up to now
       const sourceBilling = calculateBilling(sourceTable);
-      const sourceStayCost = sourceBilling ? sourceBilling.cost : 0;
+      const sourceStayCost = includeSourceStayCost ? (sourceBilling ? sourceBilling.cost : 0) : 0;
 
       const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
       const currentUrl = await getApiBaseUrl();
@@ -1666,12 +1666,14 @@ export function useTableManager(props: UseTableManagerProps) {
           const stayFeePayload = {
             order_id: targetOrderId,
             order_no: targetTable.current_order_id || '',
+            line_no: '999',
             product_id: `TIME_CHARGE_MERGED_${sourceTableId}`,
             sku: 'TIME_CHARGE_MERGED',
             product_name: `Tiền phòng ${sourceTable.name} (Đã gộp - ${sourceBilling.label})`,
             qty: '1',
             unit_price: String(sourceStayCost),
             line_total: String(sourceStayCost),
+            line_discount: '0'
           };
           await fetch(`${currentUrl}/api/shops/${shopId}/order-items`, {
             method: 'POST',
@@ -1686,6 +1688,7 @@ export function useTableManager(props: UseTableManagerProps) {
           const json = await itemsRes.json();
           const cloudSourceItems = json.data || [];
           
+          let index = 1;
           for (const item of cloudSourceItems) {
             // Skip the dynamic stay charge of the source room
             if (item.product_id === 'TIME_CHARGE') continue;
@@ -1693,16 +1696,22 @@ export function useTableManager(props: UseTableManagerProps) {
             const payload = {
               order_id: targetOrderId,
               order_no: targetTable.current_order_id || '',
+              line_no: String(100 + index++),
               product_id: item.product_id,
-              sku: item.sku,
+              sku: item.sku || '',
               product_name: item.product_name,
               qty: String(item.qty),
               unit_price: String(item.unit_price),
               line_total: String(item.line_total),
+              line_discount: String(item.line_discount || '0'),
+              variant_id: item.variant_id || '',
+              variant_label: item.variant_label || '',
+              modifiers: item.modifiers || '',
+              modifier_total: String(item.modifier_total || '0')
             };
             await fetch(`${currentUrl}/api/shops/${shopId}/order-items`, {
               method: 'POST',
-              headers,
+              headers: { ...headers, 'Content-Type': 'application/json' },
               body: JSON.stringify(payload)
             });
           }
