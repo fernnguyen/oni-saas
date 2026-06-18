@@ -131,6 +131,27 @@ export default async function TenantRootPage({ params }: Props) {
     redirect(`/${branches[0].slug}`);
   }
 
+  // Fetch unread counts for each branch using the Supabase client
+  const { data: unreadNotis } = await supabase
+    .from('in_app_notifications')
+    .select(`
+      id,
+      branch_id,
+      notification_reads (
+        read_at
+      )
+    `)
+    .eq('tenant_id', tenant.id)
+    .or(`recipient_id.is.null,recipient_id.eq.${authData.user.id}`);
+
+  const unreadCountsByBranch: Record<string, number> = {};
+  (unreadNotis || []).forEach((n: any) => {
+    const isRead = Array.isArray(n.notification_reads) && n.notification_reads.length > 0;
+    if (!isRead && n.branch_id) {
+      unreadCountsByBranch[n.branch_id] = (unreadCountsByBranch[n.branch_id] || 0) + 1;
+    }
+  });
+
   const tenantStyle = getBranchStyle(tenant.slug);
 
   // Branch selector for tenants with multiple branches
@@ -149,6 +170,7 @@ export default async function TenantRootPage({ params }: Props) {
           {branches.map((branch) => {
             const bStyle = getBranchStyle(branch.slug);
             const initial = branch.name.charAt(0).toUpperCase();
+            const unreadCount = unreadCountsByBranch[branch.id] || 0;
             return (
               <a
                 key={branch.id}
@@ -166,6 +188,11 @@ export default async function TenantRootPage({ params }: Props) {
                       <span className="text-base font-bold text-slate-800 truncate leading-tight group-hover:text-primary transition-colors">
                         {branch.name}
                       </span>
+                      {unreadCount > 0 && (
+                        <span className="text-[10px] font-extrabold text-red-650 bg-red-50 dark:bg-red-950/20 px-2 py-0.5 rounded-full shrink-0 shadow-[0_0_6px_rgba(239,68,68,0.1)]">
+                          {unreadCount} tin mới
+                        </span>
+                      )}
                       <span className="text-[9px] text-slate-400 font-mono font-medium truncate uppercase tracking-wider bg-slate-100 px-1.5 py-0.5 rounded-md">
                         {branch.slug}
                       </span>

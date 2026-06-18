@@ -1,6 +1,6 @@
 import React, {useState, useEffect} from 'react';
 import {Text, View, ScrollView, TouchableOpacity, ActivityIndicator, Alert, TextInput, Modal, Platform, Pressable, DeviceEventEmitter} from 'react-native';
-import {useRouter} from 'expo-router';
+import {useRouter, useLocalSearchParams} from 'expo-router';
 import {Ionicons} from '@expo/vector-icons';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -22,6 +22,7 @@ interface Branch {
 
 export default function SelectBranchScreen() {
  const router = useRouter();
+ const { targetShopId } = useLocalSearchParams();
 
  const navigateToTabs = async (shopId: string) => {
    try {
@@ -49,6 +50,7 @@ export default function SelectBranchScreen() {
    }
  };
  const [branches, setBranches] = useState<Branch[]>([]);
+ const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
  const [selectedBranchId, setSelectedBranchId] = useState<string>('');
  const [isLoading, setIsLoading] = useState(true);
  const [isSyncing, setIsSyncing] = useState(false);
@@ -150,10 +152,40 @@ export default function SelectBranchScreen() {
         // Lưu cache danh sách chi nhánh
         await AsyncStorage.setItem(`cached_branches_${tId}`, JSON.stringify(mappedBranches));
 
+        // C. Tải số lượng tin chưa đọc theo chi nhánh (có AbortController timeout bảo vệ)
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 4000); // 4 giây timeout
+          const unreadRes = await fetch(`${currentUrl}/api/notifications/unread-counts?tenantId=${tId}`, {
+            headers,
+            signal: controller.signal
+          });
+          clearTimeout(timeoutId);
+          if (unreadRes.ok) {
+            const unreadData = await unreadRes.json();
+            if (unreadData && unreadData.byBranch) {
+              setUnreadCounts(unreadData.byBranch);
+              
+              // Cập nhật huy hiệu icon điện thoại bằng tổng số tin chưa đọc
+              const totalUnread = unreadData.total || 0;
+              if (Platform.OS !== 'web') {
+                const Notifications = require('expo-notifications');
+                Notifications.setBadgeCountAsync(totalUnread).catch(() => {});
+              }
+            }
+          }
+        } catch (unreadErr) {
+          console.warn('[SelectBranch] Không thể tải unread counts (mạng lỗi hoặc timeout):', unreadErr);
+        }
+
         if (mappedBranches.length > 0) {
           // Mặc định chọn chi nhánh hoạt động đầu tiên tìm thấy
+          // HOẶC nếu có targetShopId thì chọn targetShopId
           const firstActive = mappedBranches.find((b: any) => b.isActive);
-          setSelectedBranchId(firstActive ? firstActive.id : mappedBranches[0].id);
+          const initialSelected = targetShopId && mappedBranches.some((b: any) => b.id === targetShopId)
+            ? (targetShopId as string)
+            : (firstActive ? firstActive.id : mappedBranches[0].id);
+          setSelectedBranchId(initialSelected);
         }
         setShowConfig(false); // Ẩn card cấu hình nếu tải dữ liệu thành công
       } catch (error: any) {
@@ -673,16 +705,23 @@ export default function SelectBranchScreen() {
   color={isSelected ? '#fa5908' : '#64748b'} 
   />
   </View>
-  <View className="flex-1">
-  <Text className={`text-xs font-medium ${
-  isSelected ? 'text-orange-500' : 'text-slate-800'
-  }`}>
-  {branch.name}
-  </Text>
-  <Text className="text-xs text-slate-455 mt-0.5">
-  {branch.address}
-  </Text>
-  </View>
+   <View className="flex-1">
+   <View className="flex-row items-center flex-wrap">
+     <Text className={`text-xs font-medium ${
+     isSelected ? 'text-orange-500' : 'text-slate-800'
+     }`}>
+     {branch.name}
+     </Text>
+     {unreadCounts[branch.id] > 0 && (
+       <View className="bg-red-500 px-1.5 py-0.5 rounded-full ml-1.5 justify-center items-center">
+         <Text className="text-white text-[9px] font-black">{unreadCounts[branch.id]}</Text>
+       </View>
+     )}
+   </View>
+   <Text className="text-xs text-slate-455 mt-0.5">
+   {branch.address}
+   </Text>
+   </View>
   </View>
 
   {isActive ? (

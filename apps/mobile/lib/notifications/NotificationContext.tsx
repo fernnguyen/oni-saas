@@ -148,6 +148,27 @@ export function NotificationProvider({ children }: ProviderProps) {
 
         setNotifications(mapped);
       }
+
+      // Tải tổng số lượng tin chưa đọc toàn hệ thống để cập nhật huy hiệu icon điện thoại
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
+        const unreadRes = await fetch(
+          `${baseUrl}/api/notifications/unread-counts?tenantId=${tenantId}`,
+          { headers, signal: controller.signal }
+        );
+        clearTimeout(timeoutId);
+        if (unreadRes.ok) {
+          const unreadData = await unreadRes.json();
+          const totalUnread = unreadData.total || 0;
+          if (Platform.OS !== 'web') {
+            const Notifications = require('expo-notifications');
+            Notifications.setBadgeCountAsync(totalUnread).catch(() => {});
+          }
+        }
+      } catch (unreadErr) {
+        console.warn('[NotificationContext] Không thể đồng bộ badge count (mạng lỗi hoặc timeout):', unreadErr);
+      }
     } catch (err) {
       console.error('[NotificationContext] Failed to fetch notifications:', err);
     } finally {
@@ -270,15 +291,34 @@ export function NotificationProvider({ children }: ProviderProps) {
         const rawId = id.replace('in_app_', '');
         const baseUrl = getApiBaseUrl();
         const headers = await getApiHeaders();
-        await fetch(`${baseUrl}/api/notifications/${rawId}/read`, {
+        const res = await fetch(`${baseUrl}/api/notifications/${rawId}/read`, {
           method: 'POST',
           headers,
         });
+
+        if (res.ok && tenantId) {
+          // Đồng bộ lại badge count ngoài icon điện thoại
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 3000);
+          const unreadRes = await fetch(
+            `${baseUrl}/api/notifications/unread-counts?tenantId=${tenantId}`,
+            { headers, signal: controller.signal }
+          );
+          clearTimeout(timeoutId);
+          if (unreadRes.ok) {
+            const unreadData = await unreadRes.json();
+            const totalUnread = unreadData.total || 0;
+            if (Platform.OS !== 'web') {
+              const Notifications = require('expo-notifications');
+              Notifications.setBadgeCountAsync(totalUnread).catch(() => {});
+            }
+          }
+        }
       } catch (err) {
         console.error('[NotificationContext] Failed to mark as read:', err);
       }
     }
-  }, []);
+  }, [tenantId]);
 
   const markAllAsRead = useCallback(async () => {
     // Optimistic update
@@ -289,11 +329,30 @@ export function NotificationProvider({ children }: ProviderProps) {
       try {
         const baseUrl = getApiBaseUrl();
         const headers = await getApiHeaders();
-        await fetch(`${baseUrl}/api/notifications/read-all`, {
+        const res = await fetch(`${baseUrl}/api/notifications/read-all`, {
           method: 'POST',
           headers,
           body: JSON.stringify({ tenantId, shopId }),
         });
+
+        if (res.ok) {
+          // Đồng bộ lại badge count ngoài icon điện thoại
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 3000);
+          const unreadRes = await fetch(
+            `${baseUrl}/api/notifications/unread-counts?tenantId=${tenantId}`,
+            { headers, signal: controller.signal }
+          );
+          clearTimeout(timeoutId);
+          if (unreadRes.ok) {
+            const unreadData = await unreadRes.json();
+            const totalUnread = unreadData.total || 0;
+            if (Platform.OS !== 'web') {
+              const Notifications = require('expo-notifications');
+              Notifications.setBadgeCountAsync(totalUnread).catch(() => {});
+            }
+          }
+        }
       } catch (err) {
         console.error('[NotificationContext] Failed to mark all as read:', err);
       }

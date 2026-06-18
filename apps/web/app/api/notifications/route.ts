@@ -37,6 +37,10 @@ export async function GET(req: NextRequest) {
         metadata,
         created_at,
         expires_at,
+        shops (
+          name,
+          slug
+        ),
         notification_reads (
           read_at
         )
@@ -59,11 +63,15 @@ export async function GET(req: NextRequest) {
     // Format the response, converting the join array into a flat 'status' field ('read' | 'unread')
     const formattedNotifications = (notifications || []).map((n: any) => {
       const isRead = Array.isArray(n.notification_reads) && n.notification_reads.length > 0;
+      const branchName = n.shops?.name || null;
+      const branchSlug = n.shops?.slug || null;
       
       // Clean up the joined field and return a unified format
-      const { notification_reads, ...rest } = n;
+      const { notification_reads, shops, ...rest } = n;
       return {
         ...rest,
+        branchName,
+        branchSlug,
         status: isRead ? ('read' as const) : ('unread' as const),
       };
     });
