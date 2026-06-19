@@ -58,7 +58,8 @@ export class SyncManager {
         custData,
         fundsData,
         cbData,
-        methodsData
+        methodsData,
+        lockdownData
       ] = await Promise.all([
         fetchJson(`${baseUrl}/api/shops/${shopId}/categories?limit=500`, true, 'Không thể tải Danh mục sản phẩm từ Cloud'),
         fetchJson(`${baseUrl}/api/shops/${shopId}/products?limit=2000&nocache=true`, true, 'Không thể tải danh mục Sản phẩm từ Cloud'),
@@ -68,6 +69,7 @@ export class SyncManager {
         fetchJson(`${baseUrl}/api/shops/${shopId}/payment-funds?active=TRUE`, true, 'Không thể tải danh sách Quỹ thanh toán từ Cloud'),
         fetchJson(`${baseUrl}/api/shops/${shopId}/cashbook?limit=100`, false),
         fetchJson(`${baseUrl}/api/shops/${shopId}/payment-methods?active=TRUE`, false),
+        fetchJson(`${baseUrl}/api/shops/${shopId}/reports/tax/lockdown`, false),
       ]);
 
       onProgress(0.6);
@@ -80,6 +82,7 @@ export class SyncManager {
       const rawFunds = fundsData.data || [];
       const rawCashbook = cbData.data || [];
       const rawMethods = methodsData.data || [];
+      const rawLocked = Array.isArray(lockdownData) ? lockdownData : (lockdownData?.data || []);
 
       // Bản đồ hóa các active order theo resource_id để tra cứu nhanh
       const activeOrdersMap = new Map<string, any>();
@@ -126,6 +129,8 @@ export class SyncManager {
               name: cat.name || '',
               parent_id: cat.parent_id || null,
               description: cat.description || null,
+              tax_rate: cat.tax_rate || null,
+              tax_group: cat.tax_group || null,
               sync_status: 'synced',
             }).onConflictDoUpdate({
               target: schema.categories.id,
@@ -133,6 +138,8 @@ export class SyncManager {
                 name: cat.name || '',
                 parent_id: cat.parent_id || null,
                 description: cat.description || null,
+                tax_rate: cat.tax_rate || null,
+                tax_group: cat.tax_group || null,
                 sync_status: 'synced',
               }
             });
@@ -165,6 +172,9 @@ export class SyncManager {
               active: prod.active || 'TRUE',
               weight: isNaN(weightVal as any) ? null : weightVal,
               item_class: prod.item_class || 'commercial',
+              tax_rate: prod.tax_rate || null,
+              input_tax_rate: prod.input_tax_rate || null,
+              tax_group: prod.tax_group || null,
               sync_status: 'synced',
             }).onConflictDoUpdate({
               target: schema.products.id,
@@ -186,6 +196,9 @@ export class SyncManager {
                 active: prod.active || 'TRUE',
                 weight: isNaN(weightVal as any) ? null : weightVal,
                 item_class: prod.item_class || 'commercial',
+                tax_rate: prod.tax_rate || null,
+                input_tax_rate: prod.input_tax_rate || null,
+                tax_group: prod.tax_group || null,
                 sync_status: 'synced',
               }
             });
@@ -333,6 +346,19 @@ export class SyncManager {
             }).onConflictDoNothing();
           }
         }
+
+        // 7. Ghi Kỳ Khóa Sổ Thuế (Tax Lockdown Cache)
+        await tx.insert(schema.localCaches).values({
+          cache_key: 'tax_locked_periods',
+          cache_value: JSON.stringify(rawLocked),
+          updated_at: Date.now(),
+        }).onConflictDoUpdate({
+          target: schema.localCaches.cache_key,
+          set: {
+            cache_value: JSON.stringify(rawLocked),
+            updated_at: Date.now(),
+          }
+        });
       });
 
       onProgress(1.0);
@@ -412,7 +438,7 @@ export class SyncManager {
               employee_id: userEmail,
               subtotal: order.total_amount + (order.discount_amount || 0),
               discount_amount: order.discount_amount || 0,
-              tax_amount: 0,
+              tax_amount: (order as any).tax_amount || 0,
               total_amount: order.total_amount,
               paid_amount: order.paid_amount,
               debt_amount: order.total_amount - order.paid_amount,
@@ -427,6 +453,9 @@ export class SyncManager {
               unit_price: it.unit_price,
               discount_amount: 0,
               line_total: it.line_total,
+              tax_rate: it.tax_rate || '0',
+              tax_amount: it.tax_amount || 0,
+              tax_group: it.tax_group || '',
             })),
             payments: order.status === 'in_progress' ? [] : (() => {
               try {
@@ -885,6 +914,8 @@ export class SyncManager {
               name: cat.name || '',
               parent_id: cat.parent_id || null,
               description: cat.description || null,
+              tax_rate: cat.tax_rate || null,
+              tax_group: cat.tax_group || null,
               sync_status: 'synced',
             }).onConflictDoUpdate({
               target: schema.categories.id,
@@ -892,6 +923,8 @@ export class SyncManager {
                 name: cat.name || '',
                 parent_id: cat.parent_id || null,
                 description: cat.description || null,
+                tax_rate: cat.tax_rate || null,
+                tax_group: cat.tax_group || null,
                 sync_status: 'synced',
               }
             });
@@ -924,6 +957,9 @@ export class SyncManager {
               active: prod.active || 'TRUE',
               weight: isNaN(weightVal as any) ? null : weightVal,
               item_class: prod.item_class || 'commercial',
+              tax_rate: prod.tax_rate || null,
+              input_tax_rate: prod.input_tax_rate || null,
+              tax_group: prod.tax_group || null,
               sync_status: 'synced',
             }).onConflictDoUpdate({
               target: schema.products.id,

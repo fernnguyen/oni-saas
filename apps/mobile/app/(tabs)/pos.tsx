@@ -834,6 +834,16 @@ export default function PosScreen() {
     }
     setIsPayingCartLoading(true);
     try {
+      const { isTaxPeriodLocked } = await import('../../lib/utils/tax');
+      const isLocked = await isTaxPeriodLocked(debtRepayOpts?.customCheckoutTime || new Date());
+      if (isLocked) {
+        Alert.alert(
+          'Kỳ thuế đã khóa',
+          'Thời điểm thanh toán nằm trong kỳ thuế đã bị khóa sổ. Không thể tạo hóa đơn mới!'
+        );
+        setIsPayingCartLoading(false);
+        return;
+      }
       const debtRepay = debtRepayOpts?.debtRepayAmount || 0;
       const paidSum = payments.reduce((sum, p) => sum + p.amount, 0);
       const totalAmountDue = finalTotal + debtRepay;
@@ -872,6 +882,28 @@ export default function PosScreen() {
       const orderNo = `HD-BL-${Date.now().toString().substring(9)}`; // BL = Bán Lẻ
       const nowStr = new Date().toISOString();
 
+      // Calculate offline tax
+      let totalTaxAmount = 0;
+      const calculatedItems = Object.entries(cart).map(([cartItemId, item]: [string, any]) => {
+        const itemTotal = (item.price + (item.modifier_total || 0)) * item.quantity;
+        const taxRateVal = parseFloat(item.tax_rate || '0');
+        const taxAmountVal = Math.round(itemTotal * (taxRateVal / 100));
+        totalTaxAmount += taxAmountVal;
+
+        return {
+          id: `ORDI-${orderId}-${cartItemId}`,
+          order_id: orderId,
+          product_id: item.productId,
+          product_name: item.name,
+          qty: item.quantity,
+          unit_price: (item.price + (item.modifier_total || 0)),
+          line_total: itemTotal,
+          tax_rate: item.tax_rate || '0',
+          tax_amount: taxAmountVal,
+          tax_group: item.tax_group || '',
+        };
+      });
+
       if (Platform.OS !== 'web') {
         await db.insert(schema.orders).values({
           id: orderId,
@@ -884,29 +916,22 @@ export default function PosScreen() {
           payment_method: paymentMethodString,
           created_at: nowStr,
           shift_id: shiftId,
+          tax_amount: totalTaxAmount,
           sync_status: 'pending',
           note: note,
           discount_amount: discount,
         });
 
-        for (const [cartItemId, item] of Object.entries(cart)) {
-          await db.insert(schema.order_items).values({
-            id: `ORDI-${orderId}-${cartItemId}`,
-            order_id: orderId,
-            product_id: item.productId,
-            product_name: item.name,
-            qty: item.quantity,
-            unit_price: (item.price + (item.modifier_total || 0)),
-            line_total: (item.price + (item.modifier_total || 0)) * item.quantity,
-          });
+        for (const it of calculatedItems) {
+          await db.insert(schema.order_items).values(it);
 
-          const originalProd = productsList.find(p => p.id === item.productId);
+          const originalProd = productsList.find(p => p.id === it.product_id);
           if (originalProd) {
-            const newStock = Math.max(0, originalProd.stock_qty - item.quantity);
+            const newStock = Math.max(0, originalProd.stock_qty - it.qty);
             await db
               .update(schema.products)
               .set({ stock_qty: newStock })
-              .where(eq(schema.products.id, item.productId));
+              .where(eq(schema.products.id, it.product_id));
           }
         }
 
@@ -999,20 +1024,23 @@ export default function PosScreen() {
                 employee_id: currentUserEmail,
                 subtotal: finalTotal + discount,
                 discount_amount: discount,
-                tax_amount: 0,
+                tax_amount: totalTaxAmount,
                 total_amount: finalTotal,
                 paid_amount: orderPaidAmt,
                 debt_amount: orderDebtAmt,
                 note: note || '',
                 shift_id: shiftId,
               },
-              items: Object.entries(cart).map(([cartItemId, item]: [string, any]) => ({
-                product_id: item.productId,
-                product_name: item.name,
-                qty: item.quantity,
-                unit_price: item.price + (item.modifier_total || 0),
+              items: calculatedItems.map(it => ({
+                product_id: it.product_id,
+                product_name: it.product_name,
+                qty: it.qty,
+                unit_price: it.unit_price,
                 discount_amount: 0,
-                line_total: (item.price + (item.modifier_total || 0)) * item.quantity,
+                line_total: it.line_total,
+                tax_rate: it.tax_rate,
+                tax_amount: it.tax_amount,
+                tax_group: it.tax_group,
               })),
               payments: processedPayments.map(p => {
                 const fund = paymentFundsList.find((f: any) => f.id === p.fund_id);

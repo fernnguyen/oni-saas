@@ -44,7 +44,10 @@ export function useCart(isNavReady: boolean, isLoading: boolean) {
           quantity: existing ? existing.quantity + previewQuantity : previewQuantity,
           variant_label: variantLabel,
           modifiers: selectedModifiers,
-          modifier_total: modifierTotal
+          modifier_total: modifierTotal,
+          tax_rate: previewProduct.tax_rate || '0',
+          input_tax_rate: previewProduct.input_tax_rate || '0',
+          tax_group: previewProduct.tax_group || '',
         }
       };
     });

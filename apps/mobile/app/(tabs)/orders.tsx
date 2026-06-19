@@ -1823,6 +1823,7 @@ export default function OrdersScreen() {
                       ) : null}
                       <Text className="text-tiny text-slate-500 font-medium mt-1">
                         SL: {item.qty} x {formatCurrency(effPrice)}
+                        {item.tax_rate && parseFloat(item.tax_rate) > 0 ? ` · VAT ${item.tax_rate}%` : ''}
                       </Text>
                       {itemReturned > 0 ? (
                         <Text className="text-xxs text-orange-600 font-semibold mt-0.5">
@@ -1840,7 +1841,10 @@ export default function OrdersScreen() {
             
             {(() => {
               const discountAmount = Number(selectedOrder.discount_amount || 0);
-              if (discountAmount > 0) {
+              const taxAmount = Number(selectedOrder.tax_amount || 0);
+              const hasBreakdown = discountAmount > 0 || taxAmount > 0;
+              
+              if (hasBreakdown) {
                 return (
                   <View className="border-t border-slate-200 mt-4 pt-2">
                     <View className="flex-row justify-between py-2 items-center">
@@ -1849,12 +1853,22 @@ export default function OrdersScreen() {
                         {formatCurrency(selectedOrder.total_amount + discountAmount)}
                       </Text>
                     </View>
-                    <View className="flex-row justify-between py-2 items-center">
-                      <Text className="text-xs text-slate-500 font-medium">Giảm giá</Text>
-                      <Text className="text-xs font-semibold text-rose-600">
-                        -{formatCurrency(discountAmount)}
-                      </Text>
-                    </View>
+                    {discountAmount > 0 && (
+                      <View className="flex-row justify-between py-2 items-center">
+                        <Text className="text-xs text-slate-500 font-medium">Giảm giá</Text>
+                        <Text className="text-xs font-semibold text-rose-600">
+                          -{formatCurrency(discountAmount)}
+                        </Text>
+                      </View>
+                    )}
+                    {taxAmount > 0 && (
+                      <View className="flex-row justify-between py-2 items-center">
+                        <Text className="text-xs text-slate-500 font-medium">Thuế (VAT)</Text>
+                        <Text className="text-xs font-semibold text-slate-800">
+                          {formatCurrency(taxAmount)}
+                        </Text>
+                      </View>
+                    )}
                     <View className="flex-row justify-between py-4 border-t border-slate-200 mt-2 items-center">
                       <Text className="text-xs font-semibold text-slate-800">Tổng thanh toán</Text>
                       <Text className="text-orange-500 text-base font-semibold">

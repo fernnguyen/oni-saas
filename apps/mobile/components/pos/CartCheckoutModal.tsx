@@ -239,6 +239,16 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
     }, 0);
   }, [cart, cartOwnerTable, customCheckoutTime, calculateBilling, localRentalType]);
 
+  const localTaxTotal = React.useMemo(() => {
+    return Object.entries(cart).reduce((sum, [key, item]) => {
+      if (key === 'TIME_CHARGE') return sum;
+      const itemTotal = (item.price + (item.modifier_total || 0)) * item.quantity;
+      const taxRateVal = parseFloat(item.tax_rate || '0');
+      if (isNaN(taxRateVal) || taxRateVal <= 0) return sum;
+      return sum + Math.round(itemTotal * (taxRateVal / 100));
+    }, 0);
+  }, [cart]);
+
   const handleStartEditCheckoutTime = () => {
     let currentMeta: any = {};
     if (cartOwnerTable && cartOwnerTable.metadata) {
@@ -1178,7 +1188,12 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                       <View className="flex-row justify-between items-start mb-1">
                         {/* Name & Modifiers */}
                         <View className="flex-1 pr-2">
-                          <Text className={`font-semibold text-sm leading-tight ${isTimeCharge ? 'text-emerald-800' : 'text-slate-800'}`}>{itemToRender.name}</Text>
+                          <Text className={`font-semibold text-sm leading-tight ${isTimeCharge ? 'text-emerald-800' : 'text-slate-800'}`}>
+                            {itemToRender.name}
+                            {itemToRender.tax_rate && parseFloat(itemToRender.tax_rate) > 0 ? (
+                              <Text className="text-[10px] text-slate-400 font-normal"> (VAT {itemToRender.tax_rate}%)</Text>
+                            ) : null}
+                          </Text>
                           {itemToRender.variant_label && (!itemToRender.modifiers || itemToRender.modifiers.length === 0) && (
                             <Text className="text-xs text-violet-600 font-medium mt-0.5">{itemToRender.variant_label}</Text>
                           )}
@@ -1254,6 +1269,16 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                     -{formatCurrency(discountAmount)}
                   </Text>
                 </TouchableOpacity>
+
+                {/* Hàng Thuế (VAT) */}
+                {localTaxTotal > 0 && (
+                  <View className="flex-row justify-between items-center py-2.5 border-t border-dashed border-slate-200">
+                    <Text className="text-xs text-slate-455 font-medium">Thuế (VAT):</Text>
+                    <Text className="text-xs text-slate-700 font-semibold">
+                      {formatCurrency(localTaxTotal)}
+                    </Text>
+                  </View>
+                )}
 
                 {/* Hàng Tổng cộng */}
                 <View className="flex-row justify-between items-center py-2.5 border-t border-slate-200">

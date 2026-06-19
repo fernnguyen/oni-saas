@@ -153,6 +153,8 @@ export function initializeLocalDatabase(customDb?: any) {
         name TEXT NOT NULL,
         parent_id TEXT,
         description TEXT,
+        tax_rate TEXT,
+        tax_group TEXT,
         sync_status TEXT NOT NULL DEFAULT 'synced'
       );
 
@@ -175,6 +177,9 @@ export function initializeLocalDatabase(customDb?: any) {
         active TEXT DEFAULT 'TRUE',
         weight INTEGER,
         item_class TEXT DEFAULT 'commercial',
+        tax_rate TEXT,
+        input_tax_rate TEXT,
+        tax_group TEXT,
         sync_status TEXT NOT NULL DEFAULT 'synced'
       );
 
@@ -220,6 +225,7 @@ export function initializeLocalDatabase(customDb?: any) {
         payment_method TEXT NOT NULL DEFAULT 'Tiền mặt',
         created_at TEXT NOT NULL,
         shift_id TEXT,
+        tax_amount INTEGER DEFAULT 0,
         sync_status TEXT NOT NULL DEFAULT 'synced',
         note TEXT,
         discount_amount INTEGER DEFAULT 0,
@@ -233,7 +239,10 @@ export function initializeLocalDatabase(customDb?: any) {
         product_name TEXT NOT NULL,
         qty INTEGER NOT NULL DEFAULT 1,
         unit_price INTEGER NOT NULL DEFAULT 0,
-        line_total INTEGER NOT NULL DEFAULT 0
+        line_total INTEGER NOT NULL DEFAULT 0,
+        tax_rate TEXT,
+        tax_amount INTEGER DEFAULT 0,
+        tax_group TEXT
       );
 
       CREATE TABLE IF NOT EXISTS shop_shifts (
@@ -338,6 +347,17 @@ export function initializeLocalDatabase(customDb?: any) {
     try { targetDb.execSync(`ALTER TABLE products ADD COLUMN weight INTEGER;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE products ADD COLUMN item_class TEXT DEFAULT 'commercial';`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE categories ADD COLUMN sync_status TEXT DEFAULT 'synced';`); } catch (e) {}
+    
+    // Migrations for tax properties
+    try { targetDb.execSync(`ALTER TABLE categories ADD COLUMN tax_rate TEXT;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE categories ADD COLUMN tax_group TEXT;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE products ADD COLUMN tax_rate TEXT;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE products ADD COLUMN input_tax_rate TEXT;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE products ADD COLUMN tax_group TEXT;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE orders ADD COLUMN tax_amount INTEGER DEFAULT 0;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE order_items ADD COLUMN tax_rate TEXT;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE order_items ADD COLUMN tax_amount INTEGER DEFAULT 0;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE order_items ADD COLUMN tax_group TEXT;`); } catch (e) {}
     
     console.log(`CSDL SQLite [${activeDbName}]: Khởi tạo các bảng/migrations offline-first thành công!`);
   } catch (error) {

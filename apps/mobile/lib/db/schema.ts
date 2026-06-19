@@ -6,6 +6,8 @@ export const categories = sqliteTable('categories', {
   name: text('name').notNull(),
   parent_id: text('parent_id'),
   description: text('description'),
+  tax_rate: text('tax_rate'),
+  tax_group: text('tax_group'),
   sync_status: text('sync_status').notNull().default('synced'), // synced | pending
 });
 
@@ -54,6 +56,9 @@ export const products = sqliteTable('products', {
   active: text('active').default('TRUE'), // TRUE | FALSE
   weight: integer('weight'),
   item_class: text('item_class').default('commercial'), // commercial | supply | fixed_asset
+  tax_rate: text('tax_rate'),
+  input_tax_rate: text('input_tax_rate'),
+  tax_group: text('tax_group'),
   sync_status: text('sync_status').notNull().default('synced'), // synced | pending
 });
 
@@ -102,6 +107,7 @@ export const orders = sqliteTable('orders', {
   payment_method: text('payment_method').notNull().default('Tiền mặt'), // Tiền mặt, Chuyển khoản
   created_at: text('created_at').notNull(), // Lưu ISO string dạng GMT+7
   shift_id: text('shift_id'), // ID ca làm việc gắn liền
+  tax_amount: integer('tax_amount').default(0),
   sync_status: text('sync_status').notNull().default('synced'), // synced | pending (đóng offline chờ mạng)
   note: text('note'),
   discount_amount: integer('discount_amount').default(0),
@@ -117,6 +123,9 @@ export const order_items = sqliteTable('order_items', {
   qty: integer('qty').notNull().default(1),
   unit_price: integer('unit_price').notNull().default(0),
   line_total: integer('line_total').notNull().default(0),
+  tax_rate: text('tax_rate'),
+  tax_amount: integer('tax_amount').default(0),
+  tax_group: text('tax_group'),
 });
 
 // 7. CA LÀM VIỆC DI ĐỘNG (Shop Shifts)

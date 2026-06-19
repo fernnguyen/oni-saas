@@ -580,11 +580,15 @@ export function useTableManager(props: UseTableManagerProps) {
         const mappedCart: any = {};
         if (items) {
           for (const item of items) {
+            const originalProd = productsList.find(p => p.id === item.product_id);
             mappedCart[item.product_id] = {
               productId: item.product_id,
               name: item.product_name,
               price: parseInt(item.unit_price || '0', 10),
-              quantity: parseInt(item.qty || '1', 10)
+              quantity: parseInt(item.qty || '1', 10),
+              tax_rate: item.tax_rate || originalProd?.tax_rate || '0',
+              input_tax_rate: item.input_tax_rate || originalProd?.input_tax_rate || '0',
+              tax_group: item.tax_group || originalProd?.tax_group || '',
             };
           }
         }
@@ -1234,6 +1238,16 @@ export function useTableManager(props: UseTableManagerProps) {
     if (!cartOwnerTable) return;
     setIsPayingTableLoading(true);
     try {
+      const { isTaxPeriodLocked } = await import('../../lib/utils/tax');
+      const isLocked = await isTaxPeriodLocked(customCheckoutTime || new Date());
+      if (isLocked) {
+        Alert.alert(
+          'Kỳ thuế đã khóa',
+          'Thời điểm thanh toán nằm trong kỳ thuế đã bị khóa sổ. Không thể tạo hóa đơn mới!'
+        );
+        setIsPayingTableLoading(false);
+        return;
+      }
       const selectedTableForPay = cartOwnerTable;
       let rentalType = selectedRentalType || 'hourly';
       if (!selectedRentalType && selectedTableForPay.metadata) {
@@ -1289,6 +1303,28 @@ export function useTableManager(props: UseTableManagerProps) {
         };
       }));
 
+      // Calculate offline tax
+      let totalTaxAmount = 0;
+      const calculatedItems = Object.entries(tableCartItems).map(([prodId, item]: [string, any]) => {
+        const itemTotal = (item.price + (item.modifier_total || 0)) * item.quantity;
+        const taxRateVal = parseFloat(item.tax_rate || '0');
+        const taxAmountVal = Math.round(itemTotal * (taxRateVal / 100));
+        totalTaxAmount += taxAmountVal;
+
+        return {
+          id: `ORDI-${orderId}-${prodId}`,
+          order_id: orderId,
+          product_id: item.productId,
+          product_name: item.name,
+          qty: item.quantity,
+          unit_price: item.price + (item.modifier_total || 0),
+          line_total: itemTotal,
+          tax_rate: item.tax_rate || '0',
+          tax_amount: taxAmountVal,
+          tax_group: item.tax_group || '',
+        };
+      });
+
       // A. Lưu vào cơ sở dữ liệu SQLite cục bộ (Offline-First)
       if (Platform.OS === 'web') {
         setTables(prev => prev.map(t => t.id === selectedTableForPay.id ? { ...t, status: 'available', startTime: null } : t));
@@ -1297,6 +1333,7 @@ export function useTableManager(props: UseTableManagerProps) {
           await db.delete(schema.orders).where(eq(schema.orders.id, selectedTableForPay.current_order_id));
           await db.delete(schema.order_items).where(eq(schema.order_items.order_id, selectedTableForPay.current_order_id));
         }
+
         await db.insert(schema.orders).values({
           id: orderId,
           order_no: orderNo,
@@ -1308,6 +1345,7 @@ export function useTableManager(props: UseTableManagerProps) {
           payment_method: paymentMethodString,
           created_at: checkoutTimeStr,
           shift_id: shiftId,
+          tax_amount: totalTaxAmount,
           sync_status: 'pending',
           note: note,
           discount_amount: discount,
@@ -1335,20 +1373,15 @@ export function useTableManager(props: UseTableManagerProps) {
             qty: 1,
             unit_price: billing.cost,
             line_total: billing.cost,
+            tax_rate: '0',
+            tax_amount: 0,
+            tax_group: '',
           });
         }
 
         // Thêm các món ăn/dịch vụ gọi kèm vào SQLite order_items
-        for (const [prodId, item] of Object.entries(tableCartItems)) {
-          await db.insert(schema.order_items).values({
-            id: `ORDI-${orderId}-${prodId}`,
-            order_id: orderId,
-            product_id: item.productId,
-            product_name: item.name,
-            qty: item.quantity,
-            unit_price: item.price,
-            line_total: (item.price + (item.modifier_total || 0)) * item.quantity,
-          });
+        for (const it of calculatedItems) {
+          await db.insert(schema.order_items).values(it);
         }
 
         await db
@@ -1429,7 +1462,7 @@ export function useTableManager(props: UseTableManagerProps) {
               employee_id: currentUserEmail,
               subtotal: subtotal,
               discount_amount: discount,
-              tax_amount: 0,
+              tax_amount: totalTaxAmount,
               total_amount: totalAmount,
               paid_amount: Math.min(totalAmount, paidSum),
               debt_amount: Math.max(0, totalAmount - Math.min(totalAmount, paidSum)),
@@ -1457,14 +1490,20 @@ export function useTableManager(props: UseTableManagerProps) {
                 unit_price: billing.cost,
                 discount_amount: 0,
                 line_total: billing.cost,
+                tax_rate: '0',
+                tax_amount: 0,
+                tax_group: '',
               }] : []),
-              ...Array.from(Object.entries(tableCartItems)).map(([prodId, item]: [string, any]) => ({
-                product_id: item.productId,
-                product_name: item.name,
-                qty: item.quantity,
-                unit_price: (item.price + (item.modifier_total || 0)),
+              ...calculatedItems.map(it => ({
+                product_id: it.product_id,
+                product_name: it.product_name,
+                qty: it.qty,
+                unit_price: it.unit_price,
                 discount_amount: 0,
-                line_total: (item.price + (item.modifier_total || 0)) * item.quantity,
+                line_total: it.line_total,
+                tax_rate: it.tax_rate,
+                tax_amount: it.tax_amount,
+                tax_group: it.tax_group,
               }))
             ],
             payments: processedPayments.map(p => {
