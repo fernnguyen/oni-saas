@@ -13,6 +13,9 @@ export interface LocalProduct {
   description?: string
   image_url?: string
   active: boolean
+  tax_rate?: string
+  tax_group?: string
+  input_tax_rate?: string
   // ── Variant / Modifier System (Sprint 1) ───────────────────────
   product_type?: 'simple' | 'variant_parent' | 'variant_child' | 'modifier'
   parent_id?: string              // NULL → simple/parent; ID → variant_child
@@ -28,6 +31,8 @@ export interface LocalCategory {
   parent_id?: string
   sort_order: number
   active: boolean
+  tax_rate?: string
+  tax_group?: string
 }
 
 export interface LocalPriceList {
@@ -102,6 +107,9 @@ export interface LocalOrderItem {
   cost_price: number
   discount_amount: number
   line_total: number
+  tax_rate?: string
+  tax_amount?: number
+  tax_group?: string
   // ── Variant / Modifier context (Sprint 1) ───────────────────────
   variant_label?: string          // "Size L" — denormalized display
   modifiers?: string              // JSON string: [{group, option, price_adj}]
@@ -222,6 +230,8 @@ export class OniLocalDB extends Dexie {
     this.version(3).stores({
       inventoryBatches: 'id, product_id, [product_id+branch_id], expiry_date',
     })
+    // v4: Force Dexie database upgrade trigger
+    this.version(4).stores({})
   }
 }
 

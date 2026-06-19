@@ -9,6 +9,8 @@ export const productCreateSchema = z.object({
   cost_price:      z.string().optional().default('0'),
   min_price:       z.string().optional().default('0'),
   tax_rate:        z.string().optional().default(''),
+  input_tax_rate:  z.string().optional().default(''),
+  tax_group:       z.string().optional().default(''),
   weight:          z.string().optional().default(''),
   stock_track:     z.string().optional().default('TRUE'),
   variant_id:      z.string().optional().default(''),

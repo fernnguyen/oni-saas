@@ -63,6 +63,19 @@ export async function PUT(
     const body = await req.json()
     const data = orderUpdateSchema.parse(body)
 
+    const existingOrder = await connector.findById('orders', id)
+    if (!existingOrder) {
+      return NextResponse.json({ error: 'Order not found' }, { status: 404 })
+    }
+    const { isDateLocked } = await import('@/lib/server/taxLock')
+    const orderDate = (existingOrder as any).created_at
+    if (await isDateLocked(connector, shopId, orderDate)) {
+      return NextResponse.json(
+        { error: 'Đơn hàng này thuộc kỳ thuế đã bị khóa sổ. Không thể sửa đổi!' },
+        { status: 400 }
+      )
+    }
+
     const updated = await connector.update('orders', id, data)
     invalidate(shopId, 'orders')
     return NextResponse.json(updated)
@@ -81,8 +94,19 @@ export async function DELETE(
 
     // Restore inventory: reverse all stock movements linked to this order
     const order = await connector.findById('orders', id)
-    if (order) {
-      const orderNo = (order as Record<string, string>).order_no ?? ''
+    if (!order) {
+      return NextResponse.json({ error: 'Order not found' }, { status: 404 })
+    }
+    const { isDateLocked } = await import('@/lib/server/taxLock')
+    const orderDate = (order as any).created_at
+    if (await isDateLocked(connector, shopId, orderDate)) {
+      return NextResponse.json(
+        { error: 'Đơn hàng này thuộc kỳ thuế đã bị khóa sổ. Không thể xóa!' },
+        { status: 400 }
+      )
+    }
+
+    const orderNo = (order as Record<string, string>).order_no ?? ''
       if (orderNo) {
         const mvResult = await connector.list('stock-movements', {
           page: 1, limit: 200,
@@ -114,7 +138,6 @@ export async function DELETE(
           }
         }
       }
-    }
 
     // Cascade delete order_items
     const itemsRes = await connector.list('order-items', { filters: { order_id: id }, limit: 100 })

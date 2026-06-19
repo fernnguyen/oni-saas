@@ -50,6 +50,7 @@ export const orderItemCreateSchema = z.object({
   line_discount:  z.string().optional().default('0'),
   tax_rate:       z.string().optional().default('0'),
   tax_amount:     z.string().optional().default('0'),
+  tax_group:      z.string().optional().default(''),
   line_total:     z.string().min(1),
   employee_id:    z.string().optional().default(''),
   // ── Unit Conversion ──────────────────────────────────────────────

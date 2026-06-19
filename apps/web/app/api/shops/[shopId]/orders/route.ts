@@ -49,6 +49,16 @@ export async function POST(
     const body = await req.json()
     const data = orderCreateSchema.parse(body)
 
+    // --- KIỂM TRA KHÓA SỔ THUẾ (TAX LOCKDOWN) ---
+    const { isDateLocked } = await import('@/lib/server/taxLock')
+    const orderDate = body.created_at || getGMT7Time()
+    if (await isDateLocked(connector, shopId, orderDate)) {
+      return NextResponse.json(
+        { error: 'Kỳ thuế của ngày này đã bị khóa sổ. Không thể tạo đơn hàng!' },
+        { status: 400 }
+      )
+    }
+
     // --- KIỂM TRA CA LÀM VIỆC (SHIFT MANAGEMENT) ---
     const admin = getSupabaseAdminClient()
     const { data: settings } = await admin

@@ -35,6 +35,9 @@ interface SyncItem {
   unit_id?: string
   unit_name?: string
   conversion_rate?: number
+  tax_rate?: string
+  tax_amount?: number
+  tax_group?: string
 }
 
 interface SyncPayment {
@@ -73,6 +76,7 @@ interface SyncOrder {
   metadata?: string
   payment_method?: string
   shift_id?: string
+  created_at?: string
 }
 
 export async function POST(
@@ -106,6 +110,16 @@ export async function POST(
     }
 
     const { local_order_id, server_order_id, order, items, payments, stock_movements: rawStockMovements } = body
+
+    // --- KIỂM TRA KHÓA SỔ THUẾ (TAX LOCKDOWN) ---
+    const { isDateLocked } = await import('@/lib/server/taxLock')
+    const orderDate = order.created_at || getGMT7Time()
+    if (await isDateLocked(connector, shopId, orderDate)) {
+      return NextResponse.json(
+        { error: 'Kỳ thuế của ngày này đã bị khóa sổ. Không thể tạo hoặc đồng bộ đơn hàng!' },
+        { status: 400 }
+      )
+    }
 
     // Filter out time charge products / non-inventory items from stock movements
     const stock_movements = (rawStockMovements || []).filter((mv: any) => {
@@ -292,6 +306,40 @@ export async function POST(
     for (let i = 0; i < items.length; i++) {
       const it = items[i]
       if (existingProductIds.has(it.product_id)) continue
+
+      // Fallback calculations for missing tax fields
+      let taxRate = it.tax_rate
+      let taxGroup = it.tax_group
+      let taxAmount = it.tax_amount
+
+      if (!taxRate || !taxGroup) {
+        try {
+          const product = await connector.findById('products', it.product_id)
+          if (product) {
+            taxRate = taxRate || product.tax_rate || '0'
+            taxGroup = taxGroup || product.tax_group || ''
+          }
+          if (product && product.category_id && (!taxRate || !taxGroup)) {
+            const category = await connector.findById('categories', product.category_id)
+            if (category) {
+              taxRate = taxRate || category.tax_rate || '0'
+              taxGroup = taxGroup || category.tax_group || ''
+            }
+          }
+        } catch (err) {
+          console.error('Failed to resolve fallback tax configuration for sync item:', err)
+        }
+      }
+
+      taxRate = taxRate || '0'
+      taxGroup = taxGroup || ''
+
+      if (taxAmount === undefined || taxAmount === null || taxAmount === 0 || String(taxAmount) === '0') {
+        const rateVal = parseFloat(taxRate) || 0
+        const totalVal = parseFloat(String(it.line_total)) || 0
+        taxAmount = (totalVal * rateVal) / 100
+      }
+
       itemsToCreate.push({
         order_id:       serverId,
         order_no:       orderNo,
@@ -302,6 +350,9 @@ export async function POST(
         qty:            String(it.qty),
         unit_price:     String(it.unit_price),
         line_discount:  String(it.discount_amount),
+        tax_rate:       String(taxRate),
+        tax_amount:     String(taxAmount),
+        tax_group:      taxGroup,
         line_total:     String(it.line_total),
         // ── Variant / Modifier context (Sprint 1) ───────────────────────
         variant_label:  it.variant_label ?? '',

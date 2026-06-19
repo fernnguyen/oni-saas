@@ -12,6 +12,8 @@ export interface CartItem {
   qty: number
   discount_amount: number
   line_total: number
+  tax_rate?: string
+  tax_group?: string
   // ── Variant / Modifier context (Sprint 4) ───────────────────────────────────────────
   variant_label?: string       // "Size L" — denormalized for display
   modifiers?: SelectedModifier[] // [{group,option,price_adj}]
@@ -79,6 +81,8 @@ function cartReducer(state: CartState, action: CartAction): CartState {
         unit_id: (action.product as any).unit_id,
         unit_name: (action.product as any).unit_name,
         conversion_rate: (action.product as any).conversion_rate,
+        tax_rate: action.product.tax_rate,
+        tax_group: action.product.tax_group,
       }
       return { ...state, items: [...state.items, newItem] }
     }

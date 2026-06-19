@@ -51,6 +51,7 @@ const ENTITY_PREFIXES: Record<string, string> = {
   'housekeeping-logs':          'HKL',
   'ota-bookings':               'OTA',
   'booking-channels':           'BC',
+  'tax-locked-periods':         'TLP',
 }
 
 export class MysqlConnector implements IDataConnector {

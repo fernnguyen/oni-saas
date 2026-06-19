@@ -1539,24 +1539,33 @@ export function CheckoutModal({
       const local_id = existingOrder ? existingOrder.local_id : crypto.randomUUID()
       const now = new Date().toISOString()
 
-      const orderItems: LocalOrderItem[] = computedItems.map((item) => ({
-        local_id: crypto.randomUUID(),
-        order_local_id: local_id,
-        product_id: item.product_id,
-        product_name: item.product_name,
-        sku: item.sku,
-        qty: item.qty,
-        unit_price: item.unit_price,
-        cost_price: item.cost_price,
-        discount_amount: item.discount_amount,
-        line_total: item.line_total,
-        variant_label: item.variant_label,
-        modifiers: typeof item.modifiers === 'object' ? JSON.stringify(item.modifiers) : item.modifiers,
-        modifier_total: item.modifier_total,
-        unit_id: item.unit_id,
-        unit_name: item.unit_name,
-        conversion_rate: item.conversion_rate,
-      }))
+      const orderItems: LocalOrderItem[] = computedItems.map((item) => {
+        const rate = parseFloat(item.tax_rate || '0') || 0
+        const taxAmount = (Number(item.line_total) * rate) / 100
+        return {
+          local_id: crypto.randomUUID(),
+          order_local_id: local_id,
+          product_id: item.product_id,
+          product_name: item.product_name,
+          sku: item.sku,
+          qty: item.qty,
+          unit_price: item.unit_price,
+          cost_price: item.cost_price,
+          discount_amount: item.discount_amount,
+          tax_rate: item.tax_rate || '0',
+          tax_amount: taxAmount,
+          tax_group: item.tax_group || '',
+          line_total: item.line_total,
+          variant_label: item.variant_label,
+          modifiers: typeof item.modifiers === 'object' ? JSON.stringify(item.modifiers) : item.modifiers,
+          modifier_total: item.modifier_total,
+          unit_id: item.unit_id,
+          unit_name: item.unit_name,
+          conversion_rate: item.conversion_rate,
+        }
+      })
+
+      const totalTax = orderItems.reduce((sum, it) => sum + (it.tax_amount || 0), 0)
 
       const actualPayments = isSplitActive
         ? [
@@ -1617,7 +1626,7 @@ export function CheckoutModal({
         employee_id: employeeId,
         subtotal: computedSubtotal,
         discount_amount: localDiscount + tierDiscountAmount,
-        tax_amount: 0,
+        tax_amount: totalTax,
         total_amount: finalTotal,
         paid_amount: isWaitingForQr ? actualPaid - bankTransferAmt : actualPaid,
         debt_amount: debtAmount,

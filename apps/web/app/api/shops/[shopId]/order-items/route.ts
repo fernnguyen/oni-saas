@@ -40,7 +40,47 @@ export async function POST(
     const body = await req.json()
     const data = orderItemCreateSchema.parse(body)
 
-    const created = await connector.create('order-items', data)
+    // Fallback logic for tax rate & group
+    let taxRate = data.tax_rate
+    let taxGroup = data.tax_group
+    let taxAmount = data.tax_amount
+
+    if (!taxRate || !taxGroup) {
+      try {
+        const product = await connector.findById('products', data.product_id)
+        if (product) {
+          taxRate = taxRate || product.tax_rate || '0'
+          taxGroup = taxGroup || product.tax_group || ''
+        }
+        if (product && product.category_id && (!taxRate || !taxGroup)) {
+          const category = await connector.findById('categories', product.category_id)
+          if (category) {
+            taxRate = taxRate || category.tax_rate || '0'
+            taxGroup = taxGroup || category.tax_group || ''
+          }
+        }
+      } catch (err) {
+        console.error('Failed to resolve fallback tax configurations:', err)
+      }
+    }
+
+    taxRate = taxRate || '0'
+    taxGroup = taxGroup || ''
+
+    if (!taxAmount || taxAmount === '0') {
+      const rateVal = parseFloat(taxRate) || 0
+      const totalVal = parseFloat(data.line_total) || 0
+      taxAmount = String((totalVal * rateVal) / 100)
+    }
+
+    const finalData = {
+      ...data,
+      tax_rate: taxRate,
+      tax_group: taxGroup,
+      tax_amount: taxAmount,
+    }
+
+    const created = await connector.create('order-items', finalData)
     invalidate(shopId, 'order-items')
     return NextResponse.json(created, { status: 201 })
   } catch (e) {
