@@ -628,7 +628,14 @@ export function TaxSettingsClient({ shopId, slug, branch, categories: initialCat
                         {isEditing ? (
                           <select
                             value={catTaxGroup}
-                            onChange={(e) => setCatTaxGroup(e.target.value)}
+                            onChange={(e) => {
+                              const groupCode = e.target.value
+                              setCatTaxGroup(groupCode)
+                              const matched = taxGroups.find((g) => g.code === groupCode)
+                              if (matched) {
+                                setCatTaxRate(String(matched.vat_rate))
+                              }
+                            }}
                             className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs w-full max-w-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                           >
                             <option value="">-- Không áp dụng --</option>
@@ -724,7 +731,14 @@ export function TaxSettingsClient({ shopId, slug, branch, categories: initialCat
                 />
                 <select
                   value={bulkTaxGroup}
-                  onChange={(e) => setBulkTaxGroup(e.target.value)}
+                  onChange={(e) => {
+                    const groupCode = e.target.value
+                    setBulkTaxGroup(groupCode)
+                    const matched = taxGroups.find((g) => g.code === groupCode)
+                    if (matched) {
+                      setBulkTaxRate(String(matched.vat_rate))
+                    }
+                  }}
                   className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs max-w-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                 >
                   <option value="">-- Giữ nguyên / Chọn nhóm thuế --</option>
@@ -822,7 +836,14 @@ export function TaxSettingsClient({ shopId, slug, branch, categories: initialCat
                         {isEditing ? (
                           <select
                             value={prodTaxGroup}
-                            onChange={(e) => setProdTaxGroup(e.target.value)}
+                            onChange={(e) => {
+                              const groupCode = e.target.value
+                              setProdTaxGroup(groupCode)
+                              const matched = taxGroups.find((g) => g.code === groupCode)
+                              if (matched) {
+                                setProdTaxRate(String(matched.vat_rate))
+                              }
+                            }}
                             className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs w-full max-w-xs focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                           >
                             <option value="">-- Không áp dụng --</option>
