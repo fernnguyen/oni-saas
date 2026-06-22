@@ -126,6 +126,8 @@ export const order_items = sqliteTable('order_items', {
   tax_rate: text('tax_rate'),
   tax_amount: integer('tax_amount').default(0),
   tax_group: text('tax_group'),
+  tax_vat_rate: text('tax_vat_rate'),
+  tax_pit_rate: text('tax_pit_rate'),
 });
 
 // 7. CA LÀM VIỆC DI ĐỘNG (Shop Shifts)

@@ -7,6 +7,7 @@ import * as schema from '../../lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { getApiBaseUrl, getApiHeaders } from '../../lib/api/config';
 import { SyncManager } from '../../lib/sync/SyncManager';
+import { getSystemTaxGroups } from '../../lib/utils/tax';
 
 
 export interface UseTableManagerProps {
@@ -1304,12 +1305,34 @@ export function useTableManager(props: UseTableManagerProps) {
       }));
 
       // Calculate offline tax
+      const systemTaxGroups = await getSystemTaxGroups();
       let totalTaxAmount = 0;
       const calculatedItems = Object.entries(tableCartItems).map(([prodId, item]: [string, any]) => {
         const itemTotal = (item.price + (item.modifier_total || 0)) * item.quantity;
         const taxRateVal = parseFloat(item.tax_rate || '0');
         const taxAmountVal = Math.round(itemTotal * (taxRateVal / 100));
         totalTaxAmount += taxAmountVal;
+
+        let taxVatRate = '0';
+        let taxPitRate = '0';
+        let normalizedGroup = item.tax_group || '';
+
+        if (normalizedGroup) {
+          const matchedGroup = systemTaxGroups.find(
+            (g) =>
+              g.code === normalizedGroup ||
+              g.name === normalizedGroup ||
+              (normalizedGroup === 'Phân phối, cung cấp hàng hóa' && g.code === 'phan_phoi') ||
+              (normalizedGroup === 'Dịch vụ, xây dựng không bao thầu nguyên vật liệu' && g.code === 'dich_vu') ||
+              (normalizedGroup === 'Sản xuất, vận tải, dịch vụ có gắn với hàng hóa, xây dựng có bao thầu nguyên vật liệu' && g.code === 'san_xuat') ||
+              (normalizedGroup === 'Hoạt động kinh doanh khác' && g.code === 'khac')
+          );
+          if (matchedGroup) {
+            normalizedGroup = matchedGroup.code;
+            taxVatRate = String(matchedGroup.vat_rate);
+            taxPitRate = String(matchedGroup.pit_rate);
+          }
+        }
 
         return {
           id: `ORDI-${orderId}-${prodId}`,
@@ -1321,7 +1344,9 @@ export function useTableManager(props: UseTableManagerProps) {
           line_total: itemTotal,
           tax_rate: item.tax_rate || '0',
           tax_amount: taxAmountVal,
-          tax_group: item.tax_group || '',
+          tax_group: normalizedGroup,
+          tax_vat_rate: taxVatRate,
+          tax_pit_rate: taxPitRate,
         };
       });
 
@@ -1376,6 +1401,8 @@ export function useTableManager(props: UseTableManagerProps) {
             tax_rate: '0',
             tax_amount: 0,
             tax_group: '',
+            tax_vat_rate: '0',
+            tax_pit_rate: '0',
           });
         }
 
@@ -1837,14 +1864,16 @@ export function useTableManager(props: UseTableManagerProps) {
           await db.insert(schema.order_items).values({
             id: stayFeeItemId,
             order_id: targetOrderId,
-            order_no: targetTable.current_order_id || '',
             product_id: `TIME_CHARGE_MERGED_${sourceTableId}`,
-            sku: 'TIME_CHARGE_MERGED',
             product_name: `Tiền phòng ${sourceTable.name} (Đã gộp - ${sourceBilling.label})`,
-            qty: '1',
-            unit_price: String(sourceStayCost),
-            line_total: String(sourceStayCost),
-            created_at: new Date().toISOString()
+            qty: 1,
+            unit_price: sourceStayCost,
+            line_total: sourceStayCost,
+            tax_rate: '0',
+            tax_amount: 0,
+            tax_group: '',
+            tax_vat_rate: '0',
+            tax_pit_rate: '0',
           });
         }
 
@@ -1869,18 +1898,16 @@ export function useTableManager(props: UseTableManagerProps) {
             await db.insert(schema.order_items).values({
               id: `ORDI-${Date.now()}-${Math.random().toString(36).substring(7)}`,
               order_id: targetOrderId,
-              order_no: item.order_no,
               product_id: item.product_id,
-              sku: item.sku,
               product_name: item.product_name,
               qty: item.qty,
               unit_price: item.unit_price,
               line_total: item.line_total,
-              variant_id: item.variant_id,
-              variant_label: item.variant_label,
-              modifier_total: item.modifier_total,
-              modifiers: item.modifiers,
-              created_at: new Date().toISOString()
+              tax_rate: item.tax_rate,
+              tax_amount: item.tax_amount,
+              tax_group: item.tax_group,
+              tax_vat_rate: item.tax_vat_rate,
+              tax_pit_rate: item.tax_pit_rate,
             });
           }
         }

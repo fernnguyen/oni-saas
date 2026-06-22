@@ -60,6 +60,8 @@ export const orderItems = mysqlTable('order_items', {
   tax_rate: varchar('tax_rate', { length: 50 }),
   tax_amount: varchar('tax_amount', { length: 50 }),
   tax_group: varchar('tax_group', { length: 255 }),
+  tax_vat_rate: varchar('tax_vat_rate', { length: 50 }),
+  tax_pit_rate: varchar('tax_pit_rate', { length: 50 }),
   line_total: varchar('line_total', { length: 50 }),
   employee_id: varchar('employee_id', { length: 255 }),
   // ── Variant / Modifier context (Sprint 1) ────────────────────────────────

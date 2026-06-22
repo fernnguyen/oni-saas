@@ -18,8 +18,11 @@ export const getSystemSettings = unstable_cache(
   { tags: ['system_settings'], revalidate: 3600 }
 )
 
+import { getTaxGroupsAction } from './actions'
+
 export default async function SuperSettingsPage() {
   const config = await getSystemSettings()
+  const taxGroups = await getTaxGroupsAction().catch(() => [])
 
   return (
     <div className="space-y-6">
@@ -29,7 +32,7 @@ export default async function SuperSettingsPage() {
         <p className="text-sm text-slate-500 mt-0.5">Quản lý cấu hình chung cho toàn bộ dự án.</p>
       </div>
 
-      <SettingsClient initialConfig={config} />
+      <SettingsClient initialConfig={config} initialTaxGroups={taxGroups} />
     </div>
   )
 }

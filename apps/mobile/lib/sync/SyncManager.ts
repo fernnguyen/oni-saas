@@ -59,7 +59,8 @@ export class SyncManager {
         fundsData,
         cbData,
         methodsData,
-        lockdownData
+        lockdownData,
+        taxGroupsData
       ] = await Promise.all([
         fetchJson(`${baseUrl}/api/shops/${shopId}/categories?limit=500`, true, 'Không thể tải Danh mục sản phẩm từ Cloud'),
         fetchJson(`${baseUrl}/api/shops/${shopId}/products?limit=2000&nocache=true`, true, 'Không thể tải danh mục Sản phẩm từ Cloud'),
@@ -70,6 +71,7 @@ export class SyncManager {
         fetchJson(`${baseUrl}/api/shops/${shopId}/cashbook?limit=100`, false),
         fetchJson(`${baseUrl}/api/shops/${shopId}/payment-methods?active=TRUE`, false),
         fetchJson(`${baseUrl}/api/shops/${shopId}/reports/tax/lockdown`, false),
+        fetchJson(`${baseUrl}/api/tax-groups`, false),
       ]);
 
       onProgress(0.6);
@@ -82,7 +84,45 @@ export class SyncManager {
       const rawFunds = fundsData.data || [];
       const rawCashbook = cbData.data || [];
       const rawMethods = methodsData.data || [];
-      const rawLocked = Array.isArray(lockdownData) ? lockdownData : (lockdownData?.data || []);
+      let rawLocked = Array.isArray(lockdownData) ? lockdownData : (lockdownData?.data || []);
+      if (!rawLocked || rawLocked.length === 0) {
+        try {
+          const cachedVal = await db
+            .select()
+            .from(schema.localCaches)
+            .where(eq(schema.localCaches.cache_key, 'tax_locked_periods'))
+            .limit(1);
+          if (cachedVal.length > 0 && cachedVal[0].cache_value) {
+            rawLocked = JSON.parse(cachedVal[0].cache_value);
+          }
+        } catch (e) {
+          console.warn('Lỗi đọc cache local của tax_locked_periods:', e);
+        }
+      }
+      
+      let rawTaxGroups = taxGroupsData?.data || [];
+      if (!rawTaxGroups || rawTaxGroups.length === 0) {
+        try {
+          const cachedVal = await db
+            .select()
+            .from(schema.localCaches)
+            .where(eq(schema.localCaches.cache_key, 'system_tax_groups'))
+            .limit(1);
+          if (cachedVal.length > 0 && cachedVal[0].cache_value) {
+            rawTaxGroups = JSON.parse(cachedVal[0].cache_value);
+          }
+        } catch (e) {
+          console.warn('Lỗi đọc cache local của system_tax_groups:', e);
+        }
+      }
+      if (!rawTaxGroups || rawTaxGroups.length === 0) {
+        rawTaxGroups = [
+          { code: 'phan_phoi', name: 'Phân phối, cung cấp hàng hóa', vat_rate: 1.0, pit_rate: 0.5 },
+          { code: 'dich_vu', name: 'Dịch vụ, xây dựng không bao thầu nguyên vật liệu', vat_rate: 5.0, pit_rate: 2.0 },
+          { code: 'san_xuat', name: 'Sản xuất, vận tải, dịch vụ có gắn với hàng hóa, xây dựng có bao thầu nguyên vật liệu', vat_rate: 3.0, pit_rate: 1.5 },
+          { code: 'khac', name: 'Hoạt động kinh doanh khác', vat_rate: 2.0, pit_rate: 1.0 }
+        ];
+      }
 
       // Bản đồ hóa các active order theo resource_id để tra cứu nhanh
       const activeOrdersMap = new Map<string, any>();
@@ -359,6 +399,19 @@ export class SyncManager {
             updated_at: Date.now(),
           }
         });
+
+        // 8. Ghi Biểu thuế chung hệ thống (System Tax Groups Cache)
+        await tx.insert(schema.localCaches).values({
+          cache_key: 'system_tax_groups',
+          cache_value: JSON.stringify(rawTaxGroups),
+          updated_at: Date.now(),
+        }).onConflictDoUpdate({
+          target: schema.localCaches.cache_key,
+          set: {
+            cache_value: JSON.stringify(rawTaxGroups),
+            updated_at: Date.now(),
+          }
+        });
       });
 
       onProgress(1.0);
@@ -456,6 +509,8 @@ export class SyncManager {
               tax_rate: it.tax_rate || '0',
               tax_amount: it.tax_amount || 0,
               tax_group: it.tax_group || '',
+              tax_vat_rate: it.tax_vat_rate || '0',
+              tax_pit_rate: it.tax_pit_rate || '0',
             })),
             payments: order.status === 'in_progress' ? [] : (() => {
               try {

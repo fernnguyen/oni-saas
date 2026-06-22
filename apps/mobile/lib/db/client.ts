@@ -242,7 +242,9 @@ export function initializeLocalDatabase(customDb?: any) {
         line_total INTEGER NOT NULL DEFAULT 0,
         tax_rate TEXT,
         tax_amount INTEGER DEFAULT 0,
-        tax_group TEXT
+        tax_group TEXT,
+        tax_vat_rate TEXT,
+        tax_pit_rate TEXT
       );
 
       CREATE TABLE IF NOT EXISTS shop_shifts (
@@ -358,6 +360,8 @@ export function initializeLocalDatabase(customDb?: any) {
     try { targetDb.execSync(`ALTER TABLE order_items ADD COLUMN tax_rate TEXT;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE order_items ADD COLUMN tax_amount INTEGER DEFAULT 0;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE order_items ADD COLUMN tax_group TEXT;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE order_items ADD COLUMN tax_vat_rate TEXT;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE order_items ADD COLUMN tax_pit_rate TEXT;`); } catch (e) {}
     
     console.log(`CSDL SQLite [${activeDbName}]: Khởi tạo các bảng/migrations offline-first thành công!`);
   } catch (error) {

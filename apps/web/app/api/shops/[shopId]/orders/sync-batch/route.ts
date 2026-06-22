@@ -7,6 +7,7 @@ import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
 import { RollbackContext } from '@oni/adapters'
 import crypto from 'crypto'
 import { updateCustomerStats } from '@/lib/server/customerStats'
+import { getSystemTaxGroupsCached } from '@/app/api/tax-groups/route'
 
 const INBOUND_TYPES = ['purchase_in', 'p2p_purchase_in', 'return_in', 'transfer_in']
 const OUTBOUND_TYPES = ['sale_out', 'transfer_out']
@@ -38,6 +39,8 @@ interface SyncItem {
   tax_rate?: string
   tax_amount?: number
   tax_group?: string
+  tax_vat_rate?: string
+  tax_pit_rate?: string
 }
 
 interface SyncPayment {
@@ -110,6 +113,16 @@ export async function POST(
     }
 
     const { local_order_id, server_order_id, order, items, payments, stock_movements: rawStockMovements } = body
+
+    let systemTaxGroups = await getSystemTaxGroupsCached().catch(() => [])
+    if (!systemTaxGroups || systemTaxGroups.length === 0) {
+      systemTaxGroups = [
+        { id: '1', code: 'phan_phoi', name: 'Phân phối, cung cấp hàng hóa', vat_rate: 1.0, pit_rate: 0.5, active: true },
+        { id: '2', code: 'dich_vu', name: 'Dịch vụ, xây dựng không bao thầu nguyên vật liệu', vat_rate: 5.0, pit_rate: 2.0, active: true },
+        { id: '3', code: 'san_xuat', name: 'Sản xuất, vận tải, dịch vụ có gắn với hàng hóa, xây dựng có bao thầu nguyên vật liệu', vat_rate: 3.0, pit_rate: 1.5, active: true },
+        { id: '4', code: 'khac', name: 'Hoạt động kinh doanh khác', vat_rate: 2.0, pit_rate: 1.0, active: true }
+      ]
+    }
 
     // --- KIỂM TRA KHÓA SỔ THUẾ (TAX LOCKDOWN) ---
     const { isDateLocked } = await import('@/lib/server/taxLock')
@@ -308,9 +321,9 @@ export async function POST(
       if (existingProductIds.has(it.product_id)) continue
 
       // Fallback calculations for missing tax fields
-      let taxRate = it.tax_rate
-      let taxGroup = it.tax_group
-      let taxAmount = it.tax_amount
+      let taxRate: string = it.tax_rate || '0'
+      let taxGroup: string = it.tax_group || ''
+      let taxAmount: number = it.tax_amount || 0
 
       if (!taxRate || !taxGroup) {
         try {
@@ -340,6 +353,34 @@ export async function POST(
         taxAmount = (totalVal * rateVal) / 100
       }
 
+      // Resolve tax_vat_rate and tax_pit_rate snapshots
+      let taxVatRate = (it.tax_vat_rate !== undefined && it.tax_vat_rate !== null) ? String(it.tax_vat_rate) : undefined
+      let taxPitRate = (it.tax_pit_rate !== undefined && it.tax_pit_rate !== null) ? String(it.tax_pit_rate) : undefined
+
+      if (taxGroup && (taxVatRate === undefined || taxPitRate === undefined)) {
+        try {
+          const matchedGroup = systemTaxGroups.find(
+            (g: any) =>
+              g.code === taxGroup ||
+              g.name === taxGroup ||
+              (taxGroup === 'Phân phối, cung cấp hàng hóa' && g.code === 'phan_phoi') ||
+              (taxGroup === 'Dịch vụ, xây dựng không bao thầu nguyên vật liệu' && g.code === 'dich_vu') ||
+              (taxGroup === 'Sản xuất, vận tải, dịch vụ có gắn với hàng hóa, xây dựng có bao thầu nguyên vật liệu' && g.code === 'san_xuat') ||
+              (taxGroup === 'Hoạt động kinh doanh khác' && g.code === 'khac')
+          )
+          if (matchedGroup) {
+            taxGroup = matchedGroup.code // Normalize to code
+            taxVatRate = String(matchedGroup.vat_rate)
+            taxPitRate = String(matchedGroup.pit_rate)
+          }
+        } catch (e) {
+          console.error('Failed to resolve sync-batch tax group snapshots:', e)
+        }
+      }
+
+      taxVatRate = taxVatRate && taxVatRate !== 'null' ? taxVatRate : '0'
+      taxPitRate = taxPitRate && taxPitRate !== 'null' ? taxPitRate : '0'
+
       itemsToCreate.push({
         order_id:       serverId,
         order_no:       orderNo,
@@ -353,6 +394,8 @@ export async function POST(
         tax_rate:       String(taxRate),
         tax_amount:     String(taxAmount),
         tax_group:      taxGroup,
+        tax_vat_rate:   taxVatRate,
+        tax_pit_rate:   taxPitRate,
         line_total:     String(it.line_total),
         // ── Variant / Modifier context (Sprint 1) ───────────────────────
         variant_label:  it.variant_label ?? '',

@@ -71,6 +71,7 @@ export default async function TaxSettingsPage({ params }: Props) {
         branch={branch}
         categories={categoriesRes.data as any}
         products={productsRes.data as any}
+        permissions={permissions}
       />
     </div>
   )

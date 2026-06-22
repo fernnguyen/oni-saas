@@ -38,17 +38,24 @@ interface Props {
   branch: string
   categories: Category[]
   products: Product[]
+  permissions?: string[]
 }
 
-const TAX_GROUPS = [
-  { value: '', label: '-- Không áp dụng --' },
-  { value: 'Phân phối, cung cấp hàng hóa', label: 'Phân phối, cung cấp hàng hóa (VAT 1%, TNCN 0.5%)' },
-  { value: 'Dịch vụ, xây dựng không bao thầu nguyên vật liệu', label: 'Dịch vụ, xây dựng không bao thầu NVL (VAT 5%, TNCN 2%)' },
-  { value: 'Sản xuất, vận tải, dịch vụ có gắn với hàng hóa, xây dựng có bao thầu nguyên vật liệu', label: 'Sản xuất, vận tải, dịch vụ kèm hàng hóa, xây dựng có bao thầu (VAT 3%, TNCN 1.5%)' },
-  { value: 'Hoạt động kinh doanh khác', label: 'Hoạt động kinh doanh khác (VAT 2%, TNCN 1%)' },
-]
-export function TaxSettingsClient({ shopId, slug, branch, categories: initialCategories, products: initialProducts }: Props) {
+const mapGroupToCode = (val?: string) => {
+  if (!val) return ''
+  if (val === 'Phân phối, cung cấp hàng hóa') return 'phan_phoi'
+  if (val === 'Dịch vụ, xây dựng không bao thầu nguyên vật liệu') return 'dich_vu'
+  if (val === 'Sản xuất, vận tải, dịch vụ có gắn với hàng hóa, xây dựng có bao thầu nguyên vật liệu') return 'san_xuat'
+  if (val === 'Hoạt động kinh doanh khác') return 'khac'
+  return val
+}
+
+export function TaxSettingsClient({ shopId, slug, branch, categories: initialCategories, products: initialProducts, permissions }: Props) {
   const [activeTab, setActiveTab] = useState<'lockdown' | 'recalculate' | 'categories' | 'products'>('lockdown')
+
+  // Dynamic system tax groups
+  const [taxGroups, setTaxGroups] = useState<any[]>([])
+  const [loadingTaxGroups, setLoadingTaxGroups] = useState(false)
 
   // Lockdown Periods States
   const [periods, setPeriods] = useState<LockPeriod[]>([])
@@ -62,6 +69,7 @@ export function TaxSettingsClient({ shopId, slug, branch, categories: initialCat
   const [toDate, setToDate] = useState('')
   const [recalculating, setRecalculating] = useState(false)
   const [recalcResult, setRecalcResult] = useState<any>(null)
+  const [showRecalcConfirm, setShowRecalcConfirm] = useState(false)
 
   // Category States
   const [categories, setCategories] = useState<Category[]>(initialCategories)
@@ -104,8 +112,41 @@ export function TaxSettingsClient({ shopId, slug, branch, categories: initialCat
     }
   }
 
+  // Fetch system tax groups
+  const fetchTaxGroups = async () => {
+    setLoadingTaxGroups(true)
+    try {
+      const res = await fetch('/api/tax-groups')
+      if (res.ok) {
+        const data = await res.json()
+        if (data.ok && Array.isArray(data.data) && data.data.length > 0) {
+          setTaxGroups(data.data)
+          return
+        }
+      }
+      // Fallback
+      setTaxGroups([
+        { code: 'phan_phoi', name: 'Phân phối, cung cấp hàng hóa', vat_rate: 1.0, pit_rate: 0.5 },
+        { code: 'dich_vu', name: 'Dịch vụ, xây dựng không bao thầu nguyên vật liệu', vat_rate: 5.0, pit_rate: 2.0 },
+        { code: 'san_xuat', name: 'Sản xuất, vận tải, dịch vụ có gắn với hàng hóa, xây dựng có bao thầu nguyên vật liệu', vat_rate: 3.0, pit_rate: 1.5 },
+        { code: 'khac', name: 'Hoạt động kinh doanh khác', vat_rate: 2.0, pit_rate: 1.0 }
+      ])
+    } catch (e) {
+      console.error('Lỗi nạp nhóm ngành thuế:', e)
+      setTaxGroups([
+        { code: 'phan_phoi', name: 'Phân phối, cung cấp hàng hóa', vat_rate: 1.0, pit_rate: 0.5 },
+        { code: 'dich_vu', name: 'Dịch vụ, xây dựng không bao thầu nguyên vật liệu', vat_rate: 5.0, pit_rate: 2.0 },
+        { code: 'san_xuat', name: 'Sản xuất, vận tải, dịch vụ có gắn với hàng hóa, xây dựng có bao thầu nguyên vật liệu', vat_rate: 3.0, pit_rate: 1.5 },
+        { code: 'khac', name: 'Hoạt động kinh doanh khác', vat_rate: 2.0, pit_rate: 1.0 }
+      ])
+    } finally {
+      setLoadingTaxGroups(false)
+    }
+  }
+
   useEffect(() => {
     fetchPeriods()
+    fetchTaxGroups()
   }, [])
 
   // Lock a period
@@ -170,12 +211,20 @@ export function TaxSettingsClient({ shopId, slug, branch, categories: initialCat
   }
 
   // Recalculate Tax History
-  const handleRecalculate = async () => {
+  const handleRecalculateStart = () => {
     if (!fromDate || !toDate) {
       toast.error('Vui lòng chọn đầy đủ khoảng thời gian!')
       return
     }
+    if (permissions && !permissions.includes('settings.manage')) {
+      toast.error('Bạn không có quyền thực hiện chức năng này.')
+      return
+    }
+    setShowRecalcConfirm(true)
+  }
 
+  const handleRecalculate = async () => {
+    setShowRecalcConfirm(false)
     setRecalculating(true)
     setRecalcResult(null)
     try {
@@ -514,7 +563,7 @@ export function TaxSettingsClient({ shopId, slug, branch, categories: initialCat
 
           <div>
             <button
-              onClick={handleRecalculate}
+              onClick={handleRecalculateStart}
               disabled={recalculating}
               className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-dark disabled:opacity-50 transition-colors shadow-sm"
             >
@@ -582,14 +631,17 @@ export function TaxSettingsClient({ shopId, slug, branch, categories: initialCat
                             onChange={(e) => setCatTaxGroup(e.target.value)}
                             className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs w-full max-w-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                           >
-                            {TAX_GROUPS.map((tg) => (
-                              <option key={tg.value} value={tg.value}>
-                                {tg.label}
+                            <option value="">-- Không áp dụng --</option>
+                            {taxGroups.map((g) => (
+                              <option key={g.code} value={g.code}>
+                                {g.name} (VAT {g.vat_rate}%, TNCN {g.pit_rate}%)
                               </option>
                             ))}
                           </select>
                         ) : (
-                          <span className="text-slate-600 text-xs">{cat.tax_group || 'Chưa thiết lập'}</span>
+                          <span className="text-slate-600 text-xs">
+                            {taxGroups.find((g) => g.code === mapGroupToCode(cat.tax_group))?.name || cat.tax_group || 'Chưa thiết lập'}
+                          </span>
                         )}
                       </td>
                       <td className="px-4 py-3 text-right">
@@ -614,7 +666,7 @@ export function TaxSettingsClient({ shopId, slug, branch, categories: initialCat
                             onClick={() => {
                               setEditingCategory(cat.category_id)
                               setCatTaxRate(cat.tax_rate || '0')
-                              setCatTaxGroup(cat.tax_group || '')
+                              setCatTaxGroup(mapGroupToCode(cat.tax_group || ''))
                             }}
                             className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
                           >
@@ -676,9 +728,9 @@ export function TaxSettingsClient({ shopId, slug, branch, categories: initialCat
                   className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs max-w-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                 >
                   <option value="">-- Giữ nguyên / Chọn nhóm thuế --</option>
-                  {TAX_GROUPS.filter(g => g.value !== '').map((tg) => (
-                    <option key={tg.value} value={tg.value}>
-                      {tg.label}
+                  {taxGroups.map((g) => (
+                    <option key={g.code} value={g.code}>
+                      {g.name} (VAT {g.vat_rate}%, TNCN {g.pit_rate}%)
                     </option>
                   ))}
                 </select>
@@ -773,14 +825,17 @@ export function TaxSettingsClient({ shopId, slug, branch, categories: initialCat
                             onChange={(e) => setProdTaxGroup(e.target.value)}
                             className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs w-full max-w-xs focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                           >
-                            {TAX_GROUPS.map((tg) => (
-                              <option key={tg.value} value={tg.value}>
-                                {tg.label}
+                            <option value="">-- Không áp dụng --</option>
+                            {taxGroups.map((g) => (
+                              <option key={g.code} value={g.code}>
+                                {g.name} (VAT {g.vat_rate}%, TNCN {g.pit_rate}%)
                               </option>
                             ))}
                           </select>
                         ) : (
-                          <span>{prod.tax_group || 'Chưa thiết lập'}</span>
+                          <span>
+                            {taxGroups.find((g) => g.code === mapGroupToCode(prod.tax_group))?.name || prod.tax_group || 'Chưa thiết lập'}
+                          </span>
                         )}
                       </td>
                       <td className="px-4 py-3 text-right">
@@ -806,7 +861,7 @@ export function TaxSettingsClient({ shopId, slug, branch, categories: initialCat
                               setEditingProduct(prod.product_id)
                               setProdTaxRate(prod.tax_rate || '0')
                               setProdInputTaxRate(prod.input_tax_rate || '0')
-                              setProdTaxGroup(prod.tax_group || '')
+                              setProdTaxGroup(mapGroupToCode(prod.tax_group || ''))
                             }}
                             className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
                           >
@@ -889,6 +944,47 @@ export function TaxSettingsClient({ shopId, slug, branch, categories: initialCat
                 className="rounded-xl bg-red-600 px-4 py-2 font-semibold text-white hover:bg-red-700 transition-colors"
               >
                 Xác nhận khóa sổ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recalculate Confirmation Dialog */}
+      {showRecalcConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl border border-slate-200 max-w-md w-full p-6 space-y-4 shadow-xl animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-start gap-3">
+              <div className="text-red-600 mt-0.5">
+                <svg className="w-6 h-6 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                </svg>
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-base font-bold text-slate-900">Xác nhận đồng bộ lại lịch sử thuế</h3>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  CẢNH BÁO: Hành động này sẽ tính toán và ghi đè lại toàn bộ thông tin thuế (bao gồm tỷ lệ VAT/TNCN khoán snapshot, số tiền thuế) của tất cả đơn hàng trong khoảng thời gian từ <strong className="font-semibold">{fromDate}</strong> đến <strong className="font-semibold">{toDate}</strong>.
+                </p>
+                <ul className="text-xs text-slate-500 list-disc pl-4 space-y-1">
+                  <li>Các kỳ thuế đã bị <strong>KHÓA SỔ</strong> trong khoảng thời gian này sẽ tự động bị bỏ qua và giữ nguyên dữ liệu.</li>
+                  <li>Hành động này có thể làm thay đổi các báo cáo doanh thu và báo cáo thuế lịch sử.</li>
+                </ul>
+                <p className="text-xs text-slate-500 font-semibold">Bạn có chắc chắn muốn tiếp tục?</p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 text-xs">
+              <button
+                onClick={() => setShowRecalcConfirm(false)}
+                className="rounded-xl border border-slate-200 px-4 py-2 font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                onClick={handleRecalculate}
+                className="rounded-xl bg-red-600 px-4 py-2 font-semibold text-white hover:bg-red-700 transition-colors shadow-sm"
+              >
+                Xác nhận đồng bộ lại
               </button>
             </div>
           </div>

@@ -10,6 +10,7 @@ import * as schema from '../../lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { SyncManager } from '../../lib/sync/SyncManager';
 import { getApiBaseUrl, getApiHeaders } from '../../lib/api/config';
+import { getSystemTaxGroups } from '../../lib/utils/tax';
 import * as Haptics from 'expo-haptics';
 import { formatCurrency, maskCurrencyInput, parseCurrencyToNumber } from '../../lib/utils/format';
 import { calculateHourlyBilling, isTimeChargeProduct } from '@oni/core';
@@ -883,12 +884,34 @@ export default function PosScreen() {
       const nowStr = new Date().toISOString();
 
       // Calculate offline tax
+      const systemTaxGroups = await getSystemTaxGroups();
       let totalTaxAmount = 0;
       const calculatedItems = Object.entries(cart).map(([cartItemId, item]: [string, any]) => {
         const itemTotal = (item.price + (item.modifier_total || 0)) * item.quantity;
         const taxRateVal = parseFloat(item.tax_rate || '0');
         const taxAmountVal = Math.round(itemTotal * (taxRateVal / 100));
         totalTaxAmount += taxAmountVal;
+
+        let taxVatRate = '0';
+        let taxPitRate = '0';
+        let normalizedGroup = item.tax_group || '';
+
+        if (normalizedGroup) {
+          const matchedGroup = systemTaxGroups.find(
+            (g) =>
+              g.code === normalizedGroup ||
+              g.name === normalizedGroup ||
+              (normalizedGroup === 'Phân phối, cung cấp hàng hóa' && g.code === 'phan_phoi') ||
+              (normalizedGroup === 'Dịch vụ, xây dựng không bao thầu nguyên vật liệu' && g.code === 'dich_vu') ||
+              (normalizedGroup === 'Sản xuất, vận tải, dịch vụ có gắn với hàng hóa, xây dựng có bao thầu nguyên vật liệu' && g.code === 'san_xuat') ||
+              (normalizedGroup === 'Hoạt động kinh doanh khác' && g.code === 'khac')
+          );
+          if (matchedGroup) {
+            normalizedGroup = matchedGroup.code;
+            taxVatRate = String(matchedGroup.vat_rate);
+            taxPitRate = String(matchedGroup.pit_rate);
+          }
+        }
 
         return {
           id: `ORDI-${orderId}-${cartItemId}`,
@@ -900,7 +923,9 @@ export default function PosScreen() {
           line_total: itemTotal,
           tax_rate: item.tax_rate || '0',
           tax_amount: taxAmountVal,
-          tax_group: item.tax_group || '',
+          tax_group: normalizedGroup,
+          tax_vat_rate: taxVatRate,
+          tax_pit_rate: taxPitRate,
         };
       });
 

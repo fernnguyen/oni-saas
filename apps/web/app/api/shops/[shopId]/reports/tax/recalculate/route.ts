@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireShopAccess } from '@/lib/server/shopAccess'
 import { handleApiError } from '../../../../_helpers'
+import { getSystemTaxGroupsCached } from '@/app/api/tax-groups/route'
 
 export async function POST(
   req: NextRequest,
@@ -10,6 +11,16 @@ export async function POST(
   try {
     const { shopId } = await params
     const { connector } = await requireShopAccess(shopId, 'orders.edit')
+
+    let systemTaxGroups = await getSystemTaxGroupsCached().catch(() => [])
+    if (!systemTaxGroups || systemTaxGroups.length === 0) {
+      systemTaxGroups = [
+        { id: '1', code: 'phan_phoi', name: 'Phân phối, cung cấp hàng hóa', vat_rate: 1.0, pit_rate: 0.5, active: true },
+        { id: '2', code: 'dich_vu', name: 'Dịch vụ, xây dựng không bao thầu nguyên vật liệu', vat_rate: 5.0, pit_rate: 2.0, active: true },
+        { id: '3', code: 'san_xuat', name: 'Sản xuất, vận tải, dịch vụ có gắn với hàng hóa, xây dựng có bao thầu nguyên vật liệu', vat_rate: 3.0, pit_rate: 1.5, active: true },
+        { id: '4', code: 'khac', name: 'Hoạt động kinh doanh khác', vat_rate: 2.0, pit_rate: 1.0, active: true }
+      ]
+    }
 
     const body = await req.json()
     const { fromDate, toDate } = body // Expected format: YYYY-MM-DD
@@ -112,6 +123,27 @@ export async function POST(
           }
         }
 
+        let taxVatRate = '0'
+        let taxPitRate = '0'
+        let mappedGroup = taxGroup
+
+        if (taxGroup) {
+          const matchedGroup = systemTaxGroups.find(
+            (g: any) =>
+              g.code === taxGroup ||
+              g.name === taxGroup ||
+              (taxGroup === 'Phân phối, cung cấp hàng hóa' && g.code === 'phan_phoi') ||
+              (taxGroup === 'Dịch vụ, xây dựng không bao thầu nguyên vật liệu' && g.code === 'dich_vu') ||
+              (taxGroup === 'Sản xuất, vận tải, dịch vụ có gắn với hàng hóa, xây dựng có bao thầu nguyên vật liệu' && g.code === 'san_xuat') ||
+              (taxGroup === 'Hoạt động kinh doanh khác' && g.code === 'khac')
+          )
+          if (matchedGroup) {
+            mappedGroup = matchedGroup.code
+            taxVatRate = String(matchedGroup.vat_rate)
+            taxPitRate = String(matchedGroup.pit_rate)
+          }
+        }
+
         const rateVal = parseFloat(taxRate) || 0
         const totalVal = parseFloat(item.line_total) || 0
         const calculatedTaxAmount = (totalVal * rateVal) / 100
@@ -121,12 +153,16 @@ export async function POST(
         // Cập nhật item nếu có sự thay đổi
         if (
           item.tax_rate !== taxRate ||
-          item.tax_group !== taxGroup ||
+          item.tax_group !== mappedGroup ||
+          item.tax_vat_rate !== taxVatRate ||
+          item.tax_pit_rate !== taxPitRate ||
           parseFloat(item.tax_amount || '0') !== calculatedTaxAmount
         ) {
           await connector.update('order-items', item.id, {
             tax_rate: taxRate,
-            tax_group: taxGroup,
+            tax_group: mappedGroup,
+            tax_vat_rate: taxVatRate,
+            tax_pit_rate: taxPitRate,
             tax_amount: String(calculatedTaxAmount),
           })
           updatedItemsCount++
