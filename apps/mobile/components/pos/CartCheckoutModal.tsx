@@ -1268,15 +1268,21 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                   let itemToRender = item;
                   if (isTimeCharge && cartOwnerTable && cartOwnerTable.startTime) {
                     const billing = calculateBilling(cartOwnerTable, customCheckoutTime || undefined, localRentalType);
-                    const billingName = cartOwnerTable.type === 'room'
-                      ? `Tiền phòng - ${cartOwnerTable.name} (${billing.label})`
-                      : `Tiền giờ - ${cartOwnerTable.name} (${billing.label})`;
+                    let billingName = '';
+                    if (localRentalType === 'overnight') {
+                      billingName = `Tiền phòng qua đêm - ${cartOwnerTable.name}`;
+                    } else if (localRentalType === 'daily') {
+                      billingName = `Tiền phòng theo ngày - ${cartOwnerTable.name}`;
+                    } else {
+                      billingName = `Tiền giờ sử dụng - ${cartOwnerTable.name}`;
+                    }
                     
                     itemToRender = {
                       ...item,
                       price: billing.unitPrice || billing.cost,
                       quantity: billing.qty || 1,
-                      name: billingName
+                      name: billingName,
+                      variant_label: billing.label
                     };
                   }
                   
@@ -1292,11 +1298,13 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                         <View className="flex-1 pr-2">
                           <Text className={`font-semibold text-sm leading-tight ${isTimeCharge ? 'text-emerald-800' : 'text-slate-800'}`}>
                             {itemToRender.name}
-                            {rate > 0 ? (
-                              <Text className="text-[10px] text-slate-455 font-normal"> (VAT {rate}%)</Text>
-                            ) : null}
+                            {rate > 0 && (
+                              <Text className="text-[10px] text-slate-400 font-normal">
+                                {` (VAT ${rate}%)`}
+                              </Text>
+                            )}
                           </Text>
-                          {itemToRender.variant_label && (!itemToRender.modifiers || itemToRender.modifiers.length === 0) && (
+                          {itemToRender.variant_label && !isTimeCharge && (!itemToRender.modifiers || itemToRender.modifiers.length === 0) && (
                             <Text className="text-xs text-violet-600 font-medium mt-0.5">{itemToRender.variant_label}</Text>
                           )}
                           {itemToRender.modifiers && itemToRender.modifiers.length > 0 && (
@@ -1341,7 +1349,11 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                         {/* Bottom Row: Unit Price, Delete */}
                         <View className="flex-row justify-between items-center mt-1">
                           <Text className="text-xs text-slate-500 font-medium">
-                            Đơn giá: {formatCurrency(itemToRender.price + (itemToRender.modifier_total || 0))} {isTimeCharge ? `x ${itemToRender.quantity}` : ''} {productsList.find(pr => pr.id === itemToRender.productId)?.unit ? `/ ${productsList.find(pr => pr.id === itemToRender.productId)?.unit}` : ''}
+                            {isTimeCharge ? (
+                              `Đơn giá: ${formatCurrency(itemToRender.price)} x ${itemToRender.quantity} (${localRentalType === 'overnight' ? 'đêm' : (localRentalType === 'daily' ? 'ngày' : itemToRender.variant_label)})`
+                            ) : (
+                              `Đơn giá: ${formatCurrency(itemToRender.price + (itemToRender.modifier_total || 0))} x ${itemToRender.quantity}${productsList.find(pr => pr.id === itemToRender.productId)?.unit ? ` (${productsList.find(pr => pr.id === itemToRender.productId)?.unit})` : ''}`
+                            )}
                           </Text>
                           <TouchableOpacity 
                             onPress={() => !loading && removeFromCart(cartItemId)} 

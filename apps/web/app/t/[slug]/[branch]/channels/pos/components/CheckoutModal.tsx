@@ -388,6 +388,8 @@ export function CheckoutModal({
   // Recalculate time charge when checkout time or rental type changes
   const computedItems = useMemo(() => {
     let result = items
+    const roomName = metadata?.resource_name || roomMetadata?.name || ''
+
     if (localRentalType === 'overnight') {
       const overnightRate = Number(metadata?.overnight_rate) || Number(roomMetadata?.overnight_rate) || Number(hourlyRate * 3) || 200000
       const overnightGraceHours = Number(metadata?.overnight_grace_hours) || Number(roomMetadata?.overnight_grace_hours) || 0
@@ -414,10 +416,11 @@ export function CheckoutModal({
         if (item.product_id === 'TIME_CHARGE') {
           return {
             ...item,
-            product_name: `Tiền phòng (Qua đêm - ${nights} đêm)`,
+            product_name: `Tiền phòng qua đêm${roomName ? ` - ${roomName}` : ''}`,
             qty: nights,
             unit_price: overnightRate,
             line_total: totalCost,
+            variant_label: `${nights} đêm`
           }
         }
         return item
@@ -440,10 +443,11 @@ export function CheckoutModal({
         if (item.product_id === 'TIME_CHARGE') {
           return {
             ...item,
-            product_name: `Tiền phòng (Theo ngày - ${days} ngày)`,
+            product_name: `Tiền phòng theo ngày${roomName ? ` - ${roomName}` : ''}`,
             qty: days,
             unit_price: dailyRate,
             line_total: totalCost,
+            variant_label: `${days} ngày`
           }
         }
         return item
@@ -470,7 +474,8 @@ export function CheckoutModal({
             qty: 1,
             unit_price: newTimeCharge,
             line_total: newTimeCharge,
-            product_name: `Tiền giờ sử dụng (${pricingResult.durationLabel})`
+            product_name: `Tiền giờ sử dụng${roomName ? ` - ${roomName}` : ''}`,
+            variant_label: pricingResult.durationLabel
           }
         }
         return item
@@ -482,7 +487,7 @@ export function CheckoutModal({
       if (b.product_id === 'TIME_CHARGE') return 1
       return 0
     })
-  }, [items, localCheckoutTime, customCheckoutTime, metadata, hourlyRate, localRentalType, timeTicker])
+  }, [items, localCheckoutTime, customCheckoutTime, metadata, hourlyRate, localRentalType, timeTicker, roomMetadata, existingOrder])
 
   const computedSubtotal = computedItems.reduce((s, it) => s + (it.line_total || 0), 0)
 
@@ -2064,10 +2069,13 @@ export function CheckoutModal({
     const rate = isTimeCharge
       ? (parseFloat(timeChargeTax.tax_rate) || 0)
       : (parseFloat(item.tax_rate || '0') || 0)
+
+    let displayTitle = item.product_name
+
     return (
       <div key={`${item.product_id}-${idx}`} className={`flex flex-col py-2 px-2.5 rounded-lg border-b border-slate-200/40 last:border-0 ${isTimeCharge ? 'bg-emerald-50/70 border border-emerald-100 my-1' : ''}`}>
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0 flex-1">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-start gap-2 min-w-0 flex-1">
             {isSplitActive && (
               <input
                 type="checkbox"
@@ -2083,23 +2091,34 @@ export function CheckoutModal({
                     return next
                   })
                 }}
-                className="h-3.5 w-3.5 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer shrink-0"
+                className="h-3.5 w-3.5 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer shrink-0 mt-0.5"
               />
             )}
-            <span className={`${isTimeCharge ? 'text-emerald-800 font-bold' : 'text-slate-800 font-medium'} text-sm leading-tight truncate`}>
-              {item.product_name}
-              {rate > 0 && (
-                <span className="text-[10px] text-slate-450 font-normal ml-1.5">(VAT {rate}%)</span>
-              )}
-              <span className={`${isTimeCharge ? 'text-emerald-600' : 'text-slate-400'} text-xs font-normal ml-1.5 whitespace-nowrap`}>× {item.qty}</span>
-            </span>
+            <div className="flex-1 min-w-0">
+              <div className={`${isTimeCharge ? 'text-emerald-800 font-bold' : 'text-slate-800 font-medium'} text-sm leading-tight truncate`}>
+                <span>{displayTitle}</span>
+                {rate > 0 && (
+                  <span className="text-[10px] font-normal text-slate-400 ml-1.5 whitespace-nowrap">
+                    (VAT {rate}%)
+                  </span>
+                )}
+              </div>
+              <div className={`text-[11px] font-medium mt-0.5 ${isTimeCharge ? 'text-emerald-600/85' : 'text-slate-500'}`}>
+                Đơn giá: {fmtVND(item.unit_price)} x {item.qty}
+                {isTimeCharge ? (
+                  item.variant_label ? ` (${localRentalType === 'overnight' ? 'đêm' : (localRentalType === 'daily' ? 'ngày' : item.variant_label)})` : ''
+                ) : (
+                  item.unit_name ? ` (${item.unit_name})` : ''
+                )}
+              </div>
+            </div>
           </div>
-          <span className={`${isTimeCharge ? 'text-emerald-700 font-extrabold' : 'text-slate-950 font-bold'} text-sm shrink-0`}>{fmtVND(item.line_total)}</span>
+          <span className={`${isTimeCharge ? 'text-emerald-700 font-extrabold' : 'text-slate-950 font-bold'} text-sm shrink-0 mt-0.5`}>{fmtVND(item.line_total)}</span>
         </div>
         {/* Variant or Modifier details underneath */}
         {(item.variant_label || (item.modifiers && item.modifiers.length > 0)) && (
           <div className="pl-6 mt-0.5 text-[10px] text-slate-500 space-y-0.5">
-            {item.variant_label && !item.modifiers?.length && (
+            {item.variant_label && !isTimeCharge && !item.modifiers?.length && (
               <span className="text-violet-600 font-semibold block">{item.variant_label}</span>
             )}
             {item.modifiers && item.modifiers.length > 0 && (

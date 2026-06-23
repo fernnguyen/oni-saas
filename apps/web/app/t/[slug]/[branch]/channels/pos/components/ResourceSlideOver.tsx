@@ -2281,7 +2281,7 @@ export function ResourceSlideOver({
           } : null}
           onCustomerChange={handleCustomerSelect}
           metadata={orderMeta || undefined}
-          roomMetadata={resource.metadata ? safeParse(resource.metadata) : undefined}
+          roomMetadata={resource ? { name: resource.name, ...safeParse(resource.metadata) } : undefined}
           items={buildCheckoutItems() as any}
           subtotal={buildCheckoutItems().reduce((a, b) => a + b.line_total, 0)}
           discount_amount={0}

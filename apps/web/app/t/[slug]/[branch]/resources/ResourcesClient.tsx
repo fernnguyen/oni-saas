@@ -1228,13 +1228,13 @@ export function ResourcesClient({ shopId, industryType }: Props) {
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-slate-600 mb-1">Sức chứa</label>
-                      <input value={formCapacity} onChange={e => setFormCapacity(e.target.value)} placeholder="Số người" type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary" />
+                      <input value={formCapacity} onChange={e => setFormCapacity(e.target.value.replace(/\D/g, ''))} placeholder="Số người" type="text" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary text-right" />
                     </div>
                   </>
                 ) : (
                   <div className="col-span-2">
                     <label className="block text-xs font-medium text-slate-600 mb-1">Sức chứa</label>
-                    <input value={formCapacity} onChange={e => setFormCapacity(e.target.value)} placeholder="Số người" type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary" />
+                    <input value={formCapacity} onChange={e => setFormCapacity(e.target.value.replace(/\D/g, ''))} placeholder="Số người" type="text" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary text-right" />
                   </div>
                 )}
 
@@ -1325,8 +1325,8 @@ export function ResourcesClient({ shopId, industryType }: Props) {
                               value={formBaseHours}
                               onChange={e => setFormBaseHours(e.target.value.replace(/\D/g, ''))}
                               placeholder="1"
-                              type="number"
-                              className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary bg-white outline-none"
+                              type="text"
+                              className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary bg-white outline-none text-right"
                             />
                           </div>
                           <div>
@@ -1358,8 +1358,8 @@ export function ResourcesClient({ shopId, industryType }: Props) {
                               value={formGraceMinutes}
                               onChange={e => setFormGraceMinutes(e.target.value.replace(/\D/g, ''))}
                               placeholder="10"
-                              type="number"
-                              className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary bg-white outline-none"
+                              type="text"
+                              className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary bg-white outline-none text-right"
                             />
                           </div>
                         </div>
@@ -1457,10 +1457,10 @@ export function ResourcesClient({ shopId, industryType }: Props) {
                           <label className="block text-xs font-medium text-slate-600 mb-1">Giờ ân hạn qua đêm (giờ)</label>
                           <input
                             value={formOvernightGraceHours}
-                            onChange={e => setFormOvernightGraceHours(e.target.value)}
+                            onChange={e => setFormOvernightGraceHours(e.target.value.replace(/\D/g, ''))}
                             placeholder="0"
-                            type="number"
-                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary bg-white outline-none"
+                            type="text"
+                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary bg-white outline-none text-right"
                           />
                         </div>
                       </div>
@@ -1486,10 +1486,10 @@ export function ResourcesClient({ shopId, industryType }: Props) {
                           <label className="block text-xs font-medium text-slate-600 mb-1">Giờ ân hạn ngày (giờ)</label>
                           <input
                             value={formDailyGraceHours}
-                            onChange={e => setFormDailyGraceHours(e.target.value)}
+                            onChange={e => setFormDailyGraceHours(e.target.value.replace(/\D/g, ''))}
                             placeholder="0"
-                            type="number"
-                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary bg-white outline-none"
+                            type="text"
+                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary bg-white outline-none text-right"
                           />
                         </div>
                       </div>
@@ -1515,10 +1515,10 @@ export function ResourcesClient({ shopId, industryType }: Props) {
                           <label className="block text-xs font-medium text-slate-600 mb-1">Phụ thu (%)</label>
                           <input
                             value={formSurchargePct}
-                            onChange={e => setFormSurchargePct(e.target.value)}
+                            onChange={e => setFormSurchargePct(e.target.value.replace(/\D/g, ''))}
                             placeholder="0"
-                            type="number"
-                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary bg-white outline-none"
+                            type="text"
+                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary bg-white outline-none text-right"
                           />
                         </div>
                       </div>
