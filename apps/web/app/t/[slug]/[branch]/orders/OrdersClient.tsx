@@ -847,6 +847,24 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
                   <dt className="text-slate-500">Tổng tiền</dt>
                   <dd className="font-semibold text-slate-900">{fmtVND(selectedOrder.total_amount)}</dd>
                 </div>
+                {Number(selectedOrder.subtotal || 0) > 0 && (
+                  <div>
+                    <dt className="text-slate-500">Tạm tính</dt>
+                    <dd className="text-slate-900 font-medium">{fmtVND(selectedOrder.subtotal)}</dd>
+                  </div>
+                )}
+                {Number(selectedOrder.discount_amount || 0) > 0 && (
+                  <div>
+                    <dt className="text-slate-500">Giảm giá</dt>
+                    <dd className="text-rose-600 font-medium">-{fmtVND(selectedOrder.discount_amount)}</dd>
+                  </div>
+                )}
+                {Number(selectedOrder.tax_amount || 0) > 0 && (
+                  <div>
+                    <dt className="text-slate-500">Thuế (VAT)</dt>
+                    <dd className="text-slate-900 font-medium">+{fmtVND(selectedOrder.tax_amount)}</dd>
+                  </div>
+                )}
                 <div>
                   <dt className="text-slate-500">Đã trả</dt>
                   <dd className="font-medium text-green-700">{fmtVND(selectedOrder.paid_amount)}</dd>
@@ -893,7 +911,10 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
                         return (
                         <tr key={item.item_id} className="border-b border-slate-50 last:border-0">
                           <td className="px-3 py-2 text-slate-900">
-                            {item.product_name}
+                            <span className="font-medium">{item.product_name}</span>
+                            {item.tax_rate && parseFloat(item.tax_rate) > 0 && (
+                              <span className="text-[10px] text-slate-400 font-normal ml-1.5">(VAT {item.tax_rate}%)</span>
+                            )}
                             {item.variant_label && parsedModifiers.length === 0 && (
                               <span className="text-[11px] text-violet-600 font-medium block truncate mt-0.5">{item.variant_label}</span>
                             )}
@@ -915,7 +936,14 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
                             )}
                           </td>
                           <td className="px-3 py-2 text-right text-slate-700">{fmtVND(effPrice)}</td>
-                          <td className="px-3 py-2 text-right font-medium text-slate-900">{fmtVND(item.line_total)}</td>
+                          <td className="px-3 py-2 text-right font-medium text-slate-900">
+                            {fmtVND(item.line_total)}
+                            {Number(item.tax_amount || 0) > 0 && (
+                              <span className="block text-[11px] font-normal text-slate-400">
+                                + VAT: {fmtVND(item.tax_amount)}
+                              </span>
+                            )}
+                          </td>
                         </tr>
                       )})}
                     </tbody>

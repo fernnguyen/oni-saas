@@ -1215,7 +1215,18 @@ export function useTableManager(props: UseTableManagerProps) {
     setOrderNote('');
 
     // 4. Thiết lập phương thức thanh toán mặc định tương đương tổng tiền giỏ hàng
-    const totalCartValue = Math.max(0, Object.values(newCart).reduce((sum: number, item: any) => sum + ((item.price + (item.modifier_total || 0)) * item.quantity), 0));
+    let totalTaxAmount = 0;
+    Object.values(newCart).forEach((item: any) => {
+      const itemTotal = (item.price + (item.modifier_total || 0)) * item.quantity;
+      const taxRateVal = parseFloat(item.tax_rate || '0');
+      const taxAmountVal = Math.round(itemTotal * (taxRateVal / 100));
+      totalTaxAmount += taxAmountVal;
+    });
+
+    const totalCartValue = Math.max(
+      0,
+      Object.values(newCart).reduce((sum: number, item: any) => sum + ((item.price + (item.modifier_total || 0)) * item.quantity), 0) + totalTaxAmount
+    );
     setPaymentRows([{ id: 'pay-cash', method: 'cash', fund_id: paymentFundsList.find(f => f.type === 'cash')?.id || 'cash', amount: totalCartValue }]);
 
     // 5. Mở modal giỏ hàng chính để thanh toán hệ thống (Trì hoãn để tránh đơ UI trên iOS)

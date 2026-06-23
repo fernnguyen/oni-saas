@@ -1831,9 +1831,16 @@ export default function OrdersScreen() {
                         </Text>
                       ) : null}
                     </View>
-                    <Text className="text-xs font-semibold text-slate-800">
-                      {formatCurrency(item.line_total)}
-                    </Text>
+                    <View className="items-end">
+                      <Text className="text-xs font-semibold text-slate-800">
+                        {formatCurrency(item.line_total)}
+                      </Text>
+                      {item.tax_amount && Number(item.tax_amount) > 0 ? (
+                        <Text className="text-[10px] text-slate-400 mt-0.5">
+                          + VAT: {formatCurrency(Number(item.tax_amount))}
+                        </Text>
+                      ) : null}
+                    </View>
                   </View>
                 </View>
               );
@@ -1850,7 +1857,7 @@ export default function OrdersScreen() {
                     <View className="flex-row justify-between py-2 items-center">
                       <Text className="text-xs text-slate-500 font-medium">Tạm tính</Text>
                       <Text className="text-xs font-semibold text-slate-800">
-                        {formatCurrency(selectedOrder.total_amount + discountAmount)}
+                        {formatCurrency(selectedOrder.total_amount - taxAmount + discountAmount)}
                       </Text>
                     </View>
                     {discountAmount > 0 && (

@@ -716,7 +716,14 @@ export default function PosScreen() {
   // Tự động đồng bộ số tiền thanh toán mặc định khi giỏ hàng hoặc giảm giá thay đổi
   useEffect(() => {
     if (!isNavReady) return;
-    const finalTotal = Math.max(0, getCartTotal() - discountAmount);
+    let totalTaxAmount = 0;
+    Object.values(cart).forEach((item: any) => {
+      const itemTotal = (item.price + (item.modifier_total || 0)) * item.quantity;
+      const taxRateVal = parseFloat(item.tax_rate || '0');
+      const taxAmountVal = Math.round(itemTotal * (taxRateVal / 100));
+      totalTaxAmount += taxAmountVal;
+    });
+    const finalTotal = Math.max(0, getCartTotal() - discountAmount + totalTaxAmount);
     setPaymentRows([
       { id: '1', method: 'cash', fund_id: paymentFundsList.find(f => f.type === 'cash')?.id || 'cash', amount: finalTotal }
     ]);
