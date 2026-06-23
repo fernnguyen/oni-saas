@@ -224,6 +224,7 @@ export function initializeLocalDatabase(customDb?: any) {
         paid_amount INTEGER NOT NULL DEFAULT 0,
         payment_method TEXT NOT NULL DEFAULT 'Tiền mặt',
         created_at TEXT NOT NULL,
+        updated_at TEXT,
         shift_id TEXT,
         tax_amount INTEGER DEFAULT 0,
         sync_status TEXT NOT NULL DEFAULT 'synced',
@@ -324,6 +325,8 @@ export function initializeLocalDatabase(customDb?: any) {
     `);
     
     // Nâng cấp bổ sung cột cho các DB đã chạy trước đó để không bị mất dữ liệu
+    try { targetDb.execSync(`ALTER TABLE orders ADD COLUMN updated_at TEXT;`); } catch (e) {}
+    try { targetDb.execSync(`UPDATE orders SET updated_at = created_at WHERE updated_at IS NULL;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE orders ADD COLUMN note TEXT;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE orders ADD COLUMN discount_amount INTEGER DEFAULT 0;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE orders ADD COLUMN metadata TEXT;`); } catch (e) {}

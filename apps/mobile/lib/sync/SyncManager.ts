@@ -572,11 +572,12 @@ export class SyncManager {
                   sync_status: 'synced',
                   // Keep local ID as reference_no for traceability
                   reference_no: localId,
+                  updated_at: new Date().toISOString(),
                 })
                 .where(eq(schema.orders.id, localId))
             } else {
               await db.update(schema.orders)
-                .set({ sync_status: 'synced', order_no: serverNo || order.order_no })
+                .set({ sync_status: 'synced', order_no: serverNo || order.order_no, updated_at: new Date().toISOString() })
                 .where(eq(schema.orders.id, order.id))
             }
 

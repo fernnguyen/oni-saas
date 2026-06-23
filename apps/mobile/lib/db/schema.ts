@@ -106,6 +106,7 @@ export const orders = sqliteTable('orders', {
   paid_amount: integer('paid_amount').notNull().default(0),
   payment_method: text('payment_method').notNull().default('Tiền mặt'), // Tiền mặt, Chuyển khoản
   created_at: text('created_at').notNull(), // Lưu ISO string dạng GMT+7
+  updated_at: text('updated_at'), // Lưu ISO string dạng GMT+7
   shift_id: text('shift_id'), // ID ca làm việc gắn liền
   tax_amount: integer('tax_amount').default(0),
   sync_status: text('sync_status').notNull().default('synced'), // synced | pending (đóng offline chờ mạng)

@@ -951,6 +951,7 @@ export default function PosScreen() {
           paid_amount: orderPaidAmt,
           payment_method: paymentMethodString,
           created_at: nowStr,
+          updated_at: nowStr,
           shift_id: shiftId,
           tax_amount: totalTaxAmount,
           sync_status: 'pending',
@@ -1107,7 +1108,7 @@ export default function PosScreen() {
                   .where(eq(schema.order_items.order_id, orderId));
               }
               await db.update(schema.orders)
-                .set({ id: serverId, order_no: serverOrderNo, sync_status: 'synced', reference_no: orderId })
+                .set({ id: serverId, order_no: serverOrderNo, sync_status: 'synced', reference_no: orderId, updated_at: new Date().toISOString() })
                 .where(eq(schema.orders.id, orderId));
             }
 

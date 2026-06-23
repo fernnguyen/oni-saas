@@ -944,6 +944,7 @@ export function useTableManager(props: UseTableManagerProps) {
           paid_amount: 0,
           payment_method: '',
           created_at: new Date(nowTime).toISOString(),
+          updated_at: new Date(nowTime).toISOString(),
           shift_id: activeShiftId,
           sync_status: 'pending',
           note: '',
@@ -1020,8 +1021,8 @@ export function useTableManager(props: UseTableManagerProps) {
                     .set({ current_order_id: serverOrderId })
                     .where(eq(schema.location_resources.id, targetTableForOpen.id));
 
-                  await db.update(schema.orders)
-                    .set({ id: serverOrderId, sync_status: 'synced' })
+                   await db.update(schema.orders)
+                    .set({ id: serverOrderId, sync_status: 'synced', updated_at: new Date().toISOString() })
                     .where(eq(schema.orders.id, orderId));
 
                   const updated = await db.select().from(schema.location_resources);
@@ -1149,7 +1150,8 @@ export function useTableManager(props: UseTableManagerProps) {
           .set({
             customer_id: custId,
             customer_name: custName,
-            metadata: updatedMeta
+            metadata: updatedMeta,
+            updated_at: new Date().toISOString()
           })
           .where(eq(schema.orders.id, orderId));
       }
@@ -1476,6 +1478,7 @@ export function useTableManager(props: UseTableManagerProps) {
           paid_amount: Math.min(totalAmount, paidSum),
           payment_method: paymentMethodString,
           created_at: checkoutTimeStr,
+          updated_at: checkoutTimeStr,
           shift_id: shiftId,
           tax_amount: totalTaxAmount,
           sync_status: 'pending',
@@ -1694,7 +1697,7 @@ export function useTableManager(props: UseTableManagerProps) {
                     .where(eq(schema.order_items.order_id, orderId));
                 }
                 await db.update(schema.orders)
-                  .set({ id: serverId, order_no: serverOrderNo, sync_status: 'synced', reference_no: orderId })
+                  .set({ id: serverId, order_no: serverOrderNo, sync_status: 'synced', reference_no: orderId, updated_at: new Date().toISOString() })
                   .where(eq(schema.orders.id, orderId));
               }
               broadcastSync?.({ event: 'TABLE_PAID', tableId: selectedTableForPay.id, orderId: orderId });

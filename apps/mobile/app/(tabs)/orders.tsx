@@ -452,6 +452,7 @@ export default function OrdersScreen() {
              paid_amount: parseInt(o.paid_amount || '0', 10),
              payment_method: o.payment_method || 'Tiền mặt',
              created_at: o.created_at || new Date().toISOString(),
+             updated_at: o.updated_at || o.created_at || new Date().toISOString(),
              shift_id: resolvedShiftId || 'default-shift',
              sync_status: 'synced',
              discount_amount: parseInt(o.discount_amount || '0', 10),
@@ -469,6 +470,7 @@ export default function OrdersScreen() {
              paid_amount: order.paid_amount,
              payment_method: order.payment_method,
              created_at: order.created_at,
+             updated_at: order.updated_at,
              shift_id: order.shift_id,
              sync_status: 'synced',
              discount_amount: order.discount_amount,
@@ -483,6 +485,7 @@ export default function OrdersScreen() {
                paid_amount: order.paid_amount,
                payment_method: order.payment_method,
                created_at: order.created_at,
+               updated_at: order.updated_at,
                sync_status: 'synced',
                discount_amount: order.discount_amount,
                note: order.note,
@@ -534,6 +537,7 @@ export default function OrdersScreen() {
              paid_amount: parseInt(o.paid_amount || '0', 10),
              payment_method: o.payment_method || 'Tiền mặt',
              created_at: o.created_at || new Date().toISOString(),
+             updated_at: o.updated_at || o.created_at || new Date().toISOString(),
              shift_id: resolvedShiftId || 'default-shift',
              sync_status: 'synced',
              discount_amount: parseInt(o.discount_amount || '0', 10),
@@ -554,6 +558,7 @@ export default function OrdersScreen() {
                paid_amount: order.paid_amount,
                payment_method: order.payment_method,
                created_at: order.created_at,
+               updated_at: order.updated_at,
                shift_id: order.shift_id,
                sync_status: 'synced',
                discount_amount: order.discount_amount,
@@ -568,6 +573,7 @@ export default function OrdersScreen() {
                  paid_amount: order.paid_amount,
                  payment_method: order.payment_method,
                  created_at: order.created_at,
+                 updated_at: order.updated_at,
                  sync_status: 'synced',
                  discount_amount: order.discount_amount,
                  note: order.note,
@@ -584,7 +590,7 @@ export default function OrdersScreen() {
        rawOrders = searchedOrders;
      } else {
        if (Platform.OS !== 'web') {
-         rawOrders = await db.select().from(schema.orders).orderBy(desc(schema.orders.created_at));
+         rawOrders = await db.select().from(schema.orders).orderBy(desc(schema.orders.updated_at));
        }
      }
    } 
@@ -608,7 +614,7 @@ export default function OrdersScreen() {
          }
        ];
      } else {
-       rawOrders = await db.select().from(schema.orders).orderBy(desc(schema.orders.created_at));
+       rawOrders = await db.select().from(schema.orders).orderBy(desc(schema.orders.updated_at));
      }
    }
 
@@ -625,7 +631,7 @@ export default function OrdersScreen() {
      // Chạy đồng bộ chặn để không bị flash "Không có dữ liệu"
      await runSync();
      // Quét lại dữ liệu sau đồng bộ chặn
-     const updatedOrders = await db.select().from(schema.orders).orderBy(desc(schema.orders.created_at));
+     const updatedOrders = await db.select().from(schema.orders).orderBy(desc(schema.orders.updated_at));
      rawOrders = updatedOrders;
    }
 
@@ -685,7 +691,7 @@ export default function OrdersScreen() {
      (async () => {
        await runSync();
        // Cập nhật lại UI sau khi sync nền hoàn thành
-       const updatedOrders = await db.select().from(schema.orders).orderBy(desc(schema.orders.created_at));
+       const updatedOrders = await db.select().from(schema.orders).orderBy(desc(schema.orders.updated_at));
        const updatedBranchOrders = updatedOrders.filter((o: any) => {
          const isLocalShift = o.shift_id && o.shift_id.startsWith(`shift-${activeShopId}-`);
          const isActiveShift = activeShiftId && o.shift_id === activeShiftId;
