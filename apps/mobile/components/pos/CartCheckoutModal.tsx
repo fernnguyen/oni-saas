@@ -167,38 +167,61 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
 
     const rentalType = currentRentalType || rmd.rental_type || 'hourly';
 
+    const formatCurrencyLocal = (value: number) => {
+      return value.toLocaleString('vi-VN') + '₫';
+    };
+
     if (rentalType === 'overnight') {
       const overnightRate = Number(rmd.overnight_rate) || Number(table.hourly_rate * 3) || 200000;
-      return {
-        hours: 0,
-        minutes: 0,
-        cost: overnightRate,
-        label: 'Qua đêm',
-        details: 'Trọn gói qua đêm'
-      };
-    }
-
-    if (rentalType === 'daily') {
-      const dailyRate = Number(rmd.overnight_rate) || Number(table.hourly_rate * 3) || 200000;
+      const overnightGraceHours = Number(rmd.overnight_grace_hours) || 0;
       const checkInDate = new Date(table.startTime);
       const checkOutDate = customCheckoutTime || (table.checkoutTime ? new Date(table.checkoutTime) : new Date());
       
       const d1 = new Date(checkInDate.getFullYear(), checkInDate.getMonth(), checkInDate.getDate());
       const d2 = new Date(checkOutDate.getFullYear(), checkOutDate.getMonth(), checkOutDate.getDate());
       const diffDays = Math.round((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24));
-      const nights = Math.max(1, diffDays);
       
-      const cost = nights * dailyRate;
-      const formatCurrencyLocal = (value: number) => {
-        return value.toLocaleString('vi-VN') + '₫';
-      };
+      const totalHours = (checkOutDate.getTime() - checkInDate.getTime()) / (1000 * 60 * 60);
+      let nights = Math.max(1, diffDays);
+      if (diffDays > 0) {
+        const standardCycleHours = diffDays * 24;
+        if (totalHours > (standardCycleHours + overnightGraceHours)) {
+          nights = Math.ceil(totalHours / 24);
+        }
+      }
+      const cost = nights * overnightRate;
 
       return {
         hours: 0,
         minutes: 0,
         cost,
-        label: `${nights} ngày`,
-        details: `Thuê theo ngày: ${nights} ngày x ${formatCurrencyLocal(dailyRate)}/ngày`
+        qty: nights,
+        unitPrice: overnightRate,
+        label: `${nights} đêm`,
+        details: `Thuê qua đêm: ${nights} đêm x ${formatCurrencyLocal(overnightRate)}/đêm`
+      };
+    }
+
+    if (rentalType === 'daily') {
+      const dailyRate = Number(rmd.daily_rate) || Number(rmd.overnight_rate) || Number(table.hourly_rate * 3) || 200000;
+      const dailyGraceHours = Number(rmd.daily_grace_hours) || 2;
+      const checkInDate = new Date(table.startTime);
+      const checkOutDate = customCheckoutTime || (table.checkoutTime ? new Date(table.checkoutTime) : new Date());
+      
+      const totalHours = (checkOutDate.getTime() - checkInDate.getTime()) / (1000 * 60 * 60);
+      const completedDays = Math.floor(totalHours / 24);
+      const excessHours = totalHours % 24;
+      const days = Math.max(1, completedDays + (excessHours > dailyGraceHours ? 1 : 0));
+      const cost = days * dailyRate;
+
+      return {
+        hours: 0,
+        minutes: 0,
+        cost,
+        qty: days,
+        unitPrice: dailyRate,
+        label: `${days} ngày`,
+        details: `Thuê theo ngày: ${days} ngày x ${formatCurrencyLocal(dailyRate)}/ngày`
       };
     }
 
@@ -1214,7 +1237,8 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                     
                     itemToRender = {
                       ...item,
-                      price: billing.cost,
+                      price: billing.unitPrice || billing.cost,
+                      quantity: billing.qty || 1,
                       name: billingName
                     };
                   }
@@ -1280,7 +1304,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                         {/* Bottom Row: Unit Price, Delete */}
                         <View className="flex-row justify-between items-center mt-1">
                           <Text className="text-xs text-slate-500 font-medium">
-                            Đơn giá: {formatCurrency(itemToRender.price + (itemToRender.modifier_total || 0))} {productsList.find(pr => pr.id === itemToRender.productId)?.unit ? `/ ${productsList.find(pr => pr.id === itemToRender.productId)?.unit}` : ''}
+                            Đơn giá: {formatCurrency(itemToRender.price + (itemToRender.modifier_total || 0))} {isTimeCharge ? `x ${itemToRender.quantity}` : ''} {productsList.find(pr => pr.id === itemToRender.productId)?.unit ? `/ ${productsList.find(pr => pr.id === itemToRender.productId)?.unit}` : ''}
                           </Text>
                           <TouchableOpacity 
                             onPress={() => !loading && removeFromCart(cartItemId)} 

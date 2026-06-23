@@ -517,6 +517,9 @@ export function ResourceSlideOver({
         advanced_pricing: advPricing,
         rental_type: rentalType,
         overnight_rate: resourceMeta.overnight_rate,
+        daily_rate: resourceMeta.daily_rate,
+        overnight_grace_hours: resourceMeta.overnight_grace_hours,
+        daily_grace_hours: resourceMeta.daily_grace_hours,
         weekend_rate: resourceMeta.weekend_rate,
         room_class: resourceMeta.room_class,
         bed_type: resourceMeta.bed_type,
@@ -2278,6 +2281,7 @@ export function ResourceSlideOver({
           } : null}
           onCustomerChange={handleCustomerSelect}
           metadata={orderMeta || undefined}
+          roomMetadata={resource.metadata ? safeParse(resource.metadata) : undefined}
           items={buildCheckoutItems() as any}
           subtotal={buildCheckoutItems().reduce((a, b) => a + b.line_total, 0)}
           discount_amount={0}

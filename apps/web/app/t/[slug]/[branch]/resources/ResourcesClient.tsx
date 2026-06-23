@@ -443,6 +443,9 @@ export function ResourcesClient({ shopId, industryType }: Props) {
   const [formBedType, setFormBedType] = useState('')
   const [formWeekendRate, setFormWeekendRate] = useState('')
   const [formOvernightRate, setFormOvernightRate] = useState('')
+  const [formDailyRate, setFormDailyRate] = useState('')
+  const [formOvernightGraceHours, setFormOvernightGraceHours] = useState('0')
+  const [formDailyGraceHours, setFormDailyGraceHours] = useState('0')
   const [formSurchargePct, setFormSurchargePct] = useState('')
   const [formCheckinTime, setFormCheckinTime] = useState('14:00')
   const [formCheckoutTime, setFormCheckoutTime] = useState('12:00')
@@ -545,7 +548,7 @@ export function ResourcesClient({ shopId, industryType }: Props) {
     setFormCapacity('')
     setFormHourlyRate('')
     setFormRoomClass(''); setFormBedType(''); setFormWeekendRate('')
-    setFormOvernightRate(''); setFormSurchargePct(''); setFormCheckinTime('14:00')
+    setFormOvernightRate(''); setFormDailyRate(''); setFormOvernightGraceHours('0'); setFormDailyGraceHours('0'); setFormSurchargePct(''); setFormCheckinTime('14:00')
     setFormCheckoutTime('12:00'); setFormDepositAmount(''); setFormExtraBedFee('')
     setFormAmenities([])
     setUseAdvancedPricing(false)
@@ -574,6 +577,9 @@ export function ResourcesClient({ shopId, industryType }: Props) {
     setFormSubType(md.sub_type || '')
     setFormRoomClass(md.room_class || ''); setFormBedType(md.bed_type || '')
     setFormWeekendRate(maskVND(md.weekend_rate || '')); setFormOvernightRate(maskVND(md.overnight_rate || ''))
+    setFormDailyRate(maskVND(md.daily_rate || ''))
+    setFormOvernightGraceHours(md.overnight_grace_hours?.toString() || '0')
+    setFormDailyGraceHours(md.daily_grace_hours?.toString() || '0')
     setFormSurchargePct(md.surcharge_pct?.toString() || ''); setFormCheckinTime(md.checkin_time || '14:00')
     setFormCheckoutTime(md.checkout_time || '12:00'); setFormDepositAmount(maskVND(md.deposit_amount || ''))
     const savedAmenities = md.amenities || []
@@ -613,6 +619,9 @@ export function ResourcesClient({ shopId, industryType }: Props) {
     setFormSubType(md.sub_type || '')
     setFormRoomClass(md.room_class || ''); setFormBedType(md.bed_type || '')
     setFormWeekendRate(maskVND(md.weekend_rate || '')); setFormOvernightRate(maskVND(md.overnight_rate || ''))
+    setFormDailyRate(maskVND(md.daily_rate || ''))
+    setFormOvernightGraceHours(md.overnight_grace_hours?.toString() || '0')
+    setFormDailyGraceHours(md.daily_grace_hours?.toString() || '0')
     setFormSurchargePct(md.surcharge_pct?.toString() || ''); setFormCheckinTime(md.checkin_time || '14:00')
     setFormCheckoutTime(md.checkout_time || '12:00'); setFormDepositAmount(maskVND(md.deposit_amount || ''))
     const savedAmenities = md.amenities || []
@@ -666,6 +675,9 @@ export function ResourcesClient({ shopId, industryType }: Props) {
     if (formBedType) meta.bed_type = formBedType
     if (formWeekendRate) meta.weekend_rate = unmaskVND(formWeekendRate)
     if (formOvernightRate) meta.overnight_rate = unmaskVND(formOvernightRate)
+    if (formDailyRate) meta.daily_rate = unmaskVND(formDailyRate)
+    meta.overnight_grace_hours = Number(formOvernightGraceHours) || 0
+    meta.daily_grace_hours = Number(formDailyGraceHours) || 0
     if (formSurchargePct) meta.surcharge_pct = Number(formSurchargePct)
     if (formCheckinTime !== '14:00') meta.checkin_time = formCheckinTime
     if (formCheckoutTime !== '12:00') meta.checkout_time = formCheckoutTime
@@ -1426,6 +1438,9 @@ export function ResourcesClient({ shopId, industryType }: Props) {
                 {sec?.overnightRate && (
                   <>
                     <div><label className="block text-xs font-medium text-slate-600 mb-1">Giá qua đêm (₫)</label><input value={formOvernightRate} onChange={e => setFormOvernightRate(maskVND(e.target.value))} placeholder="0" type="text" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary" /></div>
+                    <div><label className="block text-xs font-medium text-slate-600 mb-1">Giờ ân hạn qua đêm (giờ)</label><input value={formOvernightGraceHours} onChange={e => setFormOvernightGraceHours(e.target.value)} placeholder="0" type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary" /></div>
+                    <div><label className="block text-xs font-medium text-slate-600 mb-1">Giá theo ngày (₫)</label><input value={formDailyRate} onChange={e => setFormDailyRate(maskVND(e.target.value))} placeholder="0" type="text" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary" /></div>
+                    <div><label className="block text-xs font-medium text-slate-600 mb-1">Giờ ân hạn ngày (giờ)</label><input value={formDailyGraceHours} onChange={e => setFormDailyGraceHours(e.target.value)} placeholder="0" type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary" /></div>
                     <div><label className="block text-xs font-medium text-slate-600 mb-1">Giá cuối tuần (₫)</label><input value={formWeekendRate} onChange={e => setFormWeekendRate(maskVND(e.target.value))} placeholder="0" type="text" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary" /></div>
                     <div><label className="block text-xs font-medium text-slate-600 mb-1">Phụ thu (%)</label><input value={formSurchargePct} onChange={e => setFormSurchargePct(e.target.value)} placeholder="0" type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary" /></div>
                   </>

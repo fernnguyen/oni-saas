@@ -163,8 +163,10 @@ export function useTableManager(props: UseTableManagerProps) {
       setCart((prevCart: any) => {
         if (!prevCart || !prevCart['TIME_CHARGE']) return prevCart;
         
-        // Nếu giá tiền không đổi, không cập nhật để tránh re-render thừa
-        if (prevCart['TIME_CHARGE'].price === billing.cost && prevCart['TIME_CHARGE'].name === billingName) {
+        // Nếu giá tiền và số lượng không đổi, không cập nhật để tránh re-render thừa
+        const targetPrice = billing.unitPrice || billing.cost;
+        const targetQty = billing.qty || 1;
+        if (prevCart['TIME_CHARGE'].price === targetPrice && prevCart['TIME_CHARGE'].quantity === targetQty && prevCart['TIME_CHARGE'].name === billingName) {
           return prevCart;
         }
 
@@ -173,7 +175,8 @@ export function useTableManager(props: UseTableManagerProps) {
           'TIME_CHARGE': {
             ...prevCart['TIME_CHARGE'],
             name: billingName,
-            price: billing.cost
+            price: targetPrice,
+            quantity: targetQty
           }
         };
       });
@@ -202,38 +205,61 @@ export function useTableManager(props: UseTableManagerProps) {
 
     const rentalType = rentalTypeOverride || rmd.rental_type || 'hourly';
 
-    if (rentalType === 'overnight') {
-      const overnightRate = Number(rmd.overnight_rate) || Number(table.hourly_rate) || 0;
-      return {
-        hours: 0,
-        minutes: 0,
-        cost: overnightRate,
-        label: 'Qua đêm',
-        details: 'Trọn gói qua đêm'
-      };
-    }
+    const formatCurrencyLocal = (value: number) => {
+      return value.toLocaleString('vi-VN') + '₫';
+    };
 
-    if (rentalType === 'daily') {
-      const dailyRate = Number(rmd.overnight_rate) || Number(table.hourly_rate * 3) || 200000;
+    if (rentalType === 'overnight') {
+      const overnightRate = Number(rmd.overnight_rate) || Number(table.hourly_rate * 3) || 200000;
+      const overnightGraceHours = Number(rmd.overnight_grace_hours) || 0;
       const checkInDate = new Date(table.startTime);
       const checkOutDate = customCheckoutTime || (table.checkoutTime ? new Date(table.checkoutTime) : new Date());
       
       const d1 = new Date(checkInDate.getFullYear(), checkInDate.getMonth(), checkInDate.getDate());
       const d2 = new Date(checkOutDate.getFullYear(), checkOutDate.getMonth(), checkOutDate.getDate());
       const diffDays = Math.round((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24));
-      const nights = Math.max(1, diffDays);
       
-      const cost = nights * dailyRate;
-      const formatCurrencyLocal = (value: number) => {
-        return value.toLocaleString('vi-VN') + '₫';
-      };
+      const totalHours = (checkOutDate.getTime() - checkInDate.getTime()) / (1000 * 60 * 60);
+      let nights = Math.max(1, diffDays);
+      if (diffDays > 0) {
+        const standardCycleHours = diffDays * 24;
+        if (totalHours > (standardCycleHours + overnightGraceHours)) {
+          nights = Math.ceil(totalHours / 24);
+        }
+      }
+      const cost = nights * overnightRate;
 
       return {
         hours: 0,
         minutes: 0,
         cost,
-        label: `${nights} ngày`,
-        details: `Thuê theo ngày: ${nights} ngày x ${formatCurrencyLocal(dailyRate)}/ngày`
+        qty: nights,
+        unitPrice: overnightRate,
+        label: `${nights} đêm`,
+        details: `Thuê qua đêm: ${nights} đêm x ${formatCurrencyLocal(overnightRate)}/đêm`
+      };
+    }
+
+    if (rentalType === 'daily') {
+      const dailyRate = Number(rmd.daily_rate) || Number(rmd.overnight_rate) || Number(table.hourly_rate * 3) || 200000;
+      const dailyGraceHours = Number(rmd.daily_grace_hours) || 2;
+      const checkInDate = new Date(table.startTime);
+      const checkOutDate = customCheckoutTime || (table.checkoutTime ? new Date(table.checkoutTime) : new Date());
+      
+      const totalHours = (checkOutDate.getTime() - checkInDate.getTime()) / (1000 * 60 * 60);
+      const completedDays = Math.floor(totalHours / 24);
+      const excessHours = totalHours % 24;
+      const days = Math.max(1, completedDays + (excessHours > dailyGraceHours ? 1 : 0));
+      const cost = days * dailyRate;
+
+      return {
+        hours: 0,
+        minutes: 0,
+        cost,
+        qty: days,
+        unitPrice: dailyRate,
+        label: `${days} ngày`,
+        details: `Thuê theo ngày: ${days} ngày x ${formatCurrencyLocal(dailyRate)}/ngày`
       };
     }
 

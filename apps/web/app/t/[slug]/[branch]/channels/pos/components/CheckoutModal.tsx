@@ -91,6 +91,7 @@ interface Props {
   hourlyRate?: number
   existingOrder?: LocalOrder | null
   isAccommodation?: boolean
+  roomMetadata?: Record<string, any>
 }
 
 const METHODS = [
@@ -225,6 +226,7 @@ export function CheckoutModal({
   hourlyRate = 0,
   existingOrder = null,
   isAccommodation = false,
+  roomMetadata,
 }: Props) {
   const confirm = useConfirm()
   const [localCustomer, setLocalCustomer] = useState(customer)
@@ -232,7 +234,7 @@ export function CheckoutModal({
     { id: nextId(), method: 'cash', amount: String(total - discount_amount - orderPaidAmount) },
   ])
   const [saving, setSaving] = useState(false)
-  const [localRentalType, setLocalRentalType] = useState<'hourly' | 'overnight'>(() => {
+  const [localRentalType, setLocalRentalType] = useState<'hourly' | 'overnight' | 'daily'>(() => {
     return metadata?.rental_type || 'hourly'
   })
   const [timeChargeTax, setTimeChargeTax] = useState<{ tax_rate: string; tax_group: string }>({ tax_rate: '0', tax_group: '' })
@@ -387,15 +389,61 @@ export function CheckoutModal({
   const computedItems = useMemo(() => {
     let result = items
     if (localRentalType === 'overnight') {
-      const overnightRate = Number(metadata?.overnight_rate) || Number(hourlyRate) || 0
+      const overnightRate = Number(metadata?.overnight_rate) || Number(roomMetadata?.overnight_rate) || Number(hourlyRate * 3) || 200000
+      const overnightGraceHours = Number(metadata?.overnight_grace_hours) || Number(roomMetadata?.overnight_grace_hours) || 0
+      const checkInDate = new Date(metadata?.check_in || new Date())
+      const effectiveCheckout = metadata?.actual_checkout_requested_at 
+        ? new Date(metadata.actual_checkout_requested_at)
+        : (localCheckoutTime ? new Date(localCheckoutTime) : (customCheckoutTime ? new Date(customCheckoutTime) : new Date()))
+      
+      const d1 = new Date(checkInDate.getFullYear(), checkInDate.getMonth(), checkInDate.getDate())
+      const d2 = new Date(effectiveCheckout.getFullYear(), effectiveCheckout.getMonth(), effectiveCheckout.getDate())
+      const diffDays = Math.round((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24))
+      
+      const totalHours = (effectiveCheckout.getTime() - checkInDate.getTime()) / (1000 * 60 * 60)
+      let nights = Math.max(1, diffDays)
+      if (diffDays > 0) {
+        const standardCycleHours = diffDays * 24
+        if (totalHours > (standardCycleHours + overnightGraceHours)) {
+          nights = Math.ceil(totalHours / 24)
+        }
+      }
+      const totalCost = nights * overnightRate
+
       result = items.map(item => {
         if (item.product_id === 'TIME_CHARGE') {
           return {
             ...item,
-            product_name: 'Tiền phòng (Qua đêm)',
-            qty: 1,
+            product_name: `Tiền phòng (Qua đêm - ${nights} đêm)`,
+            qty: nights,
             unit_price: overnightRate,
-            line_total: overnightRate,
+            line_total: totalCost,
+          }
+        }
+        return item
+      })
+    } else if (localRentalType === 'daily') {
+      const dailyRate = Number(metadata?.daily_rate) || Number(roomMetadata?.daily_rate) || Number(metadata?.overnight_rate) || Number(roomMetadata?.overnight_rate) || Number(hourlyRate * 3) || 200000
+      const dailyGraceHours = Number(metadata?.daily_grace_hours) || Number(roomMetadata?.daily_grace_hours) || 2
+      const checkInDate = new Date(metadata?.check_in || new Date())
+      const effectiveCheckout = metadata?.actual_checkout_requested_at 
+        ? new Date(metadata.actual_checkout_requested_at)
+        : (localCheckoutTime ? new Date(localCheckoutTime) : (customCheckoutTime ? new Date(customCheckoutTime) : new Date()))
+      
+      const totalHours = (effectiveCheckout.getTime() - checkInDate.getTime()) / (1000 * 60 * 60)
+      const completedDays = Math.floor(totalHours / 24)
+      const excessHours = totalHours % 24
+      const days = Math.max(1, completedDays + (excessHours > dailyGraceHours ? 1 : 0))
+      const totalCost = days * dailyRate
+
+      result = items.map(item => {
+        if (item.product_id === 'TIME_CHARGE') {
+          return {
+            ...item,
+            product_name: `Tiền phòng (Theo ngày - ${days} ngày)`,
+            qty: days,
+            unit_price: dailyRate,
+            line_total: totalCost,
           }
         }
         return item
@@ -496,21 +544,45 @@ export function CheckoutModal({
 
   const webBillingDuration = useMemo(() => {
     if (!metadata?.check_in) return ''
-    if (localRentalType === 'overnight') return 'Qua đêm'
-
     const checkInDate = new Date(metadata.check_in)
     const effectiveCheckout = metadata?.actual_checkout_requested_at 
       ? new Date(metadata.actual_checkout_requested_at)
       : (localCheckoutTime ? new Date(localCheckoutTime) : (customCheckoutTime ? new Date(customCheckoutTime) : new Date()))
 
+    if (localRentalType === 'overnight') {
+      const overnightGraceHours = Number(metadata?.overnight_grace_hours) || Number(roomMetadata?.overnight_grace_hours) || 0
+      const d1 = new Date(checkInDate.getFullYear(), checkInDate.getMonth(), checkInDate.getDate())
+      const d2 = new Date(effectiveCheckout.getFullYear(), effectiveCheckout.getMonth(), effectiveCheckout.getDate())
+      const diffDays = Math.round((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24))
+      
+      const totalHours = (effectiveCheckout.getTime() - checkInDate.getTime()) / (1000 * 60 * 60)
+      let nights = Math.max(1, diffDays)
+      if (diffDays > 0) {
+        const standardCycleHours = diffDays * 24
+        if (totalHours > (standardCycleHours + overnightGraceHours)) {
+          nights = Math.ceil(totalHours / 24)
+        }
+      }
+      return `${nights} đêm`
+    }
+
+    if (localRentalType === 'daily') {
+      const dailyGraceHours = Number(metadata?.daily_grace_hours) || Number(roomMetadata?.daily_grace_hours) || 2
+      const totalHours = (effectiveCheckout.getTime() - checkInDate.getTime()) / (1000 * 60 * 60)
+      const completedDays = Math.floor(totalHours / 24)
+      const excessHours = totalHours % 24
+      const days = Math.max(1, completedDays + (excessHours > dailyGraceHours ? 1 : 0))
+      return `${days} ngày`
+    }
+
     const pricingResult = calculateHourlyBilling({
       checkIn: checkInDate,
       checkOut: effectiveCheckout,
       standardRate: hourlyRate,
-      config: metadata.advanced_pricing
+      config: metadata?.advanced_pricing
     })
     return pricingResult.durationLabel
-  }, [metadata, localRentalType, localCheckoutTime, customCheckoutTime, hourlyRate, timeTicker])
+  }, [metadata, roomMetadata, localRentalType, localCheckoutTime, customCheckoutTime, hourlyRate, timeTicker])
 
 
   const maxDebtDays = Number(settings?.default_max_debt_days ?? 30)
@@ -2480,14 +2552,14 @@ export function CheckoutModal({
                 <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-xs text-slate-600 space-y-1.5">
                   <div className="mb-1.5 flex items-center justify-between">
                     <span className="text-xs font-medium text-slate-500">CHI TIẾT THỜI GIAN THUÊ</span>
-                    {!metadata?.actual_checkout_requested_at && isAccommodation && Number(metadata.overnight_rate) > 0 && (
-                      <div className="flex border border-slate-200 rounded-lg overflow-hidden shrink-0">
+                    {isAccommodation && (
+                      <div className="flex border border-slate-200 rounded-lg overflow-hidden shrink-0 bg-slate-200/60 p-0.5 gap-0.5">
                         <button
                           type="button"
                           onClick={() => setLocalRentalType('hourly')}
-                          className={`flex-1 py-1.5 px-2.5 rounded-l-lg text-xs font-bold transition-all text-center border-r border-slate-200 ${localRentalType === 'hourly'
-                            ? 'border-primary bg-primary/10 text-primary ring-1 ring-primary'
-                            : 'border-slate-350 text-slate-500 bg-white hover:border-slate-350 hover:bg-slate-50'
+                          className={`py-1 px-2.5 rounded-md text-[10px] font-bold transition-all text-center ${localRentalType === 'hourly'
+                            ? 'bg-white text-slate-800 shadow-sm'
+                            : 'text-slate-500 hover:text-slate-700'
                             }`}
                         >
                           ⏱️ Theo giờ
@@ -2495,12 +2567,22 @@ export function CheckoutModal({
                         <button
                           type="button"
                           onClick={() => setLocalRentalType('overnight')}
-                          className={`flex-1 py-1.5 px-2.5 rounded-r-lg text-xs font-bold transition-all text-center ${localRentalType === 'overnight'
-                            ? 'border-primary bg-primary/10 text-primary ring-1 ring-primary'
-                            : 'border-slate-300 text-slate-500 bg-white hover:border-slate-350 hover:bg-slate-50'
+                          className={`py-1 px-2.5 rounded-md text-[10px] font-bold transition-all text-center ${localRentalType === 'overnight'
+                            ? 'bg-white text-slate-800 shadow-sm'
+                            : 'text-slate-500 hover:text-slate-700'
                             }`}
                         >
-                          🌙 Qua đêm ({Number(metadata.overnight_rate).toLocaleString('vi-VN')}₫)
+                          🌙 Qua đêm
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setLocalRentalType('daily')}
+                          className={`py-1 px-2.5 rounded-md text-[10px] font-bold transition-all text-center ${localRentalType === 'daily'
+                            ? 'bg-white text-slate-800 shadow-sm'
+                            : 'text-slate-500 hover:text-slate-700'
+                            }`}
+                        >
+                          ☀️ Theo ngày
                         </button>
                       </div>
                     )}
