@@ -203,7 +203,7 @@ export async function POST(req: NextRequest) {
   }
 
   // 4 — Create default branch (same slug as tenant)
-  const { error: shopError } = await admin.rpc('create_shop', {
+  const { data: createdShop, error: shopError } = await admin.rpc('create_shop', {
     p_tenant_id: tenantId,
     p_name:      name,
     p_slug:      slug,
@@ -213,6 +213,37 @@ export async function POST(req: NextRequest) {
   if (shopError) {
     await admin.auth.admin.deleteUser(userId).catch(() => {});
     return NextResponse.json({ message: shopError.message }, { status: 400 });
+  }
+
+  // Auto-init the Time Charge product for the new shop
+  try {
+    const { getTimeChargeProductId } = await import('@oni/core');
+    const { getConnectorForShop } = await import('../../../lib/server/connectorFactory');
+    const connector = await getConnectorForShop((createdShop as any).id, tenantId);
+    const resolvedIndustry = industry_type ?? 'retail';
+    const prodId = getTimeChargeProductId(resolvedIndustry);
+    
+    const newProduct = {
+      id: prodId,
+      product_id: prodId,
+      sku: prodId,
+      name: resolvedIndustry === 'billiards' 
+        ? 'Dịch vụ tiền giờ Billiards (Hệ thống)' 
+        : resolvedIndustry === 'lodging'
+        ? 'Dịch vụ tiền phòng (Hệ thống)'
+        : 'Dịch vụ tiền giờ (Hệ thống)',
+      active: 'TRUE',
+      sell_price: '0',
+      cost_price: '0',
+      tax_rate: '0',
+      input_tax_rate: '0',
+      tax_group: '',
+      product_type: 'service',
+      branch_id: (createdShop as any).id
+    };
+    await connector.create('products', newProduct);
+  } catch (err) {
+    console.error('Failed to auto-init TIME_CHARGE product during registration:', err);
   }
 
   // 5 — Assign default Local DB connector (System worker, Read-only)

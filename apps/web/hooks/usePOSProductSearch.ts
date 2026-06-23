@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useDebounce } from 'use-debounce'
 import { localDb, type LocalProduct } from '@/lib/localDb/schema'
 import { cleanSku } from '@/lib/sku'
+import { isSystemTimeChargeProduct } from '@oni/core'
 
 export function usePOSProductSearch(query: string, categoryId?: string) {
   const [results, setResults] = useState<LocalProduct[]>([])
@@ -14,7 +15,7 @@ export function usePOSProductSearch(query: string, categoryId?: string) {
     async function search() {
       setIsLoading(true)
       try {
-        let items = await localDb.products.filter((p) => p.active && (p as any).product_type !== 'variant_child').toArray()
+        let items = await localDb.products.filter((p) => p.active && (p as any).product_type !== 'variant_child' && !isSystemTimeChargeProduct(p.product_id, p.sku)).toArray()
 
         if (categoryId) {
           items = items.filter((p) => p.category_id === categoryId)

@@ -14,7 +14,7 @@ import { printBill } from '@/lib/pos/printBill'
 import type { CartItem } from '@/hooks/useCart'
 import { CustomerSearch } from './CustomerSearch'
 import { useQuery } from '@tanstack/react-query'
-import { calculateHourlyBilling, isTimeChargeProduct } from '@oni/core'
+import { calculateHourlyBilling, isTimeChargeProduct, isSystemTimeChargeProduct } from '@oni/core'
 import { VietQRPreview } from '@/app/components/ui/VietQRPreview'
 import { useConfirm } from '@/app/components/ui/ConfirmProvider'
 import { BANKS } from '@/lib/constants/banks'
@@ -235,6 +235,23 @@ export function CheckoutModal({
   const [localRentalType, setLocalRentalType] = useState<'hourly' | 'overnight'>(() => {
     return metadata?.rental_type || 'hourly'
   })
+  const [timeChargeTax, setTimeChargeTax] = useState<{ tax_rate: string; tax_group: string }>({ tax_rate: '0', tax_group: '' })
+
+  // Load system time charge product from localDb to get its tax rate & tax group
+  useEffect(() => {
+    if (!open || !localDb) return
+    localDb.products.toArray().then((prods) => {
+      const systemProd = prods.find(p => isSystemTimeChargeProduct(p.product_id, p.sku))
+      if (systemProd) {
+        setTimeChargeTax({
+          tax_rate: systemProd.tax_rate || '0',
+          tax_group: systemProd.tax_group || ''
+        })
+      }
+    }).catch(err => {
+      console.error('Failed to load system time charge product from localDb:', err)
+    })
+  }, [open])
   const [localNote, setLocalNote] = useState(note)
   const [localDiscount, setLocalDiscount] = useState(discount_amount)
   const [isEditingDiscount, setIsEditingDiscount] = useState(false)
@@ -423,11 +440,13 @@ export function CheckoutModal({
 
   const totalTaxAmount = useMemo(() => {
     return computedItems.reduce((sum, item) => {
-      const rate = parseFloat(item.tax_rate || '0') || 0
+      const rate = (item.product_id === 'TIME_CHARGE' || isTimeChargeProduct(item.product_id, item.product_name))
+        ? (parseFloat(timeChargeTax.tax_rate) || 0)
+        : (parseFloat(item.tax_rate || '0') || 0)
       const taxAmount = (Number(item.line_total) * rate) / 100
       return sum + taxAmount
     }, 0)
-  }, [computedItems])
+  }, [computedItems, timeChargeTax])
 
   // Fetch Customer Purchase History for Debt Aging
   const { data: customerOrders } = useQuery({
@@ -813,18 +832,22 @@ export function CheckoutModal({
   const taxAmountA = useMemo(() => {
     return computedItems.reduce((sum, item, idx) => {
       if (!folioAIndices.has(idx)) return sum
-      const rate = parseFloat(item.tax_rate || '0') || 0
+      const rate = (item.product_id === 'TIME_CHARGE' || isTimeChargeProduct(item.product_id, item.product_name))
+        ? (parseFloat(timeChargeTax.tax_rate) || 0)
+        : (parseFloat(item.tax_rate || '0') || 0)
       return sum + (Number(item.line_total) * rate) / 100
     }, 0)
-  }, [computedItems, folioAIndices])
+  }, [computedItems, folioAIndices, timeChargeTax])
 
   const taxAmountB = useMemo(() => {
     return computedItems.reduce((sum, item, idx) => {
       if (folioAIndices.has(idx)) return sum
-      const rate = parseFloat(item.tax_rate || '0') || 0
+      const rate = (item.product_id === 'TIME_CHARGE' || isTimeChargeProduct(item.product_id, item.product_name))
+        ? (parseFloat(timeChargeTax.tax_rate) || 0)
+        : (parseFloat(item.tax_rate || '0') || 0)
       return sum + (Number(item.line_total) * rate) / 100
     }, 0)
-  }, [computedItems, folioAIndices])
+  }, [computedItems, folioAIndices, timeChargeTax])
 
   const tierDiscountAmountA = useMemo(() => {
     return Math.max(0, Math.floor((subtotalA - localDiscount) * (tierDiscountPct / 100)))
@@ -1565,7 +1588,9 @@ export function CheckoutModal({
       const now = new Date().toISOString()
 
       const orderItems: LocalOrderItem[] = computedItems.map((item) => {
-        const rate = parseFloat(item.tax_rate || '0') || 0
+        const rate = (item.product_id === 'TIME_CHARGE' || isTimeChargeProduct(item.product_id, item.product_name))
+          ? (parseFloat(timeChargeTax.tax_rate) || 0)
+          : (parseFloat(item.tax_rate || '0') || 0)
         const taxAmount = (Number(item.line_total) * rate) / 100
         return {
           local_id: crypto.randomUUID(),
@@ -1577,9 +1602,11 @@ export function CheckoutModal({
           unit_price: item.unit_price,
           cost_price: item.cost_price,
           discount_amount: item.discount_amount,
-          tax_rate: item.tax_rate || '0',
+          tax_rate: String(rate),
           tax_amount: taxAmount,
-          tax_group: item.tax_group || '',
+          tax_group: (item.product_id === 'TIME_CHARGE' || isTimeChargeProduct(item.product_id, item.product_name))
+            ? timeChargeTax.tax_group
+            : item.tax_group || '',
           line_total: item.line_total,
           variant_label: item.variant_label,
           modifiers: typeof item.modifiers === 'object' ? JSON.stringify(item.modifiers) : item.modifiers,

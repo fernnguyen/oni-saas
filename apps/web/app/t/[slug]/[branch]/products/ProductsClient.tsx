@@ -18,6 +18,7 @@ import { clearLocalDb } from '@/lib/localDb/clear'
 import { hydrateAll } from '@/lib/localDb/hydration'
 import { broadcastHydrateRefresh } from '@/lib/localDb/tabSync'
 import { cleanSku } from '@/lib/sku'
+import { isSystemTimeChargeProduct } from '@oni/core'
 
 function RowActions({ r, onEdit, onDuplicate, onToggleActive }: { r: Record<string, string>, onEdit: () => void, onDuplicate: () => void, onToggleActive: () => void }) {
   const [open, setOpen] = useState(false)
@@ -326,7 +327,9 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
     },
     enabled: !!shopId,
   })
-  const allProducts = allProductsData?.data ?? []
+  const allProducts = (allProductsData?.data ?? []).filter(
+    (p) => !isSystemTimeChargeProduct(p.product_id || p.id, p.sku)
+  )
 
   const bomTotalCost = useMemo(() => {
     return bomItems.reduce((acc, item) => {
@@ -1374,9 +1377,9 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
     },
   ], [categories])
 
-  // Filter: exclude variant_parent from table (show children + simple)
+  // Filter: exclude variant_parent and system time charge products from table (show children + simple)
   const tableData = (data?.data ?? []).filter(
-    (p) => p.product_type !== 'variant_parent'
+    (p) => p.product_type !== 'variant_parent' && !isSystemTimeChargeProduct(p.product_id || p.id, p.sku)
   )
 
   return (

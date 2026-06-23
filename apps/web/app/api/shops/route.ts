@@ -4,7 +4,7 @@ import { getSupabaseServerClient } from '../../../lib/server/supabaseServer';
 import { getSupabaseAdminClient } from '../../../lib/server/supabaseAdmin';
 import { hasPermission } from '../../../lib/server/permissions';
 import { enforceLimit, isPlanLimitError, planLimitResponse } from '../../../lib/server/planLimits';
-import { INDUSTRY_TYPES } from '@oni/core';
+import { INDUSTRY_TYPES, getTimeChargeProductId } from '@oni/core';
 
 const createSchema = z.object({
   tenant_id: z.string().uuid(),
@@ -47,6 +47,37 @@ export async function POST(req: NextRequest) {
   });
 
   if (error) return NextResponse.json({ message: error.message }, { status: 400 });
+
+  // Auto-init the Time Charge product for the new shop
+  try {
+    const { getConnectorForShop } = await import('../../../lib/server/connectorFactory');
+    const connector = await getConnectorForShop((data as any).id, tenant_id);
+    const resolvedIndustry = industry_type ?? 'retail';
+    const prodId = getTimeChargeProductId(resolvedIndustry);
+    
+    const newProduct = {
+      id: prodId,
+      product_id: prodId,
+      sku: prodId,
+      name: resolvedIndustry === 'billiards' 
+        ? 'Dịch vụ tiền giờ Billiards (Hệ thống)' 
+        : resolvedIndustry === 'lodging'
+        ? 'Dịch vụ tiền phòng (Hệ thống)'
+        : 'Dịch vụ tiền giờ (Hệ thống)',
+      active: 'TRUE',
+      sell_price: '0',
+      cost_price: '0',
+      tax_rate: '0',
+      input_tax_rate: '0',
+      tax_group: '',
+      product_type: 'service',
+      branch_id: (data as any).id
+    };
+    await connector.create('products', newProduct);
+  } catch (err) {
+    console.error('Failed to auto-init TIME_CHARGE product during shop creation:', err);
+  }
+
   return NextResponse.json({ shop: data }, { status: 201 });
 }
 

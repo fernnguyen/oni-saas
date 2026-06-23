@@ -9,6 +9,7 @@ import { VariantPickerModal } from './VariantPickerModal'
 import { ModifierPickerModal } from './ModifierPickerModal'
 import { CameraScannerModal } from './CameraScannerModal'
 import { cleanSku } from '@/lib/sku'
+import { isSystemTimeChargeProduct } from '@oni/core'
 
 interface Props {
   branchId: string
@@ -118,7 +119,7 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
 
     try {
       // Query active products from Dexie DB
-      const items = await localDb.products.filter((p) => p.active && (p as any).product_type !== 'variant_child').toArray()
+      const items = await localDb.products.filter((p) => p.active && (p as any).product_type !== 'variant_child' && !isSystemTimeChargeProduct(p.product_id, p.sku)).toArray()
       
       // Flatten units identical to search hook
       let match: LocalProduct | null = null

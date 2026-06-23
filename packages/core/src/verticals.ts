@@ -344,3 +344,26 @@ export const NAV_FEATURE_GATES: Record<string, keyof VerticalFeatures> = {
   'kitchen_display': 'kitchen_display',
   'reservations': 'reservation',
 };
+
+/**
+ * Get the time charge product ID based on industry type.
+ */
+export function getTimeChargeProductId(industryType: string): string {
+  if (industryType === 'billiards') return 'TIME_CHARGE_BILLIARD';
+  if (industryType === 'sports_court') return 'TIME_CHARGE_COURT';
+  if (industryType === 'lodging') return 'TIME_CHARGE_ROOM';
+  if (industryType === 'service_hourly') return 'TIME_CHARGE_SERVICE';
+  return 'TIME_CHARGE';
+}
+
+/**
+ * Check if a product ID or SKU is a system time charge product.
+ */
+export function isSystemTimeChargeProduct(productId: string | null | undefined, sku?: string | null | undefined): boolean {
+  const idLower = (productId || '').toLowerCase();
+  const skuLower = (sku || '').toLowerCase();
+  return idLower.startsWith('time_charge') || idLower.includes('time_charge') ||
+         skuLower.startsWith('time_charge') || skuLower.includes('time_charge') ||
+         idLower.includes('time-charge') || skuLower.includes('time-charge') ||
+         idLower.includes('billiard-time') || idLower.includes('billiard_time');
+}

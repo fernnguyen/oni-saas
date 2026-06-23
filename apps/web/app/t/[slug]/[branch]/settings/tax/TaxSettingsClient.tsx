@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
+import { isSystemTimeChargeProduct, getTimeChargeProductId } from '@oni/core'
 
 interface Category {
   id: string
@@ -39,6 +40,7 @@ interface Props {
   categories: Category[]
   products: Product[]
   permissions?: string[]
+  industryType?: string
 }
 
 const mapGroupToCode = (val?: string) => {
@@ -50,7 +52,7 @@ const mapGroupToCode = (val?: string) => {
   return val
 }
 
-export function TaxSettingsClient({ shopId, slug, branch, categories: initialCategories, products: initialProducts, permissions }: Props) {
+export function TaxSettingsClient({ shopId, slug, branch, categories: initialCategories, products: initialProducts, permissions, industryType }: Props) {
   const [activeTab, setActiveTab] = useState<'lockdown' | 'recalculate' | 'categories' | 'products'>('lockdown')
 
   // Dynamic system tax groups
@@ -86,6 +88,58 @@ export function TaxSettingsClient({ shopId, slug, branch, categories: initialCat
   const [prodInputTaxRate, setProdInputTaxRate] = useState('')
   const [prodTaxGroup, setProdTaxGroup] = useState('')
   const [savingProduct, setSavingProduct] = useState(false)
+
+  // System product tax states
+  const resolvedIndustry = industryType ?? 'retail'
+  const timeChargeProductId = getTimeChargeProductId(resolvedIndustry)
+  const systemProduct = products.find((p) => p.product_id === timeChargeProductId || p.id === timeChargeProductId)
+
+  const [editingSystemProd, setEditingSystemProd] = useState(false)
+  const [systemProdTaxRate, setSystemProdTaxRate] = useState('')
+  const [systemProdTaxGroup, setSystemProdTaxGroup] = useState('')
+  const [savingSystemProd, setSavingSystemProd] = useState(false)
+
+  useEffect(() => {
+    if (systemProduct) {
+      setSystemProdTaxRate(systemProduct.tax_rate || '0')
+      setSystemProdTaxGroup(mapGroupToCode(systemProduct.tax_group || ''))
+    }
+  }, [systemProduct])
+
+  const handleSaveSystemProduct = async () => {
+    if (!systemProduct) return
+    setSavingSystemProd(true)
+    try {
+      const res = await fetch(`/api/shops/${shopId}/products/${systemProduct.product_id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: systemProduct.name,
+          tax_rate: systemProdTaxRate,
+          input_tax_rate: '0',
+          tax_group: systemProdTaxGroup,
+        }),
+      })
+
+      if (res.ok) {
+        toast.success('Đã lưu cấu hình thuế dịch vụ phòng / tiền giờ')
+        setProducts(
+          products.map((p) =>
+            p.product_id === systemProduct.product_id
+              ? { ...p, tax_rate: systemProdTaxRate, tax_group: systemProdTaxGroup }
+              : p
+          )
+        )
+        setEditingSystemProd(false)
+      } else {
+        toast.error('Lỗi lưu cấu hình thuế dịch vụ phòng / tiền giờ')
+      }
+    } catch (e) {
+      toast.error('Lỗi kết nối máy chủ')
+    } finally {
+      setSavingSystemProd(false)
+    }
+  }
 
   // Bulk Product States
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([])
@@ -379,8 +433,9 @@ export function TaxSettingsClient({ shopId, slug, branch, categories: initialCat
   // Filter products by search
   const filteredProducts = products.filter(
     (p) =>
-      p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
-      (p.sku && p.sku.toLowerCase().includes(productSearch.toLowerCase()))
+      !isSystemTimeChargeProduct(p.product_id, p.sku) &&
+      (p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
+        (p.sku && p.sku.toLowerCase().includes(productSearch.toLowerCase())))
   )
 
   const toggleSelectProduct = (id: string) => {
@@ -401,6 +456,118 @@ export function TaxSettingsClient({ shopId, slug, branch, categories: initialCat
 
   return (
     <div className="space-y-6">
+      {/* Cấu hình thuế dịch vụ giờ / phòng */}
+      {systemProduct && (
+        <div className="rounded-2xl border border-primary/20 bg-primary/5 p-6 mb-6 space-y-4 shadow-sm">
+          <div className="flex items-start justify-between">
+            <div>
+              <h3 className="text-base font-bold text-slate-900">
+                {resolvedIndustry === 'lodging' ? 'Thuế suất Dịch vụ Phòng' : 'Thuế suất Dịch vụ Tiền giờ / Phòng'}
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Thiết lập thuế suất GTGT và nhóm ngành thuế cho dịch vụ thuê phòng / tiền giờ tự động của cửa hàng.
+              </p>
+            </div>
+            {!editingSystemProd && (
+              <button
+                onClick={() => {
+                  setEditingSystemProd(true)
+                  setSystemProdTaxRate(systemProduct.tax_rate || '0')
+                  setSystemProdTaxGroup(mapGroupToCode(systemProduct.tax_group || ''))
+                }}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors shadow-xs"
+              >
+                Chỉnh sửa
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-white p-4 rounded-xl border border-slate-100 shadow-2xs">
+            <div>
+              <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+                Tên dịch vụ hệ thống
+              </div>
+              <div className="text-sm font-semibold text-slate-800 mt-1">
+                {systemProduct.name}
+              </div>
+              <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                SKU: {systemProduct.sku}
+              </div>
+            </div>
+
+            <div>
+              <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+                Nhóm ngành thuế HKD
+              </div>
+              <div className="text-sm text-slate-800 mt-1">
+                {editingSystemProd ? (
+                  <select
+                    value={systemProdTaxGroup}
+                    onChange={(e) => {
+                      const groupCode = e.target.value
+                      setSystemProdTaxGroup(groupCode)
+                      const matched = taxGroups.find((g) => g.code === groupCode)
+                      if (matched) {
+                        setSystemProdTaxRate(String(matched.vat_rate))
+                      }
+                    }}
+                    className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs w-full focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                  >
+                    <option value="">-- Không áp dụng --</option>
+                    {taxGroups.map((g) => (
+                      <option key={g.code} value={g.code}>
+                        {g.name} (VAT {g.vat_rate}%, TNCN {g.pit_rate}%)
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <span>
+                    {taxGroups.find((g) => g.code === mapGroupToCode(systemProduct.tax_group))?.name || systemProduct.tax_group || 'Chưa thiết lập'}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+                Thuế suất GTGT (VAT)
+              </div>
+              <div className="text-sm text-slate-800 mt-1 font-mono">
+                {editingSystemProd ? (
+                  <input
+                    type="text"
+                    value={systemProdTaxRate}
+                    onChange={(e) => setSystemProdTaxRate(e.target.value)}
+                    placeholder="0"
+                    className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs w-20 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent font-mono"
+                  />
+                ) : (
+                  <span>{systemProduct.tax_rate || '0'}%</span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {editingSystemProd && (
+            <div className="flex justify-end gap-2 text-xs">
+              <button
+                onClick={() => setEditingSystemProd(false)}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2 font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={handleSaveSystemProduct}
+                disabled={savingSystemProd}
+                className="rounded-xl bg-primary px-4 py-2 font-semibold text-white hover:bg-primary-dark transition-colors disabled:opacity-50 shadow-xs"
+              >
+                {savingSystemProd ? 'Đang lưu...' : 'Lưu thiết lập'}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Navigation tabs */}
       <div className="flex border-b border-slate-200">
         <button

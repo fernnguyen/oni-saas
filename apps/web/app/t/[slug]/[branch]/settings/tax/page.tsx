@@ -4,6 +4,7 @@ import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
 import { getUserPermissions } from '@/lib/server/permissions'
 import { requireShopAccess } from '@/lib/server/shopAccess'
 import { PermissionGate } from '@/app/components/ui/PermissionGate'
+import { getTimeChargeProductId } from '@oni/core'
 import { TaxSettingsClient } from './TaxSettingsClient'
 
 interface Props {
@@ -50,8 +51,44 @@ export default async function TaxSettingsPage({ params }: Props) {
   // Fetch categories and products for mapping
   const [categoriesRes, productsRes] = await Promise.all([
     connector.list('categories', { limit: 200, filters: { active: 'TRUE' } }),
-    connector.list('products', { limit: 2000, filters: { active: 'TRUE' } }),
+    connector.list('products', { limit: 2000 }), // remove active filter to get hidden/system products
   ])
+
+  // Self-healing for missing Time Charge product
+  const resolvedIndustry = shop.industry_type ?? 'retail';
+  const prodId = getTimeChargeProductId(resolvedIndustry);
+  const timeChargeProductExists = (productsRes.data as any[]).some(
+    p => p.product_id === prodId || p.id === prodId
+  );
+
+  if (!timeChargeProductExists) {
+    try {
+      const newProduct = {
+        id: prodId,
+        product_id: prodId,
+        sku: prodId,
+        name: resolvedIndustry === 'billiards' 
+          ? 'Dịch vụ tiền giờ Billiards (Hệ thống)' 
+          : resolvedIndustry === 'lodging'
+          ? 'Dịch vụ tiền phòng (Hệ thống)'
+          : 'Dịch vụ tiền giờ (Hệ thống)',
+        active: 'TRUE',
+        sell_price: '0',
+        cost_price: '0',
+        tax_rate: '0',
+        input_tax_rate: '0',
+        tax_group: '',
+        product_type: 'service',
+        branch_id: shop.id
+      };
+      await connector.create('products', newProduct);
+      // Re-fetch products
+      const newProductsRes = await connector.list('products', { limit: 2000 });
+      productsRes.data = newProductsRes.data;
+    } catch (err) {
+      console.error('Failed to self-heal TIME_CHARGE product:', err);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -72,6 +109,7 @@ export default async function TaxSettingsPage({ params }: Props) {
         categories={categoriesRes.data as any}
         products={productsRes.data as any}
         permissions={permissions}
+        industryType={shop.industry_type ?? 'retail'}
       />
     </div>
   )

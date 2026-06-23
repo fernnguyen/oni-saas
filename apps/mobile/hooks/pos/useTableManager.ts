@@ -40,7 +40,7 @@ export interface UseTableManagerProps {
 }
 
 import { CartItem } from '../../app/(tabs)/pos';
-import { calculateHourlyBilling, isTimeChargeProduct } from '@oni/core';
+import { calculateHourlyBilling, isTimeChargeProduct, getTimeChargeProductId } from '@oni/core';
 import { LodgingGuest } from '../../components/pos/LodgingGuestsForm';
 
 export function useTableManager(props: UseTableManagerProps) {
@@ -1183,7 +1183,7 @@ export function useTableManager(props: UseTableManagerProps) {
     }
   };
 
-  const triggerPayTable = (table: any) => {
+  const triggerPayTable = async (table: any) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => { });
 
     // 1. Tính toán tiền giờ/qua đêm lưu trú nâng cao sử dụng @oni/core
@@ -1197,13 +1197,35 @@ export function useTableManager(props: UseTableManagerProps) {
     const tableCartItems = tableCarts[table.id] || {};
     const newCart: any = { ...tableCartItems };
 
+    const activeIndustry = await AsyncStorage.getItem('active_shop_industry') || 'retail';
+    const systemProdId = getTimeChargeProductId(activeIndustry);
+    
+    // Query product from SQLite
+    let timeChargeTaxRate = '0';
+    let timeChargeTaxGroup = '';
+    try {
+      const prod = await db.select()
+        .from(schema.products)
+        .where(eq(schema.products.id, systemProdId))
+        .limit(1)
+        .then((res: any[]) => res[0]);
+      if (prod) {
+        timeChargeTaxRate = prod.tax_rate || '0';
+        timeChargeTaxGroup = prod.tax_group || '';
+      }
+    } catch (e) {
+      console.warn('Failed to query system product from SQLite:', e);
+    }
+
     if (billing.cost > 0) {
       newCart['TIME_CHARGE'] = {
         productId: 'TIME_CHARGE',
         name: billingName,
         price: billing.cost,
         quantity: 1,
-        modifier_total: 0
+        modifier_total: 0,
+        tax_rate: timeChargeTaxRate,
+        tax_group: timeChargeTaxGroup
       };
     }
 
@@ -1281,6 +1303,47 @@ export function useTableManager(props: UseTableManagerProps) {
 
       const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
       const shiftId = await AsyncStorage.getItem('active_shift_id') || 'default-shift';
+
+      const activeIndustry = await AsyncStorage.getItem('active_shop_industry') || 'retail';
+      const systemProdId = getTimeChargeProductId(activeIndustry);
+
+      const systemTaxGroups = await getSystemTaxGroups();
+
+      let timeChargeTaxRate = '0';
+      let timeChargeTaxGroup = '';
+      let timeChargeVatRate = '0';
+      let timeChargePitRate = '0';
+      try {
+        const prod = await db.select()
+          .from(schema.products)
+          .where(eq(schema.products.id, systemProdId))
+          .limit(1)
+          .then((res: any[]) => res[0]);
+        if (prod) {
+          timeChargeTaxRate = prod.tax_rate || '0';
+          timeChargeTaxGroup = prod.tax_group || '';
+          
+          if (timeChargeTaxGroup) {
+            const matchedGroup = systemTaxGroups.find(
+              (g) =>
+                g.code === timeChargeTaxGroup ||
+                g.name === timeChargeTaxGroup ||
+                (timeChargeTaxGroup === 'Phân phối, cung cấp hàng hóa' && g.code === 'phan_phoi') ||
+                (timeChargeTaxGroup === 'Dịch vụ, xây dựng không bao thầu nguyên vật liệu' && g.code === 'dich_vu') ||
+                (timeChargeTaxGroup === 'Sản xuất, vận tải, dịch vụ có gắn với hàng hóa, xây dựng có bao thầu nguyên vật liệu' && g.code === 'san_xuat') ||
+                (timeChargeTaxGroup === 'Hoạt động kinh doanh khác' && g.code === 'khac')
+            );
+            if (matchedGroup) {
+              timeChargeTaxGroup = matchedGroup.code;
+              timeChargeVatRate = String(matchedGroup.vat_rate);
+              timeChargePitRate = String(matchedGroup.pit_rate);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to query system product in handlePayTableConfirmUnified:', e);
+      }
+
       // FIX DUPLICATE: Reuse existing order ID to prevent duplicates!
       const orderId = selectedTableForPay.current_order_id || `ORD-T-${Date.now()}`;
       const orderNoType = shopVertical === 'lodging' ? 'KS' : (shopVertical === 'sports_court' ? 'SAN' : 'POS');
@@ -1291,8 +1354,14 @@ export function useTableManager(props: UseTableManagerProps) {
       let serverOrderNo = orderNo;
 
       // Calculate offline tax
-      const systemTaxGroups = await getSystemTaxGroups();
       let totalTaxAmount = 0;
+
+      if (billing.cost > 0) {
+        const timeTaxRateVal = parseFloat(timeChargeTaxRate || '0');
+        const timeTaxAmountVal = Math.round(billing.cost * (timeTaxRateVal / 100));
+        totalTaxAmount += timeTaxAmountVal;
+      }
+
       const calculatedItems = Object.entries(tableCartItems).map(([prodId, item]: [string, any]) => {
         const itemTotal = (item.price + (item.modifier_total || 0)) * item.quantity;
         const taxRateVal = parseFloat(item.tax_rate || '0');
@@ -1400,21 +1469,23 @@ export function useTableManager(props: UseTableManagerProps) {
         });
 
         if (billing.cost > 0) {
+          const timeTaxRateVal = parseFloat(timeChargeTaxRate || '0');
+          const timeTaxAmountVal = Math.round(billing.cost * (timeTaxRateVal / 100));
           await db.insert(schema.order_items).values({
             id: `ORDI-${orderId}-time`,
             order_id: orderId,
-            product_id: 'TIME_CHARGE_BILLIARD',
+            product_id: systemProdId,
             product_name: selectedTableForPay.type === 'room'
               ? `Tiền phòng - ${selectedTableForPay.name} (${billing.label})`
               : `Tiền giờ - ${selectedTableForPay.name} (${billing.label})`,
             qty: 1,
             unit_price: billing.cost,
             line_total: billing.cost,
-            tax_rate: '0',
-            tax_amount: 0,
-            tax_group: '',
-            tax_vat_rate: '0',
-            tax_pit_rate: '0',
+            tax_rate: timeChargeTaxRate,
+            tax_amount: timeTaxAmountVal,
+            tax_group: timeChargeTaxGroup,
+            tax_vat_rate: timeChargeVatRate,
+            tax_pit_rate: timeChargePitRate,
           });
         }
 
@@ -1521,7 +1592,7 @@ export function useTableManager(props: UseTableManagerProps) {
             },
             items: [
               ...(billing.cost > 0 ? [{
-                product_id: 'TIME_CHARGE_BILLIARD',
+                product_id: systemProdId,
                 product_name: selectedTableForPay.type === 'room'
                   ? `Tiền phòng - ${selectedTableForPay.name} (${billing.label})`
                   : `Tiền giờ - ${selectedTableForPay.name} (${billing.label})`,
@@ -1529,9 +1600,9 @@ export function useTableManager(props: UseTableManagerProps) {
                 unit_price: billing.cost,
                 discount_amount: 0,
                 line_total: billing.cost,
-                tax_rate: '0',
-                tax_amount: 0,
-                tax_group: '',
+                tax_rate: timeChargeTaxRate,
+                tax_amount: Math.round(billing.cost * (parseFloat(timeChargeTaxRate || '0') / 100)),
+                tax_group: timeChargeTaxGroup,
               }] : []),
               ...calculatedItems.map(it => ({
                 product_id: it.product_id,
@@ -1768,6 +1839,48 @@ export function useTableManager(props: UseTableManagerProps) {
       if (isOnline) {
         // 1. Add frozen source stay fee to the target order on Cloud
         if (sourceStayCost > 0) {
+          const activeIndustry = await AsyncStorage.getItem('active_shop_industry') || 'retail';
+          const systemProdId = getTimeChargeProductId(activeIndustry);
+          
+          let timeChargeTaxRate = '0';
+          let timeChargeTaxGroup = '';
+          let timeChargeVatRate = '0';
+          let timeChargePitRate = '0';
+          try {
+            const prod = await db.select()
+              .from(schema.products)
+              .where(eq(schema.products.id, systemProdId))
+              .limit(1)
+              .then((res: any[]) => res[0]);
+            if (prod) {
+              timeChargeTaxRate = prod.tax_rate || '0';
+              timeChargeTaxGroup = prod.tax_group || '';
+              
+              const systemTaxGroups = await getSystemTaxGroups();
+              if (timeChargeTaxGroup) {
+                const matchedGroup = systemTaxGroups.find(
+                  (g) =>
+                    g.code === timeChargeTaxGroup ||
+                    g.name === timeChargeTaxGroup ||
+                    (timeChargeTaxGroup === 'Phân phối, cung cấp hàng hóa' && g.code === 'phan_phoi') ||
+                    (timeChargeTaxGroup === 'Dịch vụ, xây dựng không bao thầu nguyên vật liệu' && g.code === 'dich_vu') ||
+                    (timeChargeTaxGroup === 'Sản xuất, vận tải, dịch vụ có gắn với hàng hóa, xây dựng có bao thầu nguyên vật liệu' && g.code === 'san_xuat') ||
+                    (timeChargeTaxGroup === 'Hoạt động kinh doanh khác' && g.code === 'khac')
+                );
+                if (matchedGroup) {
+                  timeChargeTaxGroup = matchedGroup.code;
+                  timeChargeVatRate = String(matchedGroup.vat_rate);
+                  timeChargePitRate = String(matchedGroup.pit_rate);
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('Failed to query system product in handleMergeTable:', e);
+          }
+
+          const rateVal = parseFloat(timeChargeTaxRate);
+          const taxAmt = Math.round(sourceStayCost * (rateVal / 105)); // 105 is used for internal calculation or wait, actually (sourceStayCost * rateVal) / 100
+          const taxAmtVal = Math.round(sourceStayCost * (rateVal / 100));
           const stayFeePayload = {
             order_id: targetOrderId,
             order_no: targetTable.current_order_id || '',
@@ -1778,7 +1891,10 @@ export function useTableManager(props: UseTableManagerProps) {
             qty: '1',
             unit_price: String(sourceStayCost),
             line_total: String(sourceStayCost),
-            line_discount: '0'
+            line_discount: '0',
+            tax_rate: timeChargeTaxRate,
+            tax_amount: String(taxAmtVal),
+            tax_group: timeChargeTaxGroup,
           };
           await fetch(`${currentUrl}/api/shops/${shopId}/order-items`, {
             method: 'POST',
@@ -1872,7 +1988,48 @@ export function useTableManager(props: UseTableManagerProps) {
       } else {
         // 1. Insert frozen stay fee to SQLite database
         if (sourceStayCost > 0) {
+          const activeIndustry = await AsyncStorage.getItem('active_shop_industry') || 'retail';
+          const systemProdId = getTimeChargeProductId(activeIndustry);
+          
+          let timeChargeTaxRate = '0';
+          let timeChargeTaxGroup = '';
+          let timeChargeVatRate = '0';
+          let timeChargePitRate = '0';
+          try {
+            const prod = await db.select()
+              .from(schema.products)
+              .where(eq(schema.products.id, systemProdId))
+              .limit(1)
+              .then((res: any[]) => res[0]);
+            if (prod) {
+              timeChargeTaxRate = prod.tax_rate || '0';
+              timeChargeTaxGroup = prod.tax_group || '';
+              
+              const systemTaxGroups = await getSystemTaxGroups();
+              if (timeChargeTaxGroup) {
+                const matchedGroup = systemTaxGroups.find(
+                  (g) =>
+                    g.code === timeChargeTaxGroup ||
+                    g.name === timeChargeTaxGroup ||
+                    (timeChargeTaxGroup === 'Phân phối, cung cấp hàng hóa' && g.code === 'phan_phoi') ||
+                    (timeChargeTaxGroup === 'Dịch vụ, xây dựng không bao thầu nguyên vật liệu' && g.code === 'dich_vu') ||
+                    (timeChargeTaxGroup === 'Sản xuất, vận tải, dịch vụ có gắn với hàng hóa, xây dựng có bao thầu nguyên vật liệu' && g.code === 'san_xuat') ||
+                    (timeChargeTaxGroup === 'Hoạt động kinh doanh khác' && g.code === 'khac')
+                );
+                if (matchedGroup) {
+                  timeChargeTaxGroup = matchedGroup.code;
+                  timeChargeVatRate = String(matchedGroup.vat_rate);
+                  timeChargePitRate = String(matchedGroup.pit_rate);
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('Failed to query system product in handleMergeTable:', e);
+          }
+
           const stayFeeItemId = `ORDI-FROZEN-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+          const rateVal = parseFloat(timeChargeTaxRate);
+          const taxAmt = Math.round(sourceStayCost * (rateVal / 100));
           await db.insert(schema.order_items).values({
             id: stayFeeItemId,
             order_id: targetOrderId,
@@ -1881,11 +2038,11 @@ export function useTableManager(props: UseTableManagerProps) {
             qty: 1,
             unit_price: sourceStayCost,
             line_total: sourceStayCost,
-            tax_rate: '0',
-            tax_amount: 0,
-            tax_group: '',
-            tax_vat_rate: '0',
-            tax_pit_rate: '0',
+            tax_rate: timeChargeTaxRate,
+            tax_amount: taxAmt,
+            tax_group: timeChargeTaxGroup,
+            tax_vat_rate: timeChargeVatRate,
+            tax_pit_rate: timeChargePitRate,
           });
         }
 
