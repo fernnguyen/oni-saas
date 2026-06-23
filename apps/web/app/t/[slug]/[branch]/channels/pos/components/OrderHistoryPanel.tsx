@@ -587,20 +587,44 @@ export function OrderHistoryPanel({
                           <button
                             onClick={async () => {
                               const items = await localDb.orderItems.where('order_local_id').equals(order.local_id).toArray()
-                              const cartItems: CartItem[] = items.map(it => ({
-                                product_id: it.product_id,
-                                product_name: it.product_name,
-                                qty: it.qty,
-                                unit_price: it.unit_price,
-                                cost_price: it.cost_price,
-                                discount_amount: it.discount_amount,
-                                line_total: it.line_total,
-                                variant_label: it.variant_label,
-                                modifiers: it.modifiers ? JSON.parse(it.modifiers) : undefined,
-                                modifier_total: it.modifier_total,
-                                unit_id: it.unit_id,
-                                unit_name: it.unit_name,
-                                conversion_rate: it.conversion_rate
+                              const cartItems: CartItem[] = await Promise.all(items.map(async it => {
+                                let taxRate = it.tax_rate
+                                let taxGroup = it.tax_group
+                                if (!taxRate || taxRate === '0') {
+                                  try {
+                                    const product = await localDb.products.get(it.product_id)
+                                    if (product) {
+                                      taxRate = product.tax_rate
+                                      taxGroup = taxGroup || product.tax_group
+                                      if ((!taxRate || taxRate === '0') && product.category_id) {
+                                        const category = await localDb.categories.get(product.category_id)
+                                        if (category) {
+                                          taxRate = category.tax_rate
+                                          taxGroup = taxGroup || category.tax_group
+                                        }
+                                      }
+                                    }
+                                  } catch (err) {
+                                    console.error('Failed to resolve fallback tax for copied item:', err)
+                                  }
+                                }
+                                return {
+                                  product_id: it.product_id,
+                                  product_name: it.product_name,
+                                  qty: it.qty,
+                                  unit_price: it.unit_price,
+                                  cost_price: it.cost_price,
+                                  discount_amount: it.discount_amount,
+                                  line_total: it.line_total,
+                                  variant_label: it.variant_label,
+                                  modifiers: it.modifiers ? JSON.parse(it.modifiers) : undefined,
+                                  modifier_total: it.modifier_total,
+                                  unit_id: it.unit_id,
+                                  unit_name: it.unit_name,
+                                  conversion_rate: it.conversion_rate,
+                                  tax_rate: taxRate || '0',
+                                  tax_group: taxGroup || ''
+                                }
                               }))
                               let orderCustomer: LocalCustomer | null = null
                               if (order.customer_id) {

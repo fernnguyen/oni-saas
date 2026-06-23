@@ -421,6 +421,14 @@ export function CheckoutModal({
 
   const computedSubtotal = computedItems.reduce((s, it) => s + (it.line_total || 0), 0)
 
+  const totalTaxAmount = useMemo(() => {
+    return computedItems.reduce((sum, item) => {
+      const rate = parseFloat(item.tax_rate || '0') || 0
+      const taxAmount = (Number(item.line_total) * rate) / 100
+      return sum + taxAmount
+    }, 0)
+  }, [computedItems])
+
   // Fetch Customer Purchase History for Debt Aging
   const { data: customerOrders } = useQuery({
     queryKey: ['customer-orders', shopId, localCustomer?.customer_id],
@@ -1948,6 +1956,9 @@ export function CheckoutModal({
             )}
             <span className={`${isTimeCharge ? 'text-emerald-800 font-bold' : 'text-slate-800 font-medium'} text-sm leading-tight truncate`}>
               {item.product_name}
+              {item.tax_rate && parseFloat(item.tax_rate) > 0 && (
+                <span className="text-[10px] text-slate-450 font-normal ml-1.5">(VAT {item.tax_rate}%)</span>
+              )}
               <span className={`${isTimeCharge ? 'text-emerald-600' : 'text-slate-400'} text-xs font-normal ml-1.5 whitespace-nowrap`}>× {item.qty}</span>
             </span>
           </div>
@@ -2634,6 +2645,13 @@ export function CheckoutModal({
                     <div className="flex justify-between font-medium text-slate-600 text-xs mt-1 border-t border-slate-100 pt-1">
                       <span>Tích lũy nhận thêm:</span>
                       <span className="text-blue-600">+{earnedPoints} điểm</span>
+                    </div>
+                  )}
+
+                  {totalTaxAmount > 0 && (
+                    <div className="flex justify-between font-medium text-slate-600 text-sm mt-1 border-t border-slate-100 pt-1">
+                      <span className="text-slate-500">Thuế (VAT):</span>
+                      <span className="text-slate-700 font-semibold">{fmtVND(totalTaxAmount)}</span>
                     </div>
                   )}
 

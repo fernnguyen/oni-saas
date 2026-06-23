@@ -1246,6 +1246,8 @@ export function ResourceSlideOver({
         variant_label: (it as any).variant_label,
         modifiers: parsedModifiers,
         modifier_total: Number((it as any).modifier_total ?? 0),
+        tax_rate: (it as any).tax_rate,
+        tax_group: (it as any).tax_group,
       }
     })
     if (timeCharge > 0) {

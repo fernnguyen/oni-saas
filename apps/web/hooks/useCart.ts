@@ -204,7 +204,7 @@ export function useCart(inventory?: Map<string, number>, branchId?: string, allo
     }
   }, [branchId])
 
-  const addItem = useCallback((product: LocalProduct) => {
+  const addItem = useCallback(async (product: LocalProduct) => {
     if (!allowNegativeStock) {
       const stock = inventoryRef.current?.get(product.product_id)
       if (stock !== undefined) {
@@ -217,13 +217,61 @@ export function useCart(inventory?: Map<string, number>, branchId?: string, allo
         }
       }
     }
-    dispatch({ type: 'ADD_ITEM', product })
+
+    let resolvedTaxRate = product.tax_rate
+    let resolvedTaxGroup = product.tax_group
+
+    if ((!resolvedTaxRate || !resolvedTaxGroup) && product.category_id) {
+      try {
+        const category = await localDb.categories.get(product.category_id)
+        if (category) {
+          resolvedTaxRate = resolvedTaxRate || category.tax_rate || '0'
+          resolvedTaxGroup = resolvedTaxGroup || category.tax_group || ''
+        }
+      } catch (err) {
+        console.error('Failed to resolve category tax fallback in cart:', err)
+      }
+    }
+
+    dispatch({
+      type: 'ADD_ITEM',
+      product: {
+        ...product,
+        tax_rate: resolvedTaxRate || '0',
+        tax_group: resolvedTaxGroup || '',
+      }
+    })
     void checkNearExpiryBatches(product.product_id, product.name)
   }, [checkNearExpiryBatches, allowNegativeStock])
 
   // For variant children and modifier products — adds with full context
-  const addItemWithOptions = useCallback((item: CartItem) => {
-    dispatch({ type: 'ADD_ITEM_WITH_OPTS', item })
+  const addItemWithOptions = useCallback(async (item: CartItem) => {
+    let resolvedTaxRate = item.tax_rate
+    let resolvedTaxGroup = item.tax_group
+
+    if ((!resolvedTaxRate || !resolvedTaxGroup)) {
+      try {
+        const product = await localDb.products.get(item.product_id)
+        if (product && product.category_id) {
+          const category = await localDb.categories.get(product.category_id)
+          if (category) {
+            resolvedTaxRate = resolvedTaxRate || category.tax_rate || '0'
+            resolvedTaxGroup = resolvedTaxGroup || category.tax_group || ''
+          }
+        }
+      } catch (err) {
+        console.error('Failed to resolve category tax fallback in cart with options:', err)
+      }
+    }
+
+    dispatch({
+      type: 'ADD_ITEM_WITH_OPTS',
+      item: {
+        ...item,
+        tax_rate: resolvedTaxRate || '0',
+        tax_group: resolvedTaxGroup || '',
+      }
+    })
     void checkNearExpiryBatches(item.product_id, item.product_name)
   }, [checkNearExpiryBatches])
 

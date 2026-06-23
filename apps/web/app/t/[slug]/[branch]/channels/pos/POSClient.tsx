@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import { toast } from 'sonner'
 import { liveQuery } from 'dexie'
 import { usePOSHydration } from '@/hooks/usePOSHydration'
@@ -114,7 +114,6 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
     setIsNearExpiryModalOpen(false)
     toast.success(`Đã cập nhật cấu hình cận date: ${days} ngày`)
   }
-  const [customer, setCustomer] = useState<LocalCustomer | null>(null)
   const [resumingOrder, setResumingOrder] = useState<LocalOrder | null>(null)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [activeCartItemId, setActiveCartItemId] = useState<string | null>(null)
@@ -265,6 +264,22 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
     return 'default'
   })
 
+  const activeTab = useMemo(() => tabs.find((t) => t.id === activeTabId) || tabs[0], [tabs, activeTabId])
+  const customer = activeTab ? activeTab.customer : null
+
+  const setCustomer = useCallback((cust: LocalCustomer | null) => {
+    setTabs((prev) =>
+      prev.map((t) =>
+        t.id === activeTabId
+          ? {
+              ...t,
+              customer: cust,
+            }
+          : t
+      )
+    )
+  }, [activeTabId])
+
   const [editingTabId, setEditingTabId] = useState<string | null>(null)
   const [editingLabel, setEditingLabel] = useState('')
 
@@ -340,7 +355,6 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
       if (activeTab) {
         isSwitchingTabRef.current = true
         setActiveTabId(activeTab.id)
-        setCustomer(activeTab.customer)
         cart.restore({
           items: activeTab.items,
           discount_amount: activeTab.discount_amount,
@@ -363,21 +377,19 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
           ? {
             ...t,
             items: cart.items,
-            customer,
             discount_amount: cart.discount_amount,
             note: cart.note,
           }
           : t
       )
     )
-  }, [cart.items, customer, cart.discount_amount, cart.note, activeTabId])
+  }, [cart.items, cart.discount_amount, cart.note, activeTabId])
 
   function switchTab(targetTabId: string) {
     const target = tabs.find((t) => t.id === targetTabId)
     if (!target) return
     isSwitchingTabRef.current = true
     setActiveTabId(targetTabId)
-    setCustomer(target.customer)
     cart.restore({
       items: target.items,
       discount_amount: target.discount_amount,
@@ -402,7 +414,6 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
     setTabs((prev) => [...prev, newTab])
     isSwitchingTabRef.current = true
     setActiveTabId(newId)
-    setCustomer(null)
     cart.restore({ items: [], discount_amount: 0, note: '' })
     setTimeout(() => {
       isSwitchingTabRef.current = false
@@ -414,7 +425,6 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
 
     if (tabs.length <= 1) {
       cart.clear()
-      setCustomer(null)
       setTabs([{ id: 'default', label: 'Đơn hàng 1', items: [], customer: null, discount_amount: 0, note: '' }])
       setActiveTabId('default')
       return
@@ -469,7 +479,6 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
     setTabs((prev) => [...prev, newTab])
     isSwitchingTabRef.current = true
     setActiveTabId(newId)
-    setCustomer(customer)
     cart.restore({ items, discount_amount: discountAmount, note })
     setTimeout(() => {
       isSwitchingTabRef.current = false
@@ -481,7 +490,6 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
     setCheckoutOpen(false)
     setResumingOrder(null)
     cart.clear()
-    setCustomer(null)
 
     if (tabs.length > 1) {
       const remainingTabs = tabs.filter((t) => t.id !== activeTabId)
@@ -489,7 +497,6 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
 
       isSwitchingTabRef.current = true
       setActiveTabId(nextTab.id)
-      setCustomer(nextTab.customer)
       cart.restore({
         items: nextTab.items,
         discount_amount: nextTab.discount_amount,
@@ -523,20 +530,44 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
   async function handleResumeCheckout(order: LocalOrder) {
     try {
       const items = await localDb.orderItems.where('order_local_id').equals(order.local_id).toArray()
-      const cartItems: CartItem[] = items.map(it => ({
-        product_id: it.product_id,
-        product_name: it.product_name,
-        qty: it.qty,
-        unit_price: it.unit_price,
-        cost_price: it.cost_price,
-        discount_amount: it.discount_amount,
-        line_total: it.line_total,
-        variant_label: it.variant_label,
-        modifiers: it.modifiers ? JSON.parse(it.modifiers) : undefined,
-        modifier_total: it.modifier_total,
-        unit_id: it.unit_id,
-        unit_name: it.unit_name,
-        conversion_rate: it.conversion_rate
+      const cartItems: CartItem[] = await Promise.all(items.map(async it => {
+        let taxRate = it.tax_rate
+        let taxGroup = it.tax_group
+        if (!taxRate || taxRate === '0') {
+          try {
+            const product = await localDb.products.get(it.product_id)
+            if (product) {
+              taxRate = product.tax_rate
+              taxGroup = taxGroup || product.tax_group
+              if ((!taxRate || taxRate === '0') && product.category_id) {
+                const category = await localDb.categories.get(product.category_id)
+                if (category) {
+                  taxRate = category.tax_rate
+                  taxGroup = taxGroup || category.tax_group
+                }
+              }
+            }
+          } catch (err) {
+            console.error('Failed to resolve fallback tax for resumed item:', err)
+          }
+        }
+        return {
+          product_id: it.product_id,
+          product_name: it.product_name,
+          qty: it.qty,
+          unit_price: it.unit_price,
+          cost_price: it.cost_price,
+          discount_amount: it.discount_amount,
+          line_total: it.line_total,
+          variant_label: it.variant_label,
+          modifiers: it.modifiers ? JSON.parse(it.modifiers) : undefined,
+          modifier_total: it.modifier_total,
+          unit_id: it.unit_id,
+          unit_name: it.unit_name,
+          conversion_rate: it.conversion_rate,
+          tax_rate: taxRate || '0',
+          tax_group: taxGroup || ''
+        }
       }))
 
       let orderCustomer: LocalCustomer | null = null
@@ -632,20 +663,44 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
       })
 
       const orderItems = await localDb.orderItems.where('order_local_id').equals(order.local_id).toArray()
-      const cartItems: CartItem[] = orderItems.map(it => ({
-        product_id: it.product_id,
-        product_name: it.product_name,
-        qty: it.qty,
-        unit_price: it.unit_price,
-        cost_price: it.cost_price,
-        discount_amount: it.discount_amount,
-        line_total: it.line_total,
-        variant_label: it.variant_label,
-        modifiers: it.modifiers ? JSON.parse(it.modifiers) : undefined,
-        modifier_total: it.modifier_total,
-        unit_id: it.unit_id,
-        unit_name: it.unit_name,
-        conversion_rate: it.conversion_rate
+      const cartItems: CartItem[] = await Promise.all(orderItems.map(async it => {
+        let taxRate = it.tax_rate
+        let taxGroup = it.tax_group
+        if (!taxRate || taxRate === '0') {
+          try {
+            const product = await localDb.products.get(it.product_id)
+            if (product) {
+              taxRate = product.tax_rate
+              taxGroup = taxGroup || product.tax_group
+              if ((!taxRate || taxRate === '0') && product.category_id) {
+                const category = await localDb.categories.get(product.category_id)
+                if (category) {
+                  taxRate = category.tax_rate
+                  taxGroup = taxGroup || category.tax_group
+                }
+              }
+            }
+          } catch (err) {
+            console.error('Failed to resolve fallback tax for cancelled item:', err)
+          }
+        }
+        return {
+          product_id: it.product_id,
+          product_name: it.product_name,
+          qty: it.qty,
+          unit_price: it.unit_price,
+          cost_price: it.cost_price,
+          discount_amount: it.discount_amount,
+          line_total: it.line_total,
+          variant_label: it.variant_label,
+          modifiers: it.modifiers ? JSON.parse(it.modifiers) : undefined,
+          modifier_total: it.modifier_total,
+          unit_id: it.unit_id,
+          unit_name: it.unit_name,
+          conversion_rate: it.conversion_rate,
+          tax_rate: taxRate || '0',
+          tax_group: taxGroup || ''
+        }
       }))
 
       let orderCustomer: LocalCustomer | null = null
