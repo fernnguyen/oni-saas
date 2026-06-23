@@ -825,7 +825,7 @@ export default function PosScreen() {
     debtRepayOpts?: { debtRepayAmount?: number; debtFundId?: string; debtMethod?: string; customCheckoutTime?: Date; rentalType?: 'hourly' | 'overnight' | 'daily' }
   ) => {
     const originalTotal = getCartTotal();
-    const finalTotal = Math.max(0, originalTotal - discount);
+    let finalTotal = Math.max(0, originalTotal - discount);
 
 
 
@@ -845,35 +845,6 @@ export default function PosScreen() {
         setIsPayingCartLoading(false);
         return;
       }
-      const debtRepay = debtRepayOpts?.debtRepayAmount || 0;
-      const paidSum = payments.reduce((sum, p) => sum + p.amount, 0);
-      const totalAmountDue = finalTotal + debtRepay;
-      const cashChange = Math.max(0, paidSum - totalAmountDue);
-      let processedPayments = [...payments];
-      if (cashChange > 0) {
-        const defaultCashFund = paymentFundsList.find(f => f.type === 'cash' && f.is_default === 'TRUE') || paymentFundsList.find(f => f.type === 'cash') || paymentFundsList[0];
-        processedPayments.push({
-          id: 'change-' + Date.now(),
-          method: 'cash',
-          fund_id: defaultCashFund?.id || '',
-          amount: -cashChange
-        });
-      }
-      const netPaidSum = processedPayments.reduce((sum, p) => sum + p.amount, 0);
-      const orderPaidAmt = Math.min(finalTotal, Math.max(0, netPaidSum - debtRepay));
-      const orderDebtAmt = Math.max(0, finalTotal - orderPaidAmt);
-
-      const paymentMethodString = JSON.stringify(processedPayments.map(p => {
-        const fund = paymentFundsList.find(f => f.id === p.fund_id);
-        return {
-          method: p.method,
-          amount: p.amount,
-          meta: {
-            fund_id: p.fund_id,
-            fund_name: fund ? fund.name : ''
-          }
-        };
-      }));
 
       const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
       const shiftId = await AsyncStorage.getItem('active_shift_id') || 'default-shift';
@@ -928,6 +899,39 @@ export default function PosScreen() {
           tax_pit_rate: taxPitRate,
         };
       });
+
+      // Recalculate finalTotal to include tax
+      finalTotal = Math.max(0, originalTotal - discount + totalTaxAmount);
+
+      const debtRepay = debtRepayOpts?.debtRepayAmount || 0;
+      const paidSum = payments.reduce((sum, p) => sum + p.amount, 0);
+      const totalAmountDue = finalTotal + debtRepay;
+      const cashChange = Math.max(0, paidSum - totalAmountDue);
+      let processedPayments = [...payments];
+      if (cashChange > 0) {
+        const defaultCashFund = paymentFundsList.find(f => f.type === 'cash' && f.is_default === 'TRUE') || paymentFundsList.find(f => f.type === 'cash') || paymentFundsList[0];
+        processedPayments.push({
+          id: 'change-' + Date.now(),
+          method: 'cash',
+          fund_id: defaultCashFund?.id || '',
+          amount: -cashChange
+        });
+      }
+      const netPaidSum = processedPayments.reduce((sum, p) => sum + p.amount, 0);
+      const orderPaidAmt = Math.min(finalTotal, Math.max(0, netPaidSum - debtRepay));
+      const orderDebtAmt = Math.max(0, finalTotal - orderPaidAmt);
+
+      const paymentMethodString = JSON.stringify(processedPayments.map(p => {
+        const fund = paymentFundsList.find(f => f.id === p.fund_id);
+        return {
+          method: p.method,
+          amount: p.amount,
+          meta: {
+            fund_id: p.fund_id,
+            fund_name: fund ? fund.name : ''
+          }
+        };
+      }));
 
       if (Platform.OS !== 'web') {
         await db.insert(schema.orders).values({

@@ -680,7 +680,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
   // Customer thực tế dùng cho hiển thị: ưu tiên enriched (realtime), fallback local
   const activeCustomer = enrichedCustomer || selectedCustomer;
 
-  const finalTotal = Math.max(0, localCartTotal - discountAmount);
+  const finalTotal = Math.max(0, localCartTotal - discountAmount + localTaxTotal);
   const paidSum = paymentRows.reduce((sum, p) => sum + p.amount, 0);
 
   // --- Debt & prepaid logic ---

@@ -1267,19 +1267,6 @@ export function useTableManager(props: UseTableManagerProps) {
 
       const itemsCost = Object.values(tableCartItems).reduce((sum, item) => sum + ((item.price + (item.modifier_total || 0)) * item.quantity), 0);
       const subtotal = billing.cost + itemsCost;
-      const totalAmount = Math.max(0, subtotal - discount);
-      const paidSum = payments.reduce((sum, p) => sum + p.amount, 0);
-      const cashChange = Math.max(0, paidSum - totalAmount);
-      let processedPayments = [...payments];
-      if (cashChange > 0) {
-        const defaultCashFund = paymentFundsList.find(f => f.type === 'cash' && f.is_default === 'TRUE') || paymentFundsList.find(f => f.type === 'cash') || paymentFundsList[0];
-        processedPayments.push({
-          id: 'change-' + Date.now(),
-          method: 'cash',
-          fund_id: defaultCashFund?.id || '',
-          amount: -cashChange
-        });
-      }
 
       const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
       const shiftId = await AsyncStorage.getItem('active_shift_id') || 'default-shift';
@@ -1291,18 +1278,6 @@ export function useTableManager(props: UseTableManagerProps) {
       const checkoutTimeStr = customCheckoutTime ? customCheckoutTime.toISOString() : nowStr;
       let syncSucceeded = false;
       let serverOrderNo = orderNo;
-
-      const paymentMethodString = JSON.stringify(processedPayments.map(p => {
-        const fund = paymentFundsList.find(f => f.id === p.fund_id);
-        return {
-          method: p.method,
-          amount: p.amount,
-          meta: {
-            fund_id: p.fund_id,
-            fund_name: fund ? fund.name : ''
-          }
-        };
-      }));
 
       // Calculate offline tax
       const systemTaxGroups = await getSystemTaxGroups();
@@ -1349,6 +1324,32 @@ export function useTableManager(props: UseTableManagerProps) {
           tax_pit_rate: taxPitRate,
         };
       });
+
+      const totalAmount = Math.max(0, subtotal - discount + totalTaxAmount);
+      const paidSum = payments.reduce((sum, p) => sum + p.amount, 0);
+      const cashChange = Math.max(0, paidSum - totalAmount);
+      let processedPayments = [...payments];
+      if (cashChange > 0) {
+        const defaultCashFund = paymentFundsList.find(f => f.type === 'cash' && f.is_default === 'TRUE') || paymentFundsList.find(f => f.type === 'cash') || paymentFundsList[0];
+        processedPayments.push({
+          id: 'change-' + Date.now(),
+          method: 'cash',
+          fund_id: defaultCashFund?.id || '',
+          amount: -cashChange
+        });
+      }
+
+      const paymentMethodString = JSON.stringify(processedPayments.map(p => {
+        const fund = paymentFundsList.find(f => f.id === p.fund_id);
+        return {
+          method: p.method,
+          amount: p.amount,
+          meta: {
+            fund_id: p.fund_id,
+            fund_name: fund ? fund.name : ''
+          }
+        };
+      }));
 
       // A. Lưu vào cơ sở dữ liệu SQLite cục bộ (Offline-First)
       if (Platform.OS === 'web') {

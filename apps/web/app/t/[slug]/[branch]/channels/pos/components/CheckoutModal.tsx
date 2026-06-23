@@ -574,8 +574,8 @@ export function CheckoutModal({
   }, [computedSubtotal, localDiscount, tierDiscountPct])
 
   const totalAfterDiscounts = useMemo(() => {
-    return Math.max(0, computedSubtotal - localDiscount - tierDiscountAmount)
-  }, [computedSubtotal, localDiscount, tierDiscountAmount])
+    return Math.max(0, computedSubtotal - localDiscount - tierDiscountAmount + totalTaxAmount)
+  }, [computedSubtotal, localDiscount, tierDiscountAmount, totalTaxAmount])
 
   const maxPointsRedeemable = useMemo(() => {
     if (!settings?.has_crm_access || !localCustomer) return 0
@@ -632,6 +632,7 @@ export function CheckoutModal({
       }
     } else {
       setPaymentsLoaded(false)
+      setLocalCustomer(null)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, existingOrder])
@@ -809,17 +810,33 @@ export function CheckoutModal({
     }, 0)
   }, [computedItems, folioAIndices])
 
+  const taxAmountA = useMemo(() => {
+    return computedItems.reduce((sum, item, idx) => {
+      if (!folioAIndices.has(idx)) return sum
+      const rate = parseFloat(item.tax_rate || '0') || 0
+      return sum + (Number(item.line_total) * rate) / 100
+    }, 0)
+  }, [computedItems, folioAIndices])
+
+  const taxAmountB = useMemo(() => {
+    return computedItems.reduce((sum, item, idx) => {
+      if (folioAIndices.has(idx)) return sum
+      const rate = parseFloat(item.tax_rate || '0') || 0
+      return sum + (Number(item.line_total) * rate) / 100
+    }, 0)
+  }, [computedItems, folioAIndices])
+
   const tierDiscountAmountA = useMemo(() => {
     return Math.max(0, Math.floor((subtotalA - localDiscount) * (tierDiscountPct / 100)))
   }, [subtotalA, localDiscount, tierDiscountPct])
 
   const finalTotalA = useMemo(() => {
-    return Math.max(0, subtotalA - localDiscount - tierDiscountAmountA - redemptionValue)
-  }, [subtotalA, localDiscount, tierDiscountAmountA, redemptionValue])
+    return Math.max(0, subtotalA - localDiscount - tierDiscountAmountA + taxAmountA - redemptionValue)
+  }, [subtotalA, localDiscount, tierDiscountAmountA, taxAmountA, redemptionValue])
 
   const finalTotalB = useMemo(() => {
-    return subtotalB
-  }, [subtotalB])
+    return subtotalB + taxAmountB
+  }, [subtotalB, taxAmountB])
 
   const finalTotal = useMemo(() => {
     if (isSplitActive) {
@@ -2877,7 +2894,7 @@ export function CheckoutModal({
                   <svg className="h-4.5 w-4.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
-                  Lưu & xác nhận
+                  Lưu & xác nhận ({fmtVND(finalTotal + clampedDebtRepay)})
                 </button>
 
                 {/* Primary brand yellow button: Lưu & chờ thanh toán */}
