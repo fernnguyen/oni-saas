@@ -2587,6 +2587,26 @@ export function CheckoutModal({
                       </div>
                     )}
                   </div>
+                  {isAccommodation && localRentalType === 'overnight' && !metadata?.overnight_rate && !roomMetadata?.overnight_rate && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-[10px] text-amber-800 leading-relaxed font-medium flex items-start gap-2">
+                      <svg className="h-3.5 w-3.5 shrink-0 text-amber-600 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                      <span>
+                        Phòng chưa cấu hình Giá qua đêm! Hệ thống đang tự động tính theo công thức dự phòng: <strong>(Giá giờ {Number(hourlyRate).toLocaleString('vi-VN')}đ * 3) = {Number(hourlyRate * 3).toLocaleString('vi-VN')}đ</strong>. Hãy cập nhật giá "Qua đêm" của phòng/bàn tại mục quản lý Phòng/bàn.
+                      </span>
+                    </div>
+                  )}
+                  {isAccommodation && localRentalType === 'daily' && !metadata?.daily_rate && !roomMetadata?.daily_rate && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-[10px] text-amber-800 leading-relaxed font-medium flex items-start gap-2">
+                      <svg className="h-3.5 w-3.5 shrink-0 text-amber-600 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                      <span>
+                        Phòng chưa cấu hình Giá ngày! Hệ thống đang tự động lấy từ: <strong>Giá qua đêm hoặc (Giá giờ {Number(hourlyRate).toLocaleString('vi-VN')}đ * 3) = {Number(hourlyRate * 3).toLocaleString('vi-VN')}đ</strong>. Hãy cập nhật giá "Theo ngày" của phòng/bàn tại mục quản lý Phòng/bàn.
+                      </span>
+                    </div>
+                  )}
                   <div className="flex justify-between">
                     <span className="text-slate-600">Giờ vào:</span>
                     <span className="font-medium text-slate-900">{fmtDateTimeVN(new Date(metadata.check_in))}</span>

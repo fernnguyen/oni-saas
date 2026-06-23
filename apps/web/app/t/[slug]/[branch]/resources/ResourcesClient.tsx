@@ -1436,26 +1436,150 @@ export function ResourcesClient({ shopId, industryType }: Props) {
                   <div><label className="block text-xs font-medium text-slate-600 mb-1">Loại giường</label><select value={formBedType} onChange={e => setFormBedType(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"><option value="">Chọn</option><option value="single">Đơn</option><option value="double">Đôi</option><option value="twin">Twin</option><option value="king">King</option></select></div>
                 )}
                 {sec?.overnightRate && (
-                  <>
-                    <div><label className="block text-xs font-medium text-slate-600 mb-1">Giá qua đêm (₫)</label><input value={formOvernightRate} onChange={e => setFormOvernightRate(maskVND(e.target.value))} placeholder="0" type="text" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary" /></div>
-                    <div><label className="block text-xs font-medium text-slate-600 mb-1">Giờ ân hạn qua đêm (giờ)</label><input value={formOvernightGraceHours} onChange={e => setFormOvernightGraceHours(e.target.value)} placeholder="0" type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary" /></div>
-                    <div><label className="block text-xs font-medium text-slate-600 mb-1">Giá theo ngày (₫)</label><input value={formDailyRate} onChange={e => setFormDailyRate(maskVND(e.target.value))} placeholder="0" type="text" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary" /></div>
-                    <div><label className="block text-xs font-medium text-slate-600 mb-1">Giờ ân hạn ngày (giờ)</label><input value={formDailyGraceHours} onChange={e => setFormDailyGraceHours(e.target.value)} placeholder="0" type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary" /></div>
-                    <div><label className="block text-xs font-medium text-slate-600 mb-1">Giá cuối tuần (₫)</label><input value={formWeekendRate} onChange={e => setFormWeekendRate(maskVND(e.target.value))} placeholder="0" type="text" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary" /></div>
-                    <div><label className="block text-xs font-medium text-slate-600 mb-1">Phụ thu (%)</label><input value={formSurchargePct} onChange={e => setFormSurchargePct(e.target.value)} placeholder="0" type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary" /></div>
-                  </>
+                  <div className="col-span-2 space-y-4">
+                    {/* Cấu hình Giá qua đêm */}
+                    <div className="rounded-xl border border-slate-200/60 bg-slate-50/50 p-4 space-y-3">
+                      <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wide flex items-center gap-1.5">
+                        🌙 Giá qua đêm & Ân hạn
+                      </h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600 mb-1">Giá qua đêm (₫)</label>
+                          <input
+                            value={formOvernightRate}
+                            onChange={e => setFormOvernightRate(maskVND(e.target.value))}
+                            placeholder="0"
+                            type="text"
+                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary bg-white outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600 mb-1">Giờ ân hạn qua đêm (giờ)</label>
+                          <input
+                            value={formOvernightGraceHours}
+                            onChange={e => setFormOvernightGraceHours(e.target.value)}
+                            placeholder="0"
+                            type="number"
+                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary bg-white outline-none"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Cấu hình Giá theo ngày */}
+                    <div className="rounded-xl border border-slate-200/60 bg-slate-50/50 p-4 space-y-3">
+                      <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wide flex items-center gap-1.5">
+                        ☀️ Giá theo ngày & Ân hạn
+                      </h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600 mb-1">Giá theo ngày (₫)</label>
+                          <input
+                            value={formDailyRate}
+                            onChange={e => setFormDailyRate(maskVND(e.target.value))}
+                            placeholder="0"
+                            type="text"
+                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary bg-white outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600 mb-1">Giờ ân hạn ngày (giờ)</label>
+                          <input
+                            value={formDailyGraceHours}
+                            onChange={e => setFormDailyGraceHours(e.target.value)}
+                            placeholder="0"
+                            type="number"
+                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary bg-white outline-none"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Các cấu hình phụ thu & cuối tuần */}
+                    <div className="rounded-xl border border-slate-200/60 bg-slate-50/50 p-4 space-y-3">
+                      <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wide flex items-center gap-1.5">
+                        ⚙️ Phụ phí & Cuối tuần
+                      </h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600 mb-1">Giá cuối tuần (₫)</label>
+                          <input
+                            value={formWeekendRate}
+                            onChange={e => setFormWeekendRate(maskVND(e.target.value))}
+                            placeholder="0"
+                            type="text"
+                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary bg-white outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600 mb-1">Phụ thu (%)</label>
+                          <input
+                            value={formSurchargePct}
+                            onChange={e => setFormSurchargePct(e.target.value)}
+                            placeholder="0"
+                            type="number"
+                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary bg-white outline-none"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 )}
                 {sec?.depositAmount && (
-                  <>
-                    <div><label className="block text-xs font-medium text-slate-600 mb-1">Tiền đặt cọc (₫)</label><input value={formDepositAmount} onChange={e => setFormDepositAmount(maskVND(e.target.value))} placeholder="0" type="text" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary" /></div>
-                    <div><label className="block text-xs font-medium text-slate-600 mb-1">Phí giường phụ (₫)</label><input value={formExtraBedFee} onChange={e => setFormExtraBedFee(maskVND(e.target.value))} placeholder="0" type="text" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary" /></div>
-                  </>
+                  <div className="col-span-2 rounded-xl border border-slate-200/60 bg-slate-50/50 p-4 space-y-3">
+                    <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wide flex items-center gap-1.5">
+                      💵 Đặt cọc & Chi phí khác
+                    </h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">Tiền đặt cọc (₫)</label>
+                        <input
+                          value={formDepositAmount}
+                          onChange={e => setFormDepositAmount(maskVND(e.target.value))}
+                          placeholder="0"
+                          type="text"
+                          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary bg-white outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">Phí giường phụ (₫)</label>
+                        <input
+                          value={formExtraBedFee}
+                          onChange={e => setFormExtraBedFee(maskVND(e.target.value))}
+                          placeholder="0"
+                          type="text"
+                          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary bg-white outline-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
                 )}
                 {sec?.expectedReturn && (
-                  <>
-                    <div><label className="block text-xs font-medium text-slate-600 mb-1">Giờ nhận</label><input value={formCheckinTime} onChange={e => setFormCheckinTime(e.target.value)} type="time" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary" /></div>
-                    <div><label className="block text-xs font-medium text-slate-600 mb-1">Giờ trả</label><input value={formCheckoutTime} onChange={e => setFormCheckoutTime(e.target.value)} type="time" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary" /></div>
-                  </>
+                  <div className="col-span-2 rounded-xl border border-slate-200/60 bg-slate-50/50 p-4 space-y-3">
+                    <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wide flex items-center gap-1.5">
+                      ⏰ Quy định Giờ nhận & trả phòng
+                    </h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">Giờ nhận</label>
+                        <input
+                          value={formCheckinTime}
+                          onChange={e => setFormCheckinTime(e.target.value)}
+                          type="time"
+                          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary bg-white outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">Giờ trả</label>
+                        <input
+                          value={formCheckoutTime}
+                          onChange={e => setFormCheckoutTime(e.target.value)}
+                          type="time"
+                          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary bg-white outline-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
                 )}
               </div>
               {sec?.amenities && (

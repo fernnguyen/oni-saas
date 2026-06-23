@@ -146,6 +146,15 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
     }
   }, [visible, cartOwnerTable]);
 
+  const parsedRoomMeta = React.useMemo(() => {
+    if (!cartOwnerTable?.metadata) return {};
+    try {
+      return typeof cartOwnerTable.metadata === 'string' ? JSON.parse(cartOwnerTable.metadata) : cartOwnerTable.metadata;
+    } catch (e) {
+      return {};
+    }
+  }, [cartOwnerTable]);
+
   // Thêm các state phục vụ chỉnh sửa giờ ra
   const [customCheckoutTime, setCustomCheckoutTime] = useState<Date | null>(null);
   const [isEditingCheckoutTime, setIsEditingCheckoutTime] = useState(false);
@@ -1073,6 +1082,34 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                       >
                         <Text className={`text-[10px] font-bold ${localRentalType === 'daily' ? 'text-slate-800' : 'text-slate-500'}`}>☀️ Theo ngày</Text>
                       </Pressable>
+                    </View>
+                  )}
+
+                  {shopVertical === 'lodging' && localRentalType === 'overnight' && !parsedRoomMeta?.overnight_rate && (
+                    <View className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 mb-3 flex-row items-start">
+                      <Ionicons name="warning-outline" size={14} color="#d97706" style={{ marginTop: 1 }} />
+                      <Text className="text-[10px] text-amber-800 leading-relaxed font-medium flex-1 ml-1.5">
+                        Phòng chưa cấu hình Giá qua đêm! Hệ thống đang tự động tính theo công thức dự phòng:{' '}
+                        <Text className="font-bold">
+                          (Giá giờ {Number(cartOwnerTable?.hourly_rate || 0).toLocaleString('vi-VN')}đ * 3) ={' '}
+                          {Number((cartOwnerTable?.hourly_rate || 0) * 3).toLocaleString('vi-VN')}đ
+                        </Text>
+                        . Hãy cập nhật giá "Qua đêm" của phòng/bàn tại mục quản lý Phòng/bàn.
+                      </Text>
+                    </View>
+                  )}
+
+                  {shopVertical === 'lodging' && localRentalType === 'daily' && !parsedRoomMeta?.daily_rate && (
+                    <View className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 mb-3 flex-row items-start">
+                      <Ionicons name="warning-outline" size={14} color="#d97706" style={{ marginTop: 1 }} />
+                      <Text className="text-[10px] text-amber-800 leading-relaxed font-medium flex-1 ml-1.5">
+                        Phòng chưa cấu hình Giá ngày! Hệ thống đang tự động lấy từ:{' '}
+                        <Text className="font-bold">
+                          Giá qua đêm hoặc (Giá giờ {Number(cartOwnerTable?.hourly_rate || 0).toLocaleString('vi-VN')}đ * 3) ={' '}
+                          {Number((cartOwnerTable?.hourly_rate || 0) * 3).toLocaleString('vi-VN')}đ
+                        </Text>
+                        . Hãy cập nhật giá "Theo ngày" của phòng/bàn tại mục quản lý Phòng/bàn.
+                      </Text>
                     </View>
                   )}
                   
