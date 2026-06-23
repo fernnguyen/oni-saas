@@ -46,6 +46,12 @@ export function ProductPreviewModal({
                 <Text className="text-slate-500 text-xs">Giá cơ bản</Text>
                 <Text className="text-orange-600 font-semibold text-sm">{formatCurrency(product.sell_price)}</Text>
               </View>
+              {product.tax_rate && parseFloat(product.tax_rate) > 0 ? (
+                <View className="flex-row justify-between items-center mb-4 -mt-2">
+                  <Text className="text-slate-400 text-xxs">Thuế suất (VAT)</Text>
+                  <Text className="text-slate-600 text-xs font-semibold">{product.tax_rate}%</Text>
+                </View>
+              ) : null}
 
               {/* Variant Options */}
               {(() => {

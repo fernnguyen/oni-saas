@@ -13,7 +13,7 @@ import { getApiBaseUrl, getApiHeaders } from '../../lib/api/config';
 import { getSystemTaxGroups } from '../../lib/utils/tax';
 import * as Haptics from 'expo-haptics';
 import { formatCurrency, maskCurrencyInput, parseCurrencyToNumber } from '../../lib/utils/format';
-import { calculateHourlyBilling, isTimeChargeProduct } from '@oni/core';
+import { calculateHourlyBilling, isTimeChargeProduct, isSystemTimeChargeProduct } from '@oni/core';
 
 // Import hệ thống component dùng chung
 import { Header } from '../../components/layout/Header';
@@ -1252,6 +1252,11 @@ export default function PosScreen() {
 
   // Lọc sp
   const filteredProducts = productsList.filter(p => {
+    // Ẩn các sản phẩm tiền giờ hệ thống khỏi danh sách lựa chọn POS
+    if (isTimeChargeProduct(p.id, p.name) || isSystemTimeChargeProduct(p.id, p.sku, p.name) || p.id === 'TIME_CHARGE') {
+      return false;
+    }
+
     const matchesCategory = selectedCategoryId === 'all' || p.category_id === selectedCategoryId;
     const matchesSearch = !productSearchQuery.trim() ||
       p.name.toLowerCase().includes(productSearchQuery.toLowerCase()) ||
@@ -1467,7 +1472,7 @@ export default function PosScreen() {
                 }}
               >
                 <Text className={`text-xxs font-semibold ${selectedCategoryId === 'all' ? 'text-orange-500' : 'text-slate-500'}`}>
-                  Tất cả ({productsList.length})
+                  Tất cả ({productsList.filter(p => !isTimeChargeProduct(p.id, p.name) && !isSystemTimeChargeProduct(p.id, p.sku, p.name) && p.id !== 'TIME_CHARGE').length})
                 </Text>
               </TouchableOpacity>
 

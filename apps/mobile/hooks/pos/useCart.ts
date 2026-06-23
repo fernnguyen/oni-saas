@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
+import { db } from '../../lib/db/client';
+import * as schema from '../../lib/db/schema';
+import { eq } from 'drizzle-orm';
 
 export function useCart(isNavReady: boolean, isLoading: boolean) {
   const [cart, setCart] = useState<{[cartItemId: string]: any}>({});
@@ -14,9 +17,37 @@ export function useCart(isNavReady: boolean, isLoading: boolean) {
   const [discountAmount, setDiscountAmount] = useState<number>(0);
   const [orderNote, setOrderNote] = useState('');
 
-  const addToCart = (product: any) => {
+  const addToCart = async (product: any) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    setPreviewProduct(product);
+    
+    let resolvedTaxRate = product.tax_rate;
+    let resolvedTaxGroup = product.tax_group;
+    let resolvedInputTaxRate = product.input_tax_rate;
+
+    if ((!resolvedTaxRate || resolvedTaxRate === '0' || !resolvedTaxGroup) && product.category_id) {
+      try {
+        const catRes = await db
+          .select()
+          .from(schema.categories)
+          .where(eq(schema.categories.id, product.category_id))
+          .limit(1);
+        if (catRes.length > 0) {
+          const category = catRes[0];
+          resolvedTaxRate = resolvedTaxRate && resolvedTaxRate !== '0' ? resolvedTaxRate : (category.tax_rate || '0');
+          resolvedTaxGroup = resolvedTaxGroup || category.tax_group || '';
+          resolvedInputTaxRate = resolvedInputTaxRate && resolvedInputTaxRate !== '0' ? resolvedInputTaxRate : (category.tax_rate || '0');
+        }
+      } catch (err) {
+        console.error('[Cart Hook] Failed to resolve category tax fallback:', err);
+      }
+    }
+
+    setPreviewProduct({
+      ...product,
+      tax_rate: resolvedTaxRate || '0',
+      tax_group: resolvedTaxGroup || '',
+      input_tax_rate: resolvedInputTaxRate || '0',
+    });
     setPreviewQuantity(1);
     setSelectedVariant(null);
     setSelectedModifiers([]);

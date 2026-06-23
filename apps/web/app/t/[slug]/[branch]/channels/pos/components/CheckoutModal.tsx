@@ -448,6 +448,19 @@ export function CheckoutModal({
     }, 0)
   }, [computedItems, timeChargeTax])
 
+  const appliedTaxRates = useMemo(() => {
+    const ratesSet = new Set<number>()
+    computedItems.forEach((item) => {
+      const rate = (item.product_id === 'TIME_CHARGE' || isTimeChargeProduct(item.product_id, item.product_name))
+        ? (parseFloat(timeChargeTax.tax_rate) || 0)
+        : (parseFloat(item.tax_rate || '0') || 0)
+      if (rate > 0) {
+        ratesSet.add(rate)
+      }
+    })
+    return Array.from(ratesSet).sort((a, b) => a - b)
+  }, [computedItems, timeChargeTax])
+
   // Fetch Customer Purchase History for Debt Aging
   const { data: customerOrders } = useQuery({
     queryKey: ['customer-orders', shopId, localCustomer?.customer_id],
@@ -1975,7 +1988,10 @@ export function CheckoutModal({
 
   const renderItemRow = (item: any, idx: number) => {
     const isSelectedInA = folioAIndices.has(idx)
-    const isTimeCharge = item.product_id === 'TIME_CHARGE'
+    const isTimeCharge = item.product_id === 'TIME_CHARGE' || isTimeChargeProduct(item.product_id, item.product_name)
+    const rate = isTimeCharge
+      ? (parseFloat(timeChargeTax.tax_rate) || 0)
+      : (parseFloat(item.tax_rate || '0') || 0)
     return (
       <div key={`${item.product_id}-${idx}`} className={`flex flex-col py-2 px-2.5 rounded-lg border-b border-slate-200/40 last:border-0 ${isTimeCharge ? 'bg-emerald-50/70 border border-emerald-100 my-1' : ''}`}>
         <div className="flex items-center justify-between gap-2">
@@ -2000,8 +2016,8 @@ export function CheckoutModal({
             )}
             <span className={`${isTimeCharge ? 'text-emerald-800 font-bold' : 'text-slate-800 font-medium'} text-sm leading-tight truncate`}>
               {item.product_name}
-              {item.tax_rate && parseFloat(item.tax_rate) > 0 && (
-                <span className="text-[10px] text-slate-450 font-normal ml-1.5">(VAT {item.tax_rate}%)</span>
+              {rate > 0 && (
+                <span className="text-[10px] text-slate-450 font-normal ml-1.5">(VAT {rate}%)</span>
               )}
               <span className={`${isTimeCharge ? 'text-emerald-600' : 'text-slate-400'} text-xs font-normal ml-1.5 whitespace-nowrap`}>× {item.qty}</span>
             </span>
@@ -2572,7 +2588,7 @@ export function CheckoutModal({
                       {groupedItems.roomItems.length > 0 && (
                         <div>
                           <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-between">
-                            <span>🏨 Tiền phòng & Dịch vụ</span>
+                            <span>🛏 Tiền phòng & Dịch vụ</span>
                             {isSplitActive && <span className="text-[9px] font-semibold text-primary lowercase">(chọn để đưa vào Folio A)</span>}
                           </div>
                           <div className="space-y-1.5 pl-1">
@@ -2694,7 +2710,9 @@ export function CheckoutModal({
 
                   {totalTaxAmount > 0 && (
                     <div className="flex justify-between font-medium text-slate-600 text-sm mt-1 border-t border-slate-100 pt-1">
-                      <span className="text-slate-500">Thuế (VAT):</span>
+                      <span className="text-slate-500">
+                        Thuế (VAT{appliedTaxRates.length > 0 ? ` ${appliedTaxRates.map(r => `${r}%`).join(', ')}` : ''}):
+                      </span>
                       <span className="text-slate-700 font-semibold">{fmtVND(totalTaxAmount)}</span>
                     </div>
                   )}

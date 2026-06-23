@@ -30,7 +30,7 @@ import {SyncManager} from '../lib/sync/SyncManager';
 import {usePermissions} from '../lib/auth/PermissionsContext';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
-import { isSystemTimeChargeProduct } from '@oni/core';
+import { isSystemTimeChargeProduct, isTimeChargeProduct } from '@oni/core';
 
 const ITEM_CLASS_LABELS: Record<string, string> = {
   commercial: 'Hàng thương mại',
@@ -311,7 +311,7 @@ export default function ProductsScreen() {
         data = await baseQuery.orderBy(desc(schema.products.sync_status), desc(schema.products.id)).limit(limit).offset(offset);
       }
 
-      data = data.filter((p: any) => !isSystemTimeChargeProduct(p.product_id || p.id, p.sku));
+      data = data.filter((p: any) => !isTimeChargeProduct(p.product_id || p.id, p.name) && !isSystemTimeChargeProduct(p.product_id || p.id, p.sku, p.name));
 
       if (shouldAppend) {
         setProductsList(prev => {

@@ -1036,6 +1036,9 @@ export class SyncManager {
                 active: prod.active || 'TRUE',
                 weight: isNaN(weightVal as any) ? null : weightVal,
                 item_class: prod.item_class || 'commercial',
+                tax_rate: prod.tax_rate || null,
+                input_tax_rate: prod.input_tax_rate || null,
+                tax_group: prod.tax_group || null,
                 sync_status: 'synced',
               }
             });

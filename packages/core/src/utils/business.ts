@@ -43,11 +43,15 @@ export function isTimeChargeProduct(
 ): boolean {
   if (productId) {
     const idLower = productId.toLowerCase();
-    return idLower.startsWith('time_charge') || 
-           idLower.includes('time_charge') || 
-           idLower.includes('time-charge') ||
-           idLower.includes('billiard-time') ||
-           idLower.includes('billiard_time');
+    if (
+      idLower.startsWith('time_charge') || 
+      idLower.includes('time_charge') || 
+      idLower.includes('time-charge') ||
+      idLower.includes('billiard-time') ||
+      idLower.includes('billiard_time')
+    ) {
+      return true;
+    }
   }
   return false;
 }

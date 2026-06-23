@@ -8,7 +8,7 @@ import { Dialog } from '../ui/Dialog';
 import { db } from '../../lib/db/client';
 import * as schema from '../../lib/db/schema';
 import { eq } from 'drizzle-orm';
-import { calculateHourlyBilling } from '@oni/core';
+import { calculateHourlyBilling, isTimeChargeProduct, isSystemTimeChargeProduct } from '@oni/core';
 
 interface CartCheckoutModalProps {
   visible: boolean;
@@ -239,15 +239,51 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
     }, 0);
   }, [cart, cartOwnerTable, customCheckoutTime, calculateBilling, localRentalType]);
 
+  const timeChargeTax = React.useMemo(() => {
+    const systemProd = productsList.find(p => isSystemTimeChargeProduct(p.id, p.sku, p.name));
+    return {
+      tax_rate: systemProd?.tax_rate || '0',
+      tax_group: systemProd?.tax_group || ''
+    };
+  }, [productsList]);
+
   const localTaxTotal = React.useMemo(() => {
     return Object.entries(cart).reduce((sum, [key, item]) => {
-      if (key === 'TIME_CHARGE') return sum;
-      const itemTotal = (item.price + (item.modifier_total || 0)) * item.quantity;
-      const taxRateVal = parseFloat(item.tax_rate || '0');
-      if (isNaN(taxRateVal) || taxRateVal <= 0) return sum;
-      return sum + Math.round(itemTotal * (taxRateVal / 100));
+      const isTimeCharge = key === 'TIME_CHARGE' || isTimeChargeProduct(item.productId, item.name);
+      let itemTotal = 0;
+      if (isTimeCharge) {
+        if (cartOwnerTable && cartOwnerTable.startTime) {
+          const billing = calculateBilling(cartOwnerTable, customCheckoutTime || undefined, localRentalType);
+          itemTotal = billing.cost;
+        } else {
+          itemTotal = (item.price + (item.modifier_total || 0)) * item.quantity;
+        }
+      } else {
+        itemTotal = (item.price + (item.modifier_total || 0)) * item.quantity;
+      }
+      
+      const rate = isTimeCharge
+        ? (parseFloat(timeChargeTax.tax_rate) || 0)
+        : (parseFloat(item.tax_rate || '0') || 0);
+
+      if (isNaN(rate) || rate <= 0) return sum;
+      return sum + Math.round(itemTotal * (rate / 100));
     }, 0);
-  }, [cart]);
+  }, [cart, cartOwnerTable, customCheckoutTime, calculateBilling, localRentalType, timeChargeTax]);
+
+  const appliedTaxRates = React.useMemo(() => {
+    const ratesSet = new Set<number>();
+    Object.entries(cart).forEach(([key, item]) => {
+      const isTimeCharge = key === 'TIME_CHARGE' || isTimeChargeProduct(item.productId, item.name);
+      const rate = isTimeCharge
+        ? (parseFloat(timeChargeTax.tax_rate) || 0)
+        : (parseFloat(item.tax_rate || '0') || 0);
+      if (rate > 0) {
+        ratesSet.add(rate);
+      }
+    });
+    return Array.from(ratesSet).sort((a, b) => a - b);
+  }, [cart, timeChargeTax]);
 
   const handleStartEditCheckoutTime = () => {
     let currentMeta: any = {};
@@ -1168,7 +1204,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                   return 0;
                 })
                 .map(([cartItemId, item], idx) => {
-                  const isTimeCharge = item.productId === 'TIME_CHARGE';
+                  const isTimeCharge = item.productId === 'TIME_CHARGE' || isTimeChargeProduct(item.productId, item.name);
                   let itemToRender = item;
                   if (isTimeCharge && cartOwnerTable && cartOwnerTable.startTime) {
                     const billing = calculateBilling(cartOwnerTable, customCheckoutTime || undefined, localRentalType);
@@ -1182,6 +1218,11 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                       name: billingName
                     };
                   }
+                  
+                  const rate = isTimeCharge
+                    ? (parseFloat(timeChargeTax.tax_rate) || 0)
+                    : (parseFloat(itemToRender.tax_rate || '0') || 0);
+
                   return (
                     <View key={cartItemId} className={`py-3 px-2 rounded-xl ${idx > 0 && !isTimeCharge ? 'border-t border-slate-100' : ''} ${isTimeCharge ? 'bg-emerald-50/60 border border-emerald-100 my-1.5' : ''}`}>
                       {/* Top Row: Name, Quantity, Total Price */}
@@ -1190,8 +1231,8 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                         <View className="flex-1 pr-2">
                           <Text className={`font-semibold text-sm leading-tight ${isTimeCharge ? 'text-emerald-800' : 'text-slate-800'}`}>
                             {itemToRender.name}
-                            {itemToRender.tax_rate && parseFloat(itemToRender.tax_rate) > 0 ? (
-                              <Text className="text-[10px] text-slate-400 font-normal"> (VAT {itemToRender.tax_rate}%)</Text>
+                            {rate > 0 ? (
+                              <Text className="text-[10px] text-slate-455 font-normal"> (VAT {rate}%)</Text>
                             ) : null}
                           </Text>
                           {itemToRender.variant_label && (!itemToRender.modifiers || itemToRender.modifiers.length === 0) && (
@@ -1273,7 +1314,9 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                 {/* Hàng Thuế (VAT) */}
                 {localTaxTotal > 0 && (
                   <View className="flex-row justify-between items-center py-2.5 border-t border-dashed border-slate-200">
-                    <Text className="text-xs text-slate-455 font-medium">Thuế (VAT):</Text>
+                    <Text className="text-xs text-slate-455 font-medium">
+                      Thuế (VAT{appliedTaxRates.length > 0 ? ` ${appliedTaxRates.map(r => `${r}%`).join(', ')}` : ''}):
+                    </Text>
                     <Text className="text-xs text-slate-700 font-semibold">
                       {formatCurrency(localTaxTotal)}
                     </Text>

@@ -359,7 +359,11 @@ export function getTimeChargeProductId(industryType: string): string {
 /**
  * Check if a product ID or SKU is a system time charge product.
  */
-export function isSystemTimeChargeProduct(productId: string | null | undefined, sku?: string | null | undefined): boolean {
+export function isSystemTimeChargeProduct(
+  productId: string | null | undefined,
+  sku?: string | null | undefined,
+  productName?: string | null | undefined
+): boolean {
   const idLower = (productId || '').toLowerCase();
   const skuLower = (sku || '').toLowerCase();
   return idLower.startsWith('time_charge') || idLower.includes('time_charge') ||
