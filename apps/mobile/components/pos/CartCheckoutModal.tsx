@@ -765,14 +765,16 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
 
   const prevEffectiveTotalRef = React.useRef(effectiveTotal);
   const prevCustomCheckoutTimeRef = React.useRef(customCheckoutTime);
+  const prevRentalTypeRef = React.useRef(localRentalType);
   // Tự động điều chỉnh số tiền ở dòng thanh toán duy nhất khớp với effectiveTotal
   React.useEffect(() => {
     if (paymentRows.length === 1) {
       const targetVal = effectiveTotal;
       const prevVal = prevEffectiveTotalRef.current;
       const customTimeChanged = customCheckoutTime?.getTime() !== prevCustomCheckoutTimeRef.current?.getTime();
+      const rentalTypeChanged = prevRentalTypeRef.current !== localRentalType;
       
-      if (customTimeChanged || paymentRows[0].amount === prevVal || paymentRows[0].amount === 0) {
+      if (rentalTypeChanged || customTimeChanged || paymentRows[0].amount === prevVal || paymentRows[0].amount === 0) {
         if (paymentRows[0].amount !== targetVal) {
           setPaymentRows([{ ...paymentRows[0], amount: targetVal }]);
         }
@@ -780,7 +782,8 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
     }
     prevEffectiveTotalRef.current = effectiveTotal;
     prevCustomCheckoutTimeRef.current = customCheckoutTime;
-  }, [effectiveTotal, paymentRows, setPaymentRows, customCheckoutTime]);
+    prevRentalTypeRef.current = localRentalType;
+  }, [effectiveTotal, paymentRows, setPaymentRows, customCheckoutTime, localRentalType]);
 
   // Cảnh báo khi khách có nợ cũ (chưa được trả hết)
   const hasDebtWarning = !!activeCustomer && customerDebt > 0 && isOnline && !!enrichedCustomer;
@@ -803,6 +806,10 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
   };
 
   const handlePressCheckout = () => {
+    if (finalTotal <= 0) {
+      Alert.alert('Lỗi thanh toán', 'Không thể thanh toán hóa đơn 0 đồng.');
+      return;
+    }
     // 1. Kiểm tra khách lẻ (no selectedCustomer) dùng Ghi nợ hoặc Ví trả trước
     const hasDebt = paymentRows.some((p) => (p.method === 'debt' || p.method?.startsWith('debt-')) && p.amount > 0);
     const hasPrepaid = paymentRows.some((p) => (p.method === 'prepaid' || p.method?.startsWith('prepaid-')) && p.amount > 0);
@@ -1745,9 +1752,9 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                 icon={!loading ? <Ionicons name="checkmark-done" size={14} color="white" /> : undefined}
                 iconPosition="right"
                 onPress={handlePressCheckout}
-                disabled={paidSum < effectiveTotal || loading}
+                disabled={paidSum < effectiveTotal || loading || finalTotal <= 0}
                 loading={loading}
-                className={`flex-[2] py-3.5 rounded-xl ${paidSum < effectiveTotal || loading ? 'opacity-50' : ''}`}
+                className={`flex-[2] py-3.5 rounded-xl ${paidSum < effectiveTotal || loading || finalTotal <= 0 ? 'opacity-50' : ''}`}
               />
             </View>
           </View>

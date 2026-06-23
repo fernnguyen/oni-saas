@@ -1010,19 +1010,22 @@ export function CheckoutModal({
   const effectiveRemainingTotal = remainingTotal + clampedDebtRepay
 
   const prevEffectiveRemainingTotalRef = useRef(effectiveRemainingTotal)
+  const prevRentalTypeRef = useRef(localRentalType)
   // Tự động điều chỉnh số tiền ở dòng thanh toán duy nhất khớp với effectiveRemainingTotal
   useEffect(() => {
     if (paymentsLoaded && payments.length === 1) {
       const targetVal = String(effectiveRemainingTotal)
       const prevVal = String(prevEffectiveRemainingTotalRef.current)
-      if (payments[0].amount === prevVal || payments[0].amount === '') {
+      const rentalTypeChanged = prevRentalTypeRef.current !== localRentalType
+      if (rentalTypeChanged || payments[0].amount === prevVal || payments[0].amount === '') {
         if (payments[0].amount !== targetVal) {
           setPayments([{ ...payments[0], amount: targetVal }])
         }
       }
     }
     prevEffectiveRemainingTotalRef.current = effectiveRemainingTotal
-  }, [effectiveRemainingTotal, payments, paymentsLoaded])
+    prevRentalTypeRef.current = localRentalType
+  }, [effectiveRemainingTotal, payments, paymentsLoaded, localRentalType])
 
   const remaining = useMemo(() => {
     return effectiveRemainingTotal - totalPaid
@@ -1505,6 +1508,10 @@ export function CheckoutModal({
 
   async function handleSubmit(options?: { bypassQr?: boolean }) {
     if (items.length === 0) return
+    if (finalTotal <= 0) {
+      toast.error('Không thể thanh toán hóa đơn 0 đồng.')
+      return
+    }
     if (isBlocked) {
       toast.error('Giao dịch bị chặn do khách hàng vượt quá giới hạn công nợ.')
       return
@@ -3054,7 +3061,7 @@ export function CheckoutModal({
                 {/* Green button: Lưu & xác nhận (Đã thu) */}
                 <button
                   onClick={() => handleSubmit({ bypassQr: true })}
-                  disabled={saving || items.length === 0 || isRemainingInvalid || isBlocked}
+                  disabled={saving || items.length === 0 || isRemainingInvalid || isBlocked || finalTotal <= 0}
                   className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 py-2.5 px-4 text-sm font-bold text-white shadow-xs disabled:opacity-40 transition-all active:scale-98"
                 >
                   <svg className="h-4.5 w-4.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
@@ -3067,7 +3074,7 @@ export function CheckoutModal({
                 {bankTransferAmt > 0 && (
                   <button
                     onClick={() => handleSubmit({ bypassQr: false })}
-                    disabled={saving || items.length === 0 || isRemainingInvalid || isBlocked}
+                    disabled={saving || items.length === 0 || isRemainingInvalid || isBlocked || finalTotal <= 0}
                     className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-primary hover:bg-primary-dark py-2.5 px-4 text-sm font-bold text-white shadow-xs disabled:opacity-40 transition-all active:scale-98 animate-in fade-in slide-in-from-right-1 duration-200"
                   >
                     Lưu & chờ thanh toán
