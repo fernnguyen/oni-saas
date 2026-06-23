@@ -113,6 +113,7 @@ export async function printBill({
   const createdDate = order.created_at || new Date().toISOString()
   const subtotal = Number(order.subtotal || 0)
   const discount = Number(order.discount_amount || 0)
+  const tax = Number((order as any).tax_amount || 0)
   const total = Number(order.total_amount || 0)
   const customerName = order.customer_name
   
@@ -299,9 +300,11 @@ ${items
       subLine = `<br/><span style="font-size:10px;color:#666">${modParts}${modAdj}</span>`
     }
     const effectivePrice = Number(it.unit_price) + (Number((it as any).modifier_total) || 0)
+    const rate = parseFloat((it as any).tax_rate || '0') || 0
+    const taxLabel = rate > 0 ? ` (VAT ${rate}%)` : ''
     return `<tr>
   <td>${idx + 1}</td>
-  <td class="pl">${translateProductName(it.product_name, isBilingual)}${subLine}</td>
+  <td class="pl">${translateProductName(it.product_name, isBilingual)}${taxLabel}${subLine}</td>
   <td class="c pl">${it.qty}</td>
   <td class="r pl">${fmtVND(effectivePrice)}</td>
   <td class="r pl">${fmtVND(Number(it.line_total))}</td>
@@ -312,6 +315,7 @@ ${items
 <table>
 <tr><td>${isBilingual ? 'Tạm tính / Subtotal:' : 'Tạm tính:'}</td><td class="r">${fmtVND(subtotal)}</td></tr>
 ${discount > 0 ? `<tr><td>${isBilingual ? 'Giảm giá / Discount:' : 'Giảm giá:'}</td><td class="r">-${fmtVND(discount)}</td></tr>` : ''}
+${tax > 0 ? `<tr><td>${isBilingual ? 'Thuế (VAT) / Tax (VAT):' : 'Thuế (VAT):'}</td><td class="r">${fmtVND(tax)}</td></tr>` : ''}
 
 ${(() => {
   const deposit = Number(orderMeta?.deposit_amount || 0)
