@@ -2,15 +2,13 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { FREE_TRIAL_YEARS } from '../lib/constants/pricing';
-
 const CheckIcon = () => (
   <svg className="h-5 w-5 shrink-0 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
   </svg>
 );
 
-export function PricingSection({ plans }: { plans: any[] }) {
+export function PricingSection({ plans, trialText = '3 tháng' }: { plans: any[]; trialText?: string }) {
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('yearly');
 
   // Format price
@@ -42,7 +40,7 @@ export function PricingSection({ plans }: { plans: any[] }) {
     if (plan.code === 'plan_mini') {
       return (
         <span className="ml-1 inline-flex items-center rounded-md bg-emerald-500 px-2 py-0.5 text-xs font-bold text-white uppercase tracking-wide shadow-sm">
-          trong {FREE_TRIAL_YEARS} năm
+          trong {trialText}
         </span>
       );
     }
@@ -70,7 +68,7 @@ export function PricingSection({ plans }: { plans: any[] }) {
           <p className="text-sm font-bold uppercase tracking-widest text-primary mb-3">Bảng giá</p>
           <h2 className="text-3xl md:text-5xl font-extrabold text-slate-900 tracking-tight">Chi phí tối ưu, hiệu quả tối đa</h2>
           <p className="mt-4 text-lg text-slate-500 font-medium max-w-xl mx-auto">
-            Khởi đầu vững chắc với gói Tiên phong miễn phí {FREE_TRIAL_YEARS} năm hỗ trợ Chuyển đổi số. Nâng cấp linh hoạt khi quy mô mở rộng.
+            Khởi đầu vững chắc với gói Tiên phong miễn phí {trialText} dùng thử hỗ trợ Chuyển đổi số. Nâng cấp linh hoạt khi quy mô mở rộng.
           </p>
           
           <div className="mt-8 inline-flex items-center rounded-full bg-slate-200 p-1">

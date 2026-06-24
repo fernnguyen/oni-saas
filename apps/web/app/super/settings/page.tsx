@@ -1,22 +1,7 @@
 import React from 'react'
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
 import { SettingsClient } from './SettingsClient'
-import { unstable_cache } from 'next/cache'
-
-// We cache the system settings so that when handleApiError runs, it's fast
-export const getSystemSettings = unstable_cache(
-  async () => {
-    const supabase = getSupabaseAdminClient()
-    const { data } = await supabase
-      .from('system_settings')
-      .select('config')
-      .eq('id', 'global')
-      .single()
-    return data?.config || { enable_sentry_debug: false }
-  },
-  ['system_settings_global'],
-  { tags: ['system_settings'], revalidate: 3600 }
-)
+import { getSystemSettings } from '@/lib/server/settings'
 
 import { getTaxGroupsAction } from './actions'
 

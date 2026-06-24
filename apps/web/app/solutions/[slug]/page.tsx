@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { notFound } from 'next/navigation';
+import { getSystemSettings, formatTrialDurationVi } from '@/lib/server/settings';
 import { Metadata } from 'next';
 import { getVerticalConfig, IndustryType } from '../../../../../packages/core/src/verticals';
 import { IndustryDropdown } from '../../components/layout/IndustryDropdown';
@@ -83,6 +84,10 @@ export default async function IndustrySolutionPage({ params }: Props) {
   if (!indType) {
     notFound();
   }
+
+  const sysConfig = await getSystemSettings();
+  const starterTrialDays = parseInt(sysConfig.starter_trial_days) || 90;
+  const starterTrialText = formatTrialDurationVi(starterTrialDays);
 
   const config = getVerticalConfig(indType);
   const indInfo = INDUSTRIES_LIST.find(i => i.slug === slug);
@@ -192,7 +197,7 @@ export default async function IndustrySolutionPage({ params }: Props) {
       '@type': 'Offer',
       'price': '0',
       'priceCurrency': 'VND',
-      'description': 'Miễn phí dùng thử 3 năm'
+      'description': `Miễn phí dùng thử ${starterTrialText}`
     },
     'publisher': {
       '@type': 'Organization',
@@ -503,7 +508,7 @@ export default async function IndustrySolutionPage({ params }: Props) {
               <Link href="/" className="hover:text-white transition-colors">Trang chủ chính</Link>
               <a href="#features" className="hover:text-white transition-colors">Tính năng nghiệp vụ</a>
               <Link href="/#pricing" className="hover:text-white transition-colors">Bảng giá gói cước</Link>
-              <Link href={`/register?industry=${slug}`} className="hover:text-white transition-colors">Đăng ký dùng thử miễn phí 3 năm</Link>
+              <Link href={`/register?industry=${slug}`} className="hover:text-white transition-colors">Đăng ký dùng thử miễn phí {starterTrialText}</Link>
             </div>
             <div className="text-[10px] text-slate-600">
               Sản phẩm phục vụ Chuyển đổi số Hộ kinh doanh &amp; Doanh nghiệp Việt Nam.

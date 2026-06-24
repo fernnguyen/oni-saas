@@ -8,7 +8,7 @@ import { HeroDashboardMock } from './HeroDashboardMock';
 import { INDUSTRY_GROUPS, INDUSTRIES_LIST } from './components/layout/industriesData';
 import { FloatingZalo } from './components/layout/FloatingZalo';
 import { AppDownloadButtons } from './components/layout/AppDownloadButtons';
-import { FREE_TRIAL_YEARS } from '../lib/constants/pricing';
+import { getSystemSettings, formatTrialDurationVi } from '../lib/server/settings';
 import { 
   Database, 
   Sparkles, 
@@ -90,6 +90,10 @@ const PLAN_DETAILS: Record<string, any> = {
 /* ── Page ────────────────────────────────────────────────────── */
 export default async function LandingPage() {
   const admin = getSupabaseAdminClient();
+  const config = await getSystemSettings();
+  const starterTrialDays = parseInt(config.starter_trial_days) || 90;
+  const starterTrialText = formatTrialDurationVi(starterTrialDays);
+
   const { data: dbPlans } = await admin.from('plans').select('*').order('id', { ascending: true });
   const plans = (dbPlans || [])
     .filter((p: any) => p.metadata?.show_public !== false)
@@ -708,7 +712,7 @@ export default async function LandingPage() {
       </section>
 
       {/* ═══ PRICING ═══ */}
-      <PricingSection plans={displayPlans} />
+      <PricingSection plans={displayPlans} trialText={starterTrialText} />
 
       {/* ═══ CTA ═══ */}
       <section className="relative py-24 md:py-32 bg-slate-50 border-t border-slate-200 overflow-hidden">
@@ -721,7 +725,7 @@ export default async function LandingPage() {
             Bắt đầu quản lý kinh doanh thông minh
           </h2>
           <p className="text-xl text-slate-650 font-medium mb-10 max-w-2xl mx-auto">
-            Bắt đầu bán hàng ngay với gói Tiên phong miễn phí {FREE_TRIAL_YEARS} năm. Nâng cấp chi phí cực rẻ cho quy mô chuỗi nhiều chi nhánh.
+            Bắt đầu bán hàng ngay với gói Tiên phong miễn phí {starterTrialText} dùng thử. Nâng cấp chi phí cực rẻ cho quy mô chuỗi nhiều chi nhánh.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link href="/register" id="cta-bottom-register" className="group flex items-center justify-center gap-2 rounded-xl bg-primary px-8 py-4 text-lg font-bold text-white shadow-xl hover:bg-primary-dark transition-all hover:scale-105">
