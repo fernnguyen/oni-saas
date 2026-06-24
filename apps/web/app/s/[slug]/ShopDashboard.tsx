@@ -267,6 +267,7 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
   const [seedingLoading, setSeedingLoading] = useState(false);
   const [seedSuccess, setSeedSuccess] = useState(false);
   const [seedingError, setSeedingError] = useState<string | null>(null);
+  const [activeWorkflowTab, setActiveWorkflowTab] = useState(1);
 
   // Trigger demo mode automatically if there's no data source connected
   useEffect(() => {
@@ -1128,18 +1129,184 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
                     Hệ thống quản lý bán lẻ & dịch vụ của bạn đã được thiết lập thành công. Hãy bắt đầu trải nghiệm đầy đủ các tính năng của ONI.
                   </p>
                   
-                  <div className="rounded-2xl border border-primary/10 bg-primary/5 p-4 space-y-3 text-left">
-                    <div className="flex items-start gap-3 text-xs text-slate-900 font-medium">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary/10 border border-primary/20 text-primary shadow-sm mt-0.5">
-                        <Lightbulb className="w-4 h-4" />
+                  {/* Basic selling workflow guide (vertical collapse / accordion stepper) */}
+                  <div className="space-y-3.5 text-left border border-slate-100 bg-slate-50/50 rounded-2xl p-5 shadow-3xs">
+                    <p className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider mb-2">Quy trình bán hàng cơ bản</p>
+                    
+                    <div className="space-y-2">
+                      {/* Step 1 */}
+                      <div className="border border-slate-200/60 rounded-xl bg-white overflow-hidden transition-all duration-200">
+                        <button
+                          type="button"
+                          onClick={() => setActiveWorkflowTab(activeWorkflowTab === 1 ? 0 : 1)}
+                          className="w-full flex items-center justify-between p-3 text-left font-bold text-xs text-slate-800 hover:bg-slate-50/80 transition-colors cursor-pointer"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold border transition-all ${
+                              activeWorkflowTab === 1
+                                ? 'bg-primary/10 text-primary border-primary/20'
+                                : 'bg-slate-50 text-slate-500 border-slate-200'
+                            }`}>
+                              1
+                            </span>
+                            <span>Tạo sản phẩm & dịch vụ</span>
+                          </div>
+                          <span className={`text-slate-400 transition-transform duration-250 text-[10px] ${activeWorkflowTab === 1 ? 'rotate-180' : ''}`}>
+                            ▼
+                          </span>
+                        </button>
+                        {activeWorkflowTab === 1 && (
+                          <div className="p-3 pt-0 border-t border-slate-100 text-[11px] text-slate-500 leading-relaxed font-normal animate-in slide-in-from-top-1 duration-200 space-y-1">
+                            <p>
+                              {verticalConfig.features.location_resource
+                                ? 'Tạo dịch vụ tính tiền chính (tiền giờ, tiền phòng) cùng các mặt hàng đồ ăn, nước uống bán kèm.'
+                                : 'Thêm hàng hóa, dịch vụ và danh mục kinh doanh của bạn.'}
+                            </p>
+                            <a
+                              href={`${homePath === '/' ? '' : homePath}/products`}
+                              onClick={() => setOnboardModalOpen(false)}
+                              className="inline-flex items-center gap-0.5 font-bold text-primary hover:underline mt-1"
+                            >
+                              <span>Đi đến Quản lý sản phẩm</span>
+                              <span>→</span>
+                            </a>
+                          </div>
+                        )}
                       </div>
-                      <div>
-                        <p className="font-bold">Bán hàng nhanh không cần nhập kho</p>
-                        <p className="text-slate-500 font-normal mt-0.5 leading-relaxed">
-                          Hệ thống đã bật sẵn chế độ <strong>"Cho phép bán khi hết hàng"</strong> để bạn làm quen và trải nghiệm bán thử tại POS ngay lập tức mà không bị chặn do hết hàng. Nếu cần thay đổi thiết lập này, bạn có thể cấu hình lại trong phần <strong>Cài đặt chi nhánh</strong>.
-                        </p>
+
+                      {/* Step 2 */}
+                      <div className="border border-slate-200/60 rounded-xl bg-white overflow-hidden transition-all duration-200">
+                        <button
+                          type="button"
+                          onClick={() => setActiveWorkflowTab(activeWorkflowTab === 2 ? 0 : 2)}
+                          className="w-full flex items-center justify-between p-3 text-left font-bold text-xs text-slate-800 hover:bg-slate-50/80 transition-colors cursor-pointer"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold border transition-all ${
+                              activeWorkflowTab === 2
+                                ? 'bg-primary/10 text-primary border-primary/20'
+                                : 'bg-slate-50 text-slate-500 border-slate-200'
+                            }`}>
+                              2
+                            </span>
+                            <span>Nhập & kiểm kho hàng</span>
+                          </div>
+                          <span className={`text-slate-400 transition-transform duration-250 text-[10px] ${activeWorkflowTab === 2 ? 'rotate-180' : ''}`}>
+                            ▼
+                          </span>
+                        </button>
+                        {activeWorkflowTab === 2 && (
+                          <div className="p-3 pt-0 border-t border-slate-100 text-[11px] text-slate-500 leading-relaxed font-normal animate-in slide-in-from-top-1 duration-200 space-y-1">
+                            <p>
+                              {verticalConfig.features.location_resource
+                                ? 'Khai báo số lượng tồn kho thực tế của các đồ ăn, nước ngọt hoặc hàng hóa bán kèm.'
+                                : 'Khai báo số lượng tồn kho thực tế của hàng hóa trong kho.'}
+                            </p>
+                            <a
+                              href={`${homePath === '/' ? '' : homePath}/inventory`}
+                              onClick={() => setOnboardModalOpen(false)}
+                              className="inline-flex items-center gap-0.5 font-bold text-primary hover:underline mt-1"
+                            >
+                              <span>Đi đến Quản lý kho hàng</span>
+                              <span>→</span>
+                            </a>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Step 3 (Only for Service/Accommodation verticals) */}
+                      {verticalConfig.features.location_resource && (
+                        <div className="border border-slate-200/60 rounded-xl bg-white overflow-hidden transition-all duration-200">
+                          <button
+                            type="button"
+                            onClick={() => setActiveWorkflowTab(activeWorkflowTab === 3 ? 0 : 3)}
+                            className="w-full flex items-center justify-between p-3 text-left font-bold text-xs text-slate-800 hover:bg-slate-50/80 transition-colors cursor-pointer"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold border transition-all ${
+                                activeWorkflowTab === 3
+                                  ? 'bg-primary/10 text-primary border-primary/20'
+                                  : 'bg-slate-50 text-slate-500 border-slate-200'
+                              }`}>
+                                3
+                              </span>
+                              <span>Thiết lập {verticalConfig.resourceTemplate?.label.toLowerCase() || 'phòng/bàn/sân'}</span>
+                            </div>
+                            <span className={`text-slate-400 transition-transform duration-250 text-[10px] ${activeWorkflowTab === 3 ? 'rotate-180' : ''}`}>
+                              ▼
+                            </span>
+                          </button>
+                          {activeWorkflowTab === 3 && (
+                            <div className="p-3 pt-0 border-t border-slate-100 text-[11px] text-slate-500 leading-relaxed font-normal animate-in slide-in-from-top-1 duration-200 space-y-1">
+                              <p>
+                                Cấu hình sơ đồ khu vực và danh sách các {verticalConfig.resourceTemplate?.label.toLowerCase() || 'phòng/bàn/sân'} hoạt động của chi nhánh.
+                              </p>
+                              <a
+                                href={`${homePath === '/' ? '' : homePath}/resources`}
+                                onClick={() => setOnboardModalOpen(false)}
+                                className="inline-flex items-center gap-0.5 font-bold text-primary hover:underline mt-1"
+                              >
+                                <span>Thiết lập sơ đồ khu vực</span>
+                                <span>→</span>
+                              </a>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Last Step (Step 3 or 4) */}
+                      <div className="border border-slate-200/60 rounded-xl bg-white overflow-hidden transition-all duration-200">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const stepNum = verticalConfig.features.location_resource ? 4 : 3;
+                            setActiveWorkflowTab(activeWorkflowTab === stepNum ? 0 : stepNum);
+                          }}
+                          className="w-full flex items-center justify-between p-3 text-left font-bold text-xs text-slate-800 hover:bg-slate-50/80 transition-colors cursor-pointer"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold border transition-all ${
+                              activeWorkflowTab === (verticalConfig.features.location_resource ? 4 : 3)
+                                ? 'bg-primary/10 text-primary border-primary/20'
+                                : 'bg-slate-50 text-slate-500 border-slate-200'
+                            }`}>
+                              {verticalConfig.features.location_resource ? 4 : 3}
+                            </span>
+                            <span>Bán hàng (POS)</span>
+                          </div>
+                          <span className={`text-slate-400 transition-transform duration-250 text-[10px] ${activeWorkflowTab === (verticalConfig.features.location_resource ? 4 : 3) ? 'rotate-180' : ''}`}>
+                            ▼
+                          </span>
+                        </button>
+                        {activeWorkflowTab === (verticalConfig.features.location_resource ? 4 : 3) && (
+                          <div className="p-3 pt-0 border-t border-slate-100 text-[11px] text-slate-500 leading-relaxed font-normal animate-in slide-in-from-top-1 duration-200 space-y-1">
+                            <p>
+                              {verticalConfig.features.location_resource
+                                ? 'Mở màn hình POS để lên đơn dịch vụ giờ/phòng, gọi thêm đồ uống kèm và thanh toán.'
+                                : 'Mở màn hình POS để lên đơn hàng, quét mã vạch và thanh toán nhanh chóng.'}
+                            </p>
+                            <a
+                              href={`${homePath === '/' ? '' : homePath}/channels/pos`}
+                              onClick={() => setOnboardModalOpen(false)}
+                              className="inline-flex items-center gap-0.5 font-bold text-primary hover:underline mt-1"
+                            >
+                              <span>Mở màn hình bán hàng POS</span>
+                              <span>→</span>
+                            </a>
+                          </div>
+                        )}
                       </div>
                     </div>
+                  </div>
+
+                  {/* Negative stock notice */}
+                  <div className="flex items-start gap-2.5 p-3.5 rounded-xl border border-primary/10 bg-primary/5 text-left text-[11px] leading-relaxed">
+                    <span className="text-primary shrink-0 mt-0.5">
+                      <Lightbulb className="w-4 h-4" />
+                    </span>
+                    <p className="text-slate-600 font-medium">
+                      <strong>Mách nhỏ:</strong> Hệ thống đã bật sẵn chế độ <strong>Cho phép bán khi hết hàng</strong> để bạn có thể trải nghiệm bán thử tại POS ngay lập tức mà không cần qua các bước kiểm kho phức tạp.
+                    </p>
                   </div>
 
                   <p className="text-xs text-slate-400 text-center sm:text-left">
@@ -1182,18 +1349,25 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
                       
                       <button
                         onClick={handleSeedPresets}
-                        disabled={seedingLoading}
-                        className="w-full bg-primary hover:bg-primary-dark text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm disabled:opacity-50 transition-all flex items-center justify-center gap-2 cursor-pointer border-0 active:scale-95"
+                        disabled={seedingLoading || hasUserProducts}
+                        className="w-full bg-primary hover:bg-primary-dark text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm disabled:opacity-50 disabled:bg-slate-100 disabled:text-slate-400 disabled:border disabled:border-slate-200 transition-all flex items-center justify-center gap-2 cursor-pointer border-0 active:scale-95"
                       >
                         {seedingLoading ? (
                           <>
                             <div className="h-4.5 w-4.5 border-2 border-white border-t-transparent animate-spin rounded-full" />
                             Đang nạp dữ liệu mẫu...
                           </>
+                        ) : hasUserProducts ? (
+                          <>Đã có sản phẩm (Không thể nạp)</>
                         ) : (
                           <>Nạp dữ liệu mẫu cho {verticalConfig.label}</>
                         )}
                       </button>
+                      {hasUserProducts && (
+                        <p className="text-[10px] text-amber-600 font-semibold mt-1 text-center leading-normal">
+                          ⚠️ Chi nhánh đã có dữ liệu sản phẩm. Hãy bỏ qua bước này để tự thiết lập thủ công.
+                        </p>
+                      )}
                     </div>
 
                     {/* Option 2: Add manually */}
