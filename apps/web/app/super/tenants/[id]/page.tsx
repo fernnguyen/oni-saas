@@ -6,6 +6,7 @@ import { AddDomainForm } from './AddDomainForm';
 import { EditPlanDialog } from './EditPlanDialog';
 import { EditFeaturesDialog } from './EditFeaturesDialog';
 import { ConnectorSwitchAdmin } from './ConnectorSwitchAdmin';
+import { ShopSettingsAdminDialog } from './ShopSettingsAdminDialog';
 import { getVerticalConfig } from '@oni/core';
 
 const FEATURE_LABELS: Record<string, string> = {
@@ -379,25 +380,37 @@ export default async function SuperTenantDetail({
                 {shops.map((shop: any) => {
                   const shopConnectors = connectors.filter((c: any) => c.shop_id === shop.id);
                   return (
-                    <div key={shop.id} className="flex items-center justify-between px-4 py-3">
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <div className="h-6 w-6 rounded-md bg-slate-100 flex items-center justify-center text-slate-600 font-bold text-[10px] shrink-0">
-                          {shop.name.charAt(0).toUpperCase()}
+                    <ShopSettingsAdminDialog
+                      key={shop.id}
+                      shopId={shop.id}
+                      shopName={shop.name}
+                      shopSlug={shop.slug}
+                    >
+                      <div className="flex items-center justify-between px-4 py-3 hover:bg-slate-50 transition-colors group">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="h-6 w-6 rounded-md bg-slate-100 flex items-center justify-center text-slate-600 font-bold text-[10px] shrink-0">
+                            {shop.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <p className="text-sm font-medium text-slate-800 truncate">{shop.name}</p>
+                              <svg className="h-3 w-3 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                              </svg>
+                            </div>
+                            <p className="text-[11px] text-slate-400 font-mono">{shop.slug}</p>
+                          </div>
                         </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-slate-800 truncate">{shop.name}</p>
-                          <p className="text-[11px] text-slate-400 font-mono">{shop.slug}</p>
+                        <div className="flex items-center gap-2 shrink-0 ml-2">
+                          {shopConnectors.length > 0 && (
+                            <span className="text-[11px] text-slate-400">{shopConnectors.length}c</span>
+                          )}
+                          <span className="text-[11px] text-slate-400">
+                            {new Date(shop.created_at).toLocaleDateString('vi-VN')}
+                          </span>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 shrink-0 ml-2">
-                        {shopConnectors.length > 0 && (
-                          <span className="text-[11px] text-slate-400">{shopConnectors.length}c</span>
-                        )}
-                        <span className="text-[11px] text-slate-400">
-                          {new Date(shop.created_at).toLocaleDateString('vi-VN')}
-                        </span>
-                      </div>
-                    </div>
+                    </ShopSettingsAdminDialog>
                   );
                 })}
               </div>
