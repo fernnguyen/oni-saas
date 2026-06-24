@@ -554,6 +554,7 @@ const ACTION_META: Record<string, { label: string; color: string; dot: string }>
   'tenant.delete':      { label: 'Xoá tenant',     color: 'bg-red-100 text-red-700',      dot: 'bg-red-600' },
   'tenant.plan_change': { label: 'Đổi gói',        color: 'bg-blue-100 text-blue-700',    dot: 'bg-blue-500' },
   'tenant.activate':    { label: 'Kích hoạt',      color: 'bg-green-100 text-green-700',  dot: 'bg-green-500' },
+  'shop.settings_update': { label: 'Sửa cấu hình',   color: 'bg-indigo-100 text-indigo-700', dot: 'bg-indigo-500' },
 };
 
 function AuditLogRow({ log }: { log: { id: string; action: string; user_id: string | null; metadata: Record<string, unknown>; created_at: string } }) {
@@ -570,6 +571,11 @@ function AuditLogRow({ log }: { log: { id: string; action: string; user_id: stri
       const prev = m.previous_status as string | null;
       const next = m.new_status as string | null;
       if (prev && next) return `${prev} → ${next}`;
+    }
+    if (log.action === 'shop.settings_update') {
+      const shopName = m.shop_name as string | null;
+      const fields = m.updated_fields as string[] | null;
+      return `Chi nhánh: ${shopName || m.shop_id || ''}${fields ? ` (sửa: ${fields.join(', ')})` : ''}`;
     }
     return Object.keys(m).length > 0 ? JSON.stringify(m) : '';
   }

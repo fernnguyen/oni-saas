@@ -266,6 +266,20 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ shop
     return NextResponse.json({ message: 'Lưu cài đặt thất bại' }, { status: 500 });
   }
 
+  // Insert audit log to track this operational change
+  if (shopData.tenant_id) {
+    await admin.from('audit_logs').insert({
+      tenant_id: shopData.tenant_id,
+      user_id: superAdmin.id,
+      action: 'shop.settings_update',
+      metadata: {
+        shop_id: shopId,
+        shop_name: parsed.data.shop_name || '',
+        updated_fields: Object.keys(parsed.data),
+      },
+    });
+  }
+
   const { data: updated } = await admin
     .from('shop_settings')
     .select('*')
