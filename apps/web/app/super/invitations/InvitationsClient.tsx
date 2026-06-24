@@ -10,6 +10,8 @@ interface CodeRow {
   used_count: number;
   created_at: string;
   expires_at: string | null;
+  plan_id: number | null;
+  trial_days: number | null;
 }
 
 interface UseRow {
@@ -26,16 +28,20 @@ interface UseRow {
 
 export function InvitationsClient({ 
   initialCodes, 
-  initialUses 
+  initialUses,
+  plans = []
 }: { 
   initialCodes: CodeRow[]; 
   initialUses: UseRow[]; 
+  plans?: any[];
 }) {
   const [codes, setCodes] = useState<CodeRow[]>(initialCodes);
   const [uses, setUses] = useState<UseRow[]>(initialUses);
   const [newCode, setNewCode] = useState('');
   const [maxUses, setMaxUses] = useState<number>(0); // 0 means unlimited
   const [expiresAt, setExpiresAt] = useState('');
+  const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null);
+  const [trialDays, setTrialDays] = useState<number | null>(null);
   const [isPending, startTransition] = useTransition();
   const [expandedCode, setExpandedCode] = useState<string | null>(null);
 
@@ -63,7 +69,9 @@ export function InvitationsClient({
         await createInvitationCode(
           codeToCreate, 
           maxUses === 0 ? null : maxUses, 
-          expiresAt || null
+          expiresAt || null,
+          selectedPlanId,
+          trialDays
         );
         
         // Optimistic local state update
@@ -72,7 +80,9 @@ export function InvitationsClient({
           max_uses: maxUses === 0 ? null : maxUses,
           used_count: 0,
           created_at: new Date().toISOString(),
-          expires_at: expiresAt ? new Date(expiresAt).toISOString() : null
+          expires_at: expiresAt ? new Date(expiresAt).toISOString() : null,
+          plan_id: selectedPlanId,
+          trial_days: trialDays
         };
         
         setCodes([newlyCreated, ...codes]);
@@ -82,6 +92,8 @@ export function InvitationsClient({
         setNewCode('');
         setMaxUses(0);
         setExpiresAt('');
+        setSelectedPlanId(null);
+        setTrialDays(null);
       } catch (err: any) {
         toast.error(err.message || 'Lỗi khi tạo mã mời');
       }
@@ -221,6 +233,36 @@ export function InvitationsClient({
               />
             </div>
 
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Gói dịch vụ áp dụng</label>
+              <select
+                value={selectedPlanId ?? ''}
+                onChange={(e) => setSelectedPlanId(e.target.value ? parseInt(e.target.value) : null)}
+                disabled={isPending}
+                className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 font-medium bg-white text-slate-700"
+              >
+                <option value="">Gói mặc định (Mini / Starter)</option>
+                {plans.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({p.code})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Số ngày dùng thử (Để trống = Mặc định hệ thống)</label>
+              <input
+                type="number"
+                min="1"
+                placeholder="Ví dụ: 90 ngày (3 tháng), 360 ngày (12 tháng)"
+                value={trialDays ?? ''}
+                onChange={(e) => setTrialDays(e.target.value ? parseInt(e.target.value) : null)}
+                disabled={isPending}
+                className="w-full rounded-xl border border-slate-200 px-3.5 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 font-medium placeholder-slate-400"
+              />
+            </div>
+
             <button
               type="submit"
               disabled={isPending || !newCode.trim()}
@@ -248,6 +290,7 @@ export function InvitationsClient({
                 <thead>
                   <tr className="bg-slate-50/50 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
                     <th className="px-6 py-3.5">Mã kích hoạt</th>
+                    <th className="px-6 py-3.5">Gói & Ưu đãi</th>
                     <th className="px-6 py-3.5">Lượt sử dụng</th>
                     <th className="px-6 py-3.5">Hạn dùng / Ngày tạo</th>
                     <th className="px-6 py-3.5">Trạng thái</th>
@@ -279,6 +322,14 @@ export function InvitationsClient({
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                                 </svg>
                               </button>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="font-semibold text-slate-700">
+                              {c.plan_id ? plans.find(p => p.id === c.plan_id)?.name || `Gói ID: ${c.plan_id}` : 'Mặc định (Starter)'}
+                            </div>
+                            <div className="text-xs text-slate-400 mt-0.5">
+                              {c.trial_days ? `${c.trial_days} ngày (~ ${Math.round(c.trial_days / 30)} tháng)` : 'Mặc định hệ thống'}
                             </div>
                           </td>
                           <td className="px-6 py-4 font-semibold text-slate-700">
@@ -321,7 +372,7 @@ export function InvitationsClient({
                         {/* Accordion Log Details */}
                         {isExpanded && (
                           <tr>
-                            <td colSpan={5} className="bg-slate-50/40 p-0 border-t border-slate-100">
+                            <td colSpan={6} className="bg-slate-50/40 p-0 border-t border-slate-100">
                               <div className="px-6 py-4 space-y-3">
                                 <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
                                   <span>Lịch sử sử dụng mã: {c.code}</span>

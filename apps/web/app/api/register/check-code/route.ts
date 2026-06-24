@@ -30,5 +30,19 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ valid: false, message: 'Mã mời này đã đạt giới hạn sử dụng tối đa.' });
   }
 
-  return NextResponse.json({ valid: true });
+  let plan = null;
+  if (codeData.plan_id) {
+    const { data: planData } = await admin
+      .from('plans')
+      .select('id, code, name')
+      .eq('id', codeData.plan_id)
+      .maybeSingle();
+    plan = planData;
+  }
+
+  return NextResponse.json({
+    valid: true,
+    trial_days: codeData.trial_days,
+    plan: plan
+  });
 }

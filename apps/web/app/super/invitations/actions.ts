@@ -4,7 +4,13 @@ import { getSupabaseAdminClient } from '../../../lib/server/supabaseAdmin';
 import { getSuperAdminUser } from '../../../lib/server/auth';
 import { revalidatePath } from 'next/cache';
 
-export async function createInvitationCode(code: string, maxUses: number | null, expiresAt: string | null) {
+export async function createInvitationCode(
+  code: string,
+  maxUses: number | null,
+  expiresAt: string | null,
+  planId: number | null,
+  trialDays: number | null
+) {
   const user = await getSuperAdminUser();
   if (!user) throw new Error('Unauthorized');
 
@@ -20,6 +26,8 @@ export async function createInvitationCode(code: string, maxUses: number | null,
       max_uses: maxUses === 0 || maxUses === null ? null : maxUses,
       expires_at: expiresAt || null,
       used_count: 0,
+      plan_id: planId || null,
+      trial_days: trialDays === 0 || trialDays === null ? null : trialDays,
     });
 
   if (error) {

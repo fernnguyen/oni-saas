@@ -4,7 +4,6 @@ import { getSupabaseAdminClient } from '../../../lib/server/supabaseAdmin';
 import { getSupabaseServerClient } from '../../../lib/server/supabaseServer';
 import { verifyTurnstileToken } from '../../../lib/server/turnstile';
 import { INDUSTRY_TYPES } from '@oni/core';
-import { FREE_TRIAL_YEARS } from '../../../lib/constants/pricing';
 
 // Reject fake tenant emails — these are reserved for tenant user accounts
 const ONI_FAKE_EMAIL_RE = /^[^@]+@[^.]+\.oni\.vn$/i;
@@ -67,22 +66,17 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  if (registrationMode === 'code') {
-    if (!invitation_code || !invitation_code.trim()) {
-      return NextResponse.json(
-        { message: 'Yêu cầu nhập mã mời để đăng ký thành viên.', field: 'invitation_code' },
-        { status: 422 }
-      );
-    }
-
+  let codeData: any = null;
+  if (invitation_code && invitation_code.trim()) {
     const trimmedCode = invitation_code.trim();
 
     // Query invitation code from DB
-    const { data: codeData } = await admin
+    const { data } = await admin
       .from('invitation_codes')
       .select('*')
       .eq('code', trimmedCode)
       .maybeSingle();
+    codeData = data;
 
     if (!codeData) {
       return NextResponse.json(
@@ -106,6 +100,11 @@ export async function POST(req: NextRequest) {
         { status: 422 }
       );
     }
+  } else if (registrationMode === 'code') {
+    return NextResponse.json(
+      { message: 'Yêu cầu nhập mã mời để đăng ký thành viên.', field: 'invitation_code' },
+      { status: 422 }
+    );
   }
 
   // 1 — Check slug uniqueness (tenant + reserved subdomains share global slug namespace)
@@ -185,17 +184,43 @@ export async function POST(req: NextRequest) {
   }
   const tenantId = (tenant as any).id as string;
 
-  // Update subscription to selected plan and set free trial expiration for plan_mini
-  const planCode = parsed.data.plan_code || 'plan_mini';
-  const { data: plan } = await admin.from('plans').select('id, code').eq('code', planCode).single();
-  
-  if (plan) {
-    const updateData: any = { plan_id: plan.id };
+  // Update subscription to selected plan and set free trial expiration
+  let targetPlanId: number | null = null;
+  let trialDays: number | null = null;
+
+  if (codeData) {
+    if (codeData.plan_id) {
+      targetPlanId = codeData.plan_id;
+    }
+    if (codeData.trial_days !== null) {
+      trialDays = codeData.trial_days;
+    }
+  }
+
+  // If targetPlanId is not set by code, find default plan from parsed data or plan_mini
+  if (!targetPlanId) {
+    const planCode = parsed.data.plan_code || 'plan_mini';
+    const { data: defaultPlan } = await admin.from('plans').select('id').eq('code', planCode).maybeSingle();
+    if (defaultPlan) {
+      targetPlanId = defaultPlan.id;
+    }
+  }
+
+  // If trialDays is not set by code, get starter_trial_days from global settings if it's the starter plan (plan_mini)
+  if (trialDays === null) {
+    // Check if the target plan is plan_mini (Starter)
+    const { data: targetPlan } = await admin.from('plans').select('code').eq('id', targetPlanId).maybeSingle();
+    if (targetPlan && targetPlan.code === 'plan_mini') {
+      trialDays = parseInt(config.starter_trial_days) || 90;
+    }
+  }
+
+  if (targetPlanId) {
+    const updateData: any = { plan_id: targetPlanId };
     
-    // Set free trial expiration for plan_mini
-    if (plan.code === 'plan_mini') {
+    if (trialDays !== null) {
       const expirationDate = new Date();
-      expirationDate.setFullYear(expirationDate.getFullYear() + FREE_TRIAL_YEARS);
+      expirationDate.setDate(expirationDate.getDate() + trialDays);
       updateData.current_period_end = expirationDate.toISOString();
     }
     

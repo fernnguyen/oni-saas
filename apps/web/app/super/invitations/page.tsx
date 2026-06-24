@@ -16,6 +16,12 @@ export default async function SuperInvitationsPage() {
     .select('*, tenants(slug, name)')
     .order('used_at', { ascending: false });
 
+  // Fetch all plans to select from when creating codes
+  const { data: plans = [] } = await admin
+    .from('plans')
+    .select('*')
+    .order('id');
+
   return (
     <div className="space-y-6">
       <div>
@@ -24,7 +30,7 @@ export default async function SuperInvitationsPage() {
         <p className="text-sm text-slate-500 mt-0.5">Tạo, cấp phát và theo dõi lịch sử sử dụng mã mời đăng ký thành viên.</p>
       </div>
 
-      <InvitationsClient initialCodes={codes || []} initialUses={uses || []} />
+      <InvitationsClient initialCodes={codes || []} initialUses={uses || []} plans={plans || []} />
     </div>
   );
 }

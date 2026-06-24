@@ -75,7 +75,7 @@ const INDUSTRY_VISUALS: Record<IndustryType, {
   },
 };
 
-export function RegisterForm({ plans, initialDomain, initialIndustry, registrationMode = 'free' }: { plans: any[], initialDomain?: string, initialIndustry?: string, registrationMode?: string }) {
+export function RegisterForm({ plans, initialDomain, initialIndustry, registrationMode = 'free', starterTrialDays = 90 }: { plans: any[], initialDomain?: string, initialIndustry?: string, registrationMode?: string, starterTrialDays?: number }) {
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
@@ -89,6 +89,13 @@ export function RegisterForm({ plans, initialDomain, initialIndustry, registrati
   const [invitationCode, setInvitationCode] = useState('');
   const defaultPlan = plans.find(p => p.is_default || p.code === 'plan_mini') || plans[0];
   const [selectedPlanCode, setSelectedPlanCode] = useState(defaultPlan?.code || '');
+  const [promoDetails, setPromoDetails] = useState<{
+    valid: boolean;
+    plan?: { id: number; code: string; name: string } | null;
+    trial_days?: number | null;
+    message?: string;
+  } | null>(null);
+  const [isCheckingCode, setIsCheckingCode] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -215,6 +222,60 @@ export function RegisterForm({ plans, initialDomain, initialIndustry, registrati
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [slug]);
 
+  function formatTrialDurationVi(days: number) {
+    if (days <= 0) return '0 ngày';
+    if (days % 365 === 0) {
+      const years = days / 365;
+      return `${years} năm`;
+    }
+    if (days % 30 === 0) {
+      const months = days / 30;
+      return `${months} tháng`;
+    }
+    return `${days} ngày`;
+  }
+
+  const codeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const trimmed = invitationCode.trim();
+    if (!trimmed) {
+      setPromoDetails(null);
+      setIsCheckingCode(false);
+      setFieldErrors(prev => ({ ...prev, invitationCode: '' }));
+      setSelectedPlanCode(defaultPlan?.code || '');
+      return;
+    }
+
+    setIsCheckingCode(true);
+    if (codeDebounceRef.current) clearTimeout(codeDebounceRef.current);
+    codeDebounceRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/register/check-code?code=${encodeURIComponent(trimmed)}`);
+        const data = await res.json();
+        if (data.valid) {
+          setPromoDetails(data);
+          setFieldErrors(prev => ({ ...prev, invitationCode: '' }));
+          if (data.plan && data.plan.code) {
+            setSelectedPlanCode(data.plan.code);
+          }
+        } else {
+          setPromoDetails({ valid: false, message: data.message });
+          setFieldErrors(prev => ({ ...prev, invitationCode: data.message || 'Mã mời không hợp lệ.' }));
+          setSelectedPlanCode(defaultPlan?.code || '');
+        }
+      } catch {
+        setPromoDetails(null);
+      } finally {
+        setIsCheckingCode(false);
+      }
+    }, 500);
+
+    return () => {
+      if (codeDebounceRef.current) clearTimeout(codeDebounceRef.current);
+    };
+  }, [invitationCode, defaultPlan]);
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     if (slugStatus !== 'available' || (TURNSTILE_SITE_KEY && !turnstileToken)) return;
@@ -222,9 +283,10 @@ export function RegisterForm({ plans, initialDomain, initialIndustry, registrati
     setError(null);
     setFieldErrors({});
 
-    if (registrationMode === 'code') {
+    const trimmedCode = invitationCode.trim();
+    if (trimmedCode) {
       try {
-        const res = await fetch(`/api/register/check-code?code=${encodeURIComponent(invitationCode.trim())}`);
+        const res = await fetch(`/api/register/check-code?code=${encodeURIComponent(trimmedCode)}`);
         const checkResult = await res.json();
         if (!checkResult.valid) {
           setError(checkResult.message || 'Mã mời không hợp lệ.');
@@ -237,6 +299,10 @@ export function RegisterForm({ plans, initialDomain, initialIndustry, registrati
         setLoading(false);
         return;
       }
+    } else if (registrationMode === 'code') {
+      setError('Yêu cầu nhập mã mời để đăng ký.');
+      setLoading(false);
+      return;
     }
 
     sessionStorage.setItem('oni_register', JSON.stringify({ slug, name, email, password, plan_code: selectedPlanCode, industry_type: industryType, turnstile_token: turnstileToken, invitation_code: invitationCode }));
@@ -245,7 +311,9 @@ export function RegisterForm({ plans, initialDomain, initialIndustry, registrati
 
   const slugOk = slugStatus === 'available';
   const isCodeRequired = registrationMode === 'code';
-  const hasValidCode = isCodeRequired ? invitationCode.trim().length > 0 : true;
+  const hasValidCode = isCodeRequired 
+    ? (invitationCode.trim().length > 0 && (!promoDetails || promoDetails.valid))
+    : (invitationCode.trim().length === 0 || !promoDetails || promoDetails.valid);
   const canSubmit = slug.length >= 2 && slugOk && name.trim().length >= 2 && email && password.length >= 8 && selectedPlanCode && hasValidCode && (TURNSTILE_SITE_KEY ? turnstileToken : true);
 
   if (registrationMode === 'disabled') {
@@ -526,55 +594,80 @@ export function RegisterForm({ plans, initialDomain, initialIndustry, registrati
               )}
             </div>
 
-            {/* Invitation Code (If enabled) */}
-            {registrationMode === 'code' && (
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-700 flex items-center gap-1.5">
-                  <span>Mã mời / Code đăng ký</span>
+            {/* Invitation Code / Promo Code */}
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-slate-700 flex items-center gap-1.5">
+                <span>Mã mời / Mã ưu đãi</span>
+                {registrationMode === 'code' ? (
                   <span className="rounded-md bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700 border border-amber-200/50 uppercase tracking-wider">Bắt buộc</span>
-                </label>
-                <div className="relative flex items-center">
-                  <input
-                    type="text"
-                    value={invitationCode}
-                    onChange={(e) => {
-                      setInvitationCode(e.target.value);
-                      setFieldErrors(prev => ({ ...prev, invitationCode: '' }));
-                    }}
-                    placeholder="Nhập mã mời của bạn (ví dụ: ONI-XXXXX)"
-                    className={`w-full rounded-xl border pl-10 pr-4 py-3 text-sm focus:outline-none focus:ring-2 font-medium placeholder-slate-400 ${
-                      fieldErrors.invitationCode ? 'border-red-400 focus:border-red-400 focus:ring-red-200/50' : 'border-slate-200 focus:border-primary focus:ring-primary/20'
-                    }`}
-                    required
-                  />
-                  <div className="absolute left-3.5 text-slate-400">
-                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                ) : (
+                  <span className="rounded-md bg-slate-50 px-1.5 py-0.5 text-[9px] font-semibold text-slate-500 border border-slate-200/50 uppercase tracking-wider">Tùy chọn</span>
+                )}
+              </label>
+              <div className="relative flex items-center">
+                <input
+                  type="text"
+                  value={invitationCode}
+                  onChange={(e) => {
+                    setInvitationCode(e.target.value.toUpperCase().replace(/\s/g, ''));
+                    setFieldErrors(prev => ({ ...prev, invitationCode: '' }));
+                  }}
+                  placeholder={registrationMode === 'code' ? "Nhập mã mời bắt buộc (ví dụ: ONI-XXXXX)" : "Nhập mã ưu đãi (nếu có)"}
+                  className={`w-full rounded-xl border pl-10 pr-4 py-3 text-sm focus:outline-none focus:ring-2 font-medium placeholder-slate-400 ${
+                    fieldErrors.invitationCode ? 'border-red-400 focus:border-red-400 focus:ring-red-200/50' : 
+                    promoDetails?.valid ? 'border-green-400 focus:border-green-400 focus:ring-green-200/50' :
+                    'border-slate-200 focus:border-primary focus:ring-primary/20'
+                  }`}
+                />
+                <div className="absolute left-3.5 text-slate-400">
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                  </svg>
+                </div>
+                {isCheckingCode && (
+                  <div className="absolute right-3">
+                    <svg className="animate-spin h-4 w-4 text-slate-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
                   </div>
-                </div>
-                <p className="mt-1.5 text-[10px] text-slate-400 leading-normal">Đăng ký hiện tại đang ở chế độ giới hạn. Bạn cần có mã mời hợp lệ được cấp bởi ONI để đăng ký.</p>
-                {fieldErrors.invitationCode && (
-                  <p className="mt-1 text-xs text-red-500 font-semibold flex items-center gap-1 animate-in fade-in duration-200">
-                    <span className="shrink-0">⚠️</span> {fieldErrors.invitationCode}
-                  </p>
                 )}
               </div>
-            )}
+              <p className="mt-1.5 text-[10px] text-slate-400 leading-normal">
+                {registrationMode === 'code' 
+                  ? 'Đăng ký hiện tại đang ở chế độ giới hạn. Bạn cần có mã mời hợp lệ được cấp bởi ONI để đăng ký.'
+                  : 'Nếu bạn có mã giới thiệu hoặc mã ưu đãi từ đối tác của ONI, vui lòng nhập tại đây.'
+                }
+              </p>
+              {fieldErrors.invitationCode && (
+                <p className="mt-1 text-xs text-red-500 font-semibold flex items-center gap-1 animate-in fade-in duration-200">
+                  <span className="shrink-0">⚠️</span> {fieldErrors.invitationCode}
+                </p>
+              )}
+            </div>
 
             {/* Plan Selection */}
             {defaultPlan && (
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-700">Gói dịch vụ</label>
-                <div className="flex items-center gap-3 rounded-xl border border-primary bg-blue-50/50 px-4 py-3 text-primary">
+                <label className="mb-1.5 block text-sm font-medium text-slate-700">Gói dịch vụ đăng ký</label>
+                <div className="flex items-center gap-3 rounded-xl border border-primary bg-blue-50/50 px-4 py-3 text-primary transition-all duration-200">
                   <svg className="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
-                  <div className="flex-1 flex items-center gap-2">
-                    <span className="font-semibold">{defaultPlan.name}</span>
-                    <span className="rounded-md bg-primary px-1.5 py-0.5 text-[10px] font-bold text-white uppercase tracking-wide">Miễn phí</span>
+                  <div className="flex-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="font-bold text-slate-900">
+                      {promoDetails?.valid 
+                        ? (promoDetails.plan?.name || defaultPlan.name)
+                        : 'Starter'
+                      }
+                    </span>
+                    <span className="rounded-md bg-primary px-1.5 py-0.5 text-[10px] font-bold text-white uppercase tracking-wide">
+                      Miễn phí {formatTrialDurationVi(promoDetails?.valid && promoDetails.trial_days !== undefined && promoDetails.trial_days !== null ? promoDetails.trial_days : starterTrialDays)} dùng thử
+                    </span>
                   </div>
-                  <span className="text-xs font-medium text-primary/70">Có thể nâng cấp sau</span>
+                  <span className="text-xs font-semibold text-primary/70">
+                    {promoDetails?.valid ? 'Áp dụng từ mã ưu đãi' : 'Có thể nâng cấp sau'}
+                  </span>
                 </div>
               </div>
             )}

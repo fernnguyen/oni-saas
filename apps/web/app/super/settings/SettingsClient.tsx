@@ -15,6 +15,7 @@ export function SettingsClient({
 }) {
   const [config, setConfig] = useState(initialConfig)
   const [isPending, startTransition] = useTransition()
+  const [starterTrialDays, setStarterTrialDays] = useState<number>(initialConfig.starter_trial_days ?? 90)
 
   // System tax groups states
   const [taxGroups, setTaxGroups] = useState<any[]>(initialTaxGroups)
@@ -143,6 +144,23 @@ export function SettingsClient({
     })
   }
 
+  const handleStarterTrialDaysSave = (daysVal: number) => {
+    const finalDays = Math.max(1, daysVal)
+    setStarterTrialDays(finalDays)
+    const newConfig = { ...config, starter_trial_days: finalDays }
+    setConfig(newConfig)
+    startTransition(async () => {
+      try {
+        await updateSystemSettings(newConfig)
+        toast.success('Đã cập nhật số ngày dùng thử mặc định')
+      } catch (err) {
+        toast.error('Lỗi khi cập nhật số ngày dùng thử mặc định')
+        setConfig(config) // revert
+        setStarterTrialDays(config.starter_trial_days ?? 90)
+      }
+    })
+  }
+
   return (
     <div className="space-y-6">
       {/* Registration Settings Card */}
@@ -185,6 +203,28 @@ export function SettingsClient({
                   </button>
                 );
               })}
+            </div>
+          </div>
+
+          {/* Starter Plan Default Trial Days */}
+          <div className="px-6 py-5 space-y-3">
+            <div>
+              <h4 className="text-sm font-medium text-slate-800">Thời gian dùng thử mặc định (Gói Starter)</h4>
+              <p className="text-xs text-slate-500 mt-0.5 max-w-2xl">
+                Số ngày dùng thử miễn phí mặc định khi người dùng mới đăng ký gói Starter mà không sử dụng mã giới thiệu.
+              </p>
+            </div>
+            <div className="flex items-center gap-3 pt-1">
+              <input
+                type="number"
+                min="1"
+                value={starterTrialDays}
+                onChange={(e) => setStarterTrialDays(parseInt(e.target.value) || 0)}
+                onBlur={(e) => handleStarterTrialDaysSave(parseInt(e.target.value) || 90)}
+                disabled={isPending}
+                className="w-32 rounded-xl border border-slate-200 px-3.5 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 font-medium"
+              />
+              <span className="text-sm text-slate-500 font-medium">ngày</span>
             </div>
           </div>
 

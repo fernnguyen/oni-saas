@@ -16,6 +16,7 @@ export default async function RegisterPage({ searchParams }: { searchParams: Pro
     .single();
   const config = settingsData?.config || {};
   const registrationMode = config.registration_mode || 'free'; // 'free' | 'code' | 'disabled'
+  const starterTrialDays = parseInt(config.starter_trial_days) || 90;
 
   // Only show public plans during registration
   const plans = (dbPlans || []).filter((p: any) => p.metadata?.show_public !== false);
@@ -26,6 +27,7 @@ export default async function RegisterPage({ searchParams }: { searchParams: Pro
       initialDomain={typeof domain === 'string' ? domain : undefined} 
       initialIndustry={typeof industry === 'string' ? industry : undefined}
       registrationMode={registrationMode}
+      starterTrialDays={starterTrialDays}
     />
   );
 }
