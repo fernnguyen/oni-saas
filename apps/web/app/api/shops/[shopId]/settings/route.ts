@@ -15,7 +15,7 @@ const DEFAULT_SETTINGS = {
   tax_rate: 0,
   invoice_prefix: 'ORD',
   low_stock_threshold: 5,
-  allow_negative_stock: false,
+  allow_negative_stock: true,
   auto_print_receipt: true,
   mute_pos_sound: false,
   skip_cleaning_process: false,

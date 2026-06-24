@@ -3,16 +3,12 @@
 import Image from 'next/image';
 
 export function AppDownloadButtons() {
-  const handleDownloadClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
-    e.preventDefault();
-    alert('Đang cập nhật');
-  };
-
   return (
     <div className="flex items-center justify-center gap-4">
       <a 
-        href="#" 
-        onClick={handleDownloadClick}
+        href="https://apps.apple.com/vn/app/oni-pos/id6779038675" 
+        target="_blank"
+        rel="noopener noreferrer"
         className="hover:opacity-80 transition-opacity drop-shadow-sm"
       >
         <Image 
@@ -24,8 +20,9 @@ export function AppDownloadButtons() {
         />
       </a>
       <a 
-        href="#" 
-        onClick={handleDownloadClick}
+        href="https://play.google.com/store/apps/details?id=vn.oni.pos" 
+        target="_blank"
+        rel="noopener noreferrer"
         className="hover:opacity-80 transition-opacity drop-shadow-sm"
       >
         <Image 
@@ -39,3 +36,4 @@ export function AppDownloadButtons() {
     </div>
   );
 }
+

@@ -240,6 +240,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: shopError.message }, { status: 400 });
   }
 
+  // Create default shop settings with allow_negative_stock: true
+  try {
+    await admin.from('shop_settings').insert({
+      shop_id: (createdShop as any).id,
+      shop_name: name,
+      currency: 'VND',
+      timezone: 'Asia/Ho_Chi_Minh',
+      tax_rate: 0,
+      invoice_prefix: 'ORD',
+      low_stock_threshold: 5,
+      allow_negative_stock: true, // Enable negative stock by default for frictionless onboarding
+      default_price_type: 'retail',
+      auto_print_receipt: true,
+      mute_pos_sound: false,
+      updated_at: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error('Failed to create default shop settings:', err);
+  }
+
   // Auto-init the Time Charge product for the new shop
   try {
     const { getTimeChargeProductId } = await import('@oni/core');
@@ -262,7 +282,7 @@ export async function POST(req: NextRequest) {
       cost_price: '0',
       tax_rate: '0',
       input_tax_rate: '0',
-      tax_group: '',
+      tax_group: 'dich_vu', // System service tax group under Circular 40/2021/TT-BTC
       product_type: 'service',
       branch_id: (createdShop as any).id
     };
@@ -270,6 +290,7 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error('Failed to auto-init TIME_CHARGE product during registration:', err);
   }
+
 
   // 5 — Assign default Local DB connector (System worker, Read-only)
   await admin.from('connectors').insert({

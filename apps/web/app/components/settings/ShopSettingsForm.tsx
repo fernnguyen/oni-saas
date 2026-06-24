@@ -179,6 +179,17 @@ export function ShopSettingsForm({
 
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<'general' | 'sales' | 'debt' | 'sepay' | 'crm' | 'telegram' | 'payment-methods'>('general');
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const tab = params.get('tab');
+      if (tab && ['general', 'sales', 'debt', 'sepay', 'crm', 'telegram', 'payment-methods'].includes(tab)) {
+        setActiveTab(tab as any);
+      }
+    }
+  }, []);
+
   const [isIndustryUnlocked, setIsIndustryUnlocked] = useState(false);
   const [isEditingIndustry, setIsEditingIndustry] = useState(false);
 

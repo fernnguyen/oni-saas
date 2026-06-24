@@ -4,7 +4,23 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { SetupModal } from '../../components/connectors/SetupModal';
-import { getPaymentMethodLabel } from '@oni/core';
+import { getPaymentMethodLabel, getVerticalConfig } from '@oni/core';
+import { 
+  Sparkles, 
+  Lightbulb, 
+  Package, 
+  Edit, 
+  Check, 
+  Receipt, 
+  Wallet, 
+  Smartphone, 
+  MessageCircle, 
+  Rocket, 
+  ExternalLink,
+  ChevronRight,
+  ArrowLeft,
+  HelpCircle
+} from 'lucide-react';
 
 interface Props {
   shop: {
@@ -245,6 +261,13 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
   const errorParam = searchParams.get('error');
   const successParam = searchParams.get('success');
 
+  // Onboarding States
+  const [onboardModalOpen, setOnboardModalOpen] = useState(false);
+  const [onboardStep, setOnboardStep] = useState(1); // 1: Welcome/Info, 2: Seed/Choice, 3: Success
+  const [seedingLoading, setSeedingLoading] = useState(false);
+  const [seedSuccess, setSeedSuccess] = useState(false);
+  const [seedingError, setSeedingError] = useState<string | null>(null);
+
   // Trigger demo mode automatically if there's no data source connected
   useEffect(() => {
     if (!connected) {
@@ -255,7 +278,7 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
   }, [connected]);
 
   // Fetch real data via React Query when connected and demo mode is off
-  const { data: realData, isLoading, error: apiError } = useQuery<OverviewData>({
+  const { data: realData, isLoading, error: apiError, refetch: refetchOverview } = useQuery<OverviewData>({
     queryKey: ['reports-overview', shop.id],
     queryFn: async () => {
       const res = await fetch(`/api/shops/${shop.id}/reports/overview`);
@@ -265,6 +288,71 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
     enabled: connected && !demoMode,
     staleTime: 120_000,
   });
+
+  // Fetch products to check if we need onboarding
+  const { data: productsData, refetch: refetchProducts } = useQuery({
+    queryKey: ['products-list-count', shop.id],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shop.id}/products?limit=10`);
+      if (!res.ok) return { data: [], total: 0 };
+      return res.json();
+    },
+    enabled: connected && !demoMode,
+  });
+
+  // Check if shop settings allow negative stock
+  const { data: shopSettings, refetch: refetchSettings } = useQuery({
+    queryKey: ['shop-settings-onboard', shop.id],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shop.id}/settings`);
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: connected && !demoMode,
+  });
+
+  // Auto-open onboarding modal logic
+  useEffect(() => {
+    if (productsData && connected && !demoMode) {
+      const dismissed = localStorage.getItem(`oni_onboard_dismissed_${shop.id}`);
+      const userProducts = productsData.data?.filter(
+        (p: any) =>
+          !p.id?.toLowerCase().startsWith('time_charge') &&
+          !p.product_id?.toLowerCase().startsWith('time_charge') &&
+          !p.sku?.toLowerCase().startsWith('time_charge')
+      ) || [];
+      const hasUserProducts = userProducts.length > 0 || productsData.total > 5;
+
+      if (!hasUserProducts && !dismissed) {
+        setOnboardModalOpen(true);
+        setOnboardStep(1);
+      }
+    }
+  }, [productsData, connected, demoMode, shop.id]);
+
+  const handleSeedPresets = async () => {
+    setSeedingLoading(true);
+    setSeedingError(null);
+    try {
+      const res = await fetch(`/api/shops/${shop.id}/onboarding/seed`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Lỗi khởi tạo dữ liệu mẫu');
+      
+      setSeedSuccess(true);
+      setOnboardStep(3); // success slide
+      
+      // Refetch queries to populate dashboard
+      refetchProducts();
+      refetchSettings();
+      refetchOverview();
+    } catch (err: any) {
+      setSeedingError(err.message || 'Có lỗi xảy ra khi nạp dữ liệu. Vui lòng thử lại.');
+    } finally {
+      setSeedingLoading(false);
+    }
+  };
 
   const mockData = generateMockData();
   const activeData = demoMode ? mockData : realData;
@@ -276,6 +364,16 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
   const displayKpi = activeData?.kpi;
   let chartSeries = activeData?.revenueSeries ?? [];
 
+  const verticalConfig = getVerticalConfig(shopSettings?.industry_type || 'retail');
+  const userProducts = productsData?.data?.filter(
+    (p: any) =>
+      !p.id?.toLowerCase().startsWith('time_charge') &&
+      !p.product_id?.toLowerCase().startsWith('time_charge') &&
+      !p.sku?.toLowerCase().startsWith('time_charge')
+  ) || [];
+  const hasUserProducts = userProducts.length > 0 || (productsData?.total ?? 0) > 5;
+  const showOnboardBanner = connected && !demoMode && productsData && !hasUserProducts;
+
   if (activeData) {
     if (timeFilter === 'today') {
       chartSeries = chartSeries.slice(-1);
@@ -283,6 +381,7 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
       chartSeries = chartSeries.slice(-7);
     }
   }
+
 
   const handleConnectedSuccess = () => {
     setConnected(true);
@@ -293,81 +392,172 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
   return (
     <div className="space-y-6">
       {/* ── Top Header and Store Status ──────────────────────────────────────── */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-white rounded-3xl border border-slate-100 p-6 shadow-[0_8px_30px_rgb(0,0,0,0.02)]">
-        <div>
-          <span className="text-xs font-semibold uppercase tracking-wider text-indigo-500">
-            {getGreeting()}
-          </span>
-          <h1 className="text-2xl font-bold text-slate-800 tracking-tight mt-0.5">{shop.name}</h1>
-          
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mt-1.5 text-xs text-slate-500 font-medium tracking-wide">
-            {/* Physical Address of the shop */}
-            {shop.address && (
-              <div className="flex items-center gap-1.5">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5 bg-white rounded-3xl border border-slate-100 p-6 shadow-[0_8px_30px_rgb(0,0,0,0.01)]">
+        {/* Left Side: Shop identity and details */}
+        <div className="flex items-start">
+          <div className="space-y-1">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-650 bg-indigo-50/60 px-2 py-0.5 rounded-md">
+              {getGreeting()}
+            </span>
+            
+            <div className="flex items-center flex-wrap gap-2.5 mt-1">
+              <h1 className="text-xl font-extrabold text-slate-800 tracking-tight">{shop.name}</h1>
+              
+              {/* Connector status pill - behind the shop name */}
+              <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold border transition-all ${
+                connected
+                  ? 'bg-emerald-50/50 text-emerald-700 border-emerald-100'
+                  : 'bg-amber-50/50 text-amber-700 border-amber-100'
+              }`}>
+                <span className={`h-1.5 w-1.5 rounded-full animate-pulse ${connected ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                {connected ? 'Dữ liệu trực tuyến' : 'Chưa kết nối dữ liệu'}
+              </span>
+
+              {/* Demo mode status pill */}
+              {demoMode && (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50/50 text-indigo-700 border border-indigo-100/50 px-2.5 py-1 text-[11px] font-bold">
+                  <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
+                  Chế độ Demo
+                </span>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 mt-2 text-xs text-slate-500 font-medium">
+              {/* Physical Address of the shop */}
+              {shop.address && (
+                <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1 rounded-xl border border-slate-100 shadow-[0_4px_12px_rgba(0,0,0,0.01)] text-slate-655">
+                  <svg className="w-3.5 h-3.5 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  <span>{shop.address}</span>
+                </div>
+              )}
+
+              {/* Website URL showing subdomain */}
+              <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1 rounded-xl border border-slate-100 shadow-[0_4px_12px_rgba(0,0,0,0.01)] text-slate-655">
                 <svg className="w-3.5 h-3.5 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
                 </svg>
-                <span className="text-slate-650">{shop.address}</span>
+                <span className="font-semibold">{shop.tenantSlug || 'tenant'}.oni.vn/{shop.slug}</span>
               </div>
-            )}
-
-            {shop.address && (
-              <span className="text-slate-300 select-none hidden sm:inline">•</span>
-            )}
-
-            {/* Website URL showing subdomain */}
-            <div className="flex items-center gap-1.5">
-              <svg className="w-3.5 h-3.5 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
-              </svg>
-              <span className="text-slate-600 font-medium">{shop.tenantSlug || 'tenant'}.oni.vn/{shop.slug}</span>
             </div>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Connector status pill */}
-          <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-all ${
-            connected
-              ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-              : 'bg-amber-50 text-amber-700 border border-amber-100'
-          }`}>
-            <span className={`h-2 w-2 rounded-full animate-pulse ${connected ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-            {connected ? 'Dữ liệu trực tuyến' : 'Chưa kết nối dữ liệu'}
-          </span>
-
-          {/* Demo mode status pill */}
-          {demoMode && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100 px-3 py-1.5 text-xs font-semibold">
-              Chế độ Demo
-            </span>
-          )}
-
-          {/* Configuration Action if not connected */}
-          {!connected && (
-            <button
-              onClick={() => setShowModal(true)}
-              className="rounded-xl px-4 py-2 text-xs font-bold transition-all shadow-sm bg-indigo-600 text-white hover:bg-indigo-700"
+        {/* Right Side: Action triggers, Support links and App download links */}
+        <div className="flex flex-col items-start lg:items-end gap-3 shrink-0">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Zalo Support button replacing status pill */}
+            <a
+              href="https://zalo.me/g/owlxjd9bqfhocunnrjos"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-650 hover:text-blue-800 text-xs font-bold border border-blue-100/50 transition-all cursor-pointer shadow-sm hover:scale-[1.02]"
             >
-              Cấu hình Sheet dữ liệu
-            </button>
-          )}
+              <img src="/partners/zalo.svg" alt="Zalo" className="w-4 h-4 shrink-0 rounded-md" />
+              <span>Tham gia nhóm Zalo hỗ trợ</span>
+            </a>
 
-          {/* Demo toggle if not connected */}
-          {!connected && (
+            {/* Welcome / prep instructions button behind Zalo support, using HelpCircle */}
             <button
-              onClick={() => setDemoMode(!demoMode)}
-              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
+              onClick={() => {
+                setOnboardStep(1);
+                setOnboardModalOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-655 hover:text-indigo-800 text-xs font-bold border border-indigo-100/50 transition-all cursor-pointer shadow-sm hover:scale-[1.02]"
+              title="Hướng dẫn chuẩn bị ban đầu"
             >
-              {demoMode ? 'Tắt bản thử' : 'Bật bản thử'}
+              <HelpCircle className="w-4 h-4 text-indigo-600 shrink-0" />
+              <span>Hướng dẫn chuẩn bị</span>
             </button>
-          )}
+
+            {/* Configuration Actions if not connected */}
+            {!connected && (
+              <button
+                onClick={() => setShowModal(true)}
+                className="cursor-pointer rounded-xl px-4 py-1.5 text-xs font-bold transition-all shadow-sm bg-indigo-600 text-white hover:bg-indigo-700"
+              >
+                Cấu hình Sheet dữ liệu
+              </button>
+            )}
+
+            {!connected && (
+              <button
+                onClick={() => setDemoMode(!demoMode)}
+                className="cursor-pointer rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-655 hover:bg-slate-50 transition-all"
+              >
+                {demoMode ? 'Tắt bản thử' : 'Bật bản thử'}
+              </button>
+            )}
+          </div>
+
+          {/* App download links */}
+          <div className="flex items-center gap-2 mt-0.5">
+            <a 
+              href="https://apps.apple.com/vn/app/oni-pos/id6779038675" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="hover:opacity-85 transition-opacity"
+            >
+              <img src="/partners/app-store.svg" alt="App Store" className="h-[21px] w-auto" />
+            </a>
+            <a 
+              href="https://play.google.com/store/apps/details?id=vn.oni.pos" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="hover:opacity-85 transition-opacity"
+            >
+              <img src="/partners/google-play.svg" alt="Google Play" className="h-[21px] w-auto" />
+            </a>
+          </div>
         </div>
       </div>
 
       {/* ── Banners & Status Notices ─────────────────────────────────────────── */}
+      {/* Onboarding / Welcome Banner */}
+      {showOnboardBanner && (
+        <div className="rounded-2xl bg-gradient-to-r from-emerald-500/10 via-teal-500/5 to-transparent border border-emerald-100 px-6 py-5 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">🚀</span>
+              <h3 className="font-bold text-emerald-950 text-base">Khởi động nhanh chi nhánh mới của bạn!</h3>
+            </div>
+            <p className="text-slate-600 text-sm leading-relaxed max-w-2xl">
+              Cửa hàng của bạn đã sẵn sàng hoạt động với chế độ **Cho phép bán khi hết hàng (Bán âm)** được kích hoạt mặc định. Hãy nạp dữ liệu mẫu phù hợp với ngành hàng <strong>{verticalConfig.label}</strong> để trải nghiệm thử bán hàng tại POS ngay lập tức, hoặc tự tạo sản phẩm của riêng bạn.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <button
+              onClick={() => {
+                setOnboardStep(2); // Skip straight to the seeding choice page
+                setOnboardModalOpen(true);
+              }}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-5 py-3 rounded-xl transition-all shadow-sm shadow-emerald-100 cursor-pointer"
+            >
+              Nạp dữ liệu mẫu
+            </button>
+            <a
+              href="/products"
+              className="bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs px-5 py-3 rounded-xl border border-slate-200 transition-all text-center"
+            >
+              Tự thêm sản phẩm
+            </a>
+            <button
+              onClick={() => {
+                setOnboardStep(1); // Welcome slide
+                setOnboardModalOpen(true);
+              }}
+              className="text-slate-550 hover:text-slate-800 font-semibold text-xs px-3 py-2 cursor-pointer"
+            >
+              Xem hướng dẫn
+            </button>
+          </div>
+        </div>
+      )}
+
       {successParam === 'connected' && (
+
         <div className="rounded-2xl border border-emerald-100 bg-emerald-50/50 px-5 py-4 text-sm text-emerald-800 flex items-center gap-3">
           <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-white text-xs font-bold">✓</span>
           <p className="font-medium">Chúc mừng! Bạn đã kết nối Google Sheet thành công cho chi nhánh này.</p>
@@ -898,6 +1088,337 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
         </section>
       </div>
 
+      {/* ── Onboarding Welcome Modal ────────────────────────────────────────── */}
+      {onboardModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/75 backdrop-blur-md p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_20px_50px_rgba(0,0,0,0.15)] max-w-lg w-full overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col">
+            
+            {/* Modal Header */}
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div className="flex items-center gap-2">
+                <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-xs font-bold uppercase tracking-wider text-emerald-600">Hướng dẫn chuẩn bị</span>
+              </div>
+              <button
+                onClick={() => {
+                  setOnboardModalOpen(false);
+                  localStorage.setItem(`oni_onboard_dismissed_${shop.id}`, 'true');
+                }}
+                className="text-slate-400 hover:text-slate-600 transition-colors rounded-lg p-1 hover:bg-slate-100"
+              >
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 md:p-8 flex-1 overflow-y-auto space-y-6">
+              {onboardStep === 1 && (
+                <div className="space-y-4 text-center sm:text-left">
+                  <div className="flex justify-center sm:justify-start">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white border border-slate-100 shadow-sm overflow-hidden">
+                      <img src="/logo.png" alt="ONI Logo" className="h-10 w-10 object-contain" />
+                    </div>
+                  </div>
+                  <h3 className="text-xl font-extrabold text-primary tracking-tight">
+                    Cảm ơn bạn đã sử dụng phần mềm ONI!
+                  </h3>
+                  <p className="text-slate-600 text-sm leading-relaxed font-medium">
+                    Hệ thống quản lý bán lẻ & dịch vụ của bạn đã được thiết lập thành công. Hãy bắt đầu trải nghiệm đầy đủ các tính năng của ONI.
+                  </p>
+                  
+                  <div className="rounded-2xl border border-primary/10 bg-primary/5 p-4 space-y-3 text-left">
+                    <div className="flex items-start gap-3 text-xs text-slate-900 font-medium">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary/10 border border-primary/20 text-primary shadow-sm mt-0.5">
+                        <Lightbulb className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <p className="font-bold">Bán hàng nhanh không cần nhập kho</p>
+                        <p className="text-slate-500 font-normal mt-0.5 leading-relaxed">
+                          Hệ thống đã bật sẵn chế độ <strong>"Cho phép bán khi hết hàng"</strong> để bạn làm quen và trải nghiệm bán thử tại POS ngay lập tức mà không bị chặn do hết hàng. Nếu cần thay đổi thiết lập này, bạn có thể cấu hình lại trong phần <strong>Cài đặt chi nhánh</strong>.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-slate-400 text-center sm:text-left">
+                    Nhấn tiếp tục để tùy chọn cấu hình dữ liệu mẫu hoặc tự thiết lập thủ công.
+                  </p>
+                </div>
+              )}
+
+              {onboardStep === 2 && (
+                <div className="space-y-6 text-center sm:text-left">
+                  <div className="space-y-2">
+                    <h3 className="text-lg font-bold text-slate-800">
+                      Bạn muốn bắt đầu như thế nào?
+                    </h3>
+                    <p className="text-slate-500 text-sm">
+                      Chọn cách thiết lập dữ liệu phù hợp với định hướng của bạn:
+                    </p>
+                  </div>
+
+                  {seedingError && (
+                    <div className="rounded-xl bg-red-50 border border-red-200 p-3.5 text-xs text-red-600 font-medium">
+                      {seedingError}
+                    </div>
+                  )}
+
+                  <div className="space-y-4">
+                    {/* Option 1: Seed sample data */}
+                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50/20 p-5 space-y-3 text-left transition-all hover:border-emerald-350">
+                      <div className="flex items-start gap-3">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-100 border border-emerald-200 text-emerald-700 shadow-xs">
+                          <Package className="w-5 h-5" />
+                        </div>
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-bold text-emerald-950">Khởi tạo dữ liệu mẫu (Khuyên dùng)</h4>
+                          <p className="text-xs text-slate-500 leading-relaxed font-normal">
+                            Tự động tạo 3-5 sản phẩm mẫu, danh mục tương ứng và sơ đồ bàn/phòng/sân mẫu phù hợp nhất với ngành hàng <strong>{verticalConfig.label}</strong> của bạn.
+                          </p>
+                        </div>
+                      </div>
+                      
+                      <button
+                        onClick={handleSeedPresets}
+                        disabled={seedingLoading}
+                        className="w-full bg-primary hover:bg-primary-dark text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm disabled:opacity-50 transition-all flex items-center justify-center gap-2 cursor-pointer border-0 active:scale-95"
+                      >
+                        {seedingLoading ? (
+                          <>
+                            <div className="h-4.5 w-4.5 border-2 border-white border-t-transparent animate-spin rounded-full" />
+                            Đang nạp dữ liệu mẫu...
+                          </>
+                        ) : (
+                          <>Nạp dữ liệu mẫu cho {verticalConfig.label}</>
+                        )}
+                      </button>
+                    </div>
+
+                    {/* Option 2: Add manually */}
+                    <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-3 text-left transition-all hover:border-slate-300">
+                      <div className="flex items-start gap-3">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 border border-slate-250 text-slate-600 shadow-xs">
+                          <Edit className="w-5 h-5" />
+                        </div>
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-bold text-slate-800">Tự tạo dữ liệu của riêng bạn</h4>
+                          <p className="text-xs text-slate-500 leading-relaxed font-normal">
+                            Bỏ qua dữ liệu mẫu để trực tiếp thêm các sản phẩm, danh mục và cấu hình cụ thể cho cửa hàng của bạn từ đầu.
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          setOnboardStep(3); // Go directly to checklist
+                        }}
+                        className="w-full text-center bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold py-2.5 px-4 rounded-xl transition-all cursor-pointer shadow-3xs active:scale-95"
+                      >
+                        Tự thêm sản phẩm thủ công
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {onboardStep === 3 && (
+                <div className="space-y-5 text-left">
+                  <div className="text-center space-y-2">
+                    <div className="flex justify-center">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 border border-emerald-100 text-emerald-600 shadow-sm">
+                        <Check className="w-6 h-6" />
+                      </div>
+                    </div>
+                    <h3 className="text-lg font-bold text-slate-800">
+                      Khởi tạo dữ liệu thành công!
+                    </h3>
+                    <p className="text-slate-500 text-xs leading-normal max-w-sm mx-auto">
+                      Gian hàng <strong>{shop.name}</strong> đã sẵn sàng. Hãy hoàn thành checklist dưới đây để bắt đầu kinh doanh chính thức:
+                    </p>
+                  </div>
+
+                  <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
+                    {/* Item 1: Seeding (Completed) */}
+                    <div className="flex gap-3 p-3.5 rounded-2xl border border-emerald-100 bg-emerald-50/10">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white shadow-xs">
+                        <Check className="w-3 h-3" />
+                      </span>
+                      <div className="space-y-0.5">
+                        <h4 className="text-xs font-bold text-emerald-950">Khởi tạo sản phẩm & sơ đồ mẫu</h4>
+                        <p className="text-[11px] text-slate-500 leading-normal">
+                          {seedSuccess ? `Đã tạo sản phẩm và sơ đồ mẫu theo ngành ${verticalConfig.label}.` : "Bắt đầu tự lập danh sách sản phẩm và sơ đồ bàn của bạn."}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Item 2: Cashbook Bank Account (Pending) */}
+                    <div className="flex gap-3 p-3.5 rounded-2xl border border-slate-100 bg-white">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-250 text-slate-550 bg-slate-50 font-semibold shadow-xs">
+                        <Wallet className="w-3.5 h-3.5" />
+                      </span>
+                      <div className="space-y-0.5 flex-1">
+                        <h4 className="text-xs font-bold text-slate-800">Cấu hình Số tài khoản ở sổ quỹ</h4>
+                        <p className="text-[11px] text-slate-500 leading-normal">
+                          Liên kết thông tin Ngân hàng & Số tài khoản trong Sổ quỹ để nhận thanh toán VietQR động tại POS.
+                        </p>
+                        <a
+                          href={`${homePath === '/' ? '' : homePath}/cashbook`}
+                          onClick={() => {
+                            setOnboardModalOpen(false);
+                            localStorage.setItem(`oni_onboard_dismissed_${shop.id}`, 'true');
+                          }}
+                          className="inline-flex items-center gap-0.5 text-[11px] font-bold text-primary hover:underline mt-1"
+                        >
+                          <span>Đi đến Sổ quỹ</span>
+                          <span>→</span>
+                        </a>
+                      </div>
+                    </div>
+
+                    {/* Item 3: Invoice Settings (Pending) */}
+                    <div className="flex gap-3 p-3.5 rounded-2xl border border-slate-100 bg-white">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-250 text-slate-550 bg-slate-50 font-semibold shadow-xs">
+                        <Receipt className="w-3.5 h-3.5" />
+                      </span>
+                      <div className="space-y-0.5 flex-1">
+                        <h4 className="text-xs font-bold text-slate-800">Cấu hình thông tin hiển thị trên Hóa đơn</h4>
+                        <p className="text-[11px] text-slate-500 leading-normal">
+                          Cập nhật các thông tin Wi-Fi, Mã số thuế, tên cửa hàng và địa chỉ in trên biên lai thanh toán.
+                        </p>
+                        <a
+                          href={`${homePath === '/' ? '' : homePath}/settings?tab=sales`}
+                          onClick={() => {
+                            setOnboardModalOpen(false);
+                            localStorage.setItem(`oni_onboard_dismissed_${shop.id}`, 'true');
+                          }}
+                          className="inline-flex items-center gap-0.5 text-[11px] font-bold text-primary hover:underline mt-1"
+                        >
+                          <span>Thiết lập hóa đơn</span>
+                          <span>→</span>
+                        </a>
+                      </div>
+                    </div>
+
+                    {/* Item 4: Download App (App Store / CH Play) */}
+                    <div className="flex gap-3 p-3.5 rounded-2xl border border-slate-100 bg-white">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-250 text-slate-550 bg-slate-50 font-semibold shadow-xs">
+                        <Smartphone className="w-3.5 h-3.5" />
+                      </span>
+                      <div className="space-y-1 flex-1">
+                        <h4 className="text-xs font-bold text-slate-800">Tải ứng dụng di động Oni POS</h4>
+                        <p className="text-[11px] text-slate-500 leading-normal">
+                          Bán hàng nhanh, in bill và theo dõi doanh số tức thì ngay trên điện thoại của bạn.
+                        </p>
+                        <div className="flex items-center gap-2 pt-1">
+                          <a
+                            href="https://apps.apple.com/vn/app/oni-pos/id6779038675"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="hover:opacity-85 transition-opacity"
+                          >
+                            <img
+                              src="/partners/app-store.svg"
+                              alt="App Store"
+                              className="h-6 w-auto"
+                            />
+                          </a>
+                          <a
+                            href="https://play.google.com/store/apps/details?id=vn.oni.pos"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="hover:opacity-85 transition-opacity"
+                          >
+                            <img
+                              src="/partners/google-play.svg"
+                              alt="Google Play"
+                              className="h-6 w-auto"
+                            />
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Item 5: Zalo Community Support (New) */}
+                    <div className="flex gap-3 p-3.5 rounded-2xl border border-slate-100 bg-white">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-blue-150 text-blue-600 bg-blue-50/50 font-semibold shadow-xs">
+                        <MessageCircle className="w-3.5 h-3.5" />
+                      </span>
+                      <div className="space-y-0.5 flex-1">
+                        <h4 className="text-xs font-bold text-slate-800">Tham gia Cộng đồng Hỗ trợ Zalo</h4>
+                        <p className="text-[11px] text-slate-500 leading-normal">
+                          Nhận tài liệu hướng dẫn, giải đáp thắc mắc và hỗ trợ kỹ thuật trực tiếp 24/7 từ đội ngũ ONI.
+                        </p>
+                        <a
+                          href="https://zalo.me/g/owlxjd9bqfhocunnrjos"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-0.5 text-[11px] font-bold text-blue-600 hover:underline mt-1"
+                        >
+                          <span>Vào nhóm Zalo hỗ trợ</span>
+                          <ExternalLink className="w-3 h-3 shrink-0" />
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 space-y-2.5 max-w-xs mx-auto">
+                    <a
+                      href={`${homePath === '/' ? '' : homePath}/channels/pos`}
+                      className="flex items-center justify-center gap-2 w-full bg-primary hover:bg-primary-dark text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm transition-all text-center cursor-pointer active:scale-95"
+                    >
+                      <span>Bán hàng ngay tại quầy (POS)</span>
+                      <span>→</span>
+                    </a>
+
+                    <button
+                      onClick={() => {
+                        setOnboardModalOpen(false);
+                        localStorage.setItem(`oni_onboard_dismissed_${shop.id}`, 'true');
+                      }}
+                      className="block text-center w-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold py-2.5 px-4 rounded-xl transition-all cursor-pointer active:scale-95"
+                    >
+                      Hoàn thành & Đóng hướng dẫn
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            {onboardStep < 3 && (
+              <div className="p-5 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
+                <div className="flex gap-1">
+                  <span className={`h-1.5 w-1.5 rounded-full transition-all ${onboardStep === 1 ? 'bg-primary w-3' : 'bg-slate-300'}`} />
+                  <span className={`h-1.5 w-1.5 rounded-full transition-all ${onboardStep === 2 ? 'bg-primary w-3' : 'bg-slate-300'}`} />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {onboardStep === 1 ? (
+                    <button
+                      onClick={() => setOnboardStep(2)}
+                      className="bg-primary hover:bg-primary-dark text-white text-xs font-bold py-2.5 px-5 rounded-xl shadow-sm transition-all cursor-pointer active:scale-95"
+                    >
+                      Tiếp tục →
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setOnboardStep(1)}
+                      disabled={seedingLoading}
+                      className="text-slate-600 hover:text-slate-900 font-semibold text-xs py-2 px-3 disabled:opacity-50 transition-all cursor-pointer active:scale-95"
+                    >
+                      ← Quay lại
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+          </div>
+        </div>
+      )}
+
       {/* ── Setup Connector Dialog Modal ────────────────────────────────────── */}
       {showModal && (
         <SetupModal
@@ -910,4 +1431,5 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
     </div>
   );
 }
+
 
