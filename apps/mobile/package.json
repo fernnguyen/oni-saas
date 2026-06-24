@@ -11,6 +11,7 @@
     "ts:check": "tsc",
     "eas-build-pre-install": "bash scripts/setup-google-services.sh",
     "eas:helper": "node scripts/eas-helper.js",
+    "release": "node scripts/release.js",
     "build:ios:local": "eas build --platform ios --profile production --local",
     "submit:ios:local": "eas submit --platform ios",
     "build:android:local": "eas build --platform android --profile production --local",

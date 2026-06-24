@@ -20,6 +20,7 @@
     "mobile:android": "pnpm --filter @oni/mobile android",
     "mobile:eas": "pnpm --filter @oni/mobile eas:helper",
     "mobile:eas:local": "pnpm --filter @oni/mobile eas:helper local",
+    "mobile:release": "pnpm --filter @oni/mobile release",
     "mobile:ios:build": "pnpm --filter @oni/mobile build:ios:local",
     "mobile:ios:submit": "pnpm --filter @oni/mobile submit:ios:local",
     "mobile:android:build": "pnpm --filter @oni/mobile build:android:local",
