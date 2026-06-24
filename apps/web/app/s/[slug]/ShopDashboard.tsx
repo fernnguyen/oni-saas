@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
+import Link from 'next/link';
 import { SetupModal } from '../../components/connectors/SetupModal';
 import { getPaymentMethodLabel, getVerticalConfig } from '@oni/core';
 import { 
@@ -538,12 +539,12 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
             >
               Nạp dữ liệu mẫu
             </button>
-            <a
-              href="/products"
+            <Link
+              href={`${homePath === '/' ? '' : homePath}/products`}
               className="bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs px-5 py-3 rounded-xl border border-slate-200 transition-all text-center"
             >
               Tự thêm sản phẩm
-            </a>
+            </Link>
             <button
               onClick={() => {
                 setOnboardStep(1); // Welcome slide
@@ -1061,7 +1062,7 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
         <h2 className="text-sm font-bold text-slate-700 tracking-wide uppercase mb-4">Các tính năng nghiệp vụ</h2>
         <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {shopModules.map((module) => (
-            <a
+            <Link
               key={module.href}
               href={`${homePath === '/' ? '' : homePath}${module.href}`}
               className="group relative overflow-hidden rounded-2xl border border-slate-100 bg-white p-5 shadow-[0_8px_30px_rgb(0,0,0,0.01)] hover:shadow-[0_12px_30px_rgb(0,0,0,0.04)] hover:border-indigo-100 hover:bg-indigo-50/10 transition-all duration-300"
@@ -1084,7 +1085,7 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
                   </p>
                 </div>
               </div>
-            </a>
+            </Link>
           ))}
         </section>
       </div>
@@ -1136,12 +1137,12 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
                     <div className="space-y-2">
                       {/* Step 1 */}
                       <div className="border border-slate-200/60 rounded-xl bg-white overflow-hidden transition-all duration-200">
-                        <button
-                          type="button"
-                          onClick={() => setActiveWorkflowTab(activeWorkflowTab === 1 ? 0 : 1)}
-                          className="w-full flex items-center justify-between p-3 text-left font-bold text-xs text-slate-800 hover:bg-slate-50/80 transition-colors cursor-pointer"
-                        >
-                          <div className="flex items-center gap-2">
+                        <div className="w-full flex items-center justify-between p-3 hover:bg-slate-50/80 transition-colors">
+                          <button
+                            type="button"
+                            onClick={() => setActiveWorkflowTab(activeWorkflowTab === 1 ? 0 : 1)}
+                            className="flex-1 flex items-center gap-2 text-left font-bold text-xs text-slate-800 cursor-pointer"
+                          >
                             <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold border transition-all ${
                               activeWorkflowTab === 1
                                 ? 'bg-primary/10 text-primary border-primary/20'
@@ -1150,11 +1151,27 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
                               1
                             </span>
                             <span>Tạo sản phẩm & dịch vụ</span>
+                          </button>
+                          
+                          <div className="flex items-center gap-2">
+                            <Link
+                              href={`${homePath === '/' ? '' : homePath}/products`}
+                              onClick={() => setOnboardModalOpen(false)}
+                              className="text-primary hover:text-primary-dark font-extrabold text-[10px] hover:underline"
+                            >
+                              Đi tới
+                            </Link>
+                            <button
+                              type="button"
+                              onClick={() => setActiveWorkflowTab(activeWorkflowTab === 1 ? 0 : 1)}
+                              className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer shrink-0"
+                            >
+                              <span className={`inline-block transition-transform duration-250 text-[10px] ${activeWorkflowTab === 1 ? 'rotate-180' : ''}`}>
+                                ▼
+                              </span>
+                            </button>
                           </div>
-                          <span className={`text-slate-400 transition-transform duration-250 text-[10px] ${activeWorkflowTab === 1 ? 'rotate-180' : ''}`}>
-                            ▼
-                          </span>
-                        </button>
+                        </div>
                         {activeWorkflowTab === 1 && (
                           <div className="p-3 pt-0 border-t border-slate-100 text-[11px] text-slate-500 leading-relaxed font-normal animate-in slide-in-from-top-1 duration-200 space-y-1">
                             <p>
@@ -1162,26 +1179,26 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
                                 ? 'Tạo dịch vụ tính tiền chính (tiền giờ, tiền phòng) cùng các mặt hàng đồ ăn, nước uống bán kèm.'
                                 : 'Thêm hàng hóa, dịch vụ và danh mục kinh doanh của bạn.'}
                             </p>
-                            <a
+                            <Link
                               href={`${homePath === '/' ? '' : homePath}/products`}
                               onClick={() => setOnboardModalOpen(false)}
                               className="inline-flex items-center gap-0.5 font-bold text-primary hover:underline mt-1"
                             >
                               <span>Đi đến Quản lý sản phẩm</span>
                               <span>→</span>
-                            </a>
+                            </Link>
                           </div>
                         )}
                       </div>
 
                       {/* Step 2 */}
                       <div className="border border-slate-200/60 rounded-xl bg-white overflow-hidden transition-all duration-200">
-                        <button
-                          type="button"
-                          onClick={() => setActiveWorkflowTab(activeWorkflowTab === 2 ? 0 : 2)}
-                          className="w-full flex items-center justify-between p-3 text-left font-bold text-xs text-slate-800 hover:bg-slate-50/80 transition-colors cursor-pointer"
-                        >
-                          <div className="flex items-center gap-2">
+                        <div className="w-full flex items-center justify-between p-3 hover:bg-slate-50/80 transition-colors">
+                          <button
+                            type="button"
+                            onClick={() => setActiveWorkflowTab(activeWorkflowTab === 2 ? 0 : 2)}
+                            className="flex-1 flex items-center gap-2 text-left font-bold text-xs text-slate-800 cursor-pointer"
+                          >
                             <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold border transition-all ${
                               activeWorkflowTab === 2
                                 ? 'bg-primary/10 text-primary border-primary/20'
@@ -1190,11 +1207,27 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
                               2
                             </span>
                             <span>Nhập & kiểm kho hàng</span>
+                          </button>
+                          
+                          <div className="flex items-center gap-2">
+                            <Link
+                              href={`${homePath === '/' ? '' : homePath}/inventory`}
+                              onClick={() => setOnboardModalOpen(false)}
+                              className="text-primary hover:text-primary-dark font-extrabold text-[10px] hover:underline"
+                            >
+                              Đi tới
+                            </Link>
+                            <button
+                              type="button"
+                              onClick={() => setActiveWorkflowTab(activeWorkflowTab === 2 ? 0 : 2)}
+                              className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer shrink-0"
+                            >
+                              <span className={`inline-block transition-transform duration-250 text-[10px] ${activeWorkflowTab === 2 ? 'rotate-180' : ''}`}>
+                                ▼
+                              </span>
+                            </button>
                           </div>
-                          <span className={`text-slate-400 transition-transform duration-250 text-[10px] ${activeWorkflowTab === 2 ? 'rotate-180' : ''}`}>
-                            ▼
-                          </span>
-                        </button>
+                        </div>
                         {activeWorkflowTab === 2 && (
                           <div className="p-3 pt-0 border-t border-slate-100 text-[11px] text-slate-500 leading-relaxed font-normal animate-in slide-in-from-top-1 duration-200 space-y-1">
                             <p>
@@ -1202,14 +1235,14 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
                                 ? 'Khai báo số lượng tồn kho thực tế của các đồ ăn, nước ngọt hoặc hàng hóa bán kèm.'
                                 : 'Khai báo số lượng tồn kho thực tế của hàng hóa trong kho.'}
                             </p>
-                            <a
+                            <Link
                               href={`${homePath === '/' ? '' : homePath}/inventory`}
                               onClick={() => setOnboardModalOpen(false)}
                               className="inline-flex items-center gap-0.5 font-bold text-primary hover:underline mt-1"
                             >
                               <span>Đi đến Quản lý kho hàng</span>
                               <span>→</span>
-                            </a>
+                            </Link>
                           </div>
                         )}
                       </div>
@@ -1217,12 +1250,12 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
                       {/* Step 3 (Only for Service/Accommodation verticals) */}
                       {verticalConfig.features.location_resource && (
                         <div className="border border-slate-200/60 rounded-xl bg-white overflow-hidden transition-all duration-200">
-                          <button
-                            type="button"
-                            onClick={() => setActiveWorkflowTab(activeWorkflowTab === 3 ? 0 : 3)}
-                            className="w-full flex items-center justify-between p-3 text-left font-bold text-xs text-slate-800 hover:bg-slate-50/80 transition-colors cursor-pointer"
-                          >
-                            <div className="flex items-center gap-2">
+                          <div className="w-full flex items-center justify-between p-3 hover:bg-slate-50/80 transition-colors">
+                            <button
+                              type="button"
+                              onClick={() => setActiveWorkflowTab(activeWorkflowTab === 3 ? 0 : 3)}
+                              className="flex-1 flex items-center gap-2 text-left font-bold text-xs text-slate-800 cursor-pointer"
+                            >
                               <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold border transition-all ${
                                 activeWorkflowTab === 3
                                   ? 'bg-primary/10 text-primary border-primary/20'
@@ -1231,24 +1264,40 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
                                 3
                               </span>
                               <span>Thiết lập {verticalConfig.resourceTemplate?.label.toLowerCase() || 'phòng/bàn/sân'}</span>
+                            </button>
+                            
+                            <div className="flex items-center gap-2">
+                              <Link
+                                href={`${homePath === '/' ? '' : homePath}/resources`}
+                                onClick={() => setOnboardModalOpen(false)}
+                                className="text-primary hover:text-primary-dark font-extrabold text-[10px] hover:underline"
+                              >
+                                Đi tới
+                              </Link>
+                              <button
+                                type="button"
+                                onClick={() => setActiveWorkflowTab(activeWorkflowTab === 3 ? 0 : 3)}
+                                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer shrink-0"
+                              >
+                                <span className={`inline-block transition-transform duration-250 text-[10px] ${activeWorkflowTab === 3 ? 'rotate-180' : ''}`}>
+                                  ▼
+                                </span>
+                              </button>
                             </div>
-                            <span className={`text-slate-400 transition-transform duration-250 text-[10px] ${activeWorkflowTab === 3 ? 'rotate-180' : ''}`}>
-                              ▼
-                            </span>
-                          </button>
+                          </div>
                           {activeWorkflowTab === 3 && (
                             <div className="p-3 pt-0 border-t border-slate-100 text-[11px] text-slate-500 leading-relaxed font-normal animate-in slide-in-from-top-1 duration-200 space-y-1">
                               <p>
                                 Cấu hình sơ đồ khu vực và danh sách các {verticalConfig.resourceTemplate?.label.toLowerCase() || 'phòng/bàn/sân'} hoạt động của chi nhánh.
                               </p>
-                              <a
+                              <Link
                                 href={`${homePath === '/' ? '' : homePath}/resources`}
                                 onClick={() => setOnboardModalOpen(false)}
                                 className="inline-flex items-center gap-0.5 font-bold text-primary hover:underline mt-1"
                               >
                                 <span>Thiết lập sơ đồ khu vực</span>
                                 <span>→</span>
-                              </a>
+                              </Link>
                             </div>
                           )}
                         </div>
@@ -1256,15 +1305,15 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
 
                       {/* Last Step (Step 3 or 4) */}
                       <div className="border border-slate-200/60 rounded-xl bg-white overflow-hidden transition-all duration-200">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const stepNum = verticalConfig.features.location_resource ? 4 : 3;
-                            setActiveWorkflowTab(activeWorkflowTab === stepNum ? 0 : stepNum);
-                          }}
-                          className="w-full flex items-center justify-between p-3 text-left font-bold text-xs text-slate-800 hover:bg-slate-50/80 transition-colors cursor-pointer"
-                        >
-                          <div className="flex items-center gap-2">
+                        <div className="w-full flex items-center justify-between p-3 hover:bg-slate-50/80 transition-colors">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const stepNum = verticalConfig.features.location_resource ? 4 : 3;
+                              setActiveWorkflowTab(activeWorkflowTab === stepNum ? 0 : stepNum);
+                            }}
+                            className="flex-1 flex items-center gap-2 text-left font-bold text-xs text-slate-800 cursor-pointer"
+                          >
                             <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold border transition-all ${
                               activeWorkflowTab === (verticalConfig.features.location_resource ? 4 : 3)
                                 ? 'bg-primary/10 text-primary border-primary/20'
@@ -1273,11 +1322,30 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
                               {verticalConfig.features.location_resource ? 4 : 3}
                             </span>
                             <span>Bán hàng (POS)</span>
+                          </button>
+                          
+                          <div className="flex items-center gap-2">
+                            <Link
+                              href={`${homePath === '/' ? '' : homePath}/channels/pos`}
+                              onClick={() => setOnboardModalOpen(false)}
+                              className="text-primary hover:text-primary-dark font-extrabold text-[10px] hover:underline"
+                            >
+                              Đi tới
+                            </Link>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const stepNum = verticalConfig.features.location_resource ? 4 : 3;
+                                setActiveWorkflowTab(activeWorkflowTab === stepNum ? 0 : stepNum);
+                              }}
+                              className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer shrink-0"
+                            >
+                              <span className={`inline-block transition-transform duration-250 text-[10px] ${activeWorkflowTab === (verticalConfig.features.location_resource ? 4 : 3) ? 'rotate-180' : ''}`}>
+                                ▼
+                              </span>
+                            </button>
                           </div>
-                          <span className={`text-slate-400 transition-transform duration-250 text-[10px] ${activeWorkflowTab === (verticalConfig.features.location_resource ? 4 : 3) ? 'rotate-180' : ''}`}>
-                            ▼
-                          </span>
-                        </button>
+                        </div>
                         {activeWorkflowTab === (verticalConfig.features.location_resource ? 4 : 3) && (
                           <div className="p-3 pt-0 border-t border-slate-100 text-[11px] text-slate-500 leading-relaxed font-normal animate-in slide-in-from-top-1 duration-200 space-y-1">
                             <p>
@@ -1285,14 +1353,14 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
                                 ? 'Mở màn hình POS để lên đơn dịch vụ giờ/phòng, gọi thêm đồ uống kèm và thanh toán.'
                                 : 'Mở màn hình POS để lên đơn hàng, quét mã vạch và thanh toán nhanh chóng.'}
                             </p>
-                            <a
+                            <Link
                               href={`${homePath === '/' ? '' : homePath}/channels/pos`}
                               onClick={() => setOnboardModalOpen(false)}
                               className="inline-flex items-center gap-0.5 font-bold text-primary hover:underline mt-1"
                             >
                               <span>Mở màn hình bán hàng POS</span>
                               <span>→</span>
-                            </a>
+                            </Link>
                           </div>
                         )}
                       </div>
@@ -1437,7 +1505,7 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
                         <p className="text-[11px] text-slate-500 leading-normal">
                           Liên kết thông tin Ngân hàng & Số tài khoản trong Sổ quỹ để nhận thanh toán VietQR động tại POS.
                         </p>
-                        <a
+                        <Link
                           href={`${homePath === '/' ? '' : homePath}/cashbook`}
                           onClick={() => {
                             setOnboardModalOpen(false);
@@ -1447,7 +1515,7 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
                         >
                           <span>Đi đến Sổ quỹ</span>
                           <span>→</span>
-                        </a>
+                        </Link>
                       </div>
                     </div>
 
@@ -1461,7 +1529,7 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
                         <p className="text-[11px] text-slate-500 leading-normal">
                           Cập nhật các thông tin Wi-Fi, Mã số thuế, tên cửa hàng và địa chỉ in trên biên lai thanh toán.
                         </p>
-                        <a
+                        <Link
                           href={`${homePath === '/' ? '' : homePath}/settings?tab=sales`}
                           onClick={() => {
                             setOnboardModalOpen(false);
@@ -1471,7 +1539,7 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
                         >
                           <span>Thiết lập hóa đơn</span>
                           <span>→</span>
-                        </a>
+                        </Link>
                       </div>
                     </div>
 
@@ -1538,13 +1606,13 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
                   </div>
 
                   <div className="pt-2 space-y-2.5 max-w-xs mx-auto">
-                    <a
+                    <Link
                       href={`${homePath === '/' ? '' : homePath}/channels/pos`}
                       className="flex items-center justify-center gap-2 w-full bg-primary hover:bg-primary-dark text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm transition-all text-center cursor-pointer active:scale-95"
                     >
                       <span>Bán hàng ngay tại quầy (POS)</span>
                       <span>→</span>
-                    </a>
+                    </Link>
 
                     <button
                       onClick={() => {

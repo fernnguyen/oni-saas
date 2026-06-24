@@ -1769,7 +1769,7 @@ export function InventoryClient({ shopId, shopName }: Props) {
             )}
             {(warehousesData?.data ?? []).map((w) => (
               <option key={w.id || w.warehouse_id} value={w.id || w.warehouse_id}>
-                📦 {w.name} ({w.code?.toUpperCase()})
+                📦 {w.name}{w.code ? ` (${w.code.toUpperCase()})` : ''}
               </option>
             ))}
           </select>
@@ -2331,7 +2331,7 @@ export function InventoryClient({ shopId, shopName }: Props) {
                   .filter((w) => !['transfer_out', 'transfer_in'].includes(form.type) || (w.id || w.warehouse_id) !== form.to_warehouse_id)
                   .map((w) => (
                     <option key={w.id || w.warehouse_id} value={w.id || w.warehouse_id}>
-                      📦 {w.name} ({w.code?.toUpperCase()})
+                      📦 {w.name}{w.code ? ` (${w.code.toUpperCase()})` : ''}
                     </option>
                   ))}
               </select>
@@ -2363,7 +2363,7 @@ export function InventoryClient({ shopId, shopName }: Props) {
                     .filter((w) => (w.id || w.warehouse_id) !== form.warehouse_id)
                     .map((w) => (
                       <option key={w.id || w.warehouse_id} value={w.id || w.warehouse_id}>
-                        📦 {w.name} ({w.code?.toUpperCase()})
+                        📦 {w.name}{w.code ? ` (${w.code.toUpperCase()})` : ''}
                       </option>
                     ))}
                 </select>

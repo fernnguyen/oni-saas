@@ -1346,7 +1346,7 @@ export function AuditClient({ shopId, shopName }: Props) {
                 )}
                 {(warehousesData?.data ?? []).map((w) => (
                   <option key={w.id || w.warehouse_id} value={w.id || w.warehouse_id}>
-                    📦 {w.name} ({w.code?.toUpperCase()})
+                    📦 {w.name}{w.code ? ` (${w.code.toUpperCase()})` : ''}
                   </option>
                 ))}
               </select>
