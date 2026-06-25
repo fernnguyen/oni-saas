@@ -238,6 +238,9 @@ importers:
       '@types/react':
         specifier: ~19.1.10
         version: 19.1.10
+      babel-plugin-transform-remove-console:
+        specifier: ^6.9.4
+        version: 6.9.4
       babel-preset-expo:
         specifier: ~54.0.11
         version: 54.0.11(@babel/core@7.29.7)(@babel/runtime@7.29.7)(expo@54.0.35)(react-refresh@0.14.2)
