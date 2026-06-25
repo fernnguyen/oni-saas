@@ -52,9 +52,7 @@ export default function SettingsScreen() {
  const [soundFeedback, setSoundFeedback] = useState(true);
  const [mobileShiftEnabled, setMobileShiftEnabled] = useState(false);
  const [biometricsEnabled, setBiometricsEnabled] = useState(false);
- const [showBiometricPasswordModal, setShowBiometricPasswordModal] = useState(false);
- const [biometricPassword, setBiometricPassword] = useState('');
- const [isVerifyingBiometricPass, setIsVerifyingBiometricPass] = useState(false);
+ const [isEnablingBiometric, setIsEnablingBiometric] = useState(false);
  const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
  const [isShiftOpen, setIsShiftOpen] = useState(false);
  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -1204,69 +1202,7 @@ export default function SettingsScreen() {
     </View>
   </Modal>
 
-   {/* Modal Nhập Mật khẩu kích hoạt Sinh trắc học */}
-   <Modal
-     visible={showBiometricPasswordModal}
-     animationType="fade"
-     transparent={true}
-     onRequestClose={() => setShowBiometricPasswordModal(false)}
-   >
-     <View className="flex-1 justify-center items-center px-6">
-       <Pressable
-         className="absolute inset-0 bg-black/60"
-         onPress={() => setShowBiometricPasswordModal(false)}
-       />
-       <View className="bg-white w-full rounded-3xl p-6 shadow-2xl border border-slate-100 max-w-[340px]">
-         <View className="items-center mb-4">
-           <View className="bg-orange-50 p-3 rounded-full mb-3 border border-orange-100">
-             <Ionicons name="finger-print" size={24} color="#fa5908" />
-           </View>
-           <Text className="text-base font-bold text-slate-800 text-center">Xác nhận mật khẩu</Text>
-           <Text className="text-xxs text-slate-400 text-center mt-1 leading-relaxed">
-             Vui lòng nhập mật khẩu tài khoản của bạn để kích hoạt đăng nhập nhanh bằng sinh trắc học.
-           </Text>
-         </View>
 
-         <TextInput
-           value={biometricPassword}
-           onChangeText={setBiometricPassword}
-           placeholder="Mật khẩu tài khoản"
-           placeholderTextColor="#cbd5e1"
-           secureTextEntry={true}
-           autoCapitalize="none"
-           className="bg-slate-50 border rounded-xl px-4 py-3 text-xs text-slate-800 mb-6 text-center"
-           style={{
-             borderColor: '#cbd5e1',
-             fontSize: 14,
-             fontWeight: '500',
-             ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
-           }}
-         />
-
-         <View className="flex-row gap-3">
-           <TouchableOpacity
-             className="flex-1 py-3 rounded-xl border bg-slate-50 items-center justify-center"
-             style={{ borderColor: '#cbd5e1' }}
-             onPress={() => setShowBiometricPasswordModal(false)}
-             disabled={isVerifyingBiometricPass}
-           >
-             <Text className="text-slate-500 font-semibold text-xs">Hủy bỏ</Text>
-           </TouchableOpacity>
-           <TouchableOpacity
-             className="flex-1 py-3 rounded-xl bg-orange-500 items-center justify-center flex-row"
-             onPress={handleConfirmBiometricPassword}
-             disabled={isVerifyingBiometricPass}
-           >
-             {isVerifyingBiometricPass ? (
-               <ActivityIndicator size="small" color="white" />
-             ) : (
-               <Text className="text-white font-semibold text-xs">Xác nhận</Text>
-             )}
-           </TouchableOpacity>
-         </View>
-       </View>
-     </View>
-   </Modal>
 
   {/* Drawer Hamburger Sidebar */}
  <DrawerMenu 
