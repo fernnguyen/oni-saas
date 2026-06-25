@@ -451,6 +451,13 @@ export default function SettingsScreen() {
       await AsyncStorage.removeItem('temp_note');
       await AsyncStorage.removeItem('temp_customer');
 
+      // Xoá sạch SQLite data để bảo mật
+      await db.delete(schema.orders);
+      await db.delete(schema.customers);
+      await db.delete(schema.products);
+      await db.delete(schema.location_resources);
+      await db.delete(schema.categories);
+
       // Clear biometric credentials and cached role/permission data on logout
       try {
         const secureStoreAvailable = await SecureStore.isAvailableAsync();
@@ -529,6 +536,13 @@ export default function SettingsScreen() {
       await AsyncStorage.removeItem('temp_discount');
       await AsyncStorage.removeItem('temp_note');
       await AsyncStorage.removeItem('temp_customer');
+
+      // Xoá sạch SQLite data để bảo mật
+      await db.delete(schema.orders);
+      await db.delete(schema.customers);
+      await db.delete(schema.products);
+      await db.delete(schema.location_resources);
+      await db.delete(schema.categories);
 
       // Clear biometric credentials and cached role/permission data on logout
       try {
