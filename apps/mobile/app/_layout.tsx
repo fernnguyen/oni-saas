@@ -19,6 +19,7 @@ import {NotificationProvider} from '../lib/notifications/NotificationContext';
 import {PermissionsProvider} from '../lib/auth/PermissionsContext';
 import {initializePushNotifications, addNotificationResponseListener} from '../lib/notifications/push';
 import {KeepAliveManager} from '../lib/sync/KeepAliveManager';
+import {VersionCheckGuard} from '../components/VersionCheckGuard';
 import '../global.css';
 
 // Ngăn Splash Screen tự động ẩn để đợi load font
@@ -166,17 +167,19 @@ export default function RootLayout() {
 }
 
  return (
- <SafeAreaProvider>
-  <PermissionsProvider>
-    <NotificationProvider>
-      <StatusBar style="dark" />
-      <Stack screenOptions={{headerShown: false}}>
-        <Stack.Screen name="index" options={{ gestureEnabled: false }} />
-        <Stack.Screen name="(auth)" options={{ gestureEnabled: false }} />
-        <Stack.Screen name="(tabs)" options={{ gestureEnabled: false }} />
-      </Stack>
-    </NotificationProvider>
-  </PermissionsProvider>
- </SafeAreaProvider>
+  <SafeAreaProvider>
+   <PermissionsProvider>
+     <NotificationProvider>
+       <VersionCheckGuard>
+         <StatusBar style="dark" />
+         <Stack screenOptions={{headerShown: false}}>
+           <Stack.Screen name="index" options={{ gestureEnabled: false }} />
+           <Stack.Screen name="(auth)" options={{ gestureEnabled: false }} />
+           <Stack.Screen name="(tabs)" options={{ gestureEnabled: false }} />
+         </Stack>
+       </VersionCheckGuard>
+     </NotificationProvider>
+   </PermissionsProvider>
+  </SafeAreaProvider>
  );
 }

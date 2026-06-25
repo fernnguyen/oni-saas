@@ -33,10 +33,12 @@ import {Badge} from '../../components/ui/Badge';
 import {Skeleton} from '../../components/ui/Skeleton';
 import {DrawerMenu} from '../../components/erp/DrawerMenu';
 import {formatCurrency} from '../../lib/utils/format';
+import {useVersion} from '../../contexts/VersionContext';
 
 export default function DashboardScreen() {
   const {hasPermission, reloadPermissions} = usePermissions();
   const canViewReports = hasPermission('reports.view_shop');
+  const { hasOtaPending, showOtaPrompt } = useVersion();
 
   const [selectedTimeRange, setSelectedTimeRange] = useState('30days'); // today, 7days, 30days
   const [isLoading, setIsLoading] = useState(true);
@@ -946,9 +948,29 @@ export default function DashboardScreen() {
       {/* 1. SHARED HEADER - Thống nhất 100% */}
       <Header onPressMenu={() => setIsDrawerOpen(true)} />
 
-      <ScrollView className="flex-1 px-4 py-4" showsVerticalScrollIndicator={false}>
-      
-        {/* 2. ERP LỐI TẮT NHANH */}
+      <ScrollView 
+        className="flex-1 px-4 py-4"
+        showsVerticalScrollIndicator={false}
+      >
+        {/* OTA Update Banner */}
+        {hasOtaPending && (
+          <TouchableOpacity 
+            activeOpacity={0.8}
+            onPress={showOtaPrompt}
+            className="bg-orange-50 rounded-2xl p-4 mb-6 border border-orange-200 flex-row items-center"
+          >
+            <View className="w-10 h-10 bg-orange-100 rounded-full items-center justify-center mr-3">
+              <Ionicons name="rocket-outline" size={20} color="#fa5908" />
+            </View>
+            <View className="flex-1">
+              <Text className="text-sm font-Inter-Bold text-orange-900 mb-0.5">Bản vá mới đã sẵn sàng!</Text>
+              <Text className="text-xs text-orange-800 font-Inter-Medium">Chạm vào đây để cập nhật ngay</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#fa5908" />
+          </TouchableOpacity>
+        )}
+
+        {/* 1. HEADER CHÀO MỪNG / KẾT CA */}
         <View className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm mb-4">
           <Text className="text-xxs font-semibold text-slate-455 mb-3 px-1">
             ⚡ Lối tắt phân hệ ERP

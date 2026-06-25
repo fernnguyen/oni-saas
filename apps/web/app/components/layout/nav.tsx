@@ -44,7 +44,8 @@ import {
   Truck,
   CalendarCheck,
   BedDouble,
-  Megaphone
+  Megaphone,
+  Smartphone
 } from 'lucide-react';
 
 export interface NavItem {
@@ -161,6 +162,7 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
           { href: '/super/audit-logs', label: 'Nhật ký hệ thống', icon: Activity },
           { href: '/super/settings',   label: 'Cài đặt chung',   icon: Settings },
           { href: '/super/notifications', label: 'Thông báo đẩy', icon: Megaphone },
+          { href: '/super/app-versions', label: 'Cập nhật App', icon: Smartphone },
         ],
       },
       {
