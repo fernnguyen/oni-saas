@@ -1,3 +1,12 @@
 .expo/
 android/
 ios/
+
+# Build artifacts (security: prevent committing production binaries)
+*.aab
+*.apk
+*.ipa
+
+# Sensitive config files
+google-services.json
+GoogleService-Info.plist

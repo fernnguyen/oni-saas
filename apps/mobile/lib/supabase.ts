@@ -1,9 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
+import Constants from 'expo-constants';
 
-// LIVE Supabase URL và Publishable Anon Key (được đồng bộ từ .env.local của WebApp)
-const SUPABASE_URL = 'https://ddkjsthxnskdncefnuhi.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_0tpKMXkxF8NMQOFTAQHZlg_29Pkt61f';
+// Supabase credentials — read from Expo config (EAS secrets) with hardcoded fallback
+const SUPABASE_URL = Constants.expoConfig?.extra?.supabaseUrl ?? 'https://ddkjsthxnskdncefnuhi.supabase.co';
+const SUPABASE_ANON_KEY = Constants.expoConfig?.extra?.supabaseAnonKey ?? 'sb_publishable_0tpKMXkxF8NMQOFTAQHZlg_29Pkt61f';
 
 // Khởi tạo Supabase client gọn nhẹ, chỉ tập trung xử lý Xác thực (Supabase Auth)
 // và tự động lưu phiên (persist session) qua AsyncStorage di động.

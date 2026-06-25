@@ -3,6 +3,18 @@ import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
 
 export async function POST(req: NextRequest) {
   try {
+    // SECURITY: Verify webhook originated from Telegram (if secret is configured)
+    // Set via Telegram Bot API: setWebhook({ url, secret_token })
+    // Backward compatible: if env var not set, skip check
+    const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+    if (webhookSecret) {
+      const headerToken = req.headers.get('X-Telegram-Bot-Api-Secret-Token');
+      if (headerToken !== webhookSecret) {
+        console.warn('[Telegram Webhook] Invalid or missing secret token');
+        return NextResponse.json({ ok: false }, { status: 403 });
+      }
+    }
+
     const body = await req.json();
 
     // Ignore non-message updates

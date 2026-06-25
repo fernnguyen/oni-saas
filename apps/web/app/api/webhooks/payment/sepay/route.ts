@@ -124,7 +124,8 @@ export async function POST(req: NextRequest) {
     }
 
     // 6. Security Authentication (HMAC, API Key, etc.)
-    const isSimulation = req.headers.get('X-SePay-Signature') === 'mock-signature-for-settings-simulation';
+    const isSimulation = process.env.NODE_ENV !== 'production' 
+      && req.headers.get('X-SePay-Signature') === 'mock-signature-for-settings-simulation';
 
     if (!isSimulation) {
       const authMethod = settings.sepay_auth_method || 'token_query';

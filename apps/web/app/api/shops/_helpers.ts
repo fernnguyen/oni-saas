@@ -49,5 +49,6 @@ export function handleApiError(e: unknown, label: string): NextResponse {
   })()
 
   const message = e instanceof Error ? e.message : String(e)
-  return NextResponse.json({ error: message, details: e }, { status: 500 })
+  const isDev = process.env.NODE_ENV === 'development';
+  return NextResponse.json({ error: message, ...(isDev ? { details: String(e) } : {}) }, { status: 500 })
 }

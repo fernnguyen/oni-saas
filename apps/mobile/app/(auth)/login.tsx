@@ -88,7 +88,7 @@ export default function LoginScreen() {
   }
  };
 
- const checkAndOfferBiometrics = async (tenant: string, loginEmail: string, loginPass: string) => {
+ const checkAndOfferBiometrics = async (tenant: string, loginEmail: string) => {
     try {
       const secureStoreAvailable = await SecureStore.isAvailableAsync();
       if (!secureStoreAvailable) return false;
@@ -127,9 +127,11 @@ export default function LoginScreen() {
             });
 
             if (authResult.success) {
+              // SECURITY: Store refresh_token instead of plaintext password
+              const { data: sessionData } = await supabase.auth.getSession();
               await SecureStore.setItemAsync(
                 'biometric_credentials',
-                JSON.stringify({ tenant, email: loginEmail, password: loginPass })
+                JSON.stringify({ tenant, email: loginEmail, refresh_token: sessionData.session?.refresh_token })
               );
               setIsBiometricSaved(true);
               try {
@@ -200,7 +202,7 @@ export default function LoginScreen() {
  setIsLoading(false);
 
  // Đề xuất sinh trắc học nếu khả dụng
- const didOffer = await checkAndOfferBiometrics(trimmedTenant, trimmedEmail, password);
+ const didOffer = await checkAndOfferBiometrics(trimmedTenant, trimmedEmail);
  if (!didOffer) {
    router.push('/(auth)/select-branch');
  }
@@ -277,21 +279,61 @@ export default function LoginScreen() {
           return;
         }
 
-        const { tenant, email: savedEmail, password: savedPassword } = creds;
+        const { tenant, email: savedEmail, password: savedPassword, refresh_token } = creds;
         
         setTenantCode(tenant);
         setEmail(savedEmail);
-        setPassword(savedPassword);
         setIsTenantCodeSaved(true);
 
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: savedEmail.trim(),
-          password: savedPassword,
-        });
+        let data, error;
+
+        if (refresh_token) {
+          // NEW FORMAT: Use refresh_token (secure)
+          const result = await supabase.auth.setSession({
+            access_token: '',
+            refresh_token: refresh_token,
+          });
+          // setSession with empty access_token triggers a refresh
+          if (result.error) {
+            // Try refreshing explicitly
+            const refreshResult = await supabase.auth.refreshSession({ refresh_token });
+            data = refreshResult.data;
+            error = refreshResult.error;
+          } else {
+            data = result.data;
+            error = result.error;
+          }
+        } else if (savedPassword) {
+          // OLD FORMAT (backward compat): Use password, then migrate to refresh_token
+          setPassword(savedPassword);
+          const result = await supabase.auth.signInWithPassword({
+            email: savedEmail.trim(),
+            password: savedPassword,
+          });
+          data = result.data;
+          error = result.error;
+
+          // Migrate: replace stored password with refresh_token
+          if (!error && result.data?.session?.refresh_token) {
+            await SecureStore.setItemAsync(
+              'biometric_credentials',
+              JSON.stringify({ tenant, email: savedEmail, refresh_token: result.data.session.refresh_token })
+            );
+          }
+        } else {
+          setIsLoading(false);
+          Alert.alert('Lỗi', 'Dữ liệu sinh trắc học không hợp lệ. Vui lòng đăng nhập bằng mật khẩu.');
+          await SecureStore.deleteItemAsync('biometric_credentials');
+          setIsBiometricSaved(false);
+          return;
+        }
 
         if (error) {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
-          Alert.alert('Đăng nhập thất bại', 'Thông tin đăng nhập đã lưu không hợp lệ hoặc tài khoản đã bị đổi mật khẩu.');
+          // If refresh_token expired, clear biometric and ask for password
+          await SecureStore.deleteItemAsync('biometric_credentials');
+          setIsBiometricSaved(false);
+          Alert.alert('Phiên đăng nhập hết hạn', 'Vui lòng đăng nhập bằng mật khẩu để liên kết lại sinh trắc học.');
           setIsLoading(false);
           return;
         }

@@ -6,7 +6,7 @@ export async function GET(req: NextRequest) {
   const { searchParams, origin } = new URL(req.url);
   const code = searchParams.get('code');
   const nextParam = searchParams.get('next');
-  const next = nextParam?.startsWith('/') ? nextParam : '/super/dashboard';
+  const next = (nextParam?.startsWith('/') && !nextParam?.startsWith('//')) ? nextParam : '/super/dashboard';
   const xForwardedHost = req.headers.get('x-forwarded-host');
   const xForwardedProto = req.headers.get('x-forwarded-proto') || 'http';
   const realHost = xForwardedHost || req.headers.get('host') || '';

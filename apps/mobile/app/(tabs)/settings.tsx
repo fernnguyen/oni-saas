@@ -187,7 +187,7 @@ export default function SettingsScreen() {
         Alert.alert('Lỗi', 'Không thể tắt sinh trắc học.');
       }
     } else {
-      // Bật sinh trắc học
+      // Bật sinh trắc học — use refresh_token from current session
       try {
         const supportedTypes = await LocalAuthentication.supportedAuthenticationTypesAsync();
         const hasPhysicalHardware = supportedTypes && supportedTypes.length > 0;
@@ -220,77 +220,52 @@ export default function SettingsScreen() {
           return;
         }
 
-        setBiometricPassword('');
-        setShowBiometricPasswordModal(true);
-      } catch (err) {
-        Alert.alert('Lỗi', 'Không thể khởi động cài đặt sinh trắc học.');
-      }
-    }
-  };
+        setIsEnablingBiometric(true);
 
-  const handleConfirmBiometricPassword = async () => {
-    if (!biometricPassword.trim()) {
-      Alert.alert('Thông báo', 'Vui lòng nhập mật khẩu tài khoản.');
-      return;
-    }
-
-    setIsVerifyingBiometricPass(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-
-    try {
-      let emailToVerify = userEmail;
-      if (!emailToVerify) {
-        const savedEmail = await AsyncStorage.getItem('saved_email');
-        emailToVerify = savedEmail || '';
-      }
-
-      if (!emailToVerify) {
-        Alert.alert('Lỗi', 'Không tìm thấy thông tin tài khoản hiện tại. Vui lòng đăng nhập lại.');
-        setIsVerifyingBiometricPass(false);
-        return;
-      }
-
-      // Thử đăng nhập lại bằng email hiện tại & mật khẩu vừa nhập để kiểm tra
-      const { error } = await supabase.auth.signInWithPassword({
-        email: emailToVerify.trim(),
-        password: biometricPassword,
-      });
-
-      if (error) {
-        Alert.alert('Xác thực thất bại', 'Mật khẩu đăng nhập không chính xác. Vui lòng thử lại.');
-        setIsVerifyingBiometricPass(false);
-        return;
-      }
-
-      // Mật khẩu đúng, gọi quét Vân tay/Face ID
-      const authResult = await LocalAuthentication.authenticateAsync({
-        promptMessage: 'Xác thực sinh trắc học để liên kết thiết bị',
-        disableDeviceFallback: true,
-      });
-
-      if (authResult.success) {
-        const tenantCode = await AsyncStorage.getItem('active_tenant_code') || 'default';
-        const secureStoreAvailable = await SecureStore.isAvailableAsync();
-        if (secureStoreAvailable) {
-          await SecureStore.setItemAsync(
-            'biometric_credentials',
-            JSON.stringify({ tenant: tenantCode, email: emailToVerify, password: biometricPassword })
-          );
+        // Get current session refresh_token
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (!sessionData.session?.refresh_token) {
+          Alert.alert('Lỗi', 'Không tìm thấy phiên đăng nhập hiện tại. Vui lòng đăng nhập lại.');
+          setIsEnablingBiometric(false);
+          return;
         }
-        await AsyncStorage.removeItem('biometrics_declined');
-        setBiometricsEnabled(true);
-        setShowBiometricPasswordModal(false);
-        Alert.alert('Thành công', 'Đã bật đăng nhập bằng sinh trắc học (Face ID/Vân tay) thành công!');
-      } else {
-        Alert.alert('Thất bại', 'Xác thực vân tay/Face ID không thành công.');
+
+        // Authenticate with biometrics
+        const authResult = await LocalAuthentication.authenticateAsync({
+          promptMessage: 'Xác thực sinh trắc học để liên kết thiết bị',
+          disableDeviceFallback: true,
+        });
+
+        if (authResult.success) {
+          const tenantCode = await AsyncStorage.getItem('active_tenant_code') || 'default';
+          let emailToStore = userEmail;
+          if (!emailToStore) {
+            emailToStore = await AsyncStorage.getItem('saved_email') || '';
+          }
+          const secureStoreAvailable = await SecureStore.isAvailableAsync();
+          if (secureStoreAvailable) {
+            await SecureStore.setItemAsync(
+              'biometric_credentials',
+              JSON.stringify({ tenant: tenantCode, email: emailToStore, refresh_token: sessionData.session.refresh_token })
+            );
+          }
+          await AsyncStorage.removeItem('biometrics_declined');
+          setBiometricsEnabled(true);
+          Alert.alert('Thành công', 'Đã bật đăng nhập bằng sinh trắc học (Face ID/Vân tay) thành công!');
+        } else {
+          Alert.alert('Thất bại', 'Xác thực vân tay/Face ID không thành công.');
+        }
+
+        setIsEnablingBiometric(false);
+      } catch (err) {
+        console.error('Lỗi khi bật sinh trắc học:', err);
+        Alert.alert('Lỗi', 'Không thể khởi động cài đặt sinh trắc học.');
+        setIsEnablingBiometric(false);
       }
-    } catch (err) {
-      console.error('Lỗi khi bật sinh trắc học:', err);
-      Alert.alert('Lỗi', 'Có lỗi xảy ra trong quá trình thiết lập.');
-    } finally {
-      setIsVerifyingBiometricPass(false);
     }
   };
+
+
  useFocusEffect(
  useCallback(() => {
  loadSettingsData();
@@ -476,6 +451,18 @@ export default function SettingsScreen() {
       await AsyncStorage.removeItem('temp_note');
       await AsyncStorage.removeItem('temp_customer');
 
+      // Clear biometric credentials and cached role/permission data on logout
+      try {
+        const secureStoreAvailable = await SecureStore.isAvailableAsync();
+        if (secureStoreAvailable) {
+          await SecureStore.deleteItemAsync('biometric_credentials');
+        }
+      } catch (e) {}
+      await AsyncStorage.removeItem('active_user_permissions');
+      await AsyncStorage.removeItem('active_user_role_code');
+      await AsyncStorage.removeItem('active_user_role_name');
+      await AsyncStorage.removeItem('active_shop_industry');
+
       switchDatabaseScope(null);
       await supabase.auth.signOut();
 
@@ -542,6 +529,18 @@ export default function SettingsScreen() {
       await AsyncStorage.removeItem('temp_discount');
       await AsyncStorage.removeItem('temp_note');
       await AsyncStorage.removeItem('temp_customer');
+
+      // Clear biometric credentials and cached role/permission data on logout
+      try {
+        const secureStoreAvailable = await SecureStore.isAvailableAsync();
+        if (secureStoreAvailable) {
+          await SecureStore.deleteItemAsync('biometric_credentials');
+        }
+      } catch (e) {}
+      await AsyncStorage.removeItem('active_user_permissions');
+      await AsyncStorage.removeItem('active_user_role_code');
+      await AsyncStorage.removeItem('active_user_role_name');
+      await AsyncStorage.removeItem('active_shop_industry');
 
       switchDatabaseScope(null);
       await supabase.auth.signOut();

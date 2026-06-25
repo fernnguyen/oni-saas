@@ -2,8 +2,12 @@ export async function verifyTurnstileToken(token?: string, ip?: string): Promise
   const secretKey = process.env.TURNSTILE_SECRET_KEY;
   const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
   
-  // If either Turnstile Secret Key or Site Key is not configured, bypass verification
+  // If either Turnstile Secret Key or Site Key is not configured...
   if (!secretKey || !siteKey) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error('Turnstile is not fully configured in production (missing TURNSTILE_SECRET_KEY or NEXT_PUBLIC_TURNSTILE_SITE_KEY). Rejecting request.');
+      return false;
+    }
     console.warn('Turnstile is not fully configured (missing TURNSTILE_SECRET_KEY or NEXT_PUBLIC_TURNSTILE_SITE_KEY). Bypassing verification.');
     return true;
   }
