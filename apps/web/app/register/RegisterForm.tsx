@@ -8,6 +8,7 @@ import { AuthSplitLayout } from '../components/layout/AuthSplitLayout';
 import { VERTICAL_REGISTRY, INDUSTRY_TYPES, type IndustryType } from '@oni/core';
 import { Turnstile } from '../components/auth/Turnstile';
 import { IndustryIcon } from '../components/layout/IndustryIcon';
+import { isValidVNPhone } from '../../lib/utils/phone';
 
 const SLUG_REGEX = /^[a-z0-9-]+$/;
 const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
@@ -203,6 +204,30 @@ export function RegisterForm({ plans, initialDomain, initialIndustry, registrati
     setFieldErrors(prev => ({ ...prev, slug: '' }));
   }
 
+  function handleEmailBlur() {
+    if (!email) return;
+    const isEmail = email.includes('@');
+    const isAllDigits = /^\d+$/.test(email);
+    if (isEmail) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        setFieldErrors(prev => ({ ...prev, email: 'Định dạng Email không hợp lệ' }));
+      }
+    } else if (isAllDigits) {
+      if (!isValidVNPhone(email)) {
+        setFieldErrors(prev => ({ ...prev, email: 'Số điện thoại không hợp lệ (10 số, đầu 03,05,07,08,09)' }));
+      }
+    } else {
+      setFieldErrors(prev => ({ ...prev, email: 'Vui lòng nhập Email hoặc Số điện thoại' }));
+    }
+  }
+
+  function handlePasswordBlur() {
+    if (password && password.length < 8) {
+      setFieldErrors(prev => ({ ...prev, password: 'Mật khẩu phải từ 8 ký tự trở lên' }));
+    }
+  }
+
   useEffect(() => {
     if (!slug) { setSlugStatus('idle'); return; }
     if (slug.length < 2) { setSlugStatus('invalid'); return; }
@@ -279,6 +304,10 @@ export function RegisterForm({ plans, initialDomain, initialIndustry, registrati
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     if (slugStatus !== 'available' || (TURNSTILE_SITE_KEY && !turnstileToken)) return;
+    if (fieldErrors.email || fieldErrors.password || fieldErrors.name || fieldErrors.slug) {
+      setError('Vui lòng kiểm tra lại các thông tin nhập chưa đúng.');
+      return;
+    }
     setLoading(true);
     setError(null);
     setFieldErrors({});
@@ -529,21 +558,22 @@ export function RegisterForm({ plans, initialDomain, initialIndustry, registrati
 
             {/* Email */}
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-700">Email quản trị (Admin)</label>
+              <label className="mb-1.5 block text-sm font-medium text-slate-700">Email hoặc SĐT quản trị (Admin)</label>
               <input
-                type="email"
+                type="text"
                 value={email}
                 onChange={(e) => {
-                  setEmail(e.target.value);
+                  setEmail(e.target.value.trim());
                   setFieldErrors(prev => ({ ...prev, email: '' }));
                 }}
-                placeholder="tenhokinhdoanh@gmail.com"
-                className={`w-full rounded-xl border px-4 py-3 text-sm focus:outline-none focus:ring-2 ${
+                onBlur={handleEmailBlur}
+                placeholder="tenhokinhdoanh@gmail.com hoặc 0987654321"
+                className={`w-full rounded-xl border px-4 py-3 text-sm focus:outline-none focus:ring-2 transition-all ${
                   fieldErrors.email ? 'border-red-400 focus:border-red-400 focus:ring-red-200/50' : 'border-slate-200 focus:border-primary focus:ring-primary/20'
                 }`}
                 required
               />
-              <p className="mt-1.5 text-[10px] text-slate-400 leading-normal">Nhập email đang hoạt động để nhận mã OTP xác thực tài khoản.</p>
+              <p className="mt-1.5 text-[10px] text-slate-400 leading-normal">Nhập Email hoặc Số điện thoại đang hoạt động để nhận mã xác thực.</p>
               {fieldErrors.email && (
                 <p className="mt-1 text-xs text-red-500 font-semibold flex items-center gap-1 animate-in fade-in duration-200">
                   <span className="shrink-0">⚠️</span> {fieldErrors.email}
@@ -564,6 +594,7 @@ export function RegisterForm({ plans, initialDomain, initialIndustry, registrati
                     setPassword(e.target.value);
                     setFieldErrors(prev => ({ ...prev, password: '' }));
                   }}
+                  onBlur={handlePasswordBlur}
                   placeholder="Tối thiểu 8 ký tự"
                   className="flex-1 px-4 py-3 text-sm focus:outline-none"
                   required

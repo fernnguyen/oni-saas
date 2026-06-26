@@ -4,23 +4,53 @@ import { useState, FormEvent } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { getSupabaseBrowserClient } from '../../../lib/supabaseBrowser';
+import { isValidVNPhone } from '../../../lib/utils/phone';
 
 export function SignUpForm() {
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  function handleIdentifierBlur() {
+    if (!identifier) return;
+    const isEmail = identifier.includes('@');
+    const isAllDigits = /^\d+$/.test(identifier);
+    if (isEmail) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(identifier)) {
+        setFieldErrors(prev => ({ ...prev, identifier: 'Định dạng Email không hợp lệ' }));
+      }
+    } else if (isAllDigits) {
+      if (!isValidVNPhone(identifier)) {
+        setFieldErrors(prev => ({ ...prev, identifier: 'Số điện thoại không hợp lệ (10 số, đầu 03,05,07,08,09)' }));
+      }
+    } else {
+      setFieldErrors(prev => ({ ...prev, identifier: 'Vui lòng nhập Email hoặc Số điện thoại' }));
+    }
+  }
+
+  function handlePasswordBlur() {
+    if (password && password.length < 6) {
+      setFieldErrors(prev => ({ ...prev, password: 'Mật khẩu phải từ 6 ký tự trở lên' }));
+    }
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    if (fieldErrors.identifier || fieldErrors.password) {
+      setError('Vui lòng kiểm tra lại thông tin nhập.');
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
       const res = await fetch('/api/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ identifier, password }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -59,7 +89,7 @@ export function SignUpForm() {
           </div>
           <h2 className="font-bold text-slate-900">Kiểm tra email của bạn</h2>
           <p className="mt-2 text-sm text-slate-500">
-            Chúng tôi đã gửi link xác nhận tới <strong className="text-slate-700">{email}</strong>.
+            Chúng tôi đã gửi link xác nhận (nếu đăng ký bằng email) hoặc đã lưu hồ sơ (nếu đăng ký bằng số điện thoại) cho <strong className="text-slate-700">{identifier}</strong>.
           </p>
           <p className="mt-1 text-xs text-slate-400">Kiểm tra cả hộp thư rác nếu không thấy.</p>
         </div>
@@ -100,26 +130,48 @@ export function SignUpForm() {
 
           <form onSubmit={onSubmit} className="space-y-4">
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-700">Email</label>
+              <label className="mb-1.5 block text-sm font-medium text-slate-700">Email hoặc Số điện thoại</label>
               <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="ban@example.com"
-                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                type="text"
+                value={identifier}
+                onChange={(e) => {
+                  setIdentifier(e.target.value.trim());
+                  setFieldErrors(prev => ({ ...prev, identifier: '' }));
+                }}
+                onBlur={handleIdentifierBlur}
+                placeholder="ban@example.com hoặc 0987654321"
+                className={`w-full rounded-xl border px-4 py-3 text-sm focus:outline-none focus:ring-2 transition-all ${
+                  fieldErrors.identifier ? 'border-red-400 focus:border-red-400 focus:ring-red-200/50' : 'border-slate-200 focus:border-primary focus:ring-primary/20'
+                }`}
                 required
               />
+              {fieldErrors.identifier && (
+                <p className="mt-1 text-xs text-red-500 font-semibold flex items-center gap-1 animate-in fade-in duration-200">
+                  <span className="shrink-0">⚠️</span> {fieldErrors.identifier}
+                </p>
+              )}
             </div>
             <div>
               <label className="mb-1.5 block text-sm font-medium text-slate-700">Mật khẩu</label>
               <input
                 type="password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  setFieldErrors(prev => ({ ...prev, password: '' }));
+                }}
+                onBlur={handlePasswordBlur}
                 placeholder="Tối thiểu 6 ký tự"
-                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                className={`w-full rounded-xl border px-4 py-3 text-sm focus:outline-none focus:ring-2 transition-all ${
+                  fieldErrors.password ? 'border-red-400 focus:border-red-400 focus:ring-red-200/50' : 'border-slate-200 focus:border-primary focus:ring-primary/20'
+                }`}
                 required
               />
+              {fieldErrors.password && (
+                <p className="mt-1 text-xs text-red-500 font-semibold flex items-center gap-1 animate-in fade-in duration-200">
+                  <span className="shrink-0">⚠️</span> {fieldErrors.password}
+                </p>
+              )}
             </div>
             {error && (
               <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-600">{error}</div>

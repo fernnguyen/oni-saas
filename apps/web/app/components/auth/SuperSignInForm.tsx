@@ -120,12 +120,12 @@ export function SuperSignInForm() {
 
           <form onSubmit={onSubmit} className="space-y-4">
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-300">Email</label>
+              <label className="mb-1.5 block text-sm font-medium text-slate-300">Email hoặc Số điện thoại</label>
               <input
-                type="email"
+                type="text"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@oni.vn"
+                placeholder="admin@oni.vn hoặc 0987654321"
                 className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
                 required
               />

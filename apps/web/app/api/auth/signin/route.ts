@@ -4,16 +4,17 @@ import { getSupabaseServerClient } from '../../../../lib/server/supabaseServer';
 import { getSupabaseAdminClient } from '../../../../lib/server/supabaseAdmin';
 import { buildFakeEmail } from '../../../../lib/server/tenantUsers';
 import { verifyTurnstileToken } from '../../../../lib/server/turnstile';
+import { formatPhoneAsEmail, isValidVNPhone } from '../../../../lib/utils/phone';
 
 // Blocks fake-email registration from the public domain
 const ONI_EMAIL_PATTERN = /^[^@]+@[^.]+\..+$/;
 const ONI_FAKE_EMAIL_PATTERN = /^[^@]+@[^.]+\.oni\.vn$/;
 
 const schema = z.object({
-  // 'identifier' is either a plain username or a full email address
+  // 'identifier' is either a plain username, a full email address, or a phone number
   identifier: z.string().min(1),
   password: z.string().min(1),
-  // Required when identifier has no '@' — tells us which tenant to resolve against
+  // Required when identifier has no '@' and is not a phone number — tells us which tenant to resolve against
   tenant_slug: z.string().optional(),
   turnstile_token: z.string().optional(),
 });
@@ -38,18 +39,21 @@ export async function POST(req: NextRequest) {
     );
   }
   const isEmail = identifier.includes('@');
+  const isPhone = !isEmail && isValidVNPhone(identifier);
 
   let email: string;
 
   if (isEmail) {
     email = identifier;
+  } else if (isPhone) {
+    email = formatPhoneAsEmail(identifier);
   } else {
     // Plain username — must have tenant context
     if (!tenant_slug) {
       return NextResponse.json(
         {
           message:
-            'Vui lòng đăng nhập từ địa chỉ workspace của bạn (ví dụ: workspace.oni.vn) hoặc nhập email đầy đủ.',
+            'Vui lòng đăng nhập từ địa chỉ workspace của bạn (ví dụ: workspace.oni.vn) hoặc nhập email/số điện thoại.',
         },
         { status: 400 },
       );
@@ -58,6 +62,7 @@ export async function POST(req: NextRequest) {
   }
 
   const { error } = await supabase.auth.signInWithPassword({ email, password });
+
 
   if (error) {
     const message =

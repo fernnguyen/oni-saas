@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getSupabaseServerClient } from '../../../../lib/server/supabaseServer';
 import { verifyTurnstileToken } from '../../../../lib/server/turnstile';
+import { formatPhoneAsEmail, isValidVNPhone } from '../../../../lib/utils/phone';
 
 const schema = z.object({
-  email: z.string().email(),
+  identifier: z.string().min(1),
   password: z.string().min(6),
   turnstileToken: z.string().optional(),
 });
@@ -14,10 +15,18 @@ export async function POST(req: NextRequest) {
   const json = await req.json();
   const parsed = schema.safeParse(json);
   if (!parsed.success) {
-    return NextResponse.json({ message: 'Invalid input' }, { status: 400 });
+    return NextResponse.json({ message: 'Dữ liệu không hợp lệ' }, { status: 400 });
   }
 
-  const { email, password, turnstileToken } = parsed.data;
+  const { identifier, password, turnstileToken } = parsed.data;
+
+  // Validate format
+  const isEmail = identifier.includes('@');
+  if (!isEmail && !isValidVNPhone(identifier)) {
+    return NextResponse.json({ message: 'Định dạng Email hoặc Số điện thoại không hợp lệ' }, { status: 400 });
+  }
+
+  const email = isEmail ? identifier : formatPhoneAsEmail(identifier);
 
   // Cloudflare Turnstile Verification
   const ip = req.headers.get('x-forwarded-for') || undefined;

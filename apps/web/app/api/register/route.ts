@@ -4,6 +4,7 @@ import { getSupabaseAdminClient } from '../../../lib/server/supabaseAdmin';
 import { getSupabaseServerClient } from '../../../lib/server/supabaseServer';
 import { verifyTurnstileToken } from '../../../lib/server/turnstile';
 import { INDUSTRY_TYPES } from '@oni/core';
+import { formatPhoneAsEmail, isValidVNPhone } from '../../../lib/utils/phone';
 
 // Reject fake tenant emails — these are reserved for tenant user accounts
 const ONI_FAKE_EMAIL_RE = /^[^@]+@[^.]+\.oni\.vn$/i;
@@ -11,9 +12,12 @@ const ONI_FAKE_EMAIL_RE = /^[^@]+@[^.]+\.oni\.vn$/i;
 const schema = z.object({
   slug:            z.string().min(2).max(50).regex(/^[a-z0-9-]+$/, 'Chỉ dùng chữ thường, số và dấu gạch ngang'),
   name:            z.string().min(2).max(100),
-  email:           z.string().email().refine(
+  email:           z.string().min(1).refine(
+    (e) => e.includes('@') || isValidVNPhone(e),
+    { message: 'Email hoặc Số điện thoại không hợp lệ' }
+  ).refine(
     (e) => !ONI_FAKE_EMAIL_RE.test(e),
-    { message: 'Không thể đăng ký với email này' },
+    { message: 'Không thể đăng ký với định dạng này' },
   ),
   password:        z.string().min(8),
   plan_code:       z.string().optional(),
@@ -34,7 +38,11 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { slug, name, email, password, industry_type, turnstile_token, invitation_code } = parsed.data;
+  const { slug, name, email: rawEmail, password, industry_type, turnstile_token, invitation_code } = parsed.data;
+
+  const email = (!rawEmail.includes('@') && isValidVNPhone(rawEmail)) 
+    ? formatPhoneAsEmail(rawEmail) 
+    : rawEmail;
 
   // Cloudflare Turnstile Verification
   const ip = req.headers.get('x-forwarded-for') || undefined;

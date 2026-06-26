@@ -9,6 +9,7 @@ import { AuthSplitLayout } from '../layout/AuthSplitLayout';
 import { getSupabaseBrowserClient } from '../../../lib/supabaseBrowser';
 import { getVerticalConfig } from '@oni/core';
 import { Turnstile } from './Turnstile';
+import { isValidVNPhone } from '../../../lib/utils/phone';
 
 const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
 const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
@@ -31,6 +32,29 @@ export function SignInForm({
   const [loading, setLoading] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [turnstileKey, setTurnstileKey] = useState(0);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  function handleIdentifierBlur() {
+    if (!identifier) return;
+    const isEmail = identifier.includes('@');
+    const isAllDigits = /^\d+$/.test(identifier);
+    if (isEmail) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(identifier)) {
+        setFieldErrors(prev => ({ ...prev, identifier: 'Định dạng Email không hợp lệ' }));
+      }
+    } else if (isAllDigits) {
+      if (!isValidVNPhone(identifier)) {
+        setFieldErrors(prev => ({ ...prev, identifier: 'Số điện thoại không hợp lệ (10 số, đầu 03,05,07,08,09)' }));
+      }
+    }
+  }
+
+  function handlePasswordBlur() {
+    if (password && password.length < 6) {
+      setFieldErrors(prev => ({ ...prev, password: 'Mật khẩu thường có ít nhất 6 ký tự' }));
+    }
+  }
 
   const resetTurnstile = () => {
     setTurnstileToken(null);
@@ -53,8 +77,13 @@ export function SignInForm({
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!subdomain.trim()) {
-      setError('Vui lòng nhập subdomain workspace.');
+    if (!subdomain.trim() && !isPreFilled) {
+      setError('Vui lòng nhập địa chỉ gian hàng.');
+      return;
+    }
+    // Check if there are field errors
+    if (fieldErrors.identifier || fieldErrors.password) {
+      setError('Vui lòng kiểm tra lại thông tin nhập.');
       return;
     }
     if (TURNSTILE_SITE_KEY && !turnstileToken) {
@@ -191,7 +220,7 @@ export function SignInForm({
           {/* Subdomain */}
           {!isPreFilled && (
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-700">Subdomain</label>
+              <label className="mb-1.5 block text-sm font-medium text-slate-700">Địa chỉ gian hàng</label>
               <div className="flex overflow-hidden rounded-xl border border-slate-200 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-all">
                 <input
                   type="text"
@@ -209,19 +238,30 @@ export function SignInForm({
             </div>
           )}
 
-          {/* Username / Email */}
+          {/* Username / Email / Phone */}
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-slate-700">Tên đăng nhập hoặc Email</label>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">Tên đăng nhập, Email hoặc Số điện thoại</label>
             <input
               type="text"
               value={identifier}
-              onChange={(e) => setIdentifier(e.target.value.trim())}
-              placeholder="ten_dang_nhap hoặc email@gmail.com"
+              onChange={(e) => {
+                setIdentifier(e.target.value.trim());
+                setFieldErrors(prev => ({ ...prev, identifier: '' }));
+              }}
+              onBlur={handleIdentifierBlur}
+              placeholder="ten_dang_nhap, email@gmail.com hoặc 0987654321"
               autoComplete="username"
-              className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+              className={`w-full rounded-xl border px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 transition-all ${
+                fieldErrors.identifier ? 'border-red-400 focus:border-red-400 focus:ring-red-200/50' : 'border-slate-200 focus:border-primary focus:ring-primary/20'
+              }`}
               required
               autoFocus={isPreFilled}
             />
+            {fieldErrors.identifier && (
+              <p className="mt-1 text-xs text-red-500 font-semibold flex items-center gap-1 animate-in fade-in duration-200">
+                <span className="shrink-0">⚠️</span> {fieldErrors.identifier}
+              </p>
+            )}
           </div>
 
           {/* Password */}
@@ -233,7 +273,11 @@ export function SignInForm({
               <input
                 type={showPassword ? 'text' : 'password'}
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  setFieldErrors(prev => ({ ...prev, password: '' }));
+                }}
+                onBlur={handlePasswordBlur}
                 placeholder="Nhập mật khẩu"
                 autoComplete="current-password"
                 className="flex-1 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none"
@@ -257,6 +301,11 @@ export function SignInForm({
                 )}
               </button>
             </div>
+            {fieldErrors.password && (
+              <p className="mt-1 text-xs text-red-500 font-semibold flex items-center gap-1 animate-in fade-in duration-200">
+                <span className="shrink-0">⚠️</span> {fieldErrors.password}
+              </p>
+            )}
             <button
               type="button"
               onClick={handleForgotPassword}
