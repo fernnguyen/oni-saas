@@ -17,7 +17,8 @@ export function AppVersionsClient({ initialData }: { initialData: any }) {
       latest_version: initialData?.android?.latest_version || '1.0.0',
       store_url: initialData?.android?.store_url || ''
     },
-    ota_enabled: initialData?.ota_enabled ?? true
+    ota_enabled: initialData?.ota_enabled ?? true,
+    ota_silent: initialData?.ota_silent ?? false
   })
 
   const [isPending, startTransition] = useTransition()
@@ -41,17 +42,33 @@ export function AppVersionsClient({ initialData }: { initialData: any }) {
             <h3 className="text-base font-semibold text-slate-900">Cấu hình tự động cập nhật</h3>
             <p className="text-sm text-slate-500 mt-1">Kiểm soát các phiên bản được phép truy cập và tính năng cập nhật ngầm.</p>
           </div>
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-medium text-slate-700">OTA Update:</span>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input 
-                type="checkbox" 
-                className="sr-only peer" 
-                checked={formData.ota_enabled}
-                onChange={(e) => setFormData(p => ({...p, ota_enabled: e.target.checked}))}
-              />
-              <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
-            </label>
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-medium text-slate-700">OTA Update:</span>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input 
+                  type="checkbox" 
+                  className="sr-only peer" 
+                  checked={formData.ota_enabled}
+                  onChange={(e) => setFormData(p => ({...p, ota_enabled: e.target.checked}))}
+                />
+                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
+              </label>
+            </div>
+            
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-medium text-slate-700">Cập nhật ngầm:</span>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input 
+                  type="checkbox" 
+                  className="sr-only peer" 
+                  checked={formData.ota_silent}
+                  onChange={(e) => setFormData(p => ({...p, ota_silent: e.target.checked}))}
+                  disabled={!formData.ota_enabled}
+                />
+                <div className={`w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all ${formData.ota_enabled ? 'peer-checked:bg-blue-500' : 'opacity-50'}`}></div>
+              </label>
+            </div>
           </div>
         </div>
         

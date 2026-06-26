@@ -6,6 +6,7 @@ export async function updateMobileVersionSettings(payload: {
   ios: { min_version: string, latest_version: string, store_url: string }
   android: { min_version: string, latest_version: string, store_url: string }
   ota_enabled: boolean
+  ota_silent?: boolean
 }) {
   const supabase = getSupabaseAdminClient()
 

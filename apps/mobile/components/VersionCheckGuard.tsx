@@ -72,24 +72,22 @@ export function VersionCheckGuard({ children }: { children: React.ReactNode }) {
         try {
           const updateCheck = await Updates.checkForUpdateAsync();
           if (updateCheck.isAvailable) {
-            setOtaAvailable(true);
-            setHasOtaPending(true);
-          } else {
-            // DEBUG: Alert when update is not available
-            Alert.alert("Debug OTA", "Check trả về isAvailable = false. Lý do có thể do mã hash không đổi, hoặc channel/runtimeVersion không khớp.");
+            if (config.ota_silent) {
+              // Cập nhật ngầm
+              await Updates.fetchUpdateAsync();
+              await Updates.reloadAsync();
+            } else {
+              // Hiện banner cảnh báo
+              setOtaAvailable(true);
+              setHasOtaPending(true);
+            }
           }
         } catch (otaErr: any) {
-          // DEBUG: Alert when check fails
-          Alert.alert("Debug OTA Lỗi", `Lỗi khi gọi checkForUpdateAsync: ${otaErr.message}`);
+          console.log('OTA Check failed:', otaErr);
         }
-      } else if (!config.ota_enabled) {
-        // DEBUG
-        Alert.alert("Debug OTA", "ota_enabled từ API đang là FALSE");
-      }
 
     } catch (e: any) {
       console.log('Version check failed:', e);
-      Alert.alert("Debug Version Check", `Lỗi tổng API: ${e.message}`);
     } finally {
       setIsChecking(false);
     }

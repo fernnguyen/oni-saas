@@ -15,6 +15,7 @@ export interface DialogProps {
  loading?: boolean;
  children?: React.ReactNode;
  disableOutsideClick?: boolean;
+ useNativeModal?: boolean;
 }
 
 export function Dialog({
@@ -29,6 +30,7 @@ export function Dialog({
  loading = false,
  children,
  disableOutsideClick = false,
+ useNativeModal = true,
 }: DialogProps) {
  
  const handleOutsidePress = () => {
@@ -60,16 +62,11 @@ export function Dialog({
  );
 }
 };
+ };
 
- return (
- <Modal
- visible={visible}
- animationType="fade"
- transparent={true}
- onRequestClose={onClose}
- >
+ const content = (
  <TouchableWithoutFeedback onPress={handleOutsidePress}>
- <View className="flex-1 justify-center items-center bg-black/60 px-6">
+ <View className={`flex-1 justify-center items-center bg-black/60 px-6 ${!useNativeModal ? 'absolute inset-0 z-[9999]' : ''}`}>
  <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
  <View className="w-full max-w-sm p-6 rounded-[28px] shadow-2xl bg-white border border-slate-100 items-center">
  
@@ -117,6 +114,21 @@ export function Dialog({
  </TouchableWithoutFeedback>
  </View>
  </TouchableWithoutFeedback>
+ );
+
+ if (!useNativeModal) {
+ if (!visible) return null;
+ return content;
+ }
+
+ return (
+ <Modal
+ visible={visible}
+ animationType="fade"
+ transparent={true}
+ onRequestClose={onClose}
+ >
+ {content}
  </Modal>
  );
 }

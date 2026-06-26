@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { Text, View, ScrollView, TouchableOpacity, TextInput, Modal, Platform, Alert, ActivityIndicator, TouchableWithoutFeedback, Animated, Pressable } from 'react-native';
+import { Text, View, ScrollView, TouchableOpacity, TextInput, Modal, Platform, Alert, ActivityIndicator, TouchableWithoutFeedback, Animated, Pressable, KeyboardAvoidingView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -11,6 +11,7 @@ import { formatCurrency, formatDate, formatDateTime } from '../lib/utils/format'
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
+import { Dialog } from '../components/ui/Dialog';
 import { KeepAliveManager } from '../lib/sync/KeepAliveManager';
 import { SyncManager } from '../lib/sync/SyncManager';
 import * as Haptics from 'expo-haptics';
@@ -106,6 +107,24 @@ export default function CashbookScreen() {
   const [toastMsg, setToastMsg] = useState<{message: string; type: 'success' | 'error' | 'info'} | null>(null);
   const toastOpacity = React.useRef(new Animated.Value(0)).current;
 
+  // Dialog states
+  const [dialogConfig, setDialogConfig] = useState<{
+    visible: boolean;
+    title: string;
+    description: string;
+    variant?: 'default' | 'danger' | 'success';
+    confirmLabel?: string;
+    cancelLabel?: string;
+    onConfirm?: () => void;
+    onClose?: () => void;
+  }>({
+    visible: false,
+    title: '',
+    description: '',
+  });
+
+  const closeDialog = () => setDialogConfig(prev => ({ ...prev, visible: false }));
+
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
     setToastMsg({message, type});
     Haptics.notificationAsync(
@@ -193,8 +212,16 @@ export default function CashbookScreen() {
   React.useEffect(() => {
     if (customer_id && customers.length > 0) {
       if (!canManage) {
-        Alert.alert('Không có quyền', 'Bạn không có quyền thực hiện lập phiếu thu nợ.');
-        router.replace('/cashbook');
+        setDialogConfig({
+          visible: true,
+          title: 'Không có quyền',
+          description: 'Bạn không có quyền thực hiện lập phiếu thu nợ.',
+          variant: 'danger',
+          onConfirm: () => {
+            closeDialog();
+            router.replace('/cashbook');
+          }
+        });
         return;
       }
       const matchedCust = customers.find(c => c.id === customer_id);
@@ -419,12 +446,24 @@ export default function CashbookScreen() {
   const handleCreateTransaction = async () => {
     const numericAmt = parseInt(amount.replace(/\D/g, ''), 10) || 0;
     if (numericAmt <= 0) {
-      Alert.alert('Lỗi', 'Số tiền giao dịch phải lớn hơn 0đ');
+      setDialogConfig({
+        visible: true,
+        title: 'Lỗi',
+        description: 'Số tiền giao dịch phải lớn hơn 0đ',
+        variant: 'danger',
+        onConfirm: closeDialog,
+      });
       return;
     }
 
     if (!canManage) {
-      Alert.alert('Không có quyền', 'Bạn không có quyền thực hiện lập phiếu thu/chi.');
+      setDialogConfig({
+        visible: true,
+        title: 'Không có quyền',
+        description: 'Bạn không có quyền thực hiện lập phiếu thu/chi.',
+        variant: 'danger',
+        onConfirm: closeDialog,
+      });
       return;
     }
 
@@ -441,10 +480,13 @@ export default function CashbookScreen() {
       const hasBypassShift = hasPermission('cashbook.shift.manage');
 
       if (isShiftEnabled && !activeShiftId && !hasBypassShift) {
-        Alert.alert(
-          'Yêu cầu mở ca làm việc',
-          'Vui lòng mở ca làm việc tại POS trước khi thực hiện thu/chi!'
-        );
+        setDialogConfig({
+          visible: true,
+          title: 'Yêu cầu mở ca làm việc',
+          description: 'Vui lòng mở ca làm việc tại POS trước khi thực hiện thu/chi!',
+          variant: 'danger',
+          onConfirm: closeDialog,
+        });
         setIsSubmitting(false);
         return;
       }
@@ -653,38 +695,38 @@ export default function CashbookScreen() {
             const handleItemPress = async () => {
               if (item.sync_status !== 'failed') return;
               
-              Alert.alert(
-                'Đồng bộ lại giao dịch?',
-                'Giao dịch này bị lỗi đồng bộ trước đó. Bạn có muốn gửi lại lên máy chủ ERP ngay bây giờ không?',
-                [
-                  { text: 'Hủy', style: 'cancel' },
-                  { 
-                    text: 'Đồng ý', 
-                    onPress: async () => {
-                      try {
-                        showToast('Đang gửi lại giao dịch...', 'info');
-                        
-                        // Chuyển sync_status thành 'pending' trong SQLite
-                        await db.update(schema.cashbook)
-                          .set({ sync_status: 'pending' })
-                          .where(eq(schema.cashbook.id, item.id));
-                        
-                        // Reset bộ đếm retry
-                        SyncManager.clearCashbookRetry(item.id);
+              setDialogConfig({
+                visible: true,
+                title: 'Đồng bộ lại giao dịch?',
+                description: 'Giao dịch này bị lỗi đồng bộ trước đó. Bạn có muốn gửi lại lên máy chủ ERP ngay bây giờ không?',
+                variant: 'default',
+                confirmLabel: 'Đồng ý',
+                cancelLabel: 'Hủy',
+                onClose: closeDialog,
+                onConfirm: async () => {
+                  closeDialog();
+                  try {
+                    showToast('Đang gửi lại giao dịch...', 'info');
+                    
+                    // Chuyển sync_status thành 'pending' trong SQLite
+                    await db.update(schema.cashbook)
+                      .set({ sync_status: 'pending' })
+                      .where(eq(schema.cashbook.id, item.id));
+                    
+                    // Reset bộ đếm retry
+                    SyncManager.clearCashbookRetry(item.id);
 
-                        // Kích hoạt đồng bộ nền ngay lập tức
-                        await KeepAliveManager.triggerSyncIfNeeded(true);
-                        
-                        // Tải lại giao dịch để cập nhật UI
-                        await loadCashbookData();
-                        showToast('Đã kích hoạt gửi lại giao dịch thành công!', 'success');
-                      } catch (err: any) {
-                        showToast(`Lỗi khi gửi lại: ${err.message}`, 'error');
-                      }
-                    }
+                    // Kích hoạt đồng bộ nền ngay lập tức
+                    await KeepAliveManager.triggerSyncIfNeeded(true);
+                    
+                    // Tải lại giao dịch để cập nhật UI
+                    await loadCashbookData();
+                    showToast('Đã kích hoạt gửi lại giao dịch thành công!', 'success');
+                  } catch (err: any) {
+                    showToast(`Lỗi khi gửi lại: ${err.message}`, 'error');
                   }
-                ]
-              );
+                }
+              });
             };
 
             const CardComponent = item.sync_status === 'failed' ? Pressable : View;
@@ -742,7 +784,10 @@ export default function CashbookScreen() {
         transparent={true}
         onRequestClose={() => setShowAddModal(false)}
       >
-        <View className="flex-1 justify-end">
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
+          className="flex-1 justify-end"
+        >
           <Pressable
             className="absolute inset-0 bg-black/60"
             onPress={() => setShowAddModal(false)}
@@ -759,7 +804,11 @@ export default function CashbookScreen() {
               </TouchableOpacity>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false} className="space-y-4">
+            <ScrollView 
+              showsVerticalScrollIndicator={false} 
+              className="space-y-4"
+              keyboardShouldPersistTaps="handled"
+            >
               
               <View className="mb-4">
                 <Text className="text-xxs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Số tiền *</Text>
@@ -889,7 +938,7 @@ export default function CashbookScreen() {
                     <Ionicons name="close" size={24} color="#64748b" />
                   </TouchableOpacity>
                 </View>
-                <ScrollView showsVerticalScrollIndicator={false}>
+                <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   {availableCategories.map(c => (
                     <TouchableOpacity
                       key={c.value}
@@ -926,7 +975,7 @@ export default function CashbookScreen() {
                 {funds.length === 0 ? (
                   <Text className="text-xs text-slate-500 py-4 text-center">Đang tải danh sách quỹ...</Text>
                 ) : (
-                  <ScrollView showsVerticalScrollIndicator={false}>
+                  <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                     {funds.map(f => (
                       <TouchableOpacity
                         key={f.id}
@@ -1002,7 +1051,7 @@ export default function CashbookScreen() {
                   }
 
                   return (
-                    <ScrollView showsVerticalScrollIndicator={false}>
+                    <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                       {filtered.map(c => (
                         <TouchableOpacity
                           key={c.id}
@@ -1031,28 +1080,19 @@ export default function CashbookScreen() {
               </View>
             )}
                       </View>
-        </View>
-      </Modal>
-      
-      {/* Custom Confirmation Modal */}
-      <Modal
-        visible={showConfirmModal}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => {
-          setShowConfirmModal(false);
-          setConfirmData(null);
-        }}
-      >
-        <View className="flex-1 justify-center items-center px-6">
-          <TouchableWithoutFeedback onPress={() => {
-            setShowConfirmModal(false);
-            setConfirmData(null);
-          }}>
-            <View className="absolute inset-0 bg-black/60" />
-          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
 
-          <View className="bg-white w-full rounded-3xl p-6 shadow-2xl border border-slate-100 max-w-sm relative z-50">
+        {/* Custom Confirmation Modal as an Overlay inside the first Modal */}
+        {showConfirmModal && (
+          <View className="absolute inset-0 z-50 flex-1 justify-center items-center px-6">
+            <TouchableWithoutFeedback onPress={() => {
+              setShowConfirmModal(false);
+              setConfirmData(null);
+            }}>
+              <View className="absolute inset-0 bg-black/60" />
+            </TouchableWithoutFeedback>
+
+            <View className="bg-white w-full rounded-3xl p-6 shadow-2xl border border-slate-100 max-w-sm relative z-50">
             <View className="items-center mb-4">
               <View className={`p-3 rounded-full mb-3 border ${
                 confirmData?.isOffline 
@@ -1202,10 +1242,38 @@ export default function CashbookScreen() {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+            </View>
+          </View>
+        )}
+
+        {/* Generic Dialog used inside the Modal */}
+        <Dialog
+          visible={dialogConfig.visible}
+          useNativeModal={false}
+          title={dialogConfig.title}
+          description={dialogConfig.description}
+          variant={dialogConfig.variant}
+          confirmLabel={dialogConfig.confirmLabel}
+          cancelLabel={dialogConfig.cancelLabel}
+          onConfirm={dialogConfig.onConfirm || closeDialog}
+          onClose={dialogConfig.onClose || closeDialog}
+        />
       </Modal>
 
       {renderToast()}
+
+      {!showAddModal && (
+        <Dialog
+          visible={dialogConfig.visible}
+          title={dialogConfig.title}
+          description={dialogConfig.description}
+          variant={dialogConfig.variant}
+          confirmLabel={dialogConfig.confirmLabel}
+          cancelLabel={dialogConfig.cancelLabel}
+          onConfirm={dialogConfig.onConfirm || closeDialog}
+          onClose={dialogConfig.onClose || closeDialog}
+        />
+      )}
     </SafeAreaView>
   );
 }
