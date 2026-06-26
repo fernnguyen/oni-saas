@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getSupabaseServerClient } from '../../../../lib/server/supabaseServer';
+import { getSupabaseAdminClient } from '../../../../lib/server/supabaseAdmin';
 import { verifyTurnstileToken } from '../../../../lib/server/turnstile';
 import { formatPhoneAsEmail, isValidVNPhone } from '../../../../lib/utils/phone';
 
@@ -38,10 +39,21 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { error } = await supabase.auth.signUp({ email, password });
-
-  if (error) {
-    return NextResponse.json({ message: error.message }, { status: 400 });
+  if (email.endsWith('.oni.vn')) {
+    const admin = getSupabaseAdminClient();
+    const { error } = await admin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+    });
+    if (error) {
+      return NextResponse.json({ message: error.message }, { status: 400 });
+    }
+  } else {
+    const { error } = await supabase.auth.signUp({ email, password });
+    if (error) {
+      return NextResponse.json({ message: error.message }, { status: 400 });
+    }
   }
 
   return NextResponse.json({ ok: true });

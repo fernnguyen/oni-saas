@@ -135,7 +135,7 @@ export async function POST(req: NextRequest) {
   let userId: string;
   let verificationRequired = false;
 
-  if (requireEmailVerification) {
+  if (requireEmailVerification && !email.endsWith('.oni.vn')) {
     const supabaseClient = await getSupabaseServerClient();
     // signUp automatically triggers confirmation email templates configured in Supabase Auth
     const { data: signUpData, error: authError } = await supabaseClient.auth.signUp({

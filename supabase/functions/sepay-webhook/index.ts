@@ -328,9 +328,9 @@ async function fulfillPlan(params: {
     return errorResponse("subscription_update_failed")
   }
 
-  // Gửi email xác nhận
+  // Gửi email xác nhận (chỉ gửi cho email thật, bỏ qua các email dạng @*.oni.vn)
   const email = await getUserEmail(user_id)
-  if (email) {
+  if (email && !email.endsWith('.oni.vn')) {
     const intervalLabel = billing_interval === "yearly" ? "1 năm" : "1 tháng"
     const accessUntil   = newPeriodEnd.toLocaleDateString("vi-VN", {
       year: "numeric", month: "long", day: "numeric",
