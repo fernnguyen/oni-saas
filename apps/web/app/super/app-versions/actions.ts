@@ -1,7 +1,6 @@
 'use server'
 
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
-import { revalidateTag } from 'next/cache'
 
 export async function updateMobileVersionSettings(payload: {
   ios: { min_version: string, latest_version: string, store_url: string }
@@ -32,6 +31,5 @@ export async function updateMobileVersionSettings(payload: {
 
   if (error) throw new Error(error.message)
 
-  revalidateTag('system_settings')
   return true
 }
