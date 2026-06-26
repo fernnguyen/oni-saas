@@ -60,9 +60,8 @@ export function Dialog({
  <Ionicons name="information-circle-outline" size={32} color="#fa5908" />
  </View>
  );
-}
+ }
 };
- };
 
  const content = (
  <TouchableWithoutFeedback onPress={handleOutsidePress}>

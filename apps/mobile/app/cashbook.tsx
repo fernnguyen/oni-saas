@@ -1241,11 +1241,9 @@ export default function CashbookScreen() {
                 )}
               </TouchableOpacity>
             </View>
-          </View>
             </View>
           </View>
         )}
-
         {/* Generic Dialog used inside the Modal */}
         <Dialog
           visible={dialogConfig.visible}

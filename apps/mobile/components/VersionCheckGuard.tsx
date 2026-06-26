@@ -85,7 +85,7 @@ export function VersionCheckGuard({ children }: { children: React.ReactNode }) {
         } catch (otaErr: any) {
           console.log('OTA Check failed:', otaErr);
         }
-
+      }
     } catch (e: any) {
       console.log('Version check failed:', e);
     } finally {
