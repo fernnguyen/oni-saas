@@ -15,7 +15,10 @@
     "build:ios:local": "eas build --platform ios --profile production --local",
     "submit:ios:local": "eas submit --platform ios",
     "build:android:local": "eas build --platform android --profile production --local",
-    "submit:android:local": "eas submit --platform android"
+    "submit:android:local": "eas submit --platform android",
+    "ota": "eas update --branch production --message 'OTA Update'",
+    "ota:ios": "eas update --branch production --platform ios --message 'iOS OTA Update'",
+    "ota:android": "eas update --branch production --platform android --message 'Android OTA Update'"
   },
   "dependencies": {
     "@expo-google-fonts/inter": "^0.4.2",

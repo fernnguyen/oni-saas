@@ -321,6 +321,33 @@ function runCleanNative() {
   });
 }
 
+function runOtaUpdate(platform) {
+  printHeader();
+  const platformName = platform === 'all' ? 'Cả Android & iOS' : (platform === 'android' ? 'Chỉ Android' : 'Chỉ iOS');
+  console.log(`${COLORS.bold}${COLORS.yellow}🚀 PHÁT HÀNH BẢN VÁ OTA (${platformName})${COLORS.reset}\n`);
+  
+  rl.question('Nhập nội dung/ghi chú cho bản vá (Ví dụ: "Fix lỗi UI trang chủ"): ', (message) => {
+    const otaMessage = message.trim() || 'Bản vá cập nhật tự động';
+    let command = `npx eas update --branch production --message "${otaMessage}"`;
+    if (platform !== 'all') {
+      command += ` --platform ${platform}`;
+    }
+    
+    console.log(`\n⚙️  Đang chạy lệnh: ${COLORS.cyan}${command}${COLORS.reset}\n`);
+    try {
+      execSync(command, { stdio: 'inherit', cwd: MOBILE_DIR });
+      console.log(`\n${COLORS.green}✨ Phát hành bản vá OTA thành công!${COLORS.reset}`);
+    } catch (err) {
+      console.log(`\n${COLORS.red}❌ Lỗi khi phát hành OTA:${COLORS.reset}`);
+      // Don't log err.message directly because stdio is inherited, so they see the error already.
+    }
+    
+    rl.question('\nNhấn Enter để quay lại...', () => {
+      mainMenu();
+    });
+  });
+}
+
 function mainMenu() {
   printHeader();
   console.log(`Chọn một tùy chọn dưới đây:\n`);
@@ -337,12 +364,17 @@ function mainMenu() {
   console.log('----------------------------------------------------');
   console.log(` ${COLORS.bold}9.${COLORS.reset} ${COLORS.magenta}Submit Android (AAB) lên Google Play${COLORS.reset}`);
   console.log(` ${COLORS.bold}10.${COLORS.reset} ${COLORS.magenta}Submit iOS (IPA) lên TestFlight${COLORS.reset}`);
-  console.log(` ${COLORS.bold}11.${COLORS.reset} ${COLORS.yellow}Hướng dẫn cấu hình Google Play Store API & Service Account${COLORS.reset}`);
-  console.log(` ${COLORS.bold}12.${COLORS.reset} ${COLORS.red}Dọn dẹp hoàn toàn & Tạo lại thư mục native (Prebuild Clean)${COLORS.reset}`);
-  console.log(` ${COLORS.bold}13.${COLORS.reset} Thoát`);
+  console.log('----------------------------------------------------');
+  console.log(` ${COLORS.bold}11.${COLORS.reset} ${COLORS.yellow}🚀 Phát hành bản vá OTA (Cả Android & iOS)${COLORS.reset}`);
+  console.log(` ${COLORS.bold}12.${COLORS.reset} ${COLORS.yellow}🚀 Phát hành bản vá OTA (Chỉ Android)${COLORS.reset}`);
+  console.log(` ${COLORS.bold}13.${COLORS.reset} ${COLORS.yellow}🚀 Phát hành bản vá OTA (Chỉ iOS)${COLORS.reset}`);
+  console.log('----------------------------------------------------');
+  console.log(` ${COLORS.bold}14.${COLORS.reset} Hướng dẫn cấu hình Google Play Store API & Service Account`);
+  console.log(` ${COLORS.bold}15.${COLORS.reset} ${COLORS.red}Dọn dẹp hoàn toàn & Tạo lại thư mục native (Prebuild Clean)${COLORS.reset}`);
+  console.log(` ${COLORS.bold}16.${COLORS.reset} Thoát`);
   console.log(`\n----------------------------------------------------`);
 
-  rl.question('\nNhập lựa chọn của bạn (1-13): ', (choice) => {
+  rl.question('\nNhập lựa chọn của bạn (1-16): ', (choice) => {
     switch (choice.trim()) {
       case '1':
         showGuide();
@@ -375,18 +407,27 @@ function mainMenu() {
         runSubmit('ios');
         break;
       case '11':
-        showGooglePlayGuide();
+        runOtaUpdate('all');
         break;
       case '12':
-        runCleanNative();
+        runOtaUpdate('android');
         break;
       case '13':
+        runOtaUpdate('ios');
+        break;
+      case '14':
+        showGooglePlayGuide();
+        break;
+      case '15':
+        runCleanNative();
+        break;
+      case '16':
         console.log(`\nTạm biệt! Chúc bạn một ngày tốt lành!`);
         rl.close();
         process.exit(0);
         break;
       default:
-        console.log(`${COLORS.red}\nLựa chọn không hợp lệ! Vui lòng chọn từ 1 đến 13.${COLORS.reset}`);
+        console.log(`${COLORS.red}\nLựa chọn không hợp lệ! Vui lòng chọn từ 1 đến 16.${COLORS.reset}`);
         setTimeout(mainMenu, 1500);
         break;
     }
