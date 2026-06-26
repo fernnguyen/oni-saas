@@ -2,7 +2,7 @@
   "expo": {
     "name": "Oni POS",
     "slug": "oni-pos",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "default",
     "userInterfaceStyle": "light",
     "icon": "./assets/icon.png",
@@ -30,7 +30,7 @@
         "NSFaceIDUsageDescription": "Ứng dụng cần quyền sử dụng Face ID để xác thực và đăng nhập nhanh vào tài khoản cửa hàng của bạn.",
         "ITSAppUsesNonExemptEncryption": false
       },
-      "buildNumber": "2"
+      "buildNumber": "3"
     },
     "android": {
       "package": "vn.oni.pos",
@@ -45,7 +45,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "versionCode": 2
+      "versionCode": 3
     },
     "plugins": [
       [
