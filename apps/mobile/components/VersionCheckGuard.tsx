@@ -30,7 +30,7 @@ export function VersionCheckGuard({ children }: { children: React.ReactNode }) {
   
   // OTA states
   const [otaAvailable, setOtaAvailable] = useState(false); // Controls the modal visibility
-  const [hasOtaPending, setHasOtaPending] = useState(true); // Global flag for dashboard banner (set to true for testing)
+  const [hasOtaPending, setHasOtaPending] = useState(false); // Global flag for dashboard banner
   const [otaDownloading, setOtaDownloading] = useState(false);
   const [otaMinimized, setOtaMinimized] = useState(false);
   const [otaReady, setOtaReady] = useState(false);
@@ -97,19 +97,25 @@ export function VersionCheckGuard({ children }: { children: React.ReactNode }) {
 
     setOtaAvailable(false); // Hide the prompt modal permanently for this session once they choose to download
     setOtaDownloading(true);
+    
+    // Đảm bảo màn hình "Đang tải" hiển thị ít nhất 1.5 giây để tránh lỗi Rapid State Toggle của iOS Modal
+    const minimumWait = new Promise(resolve => setTimeout(resolve, 1500));
+
     try {
-      await Updates.fetchUpdateAsync();
-      setOtaReady(true);
+      await Promise.all([Updates.fetchUpdateAsync(), minimumWait]);
+      setOtaDownloading(false); // Tắt màn hình tải
+      setOtaReady(true); // Bật màn hình thành công
     } catch (e: any) {
-      // Delay the alert slightly to prevent UI freeze caused by firing an Alert while a Modal is unmounting
+      await minimumWait; // Đợi đủ thời gian dù có lỗi
+      setOtaDownloading(false); // Tắt màn hình tải an toàn
+      
+      // Delay một chút để Modal Đang Tải hoàn thành hiệu ứng đóng (unmount animation)
       setTimeout(() => {
         Alert.alert(
           'Lỗi cập nhật', 
-          'Không thể tải bản cập nhật lúc này. Vui lòng thử lại sau.'
+          `Không thể tải bản cập nhật lúc này.\n\nChi tiết: ${e.message}`
         );
       }, 500);
-    } finally {
-      setOtaDownloading(false);
     }
   };
 
