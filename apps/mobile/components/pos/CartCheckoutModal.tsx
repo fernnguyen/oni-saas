@@ -1961,7 +1961,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
             <View className="flex-row gap-2 bg-amber-50 border border-amber-200 rounded-xl p-3 mb-3 w-full">
               <Ionicons name="warning-outline" size={16} color="#d97706" style={{ marginTop: 1 }} />
               <View className="flex-1">
-                <Text className="text-[10px] text-amber-700 mt-0.5 leading-normal">
+                <Text className="text-xs text-amber-700 mt-0.5 leading-normal font-medium">
                   Vui lòng đối chiếu kỹ số tiền thực tế và phương thức thanh toán trước khi xác nhận.
                 </Text>
               </View>
@@ -2019,7 +2019,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
 
             {/* Detailed Payments Table */}
             <View className="w-full mt-1">
-              <Text className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 pl-1">Chi tiết thanh toán</Text>
+              <Text className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 pl-1">Chi tiết thanh toán</Text>
               <View className="border border-slate-100 rounded-xl bg-white w-full">
                 {paymentRows.filter(p => (parseFloat(String(p.amount)) || 0) > 0).map((p, idx, arr) => {
                   const foundMethod = resolvedMethods.find(m => m.value === p.method || m.code === p.method);
@@ -2048,7 +2048,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                     <View key={p.id} className={`flex-row justify-between items-center p-3 w-full ${!isLast ? 'border-b border-slate-100' : ''}`}>
                       <View className="flex-1 pr-2">
                         <Text className="font-semibold text-slate-800 text-xs">{methodName}</Text>
-                        {fundDetail ? <Text className="text-[9px] text-slate-400 mt-0.5 leading-normal">{fundDetail}</Text> : null}
+                        {fundDetail ? <Text className="text-xs text-slate-500 mt-0.5 leading-normal">{fundDetail}</Text> : null}
                       </View>
                       <View className="flex-row items-baseline shrink-0">
                         <Text className="font-bold text-slate-900 text-xs">{formatCurrency(amt).replace(/[đ₫]/g, '').trim()}</Text>
