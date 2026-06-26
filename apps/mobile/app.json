@@ -12,7 +12,10 @@
       "backgroundColor": "#ffffff"
     },
     "updates": {
-      "url": "https://u.expo.dev/3e9d8515-e699-4f8a-90d0-d7df57b5cb9c"
+      "url": "https://u.expo.dev/3e9d8515-e699-4f8a-90d0-d7df57b5cb9c",
+      "requestHeaders": {
+        "expo-channel-name": "production"
+      }
     },
     "runtimeVersion": {
       "policy": "appVersion"

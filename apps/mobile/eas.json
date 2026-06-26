@@ -13,14 +13,16 @@
       },
       "android": {
         "buildType": "apk"
-      }
+      },
+      "channel": "development"
     },
     "preview": {
       "distribution": "internal",
       "node": "22.15.0",
       "env": {
         "CI": "0"
-      }
+      },
+      "channel": "preview"
     },
     "production": {
       "channel": "production",
@@ -32,4 +34,3 @@
     "production": {}
   }
 }
-
