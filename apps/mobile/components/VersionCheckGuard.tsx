@@ -95,14 +95,13 @@ export function VersionCheckGuard({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    setOtaAvailable(false); // Hide the prompt modal permanently for this session once they choose to download
     setOtaDownloading(true);
     try {
       await Updates.fetchUpdateAsync();
       setOtaReady(true);
     } catch (e: any) {
-      setOtaAvailable(false); // Hide the popup completely so user can continue
-      
-      // Delay the alert slightly to prevent UI freeze caused by firing an Alert while a Modal is unmounting (known iOS issue)
+      // Delay the alert slightly to prevent UI freeze caused by firing an Alert while a Modal is unmounting
       setTimeout(() => {
         Alert.alert(
           'Lỗi cập nhật', 
