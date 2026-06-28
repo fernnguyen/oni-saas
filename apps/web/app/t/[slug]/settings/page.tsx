@@ -2,7 +2,7 @@ import { redirect, notFound } from 'next/navigation';
 import { getSupabaseServerClient } from '@/lib/server/supabaseServer';
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
 import { TenantSettingsForm } from '@/app/components/settings/TenantSettingsForm';
-import { IndustrySwitcher } from '@/app/components/settings/IndustrySwitcher';
+
 import { DashboardShell } from '@/app/components/layout/DashboardShell';
 import { getUserPermissions } from '@/lib/server/permissions';
 import { getTenantActivePlanDetails, getTenantPlanMeta } from '@/lib/server/subscriptions';
@@ -49,26 +49,6 @@ export default async function TenantSettingsPage({ params }: Props) {
   if (!canManage) {
     redirect('/');
   }
-
-  const { data: connectorRaw } = await admin
-    .from('connectors')
-    .select('id, tenant_id, type, status, config, updated_at')
-    .eq('tenant_id', tenant.id)
-    .eq('status', 'active')
-    .maybeSingle();
-
-  const connector = connectorRaw
-    ? {
-        connector_id: connectorRaw.id as string,
-        tenant_id: tenant.id as string,
-        type: connectorRaw.type as string,
-        sheet_id: (connectorRaw.config?.sheet_id as string) ?? '',
-        sheet_title: (connectorRaw.config?.sheet_title as string) ?? 'Google Sheet',
-        sheet_url: (connectorRaw.config?.sheet_url as string) ?? '',
-        status: connectorRaw.status as string,
-        updated_at: connectorRaw.updated_at as string,
-      }
-    : null;
 
   // Fetch all shops to find the default one for the sidebar
   const { data: shops } = await admin.from('shops').select('id, name, slug').eq('tenant_id', tenant.id);
@@ -128,16 +108,11 @@ export default async function TenantSettingsPage({ params }: Props) {
           <p className="mt-1 text-sm text-slate-500">{tenant.name} · {tenant.slug}</p>
         </div>
         
-        <IndustrySwitcher
-          tenantId={tenant.id}
-          currentIndustry={tenant.industry_type ?? 'retail'}
-        />
 
         <TenantSettingsForm
           tenantId={tenant.id}
-          connector={connector}
           canManage={canManage}
-          planCode={planDetails?.planCode}
+          isOwner={roleCode === 'owner'}
           initialShareCustomers={tenant.share_customers}
         />
 

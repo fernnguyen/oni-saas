@@ -178,13 +178,13 @@ export function ShopSettingsForm({
   });
 
   const [copied, setCopied] = useState(false);
-  const [activeTab, setActiveTab] = useState<'general' | 'sales' | 'debt' | 'sepay' | 'crm' | 'telegram' | 'payment-methods'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'sales' | 'debt' | 'sepay' | 'crm' | 'telegram' | 'payment-methods' | 'data'>('general');
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const tab = params.get('tab');
-      if (tab && ['general', 'sales', 'debt', 'sepay', 'crm', 'telegram', 'payment-methods'].includes(tab)) {
+      if (tab && ['general', 'sales', 'debt', 'sepay', 'crm', 'telegram', 'payment-methods', 'data'].includes(tab)) {
         setActiveTab(tab as any);
       }
     }
@@ -331,6 +331,78 @@ export function ShopSettingsForm({
       toast.error('Có lỗi kết nối hệ thống.');
     }
   }
+  const [isExporting, setIsExporting] = useState<string | null>(null);
+  const [isTerminating, setIsTerminating] = useState(false);
+  const [terminatePassword, setTerminatePassword] = useState('');
+  const [showTerminateModal, setShowTerminateModal] = useState(false);
+  const [confirmDeleteChecked, setConfirmDeleteChecked] = useState(false);
+
+  async function exportData(type: string) {
+    setIsExporting(type);
+    try {
+      const res = await fetch(`/api/shops/${shop.id}/export?type=${type}`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || 'Lỗi khi xuất dữ liệu');
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const dateStr = new Date().toLocaleDateString('en-GB').replace(/\//g, '-');
+      a.download = `oni-vn_${type}_${dateStr}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      a.remove();
+      toast.success('Đã tải xuống dữ liệu thành công!');
+    } catch (e: any) {
+      toast.error(e.message || 'Lỗi tải xuống dữ liệu');
+    } finally {
+      setIsExporting(null);
+    }
+  }
+
+  async function handleTerminate() {
+    if (!terminatePassword) {
+      toast.error('Vui lòng nhập mật khẩu xác nhận');
+      return;
+    }
+    
+    const ok = await confirm({
+      title: 'CẢNH BÁO: XÓA CHI NHÁNH VĨNH VIỄN',
+      description: 'Hành động này sẽ XÓA TOÀN BỘ dữ liệu cửa hàng (hóa đơn, kho, quỹ, cấu hình...) và KHÔNG THỂ KHÔI PHỤC. Bạn có chắc chắn không?',
+      confirmLabel: 'Tôi chắc chắn, xóa chi nhánh!',
+      cancelLabel: 'Hủy bỏ',
+      variant: 'danger',
+    });
+    if (!ok) return;
+
+    setIsTerminating(true);
+    try {
+      const res = await fetch(`/api/shops/${shop.id}/terminate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: terminatePassword }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.message || 'Lỗi xóa chi nhánh');
+      }
+      toast.success('Đã xóa dữ liệu chi nhánh thành công.');
+      setTimeout(() => {
+        if (data.defaultShopSlug) {
+          window.location.href = `/t/${data.defaultShopSlug}/settings`;
+        } else {
+          window.location.href = '/';
+        }
+      }, 1500);
+    } catch (e: any) {
+      toast.error(e.message || 'Lỗi xóa dữ liệu');
+      setIsTerminating(false);
+    }
+  }
+
   const [isPending, startTransition] = useTransition();
 
   const AVAILABLE_EVENTS = [
@@ -848,6 +920,17 @@ export function ShopSettingsForm({
               </svg>
             ), 
             desc: 'Cấu hình phương thức thanh toán', 
+            permission: canManage 
+          },
+          { 
+            id: 'data', 
+            label: 'Quản lý Dữ liệu', 
+            icon: (
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+              </svg>
+            ), 
+            desc: 'Xuất & Xóa dữ liệu chi nhánh', 
             permission: canManage 
           },
         ].filter(t => t.permission).map((tab) => (
@@ -2770,6 +2853,129 @@ export function ShopSettingsForm({
               </div>
             )}
           </Section>
+        </div>
+      )}
+
+      {activeTab === 'data' && (
+        <div className="flex-1 max-w-4xl space-y-6">
+          <Section 
+            title="Xuất dữ liệu Excel" 
+            description="Tải xuống dữ liệu của riêng chi nhánh này."
+          >
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { type: 'customers', label: 'Khách hàng', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /> },
+                { type: 'products', label: 'Sản phẩm', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /> },
+                { type: 'orders', label: 'Hóa đơn', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /> },
+                { type: 'cashbook', label: 'Phiếu thu chi', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /> },
+              ].map(item => (
+                <button
+                  key={item.type}
+                  type="button"
+                  onClick={() => exportData(item.type)}
+                  disabled={!!isExporting}
+                  className="flex flex-col items-center justify-center p-4 rounded-xl border border-slate-200 hover:border-primary hover:bg-primary/5 transition-colors disabled:opacity-50"
+                >
+                  <svg className="w-6 h-6 text-green-600 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    {item.icon}
+                  </svg>
+                  <span className="text-xs font-medium text-slate-700">{isExporting === item.type ? 'Đang xuất...' : item.label}</span>
+                </button>
+              ))}
+            </div>
+          </Section>
+
+          {roles?.some(r => r.code === 'owner') && (
+            <div className="rounded-2xl border border-red-200 bg-red-50/30 overflow-hidden">
+              <div className="border-b border-red-100 px-6 py-4">
+                <h2 className="text-sm font-bold text-red-700">Khu vực nguy hiểm (Danger Zone)</h2>
+                <p className="text-xs text-red-500/80 mt-0.5">Xóa vĩnh viễn chi nhánh và toàn bộ dữ liệu chi nhánh.</p>
+              </div>
+              <div className="px-6 py-5 flex items-center justify-between gap-4">
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-slate-800">Đóng chi nhánh</p>
+                  <p className="text-xs text-slate-500 mt-1">Hành động này sẽ xóa ngay lập tức toàn bộ dữ liệu cửa hàng, hóa đơn, doanh thu và không thể khôi phục. Vui lòng tải xuống dữ liệu (Export) trước khi thực hiện.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowTerminateModal(true)}
+                  className="shrink-0 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg transition-colors shadow-sm"
+                >
+                  Xóa chi nhánh
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {showTerminateModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="px-6 py-4 border-b border-slate-100">
+              <h3 className="text-lg font-bold text-red-600">Xác nhận xóa chi nhánh</h3>
+            </div>
+            <div className="p-6">
+              <div className="rounded-lg bg-red-50 p-4 border border-red-200 mb-6 shadow-sm">
+                <div className="flex items-start gap-3">
+                  <svg className="w-5 h-5 text-red-600 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  <div>
+                    <p className="text-sm text-red-800 font-bold mb-1">Cảnh báo nghiêm trọng</p>
+                    <p className="text-xs text-red-700/90 leading-relaxed">Hành động này sẽ <strong>xóa thực tế toàn bộ dữ liệu</strong> bao gồm hóa đơn, sản phẩm, quỹ, khách hàng và cấu hình của chi nhánh này khỏi cơ sở dữ liệu. <strong>Tuyệt đối KHÔNG THỂ khôi phục</strong> sau khi xóa.</p>
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-5 items-center">
+                    <input
+                      id="confirm-danger"
+                      type="checkbox"
+                      checked={confirmDeleteChecked}
+                      onChange={(e) => setConfirmDeleteChecked(e.target.checked)}
+                      className="h-4 w-4 rounded border-red-300 text-red-600 focus:ring-red-600"
+                    />
+                  </div>
+                  <div className="text-sm">
+                    <label htmlFor="confirm-danger" className="font-medium text-slate-800 cursor-pointer">
+                      Tôi đã đọc và biết được mức độ nguy hiểm, dữ liệu đã xóa không thể khôi phục.
+                    </label>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Mật khẩu xác nhận</label>
+                  <input
+                    type="password"
+                    placeholder="Nhập mật khẩu của bạn để xác nhận"
+                    value={terminatePassword}
+                    onChange={(e) => setTerminatePassword(e.target.value)}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:border-red-500 focus:ring-1 focus:ring-red-500"
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => { setShowTerminateModal(false); setTerminatePassword(''); setConfirmDeleteChecked(false); }}
+                disabled={isTerminating}
+                className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200/50 rounded-lg transition-colors"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                id="btn-terminate"
+                type="button"
+                onClick={handleTerminate}
+                disabled={isTerminating || !terminatePassword || !confirmDeleteChecked}
+                className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isTerminating ? 'Đang xóa...' : 'Chắc chắn xóa'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
