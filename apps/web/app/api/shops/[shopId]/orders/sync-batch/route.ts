@@ -248,8 +248,16 @@ export async function POST(
         discount_amount: String(order.discount_amount),
         tax_amount:      String(order.tax_amount),
         total_amount:    String(order.total_amount),
-        paid_amount:     String(order.paid_amount),
-        debt_amount:     String(order.debt_amount ?? 0),
+        paid_amount:     String(
+          payments && payments.length > 0
+            ? payments.reduce((sum, p) => p.method !== 'debt' && !p.method?.startsWith('debt-') ? sum + Number(p.amount) : sum, 0)
+            : order.paid_amount
+        ),
+        debt_amount:     String(
+          payments && payments.length > 0
+            ? Math.max(0, Number(order.total_amount) - payments.reduce((sum, p) => p.method !== 'debt' && !p.method?.startsWith('debt-') ? sum + Number(p.amount) : sum, 0))
+            : (order.debt_amount ?? 0)
+        ),
         points_earned:   String(order.points_earned ?? 0),
         points_redeemed: String(order.points_redeemed ?? 0),
         note:            order.note ?? '',
@@ -276,8 +284,16 @@ export async function POST(
         discount_amount: String(order.discount_amount),
         tax_amount:      String(order.tax_amount),
         total_amount:    String(order.total_amount),
-        paid_amount:     String(order.paid_amount),
-        debt_amount:     String(order.debt_amount ?? 0),
+        paid_amount:     String(
+          payments && payments.length > 0
+            ? payments.reduce((sum, p) => p.method !== 'debt' && !p.method?.startsWith('debt-') ? sum + Number(p.amount) : sum, 0)
+            : order.paid_amount
+        ),
+        debt_amount:     String(
+          payments && payments.length > 0
+            ? Math.max(0, Number(order.total_amount) - payments.reduce((sum, p) => p.method !== 'debt' && !p.method?.startsWith('debt-') ? sum + Number(p.amount) : sum, 0))
+            : (order.debt_amount ?? 0)
+        ),
         points_earned:   String(order.points_earned ?? 0),
         points_redeemed: String(order.points_redeemed ?? 0),
         note:            order.note ?? '',

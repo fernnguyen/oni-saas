@@ -608,6 +608,7 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
       render: (row) => (
         <CopyableId 
           id={row.order_id} 
+          label={row.order_id?.includes('-') ? row.order_id.split('-').pop() : row.order_id}
           onClick={() => openDetail(row)} 
         />
       ),
@@ -745,6 +746,7 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
         pagination={{ page, total: data?.total ?? 0, pageSize: 50, onChange: setPage }}
         emptyState={<EmptyState title="Chưa có đơn hàng nào" description="Đơn hàng sẽ xuất hiện ở đây sau khi được tạo từ POS." />}
         rowKey={(row, idx) => `${row.order_id}__${idx}`}
+        onRowClick={openDetail}
       />
 
       <ConfirmDialog
@@ -818,7 +820,16 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
           </div>
         }
       >
-        {selectedOrder && (
+        {selectedOrder && (() => {
+          const isDebt = (m: string) => m === 'debt' || m?.startsWith('debt-');
+          const realPaidAmount = paymentsData
+            ? paymentsData.data.reduce((sum, p) => !isDebt(p.method) ? sum + Number(p.amount) : sum, 0)
+            : Number(selectedOrder.paid_amount || 0);
+          const calculatedDebt = paymentsData
+            ? Math.max(0, Number(selectedOrder.total_amount || 0) - realPaidAmount)
+            : Number(selectedOrder.debt_amount || 0);
+
+          return (
           <div className="space-y-6">
             {/* Order info */}
             <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
@@ -867,12 +878,12 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
                 )}
                 <div>
                   <dt className="text-slate-500">Đã trả</dt>
-                  <dd className="font-medium text-green-700">{fmtVND(selectedOrder.paid_amount)}</dd>
+                  <dd className="font-medium text-green-700">{fmtVND(realPaidAmount)}</dd>
                 </div>
                 <div>
                   <dt className="text-slate-500">Còn nợ</dt>
-                  <dd className={Number(selectedOrder.debt_amount || 0) > 0 ? 'font-medium text-orange-600' : 'text-slate-400'}>
-                    {fmtVND(selectedOrder.debt_amount)}
+                  <dd className={calculatedDebt > 0 ? 'font-medium text-orange-600' : 'text-slate-400'}>
+                    {fmtVND(calculatedDebt)}
                   </dd>
                 </div>
                 {selectedOrder.note && (
@@ -1057,7 +1068,7 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
                               </button>
                             )}
                           </div>
-                          <span className={`font-bold ${Number(p.amount) < 0 ? 'text-red-600' : 'text-green-700'}`}>{fmtVND(p.amount)}</span>
+                          <span className={`font-bold ${Number(p.amount) < 0 || p.method === 'debt' || p.method?.startsWith('debt-') ? 'text-red-600' : 'text-green-700'}`}>{fmtVND(p.amount)}</span>
                         </div>
 
                         {isEditing && (
@@ -1391,7 +1402,8 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
               </div>
             )}
           </div>
-        )}
+          )
+        })()}
       </SlideOver>
 
       <ConfirmDialog
