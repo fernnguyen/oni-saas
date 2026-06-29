@@ -121,11 +121,12 @@ export async function POST(
         console.error('Error creating placeholder shop:', insertShopError)
       } else {
         // Create default settings for the new shop
-        await admin.from('shop_settings').insert({
+        const { error: insertSettingsError } = await admin.from('shop_settings').insert({
           shop_id: newShopId,
           currency: 'VND',
           timezone: 'Asia/Ho_Chi_Minh',
-        }).catch(console.error)
+        })
+        if (insertSettingsError) console.error(insertSettingsError)
       }
     }
 
