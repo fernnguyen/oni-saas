@@ -22,21 +22,12 @@ export const metadata: Metadata = {
     title: 'ONI.vn – Phần mềm bán hàng POS & Mini ERP quản trị SME',
     description:
       'Phần mềm bán hàng POS, quản lý kho, chuỗi mua hàng và chăm sóc khách hàng đa chi nhánh. Tùy biến kết nối database riêng biệt (BYOD), tích hợp AI, Zalo & Telegram.',
-    images: [
-      {
-        url: '/oni_main_cover.png',
-        width: 1200,
-        height: 630,
-        alt: 'ONI - Mini ERP',
-      },
-    ],
   },
   twitter: {
     card: 'summary_large_image',
     title: 'ONI.vn – Phần mềm bán hàng POS & Mini ERP quản trị SME',
     description:
       'Phần mềm bán hàng POS, quản lý kho, chuỗi mua hàng và chăm sóc khách hàng đa chi nhánh. Tùy biến kết nối database riêng biệt (BYOD), tích hợp AI, Zalo & Telegram.',
-    images: ['/oni_main_cover.png'],
   },
   icons: {
     icon: [
