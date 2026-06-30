@@ -40,6 +40,8 @@ export async function POST(req: NextRequest) {
 
   const { slug, name, email: rawEmail, password, industry_type, turnstile_token, invitation_code } = parsed.data;
 
+  try {
+
   const email = (!rawEmail.includes('@') && isValidVNPhone(rawEmail)) 
     ? formatPhoneAsEmail(rawEmail) 
     : rawEmail;
@@ -82,7 +84,7 @@ export async function POST(req: NextRequest) {
     const { data } = await admin
       .from('invitation_codes')
       .select('*')
-      .eq('code', trimmedCode)
+      .ilike('code', trimmedCode)
       .maybeSingle();
     codeData = data;
 
@@ -323,9 +325,9 @@ export async function POST(req: NextRequest) {
     } catch (e) {
       console.warn('increment_invitation_code_uses RPC failed, trying fallback:', e);
       // Fallback update
-      const { data: current } = await admin.from('invitation_codes').select('used_count').eq('code', trimmedCode).single();
+      const { data: current } = await admin.from('invitation_codes').select('used_count').ilike('code', trimmedCode).single();
       if (current) {
-        await admin.from('invitation_codes').update({ used_count: current.used_count + 1 }).eq('code', trimmedCode);
+        await admin.from('invitation_codes').update({ used_count: current.used_count + 1 }).ilike('code', trimmedCode);
       }
     }
 
@@ -346,5 +348,12 @@ export async function POST(req: NextRequest) {
     slug,
     verification_required: verificationRequired
   }, { status: 201 });
+  } catch (error: any) {
+    console.error('Registration error:', error);
+    return NextResponse.json(
+      { message: error.message || 'Lỗi hệ thống. Vui lòng thử lại.' },
+      { status: 500 }
+    );
+  }
 }
 

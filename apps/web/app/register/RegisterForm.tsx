@@ -189,6 +189,7 @@ export function RegisterForm({ plans, initialDomain, initialIndustry, registrati
 
   function handleNameChange(val: string) {
     setName(val);
+    setError(null);
     setFieldErrors(prev => ({ ...prev, name: '' }));
     if (!slugManuallyEdited) {
       const newSlug = slugify(val);
@@ -201,6 +202,7 @@ export function RegisterForm({ plans, initialDomain, initialIndustry, registrati
     const clean = val.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 50);
     setSlug(clean);
     setSlugManuallyEdited(true);
+    setError(null);
     setFieldErrors(prev => ({ ...prev, slug: '' }));
   }
 
@@ -267,6 +269,7 @@ export function RegisterForm({ plans, initialDomain, initialIndustry, registrati
     if (!trimmed) {
       setPromoDetails(null);
       setIsCheckingCode(false);
+      setError(null);
       setFieldErrors(prev => ({ ...prev, invitationCode: '' }));
       setSelectedPlanCode(defaultPlan?.code || '');
       return;
@@ -564,6 +567,7 @@ export function RegisterForm({ plans, initialDomain, initialIndustry, registrati
                 value={email}
                 onChange={(e) => {
                   setEmail(e.target.value.trim());
+                  setError(null);
                   setFieldErrors(prev => ({ ...prev, email: '' }));
                 }}
                 onBlur={handleEmailBlur}
@@ -592,6 +596,7 @@ export function RegisterForm({ plans, initialDomain, initialIndustry, registrati
                   value={password}
                   onChange={(e) => {
                     setPassword(e.target.value);
+                    setError(null);
                     setFieldErrors(prev => ({ ...prev, password: '' }));
                   }}
                   onBlur={handlePasswordBlur}
@@ -641,6 +646,7 @@ export function RegisterForm({ plans, initialDomain, initialIndustry, registrati
                   value={invitationCode}
                   onChange={(e) => {
                     setInvitationCode(e.target.value.toUpperCase().replace(/\s/g, ''));
+                    setError(null);
                     setFieldErrors(prev => ({ ...prev, invitationCode: '' }));
                   }}
                   placeholder={registrationMode === 'code' ? "Nhập mã mời bắt buộc (ví dụ: ONI-XXXXX)" : "Nhập mã ưu đãi (nếu có)"}

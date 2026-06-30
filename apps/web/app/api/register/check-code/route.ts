@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
   const { data: codeData, error } = await admin
     .from('invitation_codes')
     .select('*')
-    .eq('code', code)
+    .ilike('code', code)
     .maybeSingle();
 
   if (error || !codeData) {
