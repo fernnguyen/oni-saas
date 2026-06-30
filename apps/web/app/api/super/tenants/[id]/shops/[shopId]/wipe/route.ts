@@ -61,7 +61,13 @@ export async function POST(
             await client.query(`DELETE FROM payments WHERE branch_id = $1 AND tenant_id = $2`, [branchId, tenantId]);
             await client.query(`DELETE FROM order_items WHERE branch_id = $1 AND tenant_id = $2`, [branchId, tenantId]);
             // Note: if order_tracking does not have branch_id, delete via order_id
-            await client.query(`DELETE FROM order_tracking WHERE order_id IN (SELECT id FROM orders WHERE branch_id = $1 AND tenant_id = $2)`, [branchId, tenantId]).catch(() => {});
+            // Sử dụng SAVEPOINT để nếu bảng không tồn tại thì không làm hỏng transaction hiện tại
+            await client.query('SAVEPOINT before_order_tracking');
+            try {
+              await client.query(`DELETE FROM order_tracking WHERE order_id IN (SELECT id FROM orders WHERE branch_id = $1 AND tenant_id = $2)`, [branchId, tenantId]);
+            } catch (e) {
+              await client.query('ROLLBACK TO SAVEPOINT before_order_tracking');
+            }
             await client.query(`DELETE FROM orders WHERE branch_id = $1 AND tenant_id = $2`, [branchId, tenantId]);
           }
 

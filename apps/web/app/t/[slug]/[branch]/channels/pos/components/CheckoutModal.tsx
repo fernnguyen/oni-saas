@@ -1797,6 +1797,9 @@ export function CheckoutModal({
       if (localCustomer?.phone) {
         orderMetaObj.customer_phone = localCustomer.phone
       }
+      if (localCustomer?.address) {
+        orderMetaObj.customer_address = localCustomer.address
+      }
       order.metadata = JSON.stringify(orderMetaObj)
 
       const { items: _embedded, ...orderWithoutItems } = order

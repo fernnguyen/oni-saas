@@ -123,6 +123,7 @@ export async function printBill({
   } catch {}
 
   const customerPhone = orderMeta?.customer_phone || (order as any).customer_phone || ''
+  const customerAddress = orderMeta?.customer_address || (order as any).customer_address || ''
   const displayCustomerName = customerName 
     ? (customerPhone ? `${customerName} (${customerPhone})` : customerName)
     : ''
@@ -278,6 +279,9 @@ ${(() => {
   <tr>
     <td style="width: 100%; padding-bottom: 2px;">${customerLabel}: ${displayCustomerName ? displayCustomerName : walkInText}</td>
   </tr>
+  ${customerAddress ? `<tr>
+    <td style="width: 100%; padding-bottom: 2px;">${isBilingual ? 'Địa chỉ / Addr' : 'Địa chỉ'}: ${customerAddress}</td>
+  </tr>` : ''}
   ${orderMeta?.resource_name ? `<tr>
     <td style="width: 100%; padding-bottom: 2px;">${isBilingual ? 'Vị trí / Area' : 'Vị trí'}: ${orderMeta.resource_name}</td>
   </tr>` : ''}
