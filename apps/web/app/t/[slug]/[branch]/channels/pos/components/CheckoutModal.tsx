@@ -1224,6 +1224,7 @@ export function CheckoutModal({
                     bank_code: activeBankCode,
                     bank_account_number: activeBankAccountNumber,
                     bank_account_name: activeBankAccountName,
+                    qr_template: activeTemplate,
                   },
                   printCount: 1,
                   shopId
@@ -1381,6 +1382,7 @@ export function CheckoutModal({
               bank_code: activeBankCode,
               bank_account_number: activeBankAccountNumber,
               bank_account_name: activeBankAccountName,
+              qr_template: activeTemplate,
             },
             printCount: 1,
             shopId
@@ -1427,6 +1429,7 @@ export function CheckoutModal({
           bank_code: activeBankCode,
           bank_account_number: activeBankAccountNumber,
           bank_account_name: activeBankAccountName,
+          qr_template: activeTemplate,
         },
         printCount: 1,
         shopId
@@ -1788,13 +1791,13 @@ export function CheckoutModal({
         items: orderItems,
       }
 
-      if (metadata) {
-        order.metadata = JSON.stringify({
-          ...metadata,
-          check_out: localCheckoutTime || customCheckoutTime || new Date().toISOString(),
-          rental_type: localRentalType
-        })
+      let orderMetaObj: any = metadata ? { ...metadata } : {}
+      orderMetaObj.check_out = localCheckoutTime || customCheckoutTime || new Date().toISOString()
+      orderMetaObj.rental_type = localRentalType
+      if (localCustomer?.phone) {
+        orderMetaObj.customer_phone = localCustomer.phone
       }
+      order.metadata = JSON.stringify(orderMetaObj)
 
       const { items: _embedded, ...orderWithoutItems } = order
 

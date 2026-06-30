@@ -122,8 +122,13 @@ export async function printBill({
     orderMeta = typeof (order as any).metadata === 'string' ? JSON.parse((order as any).metadata) : ((order as any).metadata || {})
   } catch {}
 
+  const customerPhone = orderMeta?.customer_phone || (order as any).customer_phone || ''
+  const displayCustomerName = customerName 
+    ? (customerPhone ? `${customerName} (${customerPhone})` : customerName)
+    : ''
+
   const isBilingual = !!currentSettings?.print_bilingual
-  const billTitle = isBilingual ? 'HOÁ ĐƠN BÁN HÀNG<br/><span style="font-size:10px;font-weight:normal;text-transform:uppercase;color:#444">SALES RECEIPT</span>' : 'HOÁ ĐƠN BÁN HÀNG'
+  const billTitle = isBilingual ? 'HOÁ ĐƠN BÁN HÀNG<br/><span style="font-size:10px;font-weight:normal;text-transform:uppercase;color:#000">SALES RECEIPT</span>' : 'HOÁ ĐƠN BÁN HÀNG'
   const reprintHtml = printCount > 1 
     ? (isBilingual 
         ? `<p class="sub" style="font-style: italic; margin-top: 2px;">(In lại lần ${printCount - 1} / Duplicate #${printCount - 1})</p>`
@@ -188,13 +193,13 @@ export async function printBill({
       qrHtml = `<div class="sep"></div>
       <div style="text-align:center; margin-top: 10px;">
         <p style="font-weight:bold; margin-bottom: 4px;">${isBilingual ? 'Quét QR để thanh toán / Scan to pay' : 'Quét QR để thanh toán'}</p>
-        <img src="${qrUrl}" style="width: 100%; max-width: 70px; margin: 0 auto;" />
+        <img src="${qrUrl}" style="width: 100%; max-width: 70px; margin: 0 auto; image-rendering: pixelated; image-rendering: crisp-edges;" />
       </div>`
     } else {
       qrHtml = `<div class="sep"></div>
       <div style="text-align:center; margin-top: 10px;">
         <p style="font-weight:bold; margin-bottom: 4px;">${isBilingual ? 'Quét QR để thanh toán / Scan to pay' : 'Quét QR để thanh toán'}</p>
-        <img src="${qrUrl}" style="width: 100%; max-width: 95px; margin: 0 auto;" />
+        <img src="${qrUrl}" style="width: 100%; max-width: 95px; margin: 0 auto; image-rendering: pixelated; image-rendering: crisp-edges;" />
       </div>`
     }
   }
@@ -216,11 +221,20 @@ export async function printBill({
 <title>Hoá đơn #${shortId}</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: 'Courier New', monospace; font-size: 12px; width: 80mm; padding: 8px; color: #000; }
-h1 { font-size: 15px; text-align: center; font-weight: bold; }
+body { 
+  font-family: 'Courier New', monospace;
+  font-size: 12px; 
+  width: 72mm; 
+  margin: 0 auto;
+  padding: 4px; 
+  color: #000; 
+  line-height: 1.3;
+}
+img { image-rendering: pixelated; image-rendering: crisp-edges; }
+h1 { font-size: 16px; text-align: center; font-weight: bold; margin-bottom: 4px; }
 h2 { font-size: 18px; text-align: center; font-weight: bold; margin-top: 8px; margin-bottom: 6px; }
-.sub { font-size: 11px; text-align: center; color: #444; margin-bottom: 2px; }
-.sep { border-top: 1px dashed #000; margin: 6px 0; }
+.sub { font-size: 12px; text-align: center; color: #000; margin-bottom: 2px; }
+.sep { border-top: 1px dashed #000; margin: 8px 0; }
 table { width: 100%; border-collapse: collapse; }
 td { padding: 2px 0; vertical-align: top; }
 .r { text-align: right; }
@@ -231,6 +245,10 @@ td { padding: 2px 0; vertical-align: top; }
 .footer { text-align: center; font-size: 11px; margin-top: 6px; }
 @media print {
   @page { margin: 0; size: 80mm auto; }
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
 }
 </style>
 </head>
@@ -253,7 +271,7 @@ ${(() => {
 
   return `<table style="margin-bottom: 4px; width: 100%;">
   <tr>
-    <td style="width: 100%; padding-bottom: 2px;">${customerLabel}: ${customerName ? customerName : walkInText}</td>
+    <td style="width: 100%; padding-bottom: 2px;">${customerLabel}: ${displayCustomerName ? displayCustomerName : walkInText}</td>
   </tr>
   ${orderMeta?.resource_name ? `<tr>
     <td style="width: 100%; padding-bottom: 2px;">${isBilingual ? 'Vị trí / Area' : 'Vị trí'}: ${orderMeta.resource_name}</td>
@@ -293,11 +311,11 @@ ${items
     }
 
     if ((it as any).variant_label && !(parsedModifiers && parsedModifiers.length > 0)) {
-      subLine = `<br/><span style="font-size:10px;color:#555;font-style:italic">${(it as any).variant_label}</span>`
+      subLine = `<br/><span style="font-size:10px;color:#000;font-style:italic">${(it as any).variant_label}</span>`
     } else if (Array.isArray(parsedModifiers) && parsedModifiers.length > 0) {
       const modParts = parsedModifiers.map((m: any) => m.option).join(', ')
       const modAdj = (it as any).modifier_total > 0 ? ` (+${Number((it as any).modifier_total).toLocaleString('vi-VN')}đ)` : ''
-      subLine = `<br/><span style="font-size:10px;color:#666">${modParts}${modAdj}</span>`
+      subLine = `<br/><span style="font-size:10px;color:#000">${modParts}${modAdj}</span>`
     }
     const effectivePrice = Number(it.unit_price) + (Number((it as any).modifier_total) || 0)
     const rate = parseFloat((it as any).tax_rate || '0') || 0
@@ -342,7 +360,7 @@ ${(() => {
   rows += `<tr class="total-row"><td>${isBilingual ? 'TỔNG CỘNG / TOTAL:' : 'TỔNG CỘNG:'}</td><td class="r">${fmtVND(total)}</td></tr>`
   
   if (deposit > 0 || otaPrepaidAmount > 0) {
-    rows += `<tr class="total-row" style="color: #059669;"><td>${isBilingual ? 'THỰC THU TẠI QUẦY / REMAINING DUE:' : 'THỰC THU TẠI QUẦY:'}</td><td class="r">${fmtVND(finalDue)}</td></tr>`
+    rows += `<tr class="total-row" style="color: #000;"><td>${isBilingual ? 'THỰC THU TẠI QUẦY / REMAINING DUE:' : 'THỰC THU TẠI QUẦY:'}</td><td class="r">${fmtVND(finalDue)}</td></tr>`
   }
   return rows
 })()}
