@@ -526,7 +526,7 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
               <h3 className="font-bold text-emerald-950 text-base">Khởi động nhanh chi nhánh mới của bạn!</h3>
             </div>
             <p className="text-slate-600 text-sm leading-relaxed max-w-2xl">
-              Cửa hàng của bạn đã sẵn sàng hoạt động với chế độ **Cho phép bán khi hết hàng (Bán âm)** được kích hoạt mặc định. Hãy nạp dữ liệu mẫu phù hợp với ngành hàng <strong>{verticalConfig.label}</strong> để trải nghiệm thử bán hàng tại POS ngay lập tức, hoặc tự tạo sản phẩm của riêng bạn.
+              Cửa hàng của bạn đã sẵn sàng hoạt động với chế độ <strong>Cho phép bán khi hết hàng (Bán âm)</strong> được kích hoạt mặc định. Hãy nạp dữ liệu mẫu phù hợp với ngành hàng <strong>{verticalConfig.label}</strong> để trải nghiệm thử bán hàng tại POS ngay lập tức, hoặc tự tạo sản phẩm của riêng bạn.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 shrink-0">

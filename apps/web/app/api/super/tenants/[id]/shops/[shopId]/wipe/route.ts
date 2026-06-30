@@ -75,6 +75,7 @@ export async function POST(
           if (wipe_cashbook) {
             await client.query(`DELETE FROM cashbook WHERE branch_id = $1 AND tenant_id = $2`, [branchId, tenantId]);
             await client.query(`DELETE FROM fund_audits WHERE branch_id = $1 AND tenant_id = $2`, [branchId, tenantId]);
+            await client.query(`UPDATE payment_funds SET initial_balance = '0', current_balance = '0' WHERE branch_id = $1 AND tenant_id = $2`, [branchId, tenantId]);
           }
 
           // WIPE CUSTOMERS
@@ -174,6 +175,7 @@ export async function POST(
     invalidate(branchId, 'orders');
     invalidate(branchId, 'customers');
     invalidate(branchId, 'cashbook');
+    invalidate(branchId, 'funds');
 
     // Tự động xoá toàn bộ Redis cache hoặc Memory cache lưu trữ ở tầng DataAdapter
     const cacheService = getCacheService();
