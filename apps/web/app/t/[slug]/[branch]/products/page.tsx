@@ -40,7 +40,8 @@ export default async function ProductsPage({ params }: Props) {
     .eq('tenant_id', tenant?.id)
     .maybeSingle()
 
-  const planMeta = Array.isArray(sub?.plans) ? sub?.plans[0]?.metadata : sub?.plans?.metadata;
+  const plans = sub?.plans as any;
+  const planMeta = Array.isArray(plans) ? plans[0]?.metadata : plans?.metadata;
   const maxProducts = planMeta?.max_products;
 
   return (

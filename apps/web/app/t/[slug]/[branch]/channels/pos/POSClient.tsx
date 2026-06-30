@@ -1340,10 +1340,10 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
           <ProductGrid
             branchId={branchId}
             inventory={inventory}
-            mutePosSound={mutePosSound}
+            mutePosSound={mutePosSound ?? false}
             onAddToCart={cart.addItem}
             onAddToCartWithOptions={cart.addItemWithOptions}
-            allowNegativeStock={allowNegativeStock}
+            allowNegativeStock={allowNegativeStock ?? false}
           />
         </div>
 
@@ -1376,7 +1376,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
             onClearCart={clearCart}
             onAddToCart={cart.addItem}
             onAddToCartWithOptions={cart.addItemWithOptions}
-            mutePosSound={mutePosSound}
+            mutePosSound={mutePosSound ?? false}
             activeItemId={activeCartItemId}
             onActiveItemChange={setActiveCartItemId}
             onOpenCustomerModal={() => openCustomerModalGlobal()}
@@ -1413,7 +1413,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
         shopName={shopName}
         employeeId={userEmail}
         isOnline={isOnline}
-        autoPrintReceipt={autoPrintReceipt}
+        autoPrintReceipt={autoPrintReceipt ?? false}
         existingOrder={resumingOrder}
       />
 

@@ -31,7 +31,8 @@ export default async function InventoryPage({ params }: Props) {
     .eq('tenant_id', shop.tenant_id)
     .maybeSingle()
 
-  const planCode = Array.isArray(subscription?.plans) ? subscription?.plans[0]?.code : subscription?.plans?.code;
+  const plans = subscription?.plans as any;
+  const planCode = Array.isArray(plans) ? plans[0]?.code : plans?.code;
 
   return <InventoryClient shopId={shop.id} shopName={shop.name} planCode={planCode} />
 }

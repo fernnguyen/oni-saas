@@ -100,7 +100,8 @@ export default async function SuperTenantDetail({
     .maybeSingle();
   const tenantConnector = tenantConnectorRaw as { id: string; type: string; status: string } | null;
 
-  const planMeta = sub?.plans?.metadata ?? {};
+  const subPlans = sub?.plans as any;
+  const planMeta = Array.isArray(subPlans) ? subPlans[0]?.metadata : (subPlans?.metadata ?? {});
   const subStatus: StatusKey = (sub?.status as StatusKey) ?? 'canceled';
 
   const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'oni.vn';

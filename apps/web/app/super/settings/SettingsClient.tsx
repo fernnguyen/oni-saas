@@ -253,7 +253,6 @@ export function SettingsClient({
             </div>
           </div>
         </div>
-        </div>
       </div>
 
       {/* Subscription Settings Card */}

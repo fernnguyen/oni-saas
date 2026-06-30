@@ -45,7 +45,8 @@ export default async function CashbookPage({ params }: Props) {
     .eq('tenant_id', shop.tenant_id)
     .maybeSingle()
 
-  const planCode = Array.isArray(subscription?.plans) ? subscription?.plans[0]?.code : subscription?.plans?.code;
+  const plans = subscription?.plans as any;
+  const planCode = Array.isArray(plans) ? plans[0]?.code : plans?.code;
 
   return <CashbookClient shopId={shop.id} shopName={shop.name} permissions={permissions} planCode={planCode} />
 }

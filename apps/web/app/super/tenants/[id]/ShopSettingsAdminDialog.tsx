@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { X, Save, ShieldAlert, Check } from 'lucide-react';
 import { BANKS } from '@/lib/constants/banks';
@@ -77,6 +77,8 @@ export function ShopSettingsAdminDialog({
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const params = useParams();
+  const tenantId = params.id as string;
   const [activeTab, setActiveTab] = useState<'general' | 'sales' | 'crm' | 'sepay' | 'danger'>('general');
   const [settings, setSettings] = useState<ShopSettings | null>(null);
   const router = useRouter();
@@ -764,12 +766,9 @@ export function ShopSettingsAdminDialog({
                         </div>
                       </div>
 
-                      {/* We need the tenant_id from the URL params. We can parse it from window.location or we can pass it down. 
-                          Since this component is inside /super/tenants/[id]/page.tsx, let's extract it from pathname if not passed as prop. 
-                          Wait, let's just use the shop's tenant_id which might be in settings? No, we don't have it in ShopSettings type.
-                          Let's grab it from useParams() or window.location.pathname */}
+                      {/* Khu vực xoá dữ liệu an toàn */}
                       <WipeDataDialog 
-                        tenantId={window.location.pathname.split('/')[3]} 
+                        tenantId={tenantId} 
                         shopId={shopId} 
                         shopName={shopName} 
                       />
