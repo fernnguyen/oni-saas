@@ -46,23 +46,50 @@ async function countRows(table: string, column: string, value: string): Promise<
 export const ACTION_REGISTRY: Record<string, ActionDef> = {
   create_shop: {
     label: 'chi nhánh',
-    metaKey: 'max_shops',
+    metaKey: 'create_shop',
     count: ({ tenantId }) => countRows('shops', 'tenant_id', tenantId!),
   },
   create_shop_user: {
     label: 'người dùng',
-    metaKey: 'max_users',
+    metaKey: 'create_shop_user',
     count: ({ tenantId }) => countRows('user_tenants', 'tenant_id', tenantId!),
   },
   create_connector: {
     label: 'kết nối dữ liệu',
-    metaKey: 'max_connectors_per_shop',
+    metaKey: 'create_connector',
     count: ({ shopId }) => countRows('connectors', 'shop_id', shopId!),
   },
   create_domain: {
     label: 'domain tùy chỉnh',
-    metaKey: 'max_custom_domains',
+    metaKey: 'create_domain',
     count: ({ shopId }) => countRows('domains', 'shop_id', shopId!),
+  },
+  max_orders_per_month: {
+    label: 'đơn hàng trong tháng',
+    metaKey: 'max_orders_per_month',
+    count: async ({ tenantId }) => {
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      const adminClient = getSupabaseAdminClient();
+      const { count } = await adminClient
+        .from('orders')
+        .select('*', { count: 'exact', head: true })
+        .eq('tenant_id', tenantId!)
+        .gte('created_at', startOfMonth);
+      return count ?? 0;
+    },
+  },
+  max_products: {
+    label: 'sản phẩm',
+    metaKey: 'max_products',
+    count: async ({ tenantId }) => {
+      const adminClient = getSupabaseAdminClient();
+      const { count } = await adminClient
+        .from('products')
+        .select('*', { count: 'exact', head: true })
+        .eq('tenant_id', tenantId!);
+      return count ?? 0;
+    },
   },
 };
 

@@ -109,6 +109,11 @@ export async function POST(
     const { shopId } = await params
     const { connector, shop } = await requireShopAccess(shopId, 'products.create')
     const tenantId = shop.tenant_id
+    
+    // ── Plan limit check ────────────────────────────────────────
+    const { enforceLimit } = await import('@/lib/server/planLimits');
+    await enforceLimit('max_products', { tenantId }, tenantId);
+    
     const tenantHash = crypto.createHash('sha256').update(tenantId).digest('hex').substring(0, 8).toUpperCase()
 
     const body = await req.json()

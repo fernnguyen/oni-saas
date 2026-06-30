@@ -32,6 +32,7 @@ interface Props {
   isReadOnly?: boolean
   planCode?: string
   maxOrders?: number
+  initialMonthOrdersCount?: number
 }
 
 export interface OrderTab {
@@ -49,7 +50,7 @@ export type HeldCart = OrderTab
 const shellCls = '-mx-4 -my-4 md:-mx-6 md:-my-6 flex flex-col bg-slate-50 overflow-hidden'
 const shellStyle = { height: 'calc(100dvh - 3.5rem)' } as const
 
-export function POSClient({ shopId, branchId, shopName, userEmail, backPath, autoPrintReceipt, mutePosSound, permissions = [], isReadOnly = false, planCode, maxOrders }: Props) {
+export function POSClient({ shopId, branchId, shopName, userEmail, backPath, autoPrintReceipt, mutePosSound, permissions = [], isReadOnly = false, planCode, maxOrders, initialMonthOrdersCount = 0 }: Props) {
   const { checkShiftOrOpen } = useShift()
   const { status, lastHydratedAt, refresh } = usePOSHydration(shopId, branchId)
   const isOnline = useNetworkStatus()
@@ -125,7 +126,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
   const [shiftOpenModalOpen, setShiftOpenModalOpen] = useState(false)
   const [shiftCloseModalOpen, setShiftCloseModalOpen] = useState(false)
 
-  const [currentMonthOrdersCount, setCurrentMonthOrdersCount] = useState(0)
+  const [currentMonthOrdersCount, setCurrentMonthOrdersCount] = useState(initialMonthOrdersCount)
 
   useEffect(() => {
     if (!localDb || !maxOrders || planCode !== 'plan_mini') return
@@ -137,11 +138,11 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
         .aboveOrEqual(startOfMonth)
         .count()
     }).subscribe({
-      next: (count) => setCurrentMonthOrdersCount(count),
+      next: (count) => setCurrentMonthOrdersCount(Math.max(initialMonthOrdersCount, count)),
       error: (err) => console.error('Failed to count month orders:', err)
     })
     return () => sub.unsubscribe()
-  }, [maxOrders, planCode])
+  }, [maxOrders, planCode, initialMonthOrdersCount])
   const [openingCashInput, setOpeningCashInput] = useState('0')
   const [actualCashInput, setActualCashInput] = useState('0')
   const [shiftNote, setShiftNote] = useState('')

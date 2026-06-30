@@ -237,6 +237,10 @@ export async function POST(
 
     if (!serverId) {
       isNewOrder = true
+      
+      const { enforceLimit } = await import('@/lib/server/planLimits')
+      await enforceLimit('max_orders_per_month', { tenantId: shop.tenant_id }, shop.tenant_id)
+      
       const createData: Record<string, string> = {
         status:          order.status,
         channel:         order.channel ?? 'pos',

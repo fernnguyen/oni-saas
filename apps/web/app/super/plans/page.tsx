@@ -1,5 +1,7 @@
 import { getSupabaseAdminClient } from '../../../lib/server/supabaseAdmin';
 import { TogglePlanNotify } from './TogglePlanNotify';
+import { EditPlanLimits } from './EditPlanLimits';
+
 export default async function SuperPlans() {
   const admin = getSupabaseAdminClient();
 
@@ -24,16 +26,6 @@ export default async function SuperPlans() {
       <div className="space-y-4">
         {(plans as any[]).map((plan) => {
           const meta = plan.metadata ?? {};
-          const fmtVal = (v: number | undefined) => v === undefined ? '—' : v === -1 ? '∞' : v;
-          const limits = [
-            { label: 'Chi nhánh tối đa',   value: fmtVal(meta.create_shop) },
-            { label: 'Người dùng tối đa',  value: fmtVal(meta.create_shop_user) },
-            { label: 'Đơn hàng tối đa/tháng', value: fmtVal(meta.max_orders_per_month) },
-            { label: 'Sản phẩm tối đa',    value: fmtVal(meta.max_products) },
-            { label: 'Connector/chi nhánh',value: fmtVal(meta.create_connector) },
-            { label: 'Custom domain',       value: fmtVal(meta.create_domain) },
-          ];
-
           return (
             <div key={plan.id} className="rounded-2xl border border-slate-200 bg-white p-6">
               <div className="flex items-start justify-between mb-4">
@@ -63,14 +55,7 @@ export default async function SuperPlans() {
                 <TogglePlanNotify planId={plan.id} meta={meta} />
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                {limits.map(({ label, value }) => (
-                  <div key={label} className="rounded-xl bg-slate-50 p-3">
-                    <div className="text-xs text-slate-400 mb-1">{label}</div>
-                    <div className="text-lg font-bold text-slate-900">{String(value)}</div>
-                  </div>
-                ))}
-              </div>
+              <EditPlanLimits planId={plan.id} meta={meta} />
 
               <details className="mt-4">
                 <summary className="text-xs text-slate-400 cursor-pointer hover:text-slate-600">

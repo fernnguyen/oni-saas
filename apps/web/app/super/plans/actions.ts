@@ -18,3 +18,19 @@ export async function togglePlanPushNotify(planId: number, currentMeta: any, key
 
   revalidatePath('/super/plans');
 }
+
+export async function updatePlanLimits(planId: number, currentMeta: any, limits: Record<string, number>) {
+  const admin = getSupabaseAdminClient();
+  const newMeta = { ...currentMeta, ...limits };
+
+  const { error } = await admin
+    .from('plans')
+    .update({ metadata: newMeta })
+    .eq('id', planId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidatePath('/super/plans');
+}

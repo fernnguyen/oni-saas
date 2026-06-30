@@ -98,6 +98,19 @@ export default async function POSPage({ params }: Props) {
     }
   }
 
+  // Get accurate order count for the current month if maxOrders is set
+  let initialMonthOrdersCount = 0;
+  if (maxOrders && maxOrders > -1 && planCode === 'plan_mini') {
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+    const { count } = await admin
+      .from('orders')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenant.id)
+      .gte('created_at', startOfMonth);
+    initialMonthOrdersCount = count || 0;
+  }
+
   if (vertical.posLayout === 'table_map' || vertical.posLayout === 'room_map') {
     return (
       <TableMapPOS
@@ -117,6 +130,7 @@ export default async function POSPage({ params }: Props) {
         isReadOnly={isReadOnly}
         planCode={planCode}
         maxOrders={maxOrders}
+        initialMonthOrdersCount={initialMonthOrdersCount}
       />
     )
   }
@@ -134,6 +148,7 @@ export default async function POSPage({ params }: Props) {
       isReadOnly={isReadOnly}
       planCode={planCode}
       maxOrders={maxOrders}
+      initialMonthOrdersCount={initialMonthOrdersCount}
     />
   )
 }

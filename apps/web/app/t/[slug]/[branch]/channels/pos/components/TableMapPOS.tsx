@@ -73,6 +73,7 @@ interface Props {
   isReadOnly?: boolean
   planCode?: string
   maxOrders?: number
+  initialMonthOrdersCount?: number
 }
 
 const STATUS_CARDS: Record<string, { border: string; bg: string; dot: string; label: string; text?: string }> = {
@@ -105,13 +106,14 @@ export function TableMapPOS({
   isReadOnly = false,
   planCode,
   maxOrders,
+  initialMonthOrdersCount = 0,
 }: Props) {
   const params = useParams()
   const slug = params.slug as string
 
   const [resources, setResources] = useState<Resource[]>([])
   const [mounted, setMounted] = useState(false)
-  const [currentMonthOrdersCount, setCurrentMonthOrdersCount] = useState(0)
+  const [currentMonthOrdersCount, setCurrentMonthOrdersCount] = useState(initialMonthOrdersCount)
 
   useEffect(() => {
     setMounted(true)
@@ -127,11 +129,11 @@ export function TableMapPOS({
         .aboveOrEqual(startOfMonth)
         .count()
     }).subscribe({
-      next: (count) => setCurrentMonthOrdersCount(count),
+      next: (count) => setCurrentMonthOrdersCount(Math.max(initialMonthOrdersCount, count)),
       error: (err) => console.error('Failed to count month orders:', err)
     })
     return () => sub.unsubscribe()
-  }, [maxOrders, planCode])
+  }, [maxOrders, planCode, initialMonthOrdersCount])
   const [loading, setLoading] = useState(true)
   const [loadingTakeaway, setLoadingTakeaway] = useState(false)
   const [, setTick] = useState(0)

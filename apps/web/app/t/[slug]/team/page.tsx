@@ -54,6 +54,19 @@ export default async function TeamPage({ params }: Props) {
     '';
 
   const planDetails = await getTenantActivePlanDetails(tenant.id);
+  
+  // Fetch max users from plan metadata
+  let maxUsers: number | undefined = undefined;
+  if (planDetails?.planCode) {
+    const { data: sub } = await admin
+      .from('subscriptions')
+      .select('plans(metadata)')
+      .eq('tenant_id', tenant.id)
+      .maybeSingle();
+      
+    const planMeta = Array.isArray(sub?.plans) ? sub?.plans[0]?.metadata : sub?.plans?.metadata;
+    maxUsers = planMeta?.create_shop_user;
+  }
 
   return (
     <DashboardShell
@@ -91,6 +104,7 @@ export default async function TeamPage({ params }: Props) {
           canInvite={permissions.includes('users.invite') as boolean}
           canRemove={permissions.includes('users.remove') as boolean}
           currentUserId={authData.user.id}
+          maxUsers={maxUsers}
         />
       </div>
     </DashboardShell>

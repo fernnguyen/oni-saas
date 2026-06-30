@@ -43,9 +43,10 @@ interface Props {
   canInvite: boolean;
   canRemove: boolean;
   currentUserId: string;
+  maxUsers?: number;
 }
 
-export function TeamClient({ tenantId, tenantSlug, initialUsers, shops, roles, canInvite, canRemove, currentUserId }: Props) {
+export function TeamClient({ tenantId, tenantSlug, initialUsers, shops, roles, canInvite, canRemove, currentUserId, maxUsers }: Props) {
   const [users, setUsers] = useState<TenantUser[]>(initialUsers);
   const [showModal, setShowModal] = useState(false);
   const [resetTarget, setResetTarget] = useState<TenantUser | null>(null);
@@ -87,7 +88,14 @@ export function TeamClient({ tenantId, tenantSlug, initialUsers, shops, roles, c
         </div>
         {canInvite && (
           <button
-            onClick={() => setShowModal(true)}
+            onClick={() => {
+              if (maxUsers && maxUsers > -1 && users.length >= maxUsers) {
+                flash(`Đã đạt giới hạn tối đa ${maxUsers} thành viên của gói hiện tại.`, 'err');
+                window.dispatchEvent(new CustomEvent('open-plan-modal'));
+                return;
+              }
+              setShowModal(true);
+            }}
             className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-dark transition-colors"
           >
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
