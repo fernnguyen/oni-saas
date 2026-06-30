@@ -193,13 +193,13 @@ export async function printBill({
       qrHtml = `<div class="sep"></div>
       <div style="text-align:center; margin-top: 10px;">
         <p style="font-weight:bold; margin-bottom: 4px;">${isBilingual ? 'Quét QR để thanh toán / Scan to pay' : 'Quét QR để thanh toán'}</p>
-        <img src="${qrUrl}" style="width: 100%; max-width: 70px; margin: 0 auto; image-rendering: pixelated; image-rendering: crisp-edges;" />
+        <img src="${qrUrl}" style="width: 100%; max-width: 160px; margin: 0 auto;" />
       </div>`
     } else {
       qrHtml = `<div class="sep"></div>
       <div style="text-align:center; margin-top: 10px;">
         <p style="font-weight:bold; margin-bottom: 4px;">${isBilingual ? 'Quét QR để thanh toán / Scan to pay' : 'Quét QR để thanh toán'}</p>
-        <img src="${qrUrl}" style="width: 100%; max-width: 95px; margin: 0 auto; image-rendering: pixelated; image-rendering: crisp-edges;" />
+        <img src="${qrUrl}" style="width: 100%; max-width: 260px; margin: 0 auto;" />
       </div>`
     }
   }
@@ -222,15 +222,20 @@ export async function printBill({
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { 
-  font-family: 'Courier New', monospace;
+  font-family: Arial, Helvetica, sans-serif;
   font-size: 12px; 
+  font-weight: bold;
+  -webkit-font-smoothing: none;
   width: 72mm; 
   margin: 0 auto;
   padding: 4px; 
   color: #000; 
   line-height: 1.3;
 }
-img { image-rendering: pixelated; image-rendering: crisp-edges; }
+img { 
+  max-width: 100%; 
+  filter: grayscale(100%) contrast(1000%); 
+}
 h1 { font-size: 16px; text-align: center; font-weight: bold; margin-bottom: 4px; }
 h2 { font-size: 18px; text-align: center; font-weight: bold; margin-top: 8px; margin-bottom: 6px; }
 .sub { font-size: 12px; text-align: center; color: #000; margin-bottom: 2px; }

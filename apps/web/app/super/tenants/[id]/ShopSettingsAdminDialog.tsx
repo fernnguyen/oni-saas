@@ -66,6 +66,8 @@ interface ShopSettingsAdminDialogProps {
   children: React.ReactNode;
 }
 
+import { WipeDataDialog } from './WipeDataDialog';
+
 export function ShopSettingsAdminDialog({
   shopId,
   shopName,
@@ -75,7 +77,7 @@ export function ShopSettingsAdminDialog({
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<'general' | 'sales' | 'crm' | 'sepay'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'sales' | 'crm' | 'sepay' | 'danger'>('general');
   const [settings, setSettings] = useState<ShopSettings | null>(null);
   const router = useRouter();
 
@@ -224,6 +226,17 @@ export function ShopSettingsAdminDialog({
                     }`}
                   >
                     Ngân hàng & SePay
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('danger')}
+                    className={`px-4 py-3 text-sm font-medium border-b-2 transition-all ${
+                      activeTab === 'danger'
+                        ? 'border-red-600 text-red-600'
+                        : 'border-transparent text-slate-500 hover:text-red-600'
+                    }`}
+                  >
+                    Danger Zone
                   </button>
                 </div>
 
@@ -734,6 +747,32 @@ export function ShopSettingsAdminDialog({
                           </div>
                         </div>
                       </div>
+                    </div>
+                  )}
+
+                  {activeTab === 'danger' && (
+                    <div className="space-y-6">
+                      <div className="bg-red-50 border border-red-100 rounded-xl p-4">
+                        <div className="flex gap-3">
+                          <ShieldAlert className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />
+                          <div className="text-xs text-red-800 space-y-1">
+                            <p className="font-bold">Khu vực nguy hiểm</p>
+                            <p>
+                              Các thao tác ở đây là không thể hoàn tác. Xin vui lòng cẩn trọng khi thực hiện đối với các chi nhánh đang hoạt động thực tế.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* We need the tenant_id from the URL params. We can parse it from window.location or we can pass it down. 
+                          Since this component is inside /super/tenants/[id]/page.tsx, let's extract it from pathname if not passed as prop. 
+                          Wait, let's just use the shop's tenant_id which might be in settings? No, we don't have it in ShopSettings type.
+                          Let's grab it from useParams() or window.location.pathname */}
+                      <WipeDataDialog 
+                        tenantId={window.location.pathname.split('/')[3]} 
+                        shopId={shopId} 
+                        shopName={shopName} 
+                      />
                     </div>
                   )}
                 </div>
