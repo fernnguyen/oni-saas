@@ -9,7 +9,7 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://oni.vn';
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: 'ONI.vn – Phần mềm bán hàng POS & Mini ERP quản trị SME',
+    default: 'ONI.vn – Phần mềm bán hàng POS - Đơn giản & Hiệu quả',
     template: '%s | ONI.vn',
   },
   description:
@@ -19,13 +19,13 @@ export const metadata: Metadata = {
     locale: 'vi_VN',
     url: siteUrl,
     siteName: 'ONI.vn',
-    title: 'ONI.vn – Phần mềm bán hàng POS & Mini ERP quản trị SME',
+    title: 'ONI.vn – Phần mềm bán hàng POS - Đơn giản & Hiệu quả',
     description:
       'Phần mềm bán hàng POS, quản lý kho, chuỗi mua hàng và chăm sóc khách hàng đa chi nhánh. Tùy biến kết nối database riêng biệt (BYOD), tích hợp AI, Zalo & Telegram.',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'ONI.vn – Phần mềm bán hàng POS & Mini ERP quản trị SME',
+    title: 'ONI.vn – Phần mềm bán hàng POS - Đơn giản & Hiệu quả',
     description:
       'Phần mềm bán hàng POS, quản lý kho, chuỗi mua hàng và chăm sóc khách hàng đa chi nhánh. Tùy biến kết nối database riêng biệt (BYOD), tích hợp AI, Zalo & Telegram.',
   },
