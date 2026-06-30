@@ -39,5 +39,13 @@ export default async function CashbookPage({ params }: Props) {
     )
   }
 
-  return <CashbookClient shopId={shop.id} shopName={shop.name} permissions={permissions} />
+  const { data: subscription } = await admin
+    .from('subscriptions')
+    .select('plans(code)')
+    .eq('tenant_id', shop.tenant_id)
+    .maybeSingle()
+
+  const planCode = Array.isArray(subscription?.plans) ? subscription?.plans[0]?.code : subscription?.plans?.code;
+
+  return <CashbookClient shopId={shop.id} shopName={shop.name} permissions={permissions} planCode={planCode} />
 }

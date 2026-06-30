@@ -25,20 +25,30 @@ export default async function ProductsPage({ params }: Props) {
 
   if (!shop) notFound()
 
-  // Fetch industry_type to drive product type UI (modifier vs variant)
+  // Fetch industry_type and max_products
   const { data: tenant } = await admin
     .from('tenants')
-    .select('industry_type')
+    .select('id, industry_type')
     .eq('slug', slug)
     .maybeSingle()
 
   const industryType = shop.industry_type ?? tenant?.industry_type ?? 'retail'
+
+  const { data: sub } = await admin
+    .from('subscriptions')
+    .select('plans(metadata)')
+    .eq('tenant_id', tenant?.id)
+    .maybeSingle()
+
+  const planMeta = Array.isArray(sub?.plans) ? sub?.plans[0]?.metadata : sub?.plans?.metadata;
+  const maxProducts = planMeta?.max_products;
 
   return (
     <ProductsClient
       shopId={shop.id}
       shopName={shop.name}
       industryType={industryType}
+      maxProducts={maxProducts}
     />
   )
 }

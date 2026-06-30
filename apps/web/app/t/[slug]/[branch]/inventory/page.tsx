@@ -18,12 +18,20 @@ export default async function InventoryPage({ params }: Props) {
 
   const admin = getSupabaseAdminClient()
   const { data: shop } = await admin
-    .from('shops_view')
-    .select('id, name')
+    .from('shops')
+    .select('id, name, tenant_id')
     .eq('slug', branch)
     .maybeSingle()
     
   if (!shop) notFound()
 
-  return <InventoryClient shopId={shop.id} shopName={shop.name} />
+  const { data: subscription } = await admin
+    .from('subscriptions')
+    .select('plans(code)')
+    .eq('tenant_id', shop.tenant_id)
+    .maybeSingle()
+
+  const planCode = Array.isArray(subscription?.plans) ? subscription?.plans[0]?.code : subscription?.plans?.code;
+
+  return <InventoryClient shopId={shop.id} shopName={shop.name} planCode={planCode} />
 }

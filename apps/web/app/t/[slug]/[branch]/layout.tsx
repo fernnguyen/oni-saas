@@ -5,6 +5,7 @@ import { getUserPermissions } from '@/lib/server/permissions';
 import { DashboardShell } from '@/app/components/layout/DashboardShell';
 import type { Metadata } from 'next';
 import { checkFeatureAccess } from '@/lib/server/features';
+import { getSystemSettings } from '@/lib/server/settings';
 import { NotificationProvider } from '@/app/components/notifications/NotificationContext';
 import QRNotificationCenter from './channels/pos/components/QRNotificationCenter';
 import { ShiftProvider } from '@/app/components/providers/ShiftProvider';
@@ -134,7 +135,7 @@ export default async function BranchLayout({ params, children }: Props) {
     .from('subscriptions')
     .select('current_period_start, current_period_end, plans(code, name)')
     .eq('tenant_id', tenant.id)
-    .eq('status', 'active')
+    .in('status', ['active', 'past_due', 'locked', 'deleted'])
     .maybeSingle();
 
   let planCode = '';
@@ -156,12 +157,14 @@ export default async function BranchLayout({ params, children }: Props) {
     '';
 
   const hasP2pAccess = await checkFeatureAccess(tenant.id, 'warehouse_p2p');
+  const systemSettings = await getSystemSettings();
 
   return (
     <NotificationProvider shopId={shop.id} tenantId={tenant.id}>
       <DashboardShell
         tenantId={tenant.id}
         hasP2pAccess={hasP2pAccess}
+        systemSettings={systemSettings}
         tenantName={tenant.name}
         shopName={shop.name}
         userEmail={authData.user.email}

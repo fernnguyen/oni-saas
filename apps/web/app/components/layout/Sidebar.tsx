@@ -124,7 +124,7 @@ function SidebarContent({
 }) {
   const pathname = usePathname();
   const navGroups = buildNavGroups(
-    { basePath, supportHref, tenantHref, connectorsHref, settingsHref, tenantBillingHref, tenantSettingsHref, tenantTeamHref, tenantRolesHref, context, industryType, hasP2pAccess },
+    { basePath, supportHref, tenantHref, connectorsHref, settingsHref, tenantBillingHref, tenantSettingsHref, tenantTeamHref, tenantRolesHref, context, industryType, hasP2pAccess, planCode },
     permissions,
   );
 
@@ -210,11 +210,12 @@ function SidebarContent({
               {group.items.map((item) => {
                 const active = isActive(item.href, item.exact);
                 const isHighlight = item.highlight;
+                const isProOnlyDisabled = item.proOnly && planCode === 'plan_mini';
                 const linkEl = (
                   <Link
-                    href={item.href}
+                    href={isProOnlyDisabled ? '#plan-modal' : item.href}
                     onClick={(e) => {
-                      if (item.href === '#plan-modal') {
+                      if (item.href === '#plan-modal' || isProOnlyDisabled) {
                         e.preventDefault();
                         window.dispatchEvent(new CustomEvent('open-plan-modal'));
                         if (onClose) onClose();
@@ -229,7 +230,9 @@ function SidebarContent({
                         ? 'bg-primary text-white font-medium shadow-sm'
                         : isHighlight
                           ? 'bg-gradient-to-r from-orange-50 to-orange-50/20 text-orange-600 hover:from-orange-100 hover:to-orange-50/50 font-medium border border-orange-100'
-                          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                          : isProOnlyDisabled
+                            ? 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'
+                            : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                     }`}
                   >
                     {isHighlight && (
@@ -238,8 +241,13 @@ function SidebarContent({
                         <div className={`absolute left-[85%] top-0 h-10 w-10 rounded-full blur-[1px] transition-colors ${active ? 'bg-white/20' : 'bg-orange-500/5'}`} />
                       </>
                     )}
-                    <item.icon className={`h-4 w-4 shrink-0 relative z-10 ${isHighlight && !active ? 'text-orange-500' : ''}`} />
-                    {!collapsed && <span className="relative z-10">{item.label}</span>}
+                    <item.icon className={`h-4 w-4 shrink-0 relative z-10 ${isHighlight && !active ? 'text-orange-500' : ''} ${isProOnlyDisabled ? 'opacity-50' : ''}`} />
+                    {!collapsed && <span className={`relative z-10 flex-1 truncate ${isProOnlyDisabled ? 'opacity-70 line-through decoration-slate-300' : ''}`}>{item.label}</span>}
+                    {!collapsed && isProOnlyDisabled && (
+                      <svg className="h-3.5 w-3.5 text-amber-500 shrink-0 relative z-10" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                      </svg>
+                    )}
                   </Link>
                 );
 

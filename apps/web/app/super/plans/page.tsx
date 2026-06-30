@@ -28,6 +28,8 @@ export default async function SuperPlans() {
           const limits = [
             { label: 'Chi nhánh tối đa',   value: fmtVal(meta.create_shop) },
             { label: 'Người dùng tối đa',  value: fmtVal(meta.create_shop_user) },
+            { label: 'Đơn hàng tối đa/tháng', value: fmtVal(meta.max_orders_per_month) },
+            { label: 'Sản phẩm tối đa',    value: fmtVal(meta.max_products) },
             { label: 'Connector/chi nhánh',value: fmtVal(meta.create_connector) },
             { label: 'Custom domain',       value: fmtVal(meta.create_domain) },
           ];

@@ -253,6 +253,94 @@ export function SettingsClient({
             </div>
           </div>
         </div>
+        </div>
+      </div>
+
+      {/* Subscription Settings Card */}
+      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        <div className="border-b border-slate-100 px-6 py-4 bg-slate-50/50">
+          <h2 className="text-sm font-semibold text-slate-900">Quản lý Cảnh báo Hết hạn Dịch vụ</h2>
+          <p className="text-xs text-slate-400 mt-0.5">Cấu hình thời gian gửi email, hiển thị banner và thời gian ân hạn sau khi hết hạn.</p>
+        </div>
+        <div className="divide-y divide-slate-100">
+          {/* Expiration Settings */}
+          <div className="px-6 py-5 space-y-4">
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-medium text-slate-800">Cảnh báo sắp hết hạn (Gửi email / thông báo)</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="0"
+                  value={config.plan_expiration_notice_days ?? 30}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value) || 0
+                    setConfig({ ...config, plan_expiration_notice_days: val })
+                  }}
+                  onBlur={(e) => {
+                    const newConfig = { ...config, plan_expiration_notice_days: parseInt(e.target.value) || 0 }
+                    startTransition(async () => {
+                      try { await updateSystemSettings(newConfig); toast.success('Đã lưu cài đặt') } 
+                      catch { toast.error('Lỗi khi lưu'); setConfig(config) }
+                    })
+                  }}
+                  disabled={isPending}
+                  className="w-24 rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+                <span className="text-xs text-slate-500">ngày trước khi hết hạn (Mặc định: 30 ngày)</span>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-medium text-slate-800">Hiển thị banner cảnh báo trên giao diện</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="0"
+                  value={config.plan_expiration_banner_days ?? 7}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value) || 0
+                    setConfig({ ...config, plan_expiration_banner_days: val })
+                  }}
+                  onBlur={(e) => {
+                    const newConfig = { ...config, plan_expiration_banner_days: parseInt(e.target.value) || 0 }
+                    startTransition(async () => {
+                      try { await updateSystemSettings(newConfig); toast.success('Đã lưu cài đặt') } 
+                      catch { toast.error('Lỗi khi lưu'); setConfig(config) }
+                    })
+                  }}
+                  disabled={isPending}
+                  className="w-24 rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+                <span className="text-xs text-slate-500">ngày trước khi hết hạn (Mặc định: 7 ngày)</span>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-medium text-slate-800">Thời gian ân hạn (Lock account / Downgrade)</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="0"
+                  value={config.plan_lock_grace_days ?? 3}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value) || 0
+                    setConfig({ ...config, plan_lock_grace_days: val })
+                  }}
+                  onBlur={(e) => {
+                    const newConfig = { ...config, plan_lock_grace_days: parseInt(e.target.value) || 0 }
+                    startTransition(async () => {
+                      try { await updateSystemSettings(newConfig); toast.success('Đã lưu cài đặt') } 
+                      catch { toast.error('Lỗi khi lưu'); setConfig(config) }
+                    })
+                  }}
+                  disabled={isPending}
+                  className="w-24 rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+                <span className="text-xs text-slate-500">ngày sau khi hết hạn mới bị khóa/hạ cấp (Mặc định: 3 ngày)</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Sentry Settings Card */}

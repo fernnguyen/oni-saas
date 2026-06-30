@@ -28,6 +28,7 @@ const Plus = ({ className }: { className?: string }) => <svg xmlns="http://www.w
 interface Props {
   shopId: string
   shopName: string
+  planCode?: string
 }
 
 type Row = Record<string, string>
@@ -401,7 +402,7 @@ function CategorySelect({
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function InventoryClient({ shopId, shopName }: Props) {
+export function InventoryClient({ shopId, shopName, planCode }: Props) {
   const queryClient = useQueryClient()
   const { hasPermission } = usePermissions()
   const [selectedWarehouseId, setSelectedWarehouseId] = useState('')
@@ -1725,7 +1726,7 @@ export function InventoryClient({ shopId, shopName }: Props) {
           </Link>
           <button
             onClick={() => setShowForm(true)}
-            className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark transition-colors"
+            className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark transition-colors flex items-center"
           >
             + Nhập / xuất kho
           </button>

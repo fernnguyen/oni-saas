@@ -26,9 +26,12 @@ interface Props {
   shopName: string
   userEmail: string
   backPath: string
-  autoPrintReceipt: boolean
-  mutePosSound: boolean
+  autoPrintReceipt?: boolean
+  mutePosSound?: boolean
   permissions?: string[]
+  isReadOnly?: boolean
+  planCode?: string
+  maxOrders?: number
 }
 
 export interface OrderTab {
@@ -46,7 +49,7 @@ export type HeldCart = OrderTab
 const shellCls = '-mx-4 -my-4 md:-mx-6 md:-my-6 flex flex-col bg-slate-50 overflow-hidden'
 const shellStyle = { height: 'calc(100dvh - 3.5rem)' } as const
 
-export function POSClient({ shopId, branchId, shopName, userEmail, backPath, autoPrintReceipt, mutePosSound, permissions = [] }: Props) {
+export function POSClient({ shopId, branchId, shopName, userEmail, backPath, autoPrintReceipt, mutePosSound, permissions = [], isReadOnly = false, planCode, maxOrders }: Props) {
   const { checkShiftOrOpen } = useShift()
   const { status, lastHydratedAt, refresh } = usePOSHydration(shopId, branchId)
   const isOnline = useNetworkStatus()
@@ -121,6 +124,24 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
   // --- SHIFT MANAGEMENT STATES & QUERIES ---
   const [shiftOpenModalOpen, setShiftOpenModalOpen] = useState(false)
   const [shiftCloseModalOpen, setShiftCloseModalOpen] = useState(false)
+
+  const [currentMonthOrdersCount, setCurrentMonthOrdersCount] = useState(0)
+
+  useEffect(() => {
+    if (!localDb || !maxOrders || planCode !== 'plan_mini') return
+    const sub = liveQuery(async () => {
+      const now = new Date()
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+      return await localDb.orders
+        .where('created_at')
+        .aboveOrEqual(startOfMonth)
+        .count()
+    }).subscribe({
+      next: (count) => setCurrentMonthOrdersCount(count),
+      error: (err) => console.error('Failed to count month orders:', err)
+    })
+    return () => sub.unsubscribe()
+  }, [maxOrders, planCode])
   const [openingCashInput, setOpeningCashInput] = useState('0')
   const [actualCashInput, setActualCashInput] = useState('0')
   const [shiftNote, setShiftNote] = useState('')
@@ -865,6 +886,10 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
       if (e.key === 'F9') {
         if (!checkoutOpen && cart.items.length > 0) {
           e.preventDefault()
+          if (maxOrders && currentMonthOrdersCount >= maxOrders && planCode === 'plan_mini') {
+            toast.error(`Đã đạt giới hạn ${maxOrders} đơn/tháng. Vui lòng nâng cấp gói để tiếp tục bán hàng.`)
+            return
+          }
           checkShiftOrOpen(() => {
             setCheckoutOpen(true)
           })
@@ -934,7 +959,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
 
     window.addEventListener('keydown', handleGlobalKeyDown)
     return () => window.removeEventListener('keydown', handleGlobalKeyDown)
-  }, [checkoutOpen, cart.items, activeCartItemId, inventory, mutePosSound, customer])
+  }, [checkoutOpen, cart.items, activeCartItemId, inventory, mutePosSound, customer, maxOrders, currentMonthOrdersCount, planCode])
 
   if (!lastHydratedAt && !isOnline) {
     return (
@@ -1292,7 +1317,21 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
       )}
 
       {/* Main content — fills all remaining height */}
-      <div className={['flex flex-1 overflow-hidden', cartSide === 'left' ? 'flex-row-reverse' : 'flex-row'].join(' ')}>
+      <div className={['flex flex-1 overflow-hidden relative', cartSide === 'left' ? 'flex-row-reverse' : 'flex-row'].join(' ')}>
+        
+        {isReadOnly && (
+          <div className="absolute inset-0 z-50 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center">
+            <div className="text-5xl mb-4">🔒</div>
+            <p className="text-xl font-bold text-slate-800 mb-2">Tài khoản đã hết hạn dịch vụ</p>
+            <p className="text-sm text-slate-600 max-w-md mb-6 leading-relaxed">
+              Tính năng bán hàng tại quầy (POS) hiện đang bị giới hạn. Vui lòng tiến hành gia hạn gói dịch vụ để tiếp tục kinh doanh và đồng bộ dữ liệu.
+            </p>
+            <a href={`/t/${backPath.split('/')[1]}/settings`} className="rounded-xl bg-orange-500 px-6 py-3 text-sm font-bold text-white hover:bg-orange-600 transition-colors shadow-orange-500/20 shadow-lg">
+              Đi tới Quản lý Gói & Gia hạn
+            </a>
+          </div>
+        )}
+
         {/* Product grid */}
         <div className={['hidden md:block flex-1 overflow-hidden bg-white',
           cartSide === 'left' ? 'border-l border-slate-200' : 'border-r border-slate-200'
@@ -1325,6 +1364,10 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
             onNoteChange={cart.setNote}
             onHold={holdCurrentCart}
             onCheckout={() => {
+              if (maxOrders && currentMonthOrdersCount >= maxOrders && planCode === 'plan_mini') {
+                toast.error(`Đã đạt giới hạn ${maxOrders} đơn/tháng. Vui lòng nâng cấp gói để tiếp tục bán hàng.`)
+                return
+              }
               checkShiftOrOpen(() => {
                 setCheckoutOpen(true)
               })

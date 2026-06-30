@@ -27,6 +27,8 @@ export interface LimitContext {
 interface ActionDef {
   /** Human-readable label used in error messages and UI. */
   label: string;
+  /** Key in the JSONB metadata field in the plans table */
+  metaKey: string;
   /** How to count current usage given the context. */
   count: (ctx: LimitContext) => Promise<number>;
 }
@@ -44,18 +46,22 @@ async function countRows(table: string, column: string, value: string): Promise<
 export const ACTION_REGISTRY: Record<string, ActionDef> = {
   create_shop: {
     label: 'chi nhánh',
+    metaKey: 'max_shops',
     count: ({ tenantId }) => countRows('shops', 'tenant_id', tenantId!),
   },
   create_shop_user: {
     label: 'người dùng',
-    count: ({ tenantId }) => countRows('tenant_user_profiles', 'tenant_id', tenantId!),
+    metaKey: 'max_users',
+    count: ({ tenantId }) => countRows('user_tenants', 'tenant_id', tenantId!),
   },
   create_connector: {
     label: 'kết nối dữ liệu',
+    metaKey: 'max_connectors_per_shop',
     count: ({ shopId }) => countRows('connectors', 'shop_id', shopId!),
   },
   create_domain: {
     label: 'domain tùy chỉnh',
+    metaKey: 'max_custom_domains',
     count: ({ shopId }) => countRows('domains', 'shop_id', shopId!),
   },
 };
@@ -111,11 +117,11 @@ export async function enforceLimit(
   tenantId: string,
 ): Promise<void> {
   const meta = await getTenantPlanMeta(tenantId);
-  const limit = meta[action];
-  if (limit === undefined || typeof limit !== 'number' || limit === -1) return;
-
   const def = ACTION_REGISTRY[action];
   if (!def) return;
+
+  const limit = meta[def.metaKey];
+  if (limit === undefined || typeof limit !== 'number' || limit === -1) return;
 
   const current = await def.count(context);
   if (current >= limit) throw new PlanLimitError(action, current, limit);
@@ -139,11 +145,11 @@ export async function getLimitStatus(
   tenantId: string,
 ): Promise<LimitStatus | null> {
   const meta = await getTenantPlanMeta(tenantId);
-  const limit = meta[action];
-  if (limit === undefined || typeof limit !== 'number') return null;
-
   const def = ACTION_REGISTRY[action];
   if (!def) return null;
+
+  const limit = meta[def.metaKey];
+  if (limit === undefined || typeof limit !== 'number') return null;
 
   const current = await def.count(context);
   return { current, limit, atLimit: limit !== -1 && current >= limit };

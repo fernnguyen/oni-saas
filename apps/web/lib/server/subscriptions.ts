@@ -8,7 +8,7 @@ export async function getTenantPlanMeta(tenantId: string): Promise<PlanMetadata>
     .from('subscriptions')
     .select('plans(metadata)')
     .eq('tenant_id', tenantId)
-    .eq('status', 'active')
+    .in('status', ['active', 'past_due'])
     .maybeSingle();
 
   return ((data?.plans as any)?.metadata ?? {}) as PlanMetadata;
@@ -21,7 +21,7 @@ export async function getTenantActivePlanDetails(tenantId: string) {
     .from('subscriptions')
     .select('current_period_start, current_period_end, plans(code, name)')
     .eq('tenant_id', tenantId)
-    .eq('status', 'active')
+    .in('status', ['active', 'past_due'])
     .maybeSingle();
 
   if (!data || !data.plans) return null;

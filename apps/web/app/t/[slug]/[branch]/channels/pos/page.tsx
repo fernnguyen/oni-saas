@@ -69,6 +69,35 @@ export default async function POSPage({ params }: Props) {
   const resolvedIndustryType = shop.industry_type ?? tenant.industry_type ?? 'retail'
   const vertical = getVerticalConfig(resolvedIndustryType)
 
+  const { data: subscription } = await admin
+    .from('subscriptions')
+    .select('status, current_period_end, plans(code, metadata)')
+    .eq('tenant_id', tenant.id)
+    .in('status', ['active', 'past_due', 'locked', 'deleted'])
+    .maybeSingle()
+  
+  const planInfo = Array.isArray(subscription?.plans) ? subscription.plans[0] : subscription?.plans;
+  const planCode = planInfo?.code;
+  const planMetadata = planInfo?.metadata as Record<string, any> | undefined;
+  const maxOrders = planMetadata?.max_orders_per_month;
+
+  const isLocked = subscription?.status === 'locked' || subscription?.status === 'deleted'
+  
+  // For mini plan, only the first shop is allowed to sell. Other shops are read-only.
+  let isReadOnly = isLocked;
+  if (!isLocked && planCode === 'plan_mini') {
+    const { data: allShops } = await admin
+      .from('shops')
+      .select('id')
+      .eq('tenant_id', tenant.id)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      
+    if (allShops && allShops.length > 0 && allShops[0].id !== shop.id) {
+      isReadOnly = true;
+    }
+  }
+
   if (vertical.posLayout === 'table_map' || vertical.posLayout === 'room_map') {
     return (
       <TableMapPOS
@@ -85,6 +114,9 @@ export default async function POSPage({ params }: Props) {
         mutePosSound={mutePosSound}
         industryType={resolvedIndustryType}
         permissions={permissions}
+        isReadOnly={isReadOnly}
+        planCode={planCode}
+        maxOrders={maxOrders}
       />
     )
   }
@@ -99,6 +131,9 @@ export default async function POSPage({ params }: Props) {
       autoPrintReceipt={autoPrintReceipt}
       mutePosSound={mutePosSound}
       permissions={permissions}
+      isReadOnly={isReadOnly}
+      planCode={planCode}
+      maxOrders={maxOrders}
     />
   )
 }

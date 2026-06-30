@@ -61,6 +61,8 @@ export interface NavItem {
   highlight?: boolean;
   /** Temporarily hide this item */
   hidden?: boolean;
+  /** Flag for Pro-only features. If true and user is on Mini, it will be disabled */
+  proOnly?: boolean;
 }
 
 export interface NavGroup {
@@ -84,6 +86,8 @@ interface BuildNavOptions {
   industryType?: string;
   /** Whether the advanced P2P warehouse add-on is unlocked for the tenant */
   hasP2pAccess?: boolean;
+  /** The tenant's current plan code */
+  planCode?: string;
 }
 
 // Backward compatibility exports & aliases for safety across the monorepo
@@ -264,13 +268,13 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
       label: 'Báo cáo',
       items: [
         { href: joinPath(base, '/reports/overview'),    label: 'Tổng quan',    icon: TrendingUp, permission: 'reports.view_shop' },
-        { href: joinPath(base, '/reports/inventory'),   label: 'Báo cáo kho',  icon: BarChart3,permission: 'inventory.view' },
+        { href: joinPath(base, '/reports/inventory'),   label: 'Báo cáo kho',  icon: BarChart3,permission: 'inventory.view', proOnly: true },
         ...(options.hasP2pAccess ? [
-          { href: joinPath(base, '/p2p/reports'),       label: 'Báo cáo mua sắm', icon: ShoppingBag, permission: 'reports.view_shop' },
+          { href: joinPath(base, '/p2p/reports'),       label: 'Báo cáo mua sắm', icon: ShoppingBag, permission: 'reports.view_shop', proOnly: true },
         ] : []),
-        { href: joinPath(base, '/reports/accounting'),  label: 'Kế toán',      icon: LineChart,    permission: 'accounting.view' },
+        { href: joinPath(base, '/reports/accounting'),  label: 'Kế toán',      icon: LineChart,    permission: 'accounting.view', proOnly: true },
         { href: joinPath(base, '/reports/tax'),        label: 'Báo cáo thuế', icon: Receipt,  permission: 'accounting.view' },
-        { href: joinPath(base, '/reports/cod'),        label: 'Đối soát COD', icon: ArrowLeftRight,    permission: 'cod.view', hidden: true },
+        { href: joinPath(base, '/reports/cod'),        label: 'Đối soát COD', icon: ArrowLeftRight,    permission: 'cod.view', hidden: true, proOnly: true },
       ],
     },
     {

@@ -19,7 +19,8 @@ import GroupCheckoutModal from './GroupCheckoutModal'
 import { Layers, Check, ArrowRight } from 'lucide-react'
 import { useParams } from 'next/navigation'
 import { CustomerSearch } from './CustomerSearch'
-import { type LocalCustomer } from '@/lib/localDb/schema'
+import { type LocalCustomer, localDb } from '@/lib/localDb/schema'
+import { liveQuery } from 'dexie'
 
 const MapViewer = dynamic(() => import('./MapViewer'), { ssr: false })
 
@@ -69,6 +70,9 @@ interface Props {
   mutePosSound?: boolean
   industryType: string
   permissions?: string[]
+  isReadOnly?: boolean
+  planCode?: string
+  maxOrders?: number
 }
 
 const STATUS_CARDS: Record<string, { border: string; bg: string; dot: string; label: string; text?: string }> = {
@@ -85,20 +89,49 @@ const STATUS_CARDS: Record<string, { border: string; bg: string; dot: string; la
 type ViewMode = 'grid' | 'list' | 'map'
 
 export function TableMapPOS({
-  shopId, branchId, shopName, userEmail, backPath,
-  resourceLabel, resourceType, posLabel, hasHourlyBilling,
-  autoPrintReceipt = false, mutePosSound = false,
+  shopId,
+  branchId,
+  shopName,
+  userEmail,
+  backPath,
+  resourceLabel,
+  resourceType,
+  posLabel,
+  hasHourlyBilling,
+  autoPrintReceipt = false,
+  mutePosSound = false,
   industryType,
   permissions = [],
+  isReadOnly = false,
+  planCode,
+  maxOrders,
 }: Props) {
   const params = useParams()
   const slug = params.slug as string
 
   const [resources, setResources] = useState<Resource[]>([])
   const [mounted, setMounted] = useState(false)
+  const [currentMonthOrdersCount, setCurrentMonthOrdersCount] = useState(0)
+
   useEffect(() => {
     setMounted(true)
   }, [])
+
+  useEffect(() => {
+    if (!localDb || !maxOrders || planCode !== 'plan_mini') return
+    const sub = liveQuery(async () => {
+      const now = new Date()
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+      return await localDb.orders
+        .where('created_at')
+        .aboveOrEqual(startOfMonth)
+        .count()
+    }).subscribe({
+      next: (count) => setCurrentMonthOrdersCount(count),
+      error: (err) => console.error('Failed to count month orders:', err)
+    })
+    return () => sub.unsubscribe()
+  }, [maxOrders, planCode])
   const [loading, setLoading] = useState(true)
   const [loadingTakeaway, setLoadingTakeaway] = useState(false)
   const [, setTick] = useState(0)
@@ -552,6 +585,11 @@ export function TableMapPOS({
         }
       }
     } else {
+      if (r.status === 'available' && maxOrders && currentMonthOrdersCount >= maxOrders && planCode === 'plan_mini') {
+        toast.error(`Đã đạt giới hạn ${maxOrders} đơn/tháng. Vui lòng nâng cấp gói để tiếp tục bán hàng.`)
+        return
+      }
+
       let updatedR = r
       // Tải lại dữ liệu phòng bàn trước khi hiển thị để tránh xung đột phiên bản
       const latestResources = await fetchResources()
@@ -703,6 +741,10 @@ export function TableMapPOS({
   }
 
   async function handleTakeawayClick() {
+    if (maxOrders && currentMonthOrdersCount >= maxOrders && planCode === 'plan_mini') {
+      toast.error(`Đã đạt giới hạn ${maxOrders} đơn/tháng. Vui lòng nâng cấp gói để tiếp tục bán hàng.`)
+      return
+    }
     setLoadingTakeaway(true)
     try {
       const res = await fetch(`/api/shops/${shopId}/orders`, {
@@ -774,7 +816,20 @@ export function TableMapPOS({
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-88px)] md:h-[calc(100vh-104px)] gap-4 overflow-hidden">
+    <div className="flex flex-col h-[calc(100vh-88px)] md:h-[calc(100vh-104px)] gap-4 overflow-hidden relative">
+      
+      {isReadOnly && (
+        <div className="absolute inset-0 z-50 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center rounded-2xl">
+          <div className="text-5xl mb-4">🔒</div>
+          <p className="text-xl font-bold text-slate-800 mb-2">Tài khoản đã hết hạn dịch vụ</p>
+          <p className="text-sm text-slate-600 max-w-md mb-6 leading-relaxed">
+            Tính năng bán hàng tại quầy (POS) hiện đang bị giới hạn. Vui lòng tiến hành gia hạn gói dịch vụ để tiếp tục kinh doanh và đồng bộ dữ liệu.
+          </p>
+          <a href={`/t/${backPath.split('/')[1]}/settings`} className="rounded-xl bg-orange-500 px-6 py-3 text-sm font-bold text-white hover:bg-orange-600 transition-colors shadow-orange-500/20 shadow-lg pointer-events-auto">
+            Đi tới Quản lý Gói & Gia hạn
+          </a>
+        </div>
+      )}
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
         <div>

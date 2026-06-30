@@ -34,6 +34,7 @@ interface Props {
   shopId: string
   shopName: string
   permissions?: string[]
+  planCode?: string
 }
 
 const EMPTY_FORM = {
@@ -115,7 +116,7 @@ const getDisplayId = (id: string) => {
   return id;
 };
 
-export function CashbookClient({ shopId, shopName, permissions }: Props) {
+export function CashbookClient({ shopId, shopName, permissions, planCode }: Props) {
   const confirm = useConfirm()
   const queryClient = useQueryClient()
   const searchParams = useSearchParams()

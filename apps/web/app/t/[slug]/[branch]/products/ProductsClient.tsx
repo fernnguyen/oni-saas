@@ -89,6 +89,7 @@ interface Props {
   shopId: string
   shopName: string
   industryType?: string
+  maxProducts?: number
 }
 
 // Industry helpers
@@ -178,7 +179,7 @@ async function compressImageToWebP(file: File, maxWidth = 1024, maxHeight = 1024
   })
 }
 
-export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
+export function ProductsClient({ shopId, industryType = 'retail', maxProducts }: Props) {
   const queryClient = useQueryClient()
   const searchParams = useSearchParams()
   const initialSearch = searchParams?.get('search') || searchParams?.get('productId') || ''
@@ -1406,7 +1407,14 @@ export function ProductsClient({ shopId, industryType = 'retail' }: Props) {
             Import
           </button>
           <button
-            onClick={openCreate}
+            onClick={() => {
+              if (maxProducts && data && data.total >= maxProducts) {
+                toast.error(`Bạn đã đạt giới hạn tối đa ${maxProducts} sản phẩm của gói hiện tại.`);
+                window.dispatchEvent(new CustomEvent('open-plan-modal'));
+                return;
+              }
+              openCreate()
+            }}
             className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark shadow-sm cursor-pointer"
           >
             + Thêm sản phẩm

@@ -94,7 +94,9 @@ export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd
   let durationText = 'Không giới hạn';
   let diffDays = 0;
   
-  if (periodEnd) {
+  if (planCode === 'plan_mini') {
+    durationText = 'Vĩnh viễn';
+  } else if (periodEnd) {
     const end = new Date(periodEnd).getTime();
     const now = new Date().getTime();
     const diffMs = end - now;
@@ -107,7 +109,7 @@ export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd
         durationText = `Còn ${diffHours} giờ`;
       }
     } else {
-      durationText = 'Đã hết hạn';
+      durationText = 'Quá hạn';
     }
   }
 
@@ -118,7 +120,7 @@ export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd
   };
 
   const startDateFormatted = periodStart ? formatDateTime(periodStart) : 'Mặc định';
-  const endDateFormatted = periodEnd ? formatDateTime(periodEnd) : 'Không giới hạn';
+  const endDateFormatted = planCode === 'plan_mini' ? 'Vĩnh viễn' : (periodEnd ? formatDateTime(periodEnd) : 'Không giới hạn');
 
   const isMini = planCode === 'plan_mini';
   const isEnterprise = planCode === 'plan_enterprise';
@@ -473,6 +475,14 @@ export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd
                           <tr>
                             <td className="p-4 px-5 border-b border-zinc-100 dark:border-zinc-800 text-zinc-600 font-medium">Chi nhánh đa kho</td>
                             {plans.map(p => <td key={p.code} className="p-4 border-b border-zinc-100 dark:border-zinc-800 text-center text-zinc-800 dark:text-zinc-200 font-bold">{fmtLimit(p.metadata?.create_shop)}</td>)}
+                          </tr>
+                          <tr>
+                            <td className="p-4 px-5 border-b border-zinc-100 dark:border-zinc-800 text-zinc-600 font-medium">Giới hạn hoá đơn bán hàng /tháng</td>
+                            {plans.map(p => <td key={p.code} className="p-4 border-b border-zinc-100 dark:border-zinc-800 text-center text-zinc-800 dark:text-zinc-200 font-bold">{fmtLimit(p.metadata?.max_orders_per_month)}</td>)}
+                          </tr>
+                          <tr>
+                            <td className="p-4 px-5 border-b border-zinc-100 dark:border-zinc-800 text-zinc-600 font-medium">Giới hạn số lượng sản phẩm</td>
+                            {plans.map(p => <td key={p.code} className="p-4 border-b border-zinc-100 dark:border-zinc-800 text-center text-zinc-800 dark:text-zinc-200 font-bold">{fmtLimit(p.metadata?.max_products)}</td>)}
                           </tr>
                           <tr>
                             <td className="p-4 px-5 border-b border-zinc-100 dark:border-zinc-800 text-zinc-600 font-medium">Nhân sự vận hành (Users)</td>

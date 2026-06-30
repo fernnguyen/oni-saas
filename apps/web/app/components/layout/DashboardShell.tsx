@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
+import { ExpirationBanner } from './ExpirationBanner';
 import { ConfirmProvider } from '@/app/components/ui/ConfirmProvider';
 import { PermissionsProvider } from '@/app/components/ui/PermissionGate';
 
@@ -37,6 +38,7 @@ interface DashboardShellProps {
   /** Industry type of the tenant for vertical-aware nav filtering */
   industryType?: string;
   hasP2pAccess?: boolean;
+  systemSettings?: any;
 }
 
 export function DashboardShell({
@@ -68,6 +70,7 @@ export function DashboardShell({
   hidePlanBadge,
   industryType,
   hasP2pAccess,
+  systemSettings,
 }: DashboardShellProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
@@ -78,6 +81,24 @@ export function DashboardShell({
     if (saved !== null) setCollapsed(saved === 'true');
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    // Xóa Local DB nếu gói dịch vụ đã bị khóa/xóa
+    // Thời gian ân hạn + 30 ngày hard delete
+    if (periodEnd) {
+      const graceDays = systemSettings?.plan_lock_grace_days ?? 3;
+      const end = new Date(periodEnd).getTime();
+      const now = new Date().getTime();
+      const diffMs = end - now;
+      const diffDays = Math.ceil(diffMs / (1000 * 3600 * 24));
+      
+      if (diffDays <= -(graceDays + 30)) {
+        import('@/lib/localDb/hydration').then((m) => {
+          m.clearLocalDb().catch(console.error);
+        });
+      }
+    }
+  }, [periodEnd, systemSettings]);
 
   function toggleCollapsed() {
     setCollapsed((prev) => {
@@ -139,6 +160,7 @@ export function DashboardShell({
               hasP2pAccess={hasP2pAccess}
             />
             <main className="flex-1 min-w-0 p-4 md:p-6">
+              <ExpirationBanner periodEnd={periodEnd} systemSettings={systemSettings} planCode={planCode} />
               {children}
             </main>
           </div>
