@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireShopAccess } from '@/lib/server/shopAccess'
 import { invalidate } from '@/lib/server/cache'
 import { handleApiError } from '../../../_helpers'
+import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
 
 function getGMT7Time() {
   const d = new Date()
@@ -15,7 +16,15 @@ export async function POST(
 ) {
   try {
     const { shopId } = await params
-    const { connector, user } = await requireShopAccess(shopId, 'crm.manage')
+    const { connector, user, shop } = await requireShopAccess(shopId, 'crm.manage')
+
+    const admin = getSupabaseAdminClient()
+    const { data: tenant } = await admin
+      .from('tenants')
+      .select('share_customers')
+      .eq('id', shop.tenant_id)
+      .maybeSingle()
+    const shareCustomers = tenant?.share_customers ?? false
 
     const body = await req.json() as {
       customers: any[]
@@ -195,6 +204,7 @@ export async function POST(
             prepaid_balance: String(finalPrepaid),
             note: note || existingCustomer.note || '',
             metadata: JSON.stringify(mergedMetadata),
+            ...(shareCustomers ? {} : { branch_id: shopId })
           }
         })
 
@@ -346,6 +356,7 @@ export async function POST(
           prepaid_balance: String(importPrepaid),
           note,
           metadata: JSON.stringify(metadata),
+          ...(shareCustomers ? {} : { branch_id: shopId })
         })
 
         createdCount++
