@@ -833,23 +833,35 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
     if (parsedCustomers.length === 0) return
     setImportingProgress(true)
     try {
-      const res = await fetch(`/api/shops/${shopId}/customers/import-batch`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customers: parsedCustomers,
-          conflict_strategy: conflictStrategy,
-          balance_strategy: balanceStrategy,
-        }),
-      })
+      let totalCreated = 0
+      let totalUpdated = 0
+      let totalSkipped = 0
+      const CHUNK_SIZE = 500
 
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({}))
-        throw new Error(json.error ?? 'Import thất bại')
+      for (let i = 0; i < parsedCustomers.length; i += CHUNK_SIZE) {
+        const chunk = parsedCustomers.slice(i, i + CHUNK_SIZE)
+        const res = await fetch(`/api/shops/${shopId}/customers/import-batch`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            customers: chunk,
+            conflict_strategy: conflictStrategy,
+            balance_strategy: balanceStrategy,
+          }),
+        })
+
+        if (!res.ok) {
+          const json = await res.json().catch(() => ({}))
+          throw new Error(json.error ?? `Import thất bại ở lô dòng ${i + 1} đến ${i + chunk.length}`)
+        }
+
+        const result = await res.json()
+        totalCreated += result.created || 0
+        totalUpdated += result.updated || 0
+        totalSkipped += result.skipped || 0
       }
 
-      const result = await res.json()
-      toast.success(`Import hoàn tất! Tạo mới: ${result.created}, Cập nhật: ${result.updated}, Bỏ qua: ${result.skipped}`)
+      toast.success(`Import hoàn tất! Tạo mới: ${totalCreated}, Cập nhật: ${totalUpdated}, Bỏ qua: ${totalSkipped}`)
       setImportModalOpen(false)
       setImportFile(null)
       setImportProvider(null)

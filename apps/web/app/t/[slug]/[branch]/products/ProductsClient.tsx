@@ -985,18 +985,22 @@ export function ProductsClient({ shopId, industryType = 'retail', maxProducts }:
     if (parsedProducts.length === 0) return
     setImportingProgress(true)
     try {
-      const res = await fetch(`/api/shops/${shopId}/products/import`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          products: parsedProducts,
-          warehouse_id: selectedWarehouseId
+      const CHUNK_SIZE = 200
+      for (let i = 0; i < parsedProducts.length; i += CHUNK_SIZE) {
+        const chunk = parsedProducts.slice(i, i + CHUNK_SIZE)
+        const res = await fetch(`/api/shops/${shopId}/products/import`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            products: chunk,
+            warehouse_id: selectedWarehouseId
+          })
         })
-      })
 
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({}))
-        throw new Error(json.error ?? 'Import thất bại')
+        if (!res.ok) {
+          const json = await res.json().catch(() => ({}))
+          throw new Error(json.error ?? `Import thất bại ở lô dòng ${i + 1} đến ${i + chunk.length}`)
+        }
       }
 
       toast.success(`Nhập thành công ${parsedProducts.length} sản phẩm!`)
