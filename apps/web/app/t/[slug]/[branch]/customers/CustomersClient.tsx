@@ -252,8 +252,10 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
   const [detailOpen, setDetailOpen] = useState(false)
   const [detailTab, setDetailTab] = useState<'info' | 'orders' | 'transactions'>('info')
   const [isRefreshingDetail, setIsRefreshingDetail] = useState(false)
+  const [refreshTick, setRefreshTick] = useState(0)
 
   const handleRefreshIndex = () => {
+    setRefreshTick(prev => prev + 1)
     queryClient.invalidateQueries({ queryKey: ['customers', shopId] })
     toast.success('Đã làm mới danh sách khách hàng!')
   }
@@ -290,7 +292,7 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
   const [confirmUnmergeOpen, setConfirmUnmergeOpen] = useState(false)
 
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['customers', shopId, page, debouncedSearch, sortBy, sortOrder, showMerged],
+    queryKey: ['customers', shopId, page, debouncedSearch, sortBy, sortOrder, showMerged, refreshTick],
     queryFn: async () => {
       const sp = new URLSearchParams({ page: String(page), limit: '50' })
       let searchQuery = debouncedSearch
@@ -299,6 +301,7 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
       }
       if (searchQuery) sp.set('search', searchQuery)
       if (showMerged) sp.set('show_merged', 'true')
+      if (refreshTick > 0) sp.set('nocache', 'true')
       if (sortBy) {
         sp.set('sort_by', sortBy)
         sp.set('sort_order', sortOrder || 'asc')
@@ -2800,7 +2803,7 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
                 // Preview data and strategy forms
                 <div className="space-y-6">
                   {/* Stats card */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                     <div className="rounded-2xl border border-blue-100 bg-blue-50/50 p-4">
                       <span className="text-[10px] uppercase font-bold text-blue-500 tracking-wider">Tổng số khách hàng</span>
                       <div className="text-xl font-black text-blue-650 mt-1">{parsedCustomers.length.toLocaleString()} khách</div>
@@ -2808,7 +2811,20 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
                     <div className="rounded-2xl border border-red-100 bg-red-50/50 p-4">
                       <span className="text-[10px] uppercase font-bold text-red-500 tracking-wider">Tổng nợ đầu kỳ</span>
                       <div className="text-xl font-black text-red-600 mt-1">
-                        {parsedCustomers.reduce((sum, c) => sum + (parseFloat(c.debt_amount) || 0), 0).toLocaleString()}đ
+                        {parsedCustomers.reduce((sum, c) => {
+                          const d = parseFloat(c.debt_amount) || 0
+                          return sum + (d > 0 ? d : 0)
+                        }, 0).toLocaleString()}đ
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-purple-100 bg-purple-50/50 p-4">
+                      <span className="text-[10px] uppercase font-bold text-purple-500 tracking-wider">Tổng ví trả trước</span>
+                      <div className="text-xl font-black text-purple-600 mt-1">
+                        {parsedCustomers.reduce((sum, c) => {
+                          const d = parseFloat(c.debt_amount) || 0
+                          const p = parseFloat(c.prepaid_balance) || 0
+                          return sum + p + (d < 0 ? Math.abs(d) : 0)
+                        }, 0).toLocaleString()}đ
                       </div>
                     </div>
                     <div className="rounded-2xl border border-emerald-100 bg-emerald-50/50 p-4">

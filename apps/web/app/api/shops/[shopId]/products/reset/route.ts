@@ -53,7 +53,7 @@ export async function POST(
           [branchId, tenantId]
         )
 
-        // 6. Delete categories in this tenant that are no longer referenced by any remaining products (e.g. from other branches)
+        // 6. Delete categories in this tenant that are no longer referenced by any remaining products
         await client.query(
           `DELETE FROM categories 
            WHERE tenant_id = $1 
@@ -63,6 +63,32 @@ export async function POST(
                WHERE tenant_id = $1 AND category_id IS NOT NULL
              )`,
           [tenantId]
+        )
+
+        // 7. Delete order items and orders
+        await client.query(
+          `DELETE FROM order_items WHERE branch_id = $1 AND tenant_id = $2`,
+          [branchId, tenantId]
+        )
+        await client.query(
+          `DELETE FROM orders WHERE branch_id = $1 AND tenant_id = $2`,
+          [branchId, tenantId]
+        )
+
+        // 8. Delete cashbook (debts and transactions)
+        await client.query(
+          `DELETE FROM cashbook WHERE branch_id = $1 AND tenant_id = $2`,
+          [branchId, tenantId]
+        )
+
+        // 9. Delete customer branch stats and customers
+        await client.query(
+          `DELETE FROM "customer-branch-stats" WHERE branch_id = $1`,
+          [branchId]
+        )
+        await client.query(
+          `DELETE FROM customers WHERE branch_id = $1 AND tenant_id = $2`,
+          [branchId, tenantId]
         )
 
         await client.query('COMMIT')
@@ -92,8 +118,11 @@ export async function POST(
     invalidate(shopId, 'stock-movements')
     invalidate(shopId, 'inventory')
     invalidate(shopId, 'categories')
+    invalidate(shopId, 'customers')
+    invalidate(shopId, 'orders')
+    invalidate(shopId, 'cashbook')
 
-    return NextResponse.json({ success: true, message: 'All products, inventory, and categories in this branch/tenant have been reset' })
+    return NextResponse.json({ success: true, message: 'All products, inventory, categories, customers, orders, and cashbook have been reset' })
   } catch (e) {
     return handleApiError(e, 'POST products/reset')
   }
