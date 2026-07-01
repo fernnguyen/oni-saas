@@ -119,6 +119,8 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
   const confirm = useConfirm()
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState(initialSearch)
+  const [sortBy, setSortBy] = useState<string | null>('updated_at')
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc' | null>('desc')
   const [debouncedSearch] = useDebounce(search, 300)
   const [statusFilter, setStatusFilter] = useState('')
   const [selectedOrder, setSelectedOrder] = useState<Row | null>(null)
@@ -188,11 +190,13 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
 
   // Orders list
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['orders', shopId, page, debouncedSearch, statusFilter],
+    queryKey: ['orders', shopId, page, debouncedSearch, statusFilter, sortBy, sortOrder],
     queryFn: async () => {
       const sp = new URLSearchParams({ page: String(page), limit: '50' })
       if (debouncedSearch) sp.set('search', debouncedSearch)
       if (statusFilter) sp.set('status', statusFilter)
+      if (sortBy) sp.set('sort_by', sortBy)
+      if (sortOrder) sp.set('sort_order', sortOrder)
       const res = await fetch(`/api/shops/${shopId}/orders?${sp}`)
       if (!res.ok) throw new Error('Không tải được dữ liệu')
       return res.json() as Promise<{ data: Row[]; total: number }>
@@ -606,6 +610,7 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
     {
       key: 'order_id',
       label: 'Mã đơn',
+      sortable: true,
       render: (row) => (
         <CopyableId 
           id={row.order_id} 
@@ -622,7 +627,7 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
     {
       key: 'channel',
       label: 'Kênh',
-      render: (row) => <TagBadge label={CHANNEL_LABEL[row.channel] ?? row.channel} color="blue" />,
+      render: (row) => <TagBadge label={CHANNEL_LABEL[row.channel] ?? row.channel} color={row.channel === 'pos-mobile' ? 'purple' : 'blue'} />,
     },
     {
       key: 'status',
@@ -632,11 +637,13 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
     {
       key: 'total_amount',
       label: 'Tổng tiền',
+      sortable: true,
       render: (row) => <span>{fmtVND(row.total_amount)}</span>,
     },
     {
       key: 'debt_amount',
       label: 'Còn nợ',
+      sortable: true,
       render: (row) => (
         <span className={Number(row.debt_amount || 0) > 0 ? 'font-medium text-orange-600' : 'text-slate-400'}>
           {fmtVND(row.debt_amount)}
@@ -646,6 +653,7 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
     {
       key: 'created_at',
       label: 'Ngày tạo',
+      sortable: true,
       render: (row) => <span className="text-slate-500">{fmtDate(row.created_at)}</span>,
     },
     {
@@ -654,13 +662,8 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
       render: (row) => (
         <div className="flex items-center gap-2">
           <button
-            onClick={() => openDetail(row)}
-            className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:bg-slate-50 transition-colors"
-          >
-            <Eye className="h-3.5 w-3.5" /> Xem
-          </button>
-          <button
-            onClick={() => {
+            onClick={(e) => {
+              e.stopPropagation()
               if (parseInt(row.print_count || '0', 10) > 0) {
                 setPrintTarget(row)
               } else {
@@ -674,7 +677,7 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
           {(row.status !== 'cancelled' && row.status !== 'in_progress' && permissions.includes('orders.delete')) || 
            (row.status === 'in_progress' && permissions.includes('orders.delete') && permissions.some((p: string) => p.includes('owner') || p.includes('admin'))) ? (
             <button
-              onClick={() => setCancelTarget(row)}
+              onClick={(e) => { e.stopPropagation(); setCancelTarget(row) }}
               className={`flex items-center gap-1.5 rounded-lg border ${row.status === 'in_progress' ? 'border-orange-200 bg-orange-50 text-orange-600 hover:bg-orange-100' : 'border-red-100 bg-white text-red-500 hover:bg-red-50'} px-3 py-1.5 text-xs font-medium shadow-sm transition-colors`}
             >
               <Ban className="h-3.5 w-3.5" /> {row.status === 'in_progress' ? 'Gỡ kẹt' : 'Hủy'}
@@ -757,6 +760,15 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
         data={data?.data ?? []}
         loading={isLoading}
         pagination={{ page, total: data?.total ?? 0, pageSize: 50, onChange: setPage }}
+        sort={{
+          sortBy,
+          sortOrder,
+          onSort: (key, order) => {
+            setSortBy(key)
+            setSortOrder(order)
+            setPage(1)
+          }
+        }}
         emptyState={<EmptyState title="Chưa có đơn hàng nào" description="Đơn hàng sẽ xuất hiện ở đây sau khi được tạo từ POS." />}
         rowKey={(row, idx) => `${row.order_id}__${idx}`}
         onRowClick={openDetail}
@@ -853,7 +865,7 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
                 </div>
                 <div>
                   <dt className="text-slate-500">Kênh</dt>
-                  <dd><TagBadge label={CHANNEL_LABEL[selectedOrder.channel] ?? selectedOrder.channel} color="blue" /></dd>
+                  <dd><TagBadge label={CHANNEL_LABEL[selectedOrder.channel] ?? selectedOrder.channel} color={selectedOrder.channel === 'pos-mobile' ? 'purple' : 'blue'} /></dd>
                 </div>
                 <div>
                   <dt className="text-slate-500">Ngày tạo</dt>

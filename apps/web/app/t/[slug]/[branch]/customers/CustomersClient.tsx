@@ -427,10 +427,23 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
     setSlideOpen(true)
   }
 
-  function openDetail(row: Record<string, string>) {
+  async function openDetail(row: Record<string, string>) {
     setViewTarget(row)
     setDetailTab('info')
     setDetailOpen(true)
+
+    try {
+      setIsRefreshingDetail(true)
+      const res = await fetch(`/api/shops/${shopId}/customers/${row.customer_id}`)
+      if (res.ok) {
+        const updatedCustomer = await res.json()
+        setViewTarget(updatedCustomer)
+      }
+    } catch (e) {
+      console.error('Failed to auto-refresh customer', e)
+    } finally {
+      setIsRefreshingDetail(false)
+    }
   }
 
   // 1. Fetch Customer Purchase History
