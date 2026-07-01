@@ -119,8 +119,6 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
   const confirm = useConfirm()
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState(initialSearch)
-  const [sortBy, setSortBy] = useState<string | null>('updated_at')
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc' | null>('desc')
   const [debouncedSearch] = useDebounce(search, 300)
   const [statusFilter, setStatusFilter] = useState('')
   const [selectedOrder, setSelectedOrder] = useState<Row | null>(null)
@@ -190,13 +188,11 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
 
   // Orders list
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['orders', shopId, page, debouncedSearch, statusFilter, sortBy, sortOrder],
+    queryKey: ['orders', shopId, page, debouncedSearch, statusFilter],
     queryFn: async () => {
       const sp = new URLSearchParams({ page: String(page), limit: '50' })
       if (debouncedSearch) sp.set('search', debouncedSearch)
       if (statusFilter) sp.set('status', statusFilter)
-      if (sortBy) sp.set('sort_by', sortBy)
-      if (sortOrder) sp.set('sort_order', sortOrder)
       const res = await fetch(`/api/shops/${shopId}/orders?${sp}`)
       if (!res.ok) throw new Error('Không tải được dữ liệu')
       return res.json() as Promise<{ data: Row[]; total: number }>
@@ -760,15 +756,6 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
         data={data?.data ?? []}
         loading={isLoading}
         pagination={{ page, total: data?.total ?? 0, pageSize: 50, onChange: setPage }}
-        sort={{
-          sortBy,
-          sortOrder,
-          onSort: (key, order) => {
-            setSortBy(key)
-            setSortOrder(order)
-            setPage(1)
-          }
-        }}
         emptyState={<EmptyState title="Chưa có đơn hàng nào" description="Đơn hàng sẽ xuất hiện ở đây sau khi được tạo từ POS." />}
         rowKey={(row, idx) => `${row.order_id}__${idx}`}
         onRowClick={openDetail}
