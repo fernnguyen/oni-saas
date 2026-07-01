@@ -167,6 +167,7 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
           { href: '/super/settings',   label: 'Cài đặt chung',   icon: Settings },
           { href: '/super/notifications', label: 'Thông báo đẩy', icon: Megaphone },
           { href: '/super/app-versions', label: 'Cập nhật App', icon: Smartphone },
+          { href: '/super/tools/migrate-images', label: 'Migrate Hình Ảnh', icon: PackageCheck },
         ],
       },
       {
