@@ -65,7 +65,13 @@ export async function POST(
           [tenantId]
         )
 
-        // 7. Delete order items and orders
+        // 7. Delete returns and return items (to clear FK references to orders and products)
+        try {
+          await client.query(`DELETE FROM return_items WHERE branch_id = $1 AND tenant_id = $2`, [branchId, tenantId])
+          await client.query(`DELETE FROM returns WHERE branch_id = $1 AND tenant_id = $2`, [branchId, tenantId])
+        } catch (e) { console.log('No returns table to delete') }
+
+        // 8. Delete order items and orders
         await client.query(
           `DELETE FROM order_items WHERE branch_id = $1 AND tenant_id = $2`,
           [branchId, tenantId]
@@ -75,13 +81,28 @@ export async function POST(
           [branchId, tenantId]
         )
 
-        // 8. Delete cashbook (debts and transactions)
+        // 9. Delete purchase orders (to clear FK references to products and suppliers)
+        try {
+          await client.query(`DELETE FROM purchase_order_items WHERE branch_id = $1 AND tenant_id = $2`, [branchId, tenantId])
+          await client.query(`DELETE FROM purchase_orders WHERE branch_id = $1 AND tenant_id = $2`, [branchId, tenantId])
+        } catch (e) { console.log('No purchase_orders table to delete') }
+
+        // 10. Delete suppliers
+        try {
+          await client.query(`DELETE FROM "supplier-branch-stats" WHERE branch_id = $1`, [branchId])
+          await client.query(`DELETE FROM suppliers WHERE branch_id = $1 AND tenant_id = $2`, [branchId, tenantId])
+        } catch (e) { console.log('No suppliers table to delete') }
+
+        // 11. Delete cashbook (debts and transactions)
+
+
+        // 11. Delete cashbook (debts and transactions)
         await client.query(
           `DELETE FROM cashbook WHERE branch_id = $1 AND tenant_id = $2`,
           [branchId, tenantId]
         )
 
-        // 9. Delete customer branch stats and customers
+        // 12. Delete customer branch stats and customers
         await client.query(
           `DELETE FROM "customer-branch-stats" WHERE branch_id = $1`,
           [branchId]

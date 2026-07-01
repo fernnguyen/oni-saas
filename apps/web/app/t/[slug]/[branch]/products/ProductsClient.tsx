@@ -322,7 +322,7 @@ export function ProductsClient({ shopId, industryType = 'retail', maxProducts }:
   const { data: allProductsData } = useQuery({
     queryKey: ['all-products', shopId],
     queryFn: async () => {
-      const res = await fetch(`/api/shops/${shopId}/products?limit=2000&active=TRUE`)
+      const res = await fetch(`/api/shops/${shopId}/products?limit=5000&active=TRUE`)
       if (!res.ok) return { data: [] }
       return res.json() as Promise<{ data: Record<string, string>[] }>
     },

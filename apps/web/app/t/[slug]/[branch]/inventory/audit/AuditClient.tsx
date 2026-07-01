@@ -200,7 +200,7 @@ export function AuditClient({ shopId, shopName }: Props) {
   const { data: productsData, isLoading: productsLoading } = useQuery({
     queryKey: ['products-all', shopId],
     queryFn: async () => {
-      const res = await fetch(`/api/shops/${shopId}/products?limit=2000`)
+      const res = await fetch(`/api/shops/${shopId}/products?limit=5000`)
       if (!res.ok) return { data: [] as any[] }
       const json = await res.json() as { data: any[] }
       return {

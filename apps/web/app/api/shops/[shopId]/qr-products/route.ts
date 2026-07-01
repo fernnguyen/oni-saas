@@ -65,7 +65,7 @@ export async function GET(
     // Format units denormalization if available
     const products = productsRes.data;
     if (products.length > 0) {
-      const unitsResult = await connector.list('product-units', { limit: 2000 });
+      const unitsResult = await connector.list('product-units', { limit: 5000 });
       const unitsByProduct = unitsResult.data.reduce((acc: Record<string, any[]>, unit: any) => {
         acc[unit.product_id] = acc[unit.product_id] || [];
         acc[unit.product_id].push(unit);

@@ -63,10 +63,10 @@ export class SyncManager {
         taxGroupsData
       ] = await Promise.all([
         fetchJson(`${baseUrl}/api/shops/${shopId}/categories?limit=500`, true, 'Không thể tải Danh mục sản phẩm từ Cloud'),
-        fetchJson(`${baseUrl}/api/shops/${shopId}/products?limit=2000&nocache=true`, true, 'Không thể tải danh mục Sản phẩm từ Cloud'),
+        fetchJson(`${baseUrl}/api/shops/${shopId}/products?limit=5000&nocache=true`, true, 'Không thể tải danh mục Sản phẩm từ Cloud'),
         fetchJson(`${baseUrl}/api/shops/${shopId}/location-resources?limit=500`, true, 'Không thể tải Sơ đồ phòng bàn từ Cloud'),
         fetchJson(`${baseUrl}/api/shops/${shopId}/orders?status=in_progress&limit=100`, false),
-        fetchJson(`${baseUrl}/api/shops/${shopId}/customers?limit=2000`, true, 'Không thể tải Danh sách khách hàng từ Cloud'),
+        fetchJson(`${baseUrl}/api/shops/${shopId}/customers?limit=5000`, true, 'Không thể tải Danh sách khách hàng từ Cloud'),
         fetchJson(`${baseUrl}/api/shops/${shopId}/payment-funds?active=TRUE`, true, 'Không thể tải danh sách Quỹ thanh toán từ Cloud'),
         fetchJson(`${baseUrl}/api/shops/${shopId}/cashbook?limit=100`, false),
         fetchJson(`${baseUrl}/api/shops/${shopId}/payment-methods?active=TRUE`, false),
@@ -945,7 +945,7 @@ export class SyncManager {
       // Tải song song Categories & Products
       const [catRes, prodRes] = await Promise.all([
         fetch(`${baseUrl}/api/shops/${shopId}/categories?limit=500`, { headers }),
-        fetch(`${baseUrl}/api/shops/${shopId}/products?limit=2000&nocache=true`, { headers }),
+        fetch(`${baseUrl}/api/shops/${shopId}/products?limit=5000&nocache=true`, { headers }),
       ]);
 
       if (!catRes.ok || !prodRes.ok) {

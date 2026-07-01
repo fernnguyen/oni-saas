@@ -75,7 +75,7 @@ export function usePosData() {
 }
 
  // B. Tải sản phẩm thực tế
- const prodRes = await fetch(`${currentUrl}/api/shops/${shopId}/products?limit=2000&nocache=true`, {headers});
+ const prodRes = await fetch(`${currentUrl}/api/shops/${shopId}/products?limit=5000&nocache=true`, {headers});
  if (prodRes.ok) {
  const prodData = await prodRes.json();
  prods = (prodData.data || []).map((prod: any) => {
@@ -134,7 +134,7 @@ export function usePosData() {
 }
 
  // D. Tải danh sách khách hàng
- const custRes = await fetch(`${currentUrl}/api/shops/${shopId}/customers?limit=2000`, {headers});
+ const custRes = await fetch(`${currentUrl}/api/shops/${shopId}/customers?limit=5000`, {headers});
  if (custRes.ok) {
  const custData = await custRes.json();
  customers = (custData.data || []).map((cust: any) => {

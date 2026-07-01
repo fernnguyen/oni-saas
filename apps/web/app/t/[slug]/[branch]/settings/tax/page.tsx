@@ -51,7 +51,7 @@ export default async function TaxSettingsPage({ params }: Props) {
   // Fetch categories and products for mapping
   const [categoriesRes, productsRes] = await Promise.all([
     connector.list('categories', { limit: 200, filters: { active: 'TRUE' } }),
-    connector.list('products', { limit: 2000 }), // remove active filter to get hidden/system products
+    connector.list('products', { limit: 5000 }), // remove active filter to get hidden/system products
   ])
 
   // Self-healing for missing Time Charge product
@@ -83,7 +83,7 @@ export default async function TaxSettingsPage({ params }: Props) {
       };
       await connector.create('products', newProduct);
       // Re-fetch products
-      const newProductsRes = await connector.list('products', { limit: 2000 });
+      const newProductsRes = await connector.list('products', { limit: 5000 });
       productsRes.data = newProductsRes.data;
     } catch (err) {
       console.error('Failed to self-heal TIME_CHARGE product:', err);

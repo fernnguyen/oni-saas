@@ -886,7 +886,7 @@ export function InventoryClient({ shopId, shopName, planCode }: Props) {
   const { data: productsData } = useQuery({
     queryKey: ['products-all', shopId],
     queryFn: async () => {
-      const res = await fetch(`/api/shops/${shopId}/products?limit=2000`)
+      const res = await fetch(`/api/shops/${shopId}/products?limit=5000`)
       if (!res.ok) return { data: [] as Row[] }
       return res.json() as Promise<{ data: Row[] }>
     },
