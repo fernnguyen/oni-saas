@@ -201,6 +201,7 @@ export function ProductsClient({ shopId, industryType = 'retail', maxProducts }:
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'uploading'>('idle')
   const [fileInputKey, setFileInputKey] = useState(Date.now())
   const [saveConfirmOpen, setSaveConfirmOpen] = useState(false)
+  const [refreshTick, setRefreshTick] = useState(0)
 
   // ── Pharmacy Metadata State ──
   const [pharmacyMetadata, setPharmacyMetadata] = useState({
@@ -389,11 +390,12 @@ export function ProductsClient({ shopId, industryType = 'retail', maxProducts }:
   }, [])
 
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['products', shopId, page, debouncedSearch, filterActive],
+    queryKey: ['products', shopId, page, debouncedSearch, filterActive, refreshTick],
     queryFn: async () => {
       const sp = new URLSearchParams({ page: String(page), limit: '50' })
       if (debouncedSearch) sp.set('search', debouncedSearch)
       if (filterActive) sp.set('active', filterActive)
+      if (refreshTick > 0) sp.set('nocache', 'true')
       const res = await fetch(`/api/shops/${shopId}/products?${sp}`)
       if (!res.ok) throw new Error('Không tải được dữ liệu')
       return res.json() as Promise<{ data: Record<string, string>[]; total: number }>
@@ -1063,17 +1065,29 @@ export function ProductsClient({ shopId, industryType = 'retail', maxProducts }:
     }
   }
 
-  function openEdit(row: Record<string, string>) {
-    setFormData(row)
-    setEditingId(row.product_id)
+  async function openEdit(row: Record<string, string>) {
+    const toastId = toast.loading('Đang tải dữ liệu mới nhất...')
+    let latestRow = row
+    try {
+      const res = await fetch(`/api/shops/${shopId}/products/${row.product_id || row.id}?nocache=true`)
+      if (res.ok) {
+        latestRow = await res.json()
+      }
+    } catch (e) {
+      // ignore and fallback to row
+    }
+    toast.dismiss(toastId)
+
+    setFormData(latestRow)
+    setEditingId(latestRow.product_id || latestRow.id)
     setSelectedFile(null)
-    setPreviewUrl(row.image_url || null)
-    setImageInputMode(row.image_url ? 'url' : 'file')
+    setPreviewUrl(latestRow.image_url || null)
+    setImageInputMode(latestRow.image_url ? 'url' : 'file')
     setFileInputKey(Date.now())
-    setUnitRows((row as any).product_units || [])
+    setUnitRows((latestRow as any).product_units || [])
 
     // Setup pharmacy metadata
-    const meta = typeof row.metadata === 'string' ? safeParseJson(row.metadata) : (row.metadata || null)
+    const meta = typeof latestRow.metadata === 'string' ? safeParseJson(latestRow.metadata) : (latestRow.metadata || null)
     const hasPharmacy = !!(meta?.registration_no || meta?.medicine_code || meta?.active_ingredient || meta?.concentration || meta?.manufacturer || meta?.country_of_origin || meta?.packaging_spec || meta?.route_of_admin)
     setPharmacyMetadata({
       registration_no: meta?.registration_no || '',
@@ -1089,8 +1103,8 @@ export function ProductsClient({ shopId, industryType = 'retail', maxProducts }:
 
     // Reset and Fetch BOM items if product is standard (simple or modifier)
     setBomItems([])
-    if (row.product_type !== 'variant_parent') {
-      fetch(`/api/shops/${shopId}/products/${row.product_id || row.id}/bom`)
+    if (latestRow.product_type !== 'variant_parent') {
+      fetch(`/api/shops/${shopId}/products/${latestRow.product_id || latestRow.id}/bom`)
         .then(res => res.json())
         .then(resData => {
           if (Array.isArray(resData)) {
@@ -1103,11 +1117,11 @@ export function ProductsClient({ shopId, industryType = 'retail', maxProducts }:
     }
 
     // If editing a variant_parent, load its variant children
-    if (row.product_type === 'variant_parent') {
-      const opts = safeParseJson(row.variant_options)
+    if (latestRow.product_type === 'variant_parent') {
+      const opts = safeParseJson(latestRow.variant_options)
       setOptionName(opts?.option_name ?? '')
       const children = (data?.data ?? []).filter(
-        (p) => p.parent_id === row.product_id
+        (p) => p.parent_id === (latestRow.product_id || latestRow.id)
       )
       setVariantRows(
         children.map((c) => ({
@@ -1121,9 +1135,9 @@ export function ProductsClient({ shopId, industryType = 'retail', maxProducts }:
       )
       setModifierGroups([])
       setHasModifiersToggle(false)
-    } else if (row.product_type === 'modifier') {
+    } else if (latestRow.product_type === 'modifier') {
       // Load modifier config from variant_options JSON
-      const config = safeParseJson(row.variant_options)
+      const config = safeParseJson(latestRow.variant_options)
       const groups = Array.isArray(config?.groups)
         ? config.groups.map((g: ModifierGroup) => ({ ...g, id: g.id || `g-${Date.now()}` }))
         : []
@@ -1137,7 +1151,7 @@ export function ProductsClient({ shopId, industryType = 'retail', maxProducts }:
       setModifierGroups([])
       setHasModifiersToggle(false)
     }
-    setPreviousCostPrice(row.cost_price || '0')
+    setPreviousCostPrice(latestRow.cost_price || '0')
     setSlideOpen(true)
   }
 
@@ -1398,6 +1412,16 @@ export function ProductsClient({ shopId, industryType = 'retail', maxProducts }:
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              setRefreshTick(prev => prev + 1)
+              queryClient.invalidateQueries({ queryKey: ['products', shopId] })
+            }}
+            className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors shadow-sm cursor-pointer"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
+            Tải lại
+          </button>
           <button
             onClick={() => {
               setImportModalOpen(true)
