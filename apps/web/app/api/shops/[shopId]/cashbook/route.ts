@@ -142,7 +142,7 @@ export async function POST(
 
     const body = await req.json()
     const payload = cashbookCreateSchema.parse(body)
-    const branchId = payload.branch_id ?? ''
+    const branchId = payload.branch_id || shopId
 
     // --- KIỂM TRA CA LÀM VIỆC (SHIFT MANAGEMENT) ---
     const admin = getSupabaseAdminClient()

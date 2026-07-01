@@ -33,7 +33,7 @@ function buildOverview(orders: Row[], returns: Row[], orderItems: Row[], payment
     const t = new Date(o.created_at || 0).getTime()
     if (t < day30) continue
     const k = dayKey(o.created_at)
-    if (k in revenueByDay) revenueByDay[k] += parseAmount(o.paid_amount ?? o.total_amount)
+    if (k in revenueByDay) revenueByDay[k] += parseAmount(o.total_amount)
   }
 
   const revenueSeries = Object.entries(revenueByDay)
@@ -90,7 +90,7 @@ function buildOverview(orders: Row[], returns: Row[], orderItems: Row[], payment
       resourceUsage[key] = { name: finalName, count: 0, revenue: 0 }
     }
     resourceUsage[key].count += 1
-    resourceUsage[key].revenue += parseAmount(o.paid_amount ?? o.total_amount)
+    resourceUsage[key].revenue += parseAmount(o.total_amount)
   }
   const topResources = Object.entries(resourceUsage)
     .map(([id, v]) => ({ id, ...v }))
@@ -141,11 +141,13 @@ function buildOverview(orders: Row[], returns: Row[], orderItems: Row[], payment
   const kpi = {
     today: {
       orders:  todayOrders.length,
-      revenue: todayOrders.reduce((s, o) => s + parseAmount(o.paid_amount ?? o.total_amount), 0),
+      revenue: todayOrders.reduce((s, o) => s + parseAmount(o.total_amount), 0),
+      debt: todayOrders.reduce((s, o) => s + parseAmount(o.debt_amount), 0),
     },
     month: {
       orders:  monthOrders.length,
-      revenue: monthOrders.reduce((s, o) => s + parseAmount(o.paid_amount ?? o.total_amount), 0),
+      revenue: monthOrders.reduce((s, o) => s + parseAmount(o.total_amount), 0),
+      debt: monthOrders.reduce((s, o) => s + parseAmount(o.debt_amount), 0),
     },
     returns: { count: returnCount, refund: returnRevenue },
   }
@@ -183,7 +185,7 @@ function buildOverview(orders: Row[], returns: Row[], orderItems: Row[], payment
     if (key.toLowerCase().startsWith('takeaway')) continue
     
     const finalName = resourceName || resourceMap.get(resourceId) || resourceId
-    const revenue = parseAmount(o.paid_amount ?? o.total_amount)
+    const revenue = parseAmount(o.total_amount)
 
     // Today
     if (t >= todayMs) {

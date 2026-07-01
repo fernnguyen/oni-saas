@@ -11,20 +11,21 @@ function computeStats(rows: Row[]) {
   const weekStart  = todayStart - 6 * 24 * 60 * 60 * 1000
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime()
 
-  const today   = { count: 0, revenue: 0 }
-  const week    = { count: 0, revenue: 0 }
-  const month   = { count: 0, revenue: 0 }
-  const returns = { count: 0, revenue: 0 }
+  const today   = { count: 0, revenue: 0, debt: 0 }
+  const week    = { count: 0, revenue: 0, debt: 0 }
+  const month   = { count: 0, revenue: 0, debt: 0 }
+  const returns = { count: 0, revenue: 0, debt: 0 }
 
   for (const row of rows) {
     const t = new Date(row.created_at || 0).getTime()
-    const amount = parseFloat((row.paid_amount ?? row.total_amount) || '0')
+    const amount = parseFloat(row.total_amount || '0')
+    const debtAmount = parseFloat(row.debt_amount || '0')
     const isReturn = row.is_return === 'TRUE'
 
-    if (t >= todayStart) { today.count++;   today.revenue   += amount }
-    if (t >= weekStart)  { week.count++;    week.revenue    += amount }
-    if (t >= monthStart) { month.count++;   month.revenue   += amount }
-    if (isReturn)        { returns.count++; returns.revenue += amount }
+    if (t >= todayStart) { today.count++;   today.revenue   += amount; today.debt += debtAmount }
+    if (t >= weekStart)  { week.count++;    week.revenue    += amount; week.debt += debtAmount }
+    if (t >= monthStart) { month.count++;   month.revenue   += amount; month.debt += debtAmount }
+    if (isReturn)        { returns.count++; returns.revenue += amount; returns.debt += debtAmount }
   }
 
   return { today, week, month, returns }

@@ -38,7 +38,7 @@ interface Props {
 }
 
 // ── Types for Reporting ──────────────────────────────────────────────────────
-interface KpiPeriod   { orders: number; revenue: number }
+interface KpiPeriod   { orders: number; revenue: number; debt?: number }
 interface RevenueDay  { date: string; revenue: number }
 interface TopProduct  { id: string; name: string; revenue: number; qty: number }
 interface TopResource { id: string; name: string; count: number; revenue: number }
@@ -186,8 +186,8 @@ const generateMockData = (): OverviewData => {
 
   return {
     kpi: {
-      today: { orders: 18, revenue: 5420000 },
-      month: { orders: 412, revenue: 124850000 },
+      today: { orders: 18, revenue: 5420000, debt: 450000 },
+      month: { orders: 412, revenue: 124850000, debt: 12500000 },
       returns: { count: 6, refund: 2150000 },
     },
     revenueSeries: series,
@@ -630,7 +630,7 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
               <div className="group relative overflow-hidden rounded-2xl border border-slate-100 bg-white p-5 shadow-[0_8px_30px_rgb(0,0,0,0.02)] transition-all duration-300 hover:shadow-[0_12px_30px_rgb(0,0,0,0.05)] hover:-translate-y-0.5">
                 <div className="absolute top-0 left-0 h-1.5 w-full bg-gradient-to-r from-[#FA5907] to-[#ff7e3d]" />
                 <div className="flex justify-between items-start">
-                  <span className="text-xs font-semibold text-slate-400">Doanh thu hôm nay</span>
+                  <span className="text-xs font-semibold text-slate-400">Doanh thu hôm nay <span className="text-[10px] font-normal text-slate-400 ml-0.5">(Gồm nợ)</span></span>
                   <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-[#FA5907]/10 text-[#FA5907]">
                     <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -639,6 +639,9 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
                 </div>
                 <div className="mt-4">
                   <p className="text-xl md:text-2xl font-bold text-slate-800 tracking-tight">{fmtVND(displayKpi.today.revenue)}</p>
+                  {displayKpi.today.debt ? (
+                    <p className="text-[11px] font-medium text-orange-600 mt-0.5">Nợ: {fmtVND(displayKpi.today.debt)}</p>
+                  ) : null}
                   <div className="mt-1 flex items-center justify-between">
                     <p className="text-xs text-slate-400 font-medium">{displayKpi.today.orders} đơn hàng thành công</p>
                     <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-md">+5.4%</span>
@@ -650,7 +653,7 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
               <div className="group relative overflow-hidden rounded-2xl border border-slate-100 bg-white p-5 shadow-[0_8px_30px_rgb(0,0,0,0.02)] transition-all duration-300 hover:shadow-[0_12px_30px_rgb(0,0,0,0.05)] hover:-translate-y-0.5">
                 <div className="absolute top-0 left-0 h-1.5 w-full bg-gradient-to-r from-emerald-500 to-teal-500" />
                 <div className="flex justify-between items-start">
-                  <span className="text-xs font-semibold text-slate-400">Doanh thu tháng này</span>
+                  <span className="text-xs font-semibold text-slate-400">Doanh thu tháng này <span className="text-[10px] font-normal text-slate-400 ml-0.5">(Gồm nợ)</span></span>
                   <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
                     <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -659,6 +662,9 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
                 </div>
                 <div className="mt-4">
                   <p className="text-xl md:text-2xl font-bold text-slate-800 tracking-tight">{fmtVND(displayKpi.month.revenue)}</p>
+                  {displayKpi.month.debt ? (
+                    <p className="text-[11px] font-medium text-orange-600 mt-0.5">Nợ: {fmtVND(displayKpi.month.debt)}</p>
+                  ) : null}
                   <div className="mt-1 flex items-center justify-between">
                     <p className="text-xs text-slate-400 font-medium">{displayKpi.month.orders} đơn tích lũy</p>
                     <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-md">+12.8%</span>

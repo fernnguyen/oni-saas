@@ -81,7 +81,7 @@ export async function POST(
         reference_name: (customer.name as string) || '',
         note: `[Khấu trừ nợ tự động] ${note || `Thu nợ khách hàng ${customer.name}`}`,
         employee_id: employee_id || '',
-        branch_id: branch_id || '',
+        branch_id: branch_id || shopId,
         fund_id: fund_id || '',
       })
     }
@@ -97,7 +97,7 @@ export async function POST(
         reference_name: (customer.name as string) || '',
         note: `[Nạp ví trả trước] ${note || `Nạp tiền ví trả trước cho khách hàng ${customer.name}`}`,
         employee_id: employee_id || '',
-        branch_id: branch_id || '',
+        branch_id: branch_id || shopId,
         fund_id: fund_id || '',
       })
     }

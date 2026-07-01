@@ -30,6 +30,7 @@ interface Props {
 interface StatPeriod {
   count: number
   revenue: number
+  debt: number
 }
 
 interface OrderStats {
@@ -182,7 +183,7 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
       if (!res.ok) throw new Error('Không tải được thống kê')
       return res.json()
     },
-    staleTime: 60_000,
+    staleTime: 0,
   })
 
   // Orders list
@@ -692,13 +693,25 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
           const s = stats?.[key]
           return (
             <div key={key} className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
-              <p className="text-xs font-medium text-slate-500">{label}</p>
+              <p className="text-xs font-medium text-slate-500">
+                {label}
+              </p>
               <p className="mt-1 text-lg font-semibold text-slate-900">
                 {s ? fmtVND(String(s.revenue)) : <span className="animate-pulse text-slate-300">—</span>}
               </p>
-              <p className="mt-0.5 text-xs text-slate-400">
-                {s != null ? `${s.count} đơn` : ''}
-              </p>
+              <div className="mt-0.5 flex items-center justify-between text-xs text-slate-400">
+                <span>
+                  {s != null ? `${s.count} đơn` : ''}
+                  {s != null && key !== 'returns' && (
+                    <span className="text-[10px] ml-1">(bao gồm công nợ)</span>
+                  )}
+                </span>
+                {s != null && s.debt > 0 && (
+                  <span className="text-orange-500 font-medium" title="Số tiền khách mua nợ">
+                    Nợ: {fmtVND(String(s.debt))}
+                  </span>
+                )}
+              </div>
             </div>
           )
         })}
