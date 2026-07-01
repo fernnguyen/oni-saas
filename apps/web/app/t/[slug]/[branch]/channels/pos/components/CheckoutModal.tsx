@@ -1734,7 +1734,8 @@ export function CheckoutModal({
         ? actualPayments.filter((p) => !checkIsBankTransfer(p.method)) 
         : actualPayments
 
-      const localPayments: any[] = nonQrPayments.map((p) => {
+      let debtToDeduct = clampedDebtRepay
+      let localPayments: any[] = nonQrPayments.map((p) => {
         const methodObj = resolvedMethods.find((m) => m.value === p.method)
         let fundType = methodObj?.type || (p.method === 'cash' ? 'cash' : 'bank')
         if (['momo', 'zalopay', 'vnpay', 'wallet'].includes(p.method)) fundType = 'wallet'
@@ -1742,20 +1743,28 @@ export function CheckoutModal({
         const matching = fundsList.filter((f) => f.type === fundType)
         const resolvedFundId = p.fund_id || matching.find((f) => f.is_default === 'TRUE')?.id || matching[0]?.id || ''
 
+        let amountFloat = parseFloat(p.amount)
+        if (debtToDeduct > 0 && p.method !== 'debt' && p.method !== 'prepaid') {
+          const deduct = Math.min(amountFloat, debtToDeduct)
+          amountFloat -= deduct
+          debtToDeduct -= deduct
+        }
+
         const payLocalId = crypto.randomUUID()
         return {
           id: payLocalId,
           local_id: payLocalId,
           order_local_id: local_id,
           method: p.method,
-          amount: parseFloat(p.amount),
+          amount: amountFloat,
           reference_no: '',
           note: p.folio ? `[Folio ${p.folio}]` : '',
           fund_id: resolvedFundId,
         }
-      })
+      }).filter(p => p.amount > 0 || p.method === 'debt' || p.method === 'prepaid')
 
-      if (cashChange > 0) {
+      const actualPhysicalChange = Math.max(0, cashChange - clampedDebtRepay)
+      if (actualPhysicalChange > 0) {
         const changeLocalId = crypto.randomUUID()
         const defaultMethodId = defaultCashMethod?.value || 'cash'
         localPayments.push({
@@ -1763,7 +1772,7 @@ export function CheckoutModal({
           local_id: changeLocalId,
           order_local_id: local_id,
           method: defaultMethodId,
-          amount: -cashChange,
+          amount: -actualPhysicalChange,
           reference_no: '',
           note: isSplitActive ? `[Folio ${activeFolioTab}] Tiền thừa trả khách` : 'Tiền thừa trả khách',
         })
