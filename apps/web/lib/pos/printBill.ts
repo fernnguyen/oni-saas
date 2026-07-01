@@ -148,21 +148,27 @@ export async function printBill({
   let activeBankCode = ''
   let activeBankAccountNumber = ''
   let activeBankAccountName = ''
-  let activeQrTemplate = 'compact2'
+  let activeQrTemplate = 'qr_only'
   let qrAmount = total
 
   if (bankTransferPayment) {
     qrAmount = Number(bankTransferPayment.amount || 0)
     if (qrAmount <= 0) qrAmount = total
 
+    const resolvedFundId = bankTransferPayment.fund_id || orderMeta?.fund_id
     let fundInfo: any = null
-    if (bankTransferPayment.fund_id && shopId) {
+    if (shopId) {
       try {
         const res = await fetch(`/api/shops/${shopId}/payment-funds?active=TRUE`)
         if (res.ok) {
           const json = await res.json()
           const funds = json.data || []
-          fundInfo = funds.find((f: any) => f.id === bankTransferPayment.fund_id)
+          if (resolvedFundId) {
+            fundInfo = funds.find((f: any) => f.id === resolvedFundId)
+          } else {
+            fundInfo = funds.find((f: any) => f.method === 'bank_transfer' && f.is_default === 'TRUE') || 
+                       funds.find((f: any) => f.method === 'bank_transfer')
+          }
         }
       } catch (e) {
         console.error('Failed to fetch payment funds for printBill', e)
@@ -173,34 +179,42 @@ export async function printBill({
       activeBankCode = fundInfo.bank_name
       activeBankAccountNumber = fundInfo.account_number
       activeBankAccountName = fundInfo.account_name || ''
-      activeQrTemplate = fundInfo.qr_template || 'compact2'
+      activeQrTemplate = fundInfo.qr_template || 'qr_only'
     } else {
       activeBankCode = currentSettings?.bank_code || ''
       activeBankAccountNumber = currentSettings?.bank_account_number || ''
       activeBankAccountName = currentSettings?.bank_account_name || ''
-      activeQrTemplate = currentSettings?.qr_template || 'compact2'
+      activeQrTemplate = currentSettings?.qr_template || 'qr_only'
     }
   } else {
     activeBankCode = currentSettings?.bank_code || ''
     activeBankAccountNumber = currentSettings?.bank_account_number || ''
     activeBankAccountName = currentSettings?.bank_account_name || ''
-    activeQrTemplate = currentSettings?.qr_template || 'compact2'
+    activeQrTemplate = currentSettings?.qr_template || 'qr_only'
   }
 
   if (activeBankCode && activeBankAccountNumber && activeQrTemplate) {
     const qrUrl = `https://img.vietqr.io/image/${activeBankCode}-${activeBankAccountNumber}-${activeQrTemplate}.png?amount=${qrAmount}&addInfo=${orderNo || shortId}&accountName=${encodeURIComponent(activeBankAccountName)}`
     
     if (activeQrTemplate === 'qr_only') {
+      const bank = BANKS.find(b => b.code.toUpperCase() === activeBankCode.toUpperCase() || b.shortName.toUpperCase() === activeBankCode.toUpperCase())
+      const resolvedBankName = bank ? `${bank.shortName} (${bank.code})` : activeBankCode
+      
       qrHtml = `<div class="sep"></div>
       <div style="text-align:center; margin-top: 10px;">
         <p style="font-weight:bold; margin-bottom: 4px;">${isBilingual ? 'Quét QR để thanh toán / Scan to pay' : 'Quét QR để thanh toán'}</p>
-        <img src="${qrUrl}" style="width: 100%; max-width: 160px; margin: 0 auto;" />
+        <img src="${qrUrl}" style="width: 100%; max-width: 100px; margin: 0 auto;" />
+        <div style="margin-top: 6px; font-size: 12px; line-height: 1.4;">
+          <p>Ngân hàng: ${resolvedBankName}</p>
+          <p>STK: ${activeBankAccountNumber}</p>
+          <p style="font-weight:bold; text-transform:uppercase;">${activeBankAccountName}</p>
+        </div>
       </div>`
     } else {
       qrHtml = `<div class="sep"></div>
       <div style="text-align:center; margin-top: 10px;">
         <p style="font-weight:bold; margin-bottom: 4px;">${isBilingual ? 'Quét QR để thanh toán / Scan to pay' : 'Quét QR để thanh toán'}</p>
-        <img src="${qrUrl}" style="width: 100%; max-width: 260px; margin: 0 auto;" />
+        <img src="${qrUrl}" style="width: 100%; max-width: 160px; margin: 0 auto;" />
       </div>`
     }
   }
@@ -386,6 +400,7 @@ ${payments.map((p) => {
 </table>
 ${order.note ? `<div class="sep"></div><p>${isBilingual ? 'Ghi chú / Note' : 'Ghi chú'}: ${order.note}</p>` : ''}
 ${qrHtml}
+<div class="sep"></div>
 ${wifiHtml}
 ${footerHtml}
 </body>

@@ -66,7 +66,8 @@ export async function POST(
         filters: { customer_id: customerId, branch_id: targetBranch }
       })
       const stats = statsRes.data[0]
-      const currentPrepaid = parseFloat(stats?.prepaid_balance || '0')
+      const customer = await connector.findById('customers', customerId)
+      const currentPrepaid = parseFloat(stats?.prepaid_balance ?? customer?.prepaid_balance ?? '0')
       const newPrepaid = currentPrepaid + payAmount
 
       await updateCustomerStats(connector, customerId, targetBranch, {

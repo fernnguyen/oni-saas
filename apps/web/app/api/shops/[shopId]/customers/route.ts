@@ -75,8 +75,16 @@ export async function GET(
           
           let debt = stats?.debt_amount ?? c.debt_amount ?? '0'
           let prepaid = stats?.prepaid_balance ?? c.prepaid_balance ?? '0'
-          const points = stats?.loyalty_points ?? c.loyalty_points ?? '0'
+          let points = stats?.loyalty_points ?? c.loyalty_points ?? '0'
           const note = stats?.note ?? c.note ?? ''
+
+          // Self-heal lazy initialization bug:
+          // If stats exists but was created without copying existing balances, restore them for the UI.
+          if (stats) {
+            if (stats.debt_amount === '0' && Number(c.debt_amount) > 0) debt = c.debt_amount
+            if (stats.prepaid_balance === '0' && Number(c.prepaid_balance) > 0) prepaid = c.prepaid_balance
+            if (stats.loyalty_points === '0' && Number(c.loyalty_points) > 0) points = c.loyalty_points
+          }
 
           const dNum = parseFloat(debt)
           if (dNum < 0) {
@@ -124,8 +132,16 @@ export async function GET(
           
           let debt = stats?.debt_amount ?? c.debt_amount ?? '0'
           let prepaid = stats?.prepaid_balance ?? c.prepaid_balance ?? '0'
-          const points = stats?.loyalty_points ?? c.loyalty_points ?? '0'
+          let points = stats?.loyalty_points ?? c.loyalty_points ?? '0'
           const note = stats?.note ?? c.note ?? ''
+
+          // Self-heal lazy initialization bug:
+          // If stats exists but was created without copying existing balances, restore them for the UI.
+          if (stats) {
+            if (stats.debt_amount === '0' && Number(c.debt_amount) > 0) debt = c.debt_amount
+            if (stats.prepaid_balance === '0' && Number(c.prepaid_balance) > 0) prepaid = c.prepaid_balance
+            if (stats.loyalty_points === '0' && Number(c.loyalty_points) > 0) points = c.loyalty_points
+          }
 
           const dNum = parseFloat(debt)
           if (dNum < 0) {

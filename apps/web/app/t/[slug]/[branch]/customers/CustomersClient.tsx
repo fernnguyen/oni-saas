@@ -2375,8 +2375,8 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
                                     </span>
                                   </td>
                                   <td className="px-3 py-2.5 text-right">
-                                    <span className={`font-bold block text-sm ${isReceipt ? 'text-green-600' : 'text-red-600'}`}>
-                                      {isReceipt ? '+' : '-'}{Number(tx.amount || 0).toLocaleString('vi-VN')}đ
+                                    <span className={`font-bold block text-sm ${isVirtualDebt ? 'text-red-600' : isReceipt ? 'text-green-600' : 'text-red-600'}`}>
+                                      {isVirtualDebt ? '' : (isReceipt ? '+' : '-')}{Number(tx.amount || 0).toLocaleString('vi-VN')}đ
                                     </span>
                                   </td>
                                 </tr>

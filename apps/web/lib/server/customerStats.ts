@@ -68,14 +68,14 @@ export async function updateCustomerStats(
       await connector.update('customer-branch-stats', stats.id, statsUpdates)
     }
   } else {
-    // Create new stats record
+    // Create new stats record inheriting from the main customer profile if no updates provided
     const createdStats = await connector.create('customer-branch-stats', {
       customer_id: customerId,
       branch_id: branchId,
-      debt_amount: updates.debt_amount || '0',
-      loyalty_points: updates.loyalty_points || '0',
-      prepaid_balance: updates.prepaid_balance || '0',
-      note: updates.note || ''
+      debt_amount: updates.debt_amount !== undefined ? updates.debt_amount : currentCustomerDebt,
+      loyalty_points: updates.loyalty_points !== undefined ? updates.loyalty_points : currentCustomerPoints,
+      prepaid_balance: updates.prepaid_balance !== undefined ? updates.prepaid_balance : currentCustomerPrepaid,
+      note: updates.note !== undefined ? updates.note : ''
     })
     createdStatsId = createdStats.id
   }

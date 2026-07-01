@@ -615,7 +615,7 @@ export function CheckoutModal({
   const activeBankCode = qrFund?.bank_name || settings?.bank_code || ''
   const activeBankAccountNumber = qrFund?.account_number || settings?.bank_account_number || ''
   const activeBankAccountName = qrFund?.account_name || settings?.bank_account_name || ''
-  const activeTemplate = qrFund?.qr_template || settings?.qr_template || 'compact2'
+  const activeTemplate = qrFund?.qr_template || settings?.qr_template || 'qr_only'
 
   const resolvedBankName = useMemo(() => {
     if (!activeBankCode) return ''
@@ -1799,6 +1799,9 @@ export function CheckoutModal({
       }
       if (localCustomer?.address) {
         orderMetaObj.customer_address = localCustomer.address
+      }
+      if (qrFund?.id) {
+        orderMetaObj.fund_id = qrFund.id
       }
       order.metadata = JSON.stringify(orderMetaObj)
 

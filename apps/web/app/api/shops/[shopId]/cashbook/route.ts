@@ -326,7 +326,8 @@ export async function POST(
         filters: { customer_id: payload.reference_id, branch_id: targetBranch }
       })
       const stats = statsRes.data[0]
-      const currentDebt = parseFloat(stats?.debt_amount || '0')
+      const customer = await connector.findById('customers', payload.reference_id)
+      const currentDebt = parseFloat(stats?.debt_amount ?? customer?.debt_amount ?? '0')
 
       if (currentDebt <= 0) {
         return NextResponse.json(
