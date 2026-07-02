@@ -974,10 +974,12 @@ export async function POST(
           if (resource) {
             const currentOrderId = resource.current_order_id
             if (!currentOrderId || currentOrderId === serverId || currentOrderId === local_order_id) {
-              const releaseStatus = settings?.skip_cleaning_process ? 'available' : 'cleaning'
+              const releaseStatus = settings?.skip_cleaning_process ? 'available' : 'dirty'
+              const currentMeta = typeof resource.metadata === 'string' ? JSON.parse(resource.metadata) : (resource.metadata || {})
               await connector.update('location-resources', resourceId, {
                 status: releaseStatus,
-                current_order_id: ''
+                current_order_id: '',
+                metadata: JSON.stringify({ ...currentMeta, last_checkout_time: new Date().toISOString() })
               })
               invalidate(shopId, 'location-resources')
             }

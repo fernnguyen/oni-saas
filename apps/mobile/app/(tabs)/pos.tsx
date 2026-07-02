@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Text, View, ScrollView, TouchableOpacity, Modal, TextInput, Image, Platform, Animated, ActivityIndicator, Alert, Pressable, KeyboardAvoidingView } from 'react-native';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { supabase } from '../../lib/supabase';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -228,7 +228,8 @@ export default function PosScreen() {
 
   // Trạng thái bộ lọc sơ đồ phòng/bàn
   const [tableSearchQuery, setTableSearchQuery] = useState('');
-  const [tableStatusFilter, setTableStatusFilter] = useState<'all' | 'available' | 'occupied'>('all');
+  const [tableStatusFilter, setTableStatusFilter] = useState<'all' | 'available' | 'occupied' | 'dirty'>('all');
+  const [tableSortMode, setTableSortMode] = useState<'last_checkout' | 'name_asc' | 'name_desc' | 'latest_checkout'>('last_checkout');
   const [tableViewMode, setTableViewMode] = useState<'card' | 'list'>('card');
 
   // Trạng thái Giỏ hàng & Thanh toán Chi tiết
@@ -385,7 +386,11 @@ export default function PosScreen() {
     setRoomRentalType,
     handleConfirmOpenTable,
     syncActiveTableSession,
-    syncTableSilent
+    syncTableSilent,
+    isCleanConfirmModalOpen, setIsCleanConfirmModalOpen,
+    tableToClean, setTableToClean,
+    cleanConfirmSaving,
+    handleCleanTable
   } = useTableManager({
     tables, setTables, shopVertical, activeShopId,
     showToast, setCart, setDiscountAmount, setOrderNote, setSelectedCustomer, setIsPreviewModalOpen,
@@ -1737,10 +1742,49 @@ export default function PosScreen() {
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => setTableStatusFilter('occupied')}
-                className={`px-3 py-1.5 rounded-full border flex-row items-center ${tableStatusFilter === 'occupied' ? 'bg-rose-50 border-rose-200' : 'bg-white border-slate-200'}`}
+                className={`px-3 py-1.5 rounded-full border mr-2 flex-row items-center ${tableStatusFilter === 'occupied' ? 'bg-rose-50 border-rose-200' : 'bg-white border-slate-200'}`}
               >
                 <View className="w-2 h-2 rounded-full bg-rose-500 mr-1.5" />
                 <Text className={`text-xs font-medium ${tableStatusFilter === 'occupied' ? 'text-rose-700' : 'text-slate-600'}`}>Đang sử dụng</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setTableStatusFilter('dirty')}
+                className={`px-3 py-1.5 rounded-full border flex-row items-center ${tableStatusFilter === 'dirty' ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-200'}`}
+              >
+                <View className="w-2 h-2 rounded-full bg-amber-500 mr-1.5" />
+                <Text className={`text-xs font-medium ${tableStatusFilter === 'dirty' ? 'text-amber-700' : 'text-slate-600'}`}>Chưa dọn</Text>
+              </TouchableOpacity>
+            </ScrollView>
+
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mt-3">
+              <View className="flex-row items-center mr-2">
+                <Ionicons name="swap-vertical-outline" size={14} color="#64748b" />
+                <Text className="text-xs text-slate-500 ml-1 font-medium">Sắp xếp:</Text>
+              </View>
+
+              <TouchableOpacity
+                onPress={() => setTableSortMode('last_checkout')}
+                className={`px-3 py-1 rounded-full border mr-2 ${tableSortMode === 'last_checkout' ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-slate-200'}`}
+              >
+                <Text className={`text-[11px] font-medium ${tableSortMode === 'last_checkout' ? 'text-indigo-700' : 'text-slate-500'}`}>Xoay vòng phòng</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setTableSortMode('latest_checkout')}
+                className={`px-3 py-1 rounded-full border mr-2 ${tableSortMode === 'latest_checkout' ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-slate-200'}`}
+              >
+                <Text className={`text-[11px] font-medium ${tableSortMode === 'latest_checkout' ? 'text-indigo-700' : 'text-slate-500'}`}>Gần đây nhất</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setTableSortMode('name_asc')}
+                className={`px-3 py-1 rounded-full border mr-2 ${tableSortMode === 'name_asc' ? 'bg-slate-100 border-slate-300' : 'bg-white border-slate-200'}`}
+              >
+                <Text className={`text-[11px] font-medium ${tableSortMode === 'name_asc' ? 'text-slate-800' : 'text-slate-500'}`}>Tên A-Z</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setTableSortMode('name_desc')}
+                className={`px-3 py-1 rounded-full border ${tableSortMode === 'name_desc' ? 'bg-slate-100 border-slate-300' : 'bg-white border-slate-200'}`}
+              >
+                <Text className={`text-[11px] font-medium ${tableSortMode === 'name_desc' ? 'text-slate-800' : 'text-slate-500'}`}>Tên Z-A</Text>
               </TouchableOpacity>
             </ScrollView>
           </View>
@@ -1789,12 +1833,38 @@ export default function PosScreen() {
                   .map(([zoneName, zoneTables]) => {
                   const filteredTables = zoneTables.filter(t => {
                     const isActive = t.status === 'playing' || t.status === 'occupied';
+                    const isDirty = t.status === 'dirty' || t.status === 'cleaning';
                     const matchesSearch = !tableSearchQuery.trim() || (t.name && t.name.toLowerCase().includes(tableSearchQuery.toLowerCase()));
                     const matchesStatus = tableStatusFilter === 'all' || 
-                      (tableStatusFilter === 'available' && !isActive) || 
-                      (tableStatusFilter === 'occupied' && isActive);
+                      (tableStatusFilter === 'available' && !isActive && !isDirty) || 
+                      (tableStatusFilter === 'occupied' && isActive) ||
+                      (tableStatusFilter === 'dirty' && isDirty);
                     return matchesSearch && matchesStatus;
-                  }).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'vi', { numeric: true, sensitivity: 'base' }));
+                  }).sort((a, b) => {
+                    const getMeta = (item: any) => {
+                      try { return typeof item.metadata === 'string' ? JSON.parse(item.metadata) : (item.metadata || {}); } catch(e) { return {}; }
+                    };
+                    if (tableSortMode === 'last_checkout') {
+                        const tA = getMeta(a).last_checkout_time;
+                        const tB = getMeta(b).last_checkout_time;
+                        if (!tA && !tB) return (a.name || '').localeCompare(b.name || '', 'vi', { numeric: true, sensitivity: 'base' });
+                        if (!tA) return 1;
+                        if (!tB) return -1;
+                        return new Date(tA).getTime() - new Date(tB).getTime();
+                    } else if (tableSortMode === 'latest_checkout') {
+                        const tA = getMeta(a).last_checkout_time;
+                        const tB = getMeta(b).last_checkout_time;
+                        if (!tA && !tB) return (a.name || '').localeCompare(b.name || '', 'vi', { numeric: true, sensitivity: 'base' });
+                        if (!tA) return 1;
+                        if (!tB) return -1;
+                        return new Date(tB).getTime() - new Date(tA).getTime();
+                    } else if (tableSortMode === 'name_asc') {
+                        return (a.name || '').localeCompare(b.name || '', 'vi', { numeric: true, sensitivity: 'base' });
+                    } else if (tableSortMode === 'name_desc') {
+                        return (b.name || '').localeCompare(a.name || '', 'vi', { numeric: true, sensitivity: 'base' });
+                    }
+                    return (a.sort_order || 0) - (b.sort_order || 0) || (a.name || '').localeCompare(b.name || '', 'vi', { numeric: true, sensitivity: 'base' });
+                  });
                   return [zoneName, filteredTables] as const;
                 }).filter(([_, tables]) => tables.length > 0);
 
@@ -1823,6 +1893,7 @@ export default function PosScreen() {
                     <View className={tableViewMode === 'card' ? "flex-row flex-wrap justify-between" : "flex-col"}>
                       {zoneTables.map(t => {
                         const isActive = t.status === 'playing' || t.status === 'occupied';
+                        const isDirty = t.status === 'dirty' || t.status === 'cleaning';
                         const billing = calculateBilling(t);
                         const cartItemsCount = tableCarts[t.id] ? Object.values(tableCarts[t.id]).reduce((sum, item) => sum + item.quantity, 0) : 0;
                         const guestName = tableCustomers[t.id]?.name || t.customerName || 'Khách lẻ';
@@ -1831,11 +1902,11 @@ export default function PosScreen() {
                           return (
                             <Pressable
                               key={`list-${t.id}`}
-                              className={`mb-3 p-3 rounded-xl border flex-row items-center justify-between ${isActive ? 'bg-rose-50 border-rose-200' : 'bg-white border-slate-200'}`}
+                              className={`mb-3 p-3 rounded-xl border flex-row items-center justify-between ${isActive ? 'bg-rose-50 border-rose-200' : isDirty ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-200'}`}
                               onPress={() => handleTablePress(t)}
                             >
                               <View className="flex-row items-center flex-1">
-                                <View className={`w-1.5 h-10 rounded-full mr-3 ${isActive ? 'bg-rose-500' : 'bg-emerald-500'}`} />
+                                <View className={`w-1.5 h-10 rounded-full mr-3 ${isActive ? 'bg-rose-500' : isDirty ? 'bg-amber-500' : 'bg-emerald-500'}`} />
                                 <View className="flex-1">
                                   <Text className="font-semibold text-sm text-slate-800">{t.name}</Text>
                                   <View className="flex-row items-center mt-1">
@@ -1851,9 +1922,9 @@ export default function PosScreen() {
                                 </View>
                               </View>
                               <View className="items-end">
-                                <View className={`px-2 py-1 rounded border ${isActive ? 'bg-rose-100 border-rose-200' : 'bg-emerald-100 border-emerald-200'}`}>
-                                  <Text className={`text-xxs font-medium ${isActive ? 'text-rose-700' : 'text-emerald-700'}`}>
-                                    {isActive ? 'Đang sử dụng' : 'Trống'}
+                                <View className={`px-2 py-1 rounded border ${isActive ? 'bg-rose-100 border-rose-200' : isDirty ? 'bg-amber-100 border-amber-200' : 'bg-emerald-100 border-emerald-200'}`}>
+                                  <Text className={`text-xxs font-medium ${isActive ? 'text-rose-700' : isDirty ? 'text-amber-700' : 'text-emerald-700'}`}>
+                                    {isActive ? 'Đang sử dụng' : isDirty ? 'Chưa dọn' : 'Trống'}
                                   </Text>
                                 </View>
                                 {isActive && (
@@ -1870,7 +1941,7 @@ export default function PosScreen() {
                           activeOpacity={0.85}
                           className={`w-[48%] mb-4 rounded-2xl border ${isActive
                               ? ''
-                              : 'bg-white border-slate-200'
+                              : isDirty ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-200'
                             } justify-between overflow-hidden`}
                           style={[
                             {
@@ -1883,12 +1954,15 @@ export default function PosScreen() {
                             isActive ? {
                               borderColor: '#fda4af', // border-rose-300 mờ sang trọng
                               backgroundColor: '#fff1f2', // bg-rose-50 mờ cực dịu mắt
+                            } : isDirty ? {
+                              borderColor: '#fde68a', // amber-200
+                              backgroundColor: '#fffbeb', // amber-50
                             } : {}
                           ]}
                           onPress={() => handleTablePress(t)}
                         >
                           {/* Stripe màu trên cùng */}
-                          <View className={`h-1 w-full ${isActive ? 'bg-rose-500' : 'bg-emerald-500'}`} />
+                          <View className={`h-1 w-full ${isActive ? 'bg-rose-500' : isDirty ? 'bg-amber-500' : 'bg-emerald-500'}`} />
 
                           <View className="p-3.5 flex-1 justify-between">
                             {/* Tiêu đề vị trí */}
@@ -1960,13 +2034,52 @@ export default function PosScreen() {
                                 )}
                               </View>
                             )}
+                            
+                            {!isActive && (() => {
+                              const getMeta = (item: any) => {
+                                try { return typeof item.metadata === 'string' ? JSON.parse(item.metadata) : (item.metadata || {}); } catch(e) { return {}; }
+                              };
+                              const lastCheckout = getMeta(t).last_checkout_time;
+                              let timeAgo = '';
+                              if (lastCheckout) {
+                                const diff = new Date().getTime() - new Date(lastCheckout).getTime();
+                                const diffHrs = Math.floor(diff / (1000 * 60 * 60));
+                                if (diffHrs >= 24) timeAgo = `${Math.floor(diffHrs/24)} ngày trước`;
+                                else if (diffHrs > 0) timeAgo = `${diffHrs} giờ trước`;
+                                else {
+                                  const diffMins = Math.floor(diff / (1000 * 60));
+                                  timeAgo = `${diffMins > 0 ? diffMins : 1} phút trước`;
+                                }
+                              }
+
+                              if (!timeAgo && !isDirty) return null;
+
+                              return (
+                                <View className={`border p-2 rounded-lg mb-2 ${isDirty ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'}`}>
+                                  {isDirty && (
+                                    <Text className="text-[8.5px] text-amber-700 font-semibold mb-0.5">
+                                      🧹 Chờ dọn dẹp
+                                    </Text>
+                                  )}
+                                  {!!timeAgo && (
+                                    <View className="flex-row items-center mt-0.5">
+                                      <MaterialIcons name="history" size={13} color="#2563eb" />
+                                      <Text className="text-[11px] ml-1 font-semibold text-blue-600">
+                                        {timeAgo}
+                                      </Text>
+                                    </View>
+                                  )}
+                                </View>
+                              );
+                            })()}
 
                             {/* Nút Trạng thái ở đáy card */}
-                            <View className={`w-full py-2 rounded-lg items-center justify-center border ${isActive ? 'bg-[#ffeef0] border-rose-200' : 'bg-slate-50 border-slate-200'
+                            <View className={`w-full py-2 rounded-lg items-center justify-center border flex-row ${isActive ? 'bg-[#ffeef0] border-rose-200' : isDirty ? 'bg-amber-100 border-amber-200' : 'bg-slate-50 border-slate-200'
                               }`}>
-                              <Text className={`text-tiny font-semibold ${isActive ? 'text-rose-600' : 'text-emerald-600'
+                              {isDirty && <Ionicons name="checkmark-circle-outline" size={14} color="#b45309" className="mr-1" />}
+                              <Text className={`text-tiny font-semibold ${isActive ? 'text-rose-600' : isDirty ? 'text-amber-700' : 'text-emerald-600'
                                 }`} numberOfLines={1}>
-                                {isActive ? guestName : 'Trống'}
+                                {isActive ? guestName : isDirty ? 'Đã dọn' : 'Trống'}
                               </Text>
                             </View>
                           </View>
@@ -2396,6 +2509,52 @@ export default function PosScreen() {
             {renderQuickCustomerModal('open_table')}
           </View>
         </KeyboardAvoidingView>
+      </Modal>
+
+      {/* DIALOG: XÁC NHẬN ĐÃ DỌN XONG */}
+      <Modal
+        visible={isCleanConfirmModalOpen}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => !cleanConfirmSaving && setIsCleanConfirmModalOpen(false)}
+      >
+        <View className="flex-1 bg-black/50 justify-center items-center p-4">
+          <View className="bg-white w-full max-w-sm rounded-2xl overflow-hidden shadow-2xl">
+            <View className="p-5">
+              <Text className="text-lg font-bold text-slate-800 mb-2">
+                Xác nhận dọn dẹp
+              </Text>
+              <Text className="text-sm text-slate-600 mb-6 leading-5">
+                Phòng đang ở trạng thái chờ dọn dẹp. Bạn có muốn đánh dấu phòng này là đã dọn dẹp xong và sẵn sàng đón khách không?
+              </Text>
+
+              <View className="flex-row justify-end gap-3">
+                <TouchableOpacity
+                  disabled={cleanConfirmSaving}
+                  onPress={() => setIsCleanConfirmModalOpen(false)}
+                  className="px-5 py-2.5 rounded-xl border border-slate-200 bg-white mr-3"
+                >
+                  <Text className="text-slate-600 font-semibold text-sm">Hủy</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  disabled={cleanConfirmSaving}
+                  onPress={() => tableToClean && handleCleanTable(tableToClean)}
+                  className={`px-5 py-2.5 rounded-xl flex-row items-center justify-center space-x-2 ${cleanConfirmSaving ? 'bg-indigo-400' : 'bg-indigo-600'}`}
+                >
+                  {cleanConfirmSaving ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Ionicons name="checkmark-circle" size={18} color="#fff" />
+                  )}
+                  <Text className="text-white font-semibold text-sm ml-1">
+                    {cleanConfirmSaving ? 'Đang lưu...' : 'Đã dọn dẹp'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </View>
       </Modal>
 
       {/* Unused isTablePayDialogVisible Dialog removed since we use POS unified checkout modal */}

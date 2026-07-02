@@ -123,7 +123,7 @@ export function usePosData() {
  id: table.id || table.resource_id,
  name: table.name || '',
  type: table.type || 'table',
- status: isOccupied ? 'occupied' : 'available',
+ status: isOccupied ? 'occupied' : (table.status === 'dirty' || table.status === 'cleaning' ? table.status : 'available'),
  current_order_id: table.current_order_id || null,
  hourly_rate: isNaN(rate) ? 0 : rate,
  zone: table.zone || null,

@@ -15,8 +15,22 @@ import { useQuery, useMutation } from '@tanstack/react-query'
 import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog'
 import { getSupabaseBrowserClient } from '@/lib/supabaseBrowser'
 import { format } from 'date-fns'
+
+
+const getTimeAgo = (timestamp?: number | string | null) => {
+  if (!timestamp) return '';
+  const date = new Date(timestamp);
+  if (isNaN(date.getTime())) return '';
+  const diff = Date.now() - date.getTime();
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 60) return `${minutes} phút trước`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} giờ trước`;
+  const days = Math.floor(hours / 24);
+  return `${days} ngày trước`;
+};
 import GroupCheckoutModal from './GroupCheckoutModal'
-import { Layers, Check, ArrowRight } from 'lucide-react'
+import { Layers, Check, ArrowRight, CheckCircle2, LogOut, History } from 'lucide-react'
 import { useParams } from 'next/navigation'
 import { CustomerSearch } from './CustomerSearch'
 import { type LocalCustomer, localDb } from '@/lib/localDb/schema'
@@ -278,6 +292,10 @@ export function TableMapPOS({
   const [groupCheckInNote, setGroupCheckInNote] = useState('')
   const [groupCheckInSaving, setGroupCheckInSaving] = useState(false)
 
+  const [cleanConfirmModalOpen, setCleanConfirmModalOpen] = useState(false)
+  const [resourceToClean, setResourceToClean] = useState<Resource | null>(null)
+  const [cleanConfirmSaving, setCleanConfirmSaving] = useState(false)
+
   const selectionStatus = useMemo(() => {
     if (selectedResourceIds.length === 0) return null
     const firstRes = resources.find(r => r.id === selectedResourceIds[0])
@@ -286,6 +304,7 @@ export function TableMapPOS({
 
   const vertical = getVerticalConfig(industryType)
   const [viewMode, setViewMode] = useState<ViewMode>('map')
+  const [sortMode, setSortMode] = useState<'last_checkout' | 'latest_checkout' | 'name_asc' | 'name_desc'>('last_checkout')
   const [selectedZone, setSelectedZone] = useState<string | null>(null)
   
   const [inProgressOrders, setInProgressOrders] = useState<OrderData[]>([])
@@ -500,8 +519,38 @@ export function TableMapPOS({
       if (!map.has(zone)) map.set(zone, [])
       map.get(zone)!.push(r)
     }
+
+    // Sort items within each zone based on sortMode
+    for (const [zone, items] of map.entries()) {
+      items.sort((a, b) => {
+        const getMeta = (item: any) => {
+          try { return typeof item.metadata === 'string' ? JSON.parse(item.metadata) : (item.metadata || {}); } catch(e) { return {}; }
+        };
+        if (sortMode === 'last_checkout') {
+            const tA = getMeta(a).last_checkout_time;
+            const tB = getMeta(b).last_checkout_time;
+            if (!tA && !tB) return a.name.localeCompare(b.name, 'vi', { numeric: true, sensitivity: 'base' });
+            if (!tA) return 1;
+            if (!tB) return -1;
+            return new Date(tA).getTime() - new Date(tB).getTime();
+        } else if (sortMode === 'latest_checkout') {
+            const tA = getMeta(a).last_checkout_time;
+            const tB = getMeta(b).last_checkout_time;
+            if (!tA && !tB) return a.name.localeCompare(b.name, 'vi', { numeric: true, sensitivity: 'base' });
+            if (!tA) return 1;
+            if (!tB) return -1;
+            return new Date(tB).getTime() - new Date(tA).getTime();
+        } else if (sortMode === 'name_asc') {
+            return a.name.localeCompare(b.name, 'vi', { numeric: true, sensitivity: 'base' });
+        } else if (sortMode === 'name_desc') {
+            return b.name.localeCompare(a.name, 'vi', { numeric: true, sensitivity: 'base' });
+        }
+        return (Number(a.sort_order) || 0) - (Number(b.sort_order) || 0) || a.name.localeCompare(b.name, 'vi', { numeric: true, sensitivity: 'base' });
+      });
+    }
+
     return map
-  }, [activeResources])
+  }, [activeResources, sortMode])
 
   // Parse custom sorting order from settings
   const zoneOrder = useMemo<string[]>(() => {
@@ -592,6 +641,17 @@ export function TableMapPOS({
         return
       }
 
+      if (r.status === 'cleaning' || r.status === 'dirty') {
+        const housekeepingMode = shopSettings?.housekeeping_workflow_mode || 'SIMPLE'
+        if (housekeepingMode === 'SIMPLE') {
+          setResourceToClean(r)
+          setCleanConfirmModalOpen(true)
+        } else {
+          toast.info('Chế độ Enterprise: Chỉ buồng phòng mới có thể đổi trạng thái sạch phòng.')
+        }
+        return
+      }
+
       let updatedR = r
       // Tải lại dữ liệu phòng bàn trước khi hiển thị để tránh xung đột phiên bản
       const latestResources = await fetchResources()
@@ -601,13 +661,6 @@ export function TableMapPOS({
 
       if (updatedR.status === 'available' || updatedR.status === 'occupied' || updatedR.status === 'checking_out' || updatedR.status === 'inspected') {
         setActiveSlideResource(updatedR)
-      } else if (updatedR.status === 'cleaning' || updatedR.status === 'dirty') {
-        const housekeepingMode = shopSettings?.housekeeping_workflow_mode || 'SIMPLE'
-        if (housekeepingMode === 'SIMPLE') {
-          handleSetAvailable(updatedR)
-        } else {
-          toast.info('Chế độ Enterprise: Chỉ buồng phòng mới có thể đổi trạng thái sạch phòng.')
-        }
       }
     }
   }
@@ -843,6 +896,16 @@ export function TableMapPOS({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <select
+            value={sortMode}
+            onChange={(e) => setSortMode(e.target.value as any)}
+            className="rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+          >
+            <option value="last_checkout">Xoay vòng phòng</option>
+            <option value="latest_checkout">Thời gian dùng gần nhất</option>
+            <option value="name_asc">Tên (A-Z)</option>
+            <option value="name_desc">Tên (Z-A)</option>
+          </select>
           {/* View Mode Toggle */}
           <div className="flex items-center rounded-xl border border-slate-200 bg-white p-1 shadow-sm shrink-0">
             <button
@@ -1174,6 +1237,11 @@ export function TableMapPOS({
                       {/* Meta info */}
                       <div className="space-y-1 text-[11px] text-slate-500 mb-3.5">
                         {r.capacity && <div className="flex items-center gap-1.5"><UserIcon className="w-3 h-3 opacity-70" />{r.capacity} người</div>}
+                        {rmd.last_checkout_time && (r.status === 'available' || r.status === 'dirty' || r.status === 'cleaning') && (
+                          <div className="flex items-center gap-1.5 text-blue-600 font-semibold" title="Thời gian checkout trước đó">
+                            <History className="w-3.5 h-3.5" /> <span>{getTimeAgo(rmd.last_checkout_time)}</span>
+                          </div>
+                        )}
                         {hasHourlyBilling && r.hourly_rate && Number(r.hourly_rate) > 0 && (
                           <div className="flex items-center gap-1.5"><span>⏱️</span> <span className="font-semibold text-slate-700">{Number(r.hourly_rate).toLocaleString('vi-VN')}₫/h</span></div>
                         )}
@@ -1201,7 +1269,7 @@ export function TableMapPOS({
                       <div className={`mt-auto mt-3.5 w-full rounded-lg px-2 py-1.5 text-center transition-colors ${(r.status === 'cleaning' || r.status === 'dirty') && (shopSettings?.housekeeping_workflow_mode || 'SIMPLE') === 'SIMPLE' ? 'bg-amber-100 hover:bg-amber-200' : st.bg}`}>
                         <p className={`text-[12px] font-bold flex items-center justify-center gap-1.5 ${st.text}`}>
                           {(r.status === 'cleaning' || r.status === 'dirty') && (shopSettings?.housekeeping_workflow_mode || 'SIMPLE') === 'SIMPLE'
-                            ? '✓ Dọn xong'
+                            ? <><CheckCircle2 className="w-3.5 h-3.5" /> Đã dọn dẹp</>
                             : r.status === 'occupied' || r.status === 'checking_out'
                             ? (activeOrder?.customer_name || 'Khách lẻ')
                             : st.label}
@@ -1289,7 +1357,19 @@ export function TableMapPOS({
                         {activeOrder.customer_name || 'Khách lẻ'}
                       </span>
                     ) : (
-                      <span className="text-slate-400">—</span>
+                      (() => {
+                        try {
+                          const rmd = typeof r.metadata === 'string' ? JSON.parse(r.metadata || '{}') : (r.metadata || {})
+                          if (rmd.last_checkout_time && (r.status === 'available' || r.status === 'dirty' || r.status === 'cleaning')) {
+                            return (
+                              <span className={`text-blue-600 font-semibold text-[12px] flex items-center gap-1.5 ${isDimmed ? 'opacity-40' : ''}`} title="Thời gian checkout trước đó">
+                                <History className="w-3.5 h-3.5" /> {getTimeAgo(rmd.last_checkout_time)}
+                              </span>
+                            )
+                          }
+                        } catch(e) {}
+                        return <span className={`text-slate-400 ${isDimmed ? 'opacity-40' : ''}`}>—</span>
+                      })()
                     )
                   }
                 },
@@ -1334,11 +1414,11 @@ export function TableMapPOS({
                       <button
                         onClick={(e) => { e.stopPropagation(); handleResourceClick(r); }}
                         className={canToggleClean
-                          ? "rounded-lg bg-white border border-amber-300 px-3 py-1.5 text-xs font-bold text-amber-600 hover:bg-amber-50 hover:text-amber-700 transition-colors shadow-sm whitespace-nowrap"
-                          : "rounded-lg bg-white border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors shadow-sm whitespace-nowrap"
+                          ? "rounded-lg bg-white border border-amber-300 px-3 py-1.5 text-xs font-bold text-amber-600 hover:bg-amber-50 hover:text-amber-700 transition-colors shadow-sm whitespace-nowrap flex items-center justify-center gap-1.5"
+                          : "rounded-lg bg-white border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors shadow-sm whitespace-nowrap flex items-center justify-center"
                         }
                       >
-                        {canToggleClean ? '✓ Dọn xong' : 'Thao tác'}
+                        {canToggleClean ? <><CheckCircle2 className="w-3.5 h-3.5" /> Đã dọn dẹp</> : 'Thao tác'}
                       </button>
                     )
                   }
@@ -1606,6 +1686,29 @@ export function TableMapPOS({
           </div>
         </div>
       )}
+
+      {/* DIALOG: XÁC NHẬN ĐÃ DỌN XONG */}
+      <ConfirmDialog
+        open={cleanConfirmModalOpen}
+        onClose={() => !cleanConfirmSaving && setCleanConfirmModalOpen(false)}
+        onConfirm={async () => {
+          if (!resourceToClean) return;
+          setCleanConfirmSaving(true);
+          await handleSetAvailable(resourceToClean);
+          setCleanConfirmSaving(false);
+          setCleanConfirmModalOpen(false);
+        }}
+        title="Xác nhận dọn dẹp"
+        confirmLabel={cleanConfirmSaving ? 'Đang lưu...' : 'Đã dọn xong'}
+        cancelLabel="Hủy"
+        loading={cleanConfirmSaving}
+      >
+        <div className="flex flex-col gap-4 py-1">
+          <p className="text-sm text-slate-600">
+            Phòng đang ở trạng thái chờ dọn dẹp. Bạn có muốn đánh dấu phòng này là đã dọn dẹp xong và sẵn sàng đón khách không?
+          </p>
+        </div>
+      </ConfirmDialog>
 
       {/* DIALOG 4: NHẬN PHÒNG NHÓM (GROUP CHECK-IN) */}
       <ConfirmDialog

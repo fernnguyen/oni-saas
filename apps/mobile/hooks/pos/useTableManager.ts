@@ -330,9 +330,9 @@ export function useTableManager(props: UseTableManagerProps) {
       // Quan trọng: Phải luôn ưu tiên ID từ Cloud thay vì ID cũ từ SQLite
       let resolvedOrderId = latestResource?.current_order_id || orderId;
 
-      // Nếu Cloud trả về available và không có order, nghĩa là bàn đã được giải phóng
-      if (latestResource && latestResource.status === 'available' && !latestResource.current_order_id) {
-        return { isFinished: true };
+      // Nếu Cloud trả về available hoặc dirty/cleaning và không có order, nghĩa là bàn đã được giải phóng
+      if (latestResource && (latestResource.status === 'available' || latestResource.status === 'dirty' || latestResource.status === 'cleaning') && !latestResource.current_order_id) {
+        return { isFinished: true, resourceStatus: latestResource.status };
       }
 
       
@@ -500,18 +500,20 @@ export function useTableManager(props: UseTableManagerProps) {
             return prev;
           }); // Chỉ đóng modal nếu đang xem đúng bàn này
 
+          const newStatus = onlineSession.resourceStatus || 'available';
+
           // A. Cập nhật SQLite nội địa sang trống
           if (Platform.OS !== 'web') {
             try {
               await db
                 .update(schema.location_resources)
-                .set({ status: 'available', current_order_id: null, startTime: null })
+                .set({ status: newStatus, current_order_id: null, startTime: null })
                 .where(eq(schema.location_resources.id, table.id));
             } catch (e) { }
           }
 
           // B. Cập nhật state cục bộ sang trống
-          setTables(prev => prev.map(t => t.id === table.id ? { ...t, status: 'available', current_order_id: null, startTime: null } : t));
+          setTables(prev => prev.map(t => t.id === table.id ? { ...t, status: newStatus, current_order_id: null, startTime: null } : t));
           setTableCarts(prev => {
             const copy = { ...prev };
             delete copy[table.id];
@@ -676,10 +678,51 @@ export function useTableManager(props: UseTableManagerProps) {
     }
   }, [tables, syncActiveTableSession]);
 
-  // Mở bàn
+  const [isCleanConfirmModalOpen, setIsCleanConfirmModalOpen] = useState(false);
+  const [tableToClean, setTableToClean] = useState<any>(null);
+  const [cleanConfirmSaving, setCleanConfirmSaving] = useState(false);
+
+  const handleCleanTable = async (table: any) => {
+    try {
+      setCleanConfirmSaving(true);
+      const currentUrl = getApiBaseUrl();
+      const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+      const headers = await getApiHeaders();
+      const res = await fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${table.id}`, {
+        method: 'PATCH',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'available' })
+      });
+      if (!res.ok) throw new Error('Cập nhật thất bại');
+      
+      setTables(prev => prev.map(t => t.id === table.id ? { ...t, status: 'available' } : t));
+      if (Platform.OS !== 'web') {
+        try {
+          await db
+            .update(schema.location_resources)
+            .set({ status: 'available' })
+            .where(eq(schema.location_resources.id, table.id));
+        } catch (e) {}
+      }
+      showToast('Đã đánh dấu dọn xong!', 'success');
+      setIsCleanConfirmModalOpen(false);
+      setTableToClean(null);
+    } catch (error) {
+      console.error(error);
+      showToast('Lỗi khi cập nhật trạng thái', 'error');
+    } finally {
+      setCleanConfirmSaving(false);
+    }
+  };
+
   // Mở bàn
   const handleTablePress = async (table: any) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => { });
+    if (table.status === 'dirty' || table.status === 'cleaning') {
+      setTableToClean(table);
+      setIsCleanConfirmModalOpen(true);
+      return;
+    }
     if (table.status === 'playing' || table.status === 'occupied') {
       // 1. Mở modal ngay lập tức với dữ liệu cục bộ hiện có để mang lại trải nghiệm tức thì (Zero-Lag)
       setActiveTable(table);
@@ -1461,7 +1504,7 @@ export function useTableManager(props: UseTableManagerProps) {
 
       // A. Lưu vào cơ sở dữ liệu SQLite cục bộ (Offline-First)
       if (Platform.OS === 'web') {
-        setTables(prev => prev.map(t => t.id === selectedTableForPay.id ? { ...t, status: 'available', startTime: null } : t));
+        setTables(prev => prev.map(t => t.id === selectedTableForPay.id ? { ...t, status: 'dirty', startTime: null } : t));
       } else {
         if (selectedTableForPay.current_order_id) {
           await db.delete(schema.orders).where(eq(schema.orders.id, selectedTableForPay.current_order_id));
@@ -1525,7 +1568,7 @@ export function useTableManager(props: UseTableManagerProps) {
 
         await db
           .update(schema.location_resources)
-          .set({ status: 'available', startTime: null, current_order_id: null })
+          .set({ status: 'dirty', startTime: null, current_order_id: null })
           .where(eq(schema.location_resources.id, selectedTableForPay.id));
 
         const updated = await db.select().from(schema.location_resources);
@@ -1682,7 +1725,7 @@ export function useTableManager(props: UseTableManagerProps) {
               method: 'PATCH',
               headers: { ...headers, 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                status: 'available',
+                status: 'dirty',
                 current_order_id: '',
                 startTime: null
               }),
@@ -1760,7 +1803,7 @@ export function useTableManager(props: UseTableManagerProps) {
         await fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${sourceTableId}`, {
           method: 'PATCH',
           headers,
-          body: JSON.stringify({ status: 'available', current_order_id: '' }),
+          body: JSON.stringify({ status: 'dirty', current_order_id: '' }),
         });
         // 2. Occupy target resource
         await fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${targetTableId}`, {
@@ -1779,7 +1822,7 @@ export function useTableManager(props: UseTableManagerProps) {
       // SQLite offline-first updates
       if (Platform.OS === 'web') {
         setTables(prev => prev.map(t => {
-          if (t.id === sourceTableId) return { ...t, status: 'available', current_order_id: null, startTime: null, metadata: null };
+          if (t.id === sourceTableId) return { ...t, status: 'dirty', current_order_id: null, startTime: null, metadata: null };
           if (t.id === targetTableId) return { ...t, status: 'occupied', current_order_id: orderId, startTime: targetStartTime, metadata: newOrderMeta };
           return t;
         }));
@@ -1787,7 +1830,7 @@ export function useTableManager(props: UseTableManagerProps) {
         // Update source resource
         await db
           .update(schema.location_resources)
-          .set({ status: 'available', current_order_id: null, startTime: null, metadata: null })
+          .set({ status: 'dirty', current_order_id: null, startTime: null, metadata: null })
           .where(eq(schema.location_resources.id, sourceTableId));
 
         // Update target resource
@@ -1972,7 +2015,7 @@ export function useTableManager(props: UseTableManagerProps) {
         await fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${sourceTableId}`, {
           method: 'PATCH',
           headers,
-          body: JSON.stringify({ status: 'available', current_order_id: '' }),
+          body: JSON.stringify({ status: 'dirty', current_order_id: '' }),
         });
       }
 
@@ -2011,7 +2054,7 @@ export function useTableManager(props: UseTableManagerProps) {
         });
 
         setTables(prev => prev.map(t => {
-          if (t.id === sourceTableId) return { ...t, status: 'available', current_order_id: null, startTime: null, metadata: null };
+          if (t.id === sourceTableId) return { ...t, status: 'dirty', current_order_id: null, startTime: null, metadata: null };
           return t;
         }));
       } else {
@@ -2124,7 +2167,7 @@ export function useTableManager(props: UseTableManagerProps) {
 
         await db
           .update(schema.location_resources)
-          .set({ status: 'available', current_order_id: null, startTime: null, metadata: null })
+          .set({ status: 'dirty', current_order_id: null, startTime: null, metadata: null })
           .where(eq(schema.location_resources.id, sourceTableId));
 
         const updated = await db.select().from(schema.location_resources);
@@ -2243,6 +2286,10 @@ export function useTableManager(props: UseTableManagerProps) {
     syncActiveTableSession,
     syncTableSilent,
     handleTransferTable,
-    handleMergeTable
+    handleMergeTable,
+    isCleanConfirmModalOpen, setIsCleanConfirmModalOpen,
+    tableToClean, setTableToClean,
+    cleanConfirmSaving,
+    handleCleanTable
   };
 }
