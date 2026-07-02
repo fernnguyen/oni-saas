@@ -101,6 +101,129 @@ const STATUS_CARDS: Record<string, { border: string; bg: string; dot: string; la
   maintenance: { border: 'border-slate-300', bg: 'bg-slate-100', dot: 'bg-slate-400', label: 'Tạm ngừng', text: 'text-slate-600' },
 }
 
+function LiveOccupiedDetails({ resource, activeOrder, hasHourlyBilling, shopSettings, shopId }: { resource: Resource, activeOrder: any, hasHourlyBilling: boolean, shopSettings: any, shopId: string }) {
+  const [now, setNow] = useState(Date.now())
+  const [itemsCount, setItemsCount] = useState<number | null>(null)
+  const [billingDetails, setBillingDetails] = useState({ cost: 0, hours: 0, minutes: 0, durationLabel: '' })
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 30000)
+    return () => clearInterval(interval)
+  }, [])
+
+  const rmd = typeof resource.metadata === 'string' ? JSON.parse(resource.metadata || '{}') : (resource.metadata || {})
+  const omd = typeof activeOrder?.metadata === 'string' ? JSON.parse(activeOrder.metadata || '{}') : (activeOrder?.metadata || {})
+
+  useEffect(() => {
+    if (omd.cartItemsCount) {
+      setItemsCount(omd.cartItemsCount)
+      return
+    }
+    if (activeOrder?.id && shopId) {
+      fetch(`/api/shops/${shopId}/order-items?order_id=${activeOrder.id}&limit=500`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.data) {
+            const count = data.data.reduce((sum: number, it: any) => sum + (it.product_id?.startsWith('TIME_CHARGE') ? 0 : Number(it.quantity) || 1), 0)
+            setItemsCount(count)
+          }
+        })
+        .catch(() => {})
+    }
+  }, [activeOrder?.id, shopId, omd.cartItemsCount])
+
+  const checkIn = omd.check_in || activeOrder?.created_at || rmd.check_in
+  const rentalType = omd.rental_type || rmd.rental_type || 'hourly'
+
+  useEffect(() => {
+    if (!checkIn) return
+    const checkInDate = new Date(checkIn)
+    const diffMs = Math.max(0, now - checkInDate.getTime())
+
+    if (rentalType === 'overnight') {
+      const overnightRate = Number(rmd.overnight_rate) || Number(resource.hourly_rate) * 3 || 200000
+      const overnightGraceHours = Number(rmd.overnight_grace_hours) || 0
+      const d1 = new Date(checkInDate.getFullYear(), checkInDate.getMonth(), checkInDate.getDate())
+      const d2 = new Date(new Date(now).getFullYear(), new Date(now).getMonth(), new Date(now).getDate())
+      const diffDays = Math.round((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24))
+      const totalHours = diffMs / (1000 * 60 * 60)
+      let nights = Math.max(1, diffDays)
+      if (diffDays > 0) {
+        const standardCycleHours = diffDays * 24
+        if (totalHours > (standardCycleHours + overnightGraceHours)) {
+          nights = Math.ceil(totalHours / 24)
+        }
+      }
+      const totalMins = Math.ceil(diffMs / 60000)
+      setBillingDetails({
+        cost: nights * overnightRate,
+        hours: Math.floor(totalMins / 60),
+        minutes: totalMins % 60,
+        durationLabel: `${nights} đêm`
+      })
+    } else if (rentalType === 'daily') {
+      const dailyRate = Number(rmd.daily_rate) || Number(rmd.overnight_rate) || Number(resource.hourly_rate) * 3 || 200000
+      const dailyGraceHours = Number(rmd.daily_grace_hours) || 2
+      const totalHours = diffMs / (1000 * 60 * 60)
+      const completedDays = Math.floor(totalHours / 24)
+      const excessHours = totalHours % 24
+      let days = Math.max(1, completedDays + (excessHours > dailyGraceHours ? 1 : 0))
+      const totalMins = Math.ceil(diffMs / 60000)
+      setBillingDetails({
+        cost: days * dailyRate,
+        hours: Math.floor(totalMins / 60),
+        minutes: totalMins % 60,
+        durationLabel: `${days} ngày`
+      })
+    } else {
+      // hourly
+      import('@oni/core').then(({ calculateHourlyBilling }) => {
+        const hourlyRate = Number(resource.hourly_rate) || 0
+        const pricingResult = calculateHourlyBilling({
+          checkIn: checkInDate,
+          checkOut: new Date(now),
+          standardRate: hourlyRate,
+          config: rmd.advanced_pricing
+        })
+        const totalMins = Math.ceil(diffMs / 60000)
+        setBillingDetails({
+          cost: pricingResult.totalAmount,
+          hours: Math.floor(totalMins / 60),
+          minutes: totalMins % 60,
+          durationLabel: pricingResult.durationLabel
+        })
+      })
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [checkIn, now, rentalType, rmd.overnight_rate, rmd.overnight_grace_hours, rmd.daily_rate, rmd.daily_grace_hours, JSON.stringify(rmd.advanced_pricing), resource.hourly_rate])
+
+  if (!checkIn) return null
+
+  const finalItemsCount = itemsCount || 0
+  const { cost, hours, minutes, durationLabel } = billingDetails
+
+  return (
+    <div 
+      className="border rounded-lg p-2 mt-2 space-y-1 w-full text-left" 
+      style={{ backgroundColor: '#fee8eb', borderColor: '#fecdd3' }}
+    >
+      <div className="text-[11px] text-rose-700 font-semibold flex items-center gap-1.5">
+        <span className="opacity-80">⏱️</span> Đã dùng: {durationLabel || `${hours}h ${minutes}m`}
+      </div>
+      {(cost > 0 || (hasHourlyBilling && rentalType === 'hourly')) && (
+        <div className="text-[11px] text-rose-700 font-semibold flex items-center gap-1.5 mt-0.5">
+          <span className="opacity-80">💵</span> Tiền {rentalType === 'overnight' ? 'phòng' : rentalType === 'daily' ? 'ngày' : 'giờ'}: {Math.round(cost).toLocaleString('vi-VN')} ₫
+        </div>
+      )}
+      {finalItemsCount > 0 && (
+        <div className="text-[11px] text-slate-600 font-semibold flex items-center gap-1.5 pt-1.5 mt-1.5 border-t" style={{ borderTopColor: 'rgba(244, 63, 94, 0.15)' }}>
+          <span className="opacity-80">🍴</span> Đã gọi: {finalItemsCount} món
+        </div>
+      )}
+    </div>
+  )
+}
+
 type ViewMode = 'grid' | 'list' | 'map'
 
 export function TableMapPOS({
@@ -306,6 +429,8 @@ export function TableMapPOS({
   const [viewMode, setViewMode] = useState<ViewMode>('map')
   const [sortMode, setSortMode] = useState<'last_checkout' | 'latest_checkout' | 'name_asc' | 'name_desc'>('last_checkout')
   const [selectedZone, setSelectedZone] = useState<string | null>(null)
+  const [statusFilter, setStatusFilter] = useState<'all' | 'available' | 'occupied' | 'cleaning'>('all')
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false)
   
   const [inProgressOrders, setInProgressOrders] = useState<OrderData[]>([])
 
@@ -359,6 +484,7 @@ export function TableMapPOS({
       if (e.key === 'F7') {
         e.preventDefault()
         setSelectedZone(null)
+        setStatusFilter('all')
         toast.success('Đã chọn hiển thị Tất cả phòng/bàn')
       }
     }
@@ -855,12 +981,27 @@ export function TableMapPOS({
       return a[0].localeCompare(b[0], 'vi')
     })
     
+    let filteredEntries = entries
     if (selectedZone) {
-      return entries.filter(([z]: [string, Resource[]]) => z === selectedZone)
+      filteredEntries = entries.filter(([z]: [string, Resource[]]) => z === selectedZone)
+    } else {
+      filteredEntries = entries.filter(([z]: [string, Resource[]]) => sortedZones.includes(z))
     }
-    
-    return entries.filter(([z]: [string, Resource[]]) => sortedZones.includes(z))
-  }, [zones, sortedZones, selectedZone])
+
+    if (statusFilter !== 'all') {
+      return filteredEntries.map(([z, resources]) => {
+        const filteredResources = resources.filter(r => {
+          if (statusFilter === 'available') return r.status === 'available' || r.status === 'inspected'
+          if (statusFilter === 'occupied') return r.status === 'occupied' || r.status === 'checking_out'
+          if (statusFilter === 'cleaning') return r.status === 'cleaning' || r.status === 'dirty'
+          return true
+        })
+        return [z, filteredResources] as [string, Resource[]]
+      }).filter(([_, r]) => r.length > 0)
+    }
+
+    return filteredEntries
+  }, [zones, sortedZones, selectedZone, statusFilter])
 
   // Stats
   const stats = {
@@ -1061,35 +1202,55 @@ export function TableMapPOS({
 
       {/* Zone selection filter tabs (F7 to select all) */}
       {sortedZones.length > 0 && (
-        <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide select-none shrink-0">
-          {viewMode !== 'map' && (
-            <button
-              onClick={() => setSelectedZone(null)}
-              className={[
-                'shrink-0 rounded-xl px-4 py-2 text-xs font-bold transition-all shadow-xs active:scale-95 border cursor-pointer',
-                selectedZone === null
-                  ? 'bg-slate-900 border-slate-900 text-white'
-                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50',
-              ].join(' ')}
-              title="Nhấn F7 để chọn Tất cả phòng/bàn"
-            >
-              Tất cả phòng/bàn (F7)
-            </button>
+        <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide select-none shrink-0 mt-1">
+          {viewMode === 'map' ? (
+            <>
+              {sortedZones.map((z: string) => (
+                <button
+                  key={z}
+                  onClick={() => setSelectedZone(z)}
+                  className={[
+                    'shrink-0 rounded-xl px-4 py-2 text-xs font-bold transition-all shadow-xs active:scale-95 border cursor-pointer',
+                    selectedZone === z
+                      ? 'bg-slate-900 border-slate-900 text-white'
+                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50',
+                  ].join(' ')}
+                >
+                  {z}
+                </button>
+              ))}
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => setStatusFilter('all')}
+                className={`px-3 py-1.5 rounded-full border mr-1 transition-colors ${statusFilter === 'all' ? 'bg-slate-800 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-600'}`}
+              >
+                <span className="text-xs font-bold">Tất cả</span>
+              </button>
+              <button
+                onClick={() => setStatusFilter('available')}
+                className={`px-3 py-1.5 rounded-full border mr-1 flex items-center transition-colors ${statusFilter === 'available' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-white border-slate-200 text-slate-600'}`}
+              >
+                <div className="w-2 h-2 rounded-full bg-emerald-500 mr-1.5" />
+                <span className="text-xs font-bold">Trống</span>
+              </button>
+              <button
+                onClick={() => setStatusFilter('occupied')}
+                className={`px-3 py-1.5 rounded-full border mr-1 flex items-center transition-colors ${statusFilter === 'occupied' ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-white border-slate-200 text-slate-600'}`}
+              >
+                <div className="w-2 h-2 rounded-full bg-rose-500 mr-1.5" />
+                <span className="text-xs font-bold">Đang sử dụng</span>
+              </button>
+              <button
+                onClick={() => setStatusFilter('cleaning')}
+                className={`px-3 py-1.5 rounded-full border flex items-center transition-colors ${statusFilter === 'cleaning' ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-white border-slate-200 text-slate-600'}`}
+              >
+                <div className="w-2 h-2 rounded-full bg-amber-500 mr-1.5" />
+                <span className="text-xs font-bold">Chờ dọn dẹp</span>
+              </button>
+            </>
           )}
-          {sortedZones.map((z: string) => (
-            <button
-              key={z}
-              onClick={() => setSelectedZone(z)}
-              className={[
-                'shrink-0 rounded-xl px-4 py-2 text-xs font-bold transition-all shadow-xs active:scale-95 border cursor-pointer',
-                selectedZone === z
-                  ? 'bg-slate-900 border-slate-900 text-white'
-                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50',
-              ].join(' ')}
-            >
-              {z}
-            </button>
-          ))}
         </div>
       )}
 
@@ -1235,7 +1396,7 @@ export function TableMapPOS({
                       </div>
 
                       {/* Meta info */}
-                      <div className="space-y-1 text-[11px] text-slate-500 mb-3.5">
+                      <div className="space-y-1 text-[11px] text-slate-500 mb-3.5 flex-1">
                         {r.capacity && <div className="flex items-center gap-1.5"><UserIcon className="w-3 h-3 opacity-70" />{r.capacity} người</div>}
                         {rmd.last_checkout_time && (r.status === 'available' || r.status === 'dirty' || r.status === 'cleaning') && (
                           <div className="flex items-center gap-1.5 text-blue-600 font-semibold" title="Thời gian checkout trước đó">
@@ -1243,7 +1404,15 @@ export function TableMapPOS({
                           </div>
                         )}
                         {hasHourlyBilling && r.hourly_rate && Number(r.hourly_rate) > 0 && (
-                          <div className="flex items-center gap-1.5"><span>⏱️</span> <span className="font-semibold text-slate-700">{Number(r.hourly_rate).toLocaleString('vi-VN')}₫/h</span></div>
+                          <div className="flex items-center gap-1.5">
+                            <span>⏱️</span> 
+                            <span className="font-semibold text-slate-700">
+                              {Number(r.hourly_rate).toLocaleString('vi-VN')}₫/h
+                              {rmd.advanced_pricing?.enabled && rmd.advanced_pricing.base_price ? 
+                                ` (${Number(rmd.advanced_pricing.base_price).toLocaleString('vi-VN')}₫ ${rmd.advanced_pricing.base_hours}h đầu)` 
+                              : ''}
+                            </span>
+                          </div>
                         )}
                         {isRoomType && rmd.overnight_rate && (
                           <div className="flex items-center gap-1.5"><span>🌙</span> <span className="font-semibold text-slate-700">{Number(rmd.overnight_rate).toLocaleString('vi-VN')}₫/đêm</span></div>
@@ -1265,15 +1434,22 @@ export function TableMapPOS({
                         )}
                       </div>
 
-                      {/* Status label at the bottom */}
-                      <div className={`mt-auto mt-3.5 w-full rounded-lg px-2 py-1.5 text-center transition-colors ${(r.status === 'cleaning' || r.status === 'dirty') && (shopSettings?.housekeeping_workflow_mode || 'SIMPLE') === 'SIMPLE' ? 'bg-amber-100 hover:bg-amber-200' : st.bg}`}>
-                        <p className={`text-[12px] font-bold flex items-center justify-center gap-1.5 ${st.text}`}>
-                          {(r.status === 'cleaning' || r.status === 'dirty') && (shopSettings?.housekeeping_workflow_mode || 'SIMPLE') === 'SIMPLE'
-                            ? <><CheckCircle2 className="w-3.5 h-3.5" /> Đã dọn dẹp</>
-                            : r.status === 'occupied' || r.status === 'checking_out'
-                            ? (activeOrder?.customer_name || 'Khách lẻ')
-                            : st.label}
-                        </p>
+                      <div className="mt-auto flex flex-col w-full">
+                        {/* Live Occupied Details */}
+                        {(r.status === 'occupied' || r.status === 'checking_out') && activeOrder && (
+                          <LiveOccupiedDetails resource={r} activeOrder={activeOrder} hasHourlyBilling={hasHourlyBilling} shopSettings={shopSettings} shopId={shopId} />
+                        )}
+
+                        {/* Status label at the bottom */}
+                        <div className={`mt-3.5 w-full rounded-lg px-2 py-1.5 text-center transition-colors ${(r.status === 'cleaning' || r.status === 'dirty') && (shopSettings?.housekeeping_workflow_mode || 'SIMPLE') === 'SIMPLE' ? 'bg-amber-100 hover:bg-amber-200' : st.bg}`}>
+                          <p className={`text-[12px] font-bold flex items-center justify-center gap-1.5 ${st.text}`}>
+                            {(r.status === 'cleaning' || r.status === 'dirty') && (shopSettings?.housekeeping_workflow_mode || 'SIMPLE') === 'SIMPLE'
+                              ? <><CheckCircle2 className="w-3.5 h-3.5" /> Đã dọn dẹp</>
+                              : r.status === 'occupied' || r.status === 'checking_out'
+                              ? (activeOrder?.customer_name || 'Khách lẻ')
+                              : st.label}
+                          </p>
+                        </div>
                       </div>
                     </button>
                   )
