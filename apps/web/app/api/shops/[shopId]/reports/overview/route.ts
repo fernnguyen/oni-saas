@@ -11,15 +11,24 @@ type Row = Record<string, string>
 function parseAmount(v: string | undefined) { return parseFloat(v ?? '0') || 0 }
 
 function dayKey(isoDate: string) {
-  // Returns 'YYYY-MM-DD' for grouping
-  try { return isoDate.slice(0, 10) } catch { return '' }
+  // Returns 'YYYY-MM-DD' for grouping, adjusted for UTC+7
+  try {
+    const d = new Date(isoDate)
+    const local = new Date(d.getTime() + 7 * 60 * 60 * 1000)
+    return local.toISOString().slice(0, 10)
+  } catch {
+    return ''
+  }
 }
 
 function buildOverview(orders: Row[], returns: Row[], orderItems: Row[], payments: Row[], resources: Row[], industryType: string) {
-  const now        = new Date()
-  const todayMs    = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime()
-  const day30      = todayMs - 29 * 86_400_000
+  const tzOffset = 7 * 60 * 60 * 1000 // Vietnam is UTC+7
+  const now = new Date()
+  const localNow = new Date(now.getTime() + tzOffset)
+
+  const todayMs = new Date(Date.UTC(localNow.getUTCFullYear(), localNow.getUTCMonth(), localNow.getUTCDate())).getTime() - tzOffset
+  const monthStart = new Date(Date.UTC(localNow.getUTCFullYear(), localNow.getUTCMonth(), 1)).getTime() - tzOffset
+  const day30 = todayMs - 29 * 86_400_000
 
   // ── Revenue by day (last 30 days) ────────────────────────────────────────
   const revenueByDay: Record<string, number> = {}
@@ -257,28 +266,22 @@ export async function GET(
     const { shopId } = await params
     const { shop, connector } = await requireShopAccess(shopId, 'reports.view_shop')
 
-    const result = await shopCache(
-      async () => {
-        const [ordersResult, returnsResult, itemsResult, paymentsResult, resourcesResult] = await Promise.all([
-          connector.list('orders',      { limit: 5000 }),
-          // Tab Returns may not exist yet — fall back to empty gracefully
-          connector.list('returns',     { limit: 1000 }).catch(() => ({ data: [], total: 0 })),
-          connector.list('order-items', { limit: 5000 }),
-          connector.list('payments',    { limit: 5000 }).catch(() => ({ data: [], total: 0 })),
-          connector.list('location-resources', { limit: 1000 }).catch(() => ({ data: [], total: 0 })),
-        ])
-        const industryType = shop?.industry_type ?? 'retail'
-        return buildOverview(
-          ordersResult.data,
-          returnsResult.data,
-          itemsResult.data,
-          paymentsResult.data,
-          resourcesResult.data,
-          industryType
-        )
-      },
-      ['reports-overview', shopId],
-      { tags: [shopTag(shopId, 'orders'), shopTag(shopId, 'returns'), shopTag(shopId, 'location-resources')], revalidate: 120 }
+    const [ordersResult, returnsResult, itemsResult, paymentsResult, resourcesResult] = await Promise.all([
+      connector.list('orders',      { limit: 5000 }),
+      // Tab Returns may not exist yet — fall back to empty gracefully
+      connector.list('returns',     { limit: 1000 }).catch(() => ({ data: [], total: 0 })),
+      connector.list('order-items', { limit: 5000 }),
+      connector.list('payments',    { limit: 5000 }).catch(() => ({ data: [], total: 0 })),
+      connector.list('location-resources', { limit: 1000 }).catch(() => ({ data: [], total: 0 })),
+    ])
+    const industryType = shop?.industry_type ?? 'retail'
+    const result = buildOverview(
+      ordersResult.data,
+      returnsResult.data,
+      itemsResult.data,
+      paymentsResult.data,
+      resourcesResult.data,
+      industryType
     )
 
     return NextResponse.json(result)

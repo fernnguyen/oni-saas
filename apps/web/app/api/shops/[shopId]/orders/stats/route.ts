@@ -6,10 +6,16 @@ import { handleApiError } from '../../../_helpers'
 type Row = Record<string, string>
 
 function computeStats(rows: Row[]) {
+  const tzOffset = 7 * 60 * 60 * 1000 // Vietnam is UTC+7
   const now = new Date()
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
-  const weekStart  = todayStart - 6 * 24 * 60 * 60 * 1000
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime()
+  const localNow = new Date(now.getTime() + tzOffset)
+  
+  const todayStart = new Date(Date.UTC(localNow.getUTCFullYear(), localNow.getUTCMonth(), localNow.getUTCDate())).getTime() - tzOffset
+  
+  // Week starts 6 days before today
+  const weekStart = todayStart - 6 * 24 * 60 * 60 * 1000
+  
+  const monthStart = new Date(Date.UTC(localNow.getUTCFullYear(), localNow.getUTCMonth(), 1)).getTime() - tzOffset
 
   const today   = { count: 0, revenue: 0, debt: 0 }
   const week    = { count: 0, revenue: 0, debt: 0 }
@@ -39,14 +45,8 @@ export async function GET(
     const { shopId } = await params
     const { connector } = await requireShopAccess(shopId, 'orders.view')
 
-    const result = await shopCache(
-      async () => {
-        const all = await connector.list('orders', { limit: 5000 })
-        return computeStats(all.data)
-      },
-      ['orders-stats', shopId],
-      { tags: [shopTag(shopId, 'orders')], revalidate: 60 }
-    )
+    const all = await connector.list('orders', { limit: 5000 })
+    const result = computeStats(all.data)
 
     return NextResponse.json(result)
   } catch (e) {
