@@ -3,6 +3,7 @@ import { requireShopAccess } from '@/lib/server/shopAccess'
 import { invalidate } from '@/lib/server/cache'
 import { handleApiError } from '../../../../_helpers'
 import { updateCustomerStats } from '@/lib/server/customerStats'
+import { getGMT7Time } from '@oni/core'
 
 export async function POST(
   req: NextRequest,
@@ -84,6 +85,53 @@ export async function POST(
         branch_id: branch_id || shopId,
         fund_id: fund_id || '',
       })
+
+      // ── GẠCH NỢ THEO HÓA ĐƠN (FIFO) ──
+      const debtOrdersRes = await connector.list('orders', {
+        filters: { customer_id: id },
+        limit: 5000
+      })
+      const unpaidOrders = debtOrdersRes.data
+        .filter((o: Record<string, string>) => parseFloat(o.debt_amount || '0') > 0 && o.is_return !== 'TRUE' && o.status !== 'cancelled' && o.status !== 'failed')
+        .sort((a: Record<string, string>, b: Record<string, string>) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime())
+      
+      if (unpaidOrders.length > 0) {
+        let remaining = debtPayment
+        for (const order of unpaidOrders) {
+          if (remaining <= 0) break
+          const orderDebt = parseFloat(order.debt_amount || '0')
+          const applied = Math.min(remaining, orderDebt)
+          const newOrderDebt = Math.max(0, orderDebt - applied)
+          const newPaid = parseFloat(order.paid_amount || '0') + applied
+          
+          const orderUpdates: Record<string, any> = {
+            debt_amount: String(newOrderDebt),
+            paid_amount: String(newPaid),
+          }
+          
+          if (newOrderDebt === 0 && (order.payment_method === 'debt' || order.payment_method?.startsWith('debt-'))) {
+            orderUpdates.payment_method = method
+          }
+          
+          await connector.update('orders', order.id, orderUpdates)
+
+          // Create payment record for this order
+          await connector.create('payments', {
+            id: `DEBT-${order.id.slice(-6)}-${Date.now()}`,
+            order_id: order.id,
+            order_no: order.order_no || '',
+            method: method,
+            amount: String(applied),
+            reference_no: `DEPOSIT-${id}`,
+            note: `Thu nợ tự động (Nạp tiền + trả nợ)`,
+            paid_at: getGMT7Time(),
+          })
+
+          remaining -= applied
+        }
+        invalidate(shopId, 'orders')
+        invalidate(shopId, 'payments')
+      }
     }
 
     // If prepaidDeposit > 0, create a receipt of category prepaid_deposit

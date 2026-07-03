@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useDebounce } from 'use-debounce'
 import { useSearchParams, useRouter } from 'next/navigation'
+import { DebtCollectionSlideOver } from '@/app/components/ui/DebtCollectionSlideOver'
 import { DataTable, Column } from '@/app/components/ui/DataTable'
 import { SlideOver } from '@/app/components/ui/SlideOver'
 import { TagBadge } from '@/app/components/ui/TagBadge'
@@ -220,11 +221,6 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
 
   // CRM Debt Collection (Trả nợ) States
   const [collectDebtTarget, setCollectDebtTarget] = useState<Record<string, string> | null>(null)
-  const [collectDebtAmount, setCollectDebtAmount] = useState('0')
-  const [collectDebtMethod, setCollectDebtMethod] = useState('cash')
-  const [collectDebtFundId, setCollectDebtFundId] = useState('')
-  const [collectDebtNote, setCollectDebtNote] = useState('')
-  const [confirmCollectDebtOpen, setConfirmCollectDebtOpen] = useState(false)
 
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState(initialSearch)
@@ -935,71 +931,8 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
   })
   const funds = fundsData?.data ?? []
 
-  // CRM Debt Collection (Trả nợ) Mutation
-  const collectDebtMutation = useMutation({
-    mutationFn: async (payload: { amount: number; method: string; note: string; fund_id: string }) => {
-      if (!collectDebtTarget) return
-      const res = await fetch(`/api/shops/${shopId}/cashbook`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'receipt',
-          amount: payload.amount,
-          method: payload.method,
-          category: 'debt_collection',
-          reference_id: collectDebtTarget.customer_id || collectDebtTarget.id,
-          reference_name: collectDebtTarget.name,
-          note: payload.note || `Thu nợ khách hàng ${collectDebtTarget.name}`,
-          fund_id: payload.fund_id || undefined,
-        }),
-      })
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({}))
-        throw new Error(json.error ?? 'Thu nợ thất bại')
-      }
-      return res.json()
-    },
-    onSuccess: (_, variables) => {
-      toast.success('Ghi nhận thu nợ khách hàng thành công!')
-      const customerId = collectDebtTarget?.customer_id || collectDebtTarget?.id
-      if (customerId) {
-        queryClient.invalidateQueries({ queryKey: ['customer-transactions', shopId, customerId] })
-        setViewTarget((prev) => {
-          if (prev && (prev.customer_id === customerId || prev.id === customerId)) {
-            const currentDebt = parseFloat(prev.debt_amount || '0')
-            const amountPaid = variables.amount
-            const newDebt = Math.max(0, currentDebt - amountPaid)
-            return {
-              ...prev,
-              debt_amount: String(newDebt)
-            }
-          }
-          return prev
-        })
-      }
-      setCollectDebtTarget(null)
-      setCollectDebtAmount('0')
-      setCollectDebtNote('')
-      queryClient.invalidateQueries({ queryKey: ['customers', shopId] })
-      queryClient.invalidateQueries({ queryKey: ['cashbook', shopId] })
-      queryClient.invalidateQueries({ queryKey: ['payment-funds', shopId] })
-    },
-    onError: (err: Error) => toast.error(err.message),
-  })
-
   function openCollectDebt(row: Record<string, string>) {
     setCollectDebtTarget(row)
-    setCollectDebtAmount(String(parseFloat(row.debt_amount || '0')))
-    setCollectDebtMethod('cash')
-    
-    // Auto-select default fund
-    const defaultFund = funds.find(f => f.is_default === 'TRUE') || funds[0]
-    setCollectDebtFundId(defaultFund?.id || '')
-    if (defaultFund) {
-      setCollectDebtMethod(defaultFund.type === 'cash' ? 'cash' : 'bank_transfer')
-    }
-    
-    setCollectDebtNote(`Thu nợ khách hàng ${row.name}`)
   }
 
     return (
@@ -1712,193 +1645,23 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
         </div>
       </SlideOver>
 
-      <ConfirmDialog
-        open={confirmCollectDebtOpen}
-        onClose={() => setConfirmCollectDebtOpen(false)}
-        onConfirm={() => {
-          if (collectDebtTarget) {
-            checkShiftOrOpen(() => {
-              collectDebtMutation.mutate({
-                amount: parseFloat(collectDebtAmount),
-                method: collectDebtMethod,
-                fund_id: collectDebtFundId,
-                note: collectDebtNote,
-              })
-            })
-          }
-          setConfirmCollectDebtOpen(false)
-        }}
-        title="Xác nhận thu nợ khách hàng"
-        description={`Hành động này sẽ tự động tạo một PHIẾU THU SỔ QUỸ tương ứng và khấu trừ công nợ của khách hàng. Bạn có chắc chắn muốn thu ${Number(collectDebtAmount).toLocaleString('vi-VN')}đ từ khách hàng "${collectDebtTarget?.name}" không?`}
-        confirmLabel="Xác nhận thu nợ"
-        variant="default"
-        loading={collectDebtMutation.isPending}
-      />
-
-      {/* Collect Debt SlideOver */}
-      <SlideOver
+      <DebtCollectionSlideOver
         open={!!collectDebtTarget}
         onClose={() => setCollectDebtTarget(null)}
-        title={`Thu nợ khách hàng: ${collectDebtTarget?.name}`}
-        footer={
-          <>
-            <button
-              onClick={() => setCollectDebtTarget(null)}
-              className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all"
-            >
-              <X className="w-4 h-4" />
-              Hủy
-            </button>
-            <button
-              onClick={() => setConfirmCollectDebtOpen(true)}
-              disabled={collectDebtMutation.isPending || parseFloat(collectDebtAmount) <= 0}
-              className="rounded-xl bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50 flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all shadow-sm"
-            >
-              {collectDebtMutation.isPending ? (
-                <>
-                  <svg className="animate-spin -ml-1 mr-1.5 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  Đang xử lý...
-                </>
-              ) : (
-                <>
-                  <Coins className="w-4 h-4" />
-                  Xác nhận thu nợ
-                </>
-              )}
-            </button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          <div className="rounded-xl border border-red-100 bg-red-50/50 p-3 text-sm space-y-2">
-            <div className="flex justify-between">
-              <span className="text-slate-500">Dư nợ hiện tại:</span>
-              <span className="font-bold text-red-600">
-                {Number(collectDebtTarget?.debt_amount || 0).toLocaleString('vi-VN')}đ
-              </span>
-            </div>
-            <div className="flex justify-between mt-1.5 border-t border-slate-200/50 pt-2">
-              <span className="text-slate-500 font-medium">Dư nợ còn lại sau thu:</span>
-              <span className="font-bold text-slate-800">
-                {Number(Math.max(0, parseFloat(collectDebtTarget?.debt_amount || '0') - (parseFloat(collectDebtAmount) || 0))).toLocaleString('vi-VN')}đ
-              </span>
-            </div>
-          </div>
+        shopId={shopId}
+        entity={collectDebtTarget}
+        entityType="customer"
+        funds={funds}
+        onSuccess={() => {
+          const customerId = collectDebtTarget?.customer_id || collectDebtTarget?.id
+          if (customerId) {
+            queryClient.invalidateQueries({ queryKey: ['customer-transactions', shopId, customerId] })
+          }
+          queryClient.invalidateQueries({ queryKey: ['customers', shopId] })
+          setCollectDebtTarget(null)
+        }}
+      />
 
-          <div className="space-y-1">
-            <NumberInput
-              label="Số tiền thu *"
-              value={collectDebtAmount}
-              onChange={(v) => setCollectDebtAmount(v)}
-              suffix="đ"
-            />
-            <div className="flex justify-end pt-1">
-              <button
-                type="button"
-                className="text-xs font-semibold text-primary hover:underline hover:text-primary-dark transition-colors cursor-pointer"
-                onClick={() => setCollectDebtAmount(String(parseFloat(collectDebtTarget?.debt_amount || '0')))}
-              >
-                Thu toàn bộ dư nợ
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Tài khoản/Sổ quỹ nhận tiền *</label>
-            <select
-              value={collectDebtFundId}
-              onChange={(e) => {
-                const val = e.target.value;
-                setCollectDebtFundId(val);
-                const selectedFund = funds.find(f => f.id === val);
-                if (selectedFund) {
-                  const fundType = selectedFund.type || 'cash';
-                  if (fundType === 'cash') {
-                    setCollectDebtMethod('cash');
-                  } else {
-                    setCollectDebtMethod('bank_transfer');
-                  }
-                }
-              }}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none transition-colors"
-            >
-              {funds.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.name} ({f.type === 'cash' ? 'Tiền mặt' : 'Tài khoản ngân hàng'} - Số dư: {Number(f.current_balance || 0).toLocaleString('vi-VN')}đ)
-                </option>
-              ))}
-              {funds.length === 0 && <option value="">Đang tải danh sách sổ quỹ...</option>}
-            </select>
-          </div>
-
-          {(() => {
-            const selectedFund = funds.find(f => f.id === collectDebtFundId);
-            if (selectedFund && selectedFund.type === 'bank' && (selectedFund.bank_name || selectedFund.account_number)) {
-              return (
-                <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-4 space-y-2 text-xs text-indigo-900 animate-in fade-in slide-in-from-top-1 duration-200 shadow-xs relative overflow-hidden">
-                  <div className="absolute right-3 top-3 opacity-10 text-3xl font-bold select-none pointer-events-none">🏛️</div>
-                  <p className="font-bold text-[10px] uppercase tracking-wider text-indigo-500 mb-1 flex items-center gap-1">
-                    <span>🏛️</span> Thông tin thanh toán (Chuyển khoản)
-                  </p>
-                  <div className="grid grid-cols-3 gap-y-1.5 gap-x-2">
-                    <span className="text-indigo-650 font-medium">Ngân hàng:</span>
-                    <span className="col-span-2 font-bold text-slate-800">
-                      {getBankDisplayName(selectedFund.bank_name)}
-                    </span>
-                    
-                    <span className="text-indigo-650 font-medium">Số tài khoản:</span>
-                    <span className="col-span-2">
-                      {selectedFund.account_number ? (
-                        <CopyableId
-                          id={selectedFund.account_number}
-                          className="text-sm font-bold text-slate-800"
-                        />
-                      ) : (
-                        <span className="text-sm font-bold text-slate-800">—</span>
-                      )}
-                    </span>
-                    
-                    <span className="text-indigo-650 font-medium">Chủ tài khoản:</span>
-                    <span className="col-span-2">
-                      {selectedFund.account_name ? (
-                        <CopyableId
-                          id={selectedFund.account_name.toUpperCase()}
-                          className="text-sm font-bold text-slate-800 uppercase"
-                        />
-                      ) : (
-                        <span className="text-sm font-bold text-slate-800">—</span>
-                      )}
-                    </span>
-                  </div>
-                </div>
-              );
-            }
-            return null;
-          })()}
-
-          <div className="rounded-lg bg-blue-50 border border-blue-100 p-3 text-xs text-blue-700 space-y-1">
-            <p className="font-semibold flex items-center gap-1.5">
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 11.082 1.29l-.041.02a.75.75 0 01-.082-1.29zM12 20.25a8.25 8.25 0 100-16.5 8.25 8.25 0 000 16.5z" /></svg>
-              Tự động khớp phương thức:
-            </p>
-            <p>Khi chọn sổ quỹ trên, phương thức thanh toán tương ứng là: <b>{collectDebtMethod === 'cash' ? 'Tiền mặt' : 'Chuyển khoản ngân hàng'}</b>.</p>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Ghi chú</label>
-            <textarea
-              value={collectDebtNote}
-              onChange={(e) => setCollectDebtNote(e.target.value)}
-              rows={3}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none resize-none transition-colors"
-              placeholder="Nhập ghi chú thu nợ..."
-            />
-          </div>
-        </div>
-      </SlideOver>
 
       {/* Customer Detail SlideOver (Read-Only) */}
       <SlideOver

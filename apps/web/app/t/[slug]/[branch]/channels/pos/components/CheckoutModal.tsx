@@ -1759,7 +1759,7 @@ export function CheckoutModal({
           method: p.method,
           amount: amountFloat,
           reference_no: '',
-          note: p.folio ? `[Folio ${p.folio}]` : '',
+          note: p.folio === 'unified' ? '' : p.folio ? `[Hóa đơn ${p.folio}]` : '',
           fund_id: resolvedFundId,
         }
       }).filter(p => p.amount > 0 || p.method === 'debt' || p.method === 'prepaid')
@@ -1775,7 +1775,7 @@ export function CheckoutModal({
           method: defaultMethodId,
           amount: -actualPhysicalChange,
           reference_no: '',
-          note: isSplitActive ? `[Folio ${activeFolioTab}] Tiền thừa trả khách` : 'Tiền thừa trả khách',
+          note: isSplitActive ? `[Hóa đơn ${activeFolioTab}] Tiền thừa trả khách` : 'Tiền thừa trả khách',
         })
       }
 
@@ -1994,10 +1994,10 @@ export function CheckoutModal({
               discount_amount: localDiscount + tierDiscountAmount,
               total_amount: finalTotalA,
               paid_amount: totalPaidA,
-              note: '[Folio A] ' + (order.note || ''),
+              note: '[Hóa đơn A] ' + (order.note || ''),
             }
             const orderItemsA = orderItems.filter((_, idx) => folioAIndices.has(idx))
-            const paymentsAWithMeta = localPayments.filter(p => p.note && p.note.startsWith('[Folio A]'))
+            const paymentsAWithMeta = localPayments.filter(p => p.note && p.note.startsWith('[Hóa đơn A]'))
 
             await printBill({
               order: orderA,
@@ -2023,10 +2023,10 @@ export function CheckoutModal({
               discount_amount: 0,
               total_amount: finalTotalB,
               paid_amount: totalPaidB,
-              note: '[Folio B] ' + (order.note || ''),
+              note: '[Hóa đơn B] ' + (order.note || ''),
             }
             const orderItemsB = orderItems.filter((_, idx) => !folioAIndices.has(idx))
-            const paymentsBWithMeta = localPayments.filter(p => p.note && p.note.startsWith('[Folio B]'))
+            const paymentsBWithMeta = localPayments.filter(p => p.note && p.note.startsWith('[Hóa đơn B]'))
 
             await printBill({
               order: orderB,

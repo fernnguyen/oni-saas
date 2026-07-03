@@ -7,6 +7,7 @@ import { cashbookCreateSchema } from '@/lib/validators/cashbook'
 import { RollbackContext } from '@oni/adapters'
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
 import { updateCustomerStats } from '@/lib/server/customerStats'
+import { getGMT7Time } from '@oni/core'
 
 export async function GET(
   req: NextRequest,
@@ -348,6 +349,123 @@ export async function POST(
         debt_amount: String(newDebt)
       }, tx)
       invalidate(shopId, 'customers')
+
+    // ── GẠCH NỢ THEO HÓA ĐƠN ──
+    if (payload.order_allocations && payload.order_allocations.length > 0) {
+      // Mode: Per-order — apply to specific selected orders (FIFO within selection)
+      let remaining = payload.amount
+      for (const alloc of payload.order_allocations) {
+        if (remaining <= 0) break
+        const order = await connector.findById('orders', alloc.order_id)
+        if (!order) continue
+        
+        const orderDebt = parseFloat(order.debt_amount || '0')
+        if (orderDebt <= 0) continue
+        
+        const applied = Math.min(remaining, orderDebt, alloc.amount)
+        const newOrderDebt = Math.max(0, orderDebt - applied)
+        const newPaid = parseFloat(order.paid_amount || '0') + applied
+        
+        const orderUpdates: Record<string, any> = {
+          debt_amount: String(newOrderDebt),
+          paid_amount: String(newPaid),
+        }
+        
+        // If order is fully paid, update payment_method from 'debt' to actual method
+        if (newOrderDebt === 0 && (order.payment_method === 'debt' || order.payment_method?.startsWith('debt-'))) {
+          orderUpdates.payment_method = payload.method
+        }
+        
+        await connector.update('orders', alloc.order_id, orderUpdates)
+        tx.add(async () => {
+          await connector.update('orders', alloc.order_id, {
+            debt_amount: String(orderDebt),
+            paid_amount: order.paid_amount,
+            payment_method: order.payment_method,
+          }).catch(() => {})
+        })
+
+        // Create payment record for this order (audit trail)
+        const paymentId = `DEBT-${alloc.order_id.slice(-6)}-${Date.now()}`
+        const payRecord = await connector.create('payments', {
+          id: paymentId,
+          order_id: alloc.order_id,
+          order_no: order.order_no || '',
+          method: payload.method,
+          amount: String(applied),
+          reference_no: parentId,
+          note: `Thu nợ qua sổ quỹ #${parentId}`,
+          paid_at: getGMT7Time(),
+        })
+        tx.add(async () => {
+          await connector.delete('payments', payRecord.id || payRecord.payment_id).catch(() => {})
+        })
+        
+        remaining -= applied
+      }
+      invalidate(shopId, 'orders')
+      invalidate(shopId, 'payments')
+    } else {
+      // Mode: Basic or FIFO auto — scan orders with debt and clear oldest first
+      // If no orders have debt, just reduce customer debt (already done above)
+      const debtOrdersRes = await connector.list('orders', {
+        filters: { customer_id: payload.reference_id },
+        limit: 5000
+      })
+      const unpaidOrders = debtOrdersRes.data
+        .filter((o: Record<string, string>) => parseFloat(o.debt_amount || '0') > 0 && o.is_return !== 'TRUE' && o.status !== 'cancelled' && o.status !== 'failed')
+        .sort((a: Record<string, string>, b: Record<string, string>) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime())
+      
+      if (unpaidOrders.length > 0) {
+        let remaining = payload.amount
+        for (const order of unpaidOrders) {
+          if (remaining <= 0) break
+          const orderDebt = parseFloat(order.debt_amount || '0')
+          const applied = Math.min(remaining, orderDebt)
+          const newOrderDebt = Math.max(0, orderDebt - applied)
+          const newPaid = parseFloat(order.paid_amount || '0') + applied
+          
+          const orderUpdates: Record<string, any> = {
+            debt_amount: String(newOrderDebt),
+            paid_amount: String(newPaid),
+          }
+          
+          if (newOrderDebt === 0 && (order.payment_method === 'debt' || order.payment_method?.startsWith('debt-'))) {
+            orderUpdates.payment_method = payload.method
+          }
+          
+          await connector.update('orders', order.id, orderUpdates)
+          tx.add(async () => {
+            await connector.update('orders', order.id, {
+              debt_amount: String(orderDebt),
+              paid_amount: order.paid_amount,
+              payment_method: order.payment_method,
+            }).catch(() => {})
+          })
+
+          // Create payment record for this order (audit trail)
+          const paymentId = `DEBT-${order.id.slice(-6)}-${Date.now()}`
+          const payRecord = await connector.create('payments', {
+            id: paymentId,
+            order_id: order.id,
+            order_no: order.order_no || '',
+            method: payload.method,
+            amount: String(applied),
+            reference_no: parentId,
+            note: `Thu nợ tự động (FIFO) qua sổ quỹ #${parentId}`,
+            paid_at: getGMT7Time(),
+          })
+          tx.add(async () => {
+            await connector.delete('payments', payRecord.id || payRecord.payment_id).catch(() => {})
+          })
+          
+          remaining -= applied
+        }
+        invalidate(shopId, 'orders')
+        invalidate(shopId, 'payments')
+      }
+      // If no unpaid orders found, just reduce customer debt (already done above)
+    }
     }
 
     // If this is a debt payment, reduce supplier debt

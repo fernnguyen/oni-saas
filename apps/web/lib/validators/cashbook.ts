@@ -19,6 +19,11 @@ export const cashbookCreateSchema = z.object({
     department_id: z.string(),
     percentage: z.number()
   })).optional(),
+  // Debt reconciliation: per-order allocation
+  order_allocations: z.array(z.object({
+    order_id: z.string(),
+    amount: z.number().positive()
+  })).optional(),
 })
 
 export type CashbookCreateInput = z.infer<typeof cashbookCreateSchema>

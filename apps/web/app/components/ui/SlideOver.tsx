@@ -10,6 +10,7 @@ export interface SlideOverProps {
   footer?: React.ReactNode
   headerActions?: React.ReactNode
   children: React.ReactNode
+  zIndex?: number
 }
 
 export function SlideOver({
@@ -20,6 +21,7 @@ export function SlideOver({
   footer,
   headerActions,
   children,
+  zIndex = 50,
 }: SlideOverProps) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -34,20 +36,21 @@ export function SlideOver({
       {/* Overlay */}
       <div
         className={[
-          'fixed inset-0 z-40 bg-black/40 transition-opacity duration-300 !m-0',
+          'fixed inset-0 bg-black/40 transition-opacity duration-300 !m-0',
           open ? 'opacity-100' : 'pointer-events-none opacity-0',
         ].join(' ')}
+        style={{ zIndex: zIndex - 10 }}
         onClick={onClose}
       />
 
       {/* Panel */}
       <div
         className={[
-          'fixed bottom-0 right-0 top-0 z-50 flex flex-col bg-white shadow-xl !m-0',
+          'fixed bottom-0 right-0 top-0 flex flex-col bg-white shadow-xl !m-0',
           'transition-transform duration-300 ease-in-out',
           open ? 'translate-x-0' : 'translate-x-full',
         ].join(' ')}
-        style={{ width: '100%', maxWidth: width }}
+        style={{ width: '100%', maxWidth: width, zIndex }}
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-200 px-4 sm:px-6 py-4">

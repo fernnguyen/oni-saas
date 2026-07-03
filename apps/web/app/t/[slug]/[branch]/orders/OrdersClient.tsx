@@ -1,5 +1,5 @@
 'use client'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useDebounce } from 'use-debounce'
@@ -15,6 +15,7 @@ import { useConfirm } from '@/app/components/ui/ConfirmProvider'
 import { printBill } from '@/lib/pos/printBill'
 import { HasPermission } from '@/app/components/ui/PermissionGate'
 import { getPaymentMethodLabel } from '@oni/core'
+import { DebtCollectionSlideOver } from '@/app/components/ui/DebtCollectionSlideOver'
 
 const Eye = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
 const Ban = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>
@@ -141,6 +142,9 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
   const [initialFundId, setInitialFundId] = useState<string | null>(null)
   const [savingPaymentCorrection, setSavingPaymentCorrection] = useState(false)
 
+  const [showDebtCollect, setShowDebtCollect] = useState(false)
+  const [debtCollectEntity, setDebtCollectEntity] = useState<any>(null)
+
   const { data: fundsData } = useQuery({
     queryKey: ['payment-funds', shopId],
     queryFn: async () => {
@@ -199,6 +203,23 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
     },
     staleTime: 0,
   })
+
+  // Sync selectedOrder with latest data from list
+  useEffect(() => {
+    if (selectedOrder && data?.data) {
+      const latest = data.data.find(o => o.id === selectedOrder.id || o.order_id === selectedOrder.order_id)
+      if (latest) {
+        if (
+          latest.debt_amount !== selectedOrder.debt_amount ||
+          latest.paid_amount !== selectedOrder.paid_amount ||
+          latest.status !== selectedOrder.status ||
+          latest.payment_method !== selectedOrder.payment_method
+        ) {
+          setSelectedOrder(latest)
+        }
+      }
+    }
+  }, [data?.data, selectedOrder])
 
   // Order items (lazy — only when detail open)
   const { data: itemsData, isLoading: itemsLoading } = useQuery({
@@ -916,8 +937,26 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
                 </div>
                 <div>
                   <dt className="text-slate-500">Còn nợ</dt>
-                  <dd className={calculatedDebt > 0 ? 'font-medium text-orange-600' : 'text-slate-400'}>
-                    {fmtVND(calculatedDebt)}
+                  <dd className="flex items-center gap-2">
+                    <span className={calculatedDebt > 0 ? 'font-medium text-orange-600' : 'text-slate-400'}>
+                      {fmtVND(calculatedDebt)}
+                    </span>
+                    {calculatedDebt > 0 && selectedOrder.customer_id && !selectedOrder.customer_id.startsWith('virtual:') && (
+                      <button 
+                        onClick={() => {
+                          setDebtCollectEntity({
+                            id: selectedOrder.customer_id,
+                            customer_id: selectedOrder.customer_id,
+                            name: selectedOrder.customer_name,
+                            debt_amount: String(calculatedDebt) // will be refetched by SlideOver anyway
+                          })
+                          setShowDebtCollect(true)
+                        }}
+                        className="text-[11px] font-semibold text-primary hover:underline border border-primary/20 bg-primary/5 px-1.5 py-0.5 rounded cursor-pointer"
+                      >
+                        Thu nợ
+                      </button>
+                    )}
                   </dd>
                 </div>
                 {selectedOrder.note && (
@@ -929,7 +968,8 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
               </dl>
             </div>
 
-            {/* Order items */}
+            {/* Debt Payment Timeline removed as requested */}
+
             <div>
               <h3 className="mb-2 text-sm font-medium text-slate-700">Sản phẩm</h3>
               {itemsLoading ? (
@@ -1551,6 +1591,20 @@ ${cancelTarget?.status === 'in_progress' ? '\n⚠️ CẢNH BÁO TỪ HỆ THỐ
         variant="danger"
         loading={returnMutation.isPending}
       />
+    <DebtCollectionSlideOver
+      open={showDebtCollect}
+      onClose={() => {
+        setShowDebtCollect(false)
+        setDebtCollectEntity(null)
+      }}
+      shopId={shopId}
+      entity={debtCollectEntity}
+      entityType="customer"
+      funds={fundsList}
+      onSuccess={() => {
+        // Will invalidate queries internally
+      }}
+    />
     </div>
   )
 }
