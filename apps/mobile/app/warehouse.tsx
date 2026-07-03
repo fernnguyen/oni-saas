@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Text, View, ScrollView, TouchableOpacity, TextInput, Modal, Platform, Alert, ActivityIndicator, Animated, Pressable } from 'react-native';
+import { Text, View, ScrollView, TouchableOpacity, TextInput, Modal, Platform, Alert, ActivityIndicator, Animated, Pressable, KeyboardAvoidingView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -17,6 +17,12 @@ import { SyncManager } from '../lib/sync/SyncManager';
 import { usePermissions } from '../lib/auth/PermissionsContext';
 import * as Haptics from 'expo-haptics';
 import { getApiBaseUrl, getApiHeaders } from '../lib/api/config';
+
+const formatNumberString = (val: string) => {
+  const cleaned = val.replace(/\D/g, '');
+  if (!cleaned) return '';
+  return parseInt(cleaned, 10).toLocaleString('vi-VN').replace(/,/g, '.');
+};
 
 const REASONS_MAP: Record<string, { value: string; label: string }[]> = {
   adjustment: [
@@ -84,6 +90,12 @@ function WarehouseContent() {
   const [showWarehouseSelector, setShowWarehouseSelector] = useState(false);
   const [showToWarehouseSelector, setShowToWarehouseSelector] = useState(false);
   const [noteInput, setNoteInput] = useState('');
+
+  // Payment & Fund states
+  const [funds, setFunds] = useState<any[]>([]);
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'transfer'>('cash');
+  const [selectedFundId, setSelectedFundId] = useState('');
+  const [showFundSelector, setShowFundSelector] = useState(false);
 
   // Sync states
   const [isSyncing, setIsSyncing] = useState(false);
@@ -256,6 +268,40 @@ function WarehouseContent() {
     }
   };
 
+  const selectDefaultFundForMethod = (method: 'cash' | 'transfer', list = funds) => {
+    const targetType = method === 'cash' ? 'cash' : 'bank';
+    const defaultFund = list.find((f: any) => f.type === targetType && f.is_default);
+    const firstFund = list.find((f: any) => f.type === targetType);
+    if (defaultFund) {
+      setSelectedFundId(defaultFund.id);
+    } else if (firstFund) {
+      setSelectedFundId(firstFund.id);
+    } else if (list.length > 0) {
+      setSelectedFundId(list[0].id);
+    } else {
+      setSelectedFundId('');
+    }
+  };
+
+  const loadFunds = async () => {
+    try {
+      if (Platform.OS !== 'web') {
+        const list = await db.select().from(schema.paymentFunds);
+        setFunds(list);
+        selectDefaultFundForMethod(paymentMethod, list);
+      } else {
+        const mockFunds = [
+          { id: 'f1', name: 'Két tiền mặt tại quầy', type: 'cash', is_default: true, account_number: '' },
+          { id: 'f2', name: 'TK Vietcombank', type: 'bank', is_default: false, account_number: '123456789' }
+        ];
+        setFunds(mockFunds);
+        setSelectedFundId('f1');
+      }
+    } catch (err) {
+      console.warn('Lỗi tải danh sách quỹ:', err);
+    }
+  };
+
   const loadProducts = async () => {
     try {
       setIsLoading(true);
@@ -396,6 +442,7 @@ function WarehouseContent() {
     useCallback(() => {
       loadProducts();
       loadWarehouses();
+      loadFunds();
     }, [])
   );
 
@@ -423,6 +470,8 @@ function WarehouseContent() {
     setReferenceNo('');
     setReason('Kiểm kê định kỳ');
     setNoteInput('');
+    setPaymentMethod('cash');
+    selectDefaultFundForMethod('cash');
     
     if (warehouses.length > 0) {
       const saleWh = warehouses.find((w: any) => w.code === 'sale') || warehouses[0];
@@ -444,6 +493,10 @@ function WarehouseContent() {
       setActualQtyInput(String(selectedProduct?.stock_qty || 0));
     } else {
       setQtyInput('1');
+    }
+    if (type === 'purchase_in') {
+      setPaymentMethod('cash');
+      selectDefaultFundForMethod('cash');
     }
   };
 
@@ -506,9 +559,13 @@ function WarehouseContent() {
     // Validate pricing if purchase_in & user has permission
     let unitCostVal = 0;
     if (movementType === 'purchase_in' && hasPricingPermission) {
-      unitCostVal = parseInt(costInput || '0', 10);
+      unitCostVal = parseInt(costInput.replace(/\./g, '') || '0', 10);
       if (isNaN(unitCostVal) || unitCostVal < 0) {
         Alert.alert('Lỗi', 'Đơn giá mua/giá vốn phải là một số lớn hơn hoặc bằng 0.');
+        return;
+      }
+      if (unitCostVal > 0 && !selectedFundId) {
+        Alert.alert('Lỗi', 'Vui lòng chọn tài khoản quỹ để thanh toán.');
         return;
       }
     }
@@ -549,6 +606,10 @@ function WarehouseContent() {
     if (movementType === 'purchase_in' && hasPricingPermission) {
       confirmMsg += `• Đơn giá mua: ${formatCurrency(unitCostVal)}\n`;
       confirmMsg += `• Tổng giá trị: ${formatCurrency(unitCostVal * parseInt(qtyInput || '0', 10))}\n`;
+      if (unitCostVal > 0) {
+        const f = funds.find((x: any) => x.id === selectedFundId);
+        confirmMsg += `• Thanh toán: ${paymentMethod === 'cash' ? '💵 Tiền mặt' : '💳 Chuyển khoản'} (${f ? f.name : 'Không xác định'})\n`;
+      }
     }
 
     const userEmail = await AsyncStorage.getItem('saved_email') || 'mobile-app';
@@ -612,6 +673,8 @@ function WarehouseContent() {
           sync_status: 'pending',
           warehouse_id: selectedWarehouseId || null,
           to_warehouse_id: ['transfer_out', 'transfer_in'].includes(movementType) ? (toWarehouseId || null) : null,
+          payment_method: movementType === 'purchase_in' && unitCostVal > 0 ? paymentMethod : null,
+          fund_id: movementType === 'purchase_in' && unitCostVal > 0 ? selectedFundId : null,
         });
 
         // 2. Cập nhật tồn kho sản phẩm trực tiếp trong bảng products SQLite cục bộ
@@ -757,7 +820,10 @@ function WarehouseContent() {
         transparent={true}
         onRequestClose={() => setShowAdjustModal(false)}
       >
-        <View className="flex-1 justify-end">
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          className="flex-1 justify-end"
+        >
           <Pressable
             className="absolute inset-0 bg-black/60"
             onPress={() => setShowAdjustModal(false)}
@@ -948,7 +1014,7 @@ function WarehouseContent() {
                     <View className="relative justify-center">
                       <TextInput
                         value={costInput}
-                        onChangeText={setCostInput}
+                        onChangeText={(text) => setCostInput(formatNumberString(text))}
                         keyboardType="numeric"
                         className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 text-center text-sm font-bold text-slate-800 px-4"
                         placeholder="0"
@@ -960,14 +1026,86 @@ function WarehouseContent() {
                         }}
                       />
                     </View>
-                    {costInput !== '' && !isNaN(parseInt(costInput, 10)) && (
+                    {costInput !== '' && !isNaN(parseInt(costInput.replace(/\./g, ''), 10)) && (
                       <Text className="text-[10px] text-slate-400 font-semibold mt-1 text-right">
-                        Thành tiền: {formatCurrency(parseInt(costInput, 10) * parseInt(qtyInput || '0', 10))}
+                        Thành tiền: {formatCurrency(parseInt(costInput.replace(/\./g, ''), 10) * parseInt(qtyInput || '0', 10))}
                       </Text>
                     )}
                   </View>
                 )}
+                {movementType === 'purchase_in' && hasPricingPermission && (
+                  <View className="mb-4 bg-orange-50/40 border border-orange-100 rounded-2xl p-4">
+                    <Text className="text-xxs font-bold text-orange-500 uppercase tracking-wider mb-2.5">
+                      Nguồn tiền thanh toán
+                    </Text>
+                    
+                    <View className="flex-row gap-2 mb-3">
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={() => {
+                          setPaymentMethod('cash');
+                          selectDefaultFundForMethod('cash');
+                        }}
+                        className={`flex-1 py-2.5 rounded-xl border items-center justify-center ${
+                          paymentMethod === 'cash'
+                            ? 'bg-orange-500 border-orange-500'
+                            : 'bg-white border-slate-200'
+                        }`}
+                      >
+                        <Text
+                          className={`text-xs font-bold ${
+                            paymentMethod === 'cash' ? 'text-white' : 'text-slate-600'
+                          }`}
+                        >
+                          Tiền mặt
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={() => {
+                          setPaymentMethod('transfer');
+                          selectDefaultFundForMethod('transfer');
+                        }}
+                        className={`flex-1 py-2.5 rounded-xl border items-center justify-center ${
+                          paymentMethod === 'transfer'
+                            ? 'bg-orange-500 border-orange-500'
+                            : 'bg-white border-slate-200'
+                        }`}
+                      >
+                        <Text
+                          className={`text-xs font-bold ${
+                            paymentMethod === 'transfer' ? 'text-white' : 'text-slate-600'
+                          }`}
+                        >
+                          💳 Chuyển khoản
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
 
+                    <Text className="text-[10px] font-bold text-slate-400 mb-1.5 uppercase">Tài khoản quỹ chi:</Text>
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={() => setShowFundSelector(true)}
+                      className="flex-row justify-between items-center border border-slate-200 rounded-xl px-3.5 py-2.5 bg-white"
+                    >
+                      {(() => {
+                        const f = funds.find((x) => x.id === selectedFundId);
+                        if (!f) return <Text className="text-xs text-slate-455">Chọn tài khoản quỹ</Text>;
+                        return (
+                          <View className="flex-col items-start">
+                            <Text className="text-xs font-bold text-slate-805">{f.name}</Text>
+                            {f.account_number && (
+                              <Text className="text-[10px] text-slate-405 font-medium mt-0.5">
+                                STK: {f.account_number} {f.bank_name ? `(${f.bank_name})` : ''}
+                              </Text>
+                            )}
+                          </View>
+                        );
+                      })()}
+                      <Ionicons name="chevron-down" size={14} color="#64748b" />
+                    </TouchableOpacity>
+                  </View>
+                )}
                 {/* Nhập mã chứng từ */}
                 <View className="mb-4">
                   <Text className="text-xxs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Mã chứng từ / Mã tham chiếu</Text>
@@ -1183,8 +1321,58 @@ function WarehouseContent() {
                 </ScrollView>
               </View>
             )}
+
+            {/* Fund Selector Overlay */}
+            {showFundSelector && (
+              <View className="absolute inset-0 bg-white rounded-t-3xl p-6 z-50">
+                <View className="flex-row justify-between items-center mb-6">
+                  <Text className="text-base font-bold text-slate-800">
+                    Chọn tài khoản quỹ ({paymentMethod === 'cash' ? 'Tiền mặt' : 'Chuyển khoản'})
+                  </Text>
+                  <TouchableOpacity onPress={() => setShowFundSelector(false)}>
+                    <Ionicons name="close" size={24} color="#64748b" />
+                  </TouchableOpacity>
+                </View>
+                <ScrollView showsVerticalScrollIndicator={false}>
+                  {funds
+                    .filter((f) => f.type === (paymentMethod === 'cash' ? 'cash' : 'bank'))
+                    .map((f) => {
+                      const isSelected = selectedFundId === f.id;
+                      return (
+                        <TouchableOpacity
+                          key={f.id}
+                          onPress={() => {
+                            setSelectedFundId(f.id);
+                            setShowFundSelector(false);
+                          }}
+                          className="py-3.5 border-b border-slate-100 flex-row justify-between items-center"
+                        >
+                          <View className="flex-col">
+                            <Text className={`text-xs ${isSelected ? 'font-bold text-orange-500' : 'text-slate-700'}`}>
+                              {f.name}
+                            </Text>
+                            {f.account_number && (
+                              <Text className="text-[10px] text-slate-400 mt-0.5">
+                                STK: {f.account_number} {f.bank_name ? `- ${f.bank_name}` : ''}
+                              </Text>
+                            )}
+                          </View>
+                          {isSelected && (
+                            <Ionicons name="checkmark" size={18} color="#fa5908" />
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  {funds.filter((f) => f.type === (paymentMethod === 'cash' ? 'cash' : 'bank')).length === 0 && (
+                    <View className="py-8 items-center justify-center">
+                      <Text className="text-xs text-slate-400 italic">Không tìm thấy quỹ phù hợp</Text>
+                    </View>
+                  )}
+                </ScrollView>
+              </View>
+            )}
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Barcode scanner modal */}

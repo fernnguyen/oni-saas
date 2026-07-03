@@ -180,6 +180,8 @@ export const stockMovements = sqliteTable('stock_movements', {
   sync_status: text('sync_status').notNull().default('synced'), // synced | pending
   warehouse_id: text('warehouse_id'),
   to_warehouse_id: text('to_warehouse_id'),
+  payment_method: text('payment_method'),
+  fund_id: text('fund_id'),
 });
 
 // 10. BỘ NHỚ ĐỆM CỤC BỘ (Local Caches)

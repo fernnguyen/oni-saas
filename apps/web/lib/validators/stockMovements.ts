@@ -31,7 +31,8 @@ export const stockMovementCreateSchema = z.object({
   discount: z.string().optional().default('0'),
   payments: z.array(z.object({
     amount: z.string(),
-    method: z.string()
+    method: z.string(),
+    fund_id: z.string().optional(),
   })).optional().default([]),
   warehouse_id: z.string().optional().default(''),
   to_warehouse_id: z.string().optional().default(''),

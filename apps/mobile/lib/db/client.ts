@@ -319,7 +319,9 @@ export function initializeLocalDatabase(customDb?: any) {
         created_at TEXT NOT NULL,
         sync_status TEXT NOT NULL DEFAULT 'synced',
         warehouse_id TEXT,
-        to_warehouse_id TEXT
+        to_warehouse_id TEXT,
+        payment_method TEXT,
+        fund_id TEXT
       );
 
       CREATE TABLE IF NOT EXISTS local_caches (
@@ -351,6 +353,8 @@ export function initializeLocalDatabase(customDb?: any) {
     try { targetDb.execSync(`ALTER TABLE payment_methods ADD COLUMN code TEXT NOT NULL DEFAULT 'cash';`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE stock_movements ADD COLUMN warehouse_id TEXT;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE stock_movements ADD COLUMN to_warehouse_id TEXT;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE stock_movements ADD COLUMN payment_method TEXT;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE stock_movements ADD COLUMN fund_id TEXT;`); } catch (e) {}
     
     // Migrations for products and categories sync features
     try { targetDb.execSync(`ALTER TABLE products ADD COLUMN sync_status TEXT DEFAULT 'synced';`); } catch (e) {}

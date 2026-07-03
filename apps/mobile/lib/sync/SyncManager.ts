@@ -888,6 +888,13 @@ export class SyncManager {
               reference_no: item.reference_no || '',
               warehouse_id: item.warehouse_id || '',
               to_warehouse_id: item.to_warehouse_id || '',
+              payments: item.unit_cost > 0 && item.type === 'purchase_in' && (item as any).fund_id ? [
+                {
+                  amount: String(Math.abs(item.qty) * item.unit_cost),
+                  method: (item as any).payment_method || 'cash',
+                  fund_id: (item as any).fund_id
+                }
+              ] : [],
             }),
             signal: controller.signal,
           });
