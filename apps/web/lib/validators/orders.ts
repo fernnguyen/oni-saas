@@ -46,6 +46,7 @@ export const orderItemCreateSchema = z.object({
   product_name:   z.string().min(1),
   qty:            z.string().min(1),
   unit_price:     z.string().min(1),
+  original_price: z.string().optional(),
   discount_pct:   z.string().optional().default('0'),
   line_discount:  z.string().optional().default('0'),
   tax_rate:       z.string().optional().default('0'),
@@ -65,6 +66,8 @@ export const orderItemCreateSchema = z.object({
   modifier_total: z.string().optional().default('0'),
   // Sum of modifier price_adj. line_total = (unit_price + modifier_total) * qty
 })
+
+export const orderItemUpdateSchema = orderItemCreateSchema.partial()
 
 export const paymentCreateSchema = z.object({
   id:           z.string().optional().default(''),

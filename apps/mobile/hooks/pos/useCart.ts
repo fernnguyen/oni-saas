@@ -44,6 +44,7 @@ export function useCart(isNavReady: boolean, isLoading: boolean) {
 
     setPreviewProduct({
       ...product,
+      original_price: product.sell_price,
       tax_rate: resolvedTaxRate || '0',
       tax_group: resolvedTaxGroup || '',
       input_tax_rate: resolvedInputTaxRate || '0',
@@ -71,11 +72,14 @@ export function useCart(isNavReady: boolean, isLoading: boolean) {
         [cartItemId]: {
           productId: previewProduct.id,
           name: previewProduct.name,
-          price: previewProduct.sell_price,
+          price: Math.max(0, previewProduct.sell_price - (previewProduct.discount_amount || 0)),
+          original_price: previewProduct.original_price,
           quantity: existing ? existing.quantity + previewQuantity : previewQuantity,
           variant_label: variantLabel,
           modifiers: selectedModifiers,
           modifier_total: modifierTotal,
+          discount_amount: previewProduct.discount_amount || 0,
+          discount_pct: previewProduct.discount_pct || 0,
           tax_rate: previewProduct.tax_rate || '0',
           input_tax_rate: previewProduct.input_tax_rate || '0',
           tax_group: previewProduct.tax_group || '',

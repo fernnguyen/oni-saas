@@ -452,6 +452,9 @@ export default function GroupCheckoutModal({
                                   <div className="flex flex-col text-left">
                                     <span className="font-bold text-slate-800">{item.product_name}</span>
                                     <span className="text-[10px] text-slate-400">SL: {item.qty} • Đơn giá: {Number(item.unit_price).toLocaleString('vi-VN')}đ</span>
+                                    {Number(item.discount_amount || 0) > 0 && (
+                                      <span className="text-[10px] text-orange-500 block mt-0.5">Giảm giá: -{Number(item.discount_amount).toLocaleString('vi-VN')}đ</span>
+                                    )}
                                   </div>
                                 </div>
                                 <span className="font-extrabold text-slate-800">{Number(item.line_total).toLocaleString('vi-VN')}đ</span>

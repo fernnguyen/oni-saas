@@ -9,10 +9,16 @@ export async function PUT(
 ) {
   try {
     const { shopId, id } = await params
-    const { connector } = await requireShopAccess(shopId, 'orders.edit')
+    const { connector, permissions } = await requireShopAccess(shopId, 'orders.edit')
 
     const body = await req.json()
-    // Optional: add validation here
+    
+    // Check permission for price changes
+    if (body.unit_price !== undefined || body.discount_amount !== undefined) {
+      if (!permissions.includes('orders.edit_price')) {
+        return NextResponse.json({ error: 'Permission denied: requires orders.edit_price' }, { status: 403 })
+      }
+    }
 
     const updated = await connector.update('order-items', id, body)
     invalidate(shopId, 'order-items')

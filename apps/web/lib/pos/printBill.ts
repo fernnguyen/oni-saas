@@ -340,6 +340,10 @@ ${items
       const modAdj = (it as any).modifier_total > 0 ? ` (+${Number((it as any).modifier_total).toLocaleString('vi-VN')}đ)` : ''
       subLine = `<br/><span style="font-size:10px;color:#000">${modParts}${modAdj}</span>`
     }
+    const itemDiscount = Number((it as any).line_discount || (it as any).discount_amount || 0)
+    if (itemDiscount > 0) {
+      subLine += `<br/><span style="font-size:10px;color:#000;font-style:italic">${isBilingual ? 'Giảm giá / Discount: ' : 'Giảm giá: '}-${fmtVND(itemDiscount)}</span>`
+    }
     const effectivePrice = Number(it.unit_price) + (Number((it as any).modifier_total) || 0)
     const rate = parseFloat((it as any).tax_rate || '0') || 0
     const taxLabel = rate > 0 ? ` (VAT ${rate}%)` : ''

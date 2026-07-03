@@ -9,6 +9,7 @@ import { db } from '../../lib/db/client';
 import * as schema from '../../lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { calculateHourlyBilling, isTimeChargeProduct, isSystemTimeChargeProduct } from '@oni/core';
+import { PosItemEditModal } from './PosItemEditModal';
 
 interface CartCheckoutModalProps {
   visible: boolean;
@@ -40,6 +41,7 @@ interface CartCheckoutModalProps {
   paymentMethodsList?: any[];
   cartOwnerTable?: any;
   shopVertical?: string;
+  onEditItemSave?: (cartItemId: string, finalPrice: number, originalPrice: number, discountAmt: number, discountPct: number) => void;
 }
 
 export function formatCurrency(value: number): string {
@@ -84,7 +86,8 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
     shopId, isOnline = true, apiBaseUrl, apiHeaders, loading = false,
     paymentMethodsList = [],
     cartOwnerTable,
-    shopVertical
+    shopVertical,
+    onEditItemSave
   } = props;
 
   const resolvedMethods = React.useMemo(() => {
@@ -135,6 +138,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
   const [currentTime, setCurrentTime] = useState(() => new Date());
 
   const [localRentalType, setLocalRentalType] = useState<'hourly' | 'overnight' | 'daily'>('hourly');
+  const [editingItemInfo, setEditingItemInfo] = useState<{ cartItemId: string, item: any } | null>(null);
 
   React.useEffect(() => {
     if (visible && cartOwnerTable) {
@@ -1298,13 +1302,19 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                     : (parseFloat(itemToRender.tax_rate || '0') || 0);
 
                   return (
-                    <View key={cartItemId} className={`py-3 px-2 rounded-xl ${idx > 0 && !isTimeCharge ? 'border-t border-slate-100' : ''} ${isTimeCharge ? 'bg-emerald-50/60 border border-emerald-100 my-1.5' : ''}`}>
+                    <View 
+                      key={cartItemId} 
+                      className={`py-3 px-2 rounded-xl ${idx > 0 && !isTimeCharge ? 'border-t border-slate-100' : ''} ${isTimeCharge ? 'bg-emerald-50/60 border border-emerald-100 my-1.5' : ''}`}
+                    >
                       {/* Top Row: Name, Quantity, Total Price */}
                       <View className="flex-row justify-between items-start mb-1">
                         {/* Name & Modifiers */}
                         <View className="flex-1 pr-2">
                           <Text className={`font-semibold text-sm leading-tight ${isTimeCharge ? 'text-emerald-800' : 'text-slate-800'}`}>
                             {itemToRender.name}
+                            {((item as any).original_price != null && Number(item.price) !== Number((item as any).original_price) || Number((item as any).discount_amount || 0) > 0) && (
+                              <Text className="text-orange-500 font-bold ml-1 text-[10px]"> *</Text>
+                            )}
                             {rate > 0 && (
                               <Text className="text-[10px] text-slate-400 font-normal">
                                 {` (VAT ${rate}%)`}
@@ -1347,9 +1357,33 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                           )}
  
                           {/* Total Price */}
-                          <View className="w-[85px] items-end">
-                            <Text className={`font-bold text-[15px] ${isTimeCharge ? 'text-emerald-700' : 'text-slate-800'}`}>{formatCurrency((itemToRender.price + (itemToRender.modifier_total || 0)) * itemToRender.quantity)}</Text>
-                          </View>
+                          <TouchableOpacity 
+                            className="w-[85px] items-end"
+                            onPress={() => {
+                              if (!isTimeCharge) {
+                                setEditingItemInfo({ cartItemId, item: { ...item, unit_price: item.price } });
+                              }
+                            }}
+                          >
+                            <View style={{ borderBottomWidth: 1, borderStyle: 'dashed', borderColor: '#cbd5e1' }}>
+                              <Text className={`font-bold text-[15px] ${isTimeCharge ? 'text-emerald-700' : 'text-slate-800'}`}>
+                                {formatCurrency((itemToRender.price + (itemToRender.modifier_total || 0)) * itemToRender.quantity)}
+                              </Text>
+                            </View>
+                            {(() => {
+                              const basePrice = (item as any).original_price ?? item.price;
+                              const priceDiff = basePrice - item.price;
+                              const totalReduction = priceDiff * itemToRender.quantity;
+                              if (totalReduction > 0) {
+                                return (
+                                  <Text className="text-[10px] text-orange-500 italic mt-0.5">
+                                    Giảm: -{formatCurrency(totalReduction)}
+                                  </Text>
+                                );
+                              }
+                              return null;
+                            })()}
+                          </TouchableOpacity>
                         </View>
                       </View>
  
@@ -2276,6 +2310,20 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
               </Pressable>
             </View>
           )}
+
+          {/* Modal chỉnh sửa chi tiết món (Popup inline) */}
+          <PosItemEditModal
+            inline={true}
+            visible={!!editingItemInfo}
+            item={editingItemInfo?.item || null}
+            onClose={() => setEditingItemInfo(null)}
+            onSave={(finalPrice: number, originalPrice: number, discountAmt: number, discountPct: number) => {
+              if (editingItemInfo && onEditItemSave) {
+                onEditItemSave(editingItemInfo.cartItemId, finalPrice, originalPrice, discountAmt, discountPct);
+              }
+              setEditingItemInfo(null);
+            }}
+          />
 
           {/* Modal chỉnh sửa giảm giá (Dùng absolute View thay vì lồng Modal để tránh đơ UI trên React Native) */}
           {isDiscountModalVisible && (

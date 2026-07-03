@@ -248,6 +248,11 @@ export function initializeLocalDatabase(customDb?: any) {
         tax_pit_rate TEXT
       );
 
+      -- Auto-migrate newly added columns
+      -- Note: SQLite does not support IF NOT EXISTS for ADD COLUMN directly in standard DDL, but expo-sqlite execSync might ignore errors if wrapped in multiple execs.
+      -- Actually, we are running multiple statements in one execSync, so if one fails, others might fail.
+      -- To be safe, we will run alter table in separate try-catch blocks after the big execSync.
+
       CREATE TABLE IF NOT EXISTS shop_shifts (
         id TEXT PRIMARY KEY NOT NULL,
         opened_at TEXT NOT NULL,
@@ -333,6 +338,8 @@ export function initializeLocalDatabase(customDb?: any) {
     try { targetDb.execSync(`ALTER TABLE orders ADD COLUMN reference_no TEXT;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE location_resources ADD COLUMN metadata TEXT;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE products ADD COLUMN product_type TEXT DEFAULT 'simple';`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE order_items ADD COLUMN original_price INTEGER;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE order_items ADD COLUMN discount_amount INTEGER DEFAULT 0;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE products ADD COLUMN parent_id TEXT;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE products ADD COLUMN variant_options TEXT;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE products ADD COLUMN modifier_groups TEXT;`); } catch (e) {}

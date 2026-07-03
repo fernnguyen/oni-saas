@@ -8,6 +8,7 @@ export interface CartItem {
   product_name: string
   sku?: string
   unit_price: number
+  original_price?: number
   cost_price: number
   qty: number
   discount_amount: number
@@ -75,6 +76,7 @@ function cartReducer(state: CartState, action: CartAction): CartState {
         product_name: action.product.name,
         sku: action.product.sku,
         unit_price: Number(action.product.sell_price),
+        original_price: Number(action.product.sell_price),
         cost_price: Number(action.product.cost_price),
         qty: 1,
         discount_amount: 0,
@@ -278,6 +280,7 @@ export function useCart(inventory?: Map<string, number>, branchId?: string, allo
       type: 'ADD_ITEM_WITH_OPTS',
       item: {
         ...item,
+        original_price: item.original_price ?? item.unit_price,
         tax_rate: resolvedTaxRate || '0',
         tax_group: resolvedTaxGroup || '',
       }

@@ -1831,6 +1831,18 @@ export default function OrdersScreen() {
                         SL: {item.qty} x {formatCurrency(effPrice)}
                         {item.tax_rate && parseFloat(item.tax_rate) > 0 ? ` · VAT ${item.tax_rate}%` : ''}
                       </Text>
+                      {(() => {
+                        const originalPrice = (item as any).original_price;
+                        const hasOriginalPrice = originalPrice !== null && originalPrice !== undefined && originalPrice !== '';
+                        const basePrice = hasOriginalPrice ? Number(originalPrice) : Number(item.unit_price);
+                        const discountAmt = Number((item as any).line_discount || (item as any).discount_amount || 0);
+                        const isPriceEdited = (hasOriginalPrice && Number(item.unit_price) !== Number(originalPrice)) || discountAmt > 0;
+                        return isPriceEdited ? (
+                          <View className="self-start mt-0.5 px-1 py-0.5 rounded bg-orange-50">
+                            <Text className="text-[10px] text-orange-600">Đã điều chỉnh</Text>
+                          </View>
+                        ) : null;
+                      })()}
                       {itemReturned > 0 ? (
                         <Text className="text-xxs text-orange-600 font-semibold mt-0.5">
                           (Đã trả {itemReturned})
@@ -1841,6 +1853,22 @@ export default function OrdersScreen() {
                       <Text className="text-xs font-semibold text-slate-800">
                         {formatCurrency(item.line_total)}
                       </Text>
+                      {(() => {
+                        const originalPrice = (item as any).original_price;
+                        const hasOriginalPrice = originalPrice !== null && originalPrice !== undefined && originalPrice !== '';
+                        const basePrice = hasOriginalPrice ? Number(originalPrice) : Number(item.unit_price);
+                        const priceDiff = basePrice - Number(item.unit_price);
+                        const discountAmt = Number((item as any).line_discount || (item as any).discount_amount || 0);
+                        const totalReduction = priceDiff + discountAmt;
+                        if (totalReduction > 0) {
+                          return (
+                            <Text className="text-[11px] text-orange-500 italic mt-0.5">
+                              Giảm: -{formatCurrency(totalReduction * Number(item.qty || 1))}
+                            </Text>
+                          );
+                        }
+                        return null;
+                      })()}
                       {item.tax_amount && Number(item.tax_amount) > 0 ? (
                         <Text className="text-[10px] text-slate-400 mt-0.5">
                           + VAT: {formatCurrency(Number(item.tax_amount))}

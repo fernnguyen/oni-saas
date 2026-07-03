@@ -410,6 +410,7 @@ export async function POST(
         product_name:   it.product_name,
         qty:            String(it.qty),
         unit_price:     String(it.unit_price),
+        original_price: String(it.original_price ?? it.unit_price),
         line_discount:  String(it.discount_amount),
         tax_rate:       String(taxRate),
         tax_amount:     String(taxAmount),

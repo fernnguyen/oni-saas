@@ -958,9 +958,59 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
                               </span>
                             )}
                           </td>
-                          <td className="px-3 py-2 text-right text-slate-700">{fmtVND(effPrice)}</td>
+                          <td className="px-3 py-2 text-right text-slate-700">
+                            {(() => {
+                              const originalPrice = (item as any).original_price;
+                              const hasOriginalPrice = originalPrice !== null && originalPrice !== undefined && originalPrice !== '';
+                              const basePrice = hasOriginalPrice ? Number(originalPrice) : Number(item.unit_price);
+                              const priceDiff = basePrice - Number(item.unit_price);
+                              const discountAmt = Number((item as any).line_discount || (item as any).discount_amount || 0);
+                              const totalReduction = priceDiff + discountAmt;
+                              const isPriceEdited = (hasOriginalPrice && Number(item.unit_price) !== Number(originalPrice)) || discountAmt > 0;
+                              
+                              let tooltipText = undefined;
+                              if (isPriceEdited) {
+                                if (totalReduction > 0) {
+                                  tooltipText = `Giá gốc: ${fmtVND(basePrice)} - Giảm: ${fmtVND(totalReduction)}`;
+                                } else if (totalReduction < 0) {
+                                  tooltipText = `Giá gốc: ${fmtVND(basePrice)} - Tăng: ${fmtVND(Math.abs(totalReduction))}`;
+                                } else {
+                                  tooltipText = `Giá gốc: ${fmtVND(basePrice)}`;
+                                }
+                              }
+
+                              return (
+                                <div className="flex flex-col items-end group relative" title={tooltipText}>
+                                  <span className="flex items-center gap-1">
+                                    {fmtVND(effPrice)}
+                                    {isPriceEdited && (
+                                      <span className="text-orange-500 font-bold text-xs cursor-help">*</span>
+                                    )}
+                                  </span>
+                                  {isPriceEdited && (
+                                    <span className="text-[10px] text-orange-600 bg-orange-50 px-1 py-0.5 rounded mt-0.5">Đã điều chỉnh</span>
+                                  )}
+                                </div>
+                              );
+                            })()}
+                          </td>
                           <td className="px-3 py-2 text-right font-medium text-slate-900">
                             {fmtVND(item.line_total)}
+                            {(() => {
+                              const originalPrice = (item as any).original_price;
+                              const hasOriginalPrice = originalPrice !== null && originalPrice !== undefined && originalPrice !== '';
+                              const basePrice = hasOriginalPrice ? Number(originalPrice) : Number(item.unit_price);
+                              const priceDiff = basePrice - Number(item.unit_price);
+                              const discountAmt = Number((item as any).line_discount || (item as any).discount_amount || 0);
+                              const totalReduction = priceDiff + discountAmt;
+                              
+                              if (totalReduction > 0) {
+                                return (
+                                  <span className="block text-[11px] text-orange-500 italic mt-0.5">Giảm: -{fmtVND(totalReduction * Number(item.qty || 1))}</span>
+                                );
+                              }
+                              return null;
+                            })()}
                             {Number(item.tax_amount || 0) > 0 && (
                               <span className="block text-[11px] font-normal text-slate-400">
                                 + VAT: {fmtVND(item.tax_amount)}

@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, ScrollView, Modal, Image, Pressable } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, TouchableOpacity, ScrollView, Modal, Image, Pressable, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { formatCurrency } from '../../lib/utils/format';
 
@@ -7,6 +7,7 @@ export function ProductPreviewModal({
   visible,
   onClose,
   product,
+  setPreviewProduct,
   quantity,
   setQuantity,
   selectedVariant,
@@ -15,6 +16,21 @@ export function ProductPreviewModal({
   setSelectedModifiers,
   onConfirm
 }: any) {
+  const [isEditingPrice, setIsEditingPrice] = useState(false);
+  const [tempPrice, setTempPrice] = useState('');
+  
+  const [discountType, setDiscountType] = useState<'amount'|'percent'>('amount');
+  const [tempDiscount, setTempDiscount] = useState('');
+
+  useEffect(() => {
+    if (visible) {
+      setIsEditingPrice(false);
+      setTempPrice('');
+      setDiscountType('amount');
+      setTempDiscount('');
+    }
+  }, [visible]);
+
   if (!product) return null;
 
   return (
@@ -43,8 +59,36 @@ export function ProductPreviewModal({
                 <Image source={{ uri: product.image_url }} className="w-full h-32 rounded-xl mb-4" resizeMode="cover" />
               ) : null}
               <View className="flex-row justify-between items-center mb-4">
-                <Text className="text-slate-500 text-xs">Giá cơ bản</Text>
-                <Text className="text-orange-600 font-semibold text-sm">{formatCurrency(product.sell_price)}</Text>
+                <Text className="text-slate-500 text-xs">Giá cơ bản (Chạm để sửa)</Text>
+                {isEditingPrice ? (
+                  <TextInput
+                    className="text-orange-600 font-semibold text-sm border-b border-orange-300 min-w-[80px] text-right p-0"
+                    keyboardType="numeric"
+                    autoFocus
+                    value={tempPrice}
+                    onChangeText={(val) => {
+                      const numStr = val.replace(/[^0-9]/g, '');
+                      setTempPrice(numStr);
+                      if (setPreviewProduct) {
+                        setPreviewProduct({ ...product, sell_price: Number(numStr) || 0 });
+                      }
+                    }}
+                    onBlur={() => {
+                      setIsEditingPrice(false);
+                    }}
+                  />
+                ) : (
+                  <TouchableOpacity onPress={() => {
+                    setTempPrice(String(product.sell_price || 0));
+                    setIsEditingPrice(true);
+                  }}>
+                    <View style={{ borderBottomWidth: 1, borderStyle: 'dashed', borderColor: '#cbd5e1' }}>
+                      <Text className="text-slate-800 font-semibold text-sm">
+                        {formatCurrency(product.sell_price)}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                )}
               </View>
               {product.tax_rate && parseFloat(product.tax_rate) > 0 ? (
                 <View className="flex-row justify-between items-center mb-4 -mt-2">
@@ -125,6 +169,64 @@ export function ProductPreviewModal({
                 ));
               })()}
 
+              {/* Discount */}
+              <View className="mt-2 mb-2 pt-4 border-t border-slate-100">
+                <View className="flex-row justify-between items-center mb-2">
+                  <Text className="text-sm font-semibold text-slate-700">Giảm giá</Text>
+                  <View className="flex-row bg-slate-100 p-0.5 rounded-lg">
+                    <Pressable
+                      onPress={() => { setDiscountType('amount'); setTempDiscount(''); }}
+                      className="px-3 py-1 rounded-md"
+                      style={discountType === 'amount' ? {
+                        backgroundColor: '#ffffff',
+                        shadowColor: '#000000',
+                        shadowOffset: { width: 0, height: 1 },
+                        shadowOpacity: 0.1,
+                        shadowRadius: 2,
+                        elevation: 2,
+                      } : undefined}
+                    >
+                      <Text className={`text-[11px] ${discountType === 'amount' ? 'font-semibold text-slate-800' : 'text-slate-500'}`}>Số tiền</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => { setDiscountType('percent'); setTempDiscount(''); }}
+                      className="px-3 py-1 rounded-md"
+                      style={discountType === 'percent' ? {
+                        backgroundColor: '#ffffff',
+                        shadowColor: '#000000',
+                        shadowOffset: { width: 0, height: 1 },
+                        shadowOpacity: 0.1,
+                        shadowRadius: 2,
+                        elevation: 2,
+                      } : undefined}
+                    >
+                      <Text className={`text-[11px] ${discountType === 'percent' ? 'font-semibold text-slate-800' : 'text-slate-500'}`}>%</Text>
+                    </Pressable>
+                  </View>
+                </View>
+                <View className="flex-row items-center justify-end">
+                  <TextInput
+                    className="text-orange-600 font-semibold text-sm border-b border-orange-300 min-w-[80px] text-right p-0 pb-1"
+                    keyboardType="numeric"
+                    placeholder="0"
+                    placeholderTextColor="#cbd5e1"
+                    value={tempDiscount || (discountType === 'amount' ? (product.discount_amount ? String(product.discount_amount) : '') : (product.discount_pct ? String(product.discount_pct) : ''))}
+                    onChangeText={(val) => {
+                      let numStr = val.replace(/[^0-9]/g, '');
+                      if (discountType === 'percent' && Number(numStr) > 100) numStr = '100';
+                      setTempDiscount(numStr);
+                      if (setPreviewProduct) {
+                        const amt = discountType === 'amount' ? Number(numStr) || 0 : 0;
+                        const pct = discountType === 'percent' ? Number(numStr) || 0 : 0;
+                        const actualAmt = discountType === 'amount' ? amt : Math.round((product.sell_price * pct) / 100);
+                        setPreviewProduct({ ...product, discount_amount: actualAmt, discount_pct: pct });
+                      }
+                    }}
+                  />
+                  <Text className="text-slate-500 text-xs ml-1 pb-1">{discountType === 'percent' ? '%' : 'đ'}</Text>
+                </View>
+              </View>
+
               {/* Quantity */}
               <View className="mt-2 pt-4 border-t border-slate-100 flex-row justify-between items-center">
                 <Text className="text-sm font-semibold text-slate-700">Số lượng</Text>
@@ -158,7 +260,7 @@ export function ProductPreviewModal({
               onPress={onConfirm}
               className="flex-1 py-3 bg-orange-500 rounded-xl items-center shadow-md shadow-orange-500/20"
             >
-              <Text className="text-sm font-semibold text-white">Thêm {formatCurrency((product.sell_price + selectedModifiers.reduce((s: any, m: any) => s + (Number(m.price_adj)||0), 0)) * quantity)}</Text>
+              <Text className="text-sm font-semibold text-white">Thêm {formatCurrency(Math.max(0, (product.sell_price - (product.discount_amount || 0) + selectedModifiers.reduce((s: any, m: any) => s + (Number(m.price_adj)||0), 0)) * quantity))}</Text>
             </TouchableOpacity>
           </View>
         </View>

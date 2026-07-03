@@ -1700,6 +1700,7 @@ export function CheckoutModal({
           sku: item.sku,
           qty: item.qty,
           unit_price: item.unit_price,
+          original_price: item.original_price ?? item.unit_price,
           cost_price: item.cost_price,
           discount_amount: item.discount_amount,
           tax_rate: String(rate),
@@ -2134,6 +2135,9 @@ export function CheckoutModal({
                   item.variant_label ? ` (${localRentalType === 'overnight' ? 'đêm' : (localRentalType === 'daily' ? 'ngày' : item.variant_label)})` : ''
                 ) : (
                   item.unit_name ? ` (${item.unit_name})` : ''
+                )}
+                {Number(item.discount_amount || 0) > 0 && (
+                  <div className="text-orange-500 mt-0.5">Giảm giá: -{fmtVND(item.discount_amount)}</div>
                 )}
               </div>
             </div>

@@ -26,6 +26,7 @@ import { DrawerMenu } from '../../components/erp/DrawerMenu';
 import { BarcodeScannerModal } from '../../components/ui/BarcodeScannerModal';
 import { ProductPreviewModal } from '../../components/pos/ProductPreviewModal';
 import CartCheckoutModal from '../../components/pos/CartCheckoutModal';
+import { PosItemEditModal } from '../../components/pos/PosItemEditModal';
 import QRTransferModal from '../../components/pos/QRTransferModal';
 
 import { LodgingGuest, LodgingGuestsForm } from '../../components/pos/LodgingGuestsForm';
@@ -85,6 +86,7 @@ export default function PosScreen() {
     addToCart, handleConfirmAddToCart, removeFromCart, updateCartItemQuantity, getCartTotal, getCartCount
   } = useCart(isNavReady, isLoading);
 
+  const [editingCartItem, setEditingCartItem] = useState<{ tableId?: string, cartItemId: string, item: any, fromCartModal?: boolean } | null>(null);
 
   // Premium Toast Notification state
   const [toastMsg, setToastMsg] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -903,6 +905,8 @@ export default function PosScreen() {
           product_name: item.name,
           qty: item.quantity,
           unit_price: (item.price + (item.modifier_total || 0)),
+          original_price: item.original_price ?? item.price,
+          discount_amount: item.discount_amount || 0,
           line_total: itemTotal,
           tax_rate: item.tax_rate || '0',
           tax_amount: taxAmountVal,
@@ -1285,6 +1289,7 @@ export default function PosScreen() {
           visible={isPreviewModalOpen}
           onClose={() => setIsPreviewModalOpen(false)}
           product={previewProduct}
+          setPreviewProduct={setPreviewProduct}
           quantity={previewQuantity}
           setQuantity={setPreviewQuantity}
           selectedVariant={selectedVariant}
@@ -2857,8 +2862,16 @@ export default function PosScreen() {
                         <Text className="text-tiny text-slate-400 font-medium mb-2">Món ăn / Dịch vụ đã gọi:</Text>
                         <View className="bg-slate-50 border border-slate-200 rounded-xl p-3">
                           {Object.entries(tableCarts[activeTable.id]).map(([cartItemId, item]) => (
-                            <View key={cartItemId} className="flex-row justify-between items-center py-2 border-b border-slate-100 last:border-0">
-                              <Text className="text-xs font-semibold text-slate-700 flex-1 mr-2" numberOfLines={1}>{item.name}</Text>
+                            <View 
+                              key={cartItemId} 
+                              className="flex-row justify-between items-center py-2 border-b border-slate-100 last:border-0"
+                            >
+                              <Text className="text-xs font-semibold text-slate-700 flex-1 mr-2" numberOfLines={1}>
+                                {item.name}
+                                {((item as any).original_price != null && Number(item.price) !== Number((item as any).original_price) || Number((item as any).discount_amount || 0) > 0) && (
+                                  <Text className="text-orange-500 font-bold ml-1 text-[10px]"> *</Text>
+                                )}
+                              </Text>
 
                               <View className="flex-row items-center gap-2">
                                 {/* Nút giảm số lượng */}
@@ -2883,9 +2896,33 @@ export default function PosScreen() {
                                 </TouchableOpacity>
 
                                 {/* Thành tiền */}
-                                <Text className="text-xs font-bold text-slate-800 min-w-[70px] text-right ml-1">
-                                  {formatCurrency((item.price + (item.modifier_total || 0)) * item.quantity)}
-                                </Text>
+                                <TouchableOpacity 
+                                  className="min-w-[70px] ml-1 items-end"
+                                  onPress={() => setEditingCartItem({ 
+                                    tableId: activeTable.id, 
+                                    cartItemId, 
+                                    item: { ...item, unit_price: item.price } 
+                                  })}
+                                >
+                                  <View style={{ borderBottomWidth: 1, borderStyle: 'dashed', borderColor: '#cbd5e1' }}>
+                                    <Text className="text-xs font-bold text-slate-800 text-right">
+                                      {formatCurrency((item.price + (item.modifier_total || 0)) * item.quantity)}
+                                    </Text>
+                                  </View>
+                                  {(() => {
+                                    const basePrice = (item as any).original_price ?? item.price;
+                                    const priceDiff = basePrice - item.price;
+                                    const totalReduction = priceDiff * item.quantity;
+                                    if (totalReduction > 0) {
+                                      return (
+                                        <Text className="text-[10px] text-orange-500 italic mt-0.5">
+                                          Giảm: -{formatCurrency(totalReduction)}
+                                        </Text>
+                                      );
+                                    }
+                                    return null;
+                                  })()}
+                                </TouchableOpacity>
 
                                 {/* Nút Xóa món */}
                                 <TouchableOpacity
@@ -3472,6 +3509,43 @@ export default function PosScreen() {
         cartOwnerTable={cartOwnerTable}
         shopVertical={shopVertical}
         onCheckout={(opts) => handlePayCart(selectedCustomer, discountAmount, orderNote, paymentRows, opts)}
+        onEditItemSave={(cartItemId, finalPrice, originalPrice, discountAmt, discountPct) => {
+          if (activeTable) {
+            setTableCarts((prev: any) => {
+              const tableCart = prev[activeTable.id] || {};
+              const item = tableCart[cartItemId];
+              if (!item) return prev;
+              return {
+                ...prev,
+                [activeTable.id]: {
+                  ...tableCart,
+                  [cartItemId]: {
+                    ...item,
+                    original_price: originalPrice,
+                    price: finalPrice,
+                    discount_amount: discountAmt,
+                    discount_pct: discountPct,
+                  }
+                }
+              };
+            });
+          } else {
+            setCart((prev: any) => {
+              const item = prev[cartItemId];
+              if (!item) return prev;
+              return {
+                ...prev,
+                [cartItemId]: {
+                  ...item,
+                  original_price: originalPrice,
+                  price: finalPrice,
+                  discount_amount: discountAmt,
+                  discount_pct: discountPct,
+                }
+              };
+            });
+          }
+        }}
       />
 
       {/* 8. MODAL DYNAMIC QR CODE THANH TOÁN CHUYỂN KHOẢN */}

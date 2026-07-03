@@ -123,6 +123,8 @@ export const order_items = sqliteTable('order_items', {
   product_name: text('product_name').notNull(),
   qty: integer('qty').notNull().default(1),
   unit_price: integer('unit_price').notNull().default(0),
+  original_price: integer('original_price'),
+  discount_amount: integer('discount_amount').default(0),
   line_total: integer('line_total').notNull().default(0),
   tax_rate: text('tax_rate'),
   tax_amount: integer('tax_amount').default(0),

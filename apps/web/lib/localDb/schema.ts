@@ -104,6 +104,7 @@ export interface LocalOrderItem {
   sku?: string
   qty: number
   unit_price: number
+  original_price?: number
   cost_price: number
   discount_amount: number
   line_total: number
