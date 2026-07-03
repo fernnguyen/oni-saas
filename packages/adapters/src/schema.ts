@@ -55,6 +55,7 @@ export const orderItems = mysqlTable('order_items', {
   product_name: varchar('product_name', { length: 255 }),
   qty: varchar('qty', { length: 50 }),
   unit_price: varchar('unit_price', { length: 50 }),
+  discount_amount: varchar('discount_amount', { length: 50 }),
   discount_pct: varchar('discount_pct', { length: 50 }),
   line_discount: varchar('line_discount', { length: 50 }),
   tax_rate: varchar('tax_rate', { length: 50 }),

@@ -1362,6 +1362,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
             onQtyChange={cart.setQty}
             onRemove={cart.removeItem}
             onDiscountChange={cart.setOrderDiscount}
+            onItemPriceAndDiscountChange={cart.setItemPriceAndDiscount}
             onNoteChange={cart.setNote}
             onHold={holdCurrentCart}
             onCheckout={() => {

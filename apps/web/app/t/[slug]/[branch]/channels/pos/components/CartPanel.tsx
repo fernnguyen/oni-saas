@@ -7,6 +7,7 @@ import { IconClipboard, IconWarehouse, IconTrash } from '@/app/components/layout
 import { SlideProductSearch } from './SlideProductSearch'
 import { VariantPickerModal } from './VariantPickerModal'
 import { ModifierPickerModal } from './ModifierPickerModal'
+import { ItemEditModal } from './ItemEditModal'
 
 interface Props {
   shopId?: string
@@ -21,6 +22,7 @@ interface Props {
   onQtyChange: (product_id: string, qty: number) => void
   onRemove: (product_id: string) => void
   onDiscountChange: (discount: number) => void
+  onItemPriceAndDiscountChange?: (product_id: string, unit_price: number, discount_amount: number) => void
   onNoteChange: (note: string) => void
   onHold: () => void
   onCheckout: () => void
@@ -73,6 +75,7 @@ export function CartPanel({
   activeItemId = null,
   onActiveItemChange,
   onOpenCustomerModal,
+  onItemPriceAndDiscountChange,
 }: Props) {
   const [discountMode, setDiscountMode] = useState<'amount' | 'percent'>('amount')
   const [discountPct, setDiscountPct] = useState('')
@@ -80,6 +83,7 @@ export function CartPanel({
   // State for modals
   const [variantParent, setVariantParent] = useState<LocalProduct | null>(null)
   const [modifierProduct, setModifierProduct] = useState<LocalProduct | null>(null)
+  const [editingItem, setEditingItem] = useState<CartItem | null>(null)
 
   function handleProductClick(product: LocalProduct) {
     const type = (product as any).product_type ?? 'simple'
@@ -206,7 +210,19 @@ export function CartPanel({
                           )}
                         </p>
                       )}
-                      <p className="text-xs text-slate-400">{fmtVND(item.unit_price + (item.modifier_total ?? 0))}/đv</p>
+                      <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
+                        <span 
+                          className="hover:text-primary cursor-pointer underline underline-offset-4 decoration-dashed decoration-slate-300 hover:decoration-primary transition-colors"
+                          onClick={(e) => { e.stopPropagation(); setEditingItem(item) }}
+                        >
+                          {fmtVND(item.unit_price + (item.modifier_total ?? 0))}/đv
+                        </span>
+                        {item.discount_amount > 0 && (
+                          <span className="text-[10px] text-orange-500 font-medium bg-orange-50 px-1 rounded truncate">
+                            -{fmtVND(item.discount_amount)}
+                          </span>
+                        )}
+                      </p>
                     </div>
                     <button
                       onClick={() => onRemove(item.product_id)}
@@ -396,6 +412,16 @@ export function CartPanel({
           onConfirm={handleModifierConfirmed}
         />
       )}
+      <ItemEditModal
+        open={!!editingItem}
+        onClose={() => setEditingItem(null)}
+        item={editingItem ? { product_name: editingItem.product_name, qty: editingItem.qty, unit_price: editingItem.unit_price, discount_amount: editingItem.discount_amount } : null}
+        onConfirm={(up, da) => {
+          if (editingItem && onItemPriceAndDiscountChange) {
+            onItemPriceAndDiscountChange(editingItem.product_id, up, da)
+          }
+        }}
+      />
     </div>
   )
 }

@@ -15,6 +15,7 @@ import type { LocalCustomer, LocalProduct } from '@/lib/localDb/schema'
 import type { CartItem } from '@/hooks/useCart'
 import { VariantPickerModal } from './VariantPickerModal'
 import { ModifierPickerModal } from './ModifierPickerModal'
+import { ItemEditModal } from './ItemEditModal'
 import { getSupabaseBrowserClient } from '@/lib/supabaseBrowser'
 
 interface Resource {
@@ -198,6 +199,7 @@ export function ResourceSlideOver({
   const [cancellingOrder, setCancellingOrder] = useState(false)
   const [variantParent, setVariantParent] = useState<LocalProduct | null>(null)
   const [modifierProduct, setModifierProduct] = useState<LocalProduct | null>(null)
+  const [editingItem, setEditingItem] = useState<any>(null)
   const [refundAmountInput, setRefundAmountInput] = useState('')
   const [hasPendingSync, setHasPendingSync] = useState(false)
 
@@ -256,10 +258,16 @@ export function ResourceSlideOver({
 
           setExistingItems(prev => prev.map(item => item.id === tempId ? savedItem : item))
         } else if (action.type === 'UPDATE') {
+          const payload: any = {}
+          if (action.qty !== undefined) payload.qty = action.qty
+          if (action.line_total !== undefined) payload.line_total = action.line_total
+          if (action.unit_price !== undefined) payload.unit_price = action.unit_price
+          if (action.discount_amount !== undefined) payload.discount_amount = action.discount_amount
+
           const res = await fetch(`/api/shops/${shopId}/order-items/${action.itemId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ qty: action.qty, line_total: action.line_total })
+            body: JSON.stringify(payload)
           })
           if (!res.ok) throw new Error()
         } else if (action.type === 'DELETE') {
@@ -1844,6 +1852,19 @@ export function ResourceSlideOver({
                                 <div className="min-w-0 flex-1 flex items-center gap-3">
                                   <div className="flex-1 min-w-0">
                                     <p className="text-sm font-medium text-slate-900 truncate leading-tight">{item.product_name}</p>
+                                    <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
+                                      <span 
+                                        className="hover:text-primary cursor-pointer underline underline-offset-4 decoration-dashed decoration-slate-300 hover:decoration-primary transition-colors"
+                                        onClick={(e) => { e.stopPropagation(); setEditingItem(item) }}
+                                      >
+                                        {fmtVND(Number(item.unit_price) + Number((item as any).modifier_total ?? 0))}/đv
+                                      </span>
+                                      {Number(item.discount_amount || 0) > 0 && (
+                                        <span className="text-[10px] text-orange-500 font-medium bg-orange-50 px-1 rounded truncate">
+                                          -{fmtVND(item.discount_amount)}
+                                        </span>
+                                      )}
+                                    </p>
                                     {/* Variant label */}
                                     {(item as any).variant_label && !((item as any).modifiers?.length > 2) && (
                                       <p className="text-[11px] text-violet-600 font-medium truncate mt-0.5">{(item as any).variant_label}</p>
@@ -2558,6 +2579,33 @@ export function ResourceSlideOver({
           onConfirm={handleAddCartItem}
         />
       )}
+      <ItemEditModal
+        open={!!editingItem}
+        onClose={() => setEditingItem(null)}
+        item={editingItem ? { product_name: editingItem.product_name, qty: Number(editingItem.qty), unit_price: Number(editingItem.unit_price), discount_amount: Number(editingItem.discount_amount || 0) } : null}
+        onConfirm={async (up, da) => {
+          if (!editingItem) return
+          const newLineTotal = (up - da + Number(editingItem.modifier_total || 0)) * Number(editingItem.qty)
+          
+          const newItems = existingItems.map(i => i.id === editingItem.id ? { ...i, unit_price: String(up), discount_amount: String(da), line_total: String(newLineTotal) } : i)
+          setExistingItems(newItems)
+          if (order) localStorage.setItem(`table_order_items:${order.id}`, JSON.stringify(newItems))
+          
+          try {
+            const res = await fetch(`/api/shops/${shopId}/order-items/${editingItem.id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ unit_price: String(up), discount_amount: String(da), line_total: String(newLineTotal) })
+            })
+            if (!res.ok) throw new Error()
+            toast.success('Đã cập nhật giá bán')
+            if (broadcastSyncEvent) { broadcastSyncEvent("ITEMS_UPDATED", { tableId: resource.id }); }
+          } catch (err) {
+             pushOfflineAction(order?.id || '', { type: 'UPDATE', itemId: editingItem.id, unit_price: String(up), discount_amount: String(da), line_total: String(newLineTotal) })
+             toast.warning('Mất kết nối. Đã lưu giá mới cục bộ.')
+          }
+        }}
+      />
       <CustomerCreateModal
         open={customerCreateModalOpen}
         onClose={() => setCustomerCreateModalOpen(false)}

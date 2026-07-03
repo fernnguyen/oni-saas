@@ -43,6 +43,7 @@ type CartAction =
   | { type: 'REMOVE_ITEM'; product_id: string }
   | { type: 'SET_QTY'; product_id: string; qty: number }
   | { type: 'SET_ITEM_DISCOUNT'; product_id: string; discount: number }
+  | { type: 'SET_ITEM_PRICE_AND_DISCOUNT'; product_id: string; unit_price: number; discount_amount: number }
   | { type: 'SET_ORDER_DISCOUNT'; discount: number }
   | { type: 'SET_NOTE'; note: string }
   | { type: 'RESTORE'; state: CartState }
@@ -129,6 +130,15 @@ function cartReducer(state: CartState, action: CartAction): CartState {
         items: state.items.map((i) =>
           i.product_id === action.product_id
             ? { ...i, discount_amount: action.discount, line_total: lineTotal({ ...i, discount_amount: action.discount }) }
+            : i
+        ),
+      }
+    case 'SET_ITEM_PRICE_AND_DISCOUNT':
+      return {
+        ...state,
+        items: state.items.map((i) =>
+          i.product_id === action.product_id
+            ? { ...i, unit_price: action.unit_price, discount_amount: action.discount_amount, line_total: lineTotal({ ...i, unit_price: action.unit_price, discount_amount: action.discount_amount }) }
             : i
         ),
       }
@@ -296,6 +306,10 @@ export function useCart(inventory?: Map<string, number>, branchId?: string, allo
     (product_id: string, discount: number) => dispatch({ type: 'SET_ITEM_DISCOUNT', product_id, discount }),
     []
   )
+  const setItemPriceAndDiscount = useCallback(
+    (product_id: string, unit_price: number, discount_amount: number) => dispatch({ type: 'SET_ITEM_PRICE_AND_DISCOUNT', product_id, unit_price, discount_amount }),
+    []
+  )
   const setOrderDiscount = useCallback((discount: number) => dispatch({ type: 'SET_ORDER_DISCOUNT', discount }), [])
   const setNote = useCallback((note: string) => dispatch({ type: 'SET_NOTE', note }), [])
   const clear = useCallback(() => dispatch({ type: 'CLEAR' }), [])
@@ -316,6 +330,7 @@ export function useCart(inventory?: Map<string, number>, branchId?: string, allo
     removeItem,
     setQty,
     setItemDiscount,
+    setItemPriceAndDiscount,
     setOrderDiscount,
     setNote,
     clear,
