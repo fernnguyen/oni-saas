@@ -97,6 +97,15 @@ function WarehouseContent() {
   const [selectedFundId, setSelectedFundId] = useState('');
   const [showFundSelector, setShowFundSelector] = useState(false);
 
+  // Supplier states
+  const [suppliers, setSuppliers] = useState<any[]>([]);
+  const [selectedSupplierId, setSelectedSupplierId] = useState('');
+  const [showSupplierSelector, setShowSupplierSelector] = useState(false);
+  const [showCreateSupplier, setShowCreateSupplier] = useState(false);
+  const [newSupplierName, setNewSupplierName] = useState('');
+  const [newSupplierPhone, setNewSupplierPhone] = useState('');
+  const [isRefreshingSuppliers, setIsRefreshingSuppliers] = useState(false);
+
   // Sync states
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'synced' | 'pending'>('synced');
@@ -302,6 +311,66 @@ function WarehouseContent() {
     }
   };
 
+  const loadSuppliers = async () => {
+    try {
+      if (Platform.OS !== 'web') {
+        const list = await db.select().from(schema.suppliers);
+        setSuppliers(list);
+      } else {
+        const mockSuppliers = [
+          { id: 's1', name: 'Công ty Cổ phần Thực phẩm ABC', phone: '0987654321', email: 'abc@gmail.com', address: 'Hà Nội' },
+          { id: 's2', name: 'Nhà cung cấp Nguyên liệu XYZ', phone: '0123456789', email: 'xyz@gmail.com', address: 'TP. HCM' }
+        ];
+        setSuppliers(mockSuppliers);
+      }
+    } catch (err) {
+      console.warn('Lỗi tải danh sách nhà cung cấp:', err);
+    }
+  };
+
+  const handleRefreshSuppliers = async () => {
+    if (isRefreshingSuppliers) return;
+    setIsRefreshingSuppliers(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    try {
+      const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+      const headers = await getApiHeaders();
+      const res = await fetch(`${getApiBaseUrl()}/api/shops/${shopId}/suppliers?limit=1000`, { headers });
+      if (res.ok) {
+        const json = await res.json();
+        const list = json.data || [];
+        
+        if (Platform.OS !== 'web') {
+          // Đồng bộ vào SQLite (xóa các nhà cung cấp cũ đã sync và chèn mới)
+          await db.transaction(async (tx: any) => {
+            await tx.delete(schema.suppliers).where(eq(schema.suppliers.sync_status, 'synced'));
+            for (const s of list) {
+              await tx.insert(schema.suppliers).values({
+                id: s.id,
+                name: s.name || '',
+                phone: s.phone || null,
+                email: s.email || null,
+                address: s.address || null,
+                note: s.note || null,
+                sync_status: 'synced',
+              }).onConflictDoNothing();
+            }
+          });
+        }
+        
+        await loadSuppliers();
+        showToast('Đã cập nhật danh sách nhà cung cấp mới nhất!', 'success');
+      } else {
+        showToast('Không thể tải nhà cung cấp từ máy chủ', 'error');
+      }
+    } catch (err) {
+      console.warn('Lỗi refresh nhà cung cấp:', err);
+      showToast('Lỗi kết nối máy chủ', 'error');
+    } finally {
+      setIsRefreshingSuppliers(false);
+    }
+  };
+
   const loadProducts = async () => {
     try {
       setIsLoading(true);
@@ -443,6 +512,7 @@ function WarehouseContent() {
       loadProducts();
       loadWarehouses();
       loadFunds();
+      loadSuppliers();
     }, [])
   );
 
@@ -472,6 +542,7 @@ function WarehouseContent() {
     setNoteInput('');
     setPaymentMethod('cash');
     selectDefaultFundForMethod('cash');
+    setSelectedSupplierId('');
     
     if (warehouses.length > 0) {
       const saleWh = warehouses.find((w: any) => w.code === 'sale') || warehouses[0];
@@ -675,6 +746,7 @@ function WarehouseContent() {
           to_warehouse_id: ['transfer_out', 'transfer_in'].includes(movementType) ? (toWarehouseId || null) : null,
           payment_method: movementType === 'purchase_in' && unitCostVal > 0 ? paymentMethod : null,
           fund_id: movementType === 'purchase_in' && unitCostVal > 0 ? selectedFundId : null,
+          supplier_id: movementType === 'purchase_in' ? (selectedSupplierId || null) : null,
         });
 
         // 2. Cập nhật tồn kho sản phẩm trực tiếp trong bảng products SQLite cục bộ
@@ -973,6 +1045,25 @@ function WarehouseContent() {
                   </View>
                 )}
 
+                {/* Chọn Nhà cung cấp (Chỉ khi Nhập kho) */}
+                {movementType === 'purchase_in' && (
+                  <View className="mb-4">
+                    <Text className="text-xxs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+                      Nhà cung cấp
+                    </Text>
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={() => setShowSupplierSelector(true)}
+                      className="flex-row justify-between items-center border border-slate-200 rounded-xl px-4 py-3 bg-slate-50"
+                    >
+                      <Text className="text-xs font-semibold text-slate-800">
+                        {suppliers.find((s: any) => s.id === selectedSupplierId)?.name || 'Chọn nhà cung cấp (Không bắt buộc)'}
+                      </Text>
+                      <Ionicons name="chevron-down" size={16} color="#64748b" />
+                    </TouchableOpacity>
+                  </View>
+                )}
+
                 {/* Chọn Kho Hàng / Kho Nguồn */}
                 <View className="mb-4">
                   <Text className="text-xxs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
@@ -1223,7 +1314,7 @@ function WarehouseContent() {
 
             {/* Reason Selector Overlay */}
             {showReasonSelector && (
-              <View className="absolute inset-0 bg-white rounded-t-3xl p-6 z-50">
+              <Pressable className="absolute inset-0 bg-white rounded-t-3xl p-6 z-50">
                 <View className="flex-row justify-between items-center mb-6">
                   <Text className="text-base font-bold text-slate-800">Chọn lý do giao dịch</Text>
                   <TouchableOpacity onPress={() => setShowReasonSelector(false)}>
@@ -1249,12 +1340,12 @@ function WarehouseContent() {
                     </TouchableOpacity>
                   ))}
                 </ScrollView>
-              </View>
+              </Pressable>
             )}
 
             {/* Warehouse Selector Overlay */}
             {showWarehouseSelector && (
-              <View className="absolute inset-0 bg-white rounded-t-3xl p-6 z-50">
+              <Pressable className="absolute inset-0 bg-white rounded-t-3xl p-6 z-50">
                 <View className="flex-row justify-between items-center mb-6">
                   <Text className="text-base font-bold text-slate-800">Chọn kho hàng</Text>
                   <TouchableOpacity onPress={() => setShowWarehouseSelector(false)}>
@@ -1284,12 +1375,12 @@ function WarehouseContent() {
                     );
                   })}
                 </ScrollView>
-              </View>
+              </Pressable>
             )}
 
             {/* Destination Warehouse Selector Overlay */}
             {showToWarehouseSelector && (
-              <View className="absolute inset-0 bg-white rounded-t-3xl p-6 z-50">
+              <Pressable className="absolute inset-0 bg-white rounded-t-3xl p-6 z-50">
                 <View className="flex-row justify-between items-center mb-6">
                   <Text className="text-base font-bold text-slate-800">Chọn kho đích</Text>
                   <TouchableOpacity onPress={() => setShowToWarehouseSelector(false)}>
@@ -1319,12 +1410,12 @@ function WarehouseContent() {
                     );
                   })}
                 </ScrollView>
-              </View>
+              </Pressable>
             )}
 
             {/* Fund Selector Overlay */}
             {showFundSelector && (
-              <View className="absolute inset-0 bg-white rounded-t-3xl p-6 z-50">
+              <Pressable className="absolute inset-0 bg-white rounded-t-3xl p-6 z-50">
                 <View className="flex-row justify-between items-center mb-6">
                   <Text className="text-base font-bold text-slate-800">
                     Chọn tài khoản quỹ ({paymentMethod === 'cash' ? 'Tiền mặt' : 'Chuyển khoản'})
@@ -1369,7 +1460,174 @@ function WarehouseContent() {
                     </View>
                   )}
                 </ScrollView>
-              </View>
+              </Pressable>
+            )}
+
+            {/* Supplier Selector & Creator Overlay */}
+            {showSupplierSelector && (
+              <Pressable className="absolute inset-0 bg-white rounded-t-3xl p-6 z-50">
+                {!showCreateSupplier ? (
+                  <>
+                    <View className="flex-row justify-between items-center mb-6">
+                      <View className="flex-row items-center gap-2">
+                        <Text className="text-base font-bold text-slate-800">Chọn nhà cung cấp</Text>
+                        <TouchableOpacity 
+                          onPress={handleRefreshSuppliers}
+                          disabled={isRefreshingSuppliers}
+                          className="p-1 rounded-full active:bg-slate-100"
+                        >
+                          {isRefreshingSuppliers ? (
+                            <ActivityIndicator size="small" color="#fa5908" />
+                          ) : (
+                            <Ionicons name="sync-outline" size={16} color="#fa5908" />
+                          )}
+                        </TouchableOpacity>
+                      </View>
+                      <TouchableOpacity onPress={() => setShowSupplierSelector(false)}>
+                        <Ionicons name="close" size={24} color="#64748b" />
+                      </TouchableOpacity>
+                    </View>
+                    
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={() => {
+                        setNewSupplierName('');
+                        setNewSupplierPhone('');
+                        setShowCreateSupplier(true);
+                      }}
+                      className="mb-4 bg-orange-50 border border-orange-200 rounded-xl py-3 px-4 flex-row justify-between items-center"
+                    >
+                      <Text className="text-xs font-bold text-orange-600">➕ Tạo nhà cung cấp mới</Text>
+                      <Ionicons name="chevron-forward" size={16} color="#fa5908" />
+                    </TouchableOpacity>
+
+                    <ScrollView showsVerticalScrollIndicator={false}>
+                      <TouchableOpacity
+                        onPress={() => {
+                          setSelectedSupplierId('');
+                          setShowSupplierSelector(false);
+                        }}
+                        className="py-3.5 border-b border-slate-100 flex-row justify-between items-center"
+                      >
+                        <Text className={`text-xs ${!selectedSupplierId ? 'font-bold text-orange-500' : 'text-slate-500'}`}>
+                          Không dùng (Bỏ chọn)
+                        </Text>
+                        {!selectedSupplierId && (
+                          <Ionicons name="checkmark" size={18} color="#fa5908" />
+                        )}
+                      </TouchableOpacity>
+
+                      {suppliers.map(s => {
+                        const isSelected = selectedSupplierId === s.id;
+                        return (
+                          <TouchableOpacity
+                            key={s.id}
+                            onPress={() => {
+                              setSelectedSupplierId(s.id);
+                              setShowSupplierSelector(false);
+                            }}
+                            className="py-3.5 border-b border-slate-100 flex-row justify-between items-center"
+                          >
+                            <View className="flex-col">
+                              <Text className={`text-xs ${isSelected ? 'font-bold text-orange-500' : 'text-slate-700'}`}>
+                                {s.name}
+                              </Text>
+                              {s.phone && (
+                                <Text className="text-[10px] text-slate-400 mt-0.5">SĐT: {s.phone}</Text>
+                              )}
+                            </View>
+                            {isSelected && (
+                              <Ionicons name="checkmark" size={18} color="#fa5908" />
+                            )}
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </>
+                ) : (
+                  <>
+                    <View className="flex-row justify-between items-center mb-6">
+                      <Text className="text-base font-bold text-slate-800">Tạo nhà cung cấp mới</Text>
+                      <TouchableOpacity onPress={() => setShowCreateSupplier(false)}>
+                        <Ionicons name="arrow-back" size={24} color="#fa5908" />
+                      </TouchableOpacity>
+                    </View>
+
+                    <ScrollView showsVerticalScrollIndicator={false} className="space-y-4">
+                      <View className="mb-4">
+                        <Text className="text-xxs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+                          Tên nhà cung cấp *
+                        </Text>
+                        <TextInput
+                          value={newSupplierName}
+                          onChangeText={setNewSupplierName}
+                          placeholder="Ví dụ: Công ty nước đá A,..."
+                          placeholderTextColor="#cbd5e1"
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-850 font-semibold"
+                          style={{
+                            paddingVertical: 0,
+                            textAlignVertical: 'center',
+                            lineHeight: undefined,
+                            ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+                          }}
+                        />
+                      </View>
+
+                      <View className="mb-4">
+                        <Text className="text-xxs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+                          Số điện thoại liên hệ
+                        </Text>
+                        <TextInput
+                          value={newSupplierPhone}
+                          onChangeText={setNewSupplierPhone}
+                          placeholder="Ví dụ: 0987..."
+                          keyboardType="phone-pad"
+                          placeholderTextColor="#cbd5e1"
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-850 font-semibold"
+                          style={{
+                            paddingVertical: 0,
+                            textAlignVertical: 'center',
+                            lineHeight: undefined,
+                            ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
+                          }}
+                        />
+                      </View>
+
+                      <TouchableOpacity
+                        onPress={async () => {
+                          if (!newSupplierName.trim()) {
+                            Alert.alert('Lỗi', 'Vui lòng nhập tên nhà cung cấp.');
+                            return;
+                          }
+                          const newId = `sup-local-${Date.now()}`;
+                          const newSupplier = {
+                            id: newId,
+                            name: newSupplierName.trim(),
+                            phone: newSupplierPhone.trim() || null,
+                            email: null,
+                            address: null,
+                            note: null,
+                            sync_status: 'pending',
+                          };
+
+                          if (Platform.OS !== 'web') {
+                            await db.insert(schema.suppliers).values(newSupplier);
+                          }
+                          setSuppliers(prev => [newSupplier, ...prev]);
+                          setSelectedSupplierId(newId);
+                          setShowCreateSupplier(false);
+                          setShowSupplierSelector(false);
+                          showToast('Đã tạo nhà cung cấp cục bộ thành công!', 'success');
+                        }}
+                        className="w-full py-3.5 rounded-xl bg-orange-500 items-center justify-center"
+                        style={{ backgroundColor: '#fa5908' }}
+                      >
+                        <Text className="text-white font-bold text-xs">Lưu & Chọn</Text>
+                      </TouchableOpacity>
+                    </ScrollView>
+                  </>
+                )}
+              </Pressable>
             )}
           </View>
         </KeyboardAvoidingView>

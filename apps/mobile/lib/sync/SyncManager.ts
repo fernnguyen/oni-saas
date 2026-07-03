@@ -60,7 +60,8 @@ export class SyncManager {
         cbData,
         methodsData,
         lockdownData,
-        taxGroupsData
+        taxGroupsData,
+        suppliersData
       ] = await Promise.all([
         fetchJson(`${baseUrl}/api/shops/${shopId}/categories?limit=500`, true, 'Không thể tải Danh mục sản phẩm từ Cloud'),
         fetchJson(`${baseUrl}/api/shops/${shopId}/products?limit=5000&nocache=true`, true, 'Không thể tải danh mục Sản phẩm từ Cloud'),
@@ -72,6 +73,7 @@ export class SyncManager {
         fetchJson(`${baseUrl}/api/shops/${shopId}/payment-methods?active=TRUE`, false),
         fetchJson(`${baseUrl}/api/shops/${shopId}/reports/tax/lockdown`, false),
         fetchJson(`${baseUrl}/api/tax-groups`, false),
+        fetchJson(`${baseUrl}/api/shops/${shopId}/suppliers?limit=1000`, false),
       ]);
 
       onProgress(0.6);
@@ -84,6 +86,7 @@ export class SyncManager {
       const rawFunds = fundsData.data || [];
       const rawCashbook = cbData.data || [];
       const rawMethods = methodsData.data || [];
+      const rawSuppliers = suppliersData?.data || [];
       let rawLocked = Array.isArray(lockdownData) ? lockdownData : (lockdownData?.data || []);
       if (!rawLocked || rawLocked.length === 0) {
         try {
@@ -144,6 +147,7 @@ export class SyncManager {
       expoDb.execSync(`
         DELETE FROM categories WHERE sync_status != 'pending';
         DELETE FROM products WHERE sync_status != 'pending';
+        DELETE FROM suppliers WHERE sync_status != 'pending';
         DELETE FROM location_resources;
         DELETE FROM customers;
         DELETE FROM payment_funds;
@@ -362,6 +366,21 @@ export class SyncManager {
               branch_id: m.branch_id || shopId,
               is_default: m.is_default === 'TRUE' || m.is_default === true,
               active: m.active === 'TRUE' || m.active === true,
+            }).onConflictDoNothing();
+          }
+        }
+
+        // 5.6 Ghi Danh sách Nhà cung cấp
+        if (rawSuppliers.length > 0) {
+          for (const s of rawSuppliers) {
+            await tx.insert(schema.suppliers).values({
+              id: s.id,
+              name: s.name || '',
+              phone: s.phone || null,
+              email: s.email || null,
+              address: s.address || null,
+              note: s.note || null,
+              sync_status: 'synced',
             }).onConflictDoNothing();
           }
         }
@@ -827,9 +846,71 @@ export class SyncManager {
   }
 
   // ==========================================
+  // 4.5 ĐẨY NHÀ CUNG CẤP CỤC BỘ LÊN CLOUD
+  // ==========================================
+  static async pushOfflineSuppliers(shopId: string): Promise<boolean> {
+    try {
+      const pending = await db
+        .select()
+        .from(schema.suppliers)
+        .where(eq(schema.suppliers.sync_status, 'pending'));
+
+      if (pending.length === 0) return true;
+
+      console.log(`[Sync Debug] Phát hiện ${pending.length} nhà cung cấp offline chờ đồng bộ.`);
+      const headers = await getApiHeaders();
+
+      for (const item of pending) {
+        try {
+          const url = `${getApiBaseUrl()}/api/shops/${shopId}/suppliers`;
+          const response = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              name: item.name,
+              phone: item.phone || '',
+              email: item.email || '',
+              address: item.address || '',
+              note: item.note || '',
+            }),
+          });
+          if (response.ok) {
+            const resJson = await response.json();
+            const serverId = resJson.id;
+            if (serverId) {
+              // Cập nhật tham chiếu supplier_id trong bảng stock_movements từ ID tạm sang ID thực tế trên server
+              await db.update(schema.stockMovements)
+                .set({ supplier_id: serverId })
+                .where(eq(schema.stockMovements.supplier_id, item.id));
+
+              // Xóa bản ghi tạm và chèn bản ghi đã đồng bộ
+              await db.delete(schema.suppliers).where(eq(schema.suppliers.id, item.id));
+              await db.insert(schema.suppliers).values({
+                ...item,
+                id: serverId,
+                sync_status: 'synced',
+              }).onConflictDoNothing();
+              console.log(`[Sync Debug] Đồng bộ nhà cung cấp "${item.name}" thành công!`);
+            }
+          }
+        } catch (e) {
+          console.warn('Lỗi đồng bộ nhà cung cấp:', e);
+        }
+      }
+      return true;
+    } catch (e) {
+      console.warn('Lỗi nghiêm trọng pushOfflineSuppliers:', e);
+      return false;
+    }
+  }
+
+  // ==========================================
   // 5. ĐẨY PHIẾU ĐIỀU CHỈNH KHO LÊN CLOUD
   // ==========================================
   static async pushOfflineStockMovements(shopId: string): Promise<{ successCount: number; failedCount: number }> {
+    // 1. Đồng bộ nhà cung cấp trước để giải quyết ID tạm
+    await SyncManager.pushOfflineSuppliers(shopId).catch(() => {});
+
     let successCount = 0;
     let failedCount = 0;
 
@@ -862,6 +943,7 @@ export class SyncManager {
             to_warehouse_id: item.to_warehouse_id,
             reason: item.reason,
             reference_no: item.reference_no,
+            supplier_id: (item as any).supplier_id || '',
           });
 
           // Thêm timeout 10 giây cho fetch tránh bị treo vĩnh viễn
@@ -888,6 +970,7 @@ export class SyncManager {
               reference_no: item.reference_no || '',
               warehouse_id: item.warehouse_id || '',
               to_warehouse_id: item.to_warehouse_id || '',
+              supplier_id: (item as any).supplier_id || '',
               payments: item.unit_cost > 0 && item.type === 'purchase_in' && (item as any).fund_id ? [
                 {
                   amount: String(Math.abs(item.qty) * item.unit_cost),

@@ -321,7 +321,18 @@ export function initializeLocalDatabase(customDb?: any) {
         warehouse_id TEXT,
         to_warehouse_id TEXT,
         payment_method TEXT,
-        fund_id TEXT
+        fund_id TEXT,
+        supplier_id TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS suppliers (
+        id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        phone TEXT,
+        email TEXT,
+        address TEXT,
+        note TEXT,
+        sync_status TEXT NOT NULL DEFAULT 'synced'
       );
 
       CREATE TABLE IF NOT EXISTS local_caches (
@@ -355,6 +366,7 @@ export function initializeLocalDatabase(customDb?: any) {
     try { targetDb.execSync(`ALTER TABLE stock_movements ADD COLUMN to_warehouse_id TEXT;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE stock_movements ADD COLUMN payment_method TEXT;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE stock_movements ADD COLUMN fund_id TEXT;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE stock_movements ADD COLUMN supplier_id TEXT;`); } catch (e) {}
     
     // Migrations for products and categories sync features
     try { targetDb.execSync(`ALTER TABLE products ADD COLUMN sync_status TEXT DEFAULT 'synced';`); } catch (e) {}

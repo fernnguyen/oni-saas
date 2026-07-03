@@ -182,6 +182,18 @@ export const stockMovements = sqliteTable('stock_movements', {
   to_warehouse_id: text('to_warehouse_id'),
   payment_method: text('payment_method'),
   fund_id: text('fund_id'),
+  supplier_id: text('supplier_id'),
+});
+
+// BẢNG NHÀ CUNG CẤP (SUPPLIERS)
+export const suppliers = sqliteTable('suppliers', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  phone: text('phone'),
+  email: text('email'),
+  address: text('address'),
+  note: text('note'),
+  sync_status: text('sync_status').notNull().default('synced'),
 });
 
 // 10. BỘ NHỚ ĐỆM CỤC BỘ (Local Caches)
