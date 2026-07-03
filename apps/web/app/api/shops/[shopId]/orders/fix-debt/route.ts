@@ -69,7 +69,7 @@ export async function GET(
       })
 
       const unpaidOrders = ordersRes.data
-        .filter((o: Record<string, string>) => parseFloat(o.debt_amount || '0') > 0 && o.is_return !== 'TRUE')
+        .filter((o: Record<string, string>) => parseFloat(o.debt_amount || '0') > 0 && o.is_return !== 'TRUE' && o.status !== 'cancelled' && o.status !== 'failed')
         .sort((a: Record<string, string>, b: Record<string, string>) =>
           new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
         )
@@ -110,16 +110,34 @@ export async function GET(
         })
 
         if (!dryRun) {
+          const fallbackMethod = collections[collections.length - 1]?.method || 'cash'
+          const parentCbId = collections[collections.length - 1]?.id || collections[collections.length - 1]?.transaction_id || 'FIX'
+          const parentCbDate = collections[collections.length - 1]?.created_at || new Date().toISOString()
+
           const orderUpdates: Record<string, any> = {
             debt_amount: String(newOrderDebt),
             paid_amount: String(newPaid),
           }
 
           if (newOrderDebt === 0 && (order.payment_method === 'debt' || order.payment_method?.startsWith('debt-'))) {
-            orderUpdates.payment_method = 'cash' // default fallback
+            orderUpdates.payment_method = fallbackMethod
           }
 
           await connector.update('orders', order.id || order.order_id, orderUpdates)
+
+          // Create payment record in the 'payments' table (audit trail)
+          const paymentId = `DEBT-${(order.id || order.order_id).slice(-6)}-${Date.now()}`
+          await connector.create('payments', {
+            id: paymentId,
+            order_id: order.id || order.order_id,
+            order_no: order.order_no || '',
+            method: fallbackMethod,
+            amount: String(applied),
+            reference_no: parentCbId,
+            note: `Hệ thống phân bổ nợ cũ (Cashbook #${parentCbId.slice(-6)})`,
+            paid_at: parentCbDate,
+          })
+
           totalOrdersFixed++
         } else {
           totalOrdersFixed++

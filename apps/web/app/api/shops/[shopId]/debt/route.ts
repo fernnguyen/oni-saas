@@ -62,28 +62,16 @@ export async function GET(
       const withDebt = all.data.filter(c => parseFloat(c.debt_amount || '0') > 0)
       
       if (withDebt.length > 0) {
-        const now = Date.now()
-        await Promise.all(withDebt.map(async (c) => {
-          try {
-            const cid = c.id || c.customer_id
-            const ordersRes = await connector.list('orders', {
-              filters: { customer_id: cid },
-              limit: 500
-            })
-            const unpaid = ordersRes.data.filter((o: any) => parseFloat(o.debt_amount || '0') > 0 && o.is_return !== 'TRUE' && o.status !== 'cancelled' && o.status !== 'failed')
-            if (unpaid.length > 0) {
-              const oldest = unpaid.reduce((acc: any, cur: any) => 
-                new Date(cur.created_at).getTime() < new Date(acc.created_at).getTime() ? cur : acc
-              )
-              c.debt_days = String(Math.floor((now - new Date(oldest.created_at).getTime()) / 86400000))
-            } else {
-              c.debt_days = c.debt_days || '0'
-            }
-          } catch (err) {
-            console.error(`Failed to fetch orders for debt_days for customer ${c.id}:`, err)
-            c.debt_days = c.debt_days || '0'
+        withDebt.forEach(c => {
+          let metaDebtDays = 0
+          if (c.metadata) {
+            try {
+              const meta = typeof c.metadata === 'string' ? JSON.parse(c.metadata) : c.metadata
+              if (meta.debt_days) metaDebtDays = Number(meta.debt_days)
+            } catch (e) {}
           }
-        }))
+          c.debt_days = String(metaDebtDays || c.debt_days || '0')
+        })
       }
 
       withDebt.sort((a, b) => parseFloat(b.debt_amount || '0') - parseFloat(a.debt_amount || '0'))
