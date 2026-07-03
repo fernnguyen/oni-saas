@@ -8,7 +8,11 @@ export function shopTag(shopId: string, entity: string) {
 }
 
 export function invalidate(shopId: string, entity: string) {
-  revalidateTag(shopTag(shopId, entity), 'max')
+  try {
+    revalidateTag(shopTag(shopId, entity), 'max')
+  } catch (err) {
+    // Suppress Next.js Invariant error when running outside of request context (e.g. CLI migration scripts)
+  }
 }
 
 /**

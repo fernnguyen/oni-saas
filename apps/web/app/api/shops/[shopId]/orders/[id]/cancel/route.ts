@@ -4,6 +4,7 @@ import { invalidate } from '@/lib/server/cache'
 import { handleApiError } from '../../../../_helpers'
 import { dispatchNotification } from '@/lib/server/notifications'
 import { RollbackContext } from '@oni/adapters'
+import { resolveAndRecordPayment } from '@/lib/server/paymentFunds'
 import crypto from 'crypto'
 import { updateCustomerStats } from '@/lib/server/customerStats'
 
@@ -55,6 +56,14 @@ export async function POST(
       const alreadyRefunded = existingCb.data.some((cb: any) => cb.note && cb.note.includes('Điều chỉnh tiền hủy đơn hàng'))
       
       if (!alreadyRefunded) {
+        const { fundId, balanceAfter } = await resolveAndRecordPayment(
+          connector,
+          shopId,
+          { amount: finalRefundAmount, method: 'cash' },
+          true, // isExpense = true (refunding to customer)
+          tx
+        )
+
         const createdCb = await connector.create('cashbook', {
           type: 'payment',
           amount: String(finalRefundAmount),
@@ -65,7 +74,9 @@ export async function POST(
           note: `Điều chỉnh tiền hủy đơn hàng ${orderNo} - Lý do: ${reason}`,
           employee_id: user.id,
           branch_id: (order as Record<string, string>).branch_id || '',
-          created_at: new Date().toISOString()
+          created_at: new Date().toISOString(),
+          fund_id: fundId,
+          balance_after_transaction: balanceAfter,
         })
         tx.add(async () => {
           await connector.delete('cashbook', (createdCb as any).transaction_id).catch(() => {})
@@ -224,6 +235,7 @@ export async function POST(
     invalidate(shopId, 'inventory')
     invalidate(shopId, 'cashbook')
     invalidate(shopId, 'stock-movements')
+    invalidate(shopId, 'payment-funds')
     return NextResponse.json({ success: true })
   } catch (e) {
     if (tx) {

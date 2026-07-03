@@ -4,6 +4,7 @@ import { requireShopAccess } from '@/lib/server/shopAccess'
 import { shopTag, invalidate } from '@/lib/server/cache'
 import { handleApiError } from '../../../_helpers'
 import { RollbackContext, type IDataConnector } from '@oni/adapters'
+import { resolveAndRecordPayment } from '@/lib/server/paymentFunds'
 import crypto from 'crypto'
 
 const INBOUND_TYPES = ['purchase_in', 'p2p_purchase_in', 'return_in', 'transfer_in']
@@ -487,6 +488,14 @@ export async function POST(
         for (const payment of payments) {
           const pAmt = parseFloat(payment.amount || '0')
           if (pAmt > 0) {
+            const { fundId, balanceAfter } = await resolveAndRecordPayment(
+              connector,
+              shopId,
+              payment,
+              true, // isExpense = true (money flows out for purchase import)
+              tx
+            )
+
             const createdCb = await connector.create('cashbook', {
               type:           'payment',
               amount:         String(pAmt),
@@ -497,12 +506,15 @@ export async function POST(
               note:           `Thanh toán phiếu nhập kho ${movementNo}`,
               employee_id:    employee_id || '',
               branch_id:      branch_id || '',
+              fund_id:        fundId,
+              balance_after_transaction: balanceAfter,
             })
             tx.add(async () => {
               await connector.delete('cashbook', (createdCb as any).transaction_id).catch(() => {})
             })
           }
         }
+        invalidate(shopId, 'payment-funds')
       }
     }
 

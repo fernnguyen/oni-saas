@@ -1356,16 +1356,9 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                             </View>
                           )}
  
-                          {/* Total Price */}
-                          <TouchableOpacity 
-                            className="w-[85px] items-end"
-                            onPress={() => {
-                              if (!isTimeCharge) {
-                                setEditingItemInfo({ cartItemId, item: { ...item, unit_price: item.price } });
-                              }
-                            }}
-                          >
-                            <View style={{ borderBottomWidth: 1, borderStyle: 'dashed', borderColor: '#cbd5e1' }}>
+                          {/* Total Price (No longer clickable) */}
+                          <View className="w-[85px] items-end">
+                            <View style={{ borderBottomWidth: 1, borderStyle: 'dashed', borderColor: 'transparent' }}>
                               <Text className={`font-bold text-[15px] ${isTimeCharge ? 'text-emerald-700' : 'text-slate-800'}`}>
                                 {formatCurrency((itemToRender.price + (itemToRender.modifier_total || 0)) * itemToRender.quantity)}
                               </Text>
@@ -1383,19 +1376,29 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                               }
                               return null;
                             })()}
-                          </TouchableOpacity>
+                          </View>
                         </View>
                       </View>
  
-                        {/* Bottom Row: Unit Price, Delete */}
+                        {/* Bottom Row: Unit Price (Clickable for editing), Delete */}
                         <View className="flex-row justify-between items-center mt-1">
-                          <Text className="text-xs text-slate-500 font-medium">
-                            {isTimeCharge ? (
-                              `Đơn giá: ${formatCurrency(itemToRender.price)} x ${itemToRender.quantity} (${localRentalType === 'overnight' ? 'đêm' : (localRentalType === 'daily' ? 'ngày' : itemToRender.variant_label)})`
-                            ) : (
-                              `Đơn giá: ${formatCurrency(itemToRender.price + (itemToRender.modifier_total || 0))} x ${itemToRender.quantity}${productsList.find(pr => pr.id === itemToRender.productId)?.unit ? ` (${productsList.find(pr => pr.id === itemToRender.productId)?.unit})` : ''}`
-                            )}
-                          </Text>
+                          <TouchableOpacity
+                            onPress={() => {
+                              if (!isTimeCharge) {
+                                setEditingItemInfo({ cartItemId, item: { ...item, unit_price: (item as any).original_price ?? item.price } });
+                              }
+                            }}
+                          >
+                            <View style={{ borderBottomWidth: 1, borderStyle: 'dashed', borderColor: '#cbd5e1' }}>
+                              <Text className="text-xs text-slate-600 font-medium pb-0.5">
+                                {isTimeCharge ? (
+                                  `Đơn giá: ${formatCurrency(itemToRender.price)} x ${itemToRender.quantity} (${localRentalType === 'overnight' ? 'đêm' : (localRentalType === 'daily' ? 'ngày' : itemToRender.variant_label)})`
+                                ) : (
+                                  `Đơn giá: ${formatCurrency(itemToRender.price + (itemToRender.modifier_total || 0))} x ${itemToRender.quantity}${productsList.find(pr => pr.id === itemToRender.productId)?.unit ? ` (${productsList.find(pr => pr.id === itemToRender.productId)?.unit})` : ''}`
+                                )}
+                              </Text>
+                            </View>
+                          </TouchableOpacity>
                           <TouchableOpacity 
                             onPress={() => !loading && removeFromCart(cartItemId)} 
                             disabled={loading || isTimeCharge} 
