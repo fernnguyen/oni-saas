@@ -443,20 +443,28 @@ export function DebtCollectionSlideOver({
               label={isCustomer ? 'Số tiền thu *' : 'Số tiền trả *'}
               value={String(amountToCollect)}
               onChange={(v) => {
-                if (debtMode === 'by_order') return // readonly in by_order mode
-                setAmountToCollect(Math.min(Number(v) || 0, customerDebt))
+                const maxAllowed = debtMode === 'by_order' ? selectedOrdersDebt : customerDebt
+                setAmountToCollect(Math.min(Number(v) || 0, maxAllowed))
               }}
               suffix="đ"
               max={debtMode === 'by_order' ? selectedOrdersDebt : customerDebt}
-              disabled={debtMode === 'by_order'}
             />
             {debtMode === 'by_order' && selectedOrderIds.length > 0 && (
-              <p className="text-xs text-slate-400 -mt-2">
-                Số tiền tự động tính theo đơn đã chọn
-              </p>
+              <div className="flex justify-between items-center -mt-2">
+                <p className="text-xs text-slate-400">
+                  Có thể sửa số tiền để trả một phần
+                </p>
+                <button
+                  type="button"
+                  className="text-xs font-semibold text-primary hover:underline transition-colors cursor-pointer"
+                  onClick={() => setAmountToCollect(selectedOrdersDebt)}
+                >
+                  Thu đủ {selectedOrderIds.length} đơn
+                </button>
+              </div>
             )}
             {debtMode === 'basic' && (
-              <div className="flex justify-end">
+              <div className="flex justify-end -mt-2">
                 <button
                   type="button"
                   className="text-xs font-semibold text-primary hover:underline hover:text-primary-dark transition-colors cursor-pointer"
