@@ -23,10 +23,11 @@ export async function PUT(
     const body = await req.json()
     const { name, type, account_number, account_name, bank_name, initial_balance, is_default, active, qr_template } = body
 
-    // If is_default is TRUE, we must set other funds to is_default = FALSE
+    // If is_default is TRUE, we must set other funds of the same type to is_default = FALSE
     if (is_default === true || is_default === 'TRUE') {
+      const targetType = type || currentFund.type
       const existingFunds = await connector.list('payment-funds', {
-        filters: { branch_id: shopId, is_default: 'TRUE' },
+        filters: { branch_id: shopId, is_default: 'TRUE', type: targetType },
         limit: 100,
       })
       const funds = existingFunds.data as Record<string, string>[]

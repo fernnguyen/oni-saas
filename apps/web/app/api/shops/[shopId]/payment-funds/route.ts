@@ -89,10 +89,10 @@ export async function POST(
     // Force strict branch scoping on write
     payload.branch_id = shopId
 
-    // Nếu đánh dấu mặc định, cần tắt mặc định ở các quỹ khác cùng chi nhánh
+    // Nếu đánh dấu mặc định, cần tắt mặc định ở các quỹ khác cùng chi nhánh và cùng loại quỹ
     if (payload.is_default) {
       const existingFunds = await connector.list('payment-funds', {
-        filters: { branch_id: shopId, is_default: 'TRUE' },
+        filters: { branch_id: shopId, is_default: 'TRUE', type: payload.type },
         limit: 100,
       })
       const funds = existingFunds.data as Record<string, string>[]

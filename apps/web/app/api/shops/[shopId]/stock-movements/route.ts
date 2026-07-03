@@ -62,6 +62,8 @@ export async function GET(
     const movement_no = sp.get('movement_no') ?? ''
     const warehouse_id = sp.get('warehouse_id') ?? ''
     
+    const fund_id = sp.get('fund_id') ?? ''
+    
     const filters: Record<string, string> = {}
     if (type) filters.type = type
     if (product_id) filters.product_id = product_id
@@ -70,6 +72,22 @@ export async function GET(
     if (warehouse_id) filters.warehouse_id = warehouse_id
 
     const result = await connector.list('stock-movements', { page, limit, search: search || undefined, filters, sortDesc: true })
+
+    if (fund_id && result && Array.isArray(result.data)) {
+      result.data = result.data.filter((r: any) => {
+        try {
+          let payments = r.payments
+          if (typeof payments === 'string' && payments.trim()) {
+            payments = JSON.parse(payments)
+          }
+          if (Array.isArray(payments)) {
+            return payments.some((p: any) => p.fund_id === fund_id)
+          }
+        } catch (e) {}
+        return false
+      })
+      result.total = result.data.length
+    }
 
     const isPurchasingOrAdmin = permissions.some(p =>
       ['admin', 'owner', 'purchaser', 'purchasing.manage', 'chief_accountant', 'settings.manage'].includes(p)

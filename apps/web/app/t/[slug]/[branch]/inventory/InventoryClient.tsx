@@ -106,7 +106,7 @@ const EMPTY_FORM = {
   workflow_status: 'completed' as 'draft' | 'completed',
   payment_status: 'paid' as PaymentStatus,
   discount: '',
-  payments: [{ amount: '', method: 'cash' }] as { amount: string, method: string }[],
+  payments: [{ amount: '', method: 'cash', fund_id: '' }] as { amount: string, method: string, fund_id?: string }[],
 }
 
 function fmtVND(v: string | number | undefined) {
@@ -855,6 +855,7 @@ export function InventoryClient({ shopId, shopName, planCode }: Props) {
   const [historySearch, setHistorySearch] = useState(initialSearch)
   const [debouncedHistorySearch] = useDebounce(historySearch, 300)
   const [typeFilter, setTypeFilter] = useState('')
+  const [fundFilter, setFundFilter] = useState('')
   const [expandedMovements, setExpandedMovements] = useState<Set<string>>(new Set())
   const toggleMovementExpand = (key: string) => {
     setExpandedMovements((prev) => {
@@ -928,14 +929,26 @@ export function InventoryClient({ shopId, shopName, planCode }: Props) {
     },
   })
 
+  // Payment Funds
+  const { data: fundsData } = useQuery({
+    queryKey: ['payment-funds', shopId],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/payment-funds`)
+      if (!res.ok) throw new Error('Không tải được danh sách quỹ')
+      return res.json() as Promise<{ data: Record<string, string>[] }>
+    },
+  })
+  const fundsList = (fundsData?.data || []).filter(f => f.active === 'TRUE')
+
   // Stock movements (history tab — lazy)
   const { data: movementsData, isLoading: movementsLoading, isFetching: movementsFetching } = useQuery({
-    queryKey: ['stock-movements', shopId, historyPage, debouncedHistorySearch, typeFilter, selectedWarehouseId],
+    queryKey: ['stock-movements', shopId, historyPage, debouncedHistorySearch, typeFilter, selectedWarehouseId, fundFilter],
     queryFn: async () => {
       const sp = new URLSearchParams({ page: String(historyPage), limit: '50' })
       if (debouncedHistorySearch) sp.set('search', debouncedHistorySearch)
       if (typeFilter) sp.set('type', typeFilter)
       if (selectedWarehouseId) sp.set('warehouse_id', selectedWarehouseId)
+      if (fundFilter) sp.set('fund_id', fundFilter)
       const res = await fetch(`/api/shops/${shopId}/stock-movements?${sp}`)
       if (!res.ok) throw new Error('Không tải được lịch sử')
       return res.json() as Promise<{ data: Row[]; total: number }>
@@ -960,6 +973,30 @@ export function InventoryClient({ shopId, shopName, planCode }: Props) {
       setHistorySearch(initialSearch)
     }
   }, [initialSearch])
+
+  // Auto-populate fund_id for payments when the form is active
+  useEffect(() => {
+    if (showForm && form.payments && fundsList.length > 0) {
+      let changed = false
+      const updatedPayments = form.payments.map(p => {
+        if (!p.fund_id) {
+          const targetType = p.method === 'cash' ? 'cash' : 'bank'
+          const autoFund = fundsList.find(f => f.type === targetType && f.is_default === 'TRUE') || 
+                           fundsList.find(f => f.type === targetType) ||
+                           fundsList[0]
+          if (autoFund) {
+            changed = true
+            return { ...p, fund_id: autoFund.id }
+          }
+        }
+        return p
+      })
+      
+      if (changed) {
+        setForm(f => ({ ...f, payments: updatedPayments }))
+      }
+    }
+  }, [showForm, form.payments, fundsList, form.type])
 
   // Automatically expand matching movement slip details when searching for a specific slip code
   useEffect(() => {
@@ -1269,7 +1306,7 @@ export function InventoryClient({ shopId, shopName, planCode }: Props) {
       const afterDiscount = Math.max(0, totalCost - discount)
 
       if (form.payment_status === 'paid') {
-        finalPayments = [{ amount: String(afterDiscount), method: form.payments[0]?.method || 'cash' }]
+        finalPayments = [{ amount: String(afterDiscount), method: form.payments[0]?.method || 'cash', fund_id: form.payments[0]?.fund_id }]
       } else if (form.payment_status === 'unpaid') {
         finalPayments = []
       } else {
@@ -1381,7 +1418,7 @@ export function InventoryClient({ shopId, shopName, planCode }: Props) {
     }
 
     if (finalPayments.length === 0 && finalStatus !== 'unpaid') {
-      finalPayments = [{ amount: '', method: form.payments[0]?.method || 'cash' }]
+      finalPayments = [{ amount: '', method: form.payments[0]?.method || 'cash', fund_id: form.payments[0]?.fund_id }]
     }
 
     setForm(f => ({ ...f, payments: finalPayments, payment_status: finalStatus }))
@@ -1830,11 +1867,29 @@ export function InventoryClient({ shopId, shopName, planCode }: Props) {
             ))}
           </div>
 
-          <SearchBar
-            value={historySearch}
-            onChange={(v) => { setHistorySearch(v); setHistoryPage(1) }}
-            placeholder="Tìm theo mã phiếu, sản phẩm..."
-          />
+          <div className="flex flex-col sm:flex-row gap-2">
+            <div className="flex-1">
+              <SearchBar
+                value={historySearch}
+                onChange={(v) => { setHistorySearch(v); setHistoryPage(1) }}
+                placeholder="Tìm theo mã phiếu, sản phẩm..."
+              />
+            </div>
+            <div className="w-full sm:w-[240px]">
+              <select
+                value={fundFilter}
+                onChange={(e) => { setFundFilter(e.target.value); setHistoryPage(1) }}
+                className="w-full h-[38px] rounded-xl border border-slate-200 px-3 text-sm focus:border-primary focus:outline-none bg-white text-slate-700 font-medium shadow-xs"
+              >
+                <option value="">-- Lọc theo quỹ chi --</option>
+                {fundsList.map(fund => (
+                  <option key={fund.id} value={fund.id}>
+                    {fund.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
 
           {movementsLoading ? (
             <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm w-full p-8 flex flex-col items-center justify-center space-y-3">
@@ -2855,50 +2910,109 @@ export function InventoryClient({ shopId, shopName, planCode }: Props) {
                     </div>
                   )}
 
-                  {form.payments.map((p, idx) => (
-                    <div key={idx} className="flex gap-2">
-                      <div className="flex-1">
-                        <FormattedNumberInput
-                          value={form.payment_status === 'paid' ? String(Math.max(0, form.items.reduce((sum, item) => sum + (Number(item.unit_cost || 0) * Math.abs(Number(item.qty || 0))), 0) - Number(form.discount || 0))) : p.amount}
-                          disabled={form.payment_status === 'paid'}
-                          onChange={(val) => {
-                            const newP = [...form.payments]
-                            newP[idx].amount = val
-                            setForm(f => ({ ...f, payments: newP }))
-                          }}
-                          placeholder="Số tiền"
-                          className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:border-primary focus:outline-none disabled:bg-slate-100 disabled:text-slate-400"
-                        />
+                  {form.payments.map((p, idx) => {
+                    const targetType = p.method === 'cash' ? 'cash' : 'bank'
+                    const matchingFunds = fundsList.filter(f => f.type === targetType)
+                    
+                    return (
+                      <div key={idx} className="bg-slate-50/40 border border-slate-100 rounded-xl p-3 space-y-3 mb-2 animate-in fade-in duration-200">
+                        {/* First Row: Method Dropdown & Amount Input */}
+                        <div className="flex gap-2">
+                          <select
+                            value={p.method}
+                            onChange={(e) => {
+                              const newP = [...form.payments]
+                              const selectedMethod = e.target.value
+                              newP[idx].method = selectedMethod
+                              
+                              // Auto-match fund
+                              const nextType = selectedMethod === 'cash' ? 'cash' : 'bank'
+                              const autoFund = fundsList.find(f => f.type === nextType && f.is_default === 'TRUE') || 
+                                               fundsList.find(f => f.type === nextType) ||
+                                               fundsList[0]
+                              newP[idx].fund_id = autoFund?.id || ''
+                              
+                              setForm(f => ({ ...f, payments: newP }))
+                            }}
+                            className="w-40 shrink-0 rounded-lg border border-slate-200 px-2.5 py-2 text-sm focus:border-primary focus:outline-none bg-white font-medium text-slate-800"
+                          >
+                            <option value="cash" disabled={form.payments.some((x, i) => i !== idx && x.method === 'cash')}>Tiền mặt</option>
+                            <option value="transfer" disabled={form.payments.some((x, i) => i !== idx && x.method === 'transfer')}>Chuyển khoản</option>
+                          </select>
+                          
+                          <div className="relative flex-1">
+                            <FormattedNumberInput
+                              value={form.payment_status === 'paid' ? String(Math.max(0, form.items.reduce((sum, item) => sum + (Number(item.unit_cost || 0) * Math.abs(Number(item.qty || 0))), 0) - Number(form.discount || 0))) : p.amount}
+                              disabled={form.payment_status === 'paid'}
+                              onChange={(val) => {
+                                const newP = [...form.payments]
+                                newP[idx].amount = val
+                                setForm(f => ({ ...f, payments: newP }))
+                              }}
+                              placeholder="0"
+                              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-right text-sm focus:border-primary focus:outline-none font-semibold text-slate-900 bg-white disabled:bg-slate-100 disabled:text-slate-400"
+                            />
+                          </div>
+
+                          {form.payments.length > 1 && form.payment_status === 'partial' && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault()
+                                const newP = form.payments.filter((_, i) => i !== idx)
+                                setForm(f => ({ ...f, payments: newP }))
+                              }}
+                              className="shrink-0 rounded-lg border border-slate-200 px-2.5 text-slate-400 hover:border-red-200 hover:text-red-550 hover:bg-red-50 transition-colors"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Second Row: Orange Fund Selector styled exactly like POS */}
+                        {matchingFunds.length > 0 && (
+                          <div className="relative flex items-center pl-6 mt-3.5">
+                            {/* Left vertical line */}
+                            <div className="absolute left-2.5 -top-2 bottom-1/2 w-px bg-slate-200" />
+                            {/* Left circle bullet */}
+                            <div className="absolute left-[7px] top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-slate-300" />
+
+                            <div className="relative flex-1 flex items-center">
+                              <span className="absolute left-3 text-[10px] text-orange-800 font-bold uppercase pointer-events-none select-none">
+                                QUỸ:
+                              </span>
+                              <select
+                                value={p.fund_id || ''}
+                                onChange={(e) => {
+                                  const newP = [...form.payments]
+                                  newP[idx].fund_id = e.target.value
+                                  setForm(f => ({ ...f, payments: newP }))
+                                }}
+                                className="w-full pl-11 pr-8 py-1.5 bg-orange-50/50 border border-orange-100 rounded-lg text-xs font-bold text-orange-950 focus:border-orange-350 focus:outline-none appearance-none cursor-pointer"
+                              >
+                                <option value="" className="bg-white font-medium text-slate-500 font-normal">-- Chọn quỹ chi --</option>
+                                {matchingFunds.map((f) => (
+                                  <option key={f.id} value={f.id} className="bg-white font-medium text-slate-800 font-normal">
+                                    {f.name}
+                                    {f.current_balance !== undefined ? ` (Số dư: ${Number(f.current_balance).toLocaleString('vi-VN')}đ)` : ''}
+                                    {f.bank_name ? ` - ${f.bank_name}` : ''}
+                                    {f.account_number ? ` - STK: ${f.account_number}` : ''}
+                                    {f.account_name ? ` (${f.account_name})` : ''}
+                                  </option>
+                                ))}
+                              </select>
+                              {/* Custom chevron icon */}
+                              <div className="absolute right-2.5 pointer-events-none text-orange-850">
+                                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                                </svg>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                      <div className="w-1/2">
-                        <select
-                          value={p.method}
-                          onChange={(e) => {
-                            const newP = [...form.payments]
-                            newP[idx].method = e.target.value
-                            setForm(f => ({ ...f, payments: newP }))
-                          }}
-                          className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:border-primary focus:outline-none"
-                        >
-                          <option value="cash" disabled={form.payments.some((x, i) => i !== idx && x.method === 'cash')}>Tiền mặt</option>
-                          <option value="transfer" disabled={form.payments.some((x, i) => i !== idx && x.method === 'transfer')}>Chuyển khoản</option>
-                        </select>
-                      </div>
-                      {form.payments.length > 1 && form.payment_status === 'partial' && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.preventDefault()
-                            const newP = form.payments.filter((_, i) => i !== idx)
-                            setForm(f => ({ ...f, payments: newP }))
-                          }}
-                          className="text-slate-400 hover:text-red-500 px-1"
-                        >
-                          ✕
-                        </button>
-                      )}
-                    </div>
-                  ))}
+                    )
+                  })}
 
                   {form.payment_status === 'partial' && form.payments.length < 3 && (
                     <button
@@ -2911,7 +3025,17 @@ export function InventoryClient({ shopId, shopName, planCode }: Props) {
                         const remain = Math.max(0, totalCost - discount - paid)
                         const used = form.payments.map(p => p.method)
                         const avail = ['cash', 'transfer', 'card'].find(m => !used.includes(m)) || 'transfer'
-                        setForm(f => ({ ...f, payments: [...f.payments, { amount: String(remain), method: avail }] }))
+                        
+                        // Auto-match fund for the new payment row
+                        const targetType = avail === 'cash' ? 'cash' : 'bank'
+                        const autoFund = fundsList.find(f => f.type === targetType && f.is_default === 'TRUE') || 
+                                         fundsList.find(f => f.type === targetType) ||
+                                         fundsList[0]
+
+                        setForm(f => ({ 
+                          ...f, 
+                          payments: [...f.payments, { amount: String(remain), method: avail, fund_id: autoFund?.id || '' }] 
+                        }))
                       }}
                       className="text-xs font-medium text-primary hover:underline hover:text-primary-dark"
                     >
@@ -3328,13 +3452,25 @@ export function InventoryClient({ shopId, shopName, planCode }: Props) {
 
                       if (parsedPayments.length > 0) {
                         return (
-                          <div className="space-y-1.5 mb-3">
-                            {parsedPayments.map((p, idx) => (
-                              <div key={idx} className="flex gap-4 text-sm">
-                                <span className="text-slate-500 w-24">{methodMap[p.method] || p.method}</span>
-                                <span className="font-medium text-slate-900">{fmtVND(p.amount)}</span>
-                              </div>
-                            ))}
+                          <div className="space-y-2 mb-3">
+                            {parsedPayments.map((p, idx) => {
+                              const f = fundsList.find(fund => fund.id === p.fund_id)
+                              return (
+                                <div key={idx} className="flex flex-col gap-0.5 text-sm">
+                                  <div className="flex gap-4">
+                                    <span className="text-slate-500 w-24">{methodMap[p.method] || p.method}</span>
+                                    <span className="font-medium text-slate-900">{fmtVND(p.amount)}</span>
+                                  </div>
+                                  {p.fund_id && (
+                                    <div className="text-xs text-slate-400 pl-28 flex items-center gap-1">
+                                      <span className="text-[10px] bg-slate-100 text-slate-500 px-1 py-0.5 rounded font-mono uppercase">Quỹ</span>
+                                      <span className="font-medium text-slate-600">{f ? f.name : 'Không xác định'}</span>
+                                      {f?.account_number && <span className="text-slate-400">(STK: {f.account_number})</span>}
+                                    </div>
+                                  )}
+                                </div>
+                              )
+                            })}
                           </div>
                         )
                       }
