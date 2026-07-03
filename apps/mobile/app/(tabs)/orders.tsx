@@ -1859,7 +1859,7 @@ export default function OrdersScreen() {
                         const basePrice = hasOriginalPrice ? Number(originalPrice) : Number(item.unit_price);
                         const priceDiff = basePrice - Number(item.unit_price);
                         const discountAmt = Number((item as any).line_discount || (item as any).discount_amount || 0);
-                        const totalReduction = priceDiff + discountAmt;
+                        const totalReduction = Math.max(priceDiff, discountAmt);
                         if (totalReduction > 0) {
                           return (
                             <Text className="text-[11px] text-orange-500 italic mt-0.5">

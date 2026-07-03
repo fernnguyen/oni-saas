@@ -844,7 +844,9 @@ export default function PosScreen() {
 
 
     if (cartOwnerTable) {
-      await handlePayTableConfirmUnified(customer, discount, note, payments, debtRepayOpts?.customCheckoutTime, debtRepayOpts?.rentalType);
+      // Pass cart directly as overrideCartItems since triggerPayTable copies tableCarts→cart
+      // and all edits in CartCheckoutModal go to cart (activeTable is null at this point)
+      await handlePayTableConfirmUnified(customer, discount, note, payments, debtRepayOpts?.customCheckoutTime, debtRepayOpts?.rentalType, cart);
       return;
     }
     setIsPayingCartLoading(true);
@@ -898,6 +900,10 @@ export default function PosScreen() {
           }
         }
 
+        const origProd = productsList.find(p => p.id === item.productId);
+        const catalogPrice = origProd ? (Number(origProd.sell_price) || 0) : 0;
+        const resolvedOrigPrice = item.original_price ?? (catalogPrice > 0 ? catalogPrice : item.price);
+
         return {
           id: `ORDI-${orderId}-${cartItemId}`,
           order_id: orderId,
@@ -905,8 +911,8 @@ export default function PosScreen() {
           product_name: item.name,
           qty: item.quantity,
           unit_price: (item.price + (item.modifier_total || 0)),
-          original_price: item.original_price ?? item.price,
-          discount_amount: item.discount_amount || 0,
+          original_price: resolvedOrigPrice,
+          discount_amount: item.discount_amount || Math.max(0, resolvedOrigPrice - (item.price + (item.modifier_total || 0))),
           line_total: itemTotal,
           tax_rate: item.tax_rate || '0',
           tax_amount: taxAmountVal,
@@ -1082,11 +1088,14 @@ export default function PosScreen() {
                 product_name: it.product_name,
                 qty: it.qty,
                 unit_price: it.unit_price,
-                discount_amount: 0,
+                original_price: it.original_price,
+                discount_amount: it.discount_amount,
                 line_total: it.line_total,
                 tax_rate: it.tax_rate,
                 tax_amount: it.tax_amount,
                 tax_group: it.tax_group,
+                tax_vat_rate: it.tax_vat_rate,
+                tax_pit_rate: it.tax_pit_rate,
               })),
               payments: processedPayments.map(p => {
                 const fund = paymentFundsList.find((f: any) => f.id === p.fund_id);
@@ -3509,21 +3518,32 @@ export default function PosScreen() {
         cartOwnerTable={cartOwnerTable}
         shopVertical={shopVertical}
         onCheckout={(opts) => handlePayCart(selectedCustomer, discountAmount, orderNote, paymentRows, opts)}
-        onEditItemSave={(cartItemId, finalPrice, originalPrice, discountAmt, discountPct) => {
+        onEditItemSave={(cartItemId, finalPrice, originalPriceFromModal, discountAmt, discountPct) => {
+          const resolveBasePrice = (item: any) => {
+            if (item.original_price != null && item.original_price > 0) return item.original_price;
+            const origProd = productsList.find(p => p.id === item.productId);
+            if (origProd && Number(origProd.sell_price) > 0) return Number(origProd.sell_price);
+            return item.price;
+          };
+
           if (activeTable) {
             setTableCarts((prev: any) => {
               const tableCart = prev[activeTable.id] || {};
               const item = tableCart[cartItemId];
               if (!item) return prev;
+              
+              const basePrice = resolveBasePrice(item);
+              const actualDiscountAmt = Math.max(0, basePrice - finalPrice);
+              
               return {
                 ...prev,
                 [activeTable.id]: {
                   ...tableCart,
                   [cartItemId]: {
                     ...item,
-                    original_price: originalPrice,
+                    original_price: basePrice,
                     price: finalPrice,
-                    discount_amount: discountAmt,
+                    discount_amount: actualDiscountAmt,
                     discount_pct: discountPct,
                   }
                 }
@@ -3533,17 +3553,47 @@ export default function PosScreen() {
             setCart((prev: any) => {
               const item = prev[cartItemId];
               if (!item) return prev;
+              
+              const basePrice = resolveBasePrice(item);
+              const actualDiscountAmt = Math.max(0, basePrice - finalPrice);
+              
               return {
                 ...prev,
                 [cartItemId]: {
                   ...item,
-                  original_price: originalPrice,
+                  original_price: basePrice,
                   price: finalPrice,
-                  discount_amount: discountAmt,
+                  discount_amount: actualDiscountAmt,
                   discount_pct: discountPct,
                 }
               };
             });
+
+            // Also sync to tableCarts when paying for a table (activeTable is null but cartOwnerTable is set)
+            if (cartOwnerTable) {
+              setTableCarts((prev: any) => {
+                const tableCart = prev[cartOwnerTable.id] || {};
+                const item = tableCart[cartItemId];
+                if (!item) return prev;
+
+                const basePrice = resolveBasePrice(item);
+                const actualDiscountAmt = Math.max(0, basePrice - finalPrice);
+
+                return {
+                  ...prev,
+                  [cartOwnerTable.id]: {
+                    ...tableCart,
+                    [cartItemId]: {
+                      ...item,
+                      original_price: basePrice,
+                      price: finalPrice,
+                      discount_amount: actualDiscountAmt,
+                      discount_pct: discountPct,
+                    }
+                  }
+                };
+              });
+            }
           }
         }}
       />

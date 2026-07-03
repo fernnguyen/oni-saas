@@ -745,11 +745,33 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
         ))}
       </div>
 
-      <SearchBar
-        value={search}
-        onChange={(v) => { setSearch(v); setPage(1) }}
-        placeholder="Tìm kiếm đơn hàng..."
-      />
+      <div className="flex items-center gap-2">
+        <div className="flex-1">
+          <SearchBar
+            value={search}
+            onChange={(v) => { setSearch(v); setPage(1) }}
+            placeholder="Tìm kiếm đơn hàng..."
+          />
+        </div>
+        <button
+          onClick={() => {
+            queryClient.invalidateQueries({ queryKey: ['orders'] })
+            queryClient.invalidateQueries({ queryKey: ['order-stats'] })
+            toast.success('Đang tải lại dữ liệu...')
+          }}
+          disabled={isFetching}
+          className={[
+            'flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all',
+            'border border-slate-200 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700',
+            'active:scale-95',
+            isFetching ? 'opacity-60 cursor-not-allowed' : 'text-slate-600',
+          ].join(' ')}
+          title="Tải lại dữ liệu"
+        >
+          <RotateCcw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} />
+          <span className="hidden sm:inline">{isFetching ? 'Đang tải...' : 'Làm mới'}</span>
+        </button>
+      </div>
 
       <DataTable
         columns={columns}
@@ -965,7 +987,8 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
                               const basePrice = hasOriginalPrice ? Number(originalPrice) : Number(item.unit_price);
                               const priceDiff = basePrice - Number(item.unit_price);
                               const discountAmt = Number((item as any).line_discount || (item as any).discount_amount || 0);
-                              const totalReduction = priceDiff + discountAmt;
+                              // Use the larger of priceDiff or discountAmt (they represent the same discount, not additive)
+                              const totalReduction = Math.max(priceDiff, discountAmt);
                               const isPriceEdited = (hasOriginalPrice && Number(item.unit_price) !== Number(originalPrice)) || discountAmt > 0;
                               
                               let tooltipText = undefined;
@@ -1002,7 +1025,8 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
                               const basePrice = hasOriginalPrice ? Number(originalPrice) : Number(item.unit_price);
                               const priceDiff = basePrice - Number(item.unit_price);
                               const discountAmt = Number((item as any).line_discount || (item as any).discount_amount || 0);
-                              const totalReduction = priceDiff + discountAmt;
+                              // Use the larger of priceDiff or discountAmt (they represent the same discount, not additive)
+                              const totalReduction = Math.max(priceDiff, discountAmt);
                               
                               if (totalReduction > 0) {
                                 return (

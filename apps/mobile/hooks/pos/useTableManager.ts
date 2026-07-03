@@ -441,7 +441,9 @@ export function useTableManager(props: UseTableManagerProps) {
               body: JSON.stringify({
                 qty: String(cartItem.quantity),
                 line_total: String(lineTotal),
-                unit_price: String(cartItem.price)
+                unit_price: String(cartItem.price),
+                original_price: String(cartItem.original_price ?? cartItem.price),
+                discount_amount: String(cartItem.discount_amount || 0),
               })
             });
           }
@@ -458,6 +460,8 @@ export function useTableManager(props: UseTableManagerProps) {
               product_name: cartItem.name,
               qty: String(cartItem.quantity),
               unit_price: String(cartItem.price),
+              original_price: String(cartItem.original_price ?? cartItem.price),
+              discount_amount: String(cartItem.discount_amount || 0),
               line_total: String(lineTotal),
               line_discount: '0',
               variant_label: cartItem.variant_label || '',
@@ -610,15 +614,30 @@ export function useTableManager(props: UseTableManagerProps) {
         if (items) {
           for (const item of items) {
             const originalProd = productsList.find(p => p.id === item.product_id);
+            const unitPrice = parseInt(item.unit_price || '0', 10);
+            const origPrice = parseInt(item.original_price || '0', 10) || (originalProd ? Number(originalProd.sell_price) || unitPrice : unitPrice);
+            const discountAmt = parseInt(item.discount_amount || '0', 10) || Math.max(0, origPrice - unitPrice);
             mappedCart[item.product_id] = {
               productId: item.product_id,
               name: item.product_name,
-              price: parseInt(item.unit_price || '0', 10),
+              price: unitPrice,
+              original_price: origPrice,
+              discount_amount: discountAmt,
+              discount_pct: parseInt(item.discount_pct || '0', 10) || 0,
               quantity: parseInt(item.qty || '1', 10),
               tax_rate: item.tax_rate || originalProd?.tax_rate || '0',
               input_tax_rate: item.input_tax_rate || originalProd?.input_tax_rate || '0',
               tax_group: item.tax_group || originalProd?.tax_group || '',
+              variant_label: item.variant_label || '',
+              modifier_total: parseInt(item.modifier_total || '0', 10) || 0,
             };
+            // Restore modifiers if available
+            if (item.modifiers) {
+              try {
+                const parsed = typeof item.modifiers === 'string' ? JSON.parse(item.modifiers) : item.modifiers;
+                if (Array.isArray(parsed)) mappedCart[item.product_id].modifiers = parsed;
+              } catch(e) {}
+            }
           }
         }
 
@@ -1338,7 +1357,8 @@ export function useTableManager(props: UseTableManagerProps) {
     note: string,
     payments: { id: string; method: string; fund_id: string; amount: number }[],
     customCheckoutTime?: Date,
-    selectedRentalType?: 'hourly' | 'overnight' | 'daily'
+    selectedRentalType?: 'hourly' | 'overnight' | 'daily',
+    overrideCartItems?: { [cartItemId: string]: any }
   ) => {
     if (!cartOwnerTable) return;
     setIsPayingTableLoading(true);
@@ -1367,7 +1387,7 @@ export function useTableManager(props: UseTableManagerProps) {
       }
 
       const billing = calculateBilling(selectedTableForPay, customCheckoutTime, rentalType);
-      const tableCartItems = tableCarts[selectedTableForPay.id] || {};
+      const tableCartItems = overrideCartItems || tableCarts[selectedTableForPay.id] || {};
 
       const itemsCost = Object.values(tableCartItems).reduce((sum, item) => sum + ((item.price + (item.modifier_total || 0)) * item.quantity), 0);
       const subtotal = billing.cost + itemsCost;
@@ -1460,6 +1480,10 @@ export function useTableManager(props: UseTableManagerProps) {
           }
         }
 
+        const origProd = productsList.find(p => p.id === item.productId);
+        const catalogPrice = origProd ? (Number(origProd.sell_price) || 0) : 0;
+        const resolvedOrigPrice = item.original_price ?? (catalogPrice > 0 ? catalogPrice : (item.price + (item.modifier_total || 0)));
+
         return {
           id: `ORDI-${orderId}-${prodId}`,
           order_id: orderId,
@@ -1467,8 +1491,8 @@ export function useTableManager(props: UseTableManagerProps) {
           product_name: item.name,
           qty: item.quantity,
           unit_price: item.price + (item.modifier_total || 0),
-          original_price: item.original_price ?? (item.price + (item.modifier_total || 0)),
-          discount_amount: item.discount_amount || 0,
+          original_price: resolvedOrigPrice,
+          discount_amount: item.discount_amount || Math.max(0, resolvedOrigPrice - (item.price + (item.modifier_total || 0))),
           line_total: itemTotal,
           tax_rate: item.tax_rate || '0',
           tax_amount: taxAmountVal,
@@ -1684,11 +1708,13 @@ export function useTableManager(props: UseTableManagerProps) {
                 qty: it.qty,
                 unit_price: it.unit_price,
                 original_price: it.original_price,
-                discount_amount: 0,
+                discount_amount: it.discount_amount,
                 line_total: it.line_total,
                 tax_rate: it.tax_rate,
                 tax_amount: it.tax_amount,
                 tax_group: it.tax_group,
+                tax_vat_rate: it.tax_vat_rate,
+                tax_pit_rate: it.tax_pit_rate,
               }))
             ],
             payments: processedPayments.map(p => {

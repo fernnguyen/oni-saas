@@ -26,7 +26,9 @@ interface SyncItem {
   product_name: string
   qty: number
   unit_price: number
+  original_price?: number
   discount_amount: number
+  discount_pct?: number
   line_total: number
   // ── Variant / Modifier context (Sprint 1) ────────────────────────────────
   variant_label?: string    // "Size L" — denormalized, for bill display
