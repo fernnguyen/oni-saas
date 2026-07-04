@@ -14,7 +14,7 @@ export async function GET(
 
     const sp = req.nextUrl.searchParams;
     const page = Math.max(1, parseInt(sp.get('page') ?? '1'));
-    const limit = Math.min(200, Math.max(1, parseInt(sp.get('limit') ?? '50')));
+    const limit = Math.min(10000, Math.max(1, parseInt(sp.get('limit') ?? '50')));
     const active = sp.get('active') ?? '';
     
     const filters: Record<string, string> = {};

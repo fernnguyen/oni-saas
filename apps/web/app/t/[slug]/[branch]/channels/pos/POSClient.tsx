@@ -789,12 +789,18 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
           }
         })
 
-        // Map general stock or batch sum
+        // Sum general stock across all warehouses in the branch
+        const generalStock = new Map<string, number>()
         invs.forEach((r) => {
           if (r.branch_id === branchId) {
-            const batchQty = batchStock.get(r.product_id) || 0
-            map.set(r.product_id, Math.max(Number(r.stock_qty), batchQty))
+            generalStock.set(r.product_id, (generalStock.get(r.product_id) ?? 0) + Number(r.stock_qty))
           }
+        })
+
+        // Map general stock or batch sum
+        generalStock.forEach((qty, productId) => {
+          const batchQty = batchStock.get(productId) || 0
+          map.set(productId, Math.max(qty, batchQty))
         })
 
         // Fallback for batch-only items not in general inventory

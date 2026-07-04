@@ -17,7 +17,8 @@ export async function GET(
 
     const sp = req.nextUrl.searchParams
     const page = Math.max(1, parseInt(sp.get('page') ?? '1'))
-    const limit = Math.min(200, Math.max(1, parseInt(sp.get('limit') ?? '50')))
+    // Support large limits for offline POS hydration (up to 10000)
+    const limit = Math.min(10000, Math.max(1, parseInt(sp.get('limit') ?? '50')))
     const search = sp.get('search') ?? ''
     const branch_id = sp.get('branch_id') ?? ''
     const product_id = sp.get('product_id') ?? ''
