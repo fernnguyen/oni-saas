@@ -57,10 +57,7 @@ export default function CashbookScreen() {
   const [customers, setCustomers] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   
-  // Tổng quan tài chính
-  const [netBalance, setNetBalance] = useState(0);
-  const [totalReceipt, setTotalReceipt] = useState(0);
-  const [totalPayment, setTotalPayment] = useState(0);
+  // State khai báo trước
 
   // Form states tạo phiếu thu chi
   const [showAddModal, setShowAddModal] = useState(false);
@@ -79,6 +76,47 @@ export default function CashbookScreen() {
   const [showCategorySelector, setShowCategorySelector] = useState(false);
   const [showFundSelector, setShowFundSelector] = useState(false);
   const [showCustomerSelector, setShowCustomerSelector] = useState(false);
+  const [filterFundId, setFilterFundId] = useState<string>('all');
+  const [showFilterFundSelector, setShowFilterFundSelector] = useState(false);
+
+  // Tổng quan tài chính (Sử dụng sau khi đã khai báo filterFundId)
+  const fundBalances = React.useMemo(() => {
+    const balances: Record<string, number> = {};
+    funds.forEach(f => balances[f.id] = f.initial_balance || 0);
+    transactions.forEach(t => {
+      if (t.fund_id && balances[t.fund_id] !== undefined) {
+        if (t.type === 'receipt') balances[t.fund_id] += t.amount;
+        else balances[t.fund_id] -= t.amount;
+      }
+    });
+    return balances;
+  }, [transactions, funds]);
+
+  const { netBalance, totalReceipt, totalPayment } = React.useMemo(() => {
+    let receipts = 0;
+    let payments = 0;
+    
+    transactions.forEach(t => {
+      if (filterFundId === 'all' || t.fund_id === filterFundId) {
+        if (t.type === 'receipt') receipts += t.amount;
+        else payments += t.amount;
+      }
+    });
+
+    let initialBalance = 0;
+    if (filterFundId === 'all') {
+      initialBalance = funds.reduce((sum: number, f: any) => sum + (f.initial_balance || 0), 0);
+    } else {
+      const fund = funds.find(f => f.id === filterFundId);
+      if (fund) initialBalance = fund.initial_balance || 0;
+    }
+
+    return {
+      netBalance: initialBalance + receipts - payments,
+      totalReceipt: receipts,
+      totalPayment: payments
+    };
+  }, [transactions, funds, filterFundId]);
 
   // Confirm Modal states
   const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -280,20 +318,7 @@ export default function CashbookScreen() {
       }
       setTransactions(localTx);
 
-      // 4. Tính toán số dư tổng quan
-      let receipts = 0;
-      let payments = 0;
-      localTx.forEach(t => {
-        if (t.type === 'receipt') receipts += t.amount;
-        else payments += t.amount;
-      });
-
-      // Số dư ban đầu của các quỹ
-      const initialBalanceSum = localFunds.reduce((sum: number, f: any) => sum + (f.initial_balance || 0), 0);
-
-      setTotalReceipt(receipts);
-      setTotalPayment(payments);
-      setNetBalance(initialBalanceSum + receipts - payments);
+      // 4. Bỏ qua (Tính toán tự động qua useMemo)
 
       // 5. Cập nhật syncStatus dựa trên xem có dòng nào pending không
       const hasPending = localTx.some(t => t.sync_status === 'pending');
@@ -625,8 +650,15 @@ export default function CashbookScreen() {
         
         {/* Card Số Dư Tổng Quan */}
         <View className="bg-white border border-slate-100 rounded-3xl p-5 shadow-sm mb-4">
-          <Text className="text-xxs font-semibold text-slate-400">TỔNG SỐ DƯ QUỸ</Text>
-          <Text className="text-2xl font-bold text-slate-800 mt-1">{formatCurrency(netBalance)}</Text>
+          <View className="flex-row justify-between items-center mb-1">
+            <Text className="text-xxs font-semibold text-slate-400">
+              {filterFundId === 'all' ? 'TỔNG SỐ DƯ QUỸ' : 'SỐ DƯ QUỸ ĐANG CHỌN'}
+            </Text>
+            <TouchableOpacity onPress={handleManualSync} disabled={isSyncing} className="p-1 active:scale-95">
+              <Ionicons name="sync" size={16} color={isSyncing ? "#cbd5e1" : "#94a3b8"} />
+            </TouchableOpacity>
+          </View>
+          <Text className="text-2xl font-bold text-slate-800">{formatCurrency(netBalance)}</Text>
           
           <View className="flex-row justify-between border-t border-slate-100 mt-4 pt-3">
             <View>
@@ -663,6 +695,24 @@ export default function CashbookScreen() {
           </View>
         )}
 
+        {/* Bộ lọc Quỹ */}
+        <View className="mb-4 flex-row items-center justify-between bg-white border border-slate-100 rounded-2xl p-2 shadow-xs">
+          <TouchableOpacity 
+            activeOpacity={0.7}
+            onPress={() => setShowFilterFundSelector(true)}
+            className="flex-1 flex-row items-center px-2 py-1"
+          >
+            <Ionicons name="wallet-outline" size={18} color="#64748b" className="mr-2" />
+            <View className="flex-1">
+              <Text className="text-micro font-semibold text-slate-400 uppercase">Quỹ đang xem</Text>
+              <Text className="text-sm font-bold text-slate-800 mt-0.5">
+                {filterFundId === 'all' ? 'Tất cả quỹ' : (funds.find(f => f.id === filterFundId)?.name || 'Tất cả quỹ')}
+              </Text>
+            </View>
+            <Ionicons name="chevron-down" size={18} color="#94a3b8" />
+          </TouchableOpacity>
+        </View>
+
         <View className="flex-row justify-between items-center mb-3 px-1">
           <Text className="text-xxs font-semibold text-slate-500">Lịch sử giao dịch sổ quỹ</Text>
           <TouchableOpacity 
@@ -688,7 +738,9 @@ export default function CashbookScreen() {
             <Text className="text-xxs font-semibold text-slate-400 mt-3 text-center">Chưa phát sinh giao dịch nào.</Text>
           </View>
         ) : (
-          transactions.map(item => {
+          transactions
+            .filter(t => filterFundId === 'all' || t.fund_id === filterFundId)
+            .map(item => {
             const isReceipt = item.type === 'receipt';
             const catName = CATEGORY_MAP[item.category] || item.category || 'Khác';
             
@@ -1271,6 +1323,74 @@ export default function CashbookScreen() {
           onConfirm={dialogConfig.onConfirm || closeDialog}
           onClose={dialogConfig.onClose || closeDialog}
         />
+      )}
+
+      {/* Filter Fund Selector Modal */}
+      {showFilterFundSelector && (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000000, elevation: 999 }}>
+          <TouchableWithoutFeedback onPress={() => setShowFilterFundSelector(false)}>
+            <View className="absolute inset-0 bg-black/60" />
+          </TouchableWithoutFeedback>
+          <View className="absolute bottom-0 w-full bg-white rounded-t-3xl p-6" style={{ maxHeight: '80%' }}>
+            <View className="flex-row justify-between items-center mb-5 border-b border-slate-100 pb-4">
+              <Text className="text-base font-bold text-slate-800">Chọn quỹ đang xem</Text>
+              <TouchableOpacity onPress={() => setShowFilterFundSelector(false)}>
+                <Ionicons name="close" size={24} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false} className="mb-2">
+              <TouchableOpacity
+                onPress={() => { setFilterFundId('all'); setShowFilterFundSelector(false); }}
+                className="py-4 px-2 border-b border-slate-100 flex-row justify-between items-center"
+              >
+                <View className="flex-row items-center">
+                  <View className={`w-8 h-8 rounded-full items-center justify-center mr-3 ${filterFundId === 'all' ? 'bg-orange-100' : 'bg-slate-100'}`}>
+                    <Ionicons name="apps" size={16} color={filterFundId === 'all' ? '#fa5908' : '#64748b'} />
+                  </View>
+                  <Text className={`text-sm ${filterFundId === 'all' ? 'font-bold text-orange-600' : 'text-slate-700 font-medium'}`}>
+                    Tất cả quỹ
+                  </Text>
+                </View>
+                {filterFundId === 'all' && <Ionicons name="checkmark-circle" size={20} color="#fa5908" />}
+              </TouchableOpacity>
+              
+              {funds.map(f => {
+                const isActive = filterFundId === f.id;
+                const isBank = f.type === 'bank' || f.type === 'wallet';
+                return (
+                  <TouchableOpacity
+                    key={f.id}
+                    onPress={() => { setFilterFundId(f.id); setShowFilterFundSelector(false); }}
+                    className="py-4 px-2 border-b border-slate-100 flex-row justify-between items-center"
+                  >
+                    <View className="flex-row items-center flex-1 pr-4">
+                      <View className={`w-8 h-8 rounded-full items-center justify-center mr-3 ${isActive ? 'bg-orange-100' : 'bg-slate-100'}`}>
+                        <Ionicons name={isBank ? "card" : "cash"} size={16} color={isActive ? '#fa5908' : '#64748b'} />
+                      </View>
+                      <View>
+                        <Text className={`text-sm ${isActive ? 'font-bold text-orange-600' : 'text-slate-700 font-medium'}`}>
+                          {f.name}
+                        </Text>
+                        <View className="flex-row items-center mt-0.5">
+                          <Text className={`text-micro font-bold ${fundBalances[f.id] < 0 ? 'text-rose-500' : 'text-slate-500'}`}>
+                            {formatCurrency(fundBalances[f.id] || 0)}
+                          </Text>
+                          {f.is_default && (
+                            <>
+                              <View className="mx-1.5 w-1 h-1 rounded-full bg-slate-300" />
+                              <Text className="text-micro font-medium text-slate-400">Mặc định</Text>
+                            </>
+                          )}
+                        </View>
+                      </View>
+                    </View>
+                    {isActive && <Ionicons name="checkmark-circle" size={20} color="#fa5908" />}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
       )}
     </SafeAreaView>
   );
