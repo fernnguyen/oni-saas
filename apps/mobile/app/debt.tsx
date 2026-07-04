@@ -7,9 +7,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { db } from '../lib/db/client';
 import * as schema from '../lib/db/schema';
 import { eq, gt, desc } from 'drizzle-orm';
-import { formatCurrency, formatDate } from '../lib/utils/format';
+import { formatDate, formatCurrency } from '../lib/utils/format';
 import { Header } from '../components/layout/Header';
 import { usePermissions } from '../lib/auth/PermissionsContext';
+import { DebtCollectionModal } from '../components/ui/DebtCollectionModal';
+import { KeepAliveManager } from '../lib/sync/KeepAliveManager';
 
 export default function DebtScreen() {
   const router = useRouter();
@@ -22,6 +24,10 @@ export default function DebtScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [isSyncing, setIsSyncing] = useState(false);
+  
+  const [isModalVisible, setIsModalVisible] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
 
   const loadDebtData = async () => {
     try {
@@ -81,6 +87,19 @@ export default function DebtScreen() {
       }
     }, [canViewDebt])
   );
+
+  const handleManualSync = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    try {
+      await KeepAliveManager.triggerSyncIfNeeded(true);
+      await loadDebtData();
+    } catch (e) {
+      console.warn('Sync manually failed:', e);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   // Bộ lọc tìm kiếm và sắp xếp local giống web
   const filteredPartners = debtPartners
@@ -175,6 +194,20 @@ export default function DebtScreen() {
               color="#fa5908" 
             />
           </TouchableOpacity>
+
+          {/* Nút Đồng bộ / Tải lại */}
+          <TouchableOpacity 
+            activeOpacity={0.7}
+            onPress={handleManualSync}
+            disabled={isSyncing}
+            className="bg-white border border-slate-200 p-2.5 rounded-2xl shadow-xs justify-center items-center h-[42px] w-[42px]"
+          >
+            {isSyncing ? (
+              <ActivityIndicator size="small" color="#fa5908" style={{ transform: [{ scale: 0.8 }] }} />
+            ) : (
+              <Ionicons name="sync-outline" size={18} color="#fa5908" />
+            )}
+          </TouchableOpacity>
         </View>
 
         {/* Danh sách đối tác nợ */}
@@ -198,7 +231,8 @@ export default function DebtScreen() {
               activeOpacity={0.9}
               onPress={() => {
                 if (canManageCashbook) {
-                  router.push(`/cashbook?customer_id=${item.id}`);
+                  setSelectedCustomer(item);
+                  setIsModalVisible(true);
                 } else {
                   router.push({
                     pathname: '/(tabs)/customers',
@@ -228,7 +262,10 @@ export default function DebtScreen() {
                 
                 {canManageCashbook && (
                   <TouchableOpacity
-                    onPress={() => router.push(`/cashbook?customer_id=${item.id}`)}
+                    onPress={() => {
+                      setSelectedCustomer(item);
+                      setIsModalVisible(true);
+                    }}
                     className="mt-2 bg-orange-500 px-3.5 py-1.5 rounded-xl active:scale-95"
                     style={{ backgroundColor: '#fa5908' }}
                   >
@@ -242,6 +279,20 @@ export default function DebtScreen() {
 
         <View className="h-20" />
       </ScrollView>
+
+      <DebtCollectionModal
+        visible={isModalVisible}
+        onClose={() => {
+          setIsModalVisible(false);
+          setSelectedCustomer(null);
+        }}
+        customer={selectedCustomer}
+        onSuccess={() => {
+          setIsModalVisible(false);
+          setSelectedCustomer(null);
+          loadDebtData(); // Reload debt data
+        }}
+      />
     </SafeAreaView>
   );
 }

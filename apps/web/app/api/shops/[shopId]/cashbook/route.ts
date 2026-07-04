@@ -385,8 +385,8 @@ export async function POST(
           }).catch(() => {})
         })
 
-        // Create payment record for this order (audit trail)
         const paymentId = `DEBT-${alloc.order_id.slice(-6)}-${Date.now()}`
+        const isMobile = payload.note && payload.note.includes('(Mobile:');
         const payRecord = await connector.create('payments', {
           id: paymentId,
           order_id: alloc.order_id,
@@ -394,7 +394,7 @@ export async function POST(
           method: payload.method,
           amount: String(applied),
           reference_no: parentId,
-          note: `Thu nợ qua sổ quỹ #${parentId}`,
+          note: `Thu nợ qua sổ quỹ #${parentId}${isMobile ? ' (Mobile)' : ''}`,
           paid_at: getGMT7Time(),
         })
         tx.add(async () => {
@@ -445,6 +445,7 @@ export async function POST(
 
           // Create payment record for this order (audit trail)
           const paymentId = `DEBT-${order.id.slice(-6)}-${Date.now()}`
+          const isMobile = payload.note && payload.note.includes('(Mobile:');
           const payRecord = await connector.create('payments', {
             id: paymentId,
             order_id: order.id,
@@ -452,7 +453,7 @@ export async function POST(
             method: payload.method,
             amount: String(applied),
             reference_no: parentId,
-            note: `Thu nợ tự động (FIFO) qua sổ quỹ #${parentId}`,
+            note: `Thu nợ tự động (FIFO) qua sổ quỹ #${parentId}${isMobile ? ' (Mobile)' : ''}`,
             paid_at: getGMT7Time(),
           })
           tx.add(async () => {

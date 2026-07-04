@@ -367,6 +367,7 @@ export function initializeLocalDatabase(customDb?: any) {
     try { targetDb.execSync(`ALTER TABLE stock_movements ADD COLUMN payment_method TEXT;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE stock_movements ADD COLUMN fund_id TEXT;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE stock_movements ADD COLUMN supplier_id TEXT;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE cashbook ADD COLUMN order_allocations TEXT;`); } catch (e) {}
     
     // Migrations for products and categories sync features
     try { targetDb.execSync(`ALTER TABLE products ADD COLUMN sync_status TEXT DEFAULT 'synced';`); } catch (e) {}

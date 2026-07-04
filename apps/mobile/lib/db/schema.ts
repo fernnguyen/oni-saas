@@ -159,7 +159,8 @@ export const cashbook = sqliteTable('cashbook', {
   note: text('note'),
   date: text('date').notNull(), // YYYY-MM-DD
   fund_id: text('fund_id'),
-  sync_status: text('sync_status').notNull().default('synced'), // synced | pending
+  sync_status: text('sync_status').notNull().default('synced'), // synced | pending | failed | review
+  order_allocations: text('order_allocations'), // JSON string cho gạch nợ theo đơn
 });
 
 // 9. LỊCH SỬ KHO / ĐIỀU CHỈNH KHO (Stock Movements)

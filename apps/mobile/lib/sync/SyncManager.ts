@@ -348,7 +348,7 @@ export class SyncManager {
               account_number: fund.account_number || null,
               account_name: fund.account_name || null,
               bank_name: fund.bank_name || null,
-              is_default: fund.is_default === true,
+              is_default: fund.is_default === true || fund.is_default === 1 || fund.is_default === '1' || String(fund.is_default).toUpperCase() === 'TRUE',
               qr_template: fund.qr_template || 'compact2',
               initial_balance: isNaN(parseInt(fund.initial_balance)) ? 0 : parseInt(fund.initial_balance),
             }).onConflictDoNothing();
@@ -364,8 +364,8 @@ export class SyncManager {
               type: m.type || 'cash',
               code: m.code || m.id,
               branch_id: m.branch_id || shopId,
-              is_default: m.is_default === 'TRUE' || m.is_default === true,
-              active: m.active === 'TRUE' || m.active === true,
+              is_default: m.is_default === true || m.is_default === 1 || m.is_default === '1' || String(m.is_default).toUpperCase() === 'TRUE',
+              active: m.active === 1 || m.active === true || m.active === 'TRUE' || m.active === '1' ? 1 : 0,
             }).onConflictDoNothing();
           }
         }
@@ -780,6 +780,7 @@ export class SyncManager {
                 date: item.date,
                 branch_id: shopId,
                 employee_id: item.employee_id || undefined,
+                order_allocations: item.order_allocations ? JSON.parse(item.order_allocations) : undefined,
               }),
             });
           }
