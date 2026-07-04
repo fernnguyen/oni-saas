@@ -939,8 +939,10 @@ export default function PosScreen() {
           amount: -cashChange
         });
       }
-      const netPaidSum = processedPayments.reduce((sum, p) => sum + p.amount, 0);
-      const orderPaidAmt = Math.min(finalTotal, Math.max(0, netPaidSum - debtRepay));
+      const realPaidSum = processedPayments
+        .filter(p => p.method !== 'debt' && !p.method?.startsWith('debt-'))
+        .reduce((sum, p) => sum + p.amount, 0);
+      const orderPaidAmt = Math.min(finalTotal, Math.max(0, realPaidSum - debtRepay));
       const orderDebtAmt = Math.max(0, finalTotal - orderPaidAmt);
 
       const paymentMethodString = JSON.stringify(processedPayments.map(p => {

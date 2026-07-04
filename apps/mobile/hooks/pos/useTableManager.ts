@@ -1544,7 +1544,9 @@ export function useTableManager(props: UseTableManagerProps) {
           customer_name: customer?.name || 'Khách lẻ',
           customer_id: customer?.id || 'C-DEFAULT-RETAIL',
           total_amount: totalAmount,
-          paid_amount: Math.min(totalAmount, paidSum),
+          paid_amount: Math.min(totalAmount, processedPayments
+            .filter(p => p.method !== 'debt' && !p.method?.startsWith('debt-'))
+            .reduce((sum, p) => sum + p.amount, 0)),
           payment_method: paymentMethodString,
           created_at: checkoutTimeStr,
           updated_at: checkoutTimeStr,
