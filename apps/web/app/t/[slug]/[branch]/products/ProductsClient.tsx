@@ -1369,6 +1369,15 @@ export function ProductsClient({ shopId, industryType = 'retail', maxProducts }:
     },
     { key: 'unit', label: 'Đơn vị' },
     {
+      key: 'stock_qty',
+      label: 'Tồn kho',
+      render: (row) => (
+        <span className="font-medium text-[#0F766E]">
+          {row.product_type === 'variant_parent' ? '—' : Number(row.stock_qty || 0).toLocaleString('vi-VN')}
+        </span>
+      ),
+    },
+    {
       key: 'sell_price',
       label: 'Giá bán',
       render: (row) => row.product_type === 'variant_parent'

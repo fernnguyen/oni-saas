@@ -783,10 +783,8 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
 
         // Group batch quantities for current branchId
         const batchStock = new Map<string, number>()
-        const hasBatches = new Set<string>()
         batches.forEach((b) => {
           if (b.branch_id === branchId) {
-            hasBatches.add(b.product_id)
             batchStock.set(b.product_id, (batchStock.get(b.product_id) ?? 0) + Number(b.stock_qty))
           }
         })
@@ -794,11 +792,8 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
         // Map general stock or batch sum
         invs.forEach((r) => {
           if (r.branch_id === branchId) {
-            if (hasBatches.has(r.product_id)) {
-              map.set(r.product_id, batchStock.get(r.product_id) ?? 0)
-            } else {
-              map.set(r.product_id, Number(r.stock_qty))
-            }
+            const batchQty = batchStock.get(r.product_id) || 0
+            map.set(r.product_id, Math.max(Number(r.stock_qty), batchQty))
           }
         })
 
