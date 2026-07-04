@@ -23,6 +23,7 @@ export async function GET(
     const active = sp.get('active') ?? ''
     const product_type = sp.get('product_type') ?? ''
     const parent_id = sp.get('parent_id') ?? ''
+    const item_class = sp.get('item_class') ?? ''
     const exclude_product_type = sp.get('exclude_product_type') ?? ''
     const nocache = sp.get('nocache') === 'true' || sp.get('bypassCache') === 'true'
 
@@ -34,6 +35,7 @@ export async function GET(
     if (product_type) filters.product_type = product_type
     if (exclude_product_type) filters.exclude_product_type = exclude_product_type
     if (parent_id) filters.parent_id = parent_id
+    if (item_class && item_class !== 'ALL') filters.item_class = item_class
 
     const fetchProducts = async () => {
       const prodResult = await connector.list('products', { page, limit, search: search || undefined, filters, sortDesc: true })
@@ -91,7 +93,7 @@ export async function GET(
       ? await fetchProducts()
       : await shopCache(
           fetchProducts,
-          ['products', shopId, String(page), String(limit), search, category_id, active, product_type, parent_id],
+          ['products', shopId, String(page), String(limit), search, category_id, active, product_type, parent_id, item_class],
           { tags: [shopTag(shopId, 'products')], revalidate: cacheTTL.products }
         )
 

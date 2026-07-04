@@ -194,6 +194,7 @@ export function ProductsClient({ shopId, industryType = 'retail', maxProducts }:
   const [categoryModalOpen, setCategoryModalOpen] = useState(false)
   const [catFormData, setCatFormData] = useState({ name: '', parent_id: '', description: '' })
   const [filterActive, setFilterActive] = useState<string>('TRUE')
+  const [filterItemClass, setFilterItemClass] = useState<string>('commercial')
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
@@ -390,11 +391,12 @@ export function ProductsClient({ shopId, industryType = 'retail', maxProducts }:
   }, [])
 
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['products', shopId, page, debouncedSearch, filterActive, refreshTick],
+    queryKey: ['products', shopId, page, debouncedSearch, filterActive, filterItemClass, refreshTick],
     queryFn: async () => {
       const sp = new URLSearchParams({ page: String(page), limit: '50' })
       if (debouncedSearch) sp.set('search', debouncedSearch)
       if (filterActive) sp.set('active', filterActive)
+      if (filterItemClass) sp.set('item_class', filterItemClass)
       if (refreshTick > 0) sp.set('nocache', 'true')
       const res = await fetch(`/api/shops/${shopId}/products?${sp}`)
       if (!res.ok) throw new Error('Không tải được dữ liệu')
@@ -1348,23 +1350,7 @@ export function ProductsClient({ shopId, industryType = 'retail', maxProducts }:
         return <span>{cat ? cat.name : row.category_id || '-'}</span>
       }
     },
-    {
-      key: 'item_class',
-      label: 'Phân loại kho',
-      render: (row) => {
-        const c = row.item_class || 'commercial'
-        let color: 'gray' | 'blue' | 'purple' = 'gray'
-        let text = 'Thương mại'
-        if (c === 'supply') {
-          color = 'blue'
-          text = 'Vật tư & Tiêu hao'
-        } else if (c === 'fixed_asset') {
-          color = 'purple'
-          text = 'Tài sản & Thiết bị'
-        }
-        return <TagBadge label={text} color={color} />
-      }
-    },
+
     { key: 'unit', label: 'Đơn vị' },
     {
       key: 'stock_qty',
@@ -1467,15 +1453,27 @@ export function ProductsClient({ shopId, industryType = 'retail', maxProducts }:
             hideFilter={true}
           />
         </div>
-        <select
-          value={filterActive}
-          onChange={(e) => { setFilterActive(e.target.value); setPage(1) }}
-          className="rounded border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-[#0F766E] focus:outline-none bg-white min-w-[150px] shrink-0"
-        >
-          <option value="ALL">Tất cả trạng thái</option>
-          <option value="TRUE">Đang hoạt động</option>
-          <option value="FALSE">Đã ngừng bán</option>
-        </select>
+        <div className="flex items-center gap-2">
+          <select
+            value={filterItemClass}
+            onChange={(e) => { setFilterItemClass(e.target.value); setPage(1) }}
+            className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 focus:border-primary focus:outline-none min-w-[160px]"
+          >
+            <option value="ALL">📦 Tất cả phân loại kho</option>
+            <option value="commercial">📦 Kho kinh doanh bán lẻ</option>
+            <option value="supply">📦 Kho vật tư & tiêu hao</option>
+            <option value="fixed_asset">📦 Kho tài sản thiết bị</option>
+          </select>
+          <select
+            value={filterActive}
+            onChange={(e) => { setFilterActive(e.target.value); setPage(1) }}
+            className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 focus:border-primary focus:outline-none min-w-[150px]"
+          >
+            <option value="ALL">Tất cả trạng thái</option>
+            <option value="TRUE">Đang hoạt động</option>
+            <option value="FALSE">Đã ngừng bán</option>
+          </select>
+        </div>
       </div>
 
       <DataTable
