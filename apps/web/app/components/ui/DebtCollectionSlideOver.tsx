@@ -8,7 +8,41 @@ import { NumberInput } from './NumberInput'
 import { ConfirmDialog } from './ConfirmDialog'
 import { CopyableId } from './CopyableId'
 import { BANKS } from '@/lib/constants/banks'
-import { Coins, Check, X, Clock, CheckCircle2, RefreshCw } from 'lucide-react'
+import { Coins, Check, X, Clock, CheckCircle2, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react'
+
+function OrderItemsPreview({ shopId, orderId }: { shopId: string; orderId: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['order-items', shopId, orderId],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/order-items?order_id=${orderId}`)
+      if (!res.ok) throw new Error('Lỗi khi tải mặt hàng')
+      return res.json()
+    }
+  })
+  
+  if (isLoading) return <div className="p-3 text-xs text-slate-400 text-center animate-pulse bg-slate-50/50">Đang tải mặt hàng...</div>
+  const items = data?.data || []
+  if (items.length === 0) return <div className="p-3 text-xs text-slate-400 text-center bg-slate-50/50">Không có mặt hàng nào.</div>
+  
+  return (
+    <div className="bg-slate-50/80 border-t border-slate-100 p-3 space-y-2">
+      {items.map((item: any) => (
+        <div key={item.id || item.item_id} className="flex justify-between items-start text-xs">
+          <div className="flex-1 pr-2">
+            <span className="font-medium text-slate-700">{item.product_name}</span>
+            <div className="text-slate-500 mt-0.5">
+              {item.qty} x {fmtVND(item.unit_price)}đ
+              {Number(item.line_discount || 0) > 0 && ` (Giảm: ${fmtVND(item.line_discount)}đ)`}
+            </div>
+          </div>
+          <div className="font-semibold text-slate-800 text-right">
+            {fmtVND(item.line_total)}đ
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 function getBankDisplayName(bankCodeOrName: string) {
   if (!bankCodeOrName) return '—'
@@ -81,6 +115,7 @@ interface Props {
     name?: string
     phone?: string
     debt_amount?: string
+    order_no?: string
   } | null
   entityType: 'customer' | 'supplier'
   funds: Record<string, any>[]
@@ -98,8 +133,10 @@ export function DebtCollectionSlideOver({
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([])
 
+  const [expandedOrderIds, setExpandedOrderIds] = useState<string[]>([])
+  const [hasAutoSelected, setHasAutoSelected] = useState(false)
+
   const customerId = entity?.customer_id || entity?.id || ''
-  const customerDebt = parseFloat(entity?.debt_amount || '0')
 
   // Fetch unpaid orders for this customer
   const { data: debtOrdersData, isLoading: ordersLoading } = useQuery({
@@ -117,11 +154,20 @@ export function DebtCollectionSlideOver({
   const isCustomer = entityType === 'customer'
   const debtMode = isCustomer && debtOrders.length > 0 ? 'by_order' : 'basic'
 
+  const customerDebt = useMemo(() => {
+    if (isCustomer && debtOrdersData?.totalDebt !== undefined) {
+      return debtOrdersData.totalDebt
+    }
+    return parseFloat(entity?.debt_amount || '0')
+  }, [isCustomer, debtOrdersData, entity])
+
   // Reset state when entity changes
   useEffect(() => {
     if (open && entity) {
       setAmountToCollect(customerDebt)
       setSelectedOrderIds([])
+      setExpandedOrderIds([])
+      setHasAutoSelected(false)
 
       // Auto-select default fund
       const defaultFund = funds.find(f => f.is_default === 'TRUE') || funds[0]
@@ -136,10 +182,15 @@ export function DebtCollectionSlideOver({
 
   // Auto-select all orders when debtOrders load
   useEffect(() => {
-    if (debtOrders.length > 0 && selectedOrderIds.length === 0 && debtMode === 'by_order') {
-      setSelectedOrderIds(debtOrders.map(o => o.id))
+    if (debtOrders.length > 0 && !hasAutoSelected && debtMode === 'by_order') {
+      if (entity?.order_no || entity?.id?.startsWith('ORD')) {
+        setSelectedOrderIds([entity.id!])
+      } else {
+        setSelectedOrderIds(debtOrders.map(o => o.id))
+      }
+      setHasAutoSelected(true)
     }
-  }, [debtOrders, debtMode])
+  }, [debtOrders, debtMode, entity, hasAutoSelected])
 
   // Calculate total debt of selected orders
   const selectedOrdersDebt = useMemo(() => {
@@ -304,17 +355,17 @@ export function DebtCollectionSlideOver({
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-sm text-slate-500">{isCustomer ? 'Khách hàng:' : 'Nhà cung cấp:'}</span>
-              <span className="font-medium text-slate-900">{entity.name}</span>
+              <span className="text-sm text-slate-500 font-medium">{entity.name}</span>
             </div>
             {entity.phone && (
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-sm text-slate-500">Số điện thoại:</span>
-                <span className="font-medium text-slate-900">{entity.phone}</span>
+                <span className="text-sm text-slate-500 font-medium">{entity.phone}</span>
               </div>
             )}
-            <div className="flex items-center justify-between pt-2 border-t border-slate-200 mt-2">
-              <span className="text-sm font-medium text-slate-700">Dư nợ hiện tại:</span>
-              <span className="font-bold text-red-600">
+            <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-200">
+              <span className="text-sm text-slate-500">Tổng dư nợ hiện tại:</span>
+              <span className="text-sm font-medium text-slate-500">
                 {fmtVND(customerDebt)}đ
               </span>
             </div>
@@ -379,45 +430,65 @@ export function DebtCollectionSlideOver({
                     const alloc = allocations.find(a => a.order_id === order.id)
 
                     return (
-                      <label
-                        key={order.id}
-                        className={`flex items-start gap-3 p-3 cursor-pointer transition-colors ${
-                          isSelected ? 'bg-primary/5' : 'hover:bg-slate-50'
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => toggleOrder(order.id)}
-                          className="mt-0.5 h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/20"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm font-semibold text-slate-800">
-                              #{shortOrderNo(order.order_no, order.id)}
-                            </span>
-                            <span className="text-sm font-bold text-red-600">
-                              {fmtVND(orderDebt)}đ
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between mt-0.5">
-                            <span className="text-xs text-slate-400">
-                              {fmtDate(order.created_at)}
-                            </span>
-                            <span className="text-xs text-slate-400">
-                              Tổng: {fmtVND(order.total_amount)}đ
-                            </span>
-                          </div>
-                          {/* Show allocation result for this order */}
-                          {isSelected && alloc && (
-                            <div className={`mt-1.5 text-xs font-medium flex items-center gap-1 ${alloc.fully_paid ? 'text-green-600' : 'text-orange-600'}`}>
-                              {alloc.fully_paid
-                                ? <><CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0" /> Gạch {fmtVND(alloc.amount)}đ → Hết nợ</>
-                                : <><Clock className="w-3.5 h-3.5 text-orange-500 shrink-0" /> Gạch {fmtVND(alloc.amount)}đ → Còn {fmtVND(alloc.remaining_debt)}đ</>}
+                      <div key={order.id} className="flex flex-col border-b border-slate-100 last:border-0">
+                        <label
+                          className={`flex items-start gap-3 p-3 cursor-pointer transition-colors ${
+                            isSelected ? 'bg-primary/5' : 'hover:bg-slate-50'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleOrder(order.id)}
+                            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/20"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm font-semibold text-slate-800">
+                                #{shortOrderNo(order.order_no, order.id)}
+                              </span>
+                              <span className="text-sm font-bold text-red-600">
+                                {fmtVND(orderDebt)}đ
+                              </span>
                             </div>
-                          )}
-                        </div>
-                      </label>
+                            <div className="flex items-center justify-between mt-0.5">
+                              <span className="text-xs text-slate-400">
+                                {fmtDate(order.created_at)}
+                              </span>
+                              <span className="text-xs text-slate-400">
+                                Tổng: {fmtVND(order.total_amount)}đ
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between mt-1.5">
+                              <div className="flex-1">
+                                {/* Show allocation result for this order */}
+                                {isSelected && alloc && (
+                                  <div className={`text-xs font-medium flex items-center gap-1 ${alloc.fully_paid ? 'text-green-600' : 'text-orange-600'}`}>
+                                    {alloc.fully_paid
+                                      ? <><CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0" /> Gạch {fmtVND(alloc.amount)}đ → Hết nợ</>
+                                      : <><Clock className="w-3.5 h-3.5 text-orange-500 shrink-0" /> Gạch {fmtVND(alloc.amount)}đ → Còn {fmtVND(alloc.remaining_debt)}đ</>}
+                                  </div>
+                                )}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  setExpandedOrderIds(prev => prev.includes(order.id) ? prev.filter(x => x !== order.id) : [...prev, order.id])
+                                }}
+                                className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 hover:bg-slate-200 px-1.5 py-0.5 rounded transition-colors"
+                              >
+                                {expandedOrderIds.includes(order.id) ? 'Thu gọn' : 'Chi tiết'}
+                                {expandedOrderIds.includes(order.id) ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                              </button>
+                            </div>
+                          </div>
+                        </label>
+                        {expandedOrderIds.includes(order.id) && (
+                          <OrderItemsPreview shopId={shopId} orderId={order.id} />
+                        )}
+                      </div>
                     )
                   })}
                 </div>
@@ -450,28 +521,32 @@ export function DebtCollectionSlideOver({
               max={debtMode === 'by_order' ? selectedOrdersDebt : customerDebt}
             />
             {debtMode === 'by_order' && selectedOrderIds.length > 0 && (
-              <div className="flex justify-between items-center -mt-2">
+              <div className="flex justify-between items-center -mt-2 min-h-[20px]">
                 <p className="text-xs text-slate-400">
                   Có thể sửa số tiền để trả một phần
                 </p>
-                <button
-                  type="button"
-                  className="text-xs font-semibold text-primary hover:underline transition-colors cursor-pointer"
-                  onClick={() => setAmountToCollect(selectedOrdersDebt)}
-                >
-                  Thu đủ {selectedOrderIds.length} đơn
-                </button>
+                {amountToCollect < selectedOrdersDebt && (
+                  <button
+                    type="button"
+                    className="text-xs font-semibold text-primary hover:underline transition-colors cursor-pointer"
+                    onClick={() => setAmountToCollect(selectedOrdersDebt)}
+                  >
+                    Thu đủ {selectedOrderIds.length} đơn
+                  </button>
+                )}
               </div>
             )}
             {debtMode === 'basic' && (
-              <div className="flex justify-end -mt-2">
-                <button
-                  type="button"
-                  className="text-xs font-semibold text-primary hover:underline hover:text-primary-dark transition-colors cursor-pointer"
-                  onClick={() => setAmountToCollect(customerDebt)}
-                >
-                  {isCustomer ? 'Thu toàn bộ' : 'Trả toàn bộ'}
-                </button>
+              <div className="flex justify-end -mt-2 min-h-[20px]">
+                {amountToCollect < customerDebt && (
+                  <button
+                    type="button"
+                    className="text-xs font-semibold text-primary hover:underline hover:text-primary-dark transition-colors cursor-pointer"
+                    onClick={() => setAmountToCollect(customerDebt)}
+                  >
+                    {isCustomer ? 'Thu toàn bộ' : 'Trả toàn bộ'}
+                  </button>
+                )}
               </div>
             )}
 
@@ -538,7 +613,7 @@ export function DebtCollectionSlideOver({
 
           {/* Summary */}
           <div className="rounded-lg bg-blue-50 p-3 text-sm text-blue-700">
-            <p>Sau khi {isCustomer ? 'thu' : 'trả'}, dư nợ của đối tác sẽ còn <b>{fmtVND(Math.max(0, customerDebt - amountToCollect))}đ</b>.</p>
+            <p>Sau khi {isCustomer ? 'thu' : 'trả'}, dư nợ của {isCustomer ? 'khách hàng' : 'nhà cung cấp'} sẽ còn <b>{fmtVND(Math.max(0, customerDebt - amountToCollect))}đ</b>.</p>
             <p className="mt-1">Một <b>Phiếu {isCustomer ? 'Thu' : 'Chi'}</b> sẽ được tự động tạo trong Sổ Quỹ.</p>
             {debtMode === 'by_order' && allocations.length > 0 && (
               <p className="mt-1">
