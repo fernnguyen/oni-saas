@@ -194,10 +194,20 @@ export async function POST(
 
     // Auto-create customer if name is provided but no ID
     const isRetailGuest = !order.customer_name || ['khách lẻ', 'khach le', 'khách mua lẻ', 'khach mua le'].includes(order.customer_name.trim().toLowerCase());
+    
     if (isRetailGuest) {
       finalCustomerId = 'C-DEFAULT-RETAIL'
       order.customer_name = 'Khách lẻ'
-    } else if (!finalCustomerId) {
+    } else if (finalCustomerId) {
+      try {
+        const checkCust = await connector.findById('customers', finalCustomerId)
+        if (!checkCust) finalCustomerId = '' // Force auto-create if local UUID or missing
+      } catch (e) {
+        finalCustomerId = '' // Invalid ID format
+      }
+    }
+
+    if (!isRetailGuest && !finalCustomerId) {
       const meta = typeof order.metadata === 'string' ? JSON.parse(order.metadata || '{}') : (order.metadata || {})
       const newCustomer = await connector.create('customers', {
         name: order.customer_name ?? '',
@@ -237,6 +247,10 @@ export async function POST(
       }
     }
 
+    const actualDebtAmount = payments && payments.length > 0
+      ? Math.max(0, Number(order.total_amount) - payments.reduce((sum, p) => p.method !== 'debt' && !p.method?.startsWith('debt-') ? sum + Number(p.amount) : sum, 0))
+      : Number(order.debt_amount ?? 0)
+
     if (!serverId) {
       isNewOrder = true
       
@@ -259,11 +273,7 @@ export async function POST(
             ? payments.reduce((sum, p) => p.method !== 'debt' && !p.method?.startsWith('debt-') ? sum + Number(p.amount) : sum, 0)
             : order.paid_amount
         ),
-        debt_amount:     String(
-          payments && payments.length > 0
-            ? Math.max(0, Number(order.total_amount) - payments.reduce((sum, p) => p.method !== 'debt' && !p.method?.startsWith('debt-') ? sum + Number(p.amount) : sum, 0))
-            : (order.debt_amount ?? 0)
-        ),
+        debt_amount:     String(actualDebtAmount),
         points_earned:   String(order.points_earned ?? 0),
         points_redeemed: String(order.points_redeemed ?? 0),
         note:            order.note ?? '',
@@ -295,11 +305,7 @@ export async function POST(
             ? payments.reduce((sum, p) => p.method !== 'debt' && !p.method?.startsWith('debt-') ? sum + Number(p.amount) : sum, 0)
             : order.paid_amount
         ),
-        debt_amount:     String(
-          payments && payments.length > 0
-            ? Math.max(0, Number(order.total_amount) - payments.reduce((sum, p) => p.method !== 'debt' && !p.method?.startsWith('debt-') ? sum + Number(p.amount) : sum, 0))
-            : (order.debt_amount ?? 0)
-        ),
+        debt_amount:     String(actualDebtAmount),
         points_earned:   String(order.points_earned ?? 0),
         points_redeemed: String(order.points_redeemed ?? 0),
         note:            order.note ?? '',
@@ -831,23 +837,23 @@ export async function POST(
 
     // ── Step 5: Update Customer CRM, Debt & Fetch Info ──
     let customerPhone = ''
-    if (isNewOrder && order.customer_id) {
+    if (isNewOrder && finalCustomerId && finalCustomerId !== 'C-DEFAULT-RETAIL') {
       try {
-        const customer = await connector.findById('customers', order.customer_id)
+        const customer = await connector.findById('customers', finalCustomerId)
         if (customer) {
           customerPhone = (customer.phone as string) || ''
           
           const updates: Record<string, string> = {}
           const targetBranch = branchId || shopId
           const statsRes = await connector.list('customer-branch-stats', {
-            filters: { customer_id: order.customer_id, branch_id: targetBranch }
+            filters: { customer_id: finalCustomerId, branch_id: targetBranch }
           })
           const stats = statsRes.data[0]
           
           // 1. Debt amount
           const currentDebt = parseFloat(stats?.debt_amount ?? customer.debt_amount ?? '0')
-          if (order.debt_amount && Number(order.debt_amount) > 0) {
-            const newDebt = currentDebt + Number(order.debt_amount)
+          if (actualDebtAmount > 0) {
+            const newDebt = currentDebt + actualDebtAmount
             updates.debt_amount = String(newDebt)
           }
 
@@ -880,7 +886,7 @@ export async function POST(
           // Fetch all customer orders
           const customerOrders = await connector.list('orders', {
             page: 1, limit: 1000,
-            filters: { customer_id: order.customer_id, status: 'completed' }
+            filters: { customer_id: finalCustomerId, status: 'completed' }
           })
           
           const recentTotal = (customerOrders.data as Record<string, string>[])
@@ -958,7 +964,7 @@ export async function POST(
 
           // Apply updates to both customers table and customer-branch-stats
           if (Object.keys(updates).length > 0) {
-            await updateCustomerStats(connector, order.customer_id, branchId || shopId, updates, tx)
+            await updateCustomerStats(connector, finalCustomerId, branchId || shopId, updates, tx)
             invalidate(shopId, 'customers')
           }
         }
