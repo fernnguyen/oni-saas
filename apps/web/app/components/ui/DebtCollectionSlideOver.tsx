@@ -10,11 +10,11 @@ import { CopyableId } from './CopyableId'
 import { BANKS } from '@/lib/constants/banks'
 import { Coins, Check, X, Clock, CheckCircle2, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react'
 
-function OrderItemsPreview({ shopId, orderId }: { shopId: string; orderId: string }) {
+function OrderItemsPreview({ shopId, order }: { shopId: string; order: DebtOrder }) {
   const { data, isLoading } = useQuery({
-    queryKey: ['order-items', shopId, orderId],
+    queryKey: ['order-items', shopId, order.id],
     queryFn: async () => {
-      const res = await fetch(`/api/shops/${shopId}/order-items?order_id=${orderId}`)
+      const res = await fetch(`/api/shops/${shopId}/order-items?order_id=${order.id}`)
       if (!res.ok) throw new Error('Lỗi khi tải mặt hàng')
       return res.json()
     }
@@ -25,21 +25,52 @@ function OrderItemsPreview({ shopId, orderId }: { shopId: string; orderId: strin
   if (items.length === 0) return <div className="p-3 text-xs text-slate-400 text-center bg-slate-50/50">Không có mặt hàng nào.</div>
   
   return (
-    <div className="bg-slate-50/80 border-t border-slate-100 p-3 space-y-2">
-      {items.map((item: any) => (
-        <div key={item.id || item.item_id} className="flex justify-between items-start text-xs">
-          <div className="flex-1 pr-2">
-            <span className="font-medium text-slate-700">{item.product_name}</span>
-            <div className="text-slate-500 mt-0.5">
-              {item.qty} x {fmtVND(item.unit_price)}đ
-              {Number(item.line_discount || 0) > 0 && ` (Giảm: ${fmtVND(item.line_discount)}đ)`}
+    <div className="bg-slate-50/80 border-t border-slate-100 p-3">
+      <div className="space-y-2 mb-3">
+        {items.map((item: any) => (
+          <div key={item.id || item.item_id} className="flex justify-between items-start text-xs">
+            <div className="flex-1 pr-2">
+              <span className="font-medium text-slate-700">{item.product_name}</span>
+              <div className="text-slate-500 mt-0.5">
+                {item.qty} x {fmtVND(item.unit_price)}đ
+                {Number(item.line_discount || 0) > 0 && ` (Giảm: ${fmtVND(item.line_discount)}đ)`}
+              </div>
+            </div>
+            <div className="font-semibold text-slate-800 text-right">
+              {fmtVND(item.line_total)}đ
             </div>
           </div>
-          <div className="font-semibold text-slate-800 text-right">
-            {fmtVND(item.line_total)}đ
-          </div>
+        ))}
+      </div>
+      
+      <div className="pt-2 border-t border-slate-200/60 space-y-1">
+        <div className="flex justify-between text-xs text-slate-500">
+          <span>Tổng tiền hàng:</span>
+          <span>{fmtVND(order.subtotal || order.total_amount)}đ</span>
         </div>
-      ))}
+        {Number(order.discount_amount || 0) > 0 && (
+          <div className="flex justify-between text-xs text-slate-500">
+            <span>Giảm giá hóa đơn:</span>
+            <span>-{fmtVND(order.discount_amount)}đ</span>
+          </div>
+        )}
+        {Number(order.shipping_fee || 0) > 0 && (
+          <div className="flex justify-between text-xs text-slate-500">
+            <span>Phí giao hàng:</span>
+            <span>{fmtVND(order.shipping_fee)}đ</span>
+          </div>
+        )}
+        {Number(order.tax_amount || 0) > 0 && (
+          <div className="flex justify-between text-xs text-slate-500">
+            <span>Thuế (VAT):</span>
+            <span>{fmtVND(order.tax_amount)}đ</span>
+          </div>
+        )}
+        <div className="flex justify-between text-xs font-semibold text-slate-800 pt-1">
+          <span>Khách phải trả:</span>
+          <span>{fmtVND(order.total_amount)}đ</span>
+        </div>
+      </div>
     </div>
   )
 }
@@ -139,7 +170,7 @@ export function DebtCollectionSlideOver({
   const customerId = entity?.customer_id || entity?.id || ''
 
   // Fetch unpaid orders for this customer
-  const { data: debtOrdersData, isLoading: ordersLoading } = useQuery({
+  const { data: debtOrdersData, isLoading: ordersLoading, isFetching: ordersFetching, refetch: refetchOrders } = useQuery({
     queryKey: ['orders-debt', shopId, customerId],
     queryFn: async () => {
       const res = await fetch(`/api/shops/${shopId}/orders/debt?customer_id=${customerId}`)
@@ -155,10 +186,12 @@ export function DebtCollectionSlideOver({
   const debtMode = isCustomer && debtOrders.length > 0 ? 'by_order' : 'basic'
 
   const customerDebt = useMemo(() => {
+    const rawEntityDebt = parseFloat(entity?.debt_amount || '0')
     if (isCustomer && debtOrdersData?.totalDebt !== undefined) {
-      return debtOrdersData.totalDebt
+      // Use the larger value to handle opening balance (Nợ đầu kỳ) or data discrepancies
+      return Math.max(rawEntityDebt, debtOrdersData.totalDebt)
     }
-    return parseFloat(entity?.debt_amount || '0')
+    return rawEntityDebt
   }, [isCustomer, debtOrdersData, entity])
 
   // Reset state when entity changes
@@ -364,8 +397,8 @@ export function DebtCollectionSlideOver({
               </div>
             )}
             <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-200">
-              <span className="text-sm text-slate-500">Tổng dư nợ hiện tại:</span>
-              <span className="text-sm font-medium text-slate-500">
+              <span className="text-sm font-medium text-slate-700">Tổng dư nợ hiện tại:</span>
+              <span className="text-base font-bold text-red-600">
                 {fmtVND(customerDebt)}đ
               </span>
             </div>
@@ -392,11 +425,14 @@ export function DebtCollectionSlideOver({
                   </label>
                   <button
                     type="button"
-                    onClick={() => queryClient.invalidateQueries({ queryKey: ['orders-debt', shopId, customerId] })}
-                    className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded"
+                    onClick={async () => {
+                      await refetchOrders()
+                      toast.success('Đã làm mới danh sách đơn nợ')
+                    }}
+                    className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition-colors"
                     title="Làm mới danh sách đơn nợ"
                   >
-                    <RefreshCw className={`w-3.5 h-3.5 ${ordersLoading ? 'animate-spin text-primary' : ''}`} />
+                    <RefreshCw className={`w-3.5 h-3.5 ${ordersFetching ? 'animate-spin text-primary' : ''}`} />
                   </button>
                 </div>
                 {debtOrders.length > 0 && (
@@ -486,7 +522,7 @@ export function DebtCollectionSlideOver({
                           </div>
                         </label>
                         {expandedOrderIds.includes(order.id) && (
-                          <OrderItemsPreview shopId={shopId} orderId={order.id} />
+                          <OrderItemsPreview shopId={shopId} order={order} />
                         )}
                       </div>
                     )
