@@ -1138,60 +1138,66 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
                     return (
                       <div key={p.payment_id || p.id} className="flex flex-col gap-2 rounded-lg border border-slate-100 px-3 py-2 text-sm bg-white shadow-3xs">
                         <div className="flex items-center justify-between">
-                          <div>
-                            <span className="font-semibold text-slate-800">{getPaymentMethodLabel(p.method)}</span>
-                            {cbId && (
-                              <span 
-                                className="ml-2 cursor-pointer text-[10px] font-mono text-slate-400 hover:text-slate-600" 
-                                title="Nhấn để sao chép mã" 
-                                onClick={() => { 
-                                  navigator.clipboard.writeText(cbId)
-                                  toast.success('Đã copy mã: ' + cbId) 
-                                }}
-                              >
-                                (#{cbId.split('-')[0] + '-' + (cbId.split('-')[1] || '')})
-                              </span>
-                            )}
-                            {p.reference_no && <span className="ml-2 text-slate-500 text-xs">#{p.reference_no}</span>}
-                            {p.note && <span className="ml-2 text-slate-400 text-xs">— {p.note}</span>}
+                          <div className="flex flex-col">
+                            <div className="flex items-center flex-wrap gap-x-2 gap-y-1">
+                              <span className="font-semibold text-slate-800">{getPaymentMethodLabel(p.method)}</span>
+                              {cbId && (
+                                <span 
+                                  className="cursor-pointer text-[10px] font-mono text-slate-400 hover:text-slate-600" 
+                                  title="Nhấn để sao chép mã" 
+                                  onClick={() => { 
+                                    navigator.clipboard.writeText(cbId)
+                                    toast.success('Đã copy mã: ' + cbId) 
+                                  }}
+                                >
+                                  (#{cbId.split('-')[0] + '-' + (cbId.split('-')[1] || '')})
+                                </span>
+                              )}
+                              {p.reference_no && <span className="text-slate-500 text-xs">#{p.reference_no}</span>}
 
-                            {selectedOrder.status !== 'cancelled' && !isEditing && permissions.includes('orders.edit') && (
-                              (() => {
-                                if (permissions.includes('payments.force_edit')) return true
-                                const createdTime = selectedOrder.created_at ? new Date(selectedOrder.created_at).getTime() : 0
-                                return (Date.now() - createdTime) < 30 * 60 * 1000
-                              })()
-                            ) && (
-                              <button
-                                onClick={async () => {
-                                  setEditingPaymentId(p.payment_id || p.id)
-                                  let currentFundId = ''
-                                  // Find the fund_id from the corresponding cashbook entry
-                                  const matchingCb = (cashbookData?.data ?? []).find(cb => cb.id === cbId || cb.transaction_id === cbId)
-                                  currentFundId = matchingCb?.fund_id || ''
+                              {selectedOrder.status !== 'cancelled' && !isEditing && permissions.includes('orders.edit') && (
+                                (() => {
+                                  if (permissions.includes('payments.force_edit')) return true
+                                  const createdTime = selectedOrder.created_at ? new Date(selectedOrder.created_at).getTime() : 0
+                                  return (Date.now() - createdTime) < 30 * 60 * 1000
+                                })()
+                              ) && (
+                                <button
+                                  onClick={async () => {
+                                    setEditingPaymentId(p.payment_id || p.id)
+                                    let currentFundId = ''
+                                    // Find the fund_id from the corresponding cashbook entry
+                                    const matchingCb = (cashbookData?.data ?? []).find(cb => cb.id === cbId || cb.transaction_id === cbId)
+                                    currentFundId = matchingCb?.fund_id || ''
 
-                                  // Fresh cashbook reload from server
-                                  try {
-                                    const cbRes = await fetch(`/api/shops/${shopId}/cashbook?reference_id=${selectedOrder.order_id}&limit=100`)
-                                    if (cbRes.ok) {
-                                      const cbData = await cbRes.json()
-                                      const cbList = cbData.data || []
-                                      const freshCb = cbList.find((cb: any) => cb.id === cbId || cb.transaction_id === cbId)
-                                      if (freshCb?.fund_id) {
-                                        currentFundId = freshCb.fund_id
+                                    // Fresh cashbook reload from server
+                                    try {
+                                      const cbRes = await fetch(`/api/shops/${shopId}/cashbook?reference_id=${selectedOrder.order_id}&limit=100`)
+                                      if (cbRes.ok) {
+                                        const cbData = await cbRes.json()
+                                        const cbList = cbData.data || []
+                                        const freshCb = cbList.find((cb: any) => cb.id === cbId || cb.transaction_id === cbId)
+                                        if (freshCb?.fund_id) {
+                                          currentFundId = freshCb.fund_id
+                                        }
                                       }
+                                    } catch (e) {
+                                      console.error('Failed to load fresh cashbook entry:', e)
                                     }
-                                  } catch (e) {
-                                    console.error('Failed to load fresh cashbook entry:', e)
-                                  }
 
-                                  setSelectedFundIdForCorrection(currentFundId)
-                                  setInitialFundId(currentFundId)
-                                }}
-                                className="ml-3 text-primary hover:underline text-[11px] font-bold"
-                              >
-                                đổi
-                              </button>
+                                    setSelectedFundIdForCorrection(currentFundId)
+                                    setInitialFundId(currentFundId)
+                                  }}
+                                  className="text-primary hover:underline text-[11px] font-bold"
+                                >
+                                  đổi
+                                </button>
+                              )}
+                            </div>
+                            {(p.note || p.paid_at || p.created_at) && (
+                              <div className="text-xs text-slate-500 mt-0.5">
+                                {(p.paid_at || p.created_at) ? new Intl.DateTimeFormat('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(p.paid_at || p.created_at)).replace(',', '') + ' - ' : ''}{p.note || ''}
+                              </div>
                             )}
                           </div>
                           <span className={`font-bold ${Number(p.amount) < 0 || p.method === 'debt' || p.method?.startsWith('debt-') ? 'text-red-600' : 'text-green-700'}`}>{fmtVND(p.amount)}</span>
@@ -1251,21 +1257,27 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
                       const cbId = String(cb.id || cb.transaction_id);
                       return (
                         <div key={cbId} className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm">
-                          <div>
-                            <span className="font-medium text-slate-900">{getPaymentMethodLabel(cb.method)}</span>
-                            <span 
-                              className="ml-2 cursor-pointer text-xs font-mono text-slate-500 hover:text-slate-700" 
-                              title="Nhấn để sao chép mã" 
-                              onClick={() => { 
-                                navigator.clipboard.writeText(cbId)
-                                toast.success('Đã copy mã: ' + cbId) 
-                              }}
-                            >
-                              (#{cbId.split('-')[0] + '-' + (cbId.split('-')[1] || '')})
-                            </span>
-                            {cb.category === 'refund' && <span className="ml-2 text-red-500 text-[10px] font-bold border border-red-200 bg-red-100 px-1.5 py-0.5 rounded uppercase tracking-wider">Hoàn tiền</span>}
-                            {cb.category === 'revenue' && <span className="ml-2 text-green-600 text-[10px] font-bold border border-green-200 bg-green-100 px-1.5 py-0.5 rounded uppercase tracking-wider">Thu khác</span>}
-                            {cb.note && <span className="ml-2 text-slate-500">— {cb.note}</span>}
+                          <div className="flex flex-col">
+                            <div className="flex items-center">
+                              <span className="font-medium text-slate-900">{getPaymentMethodLabel(cb.method)}</span>
+                              <span 
+                                className="cursor-pointer text-xs font-mono text-slate-500 hover:text-slate-700" 
+                                title="Nhấn để sao chép mã" 
+                                onClick={() => { 
+                                  navigator.clipboard.writeText(cbId)
+                                  toast.success('Đã copy mã: ' + cbId) 
+                                }}
+                              >
+                                #{cbId.split('-')[0] + '-' + (cbId.split('-')[1] || '')}
+                              </span>
+                              {cb.category === 'refund' && <span className="ml-2 text-red-500 text-[10px] font-bold border border-red-200 bg-red-100 px-1.5 py-0.5 rounded uppercase tracking-wider">Hoàn tiền</span>}
+                              {cb.category === 'revenue' && <span className="ml-2 text-green-600 text-[10px] font-bold border border-green-200 bg-green-100 px-1.5 py-0.5 rounded uppercase tracking-wider">Thu khác</span>}
+                            </div>
+                            {(cb.note || cb.paid_at || cb.created_at) && (
+                              <div className="text-xs text-slate-500 mt-0.5">
+                                {(cb.paid_at || cb.created_at) ? new Intl.DateTimeFormat('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(cb.paid_at || cb.created_at)).replace(',', '') + ' - ' : ''}{cb.note || ''}
+                              </div>
+                            )}
                           </div>
                           <span className={`font-semibold ${cb.type === 'payment' ? 'text-red-600' : 'text-green-700'}`}>
                             {cb.type === 'payment' ? '-' : '+'}{fmtVND(cb.amount)}
