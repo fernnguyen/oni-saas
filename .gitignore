@@ -26,4 +26,5 @@ apps/mobile/.expo/
 *.aab
 *.ipa
 build-*
+backups/
 
