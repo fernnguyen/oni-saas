@@ -153,7 +153,7 @@ export function ProductBatchesSlideOver({ open, onClose, shopId, productId, ware
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           branch_id: shopId,
-          warehouse_id: warehouseId || (batches.length > 0 ? batches[0].warehouse_id : ''),
+          warehouse_id: warehouseId || (selectedProductBatches.length > 0 ? selectedProductBatches[0].warehouse_id : ''),
           reason: `Khởi tạo tồn kho lô ${newBatchForm.batch_no}`,
           items: [
             {
@@ -178,16 +178,11 @@ export function ProductBatchesSlideOver({ open, onClose, shopId, productId, ware
         }
         await localDb.inventoryBatches.add({
           id: `IB-${crypto.randomUUID()}`,
-          tenant_id: shopId,
           branch_id: shopId,
           product_id: targetProductId,
           batch_no: newBatchForm.batch_no,
           stock_qty: qty,
-          expiry_date: newBatchForm.expiry_date || null,
-          warehouse_id: warehouseId || (batches.length > 0 ? batches[0].warehouse_id : ''),
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          active: 'TRUE'
+          expiry_date: newBatchForm.expiry_date || ''
         }).catch(() => {})
       }
 

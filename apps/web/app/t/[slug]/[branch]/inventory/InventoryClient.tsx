@@ -1931,11 +1931,9 @@ export function InventoryClient({ shopId, shopName, planCode }: Props) {
                     <th className="px-4 py-3 text-left font-semibold">Mã phiếu</th>
                     <th className="px-4 py-3 text-left font-semibold">Loại phiếu</th>
                     <th className="px-4 py-3 text-left font-semibold">Sản phẩm</th>
-                    <th className="px-4 py-3 text-left font-semibold">Nội dung / Ghi chú</th>
-                    <th className="px-4 py-3 text-left font-semibold">Từ phiếu</th>
+                    <th className="px-4 py-3 text-left font-semibold">Thông tin</th>
                     <th className="px-4 py-3 text-right font-semibold">Số lượng</th>
                     <th className="px-4 py-3 text-right font-semibold">Tổng giá trị</th>
-                    <th className="px-4 py-3 text-center font-semibold w-24">Thao tác</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-200">
@@ -2014,18 +2012,16 @@ export function InventoryClient({ shopId, shopName, planCode }: Props) {
                                 {(p?.sku || firstItem.sku) && <p className="text-[10px] text-slate-400 font-mono mt-0.5">SKU: {p?.sku || firstItem.sku}</p>}
                               </div>
                             </td>
-                            <td className="px-4 py-3.5 max-w-[180px]">
-                              <span className="text-xs text-slate-600 block line-clamp-2" title={group.reason || undefined}>
-                                {group.reason || '—'}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3.5">
-                              <div onClick={(e) => e.stopPropagation()}>
-                                {group.reference_no ? (
-                                  <CopyableId id={group.reference_no} className="text-sm font-semibold text-primary" />
-                                ) : (
-                                  <span className="text-xs text-slate-400 font-medium">—</span>
+                            <td className="px-4 py-3.5 max-w-[200px]">
+                              <div className="space-y-1">
+                                {group.reference_no && (
+                                  <div onClick={(e) => e.stopPropagation()}>
+                                    <CopyableId id={group.reference_no} className="text-sm font-semibold text-primary" />
+                                  </div>
                                 )}
+                                <span className="text-xs text-slate-600 block line-clamp-2" title={group.reason || undefined}>
+                                  {group.reason || '—'}
+                                </span>
                               </div>
                             </td>
                             <td className="px-4 py-3.5 text-right font-semibold tabular-nums">
@@ -2064,14 +2060,6 @@ export function InventoryClient({ shopId, shopName, planCode }: Props) {
                                   </div>
                                 )}
                               </div>
-                            </td>
-                            <td className="px-4 py-3.5 text-center" onClick={(e) => e.stopPropagation()}>
-                              <button
-                                onClick={() => setViewMovement(firstItem)}
-                                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-650 shadow-xs hover:bg-slate-50 transition-colors"
-                              >
-                                <Eye className="h-3.5 w-3.5" /> Xem
-                              </button>
                             </td>
                           </tr>
                         </Fragment>
@@ -2126,18 +2114,16 @@ export function InventoryClient({ shopId, shopName, planCode }: Props) {
                               </span>
                             </div>
                           </td>
-                          <td className="px-4 py-3.5 max-w-[180px]">
-                            <span className="text-xs text-slate-600 block line-clamp-2" title={group.reason || undefined}>
-                              {group.reason || '—'}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3.5">
-                            <div onClick={(e) => e.stopPropagation()}>
-                              {group.reference_no ? (
-                                <CopyableId id={group.reference_no} className="text-sm font-semibold text-primary" />
-                              ) : (
-                                <span className="text-xs text-slate-400 font-medium">—</span>
+                          <td className="px-4 py-3.5 max-w-[200px]">
+                            <div className="space-y-1">
+                              {group.reference_no && (
+                                <div onClick={(e) => e.stopPropagation()}>
+                                  <CopyableId id={group.reference_no} className="text-xs text-slate-700" />
+                                </div>
                               )}
+                              <span className="text-xs text-slate-500 block line-clamp-2" title={group.reason || undefined}>
+                                {group.reason || '—'}
+                              </span>
                             </div>
                           </td>
                           <td className="px-4 py-3.5 text-right font-semibold tabular-nums">
@@ -2188,20 +2174,12 @@ export function InventoryClient({ shopId, shopName, planCode }: Props) {
                               )}
                             </div>
                           </td>
-                          <td className="px-4 py-3.5 text-center" onClick={(e) => e.stopPropagation()}>
-                            <button
-                              onClick={() => toggleMovementExpand(key)}
-                              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 shadow-xs hover:bg-slate-50 transition-colors"
-                            >
-                              {isExpanded ? 'Thu gọn' : 'Chi tiết'}
-                            </button>
-                          </td>
                         </tr>
                         
                         {/* Expanded items section */}
                         {isExpanded && (
                           <tr className="bg-slate-50/30">
-                            <td colSpan={9} className="px-6 py-4 border-l-2 border-primary/20">
+                            <td colSpan={7} className="px-6 py-4 border-l-2 border-primary/20">
                               <div className="overflow-hidden rounded-xl border border-slate-200/60 bg-white shadow-xs">
                                 <table className="min-w-full text-xs">
                                   <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200/60">
