@@ -123,12 +123,13 @@ async function processShopDailyScan(admin: any, shop: any, events: any[], settin
 
       const formattedRevenue = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(totalRevenue);
 
-      await dispatchNotification(tenantId, shopId, 'DAILY_DIGEST', {
-        title: `📊 Báo cáo cuối ngày - ${shopName}`,
-        message: `Tổng kết doanh thu ngày ${format(new Date(), 'dd/MM/yyyy')}:\n\n- Số đơn hàng: ${totalOrders}\n- Tổng doanh thu: ${formattedRevenue}`,
-        url: `${shopDomainUrl}/reports`
-      });
-      result.dailyDigestSent = true;
+        await dispatchNotification(tenantId, shopId, 'DAILY_DIGEST', {
+          title: `📊 Báo cáo cuối ngày - ${shopName}`,
+          message: `Tổng kết doanh thu ngày ${format(new Date(), 'dd/MM/yyyy')}:\n\n- Số đơn hàng: ${totalOrders}\n- Tổng doanh thu: ${formattedRevenue}`,
+          url: `${shopDomainUrl}/reports`
+        });
+        result.dailyDigestSent = true;
+      }
     }
   }
 
