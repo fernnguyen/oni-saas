@@ -8,11 +8,12 @@ import { getTenantPlanMeta } from '@/lib/server/subscriptions';
 import { listRoles } from '@/lib/server/roles';
 
 interface Props {
-  params: Promise<{ slug: string; branch: string }>;
+  params: Promise<{ slug: string; branch: string; tab?: string[] }>;
 }
 
 export default async function BranchSettingsPage({ params }: Props) {
-  const { slug, branch } = await params;
+  const { slug, branch, tab } = await params;
+  const initialTab = tab && tab.length > 0 ? tab[0] : 'general';
   const supabase = await getSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
 
@@ -105,6 +106,7 @@ export default async function BranchSettingsPage({ params }: Props) {
         <p className="text-sm text-slate-500 mt-0.5">Cấu hình thông tin chi nhánh và bán hàng</p>
       </div>
       <ShopSettingsForm
+        initialTab={initialTab}
         shop={{ id: shopId, name: shop.name, slug: shop.slug, address: shop.address ?? null, phone: shopResult.data?.phone ?? null }}
         settings={settings}
         canManage={canManage}

@@ -82,6 +82,7 @@ interface Props {
   telegramConfig?: { bot_token?: string; chat_id: string } | null;
   eventsConfig?: Record<string, any>;
   roles?: { id: number; code: string; name: string }[];
+  initialTab?: string;
 }
 
 function formatWithDots(val: string | number): string {
@@ -105,7 +106,8 @@ export function ShopSettingsForm({
   canUseCustomNotify = false,
   telegramConfig = null,
   eventsConfig = {},
-  roles = []
+  roles = [],
+  initialTab = 'general'
 }: Props) {
   const confirm = useConfirm();
   const canManageSettings = canManage;
@@ -178,17 +180,7 @@ export function ShopSettingsForm({
   });
 
   const [copied, setCopied] = useState(false);
-  const [activeTab, setActiveTab] = useState<'general' | 'sales' | 'debt' | 'sepay' | 'crm' | 'telegram' | 'payment-methods' | 'data'>('general');
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const tab = params.get('tab');
-      if (tab && ['general', 'sales', 'debt', 'sepay', 'crm', 'telegram', 'payment-methods', 'data'].includes(tab)) {
-        setActiveTab(tab as any);
-      }
-    }
-  }, []);
+  const [activeTab, setActiveTab] = useState<'general' | 'inventory-and-pos' | 'debt' | 'sepay' | 'crm' | 'notification' | 'payment-methods' | 'data-manage'>((initialTab as any) || 'general');
 
   const [isIndustryUnlocked, setIsIndustryUnlocked] = useState(false);
   const [isEditingIndustry, setIsEditingIndustry] = useState(false);
@@ -860,7 +852,7 @@ export function ShopSettingsForm({
             permission: true 
           },
           { 
-            id: 'sales', 
+            id: 'inventory-and-pos', 
             label: 'Bán hàng & Kho', 
             icon: (
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -904,7 +896,7 @@ export function ShopSettingsForm({
             permission: canManage 
           },
           { 
-            id: 'telegram', 
+            id: 'notification', 
             label: 'Kênh thông báo', 
             icon: (
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -926,7 +918,7 @@ export function ShopSettingsForm({
             permission: canManage 
           },
           { 
-            id: 'data', 
+            id: 'data-manage', 
             label: 'Quản lý Dữ liệu', 
             icon: (
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -942,6 +934,10 @@ export function ShopSettingsForm({
             type="button"
             onClick={() => {
               setActiveTab(tab.id as any);
+              const targetUrl = tab.id === 'general' 
+                ? `/${shop.slug}/settings`
+                : `/${shop.slug}/settings/${tab.id}`;
+              window.history.replaceState(null, '', targetUrl);
             }}
             className={[
               'w-full text-left rounded-xl px-3.5 py-3 transition-all duration-200 cursor-pointer flex items-start gap-3 group border border-transparent',
@@ -1219,7 +1215,7 @@ export function ShopSettingsForm({
         )}
 
         {/* ── TAB 2: BÁN HÀNG & KHO ── */}
-        {activeTab === 'sales' && (
+        {activeTab === 'inventory-and-pos' && (
           <form onSubmit={(e) => { e.preventDefault(); handleSaveSubForm('sales'); }} className="space-y-6">
             <Section title="Cài đặt bán hàng" description="Các tham số áp dụng khi tạo đơn, tính tiền, quản lý kho">
               <div className="grid gap-4 sm:grid-cols-2">
@@ -2316,7 +2312,7 @@ export function ShopSettingsForm({
         )
       )}
 
-      {activeTab === 'telegram' && (
+      {activeTab === 'notification' && (
         !canUsePushNotify && !canUseCustomNotify ? (
             <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
               <div className="border-b border-slate-100 px-6 py-4">
@@ -2882,7 +2878,7 @@ export function ShopSettingsForm({
         </div>
       )}
 
-      {activeTab === 'data' && (
+      {activeTab === 'data-manage' && (
         <div className="flex-1 max-w-4xl space-y-6">
           <Section 
             title="Xuất dữ liệu Excel" 
