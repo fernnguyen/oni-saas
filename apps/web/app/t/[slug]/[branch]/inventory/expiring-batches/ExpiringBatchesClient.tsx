@@ -41,7 +41,7 @@ export function ExpiringBatchesClient({ shopId, shopName }: ExpiringBatchesClien
     return new Date(dateStr) < new Date();
   }
 
-  const columns: Column[] = useMemo(() => [
+  const columns: Column<any>[] = useMemo(() => [
     {
       key: 'product',
       header: 'Sản phẩm',
@@ -157,7 +157,7 @@ export function ExpiringBatchesClient({ shopId, shopName }: ExpiringBatchesClien
           <DataTable
             columns={columns}
             data={batches}
-            keyField="id"
+            rowKey={(row) => row.id}
           />
         )}
       </div>

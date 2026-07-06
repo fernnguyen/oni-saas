@@ -7,7 +7,7 @@ export type Column<T> = {
   key: string
   label?: string
   header?: string
-  width?: number
+  width?: number | string
   sortable?: boolean
   align?: 'left' | 'right' | 'center'
   className?: string

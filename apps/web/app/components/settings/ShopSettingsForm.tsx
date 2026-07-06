@@ -425,7 +425,7 @@ export function ShopSettingsForm({
   });
 
   const [eventChannels, setEventChannels] = useState<Record<string, {
-    telegram: { enabled: boolean };
+    telegram: { enabled: boolean; chat_id?: string };
     push: { enabled: boolean; roles: string[] };
   }>>(() => {
     return AVAILABLE_EVENTS.reduce((acc, ev) => {
