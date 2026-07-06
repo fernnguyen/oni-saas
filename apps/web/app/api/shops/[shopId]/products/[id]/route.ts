@@ -14,7 +14,16 @@ export async function GET(
     const { shopId, id } = await params
     const { connector } = await requireShopAccess(shopId, 'products.view')
 
-    const row = await connector.findById('products', id)
+    let row = await connector.findById('products', id)
+    if (!row) {
+      const searchRes = await connector.list('products', {
+        filters: { sku: id },
+        limit: 1
+      })
+      if (searchRes.data && searchRes.data.length > 0) {
+        row = searchRes.data[0]
+      }
+    }
     if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     // Fetch inventory for this product and branch to compute actual stock level

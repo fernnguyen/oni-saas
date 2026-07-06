@@ -49,7 +49,7 @@ export async function POST(
   let tx: RollbackContext | undefined
   try {
     const { shopId } = await params
-    const { connector, shop } = await requireShopAccess(shopId, 'products.create')
+    const { connector, shop, userId } = await requireShopAccess(shopId, 'products.create')
     tx = new RollbackContext()
 
     const body = await req.json() as {
@@ -203,6 +203,7 @@ export async function POST(
         reference_no: finalReferenceNo,
         reason: reason,
         batch_no: pItem.batch_no || '', // Capture batch_no directly in movement ledger
+        employee_id: userId,
         created_at: getGMT7Time()
       }
 

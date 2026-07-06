@@ -6,17 +6,22 @@ import { ArrowLeft, AlertTriangle, Calendar, Package } from 'lucide-react'
 import Image from 'next/image'
 import { DataTable, Column } from '@/app/components/ui/DataTable'
 import { EmptyState } from '@/app/components/ui/EmptyState'
+import { ProductBatchesSlideOver } from '@/app/components/inventory/ProductBatchesSlideOver'
 
 interface ExpiringBatchesClientProps {
   shopId: string;
   shopName: string;
 }
 
+import { useQueryClient } from '@tanstack/react-query'
+
 export function ExpiringBatchesClient({ shopId, shopName }: ExpiringBatchesClientProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [batches, setBatches] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [days, setDays] = useState(30);
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchBatches(days);
@@ -37,8 +42,28 @@ export function ExpiringBatchesClient({ shopId, shopName }: ExpiringBatchesClien
     }
   }
 
-  const isExpired = (dateStr: string) => {
-    return new Date(dateStr) < new Date();
+
+
+  const getStatus = (dateStr: string) => {
+    if (!dateStr) return null;
+    const expiryDate = new Date(dateStr);
+    const now = new Date();
+    const diffMs = expiryDate.getTime() - now.getTime();
+    
+    if (diffMs < 0) {
+      return { text: 'Đã hết hạn', color: 'red' };
+    }
+    
+    const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    
+    const text = `Còn ${days} ngày ${hours} giờ`;
+    
+    if (days <= 30) {
+      return { text, color: 'yellow' };
+    }
+    
+    return { text, color: 'black' };
   }
 
   const columns: Column<any>[] = useMemo(() => [
@@ -76,25 +101,9 @@ export function ExpiringBatchesClient({ shopId, shopName }: ExpiringBatchesClien
       )
     },
     {
-      key: 'expiry_date',
-      header: 'Hạn sử dụng',
-      width: '20%',
-      render: (row: any) => {
-        const expired = isExpired(row.expiry_date);
-        return (
-          <div className={`flex items-center gap-1.5 text-sm font-medium ${expired ? 'text-red-600' : 'text-orange-600'}`}>
-            <Calendar className="h-4 w-4" />
-            {row.expiry_date ? new Date(row.expiry_date).toLocaleDateString('vi-VN') : 'N/A'}
-            {expired && <span className="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-bold uppercase ml-1">Đã hết hạn</span>}
-          </div>
-        )
-      }
-    },
-    {
       key: 'stock_qty',
       header: 'Tồn kho',
       width: '15%',
-      align: 'right',
       render: (row: any) => {
         const qty = parseFloat(row.stock_qty || '0');
         const unit = row.product?.unit || '';
@@ -104,11 +113,51 @@ export function ExpiringBatchesClient({ shopId, shopName }: ExpiringBatchesClien
           </span>
         )
       }
+    },
+    {
+      key: 'expiry_date',
+      header: 'Hạn sử dụng',
+      width: '15%',
+      render: (row: any) => {
+        return (
+          <div className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
+            <Calendar className="h-4 w-4 text-slate-400" />
+            {row.expiry_date ? new Date(row.expiry_date).toLocaleDateString('vi-VN') : 'N/A'}
+          </div>
+        )
+      }
+    },
+    {
+      key: 'status',
+      header: 'Trạng thái',
+      width: '20%',
+      render: (row: any) => {
+        const status = getStatus(row.expiry_date);
+        if (!status) return '—';
+        
+        let colorClass = 'text-slate-700 bg-slate-100 border-slate-200';
+        if (status.color === 'red') {
+          colorClass = 'text-red-700 bg-red-50 border-red-200 font-bold';
+        } else if (status.color === 'yellow') {
+          colorClass = 'text-orange-700 bg-orange-50 border-orange-200 font-medium';
+        }
+        
+        return (
+          <span className={`inline-flex items-center px-2 py-1 rounded-md text-xs border ${colorClass}`}>
+            {status.text}
+          </span>
+        )
+      }
     }
   ], []);
 
+  const handleRowClick = (row: any) => {
+    if (!row.product_id) return;
+    setSelectedProductId(row.product_id);
+  };
+
   return (
-    <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto space-y-6 animate-in fade-in-50 duration-500">
+    <div className="space-y-4">
       <div className="flex flex-col gap-4 md:flex-row md:items-center justify-between bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
         <div className="flex items-center gap-4">
           <button
@@ -158,9 +207,23 @@ export function ExpiringBatchesClient({ shopId, shopName }: ExpiringBatchesClien
             columns={columns}
             data={batches}
             rowKey={(row) => row.id}
+            onRowClick={handleRowClick}
           />
         )}
       </div>
+
+      <ProductBatchesSlideOver
+        open={!!selectedProductId}
+        onClose={() => setSelectedProductId(null)}
+        shopId={shopId}
+        productId={selectedProductId || ''}
+        onBatchesChanged={() => {
+          fetchBatches(days)
+          queryClient.invalidateQueries({ queryKey: ['inventory', shopId] })
+          queryClient.invalidateQueries({ queryKey: ['products-all', shopId] })
+          queryClient.invalidateQueries({ queryKey: ['stock-movements', shopId] })
+        }}
+      />
     </div>
   )
 }

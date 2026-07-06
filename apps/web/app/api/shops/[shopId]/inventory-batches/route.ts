@@ -31,6 +31,33 @@ export async function GET(
       sortDesc: false // we want oldest/earliest expiry or standard ordering
     })
 
+    // Auto healing: Assign default warehouse to batches missing warehouse_id
+    if (result.data && result.data.length > 0) {
+      const itemsWithoutWarehouse = result.data.filter((b: any) => !b.warehouse_id)
+      if (itemsWithoutWarehouse.length > 0) {
+        const whRes = await connector.list('warehouses', { limit: 10 })
+        if (whRes.data && whRes.data.length > 0) {
+          const retailWh = whRes.data.find((w: any) => w.name && w.name.toLowerCase().includes('bán lẻ'))
+          const defaultWarehouse = retailWh || whRes.data[0]
+          
+          if (defaultWarehouse && defaultWarehouse.id) {
+            // Update on the fly for response
+            result.data = result.data.map((b: any) => {
+              if (!b.warehouse_id) {
+                return { ...b, warehouse_id: defaultWarehouse.id }
+              }
+              return b
+            })
+            
+            // Fire and forget background update
+            Promise.all(itemsWithoutWarehouse.map((b: any) => 
+              connector.update('inventory-batches', b.id, { warehouse_id: defaultWarehouse.id }).catch(() => {})
+            )).catch(() => {})
+          }
+        }
+      }
+    }
+
     return NextResponse.json(result)
   } catch (e) {
     return handleApiError(e, 'GET inventory-batches')

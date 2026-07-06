@@ -41,11 +41,23 @@ export async function GET(
     let finalBatches = expiringBatches;
     
     if (expiringBatches.length > 0) {
-      // Fetch products to attach
-      const productsRes = await connector.list('products', { limit: 10000 });
-      const productsMap = new Map((productsRes.data || []).map((p: any) => [p.id, p]));
+      const uniqueProductIds = Array.from(new Set(expiringBatches.map((b: any) => b.product_id).filter(Boolean)));
+      const productsMap = new Map();
       
-      finalBatches = expiringBatches.map(b => ({
+      await Promise.all(uniqueProductIds.map(async (pid: any) => {
+        let p = await connector.findById('products', pid).catch(() => null);
+        if (!p) {
+          const searchRes = await connector.list('products', { filters: { sku: pid }, limit: 1 }).catch(() => ({ data: [] }));
+          if (searchRes.data && searchRes.data.length > 0) {
+            p = searchRes.data[0];
+          }
+        }
+        if (p) {
+          productsMap.set(pid, p);
+        }
+      }));
+      
+      finalBatches = expiringBatches.map((b: any) => ({
         ...b,
         product: productsMap.get(b.product_id) || null
       }));

@@ -50,7 +50,7 @@ export async function GET(
 ) {
   try {
     const { shopId } = await params
-    const { connector, permissions } = await requireShopAccess(shopId)
+    const { connector, permissions, shop } = await requireShopAccess(shopId)
 
     const sp = req.nextUrl.searchParams
     const page = Math.max(1, parseInt(sp.get('page') ?? '1'))
@@ -72,6 +72,49 @@ export async function GET(
     if (warehouse_id) filters.warehouse_id = warehouse_id
 
     const result = await connector.list('stock-movements', { page, limit, search: search || undefined, filters, sortDesc: true })
+
+    if (result && Array.isArray(result.data) && result.data.length > 0) {
+      const uniqueUserIds = Array.from(
+        new Set(
+          result.data.map((r: any) => r.employee_id || r.created_by).filter(Boolean)
+        )
+      )
+      
+      if (uniqueUserIds.length > 0) {
+        const { getSupabaseAdminClient } = await import('@/lib/server/supabaseAdmin')
+        const admin = getSupabaseAdminClient()
+        const profileMap = new Map()
+        
+        // Always try to fetch from Auth to get the most up-to-date global profile
+        const authUsers = await Promise.all(
+          uniqueUserIds.map(async id => {
+            try {
+              const res = await admin.auth.admin.getUserById(id)
+              const metadata = res.data?.user?.user_metadata || {}
+              const name = metadata.display_name || metadata.full_name || metadata.name || metadata.displayName
+              return { id, name, email: res.data?.user?.email, phone: res.data?.user?.phone }
+            } catch (e) { return null }
+          })
+        )
+        
+        for (const u of authUsers) {
+          if (u && (u.name || u.email || u.phone)) {
+            profileMap.set(u.id, u.name || u.email || u.phone)
+          }
+        }
+
+        result.data = result.data.map((r: any) => {
+          const uId = r.employee_id || r.created_by
+          const creatorName = uId ? (profileMap.get(uId) || `User (${uId.slice(0, 8)})`) : 'Hệ thống'
+          return {
+            ...r,
+            creator_name: creatorName
+          }
+        })
+      } else {
+        result.data = result.data.map((r: any) => ({ ...r, creator_name: 'Hệ thống' }))
+      }
+    }
 
     if (fund_id && result && Array.isArray(result.data)) {
       result.data = result.data.filter((r: any) => {
@@ -123,13 +166,14 @@ export async function POST(
   let tx: RollbackContext | undefined;
   try {
     const { shopId } = await params
-    const { connector, shop } = await requireShopAccess(shopId)
+    const { connector, shop, userId } = await requireShopAccess(shopId)
     tx = new RollbackContext()
 
     const body = await req.json()
     // Extract POS-sync flag before schema parse (Zod strips unknown fields)
     const skipInventoryUpdate = body.skip_inventory_update === 'true'
     const data = stockMovementCreateSchema.parse(body)
+    if (!data.employee_id) data.employee_id = userId
 
     // When called from the POS sync worker, movement creation and inventory update
     // are handled as separate idempotent steps. The worker tracks each independently
