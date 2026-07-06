@@ -60,7 +60,11 @@ export async function GET(
       finalBatches = expiringBatches.map((b: any) => ({
         ...b,
         product: productsMap.get(b.product_id) || null
-      }));
+      })).filter((b: any) => {
+        if (!b.product) return false;
+        if (b.product.active === 'FALSE' || b.product.active === false || b.product.active === 0) return false;
+        return true;
+      });
     }
 
     // Sort by expiry_date ascending

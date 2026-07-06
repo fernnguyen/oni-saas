@@ -17,6 +17,30 @@ const nextConfig = {
   env: {
     NEXT_PUBLIC_APP_VERSION: appVersion,
   },
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'assets.oni.vn',
+      },
+      {
+        protocol: 'https',
+        hostname: '*.oni.vn',
+      },
+      {
+        protocol: 'https',
+        hostname: 'pub-*.r2.dev',
+      },
+      {
+        protocol: 'http',
+        hostname: 'localhost',
+      },
+      {
+        protocol: 'http',
+        hostname: '127.0.0.1',
+      }
+    ],
+  },
   async headers() {
     return [
       {

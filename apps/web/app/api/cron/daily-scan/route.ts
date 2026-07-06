@@ -148,10 +148,15 @@ async function processShopDailyScan(admin: any, shop: any, events: any[], settin
 
     if (connector) {
       const { data: inventoryBatches } = await connector.list('inventory-batches', { limit: 10000 });
+      const { data: products } = await connector.list('products', { limit: 10000 });
+      const activeProducts = new Set(
+        (products || []).filter((p: any) => p.active !== 'FALSE' && p.active !== false && p.active !== 0).map((p: any) => p.id)
+      );
       
       const expiringBatches = inventoryBatches.filter((b: any) => {
         if (!b.expiry_date) return false;
         if (b.expiry_date > expiryThreshold) return false;
+        if (!b.product_id || !activeProducts.has(b.product_id)) return false;
         return Number(b.stock_qty || 0) > 0;
       });
 
@@ -180,8 +185,13 @@ async function processShopDailyScan(admin: any, shop: any, events: any[], settin
 
       if (connector) {
         const { data: inventoryData } = await connector.list('inventory', { limit: 10000 });
+        const { data: products } = await connector.list('products', { limit: 10000 });
+        const activeProducts = new Set(
+          (products || []).filter((p: any) => p.active !== 'FALSE' && p.active !== false && p.active !== 0).map((p: any) => p.id)
+        );
 
         const lowStockItems = inventoryData.filter((inv: any) => {
+          if (!inv.product_id || !activeProducts.has(inv.product_id)) return false;
           const stock = Number(inv.stock_qty || 0);
           const min = Number(inv.min_stock || 0);
           return stock <= min && min > 0;
