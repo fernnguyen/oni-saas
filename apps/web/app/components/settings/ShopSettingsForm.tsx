@@ -413,6 +413,9 @@ export function ShopSettingsForm({
     { id: 'ORDER_RETURNED', label: 'Khách trả hàng' },
     { id: 'QR_ORDER_CREATED', label: 'Gọi món qua QR' },
     { id: 'QR_SESSION_CREATED', label: 'Yêu cầu mở bàn ăn QR' },
+    { id: 'DAILY_DIGEST', label: 'Báo cáo tổng kết doanh thu cuối ngày' },
+    { id: 'EXPIRING_BATCHES', label: 'Cảnh báo lô sắp hết hạn' },
+    { id: 'LOW_STOCK', label: 'Cảnh báo sắp hết hàng' },
   ];
 
   const [localTelegramConfig, setLocalTelegramConfig] = useState<typeof telegramConfig>(telegramConfig);
@@ -2507,6 +2510,29 @@ export function ShopSettingsForm({
                               Gửi tới Telegram Group {!localTelegramConfig?.chat_id && <span className="text-red-500 font-normal">(Chưa kết nối Telegram)</span>}
                             </span>
                           </label>
+
+                          {ev.id === 'DAILY_DIGEST' && (eventChannels[ev.id]?.telegram?.enabled ?? true) && (
+                            <div className="ml-6">
+                              <label className="block text-xs text-slate-500 mb-1 italic">Telegram Chat ID nhận báo cáo (Tuỳ chọn, để trống sẽ gửi vào Group mặc định):</label>
+                              <input
+                                type="text"
+                                className="block w-full max-w-xs rounded border border-slate-200 px-2 py-1.5 text-xs focus:border-[#fa5907] focus:outline-none focus:ring-1 focus:ring-[#fa5907]"
+                                placeholder="Ví dụ: -100123456789"
+                                value={eventChannels[ev.id]?.telegram?.chat_id || ''}
+                                disabled={!canManage || isPending}
+                                onChange={(e) => {
+                                  const prevCfg = eventChannels[ev.id] || { telegram: { enabled: true }, push: { enabled: true, roles: [] } };
+                                  setEventChannels({
+                                    ...eventChannels,
+                                    [ev.id]: {
+                                      ...prevCfg,
+                                      telegram: { ...prevCfg.telegram, chat_id: e.target.value }
+                                    }
+                                  });
+                                }}
+                              />
+                            </div>
+                          )}
 
                           <div className="space-y-2">
                             <label className="flex items-center cursor-pointer">

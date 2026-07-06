@@ -67,3 +67,17 @@ Dữ liệu: Hãy dùng file PROJECT_STRUCTURE.md làm checklist công việc. M
 
 Data-source: Bắt đầu bằng Google Sheets trước vì nó là "đặc sản" của ONI.vn. Sau khi flow đó trơn tru, việc thêm Supabase, MongoDB hay các DB khác chỉ là việc implement thêm 1 file Adapter mới.
 
+Bước 6: Thiết lập Cron Job (Hệ thống tự động)
+Để hệ thống có thể tự động chạy các tác vụ ngầm như tính toán báo cáo tổng kết cuối ngày, cảnh báo hàng sắp hết hạn, hoặc hết hàng, bạn cần thiết lập Cronjob trên máy chủ VPS:
+
+1. Thêm biến môi trường bảo mật:
+Thêm vào file `.env.local`:
+```text
+CRON_SECRET=your_super_secret_cron_string
+```
+
+2. Thiết lập trên VPS (crontab):
+Mở terminal trên máy chủ VPS của bạn, gõ `crontab -e` và thêm dòng sau để chạy quét vào 23:55 mỗi ngày (hoặc thay thế URL nếu dùng domain):
+```bash
+55 23 * * * curl -X GET "http://localhost:3000/api/cron/daily-scan" -H "Authorization: Bearer your_super_secret_cron_string" >> /var/log/oni_cron.log 2>&1
+```

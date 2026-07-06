@@ -80,7 +80,8 @@ export async function dispatchNotification(
       if (channels && channels.length > 0) {
         channels.forEach((channel) => {
           const botToken = channel.config?.bot_token || process.env.TELEGRAM_BOT_TOKEN;
-          const chatId = channel.config?.chat_id;
+          const customChatId = channelsConfig && (channelsConfig as any).telegram?.chat_id;
+          const chatId = customChatId || channel.config?.chat_id;
           
           const isCustom = !!channel.config?.bot_token;
           if (isCustom && !canUseCustom) return;

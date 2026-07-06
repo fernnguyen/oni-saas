@@ -45,7 +45,8 @@ import {
   CalendarCheck,
   BedDouble,
   Megaphone,
-  Smartphone
+  Smartphone,
+  AlertTriangle
 } from 'lucide-react';
 
 export interface NavItem {
@@ -243,7 +244,8 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
       label: 'Vận hành',
       items: [
         { href: joinPath(base, '/housekeeping'), label: 'Buồng phòng', icon: BedDouble, permission: 'housekeeping.view', featureGate: 'location_resource' },
-        { href: joinPath(base, '/inventory'), label: 'Kho',             icon: Warehouse, permission: 'inventory.view' },
+        { href: joinPath(base, '/inventory'), label: 'Kho',             icon: Warehouse, permission: 'inventory.view', exact: true },
+        { href: joinPath(base, '/inventory/expiring-batches'), label: 'Lô sắp hết hạn', icon: AlertTriangle, permission: 'inventory.view' },
         // Tạm thời comment Vận chuyển vì chưa implement
         // { href: joinPath(base, '/shipping'),  label: 'Vận chuyển',      icon: Truck,     permission: 'shipping.view' },
         { href: joinPath(base, '/suppliers'),  label: 'Nhà cung cấp',   icon: Factory,     permission: 'inventory.view' },
