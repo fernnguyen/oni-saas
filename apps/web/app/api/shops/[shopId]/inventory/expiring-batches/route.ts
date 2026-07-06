@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getSupabaseServerClient } from '@/lib/server/supabaseServer';
+import { requireShopAccess } from '@/lib/server/shopAccess';
 
 export async function GET(
   req: Request,
@@ -7,12 +7,9 @@ export async function GET(
 ) {
   try {
     const { shopId } = await params;
-    const supabase = await getSupabaseServerClient();
-    const { data: authData } = await supabase.auth.getUser();
-
-    if (!authData.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    
+    // Auth and getting the connector for the specific shop
+    const { connector } = await requireShopAccess(shopId, 'inventory.view');
 
     const { searchParams } = new URL(req.url);
     const daysStr = searchParams.get('days');
@@ -28,39 +25,40 @@ export async function GET(
     const futureDate = new Date(today.getTime() + daysToLookAhead * 24 * 60 * 60 * 1000);
     const futureDateStr = futureDate.toISOString().split('T')[0];
 
-    // Fetch batches that have stock > 0, have an expiry date, and expiry date <= futureDate
-    const { data: batches, error } = await supabase
-      .from('inventory_batches')
-      .select(`
-        *,
-        product:products!product_id(
-          name, 
-          image_url, 
-          sku, 
-          barcode, 
-          unit
-        )
-      `)
-      .eq('branch_id', shopId)
-      .not('expiry_date', 'is', null)
-      .lte('expiry_date', futureDateStr)
-      // Only get batches that actually have stock left
-      // Since stock_qty is a string in the DB, we have to fetch them and filter locally or cast in Postgrest if possible.
-      // But we can just fetch and filter locally since there shouldn't be too many expiring soon.
-      .order('expiry_date', { ascending: true });
+    // Fetch all batches and filter locally
+    const batchesRes = await connector.list('inventory-batches', { limit: 10000 });
+    const batches = batchesRes.data || [];
 
-    if (error) {
-      console.error('Error fetching expiring batches:', error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    // Filter out batches with 0 stock
-    const filteredBatches = (batches || []).filter((b: any) => {
+    const expiringBatches = batches.filter((b: any) => {
+      if (!b.expiry_date) return false;
+      // We only want batches expiring on or before futureDateStr
+      if (b.expiry_date > futureDateStr) return false;
       const qty = parseFloat(b.stock_qty || '0');
       return qty > 0;
     });
 
-    return NextResponse.json({ data: filteredBatches });
+    // If we have expiring batches, we need to attach their product details
+    let finalBatches = expiringBatches;
+    
+    if (expiringBatches.length > 0) {
+      // Fetch products to attach
+      const productsRes = await connector.list('products', { limit: 10000 });
+      const productsMap = new Map((productsRes.data || []).map((p: any) => [p.id, p]));
+      
+      finalBatches = expiringBatches.map(b => ({
+        ...b,
+        product: productsMap.get(b.product_id) || null
+      }));
+    }
+
+    // Sort by expiry_date ascending
+    finalBatches.sort((a, b) => {
+      const dateA = new Date(a.expiry_date).getTime();
+      const dateB = new Date(b.expiry_date).getTime();
+      return dateA - dateB;
+    });
+
+    return NextResponse.json({ data: finalBatches });
   } catch (err: any) {
     console.error('Unexpected error in expiring batches API:', err);
     return NextResponse.json({ error: err.message }, { status: 500 });

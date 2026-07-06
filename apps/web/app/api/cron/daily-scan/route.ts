@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdminClient } from '../../../../lib/server/supabaseAdmin';
 import { dispatchNotification } from '../../../../lib/server/notifications';
+import { getConnectorForShop } from '../../../../lib/server/connectorFactory';
 import { startOfDay, endOfDay, format } from 'date-fns';
 
 export async function GET(req: NextRequest) {
@@ -97,19 +98,28 @@ async function processShopDailyScan(admin: any, shop: any, events: any[], settin
     const todayStart = startOfDay(new Date()).toISOString();
     const todayEnd = endOfDay(new Date()).toISOString();
 
-    const { data: orders } = await admin
-      .from('orders')
-      .select('id, total_amount, status')
-      .eq('branch_id', shopId)
-      .eq('status', 'completed')
-      .gte('created_at', todayStart)
-      .lte('created_at', todayEnd);
+    // Fetch orders via connector instead of admin
+    let connector;
+    try {
+      connector = await getConnectorForShop(shopId, tenantId);
+    } catch (e) {
+      console.error(`Failed to get connector for shop ${shopId}`, e);
+    }
 
-    if (orders) {
-      const totalOrders = orders.length;
-      const totalRevenue = orders.reduce((sum: number, order: any) => {
-        return sum + (Number(order.total_amount) || 0);
-      }, 0);
+    if (connector) {
+      const { data: orders } = await connector.list('orders', { limit: 10000 });
+      // Filter locally for today
+      const todayOrders = orders.filter((o: any) => {
+        if (o.status !== 'completed') return false;
+        const oDate = new Date(o.created_at);
+        return oDate >= new Date(todayStart) && oDate <= new Date(todayEnd);
+      });
+
+      if (todayOrders.length > 0) {
+        const totalOrders = todayOrders.length;
+        const totalRevenue = todayOrders.reduce((sum: number, order: any) => {
+          return sum + (Number(order.total_amount) || 0);
+        }, 0);
 
       const formattedRevenue = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(totalRevenue);
 
@@ -128,22 +138,29 @@ async function processShopDailyScan(admin: any, shop: any, events: any[], settin
     in30Days.setDate(in30Days.getDate() + 30);
     const expiryThreshold = format(in30Days, 'yyyy-MM-dd');
 
-    const { data: expiringBatches } = await admin
-      .from('inventory_batches')
-      .select('id, batch_no, expiry_date, stock_qty, product_id')
-      .eq('branch_id', shopId)
-      .lte('expiry_date', expiryThreshold);
+    let connector;
+    try {
+      connector = await getConnectorForShop(shopId, tenantId);
+    } catch (e) {
+      console.error(`Failed to get connector for shop ${shopId}`, e);
+    }
 
-    if (expiringBatches && expiringBatches.length > 0) {
-      const validBatches = expiringBatches.filter((b: any) => Number(b.stock_qty) > 0);
+    if (connector) {
+      const { data: inventoryBatches } = await connector.list('inventory-batches', { limit: 10000 });
       
-      if (validBatches.length > 0) {
+      const expiringBatches = inventoryBatches.filter((b: any) => {
+        if (!b.expiry_date) return false;
+        if (b.expiry_date > expiryThreshold) return false;
+        return Number(b.stock_qty || 0) > 0;
+      });
+
+      if (expiringBatches.length > 0) {
         await dispatchNotification(tenantId, shopId, 'EXPIRING_BATCHES', {
           title: `⚠️ Cảnh báo Hết hạn - ${shopName}`,
-          message: `Có ${validBatches.length} lô hàng sắp hết hạn trong 30 ngày tới. Vui lòng kiểm tra và có kế hoạch xử lý.`,
+          message: `Có ${expiringBatches.length} lô hàng sắp hết hạn trong 30 ngày tới. Vui lòng kiểm tra và có kế hoạch xử lý.`,
           url: `${shopDomainUrl}/inventory/expiring-batches`
         });
-        result.expiringBatchesAlertsSent = validBatches.length;
+        result.expiringBatchesAlertsSent = expiringBatches.length;
       }
     }
   }
@@ -153,16 +170,20 @@ async function processShopDailyScan(admin: any, shop: any, events: any[], settin
     const allowNegativeStock = settings?.allow_negative_stock === true || settings?.allow_negative_stock === 'TRUE';
 
     if (!allowNegativeStock) {
-      const { data: inventoryData } = await admin
-        .from('inventory')
-        .select('product_id, stock_qty, min_stock, sku')
-        .eq('branch_id', shopId);
+      let connector;
+      try {
+        connector = await getConnectorForShop(shopId, tenantId);
+      } catch (e) {
+        console.error(`Failed to get connector for shop ${shopId}`, e);
+      }
 
-      if (inventoryData) {
+      if (connector) {
+        const { data: inventoryData } = await connector.list('inventory', { limit: 10000 });
+
         const lowStockItems = inventoryData.filter((inv: any) => {
           const stock = Number(inv.stock_qty || 0);
           const min = Number(inv.min_stock || 0);
-          return stock <= min && min > 0; // Only alert if min_stock is set > 0 to avoid spamming
+          return stock <= min && min > 0;
         });
 
         if (lowStockItems.length > 0) {
