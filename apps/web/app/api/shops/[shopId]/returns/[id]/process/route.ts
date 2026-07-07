@@ -149,44 +149,7 @@ export async function POST(
       }).catch(() => {})
     })
 
-    // 4.5. Log Cashbook payment if a refund is issued
-    let cashbookId = ''
-    if (r.refund_method !== 'none' && r.refund_method !== 'store_credit') {
-      const refundAmount = parseFloat(r.total_refund || '0')
-      if (refundAmount > 0) {
-        try {
-          const { fundId, balanceAfter } = await resolveAndRecordPayment(
-            connector,
-            shopId,
-            { amount: refundAmount, method: r.refund_method },
-            true, // isExpense = true (refunding to customer)
-            tx
-          )
-
-          const cb = await connector.create('cashbook', {
-            type:           'payment', // Phiếu chi
-            amount:         String(refundAmount),
-            method:         r.refund_method,
-            category:       'refund',
-            reference_id:   returnRef,
-            reference_name: r.customer_name ?? '',
-            note:           `Hoàn tiền phiếu trả hàng ${returnRef}${r.order_no ? ` (Đơn ${r.order_no})` : ''}`,
-            employee_id:    processedBy,
-            branch_id:      r.branch_id || shopId,
-            fund_id:        fundId,
-            balance_after_transaction: balanceAfter,
-          })
-          cashbookId = (cb as Record<string, string>).transaction_id || ''
-          tx.add(async () => {
-            await connector.delete('cashbook', cashbookId).catch(() => {})
-          })
-        } catch (err) {
-          console.error('Failed to log cashbook for return refund:', err)
-        }
-      }
-    }
-
-    // 5. Update linked order → refunded or partially_refunded
+    // 5. Update linked order status → refunded or partially_refunded
     if (r.order_id) {
       const allReturnsResult = await connector.list('returns', { limit: 100, filters: { order_id: r.order_id } })
       const allReturns = allReturnsResult.data as Record<string, string>[]
@@ -210,53 +173,142 @@ export async function POST(
       tx.add(async () => {
         await connector.update('orders', r.order_id!, { status: previousOrderStatus }).catch(() => {})
       })
+    }
 
-      // Deduct order and customer debt if refund_method is store_credit
+    // 5.5. Deduct debt / Log Cashbook refund
+    let cashbookId = ''
+    const totalRefund = parseFloat(r.total_refund || '0') || 0
+    if (totalRefund > 0 && r.order_id) {
+      const orderData = await connector.findById('orders', r.order_id).catch(() => null)
+      const orderDebt = orderData ? (parseFloat((orderData as any).debt_amount || '0') || 0) : 0
+
+      // 1. First deduct from this specific order's debt
+      const appliedToOrderDebt = Math.min(totalRefund, orderDebt)
+      const remainder = totalRefund - appliedToOrderDebt
+
+      // 2. Fetch overall customer stats
+      const customerId = r.customer_id
+      let currentCustomerDebt = 0
+      let currentCustomerPrepaid = 0
+      let stats: any = null
+      let customer: any = null
+
+      if (customerId) {
+        const statsRes = await connector.list('customer-branch-stats', {
+          filters: { customer_id: customerId, branch_id: shopId }
+        })
+        stats = statsRes.data[0]
+        customer = await connector.findById('customers', customerId)
+        currentCustomerDebt = parseFloat(stats?.debt_amount ?? customer?.debt_amount ?? '0') || 0
+        currentCustomerPrepaid = parseFloat(stats?.prepaid_balance ?? customer?.prepaid_balance ?? '0') || 0
+      }
+
+      // Calculate remaining customer debt after deducting specific order debt
+      const customerRemainingDebt = Math.max(0, currentCustomerDebt - appliedToOrderDebt)
+      
+      let appliedToOtherDebt = 0
+      let refundToPrepaid = 0
+      let refundToCashOrBank = 0
+
       if (r.refund_method === 'store_credit') {
-        const orderData = await connector.findById('orders', r.order_id).catch(() => null)
-        if (orderData) {
-          const orderDebt = parseFloat((orderData as any).debt_amount || '0')
-          const totalRefund = parseFloat(r.total_refund || '0')
-          
-          if (totalRefund > 0) {
-            const appliedToOrderDebt = Math.min(totalRefund, orderDebt)
-            const refundToPrepaid = totalRefund - appliedToOrderDebt
-            const newOrderDebt = Math.max(0, orderDebt - appliedToOrderDebt)
+        // If refund method is store_credit, we first reduce customer's other debts
+        appliedToOtherDebt = Math.min(remainder, customerRemainingDebt)
+        // Any remaining amount after customer debt is fully wiped out goes to prepaid wallet balance
+        refundToPrepaid = remainder - appliedToOtherDebt
+      } else if (r.refund_method === 'cash' || r.refund_method === 'bank_transfer') {
+        // If refund method is cash/bank transfer, the remainder actually leaves the shop's fund
+        refundToCashOrBank = remainder
+      }
 
-            await connector.update('orders', r.order_id, { debt_amount: String(newOrderDebt) })
+      // Update Order Debt (original order)
+      if (appliedToOrderDebt > 0) {
+        const newOrderDebt = Math.max(0, orderDebt - appliedToOrderDebt)
+        await connector.update('orders', r.order_id, { debt_amount: String(newOrderDebt) })
+        tx.add(async () => {
+          await connector.update('orders', r.order_id!, { debt_amount: String(orderDebt) }).catch(() => {})
+        })
+      }
+
+      // Update Customer Stats (Debt / Prepaid)
+      if (customerId && (appliedToOrderDebt > 0 || appliedToOtherDebt > 0 || refundToPrepaid > 0)) {
+        const newCustomerDebt = Math.max(0, currentCustomerDebt - appliedToOrderDebt - appliedToOtherDebt)
+        const newCustomerPrepaid = currentCustomerPrepaid + refundToPrepaid
+
+        await updateCustomerStats(connector, customerId, shopId, {
+          debt_amount: String(newCustomerDebt),
+          prepaid_balance: String(newCustomerPrepaid)
+        }, tx)
+      }
+
+      // Deduct from customer's other unpaid orders in FIFO order (oldest first)
+      if (customerId && appliedToOtherDebt > 0) {
+        try {
+          const debtOrdersRes = await connector.list('orders', {
+            filters: { customer_id: customerId },
+            limit: 1000
+          })
+          const unpaidOrders = (debtOrdersRes.data as Record<string, string>[])
+            .filter(o => o.order_id !== r.order_id && o.id !== r.order_id) // Exclude current order
+            .filter(o => (parseFloat(o.debt_amount || '0') || 0) > 0 && o.is_return !== 'TRUE' && o.status !== 'cancelled' && o.status !== 'failed' && o.status !== 'refunded')
+            .sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime())
+
+          let remainingToDeduct = appliedToOtherDebt
+          for (const order of unpaidOrders) {
+            if (remainingToDeduct <= 0) break
+            const oDebt = parseFloat(order.debt_amount || '0') || 0
+            const applied = Math.min(remainingToDeduct, oDebt)
+            const newODebt = Math.max(0, oDebt - applied)
+
+            const oId = order.id || order.order_id
+            await connector.update('orders', oId, { debt_amount: String(newODebt) })
             tx.add(async () => {
-              await connector.update('orders', r.order_id, { debt_amount: String(orderDebt) }).catch(() => {})
+              await connector.update('orders', oId, { debt_amount: String(oDebt) }).catch(() => {})
             })
 
-            const customerId = r.customer_id
-            if (customerId) {
-              const statsRes = await connector.list('customer-branch-stats', {
-                filters: { customer_id: customerId, branch_id: shopId }
-              })
-              const stats = statsRes.data[0]
-              const customer = await connector.findById('customers', customerId)
-              const currentCustomerDebt = parseFloat(stats?.debt_amount ?? customer?.debt_amount ?? '0') || 0
-              const currentCustomerPrepaid = parseFloat(stats?.prepaid_balance ?? customer?.prepaid_balance ?? '0') || 0
-
-              const newCustomerDebt = Math.max(0, currentCustomerDebt - appliedToOrderDebt)
-              const newCustomerPrepaid = currentCustomerPrepaid + refundToPrepaid
-
-              await updateCustomerStats(connector, customerId, shopId, {
-                debt_amount: String(newCustomerDebt),
-                prepaid_balance: String(newCustomerPrepaid)
-              }, tx)
-            }
+            remainingToDeduct -= applied
           }
+        } catch (err) {
+          console.error('Failed to deduct other orders debt during return FIFO processing:', err)
         }
       }
 
-      invalidate(shopId, 'orders')
+      // Update Cashbook Fund (if money actually leaves the fund)
+      if (refundToCashOrBank > 0) {
+        try {
+          const { fundId, balanceAfter } = await resolveAndRecordPayment(
+            connector,
+            shopId,
+            { amount: refundToCashOrBank, method: r.refund_method, fund_id: r.fund_id },
+            true, // isExpense = true (refunding to customer)
+            tx
+          )
+
+          const cb = await connector.create('cashbook', {
+            type:           'payment', // Phiếu chi
+            amount:         String(refundToCashOrBank),
+            method:         r.refund_method,
+            category:       'refund',
+            reference_id:   returnRef,
+            reference_name: r.customer_name ?? '',
+            note:           `Hoàn tiền phiếu trả hàng ${returnRef}${r.order_no ? ` (Đơn ${r.order_no})` : ''}`,
+            employee_id:    processedBy,
+            branch_id:      r.branch_id || shopId,
+            fund_id:        fundId,
+            balance_after_transaction: balanceAfter,
+          })
+          cashbookId = (cb as Record<string, string>).transaction_id || ''
+          tx.add(async () => {
+            await connector.delete('cashbook', cashbookId).catch(() => {})
+          })
+        } catch (err) {
+          console.error('Failed to log cashbook for return refund:', err)
+        }
+      }
     }
 
     const domainName = process.env.NEXT_PUBLIC_ROOT_DOMAIN || 'oni.vn'
     const tenantDomain = `${shop.slug}.${domainName}`
     const processedByEmail = user.user_metadata?.display_name || user.user_metadata?.full_name || user.email || 'Hệ thống'
-    const totalRefund = Number(r.total_refund || 0)
     
     let actualOrderNo = r.order_no || r.order_id || 'Không có'
     if (r.order_id && (!r.order_no || r.order_no === '')) {
@@ -287,6 +339,7 @@ export async function POST(
     invalidate(shopId, 'inventory')
     invalidate(shopId, 'cashbook')
     invalidate(shopId, 'payment-funds')
+    invalidate(shopId, 'customers')
 
     return NextResponse.json(updated)
   } catch (e) {

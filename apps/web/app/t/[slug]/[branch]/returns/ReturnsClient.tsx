@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useDebounce } from 'use-debounce'
@@ -70,7 +70,7 @@ function fmtDate(v: string | undefined) {
 const EMPTY_FORM = {
   order_id: '', order_no: '', customer_id: '', customer_name: '',
   reason: 'other', status: 'pending', total_refund: '0',
-  refund_method: 'cash', note: '',
+  refund_method: 'cash', note: '', fund_id: '',
 }
 
 const EMPTY_ITEM = {
@@ -107,6 +107,82 @@ export function ReturnsClient({ shopId }: Props) {
     },
   })
 
+  // ── Fetch Payment Funds ──────────────────────────────────────────────────
+  const { data: fundsData } = useQuery({
+    queryKey: ['payment-funds', shopId, 'active'],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/payment-funds?active=TRUE`)
+      if (!res.ok) throw new Error('Không tải được danh sách quỹ')
+      return res.json() as Promise<{ data: Row[] }>
+    }
+  })
+  const funds = fundsData?.data || []
+
+  const [selectedOrderDebt, setSelectedOrderDebt] = useState(0)
+
+  // Auto-fetch original order details to pre-select refund method & customer info
+  const [debouncedOrderId] = useDebounce(form.order_id, 500)
+  useEffect(() => {
+    async function fetchOrderDetails() {
+      if (!debouncedOrderId || debouncedOrderId.trim().length < 5) {
+        setSelectedOrderDebt(0)
+        return
+      }
+      try {
+        const res = await fetch(`/api/shops/${shopId}/orders/${debouncedOrderId.trim()}`)
+        if (res.ok) {
+          const order = await res.json()
+          if (order) {
+            setSelectedOrderDebt(parseFloat(order.debt_amount || '0') || 0)
+            setForm(p => {
+              const updates: Record<string, string> = {}
+              if (!p.customer_name) updates.customer_name = order.customer_name || ''
+              if (!p.customer_id) updates.customer_id = order.customer_id || ''
+              if (!p.order_no) updates.order_no = order.order_no || ''
+              
+              // Prioritize refund method: if order has debt, use store_credit.
+              // Otherwise, match original payment method type.
+              const hasDebt = parseFloat(order.debt_amount || '0') > 0
+              if (hasDebt) {
+                updates.refund_method = 'store_credit'
+              } else if (order.payment_method) {
+                const isCash = order.payment_method === 'cash' || order.payment_method?.startsWith('cash-')
+                updates.refund_method = isCash ? 'cash' : 'bank_transfer'
+              }
+              
+              return { ...p, ...updates }
+            })
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to auto-fetch order details:', err)
+      }
+    }
+    fetchOrderDetails()
+  }, [debouncedOrderId, shopId])
+
+  // Auto-preselect default fund based on selected refund method
+  useEffect(() => {
+    if (funds.length > 0 && ['cash', 'bank_transfer'].includes(form.refund_method)) {
+      const filteredFunds = funds.filter(f => form.refund_method === 'cash' ? f.type === 'cash' : f.type !== 'cash')
+      
+      if (filteredFunds.length === 1) {
+        if (form.fund_id !== filteredFunds[0].id) {
+          setForm(p => ({ ...p, fund_id: filteredFunds[0].id }))
+        }
+      } else if (filteredFunds.length > 1) {
+        const defaultFund = filteredFunds.find(f => f.is_default === 'TRUE') || filteredFunds[0]
+        if (defaultFund && form.fund_id !== defaultFund.id) {
+          setForm(p => ({ ...p, fund_id: defaultFund.id }))
+        }
+      }
+    } else if (!['cash', 'bank_transfer'].includes(form.refund_method)) {
+      if (form.fund_id !== '') {
+        setForm(p => ({ ...p, fund_id: '' }))
+      }
+    }
+  }, [form.refund_method, funds])
+
   // ── Items for selected return ────────────────────────────────────────────
   const { data: itemsData, isLoading: itemsLoading } = useQuery({
     queryKey: ['return-items', shopId, selected?.return_id],
@@ -131,6 +207,8 @@ export function ReturnsClient({ shopId }: Props) {
     },
     onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: ['returns', shopId] })
+      queryClient.invalidateQueries({ queryKey: ['customers', shopId] })
+      queryClient.invalidateQueries({ queryKey: ['orders', shopId] })
       toast.success('Đã tạo phiếu trả hàng')
       setShowCreate(false)
       setForm(EMPTY_FORM)
@@ -195,6 +273,8 @@ export function ReturnsClient({ shopId }: Props) {
       queryClient.invalidateQueries({ queryKey: ['returns', shopId] })
       queryClient.invalidateQueries({ queryKey: ['inventory', shopId] })
       queryClient.invalidateQueries({ queryKey: ['stock-movements', shopId] })
+      queryClient.invalidateQueries({ queryKey: ['customers', shopId] })
+      queryClient.invalidateQueries({ queryKey: ['orders', shopId] })
       toast.success('Phiếu trả hàng đã được xử lý — kho đã được cập nhật')
       setSelected(updated)
     },
@@ -364,7 +444,7 @@ export function ReturnsClient({ shopId }: Props) {
               Hủy
             </button>
             <button
-              disabled={createMutation.isPending || !form.order_id}
+              disabled={createMutation.isPending || !form.order_id || (['cash', 'bank_transfer'].includes(form.refund_method) && !form.fund_id)}
               onClick={() => createMutation.mutate(form)}
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
             >
@@ -433,6 +513,60 @@ export function ReturnsClient({ shopId }: Props) {
               ))}
             </select>
           </div>
+          {['cash', 'bank_transfer'].includes(form.refund_method) && (
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700 font-semibold text-blue-600">Tài khoản quỹ chi *</label>
+              <select
+                value={form.fund_id}
+                onChange={(e) => setForm((p) => ({ ...p, fund_id: e.target.value }))}
+                className="w-full rounded-lg border border-blue-300 bg-blue-50/20 px-3 py-2 text-sm focus:border-blue-500 font-medium"
+              >
+                {funds
+                  .filter(f => form.refund_method === 'cash' ? f.type === 'cash' : f.type !== 'cash')
+                  .map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name} ({Number(f.current_balance || 0).toLocaleString('vi-VN')}đ)
+                    </option>
+                  ))}
+              </select>
+            </div>
+          )}
+          {(() => {
+            const method = form.refund_method
+            const totalRefund = parseFloat(form.total_refund) || 0
+            const chosenFundName = funds.find(f => f.id === form.fund_id)?.name || 'quỹ đã chọn'
+            
+            let msg = ''
+            if (method === 'store_credit') {
+              if (selectedOrderDebt > 0) {
+                msg = `Hệ thống cấn trừ tối đa ${selectedOrderDebt.toLocaleString('vi-VN')}đ vào nợ của đơn này. Phần tiền thừa còn lại (nếu có) sẽ tiếp tục cấn trừ vào các đơn nợ khác của khách hàng (theo FIFO). Nếu khách hàng không còn nợ, số tiền dư sẽ được cộng vào Ví trả trước.`
+              } else {
+                msg = `Hệ thống sẽ cấn trừ vào các đơn nợ khác của khách hàng (theo FIFO). Nếu khách hàng không còn nợ, toàn bộ số tiền ${totalRefund.toLocaleString('vi-VN')}đ sẽ được cộng vào Ví trả trước.`
+              }
+            } else if (method === 'cash' || method === 'bank_transfer') {
+              const methodName = method === 'cash' ? 'Tiền mặt' : 'Chuyển khoản'
+              if (selectedOrderDebt > 0) {
+                const applied = Math.min(totalRefund, selectedOrderDebt)
+                const remainder = totalRefund - applied
+                if (remainder > 0) {
+                  msg = `Hệ thống cấn trừ ${applied.toLocaleString('vi-VN')}đ nợ của đơn này. Số tiền còn lại ${remainder.toLocaleString('vi-VN')}đ sẽ được chi trả thực tế bằng ${methodName} từ quỹ [${chosenFundName}] (và ghi nhận phiếu chi trên Sổ quỹ).`
+                } else {
+                  msg = `Hệ thống cấn trừ toàn bộ tiền hoàn ${totalRefund.toLocaleString('vi-VN')}đ vào nợ của đơn này. Không có tiền mặt thực tế nào đi ra khỏi quỹ (không tạo phiếu chi).`
+                }
+              } else {
+                msg = `Toàn bộ số tiền hoàn ${totalRefund.toLocaleString('vi-VN')}đ sẽ được chi trả thực tế bằng ${methodName} từ quỹ [${chosenFundName}] (và ghi nhận phiếu chi trên Sổ quỹ).`
+              }
+            } else if (method === 'none') {
+              msg = 'Không hoàn tiền cho khách. Chỉ thực hiện nhập trả hàng lại kho.'
+            }
+
+            if (!msg) return null
+            return (
+              <div className="rounded-lg bg-blue-50 p-3 text-xs text-blue-800 border border-blue-100 leading-relaxed font-medium">
+                💡 <strong>Kế hoạch hoàn tiền:</strong> {msg}
+              </div>
+            )
+          })()}
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">Ghi chú</label>
             <textarea
@@ -503,7 +637,14 @@ export function ReturnsClient({ shopId }: Props) {
               </div>
               <div>
                 <span className="text-slate-500">Hình thức hoàn</span>
-                <p className="font-medium">{REFUND_METHOD_LABEL[selected.refund_method] ?? selected.refund_method}</p>
+                <p className="font-medium">
+                  {REFUND_METHOD_LABEL[selected.refund_method] ?? selected.refund_method}
+                  {selected.fund_id && (
+                    <span className="text-xs text-slate-500 block mt-0.5 font-normal">
+                      Quỹ: {funds.find(f => f.id === selected.fund_id)?.name || selected.fund_id}
+                    </span>
+                  )}
+                </p>
               </div>
               <div>
                 <span className="text-slate-500">Số tiền hoàn</span>

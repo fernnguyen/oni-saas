@@ -131,6 +131,7 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
   const [showReturnForm, setShowReturnForm] = useState(false)
   const [returnReason, setReturnReason] = useState('other')
   const [returnRefundMethod, setReturnRefundMethod] = useState('cash')
+  const [returnFundId, setReturnFundId] = useState('')
   const [returnNote, setReturnNote] = useState('')
   const [returnRefundAmount, setReturnRefundAmount] = useState('')
   const [returnItems, setReturnItems] = useState<Record<string, number>>({})
@@ -166,6 +167,27 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
     },
     enabled: !!shopId,
   })
+
+  useEffect(() => {
+    if (fundsList.length > 0 && ['cash', 'bank_transfer'].includes(returnRefundMethod)) {
+      const filteredFunds = fundsList.filter(f => returnRefundMethod === 'cash' ? f.type === 'cash' : f.type !== 'cash')
+      
+      if (filteredFunds.length === 1) {
+        if (returnFundId !== filteredFunds[0].id) {
+          setReturnFundId(filteredFunds[0].id)
+        }
+      } else if (filteredFunds.length > 1) {
+        const defaultFund = filteredFunds.find(f => f.is_default === 'TRUE') || filteredFunds[0]
+        if (defaultFund && returnFundId !== defaultFund.id) {
+          setReturnFundId(defaultFund.id)
+        }
+      }
+    } else if (!['cash', 'bank_transfer'].includes(returnRefundMethod)) {
+      if (returnFundId !== '') {
+        setReturnFundId('')
+      }
+    }
+  }, [returnRefundMethod, fundsList])
 
   const calcAutoRefund = () => {
     const items = itemsData?.data ?? []
@@ -362,6 +384,10 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
 
       if (returningItems.length === 0) throw new Error('Vui lòng chọn ít nhất 1 sản phẩm để trả')
 
+      if (['cash', 'bank_transfer'].includes(returnRefundMethod) && !returnFundId) {
+        throw new Error('Vui lòng chọn tài khoản quỹ chi tiền hoàn')
+      }
+
       const totalRefund = returnRefundAmount !== '' 
         ? parseFloat(returnRefundAmount) 
         : returningItems.reduce((s, i) => s + (parseFloat(i.line_total || '0') / parseFloat(i.qty || '1')) * i.retQty, 0)
@@ -380,6 +406,7 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
           total_refund:  String(totalRefund),
           status:        'pending',
           note:          returnNote,
+          fund_id:       returnFundId,
         }),
       })
       if (!retRes.ok) throw new Error((await retRes.json()).error ?? 'Lỗi tạo phiếu trả')
@@ -459,6 +486,7 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
       queryClient.invalidateQueries({ queryKey: ['orders', shopId] })
       queryClient.invalidateQueries({ queryKey: ['cashbook', shopId] })
       queryClient.invalidateQueries({ queryKey: ['payments', shopId] })
+      queryClient.invalidateQueries({ queryKey: ['customers', shopId] })
     },
     onError: (err: Error) => toast.error(err.message),
   })
@@ -838,7 +866,15 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
                         return !v
                       })
                       setReturnReason('other')
-                      setReturnRefundMethod('cash')
+                      const hasDebt = parseFloat(selectedOrder?.debt_amount || '0') > 0
+                      let defaultMethod = 'cash'
+                      if (hasDebt) {
+                        defaultMethod = 'store_credit'
+                      } else if (selectedOrder?.payment_method) {
+                        const isCash = selectedOrder.payment_method === 'cash' || selectedOrder.payment_method?.startsWith('cash-')
+                        defaultMethod = isCash ? 'cash' : 'bank_transfer'
+                      }
+                      setReturnRefundMethod(defaultMethod)
                       setReturnNote('')
                       setReturnRefundAmount('')
                       setReturnItems({})
@@ -876,13 +912,8 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
         }
       >
         {selectedOrder && (() => {
-          const isDebt = (m: string) => m === 'debt' || m?.startsWith('debt-');
-          const realPaidAmount = paymentsData
-            ? paymentsData.data.reduce((sum, p) => !isDebt(p.method) ? sum + Number(p.amount) : sum, 0)
-            : Number(selectedOrder.paid_amount || 0);
-          const calculatedDebt = paymentsData
-            ? Math.max(0, Number(selectedOrder.total_amount || 0) - realPaidAmount)
-            : Number(selectedOrder.debt_amount || 0);
+          const realPaidAmount = Number(selectedOrder.paid_amount || 0);
+          const calculatedDebt = Number(selectedOrder.debt_amount || 0);
 
           return (
           <div className="space-y-6">
@@ -983,8 +1014,9 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
                       <tr className="border-b border-slate-100 bg-slate-50">
                         <th className="px-3 py-2 text-left font-medium text-slate-600">Sản phẩm</th>
                         <th className="px-3 py-2 text-right font-medium text-slate-600">SL</th>
-                        <th className="px-3 py-2 text-right font-medium text-slate-600">Đơn giá</th>
                         <th className="px-3 py-2 text-right font-medium text-slate-600">Thành tiền</th>
+                        <th className="px-3 py-2 text-right font-medium text-slate-600">Đã hoàn</th>
+                        <th className="px-3 py-2 text-right font-medium text-slate-600">Còn lại</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -993,6 +1025,20 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
                           ? (() => { try { return JSON.parse(item.modifiers) } catch { return [] } })() 
                           : (item.modifiers || [])
                         const effPrice = Number(item.unit_price) + Number(item.modifier_total || 0)
+                        
+                        const returnedQty = alreadyReturnedQty[item.item_id!] || 0
+                        const lineTotal = Number(item.line_total || 0)
+                        const qty = Number(item.qty || 1)
+                        const returnedTotal = (lineTotal / qty) * returnedQty
+                        const remainingTotal = Math.max(0, lineTotal - returnedTotal)
+
+                        const originalPrice = (item as any).original_price;
+                        const hasOriginalPrice = originalPrice !== null && originalPrice !== undefined && originalPrice !== '';
+                        const basePrice = hasOriginalPrice ? Number(originalPrice) : Number(item.unit_price);
+                        const priceDiff = basePrice - Number(item.unit_price);
+                        const discountAmt = Number((item as any).line_discount || (item as any).discount_amount || 0);
+                        const totalReduction = Math.max(priceDiff, discountAmt);
+
                         return (
                         <tr key={item.item_id} className="border-b border-slate-50 last:border-0">
                           <td className="px-3 py-2 text-slate-900">
@@ -1011,63 +1057,22 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
                                 )}
                               </span>
                             )}
+                            {/* Unit price under product name */}
+                            <span className="block text-[11px] text-slate-500 mt-0.5">
+                              Đơn giá: {fmtVND(effPrice)}
+                            </span>
                           </td>
                           <td className="px-3 py-2 text-right text-slate-700">
                             {item.qty}
-                            {alreadyReturnedQty[item.item_id!] > 0 && (
-                              <span className="ml-1 block text-xs text-orange-600">
-                                (Đã trả {alreadyReturnedQty[item.item_id!]})
+                            {returnedQty > 0 && (
+                              <span className="ml-1 block text-xs text-orange-600 font-medium">
+                                (Đã trả {returnedQty})
                               </span>
                             )}
-                          </td>
-                          <td className="px-3 py-2 text-right text-slate-700">
-                            {(() => {
-                              const originalPrice = (item as any).original_price;
-                              const hasOriginalPrice = originalPrice !== null && originalPrice !== undefined && originalPrice !== '';
-                              const basePrice = hasOriginalPrice ? Number(originalPrice) : Number(item.unit_price);
-                              const priceDiff = basePrice - Number(item.unit_price);
-                              const discountAmt = Number((item as any).line_discount || (item as any).discount_amount || 0);
-                              // Use the larger of priceDiff or discountAmt (they represent the same discount, not additive)
-                              const totalReduction = Math.max(priceDiff, discountAmt);
-                              const isPriceEdited = (hasOriginalPrice && Number(item.unit_price) !== Number(originalPrice)) || discountAmt > 0;
-                              
-                              let tooltipText = undefined;
-                              if (isPriceEdited) {
-                                if (totalReduction > 0) {
-                                  tooltipText = `Giá gốc: ${fmtVND(basePrice)} - Giảm: ${fmtVND(totalReduction)}`;
-                                } else if (totalReduction < 0) {
-                                  tooltipText = `Giá gốc: ${fmtVND(basePrice)} - Tăng: ${fmtVND(Math.abs(totalReduction))}`;
-                                } else {
-                                  tooltipText = `Giá gốc: ${fmtVND(basePrice)}`;
-                                }
-                              }
-
-                              return (
-                                <div className="flex flex-col items-end group relative" title={tooltipText}>
-                                  <span className="flex items-center gap-1">
-                                    {fmtVND(effPrice)}
-                                    {isPriceEdited && (
-                                      <span className="text-orange-500 font-bold text-xs cursor-help">*</span>
-                                    )}
-                                  </span>
-                                  {isPriceEdited && (
-                                    <span className="text-[10px] text-orange-600 bg-orange-50 px-1 py-0.5 rounded mt-0.5">Đã điều chỉnh</span>
-                                  )}
-                                </div>
-                              );
-                            })()}
                           </td>
                           <td className="px-3 py-2 text-right font-medium text-slate-900">
                             {fmtVND(item.line_total)}
                             {(() => {
-                              const originalPrice = (item as any).original_price;
-                              const hasOriginalPrice = originalPrice !== null && originalPrice !== undefined && originalPrice !== '';
-                              const basePrice = hasOriginalPrice ? Number(originalPrice) : Number(item.unit_price);
-                              const priceDiff = basePrice - Number(item.unit_price);
-                              const discountAmt = Number((item as any).line_discount || (item as any).discount_amount || 0);
-                              // Use the larger of priceDiff or discountAmt (they represent the same discount, not additive)
-                              const totalReduction = Math.max(priceDiff, discountAmt);
-                              
                               if (totalReduction > 0) {
                                 return (
                                   <span className="block text-[11px] text-orange-500 italic mt-0.5">Giảm: -{fmtVND(totalReduction * Number(item.qty || 1))}</span>
@@ -1081,8 +1086,35 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
                               </span>
                             )}
                           </td>
+                          <td className="px-3 py-2 text-right text-orange-600 font-medium">
+                            {returnedTotal > 0 ? `-${fmtVND(String(returnedTotal))}` : '—'}
+                          </td>
+                          <td className="px-3 py-2 text-right font-semibold text-slate-900">
+                            {fmtVND(String(remainingTotal))}
+                          </td>
                         </tr>
                       )})}
+                      {/* Total summary row */}
+                      {(() => {
+                        const itemsList = itemsData?.data ?? []
+                        const grandTotalThanhTien = itemsList.reduce((sum, item) => sum + Number(item.line_total || 0), 0)
+                        const grandTotalDaHoan = itemsList.reduce((sum, item) => {
+                          const returnedQty = alreadyReturnedQty[item.item_id!] || 0
+                          const lineTotal = Number(item.line_total || 0)
+                          const qty = Number(item.qty || 1)
+                          return sum + (lineTotal / qty) * returnedQty
+                        }, 0)
+                        const grandTotalConLai = Math.max(0, grandTotalThanhTien - grandTotalDaHoan)
+
+                        return (
+                          <tr className="border-t border-slate-200 bg-slate-50/50 font-semibold text-slate-900">
+                            <td className="px-3 py-2 text-left" colSpan={2}>Tổng cộng</td>
+                            <td className="px-3 py-2 text-right">{fmtVND(String(grandTotalThanhTien))}</td>
+                            <td className="px-3 py-2 text-right text-orange-600">{grandTotalDaHoan > 0 ? `-${fmtVND(String(grandTotalDaHoan))}` : '—'}</td>
+                            <td className="px-3 py-2 text-right text-blue-700">{fmtVND(String(grandTotalConLai))}</td>
+                          </tr>
+                        )
+                      })()}
                     </tbody>
                   </table>
                 </div>
@@ -1103,6 +1135,12 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
                       <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
                         <TagBadge label={statusLabel(ret.status)} color={statusColor(ret.status)} />
                         <span>{fmtDate(ret.created_at)}</span>
+                        {ret.refund_method && (
+                          <span>
+                            • Hoàn: {ret.refund_method === 'cash' ? 'Tiền mặt' : ret.refund_method === 'bank_transfer' ? 'Chuyển khoản' : ret.refund_method === 'store_credit' ? 'Ghi nợ' : ret.refund_method === 'none' ? 'Không hoàn' : ret.refund_method}
+                            {ret.fund_id && ` (${fundsList.find(f => f.id === ret.fund_id)?.name || ret.fund_id})`}
+                          </span>
+                        )}
                         {ret.note && <span>• {ret.note}</span>}
                       </div>
                       <div className="space-y-1">
@@ -1494,6 +1532,61 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
                       <option value="none">Không hoàn</option>
                     </select>
                   </div>
+                  {['cash', 'bank_transfer'].includes(returnRefundMethod) && (
+                    <div className="col-span-2">
+                      <label className="mb-1 block text-xs font-semibold text-blue-700">Tài khoản quỹ chi *</label>
+                      <select
+                        value={returnFundId}
+                        onChange={(e) => setReturnFundId(e.target.value)}
+                        className="w-full rounded-lg border border-blue-300 bg-blue-50/20 px-2 py-1.5 text-sm focus:border-blue-500 font-medium"
+                      >
+                        {fundsList
+                          .filter(f => returnRefundMethod === 'cash' ? f.type === 'cash' : f.type !== 'cash')
+                          .map((f) => (
+                            <option key={f.id} value={f.id}>
+                              {f.name} ({Number(f.current_balance || 0).toLocaleString('vi-VN')}đ)
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                  )}
+                  {(() => {
+                    const method = returnRefundMethod
+                    const totalRefund = returnRefundAmount !== '' ? (parseFloat(returnRefundAmount) || 0) : calcAutoRefund()
+                    const orderDebt = parseFloat(selectedOrder?.debt_amount || '0') || 0
+                    const chosenFundName = fundsList.find(f => f.id === returnFundId)?.name || 'quỹ đã chọn'
+                    
+                    let msg = ''
+                    if (method === 'store_credit') {
+                      if (orderDebt > 0) {
+                        msg = `Hệ thống cấn trừ tối đa ${orderDebt.toLocaleString('vi-VN')}đ vào nợ của đơn này. Phần tiền thừa còn lại (nếu có) sẽ tiếp tục cấn trừ vào các đơn nợ khác của khách hàng (theo FIFO). Nếu khách hàng không còn nợ, số tiền dư sẽ được cộng vào Ví trả trước.`
+                      } else {
+                        msg = `Hệ thống sẽ cấn trừ vào các đơn nợ khác của khách hàng (theo FIFO). Nếu khách hàng không còn nợ, toàn bộ số tiền ${totalRefund.toLocaleString('vi-VN')}đ sẽ được cộng vào Ví trả trước.`
+                      }
+                    } else if (method === 'cash' || method === 'bank_transfer') {
+                      const methodName = method === 'cash' ? 'Tiền mặt' : 'Chuyển khoản'
+                      if (orderDebt > 0) {
+                        const applied = Math.min(totalRefund, orderDebt)
+                        const remainder = totalRefund - applied
+                        if (remainder > 0) {
+                          msg = `Hệ thống cấn trừ ${applied.toLocaleString('vi-VN')}đ nợ của đơn này. Số tiền còn lại ${remainder.toLocaleString('vi-VN')}đ sẽ được chi trả thực tế bằng ${methodName} từ quỹ [${chosenFundName}] (và ghi nhận phiếu chi trên Sổ quỹ).`
+                        } else {
+                          msg = `Hệ thống cấn trừ toàn bộ tiền hoàn ${totalRefund.toLocaleString('vi-VN')}đ vào nợ của đơn này. Không có tiền mặt thực tế nào đi ra khỏi quỹ (không tạo phiếu chi).`
+                        }
+                      } else {
+                        msg = `Toàn bộ số tiền hoàn ${totalRefund.toLocaleString('vi-VN')}đ sẽ được chi trả thực tế bằng ${methodName} từ quỹ [${chosenFundName}] (và ghi nhận phiếu chi trên Sổ quỹ).`
+                      }
+                    } else if (method === 'none') {
+                      msg = 'Không hoàn tiền cho khách. Chỉ thực hiện nhập trả hàng lại kho.'
+                    }
+
+                    if (!msg) return null
+                    return (
+                      <div className="col-span-2 rounded-lg bg-blue-50 p-2.5 text-[11px] text-blue-800 border border-blue-100 leading-normal font-medium">
+                        💡 <strong>Kế hoạch hoàn tiền:</strong> {msg}
+                      </div>
+                    )
+                  })()}
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium text-orange-700">
@@ -1528,6 +1621,10 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
                     onClick={() => {
                       if (Object.keys(returnItems).length === 0) {
                         toast.error('Vui lòng chọn ít nhất 1 sản phẩm để trả')
+                        return
+                      }
+                      if (['cash', 'bank_transfer'].includes(returnRefundMethod) && !returnFundId) {
+                        toast.error('Vui lòng chọn tài khoản quỹ chi tiền hoàn')
                         return
                       }
                       setShowConfirmReturn(true)

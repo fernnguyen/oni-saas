@@ -346,6 +346,7 @@ export const returns = pgTable('returns', {
   note: text('note'),
   previous_order_status: varchar('previous_order_status', { length: 50 }),
   branch_id: varchar('branch_id', { length: 255 }),
+  fund_id: varchar('fund_id', { length: 255 }),
 });
 
 export const return_items = pgTable('return_items', {

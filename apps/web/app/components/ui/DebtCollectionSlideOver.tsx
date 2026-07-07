@@ -350,7 +350,7 @@ export function DebtCollectionSlideOver({
         onClose={onClose}
         title={isCustomer ? 'Thu nợ khách hàng' : 'Trả nợ nhà cung cấp'}
         width={520}
-        zIndex={70}
+        zIndex={110}
         footer={
           <div className="flex flex-col-reverse sm:flex-row justify-end gap-2.5 sm:gap-3 w-full *:w-full sm:*:w-auto">
             <button

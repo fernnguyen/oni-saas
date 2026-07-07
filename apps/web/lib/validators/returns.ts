@@ -18,6 +18,7 @@ export const returnCreateSchema = z.object({
   processed_at:    z.string().optional().default(''),
   note:            z.string().optional().default(''),
   previous_order_status: z.string().optional().default(''),
+  fund_id:         z.string().optional().default(''),
 })
 
 export const returnUpdateSchema = returnCreateSchema.partial()
