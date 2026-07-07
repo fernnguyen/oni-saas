@@ -39,8 +39,8 @@ export async function POST(
     })
     const stats = statsRes.data[0]
 
-    const currentPrepaid = parseFloat(stats?.prepaid_balance ?? customer.prepaid_balance ?? '0')
-    const currentDebt = parseFloat(stats?.debt_amount ?? customer.debt_amount ?? '0')
+    const currentPrepaid = parseFloat(stats?.prepaid_balance ?? customer.prepaid_balance ?? '0') || 0
+    const currentDebt = parseFloat(stats?.debt_amount ?? customer.debt_amount ?? '0') || 0
 
     let debtPayment = 0
     let prepaidDeposit = amount

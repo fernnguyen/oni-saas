@@ -28,7 +28,7 @@ export async function GET(
     })
 
     const withDebt = allOrders.data
-      .filter((o: Record<string, string>) => parseFloat(o.debt_amount || '0') > 0 && o.is_return !== 'TRUE' && o.status !== 'cancelled' && o.status !== 'failed')
+      .filter((o: Record<string, string>) => parseFloat(o.debt_amount || '0') > 0 && o.is_return !== 'TRUE' && o.status !== 'cancelled' && o.status !== 'failed' && o.status !== 'refunded')
       .sort((a: Record<string, string>, b: Record<string, string>) =>
         new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
       )

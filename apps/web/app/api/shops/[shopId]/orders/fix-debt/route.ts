@@ -69,7 +69,7 @@ export async function GET(
       })
 
       const unpaidOrders = ordersRes.data
-        .filter((o: Record<string, string>) => parseFloat(o.debt_amount || '0') > 0 && o.is_return !== 'TRUE' && o.status !== 'cancelled' && o.status !== 'failed')
+        .filter((o: Record<string, string>) => parseFloat(o.debt_amount || '0') > 0 && o.is_return !== 'TRUE' && o.status !== 'cancelled' && o.status !== 'failed' && o.status !== 'refunded')
         .sort((a: Record<string, string>, b: Record<string, string>) =>
           new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
         )
@@ -96,7 +96,7 @@ export async function GET(
       let remaining = amountToReconcile
       for (const order of unpaidOrders) {
         if (remaining <= 0) break
-        const orderDebt = parseFloat(order.debt_amount || '0')
+        const orderDebt = parseFloat(order.debt_amount || '0') || 0
         const applied = Math.min(remaining, orderDebt)
         const newOrderDebt = Math.max(0, orderDebt - applied)
         const newPaid = parseFloat(order.paid_amount || '0') + applied

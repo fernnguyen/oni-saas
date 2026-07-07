@@ -328,7 +328,7 @@ export async function POST(
       })
       const stats = statsRes.data[0]
       const customer = await connector.findById('customers', payload.reference_id)
-      const currentDebt = parseFloat(stats?.debt_amount ?? customer?.debt_amount ?? '0')
+      const currentDebt = parseFloat(stats?.debt_amount ?? customer?.debt_amount ?? '0') || 0
 
       if (currentDebt <= 0) {
         return NextResponse.json(
@@ -412,7 +412,7 @@ export async function POST(
           limit: 5000
         })
         const unpaidOrders = debtOrdersRes.data
-          .filter((o: Record<string, string>) => parseFloat(o.debt_amount || '0') > 0 && o.is_return !== 'TRUE' && o.status !== 'cancelled' && o.status !== 'failed')
+          .filter((o: Record<string, string>) => parseFloat(o.debt_amount || '0') > 0 && o.is_return !== 'TRUE' && o.status !== 'cancelled' && o.status !== 'failed' && o.status !== 'refunded')
           .sort((a: Record<string, string>, b: Record<string, string>) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime())
         
         if (unpaidOrders.length > 0) {

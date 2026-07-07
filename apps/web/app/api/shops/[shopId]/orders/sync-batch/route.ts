@@ -248,8 +248,8 @@ export async function POST(
     }
 
     const actualDebtAmount = payments && payments.length > 0
-      ? Math.max(0, Number(order.total_amount) - payments.reduce((sum, p) => p.method !== 'debt' && !p.method?.startsWith('debt-') ? sum + Number(p.amount) : sum, 0))
-      : Number(order.debt_amount ?? 0)
+      ? Math.max(0, (Number(order.total_amount) || 0) - payments.reduce((sum, p) => p.method !== 'debt' && !p.method?.startsWith('debt-') ? sum + (Number(p.amount) || 0) : sum, 0))
+      : (Number(order.debt_amount) || 0)
 
     if (!serverId) {
       isNewOrder = true
@@ -851,14 +851,14 @@ export async function POST(
           const stats = statsRes.data[0]
           
           // 1. Debt amount
-          const currentDebt = parseFloat(stats?.debt_amount ?? customer.debt_amount ?? '0')
+          const currentDebt = parseFloat(stats?.debt_amount ?? customer.debt_amount ?? '0') || 0
           if (actualDebtAmount > 0) {
             const newDebt = currentDebt + actualDebtAmount
             updates.debt_amount = String(newDebt)
           }
 
           // 2. Loyalty points (Tích điểm & Tiêu điểm)
-          const currentPoints = parseFloat(stats?.loyalty_points ?? customer.loyalty_points ?? '0')
+          const currentPoints = parseFloat(stats?.loyalty_points ?? customer.loyalty_points ?? '0') || 0
           const earned = hasCrmAccess ? Number(order.points_earned || 0) : 0
           const redeemed = hasCrmAccess ? Number(order.points_redeemed || 0) : 0
           if (earned > 0 || redeemed > 0) {
@@ -867,7 +867,7 @@ export async function POST(
           }
 
           // 3. Prepaid balance
-          const currentPrepaid = parseFloat(stats?.prepaid_balance ?? customer.prepaid_balance ?? '0')
+          const currentPrepaid = parseFloat(stats?.prepaid_balance ?? customer.prepaid_balance ?? '0') || 0
           const prepaidSpent = payments
             .filter((p) => p.method === 'prepaid' || p.method?.startsWith('prepaid-'))
             .reduce((s, p) => s + Number(p.amount), 0)

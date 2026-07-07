@@ -189,7 +189,7 @@ export async function POST(
       })
       const stats = statsRes.data[0]
       const customer = await connector.findById('customers', customerId)
-      const currentDebt = parseFloat(stats?.debt_amount ?? customer?.debt_amount ?? '0')
+      const currentDebt = parseFloat(stats?.debt_amount ?? customer?.debt_amount ?? '0') || 0
 
       const newDebt = Math.max(0, currentDebt - debtAmount)
       await updateCustomerStats(connector, customerId, shopId, { debt_amount: String(newDebt) }, tx)

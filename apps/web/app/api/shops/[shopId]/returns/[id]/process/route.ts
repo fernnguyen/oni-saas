@@ -5,6 +5,7 @@ import { handleApiError } from '../../../../_helpers'
 import { dispatchNotification } from '@/lib/server/notifications'
 import { RollbackContext } from '@oni/adapters'
 import { resolveAndRecordPayment } from '@/lib/server/paymentFunds'
+import { updateCustomerStats } from '@/lib/server/customerStats'
 import crypto from 'crypto'
 
 // POST /api/shops/[shopId]/returns/[id]/process
@@ -209,6 +210,46 @@ export async function POST(
       tx.add(async () => {
         await connector.update('orders', r.order_id!, { status: previousOrderStatus }).catch(() => {})
       })
+
+      // Deduct order and customer debt if refund_method is store_credit
+      if (r.refund_method === 'store_credit') {
+        const orderData = await connector.findById('orders', r.order_id).catch(() => null)
+        if (orderData) {
+          const orderDebt = parseFloat((orderData as any).debt_amount || '0')
+          const totalRefund = parseFloat(r.total_refund || '0')
+          
+          if (totalRefund > 0) {
+            const appliedToOrderDebt = Math.min(totalRefund, orderDebt)
+            const refundToPrepaid = totalRefund - appliedToOrderDebt
+            const newOrderDebt = Math.max(0, orderDebt - appliedToOrderDebt)
+
+            await connector.update('orders', r.order_id, { debt_amount: String(newOrderDebt) })
+            tx.add(async () => {
+              await connector.update('orders', r.order_id, { debt_amount: String(orderDebt) }).catch(() => {})
+            })
+
+            const customerId = r.customer_id
+            if (customerId) {
+              const statsRes = await connector.list('customer-branch-stats', {
+                filters: { customer_id: customerId, branch_id: shopId }
+              })
+              const stats = statsRes.data[0]
+              const customer = await connector.findById('customers', customerId)
+              const currentCustomerDebt = parseFloat(stats?.debt_amount ?? customer?.debt_amount ?? '0') || 0
+              const currentCustomerPrepaid = parseFloat(stats?.prepaid_balance ?? customer?.prepaid_balance ?? '0') || 0
+
+              const newCustomerDebt = Math.max(0, currentCustomerDebt - appliedToOrderDebt)
+              const newCustomerPrepaid = currentCustomerPrepaid + refundToPrepaid
+
+              await updateCustomerStats(connector, customerId, shopId, {
+                debt_amount: String(newCustomerDebt),
+                prepaid_balance: String(newCustomerPrepaid)
+              }, tx)
+            }
+          }
+        }
+      }
+
       invalidate(shopId, 'orders')
     }
 
