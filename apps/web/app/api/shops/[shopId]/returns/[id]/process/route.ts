@@ -136,7 +136,7 @@ export async function POST(
       if (invResult.data.length > 0) {
         const inv = invResult.data[0] as Record<string, string>
         const oldQty = parseFloat(inv.stock_qty || '0')
-        const newQty = Math.max(0, oldQty + delta)
+        const newQty = oldQty + delta
         await connector.update('inventory', inv.inventory_id, { stock_qty: String(newQty) })
         tx.add(async () => {
           await connector.update('inventory', inv.inventory_id, { stock_qty: String(oldQty) }).catch(() => {})

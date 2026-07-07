@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireShopAccess } from '@/lib/server/shopAccess'
 
+const INBOUND_TYPES = ['purchase_in', 'p2p_purchase_in', 'return_in', 'transfer_in']
+const OUTBOUND_TYPES = ['sale_out', 'transfer_out']
+
+function calcDelta(type: string, qty: number): number {
+  if (INBOUND_TYPES.includes(type)) return Math.abs(qty)
+  if (OUTBOUND_TYPES.includes(type)) return -Math.abs(qty)
+  return qty
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ shopId: string }> }
@@ -37,6 +46,10 @@ async function handleReconcile(
     // Require settings.manage to ensure only owner/admin can run this fix
     const { connector, shop, user } = await requireShopAccess(shopId, 'settings.manage')
 
+    // Fetch all stock movements to calculate TRUE inventory
+    const movRes = await connector.list('stock-movements', { page: 1, limit: 50000 })
+    const movements = movRes.data as Record<string, string>[]
+
     // Fetch all inventory records
     const invRes = await connector.list('inventory', { page: 1, limit: 10000 })
     const inventory = invRes.data as Record<string, string>[]
@@ -49,32 +62,56 @@ async function handleReconcile(
     let fixedCount = 0
 
     for (const inv of inventory) {
-      const invQty = parseFloat(inv.stock_qty || '0')
+      let invQty = parseFloat(inv.stock_qty || '0')
+      let trueSumFromMovements = 0
       
-      // Find batches matching this inventory's product & branch & warehouse
+      // 1. Audit and Fix Inventory Total based on Stock Movements
+      const productMovements = movements.filter(m => 
+        m.product_id === inv.product_id && 
+        m.branch_id === inv.branch_id && 
+        (m.warehouse_id === inv.warehouse_id || !m.warehouse_id)
+      )
+
+      if (productMovements.length > 0) {
+        trueSumFromMovements = productMovements.reduce((sum, m) => {
+          return sum + calcDelta(m.type || '', parseFloat(m.qty || '0'))
+        }, 0)
+      } else {
+        // If no movements exist (e.g. legacy data without import logs), trust the current invQty
+        trueSumFromMovements = invQty
+      }
+
+      const simulatedUpdates = []
+
+      if (trueSumFromMovements !== invQty) {
+        simulatedUpdates.push({
+          action: 'FIX_INVENTORY_TOTAL',
+          old_qty: invQty,
+          new_qty: trueSumFromMovements,
+          diff: Math.abs(trueSumFromMovements - invQty)
+        })
+
+        if (!isDryRun) {
+          await connector.update('inventory', inv.inventory_id || (inv as any).id, {
+            stock_qty: String(trueSumFromMovements)
+          })
+        }
+        
+        fixedCount++
+        invQty = trueSumFromMovements // Use the corrected true sum for batch reconciliation
+      }
+
+      // 2. Audit and Fix Batches based on the (now correct) Inventory Total
       const productBatches = batches.filter(b => 
         b.product_id === inv.product_id && 
         b.branch_id === inv.branch_id &&
         (b.warehouse_id === inv.warehouse_id || !b.warehouse_id)
       )
 
-      if (inv.product_id === 'P-8A3D694D-99639880') {
-        results.push({
-          DEBUG: true,
-          inv,
-          productBatches,
-          batchSum: productBatches.reduce((sum, b) => sum + parseFloat(b.stock_qty || '0'), 0),
-          invQty
-        } as any)
-      }
-
-      // Sum batch stock
       const batchSum = productBatches.reduce((sum, b) => sum + parseFloat(b.stock_qty || '0'), 0)
 
-      if (batchSum === invQty) continue
-
-      const diff = invQty - batchSum
-      const simulatedUpdates = []
+      if (batchSum !== invQty) {
+        const diff = invQty - batchSum
 
       if (diff < 0) { // We need to DEDUCT
         let remainingToSubtract = Math.abs(diff)
@@ -188,8 +225,9 @@ async function handleReconcile(
           diff: diff,
           batch_updates: simulatedUpdates
         })
-      }
-    }
+      } // End else if (diff > 0)
+      } // End if (batchSum !== invQty)
+    } // End for (const inv of inventory)
 
     return NextResponse.json({
       success: true,

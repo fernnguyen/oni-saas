@@ -795,8 +795,8 @@ export async function POST(
 
       // Update current stock quantities in the inventory table
       for (const mov of createdMovs) {
-        const qtyToDeduct = Math.abs(parseFloat(mov.qty || '0'))
-        if (qtyToDeduct === 0) continue
+        const delta = calcDelta(mov.type, parseFloat(mov.qty || '0'))
+        if (delta === 0) continue
 
         const pid = mov.product_id
         const targetBranchId = mov.branch_id ?? branchId
@@ -831,7 +831,7 @@ export async function POST(
 
         if (invRow) {
           const oldQty = parseFloat(invRow.stock_qty || '0')
-          const newQty = oldQty - qtyToDeduct
+          const newQty = oldQty + delta
           await connector.update('inventory', (invRow.inventory_id || invRow.id) as string, {
             stock_qty: String(newQty)
           })
@@ -839,12 +839,12 @@ export async function POST(
             await connector.update('inventory', (invRow!.inventory_id || invRow!.id) as string, { stock_qty: String(oldQty) }).catch(() => {})
           })
         } else {
-          // Create a new inventory record in the resolved warehouse with negative stock
+          // Create a new inventory record in the resolved warehouse with updated stock
           const createdInv = await connector.create('inventory', {
             product_id: pid,
             branch_id: targetBranchId || '',
             warehouse_id: targetWhId,
-            stock_qty: String(-qtyToDeduct),
+            stock_qty: String(delta),
             min_stock: '0',
             sku: sku || ''
           } as Record<string, string>)
