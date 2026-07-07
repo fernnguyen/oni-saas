@@ -191,6 +191,18 @@ export function CartPanel({
                   ].join(' ')}
                 >
                   <div className="flex items-start gap-2">
+                    {/* Product thumbnail */}
+                    <div className="shrink-0 w-9 h-9 rounded-lg overflow-hidden bg-slate-100 border border-slate-100">
+                      {item.image_url ? (
+                        <img src={item.image_url} alt={item.product_name} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          </svg>
+                        </div>
+                      )}
+                    </div>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium text-slate-900 leading-tight">
                         {item.product_name}

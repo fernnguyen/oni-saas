@@ -19,6 +19,7 @@ import { SyncStatusBar } from './components/SyncStatusBar'
 import { OrderHistoryPanel } from './components/OrderHistoryPanel'
 import { CustomerCreateModal } from './components/CustomerCreateModal'
 import { useShift } from '@/app/components/providers/ShiftProvider'
+import { useNavMode } from '@/app/components/layout/NavModeContext'
 
 interface Props {
   shopId: string
@@ -48,10 +49,14 @@ export type HeldCart = OrderTab
 
 // Break out of DashboardShell padding, fill exactly the space below topbar (h-14 = 3.5rem)
 const shellCls = '-mx-4 -my-4 md:-mx-6 md:-my-6 flex flex-col bg-slate-50 overflow-hidden'
-const shellStyle = { height: 'calc(100dvh - 3.5rem)' } as const
 
 export function POSClient({ shopId, branchId, shopName, userEmail, backPath, autoPrintReceipt, mutePosSound, permissions = [], isReadOnly = false, planCode, maxOrders, initialMonthOrdersCount = 0 }: Props) {
   const { checkShiftOrOpen } = useShift()
+  const { isHorizontal } = useNavMode()
+  // On mobile: topbar only (3.5rem). On desktop with horizontal nav: topbar (3.5rem) + NavHorizontal (2.5rem).
+  const shellStyle = useMemo(() => ({
+    height: isHorizontal ? 'calc(100dvh - 6rem)' : 'calc(100dvh - 3.5rem)',
+  }), [isHorizontal])
   const { status, lastHydratedAt, refresh } = usePOSHydration(shopId, branchId)
   const isOnline = useNetworkStatus()
   const confirm = useConfirm()
@@ -1048,7 +1053,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
   return (
     <div className={shellCls} style={shellStyle}>
       {/* POS toolbar — slim, POS-specific controls only */}
-      <header className="flex flex-col md:flex-row md:h-11 h-auto shrink-0 items-stretch justify-between border-b border-slate-200 bg-white px-3 gap-y-1.5 md:gap-y-0 select-none relative z-20">
+      <header className="flex flex-col md:flex-row md:h-11 h-auto shrink-0 items-stretch justify-between border-b border-slate-200 bg-white px-3 gap-y-1.5 md:gap-y-0 select-none relative z-[5]">
         {/* Left/Middle: Tabs */}
         <div className="order-2 md:order-1 flex items-end h-9 md:h-full min-w-0 flex-1 gap-1 overflow-visible">
           {/* Visible tabs list */}
@@ -1349,7 +1354,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
         </div>
 
         {/* Cart panel */}
-        <div className="w-full md:w-72 shrink-0 overflow-hidden xl:w-80">
+        <div className="w-full md:w-80 shrink-0 overflow-hidden xl:w-96">
           <CartPanel
             shopId={shopId}
             items={cart.items}

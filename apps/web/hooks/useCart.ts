@@ -23,6 +23,7 @@ export interface CartItem {
   unit_id?: string
   unit_name?: string
   conversion_rate?: number
+  image_url?: string  // product thumbnail for display
 }
 
 // A single modifier option selected by cashier
@@ -86,6 +87,7 @@ function cartReducer(state: CartState, action: CartAction): CartState {
         conversion_rate: (action.product as any).conversion_rate,
         tax_rate: action.product.tax_rate,
         tax_group: action.product.tax_group,
+        image_url: action.product.image_url,
       }
       return { ...state, items: [...state.items, newItem] }
     }
