@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { PageHeader } from '@/app/components/ui/PageHeader'
-import { SelectField } from '@/app/components/ui/SelectField'
+
 import { RefreshCw } from 'lucide-react'
 
 interface Props { shopId: string }
@@ -188,18 +188,22 @@ export function ProfitClient({ shopId }: Props) {
 
   const actions = (
     <div className="flex items-center gap-2">
-      <div className="w-40">
-        <SelectField
-          searchable={false}
-          options={[
-            { value: '7d', label: '7 ngày qua' },
-            { value: '30d', label: '30 ngày qua' },
-            { value: 'month', label: 'Tháng này' },
-            { value: 'all', label: 'Toàn thời gian' }
-          ]}
+      <div className="relative">
+        <select
           value={period}
-          onChange={(val) => setPeriod(val)}
-        />
+          onChange={(e) => setPeriod(e.target.value)}
+          className="appearance-none h-10 w-[140px] rounded-xl border border-slate-200 bg-white pl-4 pr-10 text-sm font-medium text-slate-700 outline-none transition-all hover:border-slate-300 hover:bg-slate-50 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 cursor-pointer shadow-xs"
+        >
+          <option value="7d">7 ngày qua</option>
+          <option value="30d">30 ngày qua</option>
+          <option value="month">Tháng này</option>
+          <option value="all">Toàn thời gian</option>
+        </select>
+        <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
+          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+          </svg>
+        </div>
       </div>
       <button
         onClick={() => refetch()}

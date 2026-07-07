@@ -113,9 +113,14 @@ export async function POST(
       items: SyncItem[]
       payments: SyncPayment[]
       stock_movements: SyncMovement[]
+      customer?: { name: string }
     }
 
-    const { local_order_id, server_order_id, order, items, payments, stock_movements: rawStockMovements } = body
+    const { local_order_id, server_order_id, order, items, payments, stock_movements: rawStockMovements, customer } = body
+
+    if (!order.customer_name && customer?.name) {
+      order.customer_name = customer.name;
+    }
 
     let systemTaxGroups = await getSystemTaxGroupsCached().catch(() => [])
     if (!systemTaxGroups || systemTaxGroups.length === 0) {
@@ -197,6 +202,15 @@ export async function POST(
     const isRetailGuest = !order.customer_name || ['khách lẻ', 'khach le', 'khách mua lẻ', 'khach mua le'].includes(order.customer_name.trim().toLowerCase());
     
     if (isRetailGuest) {
+      // SECURITY & DATA INTEGRITY CHECK: 
+      // Never allow a Retail Guest to have debt.
+      const hasDebtPayment = payments?.some(p => p.method === 'debt' && Number(p.amount) > 0)
+      if (Number(order.debt_amount) > 0 || hasDebtPayment) {
+        return NextResponse.json({ 
+          error: 'DATA_INTEGRITY_ERROR', 
+          message: 'Khách lẻ không được phép ghi nợ. Thiếu thông tin định danh khách hàng.' 
+        }, { status: 400 })
+      }
       finalCustomerId = 'C-DEFAULT-RETAIL'
       order.customer_name = 'Khách lẻ'
     } else if (finalCustomerId) {

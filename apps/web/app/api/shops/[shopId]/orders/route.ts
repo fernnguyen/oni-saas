@@ -97,6 +97,12 @@ export async function POST(
     // Auto-create customer if name is provided but no ID
     const isRetailGuest = !data.customer_name || ['khách lẻ', 'khach le', 'khách mua lẻ', 'khach mua le'].includes(data.customer_name.trim().toLowerCase());
     if (isRetailGuest) {
+      if (Number(data.debt_amount) > 0 || data.payment_method === 'debt') {
+        return NextResponse.json({ 
+          error: 'DATA_INTEGRITY_ERROR',
+          message: 'Khách lẻ không được phép ghi nợ. Thiếu thông tin định danh khách hàng.' 
+        }, { status: 400 })
+      }
       finalCustomerId = 'C-DEFAULT-RETAIL'
       data.customer_name = 'Khách lẻ'
     } else if (!finalCustomerId) {

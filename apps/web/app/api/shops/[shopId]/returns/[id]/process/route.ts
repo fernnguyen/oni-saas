@@ -66,6 +66,27 @@ export async function POST(
     let pthCounter = pthNums.length > 0 ? Math.max(...pthNums) : 0
 
     const returnRef = r.return_no || r.return_id || id
+    const branchId = r.branch_id || shopId
+
+    // Resolve standard warehouse IDs for multi-warehouse routing
+    const whList = await connector.list('warehouses', { limit: 100 })
+    const whs = whList.data as any[]
+
+    let saleWhId = whs.find(w => w.type === 'sale' && w.branch_id === branchId)?.id 
+      || whs.find(w => w.type === 'sale')?.id 
+      || whs.find(w => w.branch_id === branchId)?.id 
+      || whs[0]?.id
+
+    // Self-healing: auto-seed standard warehouse on-the-fly if missing
+    if (!saleWhId && branchId) {
+      const newWh = await connector.create('warehouses', {
+        branch_id: branchId,
+        name: 'Kho Kinh doanh (Bán lẻ)',
+        type: 'sale',
+        active: 'TRUE'
+      })
+      saleWhId = newWh.id
+    }
 
     const generatedStockMovements: string[] = []
     for (const item of items) {
@@ -90,7 +111,8 @@ export async function POST(
         sku:          item.sku ?? '',
         qty:          String(qty),
         unit_cost:    item.unit_price ?? '0',
-        branch_id:    '',
+        branch_id:    branchId,
+        warehouse_id: saleWhId || '',
         reference_no: r.order_id || returnRef,
         employee_id:  processedBy,
         reason:       `Trả hàng từ ${returnRef}${r.note ? ` - Ghi chú: ${r.note}` : ''}`,
@@ -102,7 +124,7 @@ export async function POST(
       // Update inventory (same logic as stock-movements POST)
       let invResult = await connector.list('inventory', {
         page: 1, limit: 1,
-        filters: { product_id: item.product_id, branch_id: '' },
+        filters: { product_id: item.product_id, branch_id: branchId },
       })
       if (invResult.data.length === 0) {
         invResult = await connector.list('inventory', {
@@ -122,7 +144,7 @@ export async function POST(
       } else {
         const createdInv = await connector.create('inventory', {
           product_id: item.product_id,
-          branch_id:  '',
+          branch_id:  branchId,
           stock_qty:  String(delta),
           min_stock:  '0',
           sku:        item.sku ?? '',
