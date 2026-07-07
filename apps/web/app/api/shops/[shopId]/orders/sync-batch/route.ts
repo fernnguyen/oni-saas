@@ -852,6 +852,38 @@ export async function POST(
             await connector.delete('inventory', (createdInv as any).inventory_id || (createdInv as any).id).catch(() => {})
           })
         }
+
+        // ── Deduct from inventory_batches FIFO ──
+        try {
+          const batchesRes = await connector.list('inventory-batches', {
+            page: 1, limit: 100,
+            filters: { product_id: pid, branch_id: targetBranchId }
+          })
+          const allBatches = batchesRes.data as Record<string, string>[]
+          const activeBatches = allBatches.filter(b => parseFloat(b.stock_qty || '0') > 0)
+          
+          if (activeBatches.length > 0) {
+            activeBatches.sort((a, b) => (a.expiry_date || '').localeCompare(b.expiry_date || ''))
+            
+            let remainingToSubtract = qtyToDeduct
+            for (const b of activeBatches) {
+              if (remainingToSubtract <= 0) break
+              const bStock = parseFloat(b.stock_qty || '0')
+              const deduct = Math.min(bStock, remainingToSubtract)
+              
+              const newBStock = bStock - deduct
+              await connector.update('inventory-batches', b.id || (b as any).batch_id, {
+                stock_qty: String(newBStock)
+              })
+              tx.add(async () => {
+                await connector.update('inventory-batches', b.id || (b as any).batch_id, { stock_qty: String(bStock) }).catch(() => {})
+              })
+              remainingToSubtract -= deduct
+            }
+          }
+        } catch (batchErr) {
+          console.error('Failed to deduct from inventory-batches in sync-batch:', batchErr)
+        }
       }
     }
 
