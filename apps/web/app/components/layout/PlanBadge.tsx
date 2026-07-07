@@ -41,6 +41,12 @@ interface SepayOrder {
 type CheckoutStep = 'select' | 'qr' | 'success';
 type BillingInterval = 'monthly' | 'yearly';
 
+const PLAN_LEVELS: Record<string, number> = {
+  plan_mini: 1,
+  plan_pro: 2,
+  plan_enterprise: 3
+};
+
 // ─── Per-plan metadata defaults & features mapping ──────────────────────────
 const PLAN_FEATURES: Record<string, string[]> = {
   plan_mini: [
@@ -116,6 +122,7 @@ export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd
   const [error, setError] = useState<string | null>(null);
   const [timeLeft, setTimeLeft] = useState(15 * 60);
   const [copied, setCopied] = useState(false);
+  const [confirmPlan, setConfirmPlan] = useState<PlanRow | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const supabase = getSupabaseBrowserClient();
@@ -203,6 +210,7 @@ export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd
       setOrder(null);
       setError(null);
       setTimeLeft(15 * 60);
+      setConfirmPlan(null);
       stopTimer();
       stopPolling();
     }
@@ -568,27 +576,48 @@ export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd
 
                           {/* Action Button */}
                           <div className="mt-auto pt-4">
-                            {isCurrent && isMiniPlan ? (
-                              <button disabled className="w-full py-3 bg-slate-100 dark:bg-zinc-800 text-slate-400 dark:text-zinc-600 rounded-xl text-xs font-bold cursor-not-allowed">
-                                Gói Miễn Phí Vĩnh Viễn
-                              </button>
-                            ) : isEnterprisePlan ? (
-                              <a href="mailto:support@oni.vn" className="w-full py-3 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-sm">
-                                Gửi yêu cầu tư vấn
-                              </a>
-                            ) : (
-                              <button
-                                disabled={loadingQr}
-                                onClick={() => handleSubscribe(p)}
-                                className={`w-full py-3 rounded-xl text-xs font-black transition-all shadow-md ${
-                                  isCurrent
-                                    ? 'bg-slate-800 hover:bg-slate-700 text-white shadow-slate-800/10'
-                                    : 'bg-primary hover:bg-primary-dark text-white shadow-primary/20'
-                                }`}
-                              >
-                                {isCurrent ? 'Gia Hạn Gói Cước' : 'Nâng Cấp Gói Cước'}
-                              </button>
-                            )}
+                            {(() => {
+                              const currentLevel = PLAN_LEVELS[planCode] || 1;
+                              const targetLevel = PLAN_LEVELS[p.code] || 1;
+
+                              let actionText = '';
+                              let actionAllowed = true;
+                              
+                              if (isCurrent) {
+                                if (isMiniPlan) {
+                                  actionText = 'Gói miễn phí vĩnh viễn';
+                                  actionAllowed = false;
+                                } else {
+                                  actionText = 'Gia hạn gói cước';
+                                }
+                              } else {
+                                if (isEnterprisePlan) {
+                                  actionText = 'Gửi yêu cầu tư vấn';
+                                } else if (targetLevel > currentLevel) {
+                                  actionText = 'Nâng cấp gói cước';
+                                } else {
+                                  actionText = 'Hạ cấp gói cước';
+                                }
+                              }
+
+                              return (
+                                <button
+                                  disabled={!actionAllowed || loadingQr}
+                                  onClick={() => setConfirmPlan(p)}
+                                  className={`w-full py-3 rounded-xl text-xs font-black transition-all shadow-md ${
+                                    !actionAllowed
+                                      ? 'bg-slate-100 dark:bg-zinc-800 text-slate-400 dark:text-zinc-650 cursor-not-allowed shadow-none'
+                                      : isCurrent
+                                      ? 'bg-slate-800 hover:bg-slate-700 text-white shadow-slate-800/10'
+                                      : isEnterprisePlan
+                                      ? 'bg-white hover:bg-slate-50 text-slate-700 dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-zinc-200 border border-slate-200 dark:border-zinc-750 shadow-sm'
+                                      : 'bg-primary hover:bg-primary-dark text-white shadow-primary/20'
+                                  }`}
+                                >
+                                  {actionText}
+                                </button>
+                              );
+                            })()}
                           </div>
 
                         </div>
@@ -605,6 +634,94 @@ export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd
 
               </div>
             )}
+
+            {/* Confirmation Dialog Overlay */}
+            {confirmPlan && (() => {
+              const currentLevel = PLAN_LEVELS[planCode] || 1;
+              const targetLevel = PLAN_LEVELS[confirmPlan.code] || 1;
+              const isCurrent = confirmPlan.code === planCode;
+              const isEnterprisePlan = confirmPlan.code === 'plan_enterprise';
+              
+              let actionTitle = 'Xác nhận đăng ký';
+              let actionVerb = 'đăng ký';
+              if (isCurrent) {
+                actionTitle = 'Xác nhận gia hạn';
+                actionVerb = 'gia hạn';
+              } else if (targetLevel > currentLevel) {
+                actionTitle = 'Xác nhận nâng cấp';
+                actionVerb = 'nâng cấp lên';
+              } else if (targetLevel < currentLevel) {
+                actionTitle = 'Xác nhận hạ cấp';
+                actionVerb = 'hạ cấp xuống';
+              }
+              
+              const priceText = getPlanPriceText(confirmPlan, billingCycle);
+              const cycleText = billingCycle === 'yearly' ? 'năm' : 'tháng';
+
+              return (
+                <div className="absolute inset-0 z-50 flex items-center justify-center p-6 bg-black/55 backdrop-blur-[2px] animate-in fade-in duration-200">
+                  <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-zinc-800 p-6 shadow-2xl border border-slate-200 dark:border-zinc-700 animate-in zoom-in-95 duration-200 text-left">
+                    <h5 className="font-extrabold text-slate-900 dark:text-white text-base mb-2">
+                      {actionTitle}
+                    </h5>
+                    <div className="text-xs text-slate-550 dark:text-zinc-400 leading-relaxed mb-6 space-y-3">
+                      {isEnterprisePlan ? (
+                        <p>
+                          Bạn có chắc chắn muốn gửi yêu cầu tư vấn gói <strong className="text-slate-800 dark:text-white font-bold">{confirmPlan.name}</strong> để nhận hỗ trợ giải pháp riêng biệt và báo giá chi tiết từ Oni?
+                        </p>
+                      ) : confirmPlan.code === 'plan_mini' ? (
+                        <p>
+                          Bạn có chắc chắn muốn hạ cấp xuống gói <strong className="text-slate-800 dark:text-white font-bold">{confirmPlan.name}</strong> (Miễn phí)?
+                        </p>
+                      ) : isCurrent ? (
+                        <div className="space-y-2.5">
+                          <p>
+                            Bạn đang thực hiện gia hạn gói <strong className="text-slate-800 dark:text-white font-bold">{confirmPlan.name}</strong> với giá <strong className="text-primary font-bold">{priceText}</strong>/{cycleText}.
+                          </p>
+                          <div className="bg-slate-50 dark:bg-zinc-900/50 p-3 rounded-xl border border-slate-100 dark:border-zinc-750 text-[11px] text-slate-500 dark:text-zinc-400 space-y-1">
+                            <div>• Hạn dùng hiện tại: <strong className="text-slate-700 dark:text-zinc-200">{endDateFormatted}</strong> ({durationText})</div>
+                            <div className="text-emerald-600 dark:text-emerald-400 font-medium">
+                              ✓ Thời hạn mới sẽ tự động được cộng dồn tiếp tục kể từ ngày hết hạn cũ. Bạn hoàn toàn không bị mất bất kỳ ngày sử dụng nào.
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <p>
+                          Bạn có chắc chắn muốn {actionVerb} gói <strong className="text-slate-800 dark:text-white font-bold">{confirmPlan.name}</strong> với giá <strong className="text-primary font-bold">{priceText}</strong>/{cycleText}?
+                        </p>
+                      )}
+                      {targetLevel < currentLevel && (
+                        <span className="block text-red-500 dark:text-red-400 font-semibold bg-red-50 dark:bg-red-950/20 p-2 rounded-lg border border-red-100 dark:border-red-900/20">
+                          ⚠️ Cảnh báo: Việc hạ cấp gói cước có thể làm khóa bớt một số tính năng hoặc giới hạn dữ liệu hiện tại của bạn.
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-end gap-3">
+                      <button
+                        onClick={() => setConfirmPlan(null)}
+                        className="rounded-xl border border-slate-200 dark:border-zinc-700 px-4 py-2 text-xs font-bold text-slate-600 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-700 transition-colors cursor-pointer"
+                      >
+                        Hủy bỏ
+                      </button>
+                      <button
+                        onClick={() => {
+                          const planToSub = confirmPlan;
+                          setConfirmPlan(null);
+                          if (isEnterprisePlan) {
+                            window.location.href = `mailto:support@oni.vn?subject=Yeu cau tu van goi Enterprise cho Tenant ${tenantId}`;
+                          } else {
+                            handleSubscribe(planToSub);
+                          }
+                        }}
+                        className="rounded-xl bg-primary hover:bg-primary-dark px-4 py-2 text-xs font-bold text-white shadow-md transition-colors cursor-pointer"
+                      >
+                        Xác nhận
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Step 2: VietQR Checkout view */}
             {step === 'qr' && (
