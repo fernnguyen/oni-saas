@@ -1520,23 +1520,49 @@ export function CheckoutModal({
       return
     }
 
+    let workingPaymentsA = [...paymentsA]
+    let workingPaymentsB = [...paymentsB]
+    let workingPayments = [...payments]
+
     const isRemainingInvalid = isSplitActive ? (remainingA > 0 || remainingB > 0) : (remaining > 0)
     if (isRemainingInvalid) {
       if (isSplitActive) {
+        const confirmMsg = remainingA > 0 && remainingB > 0 
+           ? `Hóa đơn A còn thiếu ${fmtVND(remainingA)} và Hóa đơn B còn thiếu ${fmtVND(remainingB)}.`
+           : remainingA > 0 
+             ? `Hóa đơn A còn thiếu ${fmtVND(remainingA)}.`
+             : `Hóa đơn B còn thiếu ${fmtVND(remainingB)}.`
+
+        const isOk = await confirm({
+           title: 'Xác nhận Ghi nợ tự động',
+           description: `${confirmMsg} Hệ thống sẽ tự động thêm phương thức Ghi nợ cho số tiền còn thiếu này. Bạn có chắc chắn muốn tiếp tục?`,
+           confirmLabel: 'Đồng ý',
+           cancelLabel: 'Bỏ qua',
+        })
+        if (!isOk) return
+        
         if (remainingA > 0) {
-          toast.error(`Folio A còn thiếu ${fmtVND(remainingA)}`)
-        } else {
-          toast.error(`Folio B còn thiếu ${fmtVND(remainingB)}`)
+          workingPaymentsA.push({ id: crypto.randomUUID(), method: 'debt', amount: String(remainingA), fund_id: '' })
+        }
+        if (remainingB > 0) {
+          workingPaymentsB.push({ id: crypto.randomUUID(), method: 'debt', amount: String(remainingB), fund_id: '' })
         }
       } else {
-        toast.error(`Còn thiếu ${fmtVND(remaining)}`)
+        const isOk = await confirm({
+           title: 'Xác nhận Ghi nợ tự động',
+           description: `Đơn hàng còn thiếu ${fmtVND(remaining)}. Hệ thống sẽ tự động thêm phương thức Ghi nợ cho số tiền còn thiếu này. Bạn có chắc chắn muốn tiếp tục?`,
+           confirmLabel: 'Đồng ý',
+           cancelLabel: 'Bỏ qua',
+        })
+        if (!isOk) return
+        
+        workingPayments.push({ id: crypto.randomUUID(), method: 'debt', amount: String(remaining), fund_id: '' })
       }
-      return
     }
 
     const hasDebt = isSplitActive
-      ? [...paymentsA, ...paymentsB].some((p) => p.method === 'debt' && parseFloat(p.amount) > 0)
-      : payments.some((p) => p.method === 'debt' && parseFloat(p.amount) > 0)
+      ? [...workingPaymentsA, ...workingPaymentsB].some((p) => p.method === 'debt' && parseFloat(p.amount) > 0)
+      : workingPayments.some((p) => p.method === 'debt' && parseFloat(p.amount) > 0)
 
     if (hasDebt && !localCustomer) {
       toast.error('Phương thức Ghi nợ yêu cầu phải chọn Khách hàng')
@@ -1544,9 +1570,9 @@ export function CheckoutModal({
     }
 
     const prepaidSpent = isSplitActive
-      ? paymentsA.filter(p => p.method === 'prepaid').reduce((s, p) => s + (parseFloat(p.amount) || 0), 0) +
-        paymentsB.filter(p => p.method === 'prepaid').reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
-      : payments.filter(p => p.method === 'prepaid').reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
+      ? workingPaymentsA.filter(p => p.method === 'prepaid').reduce((s, p) => s + (parseFloat(p.amount) || 0), 0) +
+        workingPaymentsB.filter(p => p.method === 'prepaid').reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
+      : workingPayments.filter(p => p.method === 'prepaid').reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
 
     if (prepaidSpent > 0) {
       if (!localCustomer) {
@@ -1561,7 +1587,7 @@ export function CheckoutModal({
     }
 
     if (options?.bypassQr) {
-      const activePayments = isSplitActive ? [...paymentsA, ...paymentsB] : payments
+      const activePayments = isSplitActive ? [...workingPaymentsA, ...workingPaymentsB] : workingPayments
       const changeToReturn = Math.max(0, totalPaid - effectiveRemainingTotal)
 
       const isOk = await confirm({
@@ -1678,9 +1704,9 @@ export function CheckoutModal({
     setSaving(true)
     try {
       const debtAmount = isSplitActive
-        ? paymentsA.filter(p => p.method === 'debt').reduce((s, p) => s + (parseFloat(p.amount) || 0), 0) +
-          paymentsB.filter(p => p.method === 'debt').reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
-        : payments.filter(p => p.method === 'debt').reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
+        ? workingPaymentsA.filter(p => p.method === 'debt').reduce((s, p) => s + (parseFloat(p.amount) || 0), 0) +
+          workingPaymentsB.filter(p => p.method === 'debt').reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
+        : workingPayments.filter(p => p.method === 'debt').reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
 
       const actualPaid = Math.max(0, finalTotal - debtAmount)
 
@@ -1722,10 +1748,10 @@ export function CheckoutModal({
 
       const actualPayments = isSplitActive
         ? [
-            ...paymentsA.filter(p => parseFloat(p.amount) > 0).map(p => ({ ...p, folio: 'A' })),
-            ...paymentsB.filter(p => parseFloat(p.amount) > 0).map(p => ({ ...p, folio: 'B' }))
+            ...workingPaymentsA.filter(p => parseFloat(p.amount) > 0).map(p => ({ ...p, folio: 'A' })),
+            ...workingPaymentsB.filter(p => parseFloat(p.amount) > 0).map(p => ({ ...p, folio: 'B' }))
           ]
-        : payments.filter(p => parseFloat(p.amount) > 0).map(p => ({ ...p, folio: 'unified' }))
+        : workingPayments.filter(p => parseFloat(p.amount) > 0).map(p => ({ ...p, folio: 'unified' }))
 
       const checkIsBankTransfer = (methodId: string) => {
         const m = resolvedMethods.find((rm) => rm.value === methodId)
@@ -3083,7 +3109,7 @@ export function CheckoutModal({
                 {/* Green button: Lưu & xác nhận (Đã thu) */}
                 <button
                   onClick={() => handleSubmit({ bypassQr: true })}
-                  disabled={saving || items.length === 0 || isRemainingInvalid || isBlocked || finalTotal <= 0}
+                  disabled={saving || items.length === 0 || isBlocked || finalTotal <= 0}
                   className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 py-2.5 px-4 text-sm font-bold text-white shadow-xs disabled:opacity-40 transition-all active:scale-98"
                 >
                   <svg className="h-4.5 w-4.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
@@ -3096,7 +3122,7 @@ export function CheckoutModal({
                 {bankTransferAmt > 0 && (
                   <button
                     onClick={() => handleSubmit({ bypassQr: false })}
-                    disabled={saving || items.length === 0 || isRemainingInvalid || isBlocked || finalTotal <= 0}
+                    disabled={saving || items.length === 0 || isBlocked || finalTotal <= 0}
                     className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-primary hover:bg-primary-dark py-2.5 px-4 text-sm font-bold text-white shadow-xs disabled:opacity-40 transition-all active:scale-98 animate-in fade-in slide-in-from-right-1 duration-200"
                   >
                     Lưu & chờ thanh toán
