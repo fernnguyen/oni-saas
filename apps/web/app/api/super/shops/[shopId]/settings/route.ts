@@ -15,7 +15,7 @@ const DEFAULT_SETTINGS = {
   auto_print_receipt: true,
   mute_pos_sound: false,
   skip_cleaning_process: false,
-  skip_return_confirmation: false,
+  skip_return_confirmation: true,
   housekeeping_workflow_mode: 'SIMPLE',
   default_price_type: 'retail',
   qr_auto_approve_session: false,

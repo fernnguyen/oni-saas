@@ -2033,6 +2033,32 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
                               phone: 'Điện thoại',
                               zalo: 'Zalo'
                             }
+
+                            const STATUS_LABEL_MAP: Record<string, string> = {
+                              completed: 'Hoàn thành',
+                              cancelled: 'Đã hủy',
+                              draft: 'Nháp',
+                              confirmed: 'Đã xác nhận',
+                              processing: 'Đang xử lý',
+                              in_progress: 'Đang sử dụng',
+                              returning: 'Đang trả hàng',
+                              partially_refunded: 'Hoàn 1 phần',
+                              refunded: 'Hoàn tiền',
+                              pending: 'Chờ duyệt',
+                            }
+
+                            const STATUS_COLOR_MAP: Record<string, 'green' | 'red' | 'yellow' | 'blue' | 'orange' | 'purple' | 'gray'> = {
+                              completed: 'green',
+                              cancelled: 'red',
+                              draft: 'yellow',
+                              confirmed: 'blue',
+                              processing: 'orange',
+                              in_progress: 'blue',
+                              returning: 'yellow',
+                              partially_refunded: 'purple',
+                              refunded: 'gray',
+                              pending: 'yellow',
+                            }
                             
                             return customerOrders.data.map((order, i) => {
                               const subtotalVal = Number(order.subtotal || 0)
@@ -2071,12 +2097,8 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
                                   </td>
                                   <td className="px-3 py-2.5 text-center">
                                     <TagBadge
-                                      label={
-                                        order.status === 'completed' ? 'Hoàn thành' :
-                                        order.status === 'cancelled' ? 'Đã hủy' :
-                                        order.status === 'pending' ? 'Chờ duyệt' : order.status || '—'
-                                      }
-                                      color={order.status === 'completed' ? 'green' : order.status === 'cancelled' ? 'red' : 'yellow'}
+                                      label={STATUS_LABEL_MAP[order.status] || order.status || '—'}
+                                      color={STATUS_COLOR_MAP[order.status] || 'gray'}
                                     />
                                   </td>
                                 </tr>

@@ -131,7 +131,7 @@ export function ShopSettingsForm({
     auto_print_receipt: initial.auto_print_receipt ?? true,
     mute_pos_sound: initial.mute_pos_sound ?? false,
     skip_cleaning_process: initial.skip_cleaning_process ?? false,
-    skip_return_confirmation: initial.skip_return_confirmation ?? false,
+    skip_return_confirmation: initial.skip_return_confirmation ?? true,
     tax_id: initial.tax_id ?? '',
     wifi_info: initial.wifi_info ?? '',
     bank_code: initial.bank_code ?? '',
