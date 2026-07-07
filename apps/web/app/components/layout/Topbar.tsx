@@ -36,6 +36,12 @@ interface TopbarProps {
   onToggleCollapsed?: () => void;
   basePath?: string;
   industryType?: string;
+  /** Current nav layout mode */
+  navMode?: 'vertical' | 'horizontal';
+  /** Callback to toggle nav layout mode */
+  onToggleNavMode?: () => void;
+  /** Callback to open nav customize modal */
+  onOpenSort?: () => void;
 }
 
 export function Topbar({
@@ -61,6 +67,9 @@ export function Topbar({
   onToggleCollapsed,
   basePath,
   industryType,
+  navMode = 'vertical',
+  onToggleNavMode,
+  onOpenSort,
 }: TopbarProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [logoutConfirm, setLogoutConfirm] = useState(false);
@@ -82,9 +91,13 @@ export function Topbar({
   return (
     <>
       <header className="h-14 bg-white border-b border-slate-200 flex items-center sticky top-0 z-30 w-full min-w-0">
-        {/* Left: Logo + Toggle (width matches Sidebar) */}
-        <div className={`relative hidden md:flex items-center border-r border-slate-200 h-full shrink-0 transition-all duration-200 ${
-          collapsed ? 'w-[64px] justify-center' : 'w-[220px] px-3'
+        {/* Left: Logo block */}
+        <div className={`relative hidden md:flex items-center h-full shrink-0 transition-all duration-200 ${
+          collapsed
+            ? 'w-[64px] justify-center border-r border-slate-200'
+            : navMode === 'horizontal'
+            ? 'w-[180px] px-3'           // no border-r: use slim divider below
+            : 'w-[220px] px-3 border-r border-slate-200'  // matches sidebar width
         }`}>
           {collapsed ? (
              <Image src="/logo.png" alt="ONI Logo" width={32} height={32} className="shrink-0 rounded-lg" />
@@ -117,7 +130,7 @@ export function Topbar({
                 </div>
              </div>
           )}
-          {/* Absolute toggle button on the border */}
+          {/* Collapse toggle (only in vertical mode) */}
           {onToggleCollapsed && (
             <button
               onClick={onToggleCollapsed}
@@ -133,6 +146,11 @@ export function Topbar({
             </button>
           )}
         </div>
+
+        {/* Slim vertical divider — only in horizontal mode (replaces full-height border-r) */}
+        {navMode === 'horizontal' && !collapsed && (
+          <div className="hidden md:block w-px h-6 bg-slate-200 shrink-0" />
+        )}
 
         {/* Right: Main Topbar Content */}
         <div className="flex-1 flex items-center h-full min-w-0 gap-3 px-4 md:pl-5">

@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { buildNavGroups, IconHelp } from './nav';
 import { PlanBadge } from './PlanBadge';
+import { LayoutPanelTop, Settings2 } from 'lucide-react';
 
 interface SidebarProps {
   basePath?: string;
@@ -35,6 +36,12 @@ interface SidebarProps {
   periodEnd?: string;
   hidePlanBadge?: boolean;
   hasP2pAccess?: boolean;
+  /** Callback to toggle between vertical/horizontal nav mode */
+  onToggleMode?: () => void;
+  /** Callback to open nav sort/customize modal */
+  onOpenSort?: () => void;
+  /** When true, only renders mobile overlay (no desktop sidebar) */
+  mobileOnly?: boolean;
 }
 
 /** Fixed-position tooltip that escapes any overflow container */
@@ -95,6 +102,8 @@ function SidebarContent({
   hasP2pAccess,
   onToggleCollapsed,
   onClose,
+  onToggleMode,
+  onOpenSort,
 }: {
   hasP2pAccess?: boolean;
   collapsed: boolean;
@@ -121,6 +130,8 @@ function SidebarContent({
   hidePlanBadge?: boolean;
   onToggleCollapsed?: () => void;
   onClose?: () => void;
+  onToggleMode?: () => void;
+  onOpenSort?: () => void;
 }) {
   const pathname = usePathname();
   const navGroups = buildNavGroups(
@@ -262,6 +273,33 @@ function SidebarContent({
             </div>
           </div>
         ))}
+
+        {/* Quick action row — inside nav block, bottom-aligned */}
+        {(onToggleMode || onOpenSort) && (
+          <div className={`mt-1 pt-2 border-t border-slate-100 flex items-center gap-0 px-2 ${
+            collapsed ? 'justify-center' : 'justify-center'
+          }`}>
+            {onOpenSort && (
+              <button
+                onClick={onOpenSort}
+                className="flex items-center justify-center h-6 w-6 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+                title="Tùy chỉnh menu"
+              >
+                <Settings2 className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {onToggleMode && (
+              <button
+                onClick={onToggleMode}
+                className="flex items-center gap-1 px-1.5 h-6 rounded-md text-slate-400 hover:text-primary hover:bg-primary/5 transition-colors cursor-pointer"
+                title="Chuyển sang menu ngang"
+              >
+                <LayoutPanelTop className="h-3.5 w-3.5 shrink-0" />
+               
+              </button>
+            )}
+          </div>
+        )}
       </nav>
 
       <div className="p-1 border-t border-slate-200 flex flex-col gap-1 items-center">
@@ -287,6 +325,8 @@ function SidebarContent({
     </div>
   );
 }
+
+
 
 export function Sidebar({
   basePath = '/dashboard',
@@ -314,6 +354,9 @@ export function Sidebar({
   hidePlanBadge,
   collapsed = false,
   hasP2pAccess,
+  onToggleMode,
+  onOpenSort,
+  mobileOnly = false,
 }: SidebarProps) {
   const sharedProps = {
     basePath,
@@ -338,21 +381,25 @@ export function Sidebar({
     periodEnd,
     hidePlanBadge,
     hasP2pAccess,
+    onToggleMode,
+    onOpenSort,
   };
 
   return (
     <>
-      {/* Desktop sidebar */}
-      <aside
-        className={`hidden md:flex md:flex-col bg-white border-r border-slate-200 shrink-0 overflow-hidden transition-all duration-200 sticky top-14 h-[calc(100vh-3.5rem)] ${
-          collapsed ? 'md:w-[64px]' : 'md:w-[220px]'
-        }`}
-      >
-        <SidebarContent
-          {...sharedProps}
-          collapsed={collapsed}
-        />
-      </aside>
+      {/* Desktop sidebar — hidden when mobileOnly */}
+      {!mobileOnly && (
+        <aside
+          className={`hidden md:flex md:flex-col bg-white border-r border-slate-200 shrink-0 overflow-hidden transition-all duration-200 sticky top-14 h-[calc(100vh-3.5rem)] ${
+            collapsed ? 'md:w-[64px]' : 'md:w-[220px]'
+          }`}
+        >
+          <SidebarContent
+            {...sharedProps}
+            collapsed={collapsed}
+          />
+        </aside>
+      )}
 
       {/* Mobile overlay */}
       {mobileOpen && (

@@ -14,6 +14,10 @@ interface PlanBadgeProps {
   periodEnd?:   string;
   canUpgrade?:  boolean;
   collapsed?:   boolean;
+  /** Render as a compact inline pill (for horizontal nav bar) */
+  inline?:      boolean;
+  /** In inline mode: show icon only, no text label */
+  iconOnly?:    boolean;
 }
 
 interface PlanRow {
@@ -108,7 +112,7 @@ const PLAN_LIMITS_SUMMARY: Record<string, Record<string, string>> = {
 };
 
 // ─── Main Component ──────────────────────────────────────────────────────────
-export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd, canUpgrade = false, collapsed = false }: PlanBadgeProps) {
+export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd, canUpgrade = false, collapsed = false, inline = false, iconOnly = false }: PlanBadgeProps) {
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [plans, setPlans] = useState<PlanRow[]>([]);
@@ -372,9 +376,33 @@ export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd
 
   const headerStyle = getHeaderStyles();
 
+
   return (
     <>
-      <button 
+      {/* ── Trigger button: inline pill OR full badge ── */}
+      {inline ? (() => {
+        const gradientCls = isMini
+          ? 'from-blue-600 to-indigo-500'
+          : isEnterprise
+          ? 'from-slate-800 to-slate-700'
+          : 'from-[#EC4899] to-[#F97316]';
+        return (
+          <button
+            onClick={() => setIsOpen(true)}
+            className={`flex items-center gap-1.5 h-7 bg-gradient-to-r ${gradientCls} text-white text-xs font-semibold shrink-0 cursor-pointer hover:opacity-90 transition-opacity ${
+              iconOnly ? 'w-7 justify-center rounded-lg px-0' : 'px-2.5 rounded-lg'
+            }`}
+            style={{ border: 'none' }}
+            title={planName}
+          >
+            {isMini && <IconLightning className="h-3.5 w-3.5 shrink-0" />}
+            {isEnterprise && <IconDiamond className="h-3.5 w-3.5 shrink-0 text-yellow-400" />}
+            {(!isMini && !isEnterprise) && <IconCrown className="h-3.5 w-3.5 shrink-0 text-yellow-200" />}
+            {!iconOnly && <span className="max-w-[80px] truncate">{planName}</span>}
+          </button>
+        );
+      })() : (
+      <button
         onClick={() => setIsOpen(true)}
         className={`flex items-center gap-2 text-white relative overflow-hidden shrink-0 cursor-pointer hover:opacity-90 transition-all ${collapsed ? 'w-10 h-10 rounded-full mx-auto justify-center p-0' : 'w-full rounded-xl'}`}
         style={{ border: 'none', background: 'none' }}
@@ -420,10 +448,10 @@ export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd
           </div>
         )}
       </button>
+      )}
 
       {isOpen && typeof document !== 'undefined' && createPortal(
         <div className="fixed inset-0 z-[99999] flex flex-col bg-black/45 backdrop-blur-[2px] p-4 sm:p-6 overflow-y-auto animate-in fade-in duration-200">
-          
           {/* Modal Container: scaled up to max-w-6xl for full plan card comparison */}
           <div className={`relative bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full ${step === 'select' ? 'max-w-6xl' : 'max-w-md'} mx-auto my-auto overflow-hidden flex flex-col transition-all duration-300 border-slate-200 dark:border-zinc-800`}>
             

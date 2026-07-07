@@ -21,7 +21,7 @@ export function SlideOver({
   footer,
   headerActions,
   children,
-  zIndex = 50,
+  zIndex = 95,
 }: SlideOverProps) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
