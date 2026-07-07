@@ -26,6 +26,7 @@ interface SyncItem {
   product_name: string
   qty: number
   unit_price: number
+  unit_cost?: number
   original_price?: number
   discount_amount: number
   discount_pct?: number
@@ -352,13 +353,17 @@ export async function POST(
       let taxRate: string = it.tax_rate || '0'
       let taxGroup: string = it.tax_group || ''
       let taxAmount: number = it.tax_amount || 0
+      let unitCost: number = it.unit_cost || 0
 
-      if (!taxRate || !taxGroup) {
+      if (!taxRate || !taxGroup || it.unit_cost === undefined) {
         try {
           const product = await connector.findById('products', it.product_id)
           if (product) {
             taxRate = taxRate || product.tax_rate || '0'
             taxGroup = taxGroup || product.tax_group || ''
+            if (it.unit_cost === undefined) {
+              unitCost = parseFloat(String(product.cost_price || 0))
+            }
           }
           if (product && product.category_id && (!taxRate || !taxGroup)) {
             const category = await connector.findById('categories', product.category_id)
@@ -418,6 +423,7 @@ export async function POST(
         product_name:   it.product_name,
         qty:            String(it.qty),
         unit_price:     String(it.unit_price),
+        unit_cost:      String(unitCost),
         original_price: String(it.original_price ?? it.unit_price),
         line_discount:  String(it.discount_amount),
         tax_rate:       String(taxRate),

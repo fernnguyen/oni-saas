@@ -55,6 +55,7 @@ export const order_items = pgTable('order_items', {
   product_name: varchar('product_name', { length: 255 }),
   qty: varchar('qty', { length: 50 }),
   unit_price: varchar('unit_price', { length: 50 }),
+  unit_cost: varchar('unit_cost', { length: 50 }),
   original_price: varchar('original_price', { length: 50 }),
   discount_amount: varchar('discount_amount', { length: 50 }),
   discount_pct: varchar('discount_pct', { length: 50 }),

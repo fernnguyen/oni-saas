@@ -46,6 +46,7 @@ export const orderItemCreateSchema = z.object({
   product_name:   z.string().min(1),
   qty:            z.string().min(1),
   unit_price:     z.string().min(1),
+  unit_cost:      z.string().optional().default('0'),
   original_price: z.string().optional(),
   discount_pct:   z.string().optional().default('0'),
   line_discount:  z.string().optional().default('0'),

@@ -80,6 +80,14 @@ export async function GET(
       )
       const correctDebt = activeOrders.reduce((sum, o) => sum + (parseFloat(o.debt_amount || '0') || 0), 0)
 
+      // Recalculate correct loyalty points from active orders
+      const correctPoints = activeOrders.reduce((sum, o) => {
+        const earned = parseFloat(o.points_earned || '0') || 0
+        const redeemed = parseFloat(o.points_redeemed || '0') || 0
+        return sum + earned - redeemed
+      }, 0)
+      const finalPoints = Math.max(0, correctPoints)
+
       const updates: Record<string, string> = {}
       if (currentDebtStr === 'NaN') {
         updates.debt_amount = String(correctDebt)
@@ -88,7 +96,7 @@ export async function GET(
         updates.prepaid_balance = '0'
       }
       if (currentPointsStr === 'NaN') {
-        updates.loyalty_points = '0'
+        updates.loyalty_points = String(finalPoints)
       }
 
       if (Object.keys(updates).length > 0) {

@@ -271,6 +271,7 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
       label: 'Báo cáo',
       items: [
         { href: joinPath(base, '/reports/overview'),    label: 'Tổng quan',    icon: TrendingUp, permission: 'reports.view_shop' },
+        { href: joinPath(base, '/reports/profit'),      label: 'Lợi nhuận',    icon: LineChart,  permission: 'reports.view_shop' },
         { href: joinPath(base, '/reports/inventory'),   label: 'Báo cáo kho',  icon: BarChart3,permission: 'inventory.view', proOnly: true },
         ...(options.hasP2pAccess ? [
           { href: joinPath(base, '/p2p/reports'),       label: 'Báo cáo mua sắm', icon: ShoppingBag, permission: 'reports.view_shop', proOnly: true },
