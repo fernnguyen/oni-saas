@@ -194,46 +194,44 @@ export async function POST(req: NextRequest) {
   }
   const tenantId = (tenant as any).id as string;
 
-  // Update subscription to selected plan and set free trial expiration
+  // Update subscription to selected plan
+  // Freemium model:
+  // - No code → default plan_mini (free forever, no trial expiry)
+  // - With code → plan + trial_days as defined by the invitation code
   let targetPlanId: number | null = null;
   let trialDays: number | null = null;
 
   if (codeData) {
+    // Code overrides both plan and trial duration
     if (codeData.plan_id) {
       targetPlanId = codeData.plan_id;
     }
-    if (codeData.trial_days !== null) {
+    if (codeData.trial_days !== null && codeData.trial_days !== undefined) {
       trialDays = codeData.trial_days;
     }
   }
 
-  // If targetPlanId is not set by code, find default plan from parsed data or plan_mini
+  // If no code, always default to plan_mini (free forever)
   if (!targetPlanId) {
-    const planCode = parsed.data.plan_code || 'plan_mini';
-    const { data: defaultPlan } = await admin.from('plans').select('id').eq('code', planCode).maybeSingle();
-    if (defaultPlan) {
-      targetPlanId = defaultPlan.id;
-    }
-  }
-
-  // If trialDays is not set by code, get starter_trial_days from global settings if it's the starter plan (plan_mini)
-  if (trialDays === null) {
-    // Check if the target plan is plan_mini (Starter)
-    const { data: targetPlan } = await admin.from('plans').select('code').eq('id', targetPlanId).maybeSingle();
-    if (targetPlan && targetPlan.code === 'plan_mini') {
-      trialDays = parseInt(config.starter_trial_days) || 90;
+    const { data: miniPlan } = await admin.from('plans').select('id').eq('code', 'plan_mini').maybeSingle();
+    if (miniPlan) {
+      targetPlanId = miniPlan.id;
     }
   }
 
   if (targetPlanId) {
     const updateData: any = { plan_id: targetPlanId };
-    
-    if (trialDays !== null) {
+
+    if (trialDays !== null && trialDays > 0) {
+      // Only set a period_end when there's an actual trial from a code
+      // After trial ends, process_subscription_lifecycle() auto-downgrades to plan_mini
       const expirationDate = new Date();
       expirationDate.setDate(expirationDate.getDate() + trialDays);
       updateData.current_period_end = expirationDate.toISOString();
     }
-    
+    // For plan_mini (freemium), current_period_end stays as the DB default (2099-12-31)
+    // which signals "active forever" to the lifecycle function
+
     await admin.from('subscriptions').update(updateData).eq('tenant_id', tenantId);
   }
 

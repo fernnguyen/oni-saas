@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { notFound } from 'next/navigation';
-import { getSystemSettings, formatTrialDurationVi } from '@/lib/server/settings';
 import { Metadata } from 'next';
 import { getVerticalConfig, IndustryType } from '../../../../../packages/core/src/verticals';
 import { IndustryDropdown } from '../../components/layout/IndustryDropdown';
@@ -84,10 +83,6 @@ export default async function IndustrySolutionPage({ params }: Props) {
   if (!indType) {
     notFound();
   }
-
-  const sysConfig = await getSystemSettings();
-  const starterTrialDays = parseInt(sysConfig.starter_trial_days) || 90;
-  const starterTrialText = formatTrialDurationVi(starterTrialDays);
 
   const config = getVerticalConfig(indType);
   const indInfo = INDUSTRIES_LIST.find(i => i.slug === slug);
@@ -197,7 +192,7 @@ export default async function IndustrySolutionPage({ params }: Props) {
       '@type': 'Offer',
       'price': '0',
       'priceCurrency': 'VND',
-      'description': `Miễn phí dùng thử ${starterTrialText}`
+      'description': 'Miễn phí vĩnh viễn với Gói Tiên phong'
     },
     'publisher': {
       '@type': 'Organization',
@@ -230,7 +225,7 @@ export default async function IndustrySolutionPage({ params }: Props) {
           <div className="flex items-center gap-3">
             <LoginButton />
             <Link href={`/register?industry=${slug}`} id={`nav-cta-${slug}`} className="whitespace-nowrap rounded-lg bg-primary px-5 py-2.5 text-sm font-bold text-white shadow-md hover:bg-primary-dark hover:shadow-lg transition-all">
-              Dùng thử miễn phí
+              Đăng ký miễn phí
             </Link>
           </div>
         </div>
@@ -403,7 +398,7 @@ export default async function IndustrySolutionPage({ params }: Props) {
                 <Check className="h-5 w-5 text-emerald-600 shrink-0 mt-0.5" />
                 <div>
                   <strong className="block text-slate-800 text-sm">Tiết kiệm tối đa chi phí vận hành</strong>
-                  <span className="text-slate-500 text-xs block mt-0.5 leading-relaxed">Bắt đầu miễn phí 3 năm, bán hàng ngay. Nâng cấp chi phí cực rẻ cho quy mô chuỗi nhiều chi nhánh.</span>
+                  <span className="text-slate-500 text-xs block mt-0.5 leading-relaxed">Bắt đầu miễn phí vĩnh viễn với Gói Tiên phong, bán hàng ngay. Nâng cấp chi phí cực rẻ cho quy mô chuỗi nhiều chi nhánh.</span>
                 </div>
               </li>
             </ul>
@@ -455,17 +450,17 @@ export default async function IndustrySolutionPage({ params }: Props) {
             Bắt đầu số hóa {config.workspaceLabel.toLowerCase()} của bạn hôm nay
           </h2>
           <p className="text-lg text-slate-600 font-medium mb-10 max-w-2xl mx-auto">
-            Khởi động dễ dàng chỉ trong 60 giây. Trải nghiệm hệ sinh thái POS & quản trị dữ liệu riêng tư tối ưu nhất hiện nay.
+            Khởi động dễ dàng chỉ trong 60 giây. Đăng ký gói Tiên phong miễn phí vĩnh viễn, trải nghiệm hệ sinh thái POS &amp; quản trị dữ liệu riêng tư tối ưu nhất hiện nay.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Link 
-              href={`/register?industry=${slug}`} 
-              id={`cta-bottom-btn-${slug}`}
-              className="group flex items-center justify-center gap-2 rounded-xl bg-primary px-8 py-4 text-base font-bold text-white shadow-xl hover:bg-primary-dark transition-all hover:scale-105"
-            >
-              Đăng ký dùng thử miễn phí
-              <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
-            </Link>
+              <Link 
+                href={`/register?industry=${slug}`} 
+                id={`cta-bottom-btn-${slug}`}
+                className="group flex items-center justify-center gap-2 rounded-xl bg-primary px-8 py-4 text-base font-bold text-white shadow-xl hover:bg-primary-dark transition-all hover:scale-105"
+              >
+                Đăng ký Gói Tiên phong miễn phí
+                <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+              </Link>
           </div>
         </div>
       </section>
@@ -508,7 +503,7 @@ export default async function IndustrySolutionPage({ params }: Props) {
               <Link href="/" className="hover:text-white transition-colors">Trang chủ chính</Link>
               <a href="#features" className="hover:text-white transition-colors">Tính năng nghiệp vụ</a>
               <Link href="/#pricing" className="hover:text-white transition-colors">Bảng giá gói cước</Link>
-              <Link href={`/register?industry=${slug}`} className="hover:text-white transition-colors">Đăng ký dùng thử miễn phí {starterTrialText}</Link>
+              <Link href={`/register?industry=${slug}`} className="hover:text-white transition-colors">Đăng ký Gói Tiên phong miễn phí</Link>
             </div>
             <div className="text-[10px] text-slate-600">
               Sản phẩm phục vụ Chuyển đổi số Hộ kinh doanh &amp; Doanh nghiệp Việt Nam.

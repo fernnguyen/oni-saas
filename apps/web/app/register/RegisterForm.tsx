@@ -684,30 +684,83 @@ export function RegisterForm({ plans, initialDomain, initialIndustry, registrati
             </div>
 
             {/* Plan Selection */}
-            {defaultPlan && (
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-700">Gói dịch vụ đăng ký</label>
-                <div className="flex items-center gap-3 rounded-xl border border-primary bg-blue-50/50 px-4 py-3 text-primary transition-all duration-200">
-                  <svg className="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <div className="flex-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <span className="font-bold text-slate-900">
-                      {promoDetails?.valid 
-                        ? (promoDetails.plan?.name || defaultPlan.name)
-                        : 'Starter'
-                      }
-                    </span>
-                    <span className="rounded-md bg-primary px-1.5 py-0.5 text-[10px] font-bold text-white uppercase tracking-wide">
-                      Miễn phí {formatTrialDurationVi(promoDetails?.valid && promoDetails.trial_days !== undefined && promoDetails.trial_days !== null ? promoDetails.trial_days : starterTrialDays)} dùng thử
-                    </span>
+            {defaultPlan && (() => {
+              const promoPlan = promoDetails?.valid && promoDetails.plan
+                ? plans.find(p => p.code === promoDetails.plan?.code)
+                : null;
+              const hasPromoPrice = promoPlan && promoPlan.price_monthly > 0;
+              
+              // Calculate total value of the trial based on trial_days
+              let totalOriginalPrice = 0;
+              let trialDurationText = '';
+              
+              if (promoPlan && promoDetails?.trial_days) {
+                const days = promoDetails.trial_days;
+                if (days % 365 === 0) {
+                  const years = days / 365;
+                  totalOriginalPrice = (promoPlan.price_yearly || (promoPlan.price_monthly * 12)) * years;
+                  trialDurationText = `${years} năm`;
+                } else if (days % 30 === 0) {
+                  const months = days / 30;
+                  totalOriginalPrice = (promoPlan.price_monthly || 0) * months;
+                  trialDurationText = `${months} tháng`;
+                } else {
+                  // Fallback for custom days: estimate proportion of monthly price
+                  const monthsFraction = days / 30;
+                  totalOriginalPrice = Math.round((promoPlan.price_monthly || 0) * monthsFraction);
+                  trialDurationText = `${days} ngày`;
+                }
+              }
+
+              const formattedTotalPrice = totalOriginalPrice ? (() => {
+                if (totalOriginalPrice >= 1000000) return `${(totalOriginalPrice / 1000000).toFixed(1).replace('.0', '')}M`;
+                if (totalOriginalPrice >= 1000) return `${totalOriginalPrice / 1000}K`;
+                return totalOriginalPrice.toString();
+              })() : '';
+
+              return (
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-700">Gói dịch vụ đăng ký</label>
+                  <div className="flex items-center gap-3 rounded-xl border border-primary bg-blue-50/50 px-4 py-3 text-primary transition-all duration-200">
+                    <svg className="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <div className="flex-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="font-bold text-slate-900">
+                        {promoDetails?.valid
+                          ? (promoDetails.plan?.name || defaultPlan.name)
+                          : 'Tiên phong'
+                        }
+                      </span>
+                      {promoDetails?.valid && promoDetails.trial_days !== undefined && promoDetails.trial_days !== null ? (
+                        <span className="rounded-md bg-primary px-1.5 py-0.5 text-[10px] font-bold text-white uppercase tracking-wide">
+                          Dùng thử {formatTrialDurationVi(promoDetails.trial_days)} miễn phí
+                        </span>
+                      ) : (
+                        <span className="rounded-md bg-emerald-500 px-1.5 py-0.5 text-[10px] font-bold text-white uppercase tracking-wide">
+                          Miễn phí vĩnh viễn
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex flex-col items-end justify-center text-right whitespace-nowrap">
+                      {hasPromoPrice && totalOriginalPrice > 0 && (
+                        <div className="flex items-center gap-1 text-[11px] mb-0.5">
+                          <span className="line-through text-slate-400 font-medium">
+                            {formattedTotalPrice}/{trialDurationText}
+                          </span>
+                          <span className="font-extrabold text-emerald-600 bg-emerald-50 px-1 rounded border border-emerald-250">
+                            0đ
+                          </span>
+                        </div>
+                      )}
+                      <span className="text-xs font-semibold text-primary/70">
+                        {promoDetails?.valid ? 'Áp dụng từ mã ưu đãi' : 'Có thể nâng cấp sau'}
+                      </span>
+                    </div>
                   </div>
-                  <span className="text-xs font-semibold text-primary/70">
-                    {promoDetails?.valid ? 'Áp dụng từ mã ưu đãi' : 'Có thể nâng cấp sau'}
-                  </span>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Cloudflare Turnstile */}
             {TURNSTILE_SITE_KEY && (
@@ -747,12 +800,22 @@ export function RegisterForm({ plans, initialDomain, initialIndustry, registrati
         )}
       </form>
 
-      <p className="mt-6 text-center text-sm text-slate-500">
-        Đã có tài khoản?{' '}
-        <Link href="/auth/signin" className="font-medium text-primary hover:underline">
-          Đăng nhập
-        </Link>
-      </p>
+      <div className="mt-6 text-center space-y-2">
+        <p className="text-sm text-slate-500">
+          Đã có tài khoản?{' '}
+          <Link href="/auth/signin" className="font-medium text-primary hover:underline">
+            Đăng nhập
+          </Link>
+        </p>
+        <div className="flex justify-center">
+          <Link href="/" className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-400 hover:text-primary transition-colors py-1">
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75" />
+            </svg>
+            Trang chủ
+          </Link>
+        </div>
+      </div>
     </AuthSplitLayout>
   );
 }

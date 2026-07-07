@@ -72,7 +72,7 @@ const STEPS = [
 const PLAN_DETAILS: Record<string, any> = {
   'plan_mini': {
     price: 'Miễn phí', period: '', badge: '',
-    features: ['1 chi nhánh', '500 sản phẩm', 'DB dùng chung (Shared PostgreSQL)', 'POS cơ bản', 'Cộng đồng hỗ trợ'],
+    features: ['1 chi nhánh', '500 sản phẩm', 'DB dùng chung (Shared PostgreSQL)', 'POS cơ bản', 'Hỗ trợ qua cộng đồng (Community)'],
     cta: 'Đăng ký miễn phí', highlight: false,
   },
   'plan_pro': {
@@ -91,22 +91,32 @@ const PLAN_DETAILS: Record<string, any> = {
 export default async function LandingPage() {
   const admin = getSupabaseAdminClient();
   const config = await getSystemSettings();
-  const starterTrialDays = parseInt(config.starter_trial_days) || 90;
-  const starterTrialText = formatTrialDurationVi(starterTrialDays);
+  void config; // kept for possible future use (e.g., maintenance_mode)
 
   const { data: dbPlans } = await admin.from('plans').select('*').order('id', { ascending: true });
   const plans = (dbPlans || [])
     .filter((p: any) => p.metadata?.show_public !== false)
-    .map((p: any) => ({
-      name: p.name,
-      code: p.code,
-      price_monthly: p.price_monthly,
-      price_yearly: p.price_yearly,
-      ...(PLAN_DETAILS[p.code] || PLAN_DETAILS['plan_mini'])
-    }));
+    .map((p: any) => {
+      const detail = PLAN_DETAILS[p.code];
+      return {
+        name: p.name,
+        code: p.code,
+        price_monthly: p.price_monthly,
+        price_yearly: p.price_yearly,
+        // Pass real metadata from DB for limit display in PricingSection
+        metadata: p.metadata || {},
+        // UI presentation from PLAN_DETAILS
+        cta: detail?.cta ?? 'Bắt đầu',
+        highlight: detail?.highlight ?? false,
+        badge: detail?.badge ?? '',
+      };
+    });
 
   // Fallback in case DB is empty
-  const displayPlans = plans.length > 0 ? plans : Object.keys(PLAN_DETAILS).map((k) => ({ name: k, code: k, ...PLAN_DETAILS[k] }));
+  const displayPlans = plans.length > 0 ? plans : Object.keys(PLAN_DETAILS).map((k) => ({
+    name: k, code: k, price_monthly: 0, price_yearly: 0, metadata: {},
+    cta: PLAN_DETAILS[k].cta, highlight: PLAN_DETAILS[k].highlight, badge: PLAN_DETAILS[k].badge ?? ''
+  }));
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 overflow-x-hidden" style={{ fontFamily: "'Inter', sans-serif" }}>
@@ -135,9 +145,9 @@ export default async function LandingPage() {
               Sở hữu cơ sở dữ liệu riêng biệt (BYOD)
             </div>
             <h1 className="text-4xl md:text-6xl lg:text-[3.5rem] font-extrabold leading-[1.1] tracking-tight text-slate-900 mb-6 drop-shadow-sm">
-              Bán hàng dễ dàng. <br/>
+              Bán hàng dễ dàng <br/>
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-orange-400">
-                Quản lý gọn gàng.
+                Quản lý gọn gàng
               </span>
             </h1>
             <p className="mt-6 max-w-2xl mx-auto lg:mx-0 text-lg md:text-xl text-slate-650 leading-relaxed font-medium">
@@ -712,7 +722,7 @@ export default async function LandingPage() {
       </section>
 
       {/* ═══ PRICING ═══ */}
-      <PricingSection plans={displayPlans} trialText={starterTrialText} />
+      <PricingSection plans={displayPlans} />
 
       {/* ═══ CTA ═══ */}
       <section className="relative py-24 md:py-32 bg-slate-50 border-t border-slate-200 overflow-hidden">
@@ -725,7 +735,7 @@ export default async function LandingPage() {
             Bắt đầu quản lý kinh doanh thông minh
           </h2>
           <p className="text-xl text-slate-650 font-medium mb-10 max-w-2xl mx-auto">
-            Bắt đầu bán hàng ngay với gói Tiên phong miễn phí {starterTrialText} dùng thử. Nâng cấp chi phí cực rẻ cho quy mô chuỗi nhiều chi nhánh.
+            Bắt đầu bán hàng ngay với gói Tiên phong miễn phí vĩnh viễn. Nâng cấp linh hoạt khi quy mô mở rộng.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link href="/register" id="cta-bottom-register" className="group flex items-center justify-center gap-2 rounded-xl bg-primary px-8 py-4 text-lg font-bold text-white shadow-xl hover:bg-primary-dark transition-all hover:scale-105">
