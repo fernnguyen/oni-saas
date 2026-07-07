@@ -82,10 +82,27 @@ export function DashboardShell({
   const [mounted, setMounted] = useState(false);
   const [sortModalOpen, setSortModalOpen] = useState(false);
 
+  // ── Branch localStorage persistence ──────────────────────────────────────────
+  // When on a branch page (sidebarBasePath contains currentBranchSlug), save it.
+  // When on an org-level page (basePath may be wrong), restore from localStorage.
+  const [effectiveBasePath, setEffectiveBasePath] = useState(sidebarBasePath);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const savedBranch = localStorage.getItem('oni_last_branch');
+    // Save: if the server-provided basePath includes currentBranchSlug, we are on a real branch page
+    if (currentBranchSlug && sidebarBasePath === `/${currentBranchSlug}`) {
+      localStorage.setItem('oni_last_branch', currentBranchSlug);
+    } else if (savedBranch && sidebarContext === 'shop') {
+      // Restore: server gave us a potentially wrong basePath; use last known branch
+      setEffectiveBasePath(`/${savedBranch}`);
+    }
+  }, [sidebarBasePath, currentBranchSlug, sidebarContext]);
+
   // Build nav groups for horizontal mode
   const navGroups = useMemo(() => buildNavGroups(
     {
-      basePath: sidebarBasePath,
+      basePath: effectiveBasePath,
       supportHref,
       tenantHref,
       connectorsHref,
@@ -100,7 +117,7 @@ export function DashboardShell({
       planCode,
     },
     permissions,
-  ), [sidebarBasePath, supportHref, tenantHref, connectorsHref, settingsHref, tenantBillingHref, tenantSettingsHref, tenantTeamHref, tenantRolesHref, sidebarContext, industryType, hasP2pAccess, planCode, permissions]);
+  ), [effectiveBasePath, supportHref, tenantHref, connectorsHref, settingsHref, tenantBillingHref, tenantSettingsHref, tenantTeamHref, tenantRolesHref, sidebarContext, industryType, hasP2pAccess, planCode, permissions]);
 
   // Extract group labels for preference hook (exclude unlabelled groups)
   const groupLabels = useMemo(
@@ -170,7 +187,7 @@ export function DashboardShell({
             onMobileMenuClick={() => setMobileNavOpen(true)}
             collapsed={isHorizontal ? false : collapsed}
             onToggleCollapsed={isHorizontal ? undefined : toggleCollapsed}
-            basePath={sidebarBasePath}
+            basePath={effectiveBasePath}
             industryType={industryType}
             navMode={mode}
             onToggleNavMode={sidebarContext === 'shop' ? toggleMode : undefined}
@@ -198,7 +215,7 @@ export function DashboardShell({
             {/* Sidebar: hidden when horizontal mode on desktop */}
             {!isHorizontal && (
               <Sidebar
-                basePath={sidebarBasePath}
+                basePath={effectiveBasePath}
                 supportHref={supportHref}
                 tenantHref={tenantHref}
                 connectorsHref={connectorsHref}
@@ -231,7 +248,7 @@ export function DashboardShell({
             {/* Mobile drawer (always available regardless of mode) */}
             {isHorizontal && mobileNavOpen && (
               <Sidebar
-                basePath={sidebarBasePath}
+                basePath={effectiveBasePath}
                 supportHref={supportHref}
                 tenantHref={tenantHref}
                 connectorsHref={connectorsHref}

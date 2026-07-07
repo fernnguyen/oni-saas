@@ -31,9 +31,13 @@ export default async function BillingPage({ params }: Props) {
   if (!tenant) notFound();
 
   // Fetch default shop
-  const { data: shops } = await admin.from('shops').select('id, name, slug').eq('tenant_id', tenant.id);
+  const { data: shops } = await admin
+    .from('shops')
+    .select('id, name, slug')
+    .eq('tenant_id', tenant.id)
+    .order('created_at', { ascending: true }); // deterministic order
   if (!shops || shops.length === 0) notFound();
-  
+
   const defaultShop = shops[0];
   const homePath = `/${defaultShop.slug}`;
 
