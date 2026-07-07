@@ -161,7 +161,18 @@ function buildProfitReport(orders: Row[], orderItems: Row[], products: Row[], ca
     const type = cb.type?.toLowerCase()
     if (type === 'payment' || type === 'expense') {
       const category = cb.category || 'Khác'
-      if (category.toLowerCase().includes('refund') || category.toLowerCase() === 'hoàn tiền') continue
+      const catLower = category.toLowerCase()
+      if (
+        catLower.includes('refund') ||
+        catLower === 'hoàn tiền' ||
+        catLower === 'import' ||
+        catLower === 'inventory' ||
+        catLower === 'inventory_payment' ||
+        catLower === 'inventory_receipt' ||
+        catLower === 'debt_payment'
+      ) {
+        continue
+      }
       
       const dateStr = cb.date || cb.created_at || new Date().toISOString()
       if (!inRange(dateStr)) continue
