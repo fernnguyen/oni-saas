@@ -90,6 +90,7 @@ interface Props {
   shopName: string
   industryType?: string
   maxProducts?: number
+  planCode?: string
 }
 
 // Industry helpers
@@ -150,18 +151,21 @@ async function compressImageToWebP(file: File, maxWidth = 1024, maxHeight = 1024
     reader.onload = (event) => {
       const img = new Image()
       img.onload = () => {
-        let { width, height } = img
-        if (width > maxWidth || height > maxHeight) {
-          const ratio = Math.min(maxWidth / width, maxHeight / height)
-          width = width * ratio
-          height = height * ratio
-        }
         const canvas = document.createElement('canvas')
+        let width = img.width
+        let height = img.height
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width)
+          width = maxWidth
+        }
+        if (height > maxHeight) {
+          width = Math.round((width * maxHeight) / height)
+          height = maxHeight
+        }
         canvas.width = width
         canvas.height = height
         const ctx = canvas.getContext('2d')
-        if (!ctx) return reject(new Error('Failed to get canvas context'))
-        ctx.drawImage(img, 0, 0, width, height)
+        ctx?.drawImage(img, 0, 0, width, height)
         canvas.toBlob(
           (blob) => {
             if (blob) resolve(blob)
@@ -171,15 +175,15 @@ async function compressImageToWebP(file: File, maxWidth = 1024, maxHeight = 1024
           0.8
         )
       }
-      img.onerror = () => reject(new Error('Failed to load image'))
+      img.onerror = () => reject(new Error('Image load failed'))
       img.src = event.target?.result as string
     }
-    reader.onerror = () => reject(new Error('Failed to read file'))
+    reader.onerror = () => reject(new Error('File read failed'))
     reader.readAsDataURL(file)
   })
 }
 
-export function ProductsClient({ shopId, industryType = 'retail', maxProducts }: Props) {
+export function ProductsClient({ shopId, industryType = 'retail', maxProducts, planCode }: Props) {
   const queryClient = useQueryClient()
   const searchParams = useSearchParams()
   const initialSearch = searchParams?.get('search') || searchParams?.get('productId') || ''
@@ -198,7 +202,7 @@ export function ProductsClient({ shopId, industryType = 'retail', maxProducts }:
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
-  const [imageInputMode, setImageInputMode] = useState<'url' | 'file'>('file')
+  const [imageInputMode, setImageInputMode] = useState<'url' | 'file'>(planCode === 'plan_mini' ? 'url' : 'file')
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'uploading'>('idle')
   const [fileInputKey, setFileInputKey] = useState(Date.now())
   const [saveConfirmOpen, setSaveConfirmOpen] = useState(false)
@@ -1084,7 +1088,7 @@ export function ProductsClient({ shopId, industryType = 'retail', maxProducts }:
     setEditingId(latestRow.product_id || latestRow.id)
     setSelectedFile(null)
     setPreviewUrl(latestRow.image_url || null)
-    setImageInputMode(latestRow.image_url ? 'url' : 'file')
+    setImageInputMode(planCode === 'plan_mini' ? 'url' : (latestRow.image_url ? 'url' : 'file'))
     setFileInputKey(Date.now())
     setUnitRows((latestRow as any).product_units || [])
 
@@ -1162,7 +1166,7 @@ export function ProductsClient({ shopId, industryType = 'retail', maxProducts }:
     setEditingId(null)
     setSelectedFile(null)
     setPreviewUrl(null)
-    setImageInputMode('file')
+    setImageInputMode(planCode === 'plan_mini' ? 'url' : 'file')
     setFileInputKey(Date.now())
     setVariantRows([])
     setOptionName('')
@@ -1193,7 +1197,7 @@ export function ProductsClient({ shopId, industryType = 'retail', maxProducts }:
     setEditingId(null)
     setSelectedFile(null)
     setPreviewUrl(row.image_url || null)
-    setImageInputMode(row.image_url ? 'url' : 'file')
+    setImageInputMode(planCode === 'plan_mini' ? 'url' : (row.image_url ? 'url' : 'file'))
     setFileInputKey(Date.now())
     setVariantRows([])
     setOptionName('')
@@ -2486,22 +2490,28 @@ export function ProductsClient({ shopId, industryType = 'retail', maxProducts }:
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <label className="block text-sm font-medium text-slate-700">Ảnh sản phẩm</label>
-                    <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-lg">
-                      <button
-                        type="button"
-                        onClick={() => setImageInputMode('file')}
-                        className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${imageInputMode === 'file' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
-                      >
-                        Tải ảnh lên
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setImageInputMode('url')}
-                        className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${imageInputMode === 'url' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
-                      >
-                        Dùng đường dẫn (URL)
-                      </button>
-                    </div>
+                    {planCode === 'plan_mini' ? (
+                      <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                        Chỉ hỗ trợ URL (Gói Tiên phong)
+                      </span>
+                    ) : (
+                      <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-lg">
+                        <button
+                          type="button"
+                          onClick={() => setImageInputMode('file')}
+                          className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${imageInputMode === 'file' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                          Tải ảnh lên
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setImageInputMode('url')}
+                          className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${imageInputMode === 'url' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                          Dùng đường dẫn (URL)
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {imageInputMode === 'file' ? (

@@ -36,12 +36,13 @@ export default async function ProductsPage({ params }: Props) {
 
   const { data: sub } = await admin
     .from('subscriptions')
-    .select('plans(metadata)')
+    .select('plans(code, metadata)')
     .eq('tenant_id', tenant?.id)
     .maybeSingle()
 
   const plans = sub?.plans as any;
   const planMeta = Array.isArray(plans) ? plans[0]?.metadata : plans?.metadata;
+  const planCode = Array.isArray(plans) ? plans[0]?.code : plans?.code;
   const maxProducts = planMeta?.max_products;
 
   return (
@@ -50,6 +51,7 @@ export default async function ProductsPage({ params }: Props) {
       shopName={shop.name}
       industryType={industryType}
       maxProducts={maxProducts}
+      planCode={planCode}
     />
   )
 }
