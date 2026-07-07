@@ -853,36 +853,57 @@ export async function POST(
           })
         }
 
-        // ── Deduct from inventory_batches FIFO ──
+        // ── Update inventory_batches ──
         try {
           const batchesRes = await connector.list('inventory-batches', {
             page: 1, limit: 100,
             filters: { product_id: pid, branch_id: targetBranchId }
           })
           const allBatches = batchesRes.data as Record<string, string>[]
-          const activeBatches = allBatches.filter(b => parseFloat(b.stock_qty || '0') > 0)
-          
-          if (activeBatches.length > 0) {
-            activeBatches.sort((a, b) => (a.expiry_date || '').localeCompare(b.expiry_date || ''))
-            
-            let remainingToSubtract = qtyToDeduct
-            for (const b of activeBatches) {
-              if (remainingToSubtract <= 0) break
-              const bStock = parseFloat(b.stock_qty || '0')
-              const deduct = Math.min(bStock, remainingToSubtract)
-              
-              const newBStock = bStock - deduct
-              await connector.update('inventory-batches', b.id || (b as any).batch_id, {
+
+          if (delta < 0) {
+            // Deduct FIFO
+            const activeBatches = allBatches.filter(b => parseFloat(b.stock_qty || '0') > 0)
+            if (activeBatches.length > 0) {
+              activeBatches.sort((a, b) => (a.expiry_date || '').localeCompare(b.expiry_date || ''))
+              let remainingToSubtract = Math.abs(delta)
+              for (const b of activeBatches) {
+                if (remainingToSubtract <= 0) break
+                const bStock = parseFloat(b.stock_qty || '0')
+                const deduct = Math.min(bStock, remainingToSubtract)
+                
+                const newBStock = bStock - deduct
+                await connector.update('inventory-batches', b.id || (b as any).batch_id, {
+                  stock_qty: String(newBStock)
+                })
+                tx.add(async () => {
+                  await connector.update('inventory-batches', b.id || (b as any).batch_id, { stock_qty: String(bStock) }).catch(() => {})
+                })
+                remainingToSubtract -= deduct
+              }
+            }
+          } else if (delta > 0) {
+            // Add to default batch
+            const defaultBatch = allBatches.find(b => !b.batch_no || b.batch_no === 'MẶC ĐỊNH')
+            if (defaultBatch) {
+              const newBStock = parseFloat(defaultBatch.stock_qty || '0') + delta
+              await connector.update('inventory-batches', defaultBatch.id || (defaultBatch as any).batch_id, {
                 stock_qty: String(newBStock)
               })
-              tx.add(async () => {
-                await connector.update('inventory-batches', b.id || (b as any).batch_id, { stock_qty: String(bStock) }).catch(() => {})
+            } else {
+              await connector.create('inventory-batches', {
+                tenant_id: shop.tenant_id,
+                branch_id: targetBranchId,
+                product_id: pid,
+                batch_no: 'MẶC ĐỊNH',
+                stock_qty: String(delta),
+                expiry_date: '',
+                active: 'TRUE'
               })
-              remainingToSubtract -= deduct
             }
           }
         } catch (batchErr) {
-          console.error('Failed to deduct from inventory-batches in sync-batch:', batchErr)
+          console.error('Failed to update inventory-batches in sync-batch:', batchErr)
         }
       }
     }
