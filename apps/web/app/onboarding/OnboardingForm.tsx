@@ -293,7 +293,7 @@ export function OnboardingForm({ plans, initialDomain, initialIndustry, registra
     try {
       const supabase = getSupabaseBrowserClient();
       await supabase.auth.signOut();
-      window.location.href = '/auth/signin';
+      window.location.href = '/register';
     } catch (err) {
       console.error('Sign out error:', err);
     }
