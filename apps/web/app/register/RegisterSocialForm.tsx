@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 
 export function RegisterSocialForm() {
   const [loadingGoogle, setLoadingGoogle] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
 
   async function onGoogleSignIn() {
     setLoadingGoogle(true);

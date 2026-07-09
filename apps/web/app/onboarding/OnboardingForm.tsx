@@ -9,6 +9,7 @@ import { Turnstile } from '../components/auth/Turnstile';
 import { IndustryIcon } from '../components/layout/IndustryIcon';
 import { isValidVNPhone } from '../../lib/utils/phone';
 import { getSupabaseBrowserClient } from '../../lib/supabaseBrowser';
+import { AuthSplitLayout } from '../components/layout/AuthSplitLayout';
 
 const SLUG_REGEX = /^[a-z0-9-]+$/;
 const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';

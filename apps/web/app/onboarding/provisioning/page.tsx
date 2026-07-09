@@ -65,7 +65,7 @@ export default function ProvisioningPage() {
           sessionStorage.setItem('oni_register_error', body.message || 'Đã xảy ra lỗi. Vui lòng thử lại.');
           throw new Error(body.message || 'Đã xảy ra lỗi. Vui lòng thử lại.');
         }
-        return body as { tenant_id: string; workspace_url: string; email: string; slug: string };
+        return body as { tenant_id: string; workspace_url: string; email: string; slug: string; phone_login?: string; provider?: string; verification_required?: boolean };
       })
       .then((result) => {
         // Mark all steps done, then navigate
