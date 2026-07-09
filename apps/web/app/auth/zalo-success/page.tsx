@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { getSupabaseBrowserClient } from '../../../lib/supabaseBrowser';
 
-export default function ZaloSuccessPage() {
+function ZaloSuccessContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const intent = searchParams.get('intent') || 'login';
@@ -53,12 +53,19 @@ export default function ZaloSuccessPage() {
     };
   }, [intent]);
 
+  return null;
+}
+
+export default function ZaloSuccessPage() {
   return (
     <div className="flex h-screen w-full items-center justify-center bg-slate-50">
       <div className="flex flex-col items-center gap-4">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
         <p className="text-sm font-medium text-slate-600">Đang đồng bộ phiên đăng nhập...</p>
       </div>
+      <Suspense fallback={null}>
+        <ZaloSuccessContent />
+      </Suspense>
     </div>
   );
 }
