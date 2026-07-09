@@ -72,20 +72,18 @@ export async function POST(req: NextRequest) {
     const phonePlus84 = clean.startsWith('0') ? `+84${clean.slice(1)}` : (clean.startsWith('84') ? `+${clean}` : (clean.startsWith('+84') ? clean : `+84${clean}`));
     const phone84 = phonePlus84.replace('+', '');
     
-    // Lookup user by phone iterating through listUsers
-    let page = 1;
+    // Lookup user by phone using RPC directly against auth.users
     let foundEmail: string | undefined;
-    while (true) {
-      const { data: usersData, error: err } = await admin.auth.admin.listUsers({ page, perPage: 1000 });
-      if (err || !usersData?.users || usersData.users.length === 0) break;
-      
-      const found = usersData.users.find(u => u.phone === phonePlus84 || u.phone === phone84 || u.phone === identifier);
-      if (found && found.email) {
-        foundEmail = found.email;
-        break;
+    
+    const { data: userData, error: rpcError } = await admin.rpc('get_user_by_phone', { p_phone: phonePlus84 });
+    if (!rpcError && userData && userData.email) {
+      foundEmail = userData.email;
+    } else {
+      // Fallback to check without the '+'
+      const { data: userData2, error: rpcError2 } = await admin.rpc('get_user_by_phone', { p_phone: phone84 });
+      if (!rpcError2 && userData2 && userData2.email) {
+        foundEmail = userData2.email;
       }
-      if (usersData.users.length < 1000) break;
-      page++;
     }
 
     if (foundEmail) {

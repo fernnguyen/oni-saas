@@ -12,8 +12,10 @@ interface WorkspaceInfo {
   email:                 string;
   workspace_url:         string;
   verification_required?: boolean;
-  temp_password?:        string;
   phone_login?:          string;
+  provider?:             string;
+  has_existing_password?: boolean;
+  submitted_password?:   string;
 }
 
 function CopyButton({ value }: { value: string }) {
@@ -138,12 +140,65 @@ export default function RegisterSuccessPage() {
                 <span>Workspace:</span>
                 <strong className="font-mono text-slate-800 select-all">{info.slug}.oni.vn</strong>
               </div>
-              <div className="flex justify-between">
-                <span>Tài khoản Admin:</span>
-                <strong className="font-mono text-slate-800 select-all">{info.email}</strong>
-              </div>
+              {info.provider && info.provider !== 'email' ? (
+                <>
+                  <div className="flex justify-between items-center">
+                    <span>Đăng nhập qua:</span>
+                    <strong className="flex items-center gap-1.5 text-slate-800">
+                      {info.provider === 'google' ? (
+                        <svg width="14" height="14" viewBox="0 0 18 18" aria-hidden="true"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615Z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18Z"/><path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332Z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58Z"/></svg>
+                      ) : info.provider === 'zalo' ? (
+                        <Image src="/partners/zalo.svg" alt="Zalo" width={14} height={14} />
+                      ) : null}
+                      <span className="capitalize">{info.provider}</span>
+                    </strong>
+                  </div>
+                  {info.phone_login && (
+                    <div className="flex justify-between">
+                      <span>Hoặc bằng SĐT:</span>
+                      <strong className="font-mono text-slate-800 select-all">{info.phone_login}</strong>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div className="flex justify-between">
+                    <span>Tài khoản Admin:</span>
+                    <strong className="font-mono text-slate-800 select-all">{info.email}</strong>
+                  </div>
+                  {info.phone_login && (
+                    <div className="flex justify-between">
+                      <span>SĐT đăng nhập:</span>
+                      <strong className="font-mono text-slate-800 select-all">{info.phone_login}</strong>
+                    </div>
+                  )}
+                </>
+              )}
+              {info.has_existing_password && (
+                <div className="flex justify-between">
+                  <span>Mật khẩu:</span>
+                  <strong className="text-slate-800">Mật khẩu bạn đã thiết lập</strong>
+                </div>
+              )}
+              {info.submitted_password && (
+                <div className="flex justify-between">
+                  <span>Mật khẩu:</span>
+                  <strong className="font-mono text-slate-800 select-all">{info.submitted_password}</strong>
+                </div>
+              )}
             </div>
           </div>
+
+          {info.submitted_password && (
+            <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700 flex items-start gap-2.5">
+              <svg className="h-5 w-5 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <p>
+                Bạn có thể dùng SĐT <strong>{info.phone_login}</strong> và mật khẩu trên để đăng nhập nếu không dùng được Zalo/Google. Hãy lưu lại mật khẩu này!
+              </p>
+            </div>
+          )}
 
           {/* Actions */}
           <div className="space-y-3">
@@ -226,23 +281,50 @@ export default function RegisterSuccessPage() {
           <div className="divide-y divide-slate-100">
             <InfoRow label="Tên miền" value={info.slug} mono />
             <InfoRow label="URL" value={info.workspace_url} mono link={info.workspace_url} />
-            <InfoRow label="Tài khoản Admin" value={info.email} mono />
-            {info.phone_login && (
-              <InfoRow label="SĐT đăng nhập" value={info.phone_login} mono />
+            
+            {info.provider && info.provider !== 'email' ? (
+              <>
+                <div className="flex items-center justify-between px-5 py-3.5">
+                  <span className="text-xs text-slate-500 uppercase tracking-wider font-medium w-36 shrink-0">Đăng nhập qua</span>
+                  <div className="flex items-center min-w-0 flex-1 justify-end">
+                    <strong className="flex items-center gap-1.5 text-slate-800 text-sm font-medium">
+                      {info.provider === 'google' ? (
+                        <svg width="14" height="14" viewBox="0 0 18 18" aria-hidden="true"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615Z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18Z"/><path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332Z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58Z"/></svg>
+                      ) : info.provider === 'zalo' ? (
+                        <Image src="/partners/zalo.svg" alt="Zalo" width={14} height={14} />
+                      ) : null}
+                      <span className="capitalize">{info.provider}</span>
+                    </strong>
+                  </div>
+                </div>
+                {info.phone_login && (
+                  <InfoRow label="Hoặc bằng SĐT" value={info.phone_login} mono />
+                )}
+              </>
+            ) : (
+              <>
+                <InfoRow label="Tài khoản Admin" value={info.email} mono />
+                {info.phone_login && (
+                  <InfoRow label="SĐT đăng nhập" value={info.phone_login} mono />
+                )}
+              </>
             )}
-            {info.temp_password && (
-              <InfoRow label="Mật khẩu tạm" value={info.temp_password} mono />
+            {info.has_existing_password && (
+              <InfoRow label="Mật khẩu" value="Mật khẩu bạn đã thiết lập" />
+            )}
+            {info.submitted_password && (
+              <InfoRow label="Mật khẩu" value={info.submitted_password} mono />
             )}
           </div>
         </div>
 
-        {info.temp_password && (
+        {info.submitted_password && (
           <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700 flex items-start gap-2.5">
             <svg className="h-5 w-5 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <p>
-              Hệ thống đã tạo mật khẩu ngẫu nhiên cho số điện thoại của bạn. Bạn có thể dùng <strong>{info.phone_login}</strong> và mật khẩu trên để đăng nhập nếu không dùng được Zalo/Google. Hãy lưu lại mật khẩu này!
+              Bạn có thể dùng SĐT <strong>{info.phone_login}</strong> và mật khẩu trên để đăng nhập nếu không dùng được Zalo/Google. Hãy lưu lại mật khẩu này!
             </p>
           </div>
         )}
@@ -281,7 +363,7 @@ export default function RegisterSuccessPage() {
 function InfoRow({ label, value, mono, link }: { label: string; value: string; mono?: boolean; link?: string }) {
   return (
     <div className="flex items-center justify-between px-5 py-3.5">
-      <span className="text-xs text-slate-500 uppercase tracking-wider font-medium w-24 shrink-0">{label}</span>
+      <span className="text-xs text-slate-500 uppercase tracking-wider font-medium w-36 shrink-0">{label}</span>
       <div className="flex items-center gap-1 min-w-0 flex-1 justify-end">
         {link ? (
           <a href={link} className={`text-sm text-primary hover:underline truncate ${mono ? 'font-mono' : ''}`}>{value}</a>

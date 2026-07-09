@@ -75,7 +75,7 @@ const INDUSTRY_VISUALS: Record<IndustryType, {
   },
 };
 
-export function OnboardingForm({ plans, initialDomain, initialIndustry, registrationMode = 'free', starterTrialDays = 90, userName, userAvatar, userEmail }: { plans: any[], initialDomain?: string, initialIndustry?: string, registrationMode?: string, starterTrialDays?: number, userName?: string, userAvatar?: string, userEmail?: string }) {
+export function OnboardingForm({ plans, initialDomain, initialIndustry, registrationMode = 'free', starterTrialDays = 90, userName, userAvatar, userEmail, userPhone }: { plans: any[], initialDomain?: string, initialIndustry?: string, registrationMode?: string, starterTrialDays?: number, userName?: string, userAvatar?: string, userEmail?: string, userPhone?: string }) {
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
@@ -83,7 +83,8 @@ export function OnboardingForm({ plans, initialDomain, initialIndustry, registra
   const [slugStatus, setSlugStatus] = useState<'idle' | 'checking' | 'available' | 'taken' | 'invalid'>('idle');
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(!!initialDomain);
   const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
+  const [phone, setPhone] = useState(userPhone || '');
+  const [password, setPassword] = useState('');
   const [invitationCode, setInvitationCode] = useState('');
   const defaultPlan = plans.find(p => p.is_default || p.code === 'plan_mini') || plans[0];
   const [selectedPlanCode, setSelectedPlanCode] = useState(defaultPlan?.code || '');
@@ -330,7 +331,7 @@ export function OnboardingForm({ plans, initialDomain, initialIndustry, registra
       return;
     }
 
-    sessionStorage.setItem('oni_register', JSON.stringify({ slug, name, phone, plan_code: selectedPlanCode, industry_type: industryType, turnstile_token: turnstileToken, invitation_code: invitationCode }));
+    sessionStorage.setItem('oni_register', JSON.stringify({ slug, name, phone, password, plan_code: selectedPlanCode, industry_type: industryType, turnstile_token: turnstileToken, invitation_code: invitationCode }));
     router.push('/onboarding/provisioning');
   }
 
@@ -339,7 +340,8 @@ export function OnboardingForm({ plans, initialDomain, initialIndustry, registra
   const hasValidCode = isCodeRequired 
     ? (invitationCode.trim().length > 0 && (!promoDetails || promoDetails.valid))
     : (invitationCode.trim().length === 0 || !promoDetails || promoDetails.valid);
-  const canSubmit = slug.length >= 2 && slugOk && name.trim().length >= 2 && selectedPlanCode && hasValidCode && (TURNSTILE_SITE_KEY ? turnstileToken : true);
+  const canSubmitStep2 = slug.length >= 2 && slugOk && name.trim().length >= 2 && selectedPlanCode && hasValidCode;
+  const canSubmitStep3 = canSubmitStep2 && (TURNSTILE_SITE_KEY ? turnstileToken : true);
 
   if (registrationMode === 'disabled') {
     return (
@@ -410,8 +412,7 @@ export function OnboardingForm({ plans, initialDomain, initialIndustry, registra
 
         <form onSubmit={onSubmit} className="mx-auto w-full">
 
-        {/* Step Indicator Header (Hide on Step 3) */}
-        {step < 3 && (
+        {/* Step Indicator Header */}
         <div className="mb-6 flex items-center justify-between border-b border-slate-100 pb-4">
           <button
             type="button"
@@ -425,22 +426,35 @@ export function OnboardingForm({ plans, initialDomain, initialIndustry, registra
             }`}>1</span>
             Ngành nghề
           </button>
-          <div className="flex-1 h-px bg-slate-100 mx-4 -mt-2" />
+          <div className="flex-1 h-px bg-slate-100 mx-3 -mt-2" />
           <button
             type="button"
-            disabled={step === 1}
+            disabled={step < 2}
             onClick={() => setStep(2)}
             className={`flex items-center gap-2 pb-2 border-b-2 text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
-              step === 2 ? 'border-primary text-primary' : 'border-transparent text-slate-400 hover:text-slate-605'
+              step === 2 ? 'border-primary text-primary' : 'border-transparent text-slate-400 hover:text-slate-600'
             }`}
           >
             <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${
               step === 2 ? 'bg-primary text-white' : 'bg-slate-100 text-slate-500'
             }`}>2</span>
-            Thiết lập cửa hàng
+            Thiết lập
+          </button>
+          <div className="flex-1 h-px bg-slate-100 mx-3 -mt-2" />
+          <button
+            type="button"
+            disabled={step < 3}
+            onClick={() => setStep(3)}
+            className={`flex items-center gap-2 pb-2 border-b-2 text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
+              step === 3 ? 'border-primary text-primary' : 'border-transparent text-slate-400 hover:text-slate-600'
+            }`}
+          >
+            <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${
+              step === 3 ? 'bg-primary text-white' : 'bg-slate-100 text-slate-500'
+            }`}>3</span>
+            Bảo mật
           </button>
         </div>
-        )}
 
         {step < 3 && (
         <div className="mb-6">
@@ -579,35 +593,6 @@ export function OnboardingForm({ plans, initialDomain, initialIndustry, registra
               )}
             </div>
 
-            {/* Phone */}
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-700 flex items-center gap-1.5">
-                <span>Số điện thoại đăng nhập (Tùy chọn)</span>
-              </label>
-              <input
-                type="text"
-                value={phone}
-                onChange={(e) => {
-                  setPhone(e.target.value.trim());
-                  setError(null);
-                  setFieldErrors(prev => ({ ...prev, phone: '' }));
-                }}
-                onBlur={handlePhoneBlur}
-                placeholder="0987654321"
-                className={`w-full rounded-xl border px-4 py-3 text-sm focus:outline-none focus:ring-2 transition-all ${
-                  fieldErrors.phone ? 'border-red-400 focus:border-red-400 focus:ring-red-200/50' : 'border-slate-200 focus:border-primary focus:ring-primary/20'
-                }`}
-              />
-              <p className="mt-1.5 text-[11px] text-slate-500 leading-normal">
-                (Dùng để đăng nhập độc lập nếu tài khoản mạng xã hội bị khóa)
-              </p>
-              {fieldErrors.phone && (
-                <p className="mt-1 text-xs text-red-500 font-semibold flex items-center gap-1 animate-in fade-in duration-200">
-                  <span className="shrink-0">⚠️</span> {fieldErrors.phone}
-                </p>
-              )}
-            </div>
-
             {/* Invitation Code / Promo Code */}
             <div>
               <label className="mb-1.5 block text-sm font-medium text-slate-700 flex items-center gap-1.5">
@@ -740,6 +725,113 @@ export function OnboardingForm({ plans, initialDomain, initialIndustry, registra
               );
             })()}
 
+            <div className="flex flex-col gap-4 mt-6">
+              <button
+                type="button"
+                onClick={() => setStep(3)}
+                disabled={!canSubmitStep2}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-white hover:bg-primary-dark disabled:opacity-50 transition-colors shadow-md shadow-blue-500/10 cursor-pointer"
+              >
+                Tiếp tục
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                </svg>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setStep(1)}
+                className="w-full text-center text-xs font-semibold text-slate-400 hover:text-slate-600 py-1 transition-colors cursor-pointer"
+              >
+                ← Quay lại chọn ngành nghề
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === 3 && (
+          <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
+            <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4">
+              <div className="flex items-start gap-3">
+                <div className="flex-shrink-0 mt-0.5">
+                  <svg className="h-5 w-5 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-indigo-900">Tạo tài khoản dự phòng</h3>
+                  <p className="mt-1 text-xs text-indigo-700 leading-relaxed">
+                    Giúp bạn đăng nhập độc lập bằng số điện thoại nếu tài khoản mạng xã hội bị sự cố. Không bắt buộc nhưng được khuyến khích để bảo mật tài khoản.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-slate-700">Số điện thoại đăng nhập</label>
+                <input
+                  type="text"
+                  value={phone}
+                  onChange={(e) => {
+                    if (userPhone) return;
+                    setPhone(e.target.value.trim());
+                    setError(null);
+                    setFieldErrors(prev => ({ ...prev, phone: '' }));
+                  }}
+                  onBlur={userPhone ? undefined : handlePhoneBlur}
+                  placeholder="0987654321"
+                  disabled={!!userPhone}
+                  className={`w-full rounded-xl border px-4 py-3 text-sm focus:outline-none focus:ring-2 transition-all ${
+                    userPhone ? 'bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed' :
+                    fieldErrors.phone ? 'border-red-400 focus:border-red-400 focus:ring-red-200/50' : 'border-slate-200 focus:border-primary focus:ring-primary/20'
+                  }`}
+                />
+                {fieldErrors.phone && (
+                  <p className="mt-1 text-xs text-red-500 font-semibold flex items-center gap-1 animate-in fade-in duration-200">
+                    <span className="shrink-0">⚠️</span> {fieldErrors.phone}
+                  </p>
+                )}
+              </div>
+
+              {userPhone ? (
+                <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 flex items-center gap-2">
+                  <svg className="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span>Bạn đã thiết lập mật khẩu đăng nhập cho số điện thoại này.</span>
+                </div>
+              ) : (
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-700">Mật khẩu</label>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      if (e.target.value.length >= 6 || e.target.value.length === 0) {
+                        setFieldErrors(prev => ({ ...prev, password: '' }));
+                      }
+                    }}
+                    onBlur={(e) => {
+                      if (e.target.value.length > 0 && e.target.value.length < 6) {
+                        setFieldErrors(prev => ({ ...prev, password: 'Mật khẩu phải có ít nhất 6 ký tự' }));
+                      }
+                    }}
+                    placeholder="Nhập mật khẩu (tối thiểu 6 ký tự)"
+                    className={`w-full rounded-xl border px-4 py-3 text-sm focus:outline-none focus:ring-2 transition-all ${
+                      fieldErrors.password ? 'border-red-400 focus:border-red-400 focus:ring-red-200/50' : 'border-slate-200 focus:border-primary focus:ring-primary/20'
+                    }`}
+                  />
+                  {fieldErrors.password && (
+                    <p className="mt-1 text-xs text-red-500 font-semibold flex items-center gap-1 animate-in fade-in duration-200">
+                      <span className="shrink-0">⚠️</span> {fieldErrors.password}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* Cloudflare Turnstile */}
             {TURNSTILE_SITE_KEY && (
               <Turnstile
@@ -754,24 +846,54 @@ export function OnboardingForm({ plans, initialDomain, initialIndustry, registra
               <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>
             )}
 
-            <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-4 mt-6">
               <button
-                type="submit"
-                disabled={!canSubmit || loading}
+                type="button"
+                onClick={(e) => {
+                  if (!userPhone) {
+                    if (phone && password.length < 6) {
+                      setFieldErrors(prev => ({ ...prev, password: 'Vui lòng nhập mật khẩu hợp lệ (từ 6 ký tự)' }));
+                      return;
+                    }
+                    if (!phone && password) {
+                      setFieldErrors(prev => ({ ...prev, phone: 'Vui lòng nhập số điện thoại nếu bạn đặt mật khẩu' }));
+                      return;
+                    }
+                    if (fieldErrors.phone || fieldErrors.password) return;
+                  }
+                  onSubmit(e);
+                }}
+                disabled={!canSubmitStep3 || loading}
                 className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-white hover:bg-primary-dark disabled:opacity-50 transition-colors shadow-md shadow-blue-500/10 cursor-pointer"
               >
-                {loading ? 'Đang khởi tạo...' : 'Hoàn tất thiết lập'}
+                {loading ? 'Đang khởi tạo...' : 'Hoàn tất & Tạo cửa hàng'}
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
                 </svg>
               </button>
 
+              {!userPhone && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    setPhone('');
+                    setPassword('');
+                    setFieldErrors(prev => ({ ...prev, phone: '', password: '' }));
+                    onSubmit(e);
+                  }}
+                  disabled={loading}
+                  className="w-full text-center text-sm font-semibold text-slate-500 hover:text-slate-800 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors cursor-pointer"
+                >
+                  Bỏ qua bước này
+                </button>
+              )}
+
               <button
                 type="button"
-                onClick={() => setStep(1)}
+                onClick={() => setStep(2)}
                 className="w-full text-center text-xs font-semibold text-slate-400 hover:text-slate-600 py-1 transition-colors cursor-pointer"
               >
-                ← Quay lại chọn ngành nghề
+                ← Quay lại thiết lập cửa hàng
               </button>
             </div>
           </div>

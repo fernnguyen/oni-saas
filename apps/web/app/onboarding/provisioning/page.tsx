@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { AuthSplitLayout } from '../../components/layout/AuthSplitLayout';
 
 type StepState = 'pending' | 'running' | 'done' | 'error';
 
@@ -74,8 +73,17 @@ export default function ProvisioningPage() {
         setSteps(['done', 'done', 'done', 'running']);
         setTimeout(() => {
           setSteps(['done', 'done', 'done', 'done']);
-          // Store result for success page (keep password for one-time display)
-          sessionStorage.setItem('oni_workspace', JSON.stringify({ ...result }));
+          // Extract password info from oni_register to show on success screen
+          const registerData = JSON.parse(sessionStorage.getItem('oni_register') || '{}');
+          const submittedPassword = registerData.password || null;
+          const hasExistingPassword = registerData.phone && !registerData.password;
+          
+          sessionStorage.setItem('oni_workspace', JSON.stringify({ 
+            ...result,
+            submitted_password: submittedPassword,
+            has_existing_password: hasExistingPassword,
+            phone_login: registerData.phone || result.phone_login
+          }));
           sessionStorage.removeItem('oni_register');
           setTimeout(() => router.push('/onboarding/success'), 600);
         }, 600);
@@ -100,19 +108,13 @@ export default function ProvisioningPage() {
   }
 
   return (
-    <AuthSplitLayout
-      title="Hệ thống đang chuẩn bị"
-      subtitle="Quá trình này chỉ mất vài giây. Chúng tôi đang thiết lập cơ sở dữ liệu riêng biệt và an toàn cho cửa hàng của bạn."
-      features={[
-        { label: "BẢO MẬT", value: "Database riêng" },
-        { label: "TỐC ĐỘ", value: "Siêu tốc" },
-      ]}
-    >
-      <div className="mb-8 text-center lg:text-left">
-        <Image src="/logo.png" alt="ONI.vn" width={40} height={40} className="mb-4 mx-auto lg:mx-0 rounded-xl" />
-        <h1 className="text-2xl font-bold text-slate-900">Đang thiết lập cửa hàng</h1>
-        <p className="mt-1 text-sm text-slate-500">Thường mất chưa đến 30 giây. Vui lòng đừng đóng trang này.</p>
-      </div>
+    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 py-12">
+      <div className="w-full max-w-[640px] bg-white rounded-3xl shadow-xl shadow-slate-200/50 p-6 sm:p-10 border border-slate-100">
+        <div className="mb-8 text-center">
+          <Image src="/logo.png" alt="ONI.vn" width={48} height={48} className="mb-4 mx-auto rounded-xl shadow-sm" />
+          <h1 className="text-2xl font-bold text-slate-900">Đang thiết lập cửa hàng</h1>
+          <p className="mt-1.5 text-sm text-slate-500">Quá trình này thường mất vài giây. Vui lòng đừng đóng trang này.</p>
+        </div>
 
       <div className="space-y-5">
         {/* Progress bar */}
@@ -165,7 +167,8 @@ export default function ProvisioningPage() {
           </div>
         )}
       </div>
-    </AuthSplitLayout>
+    </div>
+  </div>
   );
 }
 

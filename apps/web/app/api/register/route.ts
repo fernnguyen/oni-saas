@@ -13,6 +13,7 @@ const schema = z.object({
   slug:            z.string().min(2).max(50).regex(/^[a-z0-9-]+$/, 'Chỉ dùng chữ thường, số và dấu gạch ngang'),
   name:            z.string().min(2).max(100),
   phone:           z.string().optional(),
+  password:        z.string().optional(),
   plan_code:       z.string().optional(),
   industry_type:   z.enum(INDUSTRY_TYPES).default('retail'),
   turnstile_token: z.string().optional(),
@@ -31,7 +32,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { slug, name, phone, industry_type, turnstile_token, invitation_code } = parsed.data;
+  const { slug, name, phone, password, industry_type, turnstile_token, invitation_code } = parsed.data;
 
   try {
 
@@ -118,36 +119,6 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // 1.5 — Pre-check phone uniqueness using Auth API
-  let e164Phone: string | null = null;
-  if (phone) {
-    const clean = phone.replace(/[^0-9+]/g, '');
-    e164Phone = clean.startsWith('0') ? `+84${clean.slice(1)}` : (clean.startsWith('84') ? `+${clean}` : (clean.startsWith('+84') ? clean : `+84${clean}`));
-    
-    // Attempt to create a dummy user to check if phone exists
-    const { data: dummyData, error: dummyError } = await admin.auth.admin.createUser({
-      phone: e164Phone,
-      password: 'DummyPassword123!',
-    });
-    
-    if (dummyError) {
-      if (dummyError.message.includes('already') || dummyError.message.includes('use')) {
-        return NextResponse.json(
-          { message: 'Số điện thoại này đã được sử dụng bởi một tài khoản khác. Vui lòng chọn số khác.', field: 'phone' },
-          { status: 409 }
-        );
-      }
-      // If it's an invalid format or other error
-      return NextResponse.json(
-        { message: 'Số điện thoại không hợp lệ.', field: 'phone' },
-        { status: 400 }
-      );
-    } else if (dummyData?.user) {
-      // Clean up the dummy user immediately
-      await admin.auth.admin.deleteUser(dummyData.user.id);
-    }
-  }
-
   const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
   const protocol   = rootDomain.startsWith('localhost') ? 'http' : 'https';
 
@@ -159,6 +130,34 @@ export async function POST(req: NextRequest) {
   }
 
   const userId = user.id;
+
+  // 1.5 — Pre-check phone uniqueness using Auth API
+  let e164Phone: string | null = null;
+  if (phone) {
+    const clean = phone.replace(/[^0-9+]/g, '');
+    e164Phone = clean.startsWith('0') ? `+84${clean.slice(1)}` : (clean.startsWith('84') ? `+${clean}` : (clean.startsWith('+84') ? clean : `+84${clean}`));
+    const phonePlus84 = e164Phone;
+    const phone84 = phonePlus84.replace('+', '');
+    
+    let phoneExistsForAnotherUser = false;
+    
+    const { data: exists1 } = await admin.rpc('check_phone_exists', { p_phone: phonePlus84, p_exclude_user_id: userId });
+    if (exists1) {
+      phoneExistsForAnotherUser = true;
+    } else {
+      const { data: exists2 } = await admin.rpc('check_phone_exists', { p_phone: phone84, p_exclude_user_id: userId });
+      if (exists2) {
+        phoneExistsForAnotherUser = true;
+      }
+    }
+    
+    if (phoneExistsForAnotherUser) {
+      return NextResponse.json(
+        { message: 'Số điện thoại này đã được sử dụng bởi một tài khoản khác. Vui lòng chọn số khác.', field: 'phone' },
+        { status: 409 }
+      );
+    }
+  }
 
   // 3 — Create tenant + owner membership + subscription (one atomic RPC)
   const { data: tenant, error: tenantError } = await admin.rpc('create_tenant_with_owner', {
@@ -316,39 +315,34 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  let tempPassword = null;
   let phoneLogin = null;
 
-  // Update contact phone on tenant/shop if provided
-  if (phone) {
+  if (phone && password) {
     try {
-      // Generate a temporary numeric password
-      const charset = '0123456789';
-      tempPassword = Array.from(crypto.getRandomValues(new Uint8Array(6)))
-        .map((x) => charset[x % charset.length])
-        .join('');
-      
       phoneLogin = phone; // Keep the original format (09...) for UI display
 
       // Update the user's phone and password so they can log in independently
       const { error: userUpdateError } = await admin.auth.admin.updateUserById(userId, {
         phone: e164Phone,
-        password: tempPassword,
+        password: password,
         phone_confirm: true
       });
 
       if (userUpdateError) {
         console.warn('Could not set user phone/password in Auth:', userUpdateError.message);
-        // If it fails (e.g. phone already in use), we shouldn't show the temp password to the user
-        tempPassword = null;
         phoneLogin = null;
       }
     } catch (e) {
-      console.error('Failed to update tenant phone', e);
+      console.error('Failed to update user phone/password', e);
     }
   }
 
   const workspaceUrl = `${protocol}://${slug}.${rootDomain}`;
+
+  let userProvider = user.app_metadata?.provider || 'email';
+  if (userProvider === 'email' && user.email?.startsWith('zalo_')) {
+    userProvider = 'zalo';
+  }
 
   return NextResponse.json({
     tenant_id: tenantId,
@@ -356,8 +350,8 @@ export async function POST(req: NextRequest) {
     email: user.email || phone || 'unknown',
     slug,
     verification_required: false,
-    temp_password: tempPassword,
-    phone_login: phoneLogin
+    phone_login: phoneLogin,
+    provider: userProvider
   }, { status: 201 });
   } catch (error: any) {
     console.error('Registration error:', error);

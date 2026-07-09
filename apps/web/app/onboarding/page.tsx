@@ -12,6 +12,9 @@ export default async function OnboardingPage({ searchParams }: { searchParams: P
   const userName = user?.user_metadata?.full_name || user?.user_metadata?.name || '';
   const userAvatar = user?.user_metadata?.avatar_url || user?.user_metadata?.picture || '';
   const userEmail = user?.email || '';
+  let userPhone = user?.phone || '';
+  if (userPhone.startsWith('84')) userPhone = '0' + userPhone.slice(2);
+  if (userPhone.startsWith('+84')) userPhone = '0' + userPhone.slice(3);
   
   // Fetch available plans from the database, ordered by ID (e.g. Mini -> Pro -> Enterprise)
   const { data: dbPlans } = await admin.from('plans').select('*').order('id', { ascending: true });
@@ -39,6 +42,7 @@ export default async function OnboardingPage({ searchParams }: { searchParams: P
       userName={userName}
       userAvatar={userAvatar}
       userEmail={userEmail}
+      userPhone={userPhone}
     />
   );
 }
