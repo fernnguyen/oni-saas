@@ -6,7 +6,25 @@ export async function GET(req: NextRequest) {
   const { searchParams, origin } = new URL(req.url);
   const code = searchParams.get('code');
   const nextParam = searchParams.get('next');
-  const next = (nextParam?.startsWith('/') && !nextParam?.startsWith('//')) ? nextParam : '/super/dashboard';
+  
+  const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
+  let next = '/super/dashboard';
+  
+  if (nextParam) {
+    if (nextParam.startsWith('/') && !nextParam.startsWith('//')) {
+      next = nextParam;
+    } else {
+      try {
+        const nextUrl = new URL(nextParam);
+        if (nextUrl.host.endsWith(rootDomain)) {
+          next = nextParam;
+        }
+      } catch (e) {
+        // invalid URL
+      }
+    }
+  }
+
   const xForwardedHost = req.headers.get('x-forwarded-host');
   const xForwardedProto = req.headers.get('x-forwarded-proto') || 'http';
   const realHost = xForwardedHost || req.headers.get('host') || '';
@@ -25,8 +43,11 @@ export async function GET(req: NextRequest) {
       if (isMainDomain) {
         const { data: userData } = await supabase.auth.getUser();
         const isSuperAdmin = userData.user?.app_metadata?.role === 'super_admin';
+        
+        // Allow non-superadmins if they are in the registration/onboarding flow
+        const isAuthFlow = next.startsWith('/api/auth/login-success') || next.startsWith('/onboarding') || next.startsWith('/register');
 
-        if (!isSuperAdmin) {
+        if (!isSuperAdmin && !isAuthFlow) {
           let workspaceSlug: string | null = null;
           if (userData.user) {
             const admin = getSupabaseAdminClient();
@@ -48,6 +69,9 @@ export async function GET(req: NextRequest) {
         }
       }
 
+      if (next.startsWith('http')) {
+        return NextResponse.redirect(next);
+      }
       return NextResponse.redirect(`${resolvedOrigin}${next}`);
     }
   }

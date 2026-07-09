@@ -12,14 +12,7 @@ const ONI_FAKE_EMAIL_RE = /^[^@]+@[^.]+\.oni\.vn$/i;
 const schema = z.object({
   slug:            z.string().min(2).max(50).regex(/^[a-z0-9-]+$/, 'Chỉ dùng chữ thường, số và dấu gạch ngang'),
   name:            z.string().min(2).max(100),
-  email:           z.string().min(1).refine(
-    (e) => e.includes('@') || isValidVNPhone(e),
-    { message: 'Email hoặc Số điện thoại không hợp lệ' }
-  ).refine(
-    (e) => !ONI_FAKE_EMAIL_RE.test(e),
-    { message: 'Không thể đăng ký với định dạng này' },
-  ),
-  password:        z.string().min(8),
+  phone:           z.string().optional(),
   plan_code:       z.string().optional(),
   industry_type:   z.enum(INDUSTRY_TYPES).default('retail'),
   turnstile_token: z.string().optional(),
@@ -38,13 +31,9 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { slug, name, email: rawEmail, password, industry_type, turnstile_token, invitation_code } = parsed.data;
+  const { slug, name, phone, industry_type, turnstile_token, invitation_code } = parsed.data;
 
   try {
-
-  const email = (!rawEmail.includes('@') && isValidVNPhone(rawEmail)) 
-    ? formatPhoneAsEmail(rawEmail) 
-    : rawEmail;
 
   // Cloudflare Turnstile Verification
   const ip = req.headers.get('x-forwarded-for') || undefined;
@@ -117,7 +106,6 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // 1 — Check slug uniqueness (tenant + reserved subdomains share global slug namespace)
   const [{ count: tenantCount }, { count: reservedCount }] = await Promise.all([
     admin.from('tenants').select('*', { count: 'exact', head: true }).eq('slug', slug),
     admin.from('reserved_subdomains').select('*', { count: 'exact', head: true }).eq('subdomain', slug),
@@ -130,56 +118,47 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // 1.5 — Pre-check phone uniqueness using Auth API
+  let e164Phone: string | null = null;
+  if (phone) {
+    const clean = phone.replace(/[^0-9+]/g, '');
+    e164Phone = clean.startsWith('0') ? `+84${clean.slice(1)}` : (clean.startsWith('84') ? `+${clean}` : (clean.startsWith('+84') ? clean : `+84${clean}`));
+    
+    // Attempt to create a dummy user to check if phone exists
+    const { data: dummyData, error: dummyError } = await admin.auth.admin.createUser({
+      phone: e164Phone,
+      password: 'DummyPassword123!',
+    });
+    
+    if (dummyError) {
+      if (dummyError.message.includes('already') || dummyError.message.includes('use')) {
+        return NextResponse.json(
+          { message: 'Số điện thoại này đã được sử dụng bởi một tài khoản khác. Vui lòng chọn số khác.', field: 'phone' },
+          { status: 409 }
+        );
+      }
+      // If it's an invalid format or other error
+      return NextResponse.json(
+        { message: 'Số điện thoại không hợp lệ.', field: 'phone' },
+        { status: 400 }
+      );
+    } else if (dummyData?.user) {
+      // Clean up the dummy user immediately
+      await admin.auth.admin.deleteUser(dummyData.user.id);
+    }
+  }
+
   const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
   const protocol   = rootDomain.startsWith('localhost') ? 'http' : 'https';
 
-  // 2 — Create auth user (depending on whether email verification is required)
-  let userId: string;
-  let verificationRequired = false;
-
-  if (requireEmailVerification && !email.endsWith('.oni.vn')) {
-    const supabaseClient = await getSupabaseServerClient();
-    // signUp automatically triggers confirmation email templates configured in Supabase Auth
-    const { data: signUpData, error: authError } = await supabaseClient.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: `${protocol}://${slug}.${rootDomain}/auth/callback`,
-      }
-    });
-
-    if (authError) {
-      const isDuplicate = authError.message.toLowerCase().includes('already');
-      return NextResponse.json(
-        { message: isDuplicate ? 'Email này đã được đăng ký.' : authError.message, field: isDuplicate ? 'email' : undefined },
-        { status: isDuplicate ? 409 : 400 },
-      );
-    }
-
-    if (!signUpData.user) {
-      return NextResponse.json({ message: 'Không thể tạo tài khoản người dùng.' }, { status: 400 });
-    }
-
-    userId = signUpData.user.id;
-    verificationRequired = true;
-  } else {
-    // Pre-confirmed user creation
-    const { data: userData, error: authError } = await admin.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-    });
-
-    if (authError) {
-      const isDuplicate = authError.message.toLowerCase().includes('already');
-      return NextResponse.json(
-        { message: isDuplicate ? 'Email này đã được đăng ký.' : authError.message, field: isDuplicate ? 'email' : undefined },
-        { status: isDuplicate ? 409 : 400 },
-      );
-    }
-
-    userId = userData.user.id;
+  const supabaseClient = await getSupabaseServerClient();
+  const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
+  
+  if (authError || !user) {
+    return NextResponse.json({ message: 'Vui lòng đăng nhập để thiết lập hệ thống.' }, { status: 401 });
   }
+
+  const userId = user.id;
 
   // 3 — Create tenant + owner membership + subscription (one atomic RPC)
   const { data: tenant, error: tenantError } = await admin.rpc('create_tenant_with_owner', {
@@ -333,8 +312,40 @@ export async function POST(req: NextRequest) {
     await admin.from('invitation_code_uses').insert({
       code: trimmedCode,
       tenant_id: tenantId,
-      email: email,
+      email: user.email || phone || 'unknown',
     });
+  }
+
+  let tempPassword = null;
+  let phoneLogin = null;
+
+  // Update contact phone on tenant/shop if provided
+  if (phone) {
+    try {
+      // Generate a temporary numeric password
+      const charset = '0123456789';
+      tempPassword = Array.from(crypto.getRandomValues(new Uint8Array(6)))
+        .map((x) => charset[x % charset.length])
+        .join('');
+      
+      phoneLogin = phone; // Keep the original format (09...) for UI display
+
+      // Update the user's phone and password so they can log in independently
+      const { error: userUpdateError } = await admin.auth.admin.updateUserById(userId, {
+        phone: e164Phone,
+        password: tempPassword,
+        phone_confirm: true
+      });
+
+      if (userUpdateError) {
+        console.warn('Could not set user phone/password in Auth:', userUpdateError.message);
+        // If it fails (e.g. phone already in use), we shouldn't show the temp password to the user
+        tempPassword = null;
+        phoneLogin = null;
+      }
+    } catch (e) {
+      console.error('Failed to update tenant phone', e);
+    }
   }
 
   const workspaceUrl = `${protocol}://${slug}.${rootDomain}`;
@@ -342,9 +353,11 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     tenant_id: tenantId,
     workspace_url: workspaceUrl,
-    email,
+    email: user.email || phone || 'unknown',
     slug,
-    verification_required: verificationRequired
+    verification_required: false,
+    temp_password: tempPassword,
+    phone_login: phoneLogin
   }, { status: 201 });
   } catch (error: any) {
     console.error('Registration error:', error);

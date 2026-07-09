@@ -41,13 +41,11 @@ export async function POST(req: NextRequest) {
   const isEmail = identifier.includes('@');
   const isPhone = !isEmail && isValidVNPhone(identifier);
 
-  let email: string;
+  let email: string | undefined;
 
   if (isEmail) {
     email = identifier;
-  } else if (isPhone) {
-    email = formatPhoneAsEmail(identifier);
-  } else {
+  } else if (!isPhone) {
     // Plain username — must have tenant context
     if (!tenant_slug) {
       return NextResponse.json(
@@ -61,7 +59,46 @@ export async function POST(req: NextRequest) {
     email = buildFakeEmail(identifier, tenant_slug);
   }
 
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  // --- Bypass Supabase Phone Provider ---
+  // If the user inputs a phone number, we look up their email via the tenants table
+  // because Supabase Phone login requires an SMS provider to be configured.
+  let actualEmailToLogin: string | undefined = email;
+
+  if (isPhone) {
+    const admin = getSupabaseAdminClient();
+    
+    // Convert 09... to +849... and 849...
+    const clean = identifier.replace(/[^0-9+]/g, '');
+    const phonePlus84 = clean.startsWith('0') ? `+84${clean.slice(1)}` : (clean.startsWith('84') ? `+${clean}` : (clean.startsWith('+84') ? clean : `+84${clean}`));
+    const phone84 = phonePlus84.replace('+', '');
+    
+    // Lookup user by phone iterating through listUsers
+    let page = 1;
+    let foundEmail: string | undefined;
+    while (true) {
+      const { data: usersData, error: err } = await admin.auth.admin.listUsers({ page, perPage: 1000 });
+      if (err || !usersData?.users || usersData.users.length === 0) break;
+      
+      const found = usersData.users.find(u => u.phone === phonePlus84 || u.phone === phone84 || u.phone === identifier);
+      if (found && found.email) {
+        foundEmail = found.email;
+        break;
+      }
+      if (usersData.users.length < 1000) break;
+      page++;
+    }
+
+    if (foundEmail) {
+      actualEmailToLogin = foundEmail;
+    }
+
+    // If we couldn't find their real email, fallback to fake email format
+    if (!actualEmailToLogin) {
+      actualEmailToLogin = formatPhoneAsEmail(identifier);
+    }
+  }
+
+  const { error } = await supabase.auth.signInWithPassword({ email: actualEmailToLogin!, password });
 
 
   if (error) {

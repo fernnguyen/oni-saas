@@ -4,11 +4,11 @@ import { useState, useEffect, useRef, FormEvent } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import { AuthSplitLayout } from '../components/layout/AuthSplitLayout';
 import { VERTICAL_REGISTRY, INDUSTRY_TYPES, type IndustryType } from '@oni/core';
 import { Turnstile } from '../components/auth/Turnstile';
 import { IndustryIcon } from '../components/layout/IndustryIcon';
 import { isValidVNPhone } from '../../lib/utils/phone';
+import { getSupabaseBrowserClient } from '../../lib/supabaseBrowser';
 
 const SLUG_REGEX = /^[a-z0-9-]+$/;
 const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
@@ -20,9 +20,8 @@ function slugify(val: string) {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/đ/g, 'd')
-    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/[^a-z0-9]/g, '')
     .trim()
-    .replace(/\s+/g, '-')
     .slice(0, 50);
 }
 
@@ -76,7 +75,7 @@ const INDUSTRY_VISUALS: Record<IndustryType, {
   },
 };
 
-export function RegisterForm({ plans, initialDomain, initialIndustry, registrationMode = 'free', starterTrialDays = 90 }: { plans: any[], initialDomain?: string, initialIndustry?: string, registrationMode?: string, starterTrialDays?: number }) {
+export function OnboardingForm({ plans, initialDomain, initialIndustry, registrationMode = 'free', starterTrialDays = 90, userName, userAvatar, userEmail }: { plans: any[], initialDomain?: string, initialIndustry?: string, registrationMode?: string, starterTrialDays?: number, userName?: string, userAvatar?: string, userEmail?: string }) {
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
@@ -84,9 +83,7 @@ export function RegisterForm({ plans, initialDomain, initialIndustry, registrati
   const [slugStatus, setSlugStatus] = useState<'idle' | 'checking' | 'available' | 'taken' | 'invalid'>('idle');
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(!!initialDomain);
   const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
+  const [phone, setPhone] = useState('');
   const [invitationCode, setInvitationCode] = useState('');
   const defaultPlan = plans.find(p => p.is_default || p.code === 'plan_mini') || plans[0];
   const [selectedPlanCode, setSelectedPlanCode] = useState(defaultPlan?.code || '');
@@ -100,6 +97,7 @@ export function RegisterForm({ plans, initialDomain, initialIndustry, registrati
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [successData, setSuccessData] = useState<{ workspace_url: string, temp_password?: string, phone_login?: string } | null>(null);
 
   const [industryType, setIndustryType] = useState<IndustryType>(() => {
     if (initialIndustry) {
@@ -159,8 +157,7 @@ export function RegisterForm({ plans, initialDomain, initialIndustry, registrati
         const parsed = JSON.parse(saved);
         if (parsed.slug) setSlug(parsed.slug);
         if (parsed.name) setName(parsed.name);
-        if (parsed.email) setEmail(parsed.email);
-        if (parsed.password) setPassword(parsed.password);
+        if (parsed.phone) setPhone(parsed.phone);
         if (parsed.plan_code) setSelectedPlanCode(parsed.plan_code);
         if (parsed.industry_type) setIndustryType(parsed.industry_type);
         if (parsed.invitation_code) setInvitationCode(parsed.invitation_code);
@@ -199,34 +196,19 @@ export function RegisterForm({ plans, initialDomain, initialIndustry, registrati
   }
 
   function handleSlugChange(val: string) {
-    const clean = val.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 50);
+    const clean = val.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 50);
     setSlug(clean);
     setSlugManuallyEdited(true);
     setError(null);
     setFieldErrors(prev => ({ ...prev, slug: '' }));
   }
 
-  function handleEmailBlur() {
-    if (!email) return;
-    const isEmail = email.includes('@');
-    const isAllDigits = /^\d+$/.test(email);
-    if (isEmail) {
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email)) {
-        setFieldErrors(prev => ({ ...prev, email: 'Định dạng Email không hợp lệ' }));
-      }
-    } else if (isAllDigits) {
-      if (!isValidVNPhone(email)) {
-        setFieldErrors(prev => ({ ...prev, email: 'Số điện thoại không hợp lệ (10 số, đầu 03,05,07,08,09)' }));
-      }
+  function handlePhoneBlur() {
+    if (!phone) return;
+    if (!isValidVNPhone(phone)) {
+      setFieldErrors(prev => ({ ...prev, phone: 'Số điện thoại không hợp lệ' }));
     } else {
-      setFieldErrors(prev => ({ ...prev, email: 'Vui lòng nhập Email hoặc Số điện thoại' }));
-    }
-  }
-
-  function handlePasswordBlur() {
-    if (password && password.length < 8) {
-      setFieldErrors(prev => ({ ...prev, password: 'Mật khẩu phải từ 8 ký tự trở lên' }));
+      setFieldErrors(prev => ({ ...prev, phone: '' }));
     }
   }
 
@@ -304,10 +286,21 @@ export function RegisterForm({ plans, initialDomain, initialIndustry, registrati
     };
   }, [invitationCode, defaultPlan]);
 
+  async function handleSignOut() {
+    if (!window.confirm('Bạn có chắc chắn muốn đăng xuất và đổi tài khoản khác?')) return;
+    try {
+      const supabase = getSupabaseBrowserClient();
+      await supabase.auth.signOut();
+      window.location.href = '/auth/signin';
+    } catch (err) {
+      console.error('Sign out error:', err);
+    }
+  }
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     if (slugStatus !== 'available' || (TURNSTILE_SITE_KEY && !turnstileToken)) return;
-    if (fieldErrors.email || fieldErrors.password || fieldErrors.name || fieldErrors.slug) {
+    if (fieldErrors.phone || fieldErrors.name || fieldErrors.slug) {
       setError('Vui lòng kiểm tra lại các thông tin nhập chưa đúng.');
       return;
     }
@@ -337,8 +330,8 @@ export function RegisterForm({ plans, initialDomain, initialIndustry, registrati
       return;
     }
 
-    sessionStorage.setItem('oni_register', JSON.stringify({ slug, name, email, password, plan_code: selectedPlanCode, industry_type: industryType, turnstile_token: turnstileToken, invitation_code: invitationCode }));
-    router.push('/register/provisioning');
+    sessionStorage.setItem('oni_register', JSON.stringify({ slug, name, phone, plan_code: selectedPlanCode, industry_type: industryType, turnstile_token: turnstileToken, invitation_code: invitationCode }));
+    router.push('/onboarding/provisioning');
   }
 
   const slugOk = slugStatus === 'available';
@@ -346,7 +339,7 @@ export function RegisterForm({ plans, initialDomain, initialIndustry, registrati
   const hasValidCode = isCodeRequired 
     ? (invitationCode.trim().length > 0 && (!promoDetails || promoDetails.valid))
     : (invitationCode.trim().length === 0 || !promoDetails || promoDetails.valid);
-  const canSubmit = slug.length >= 2 && slugOk && name.trim().length >= 2 && email && password.length >= 8 && selectedPlanCode && hasValidCode && (TURNSTILE_SITE_KEY ? turnstileToken : true);
+  const canSubmit = slug.length >= 2 && slugOk && name.trim().length >= 2 && selectedPlanCode && hasValidCode && (TURNSTILE_SITE_KEY ? turnstileToken : true);
 
   if (registrationMode === 'disabled') {
     return (
@@ -381,20 +374,44 @@ export function RegisterForm({ plans, initialDomain, initialIndustry, registrati
   }
 
   return (
-    <AuthSplitLayout
-      title="Bắt đầu quản lý kinh doanh thông minh"
-      subtitle="Thiết lập hệ thống quản lý riêng với tên miền tùy chỉnh, kết nối cơ sở dữ liệu và quản lý bán hàng đa kênh ngay lập tức."
-    >
-      <div className="mb-8 text-center lg:text-left">
-        <Link href="/" className="inline-flex items-center gap-2.5 mb-4 lg:hidden">
-          <Image src="/logo.png" alt="ONI.vn" width={40} height={40} className="rounded-xl" />
-        </Link>
-        <div className="hidden lg:inline-flex items-center gap-2.5 mb-6">
-          <Image src="/logo.png" alt="ONI.vn" width={32} height={32} className="rounded-lg" />
-          <span className="font-bold text-slate-900 text-lg">ONI.vn</span>
+    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 py-12">
+      <div className="w-full max-w-[640px] bg-white rounded-3xl shadow-xl shadow-slate-200/50 p-6 sm:p-10 border border-slate-100">
+        
+        {/* Header (Top) */}
+        <div className="mb-6 text-center sm:text-left">
+          <Link href="/" className="inline-flex items-center gap-2.5 mb-4 hover:opacity-80 transition-opacity">
+            <Image src="/logo.png" alt="ONI.vn" width={32} height={32} className="rounded-xl shadow-sm" />
+            <span className="font-extrabold text-slate-900 text-xl tracking-tight">ONI.vn</span>
+          </Link>
+          
+          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">Thiết lập hệ thống</h1>
         </div>
 
-        {/* Step Indicator Header */}
+        {/* User Profile Card */}
+        {userName && (
+          <div className="mb-8 flex items-center gap-4 rounded-2xl border border-slate-100 bg-slate-50/80 p-4">
+            {userAvatar ? (
+              <img src={userAvatar} alt={userName} width={56} height={56} className="rounded-full object-cover ring-4 ring-white shadow-sm bg-white" />
+            ) : (
+              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary text-xl font-bold text-white shadow-sm ring-4 ring-white">
+                {userName.charAt(0).toUpperCase()}
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Đã đăng nhập với</p>
+              <p className="font-bold text-slate-900 text-lg truncate">{userName}</p>
+              {userEmail && <p className="text-sm text-slate-500 truncate">{userEmail.includes('zalo_') ? 'Tài khoản Zalo' : userEmail}</p>}
+            </div>
+            <button type="button" onClick={handleSignOut} className="text-sm font-semibold text-slate-400 hover:text-slate-700 whitespace-nowrap px-3 py-1.5 bg-slate-200/50 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer">
+              Đổi
+            </button>
+          </div>
+        )}
+
+        <form onSubmit={onSubmit} className="mx-auto w-full">
+
+        {/* Step Indicator Header (Hide on Step 3) */}
+        {step < 3 && (
         <div className="mb-6 flex items-center justify-between border-b border-slate-100 pb-4">
           <button
             type="button"
@@ -423,19 +440,22 @@ export function RegisterForm({ plans, initialDomain, initialIndustry, registrati
             Thiết lập cửa hàng
           </button>
         </div>
+        )}
 
-        <h1 className="text-2xl font-bold text-slate-900">
-          {step === 1 ? 'Chọn ngành nghề kinh doanh' : `Thiết lập ${VERTICAL_REGISTRY[industryType].workspaceLabel.toLowerCase()}`}
-        </h1>
-        <p className="mt-1 text-sm text-slate-500">
-          {step === 1 
-            ? 'ONI sẽ tối ưu cấu hình và giao diện POS phù hợp nhất với lĩnh vực kinh doanh của bạn.' 
-            : `Tạo thông tin ${VERTICAL_REGISTRY[industryType].workspaceLabel.toLowerCase()} và tài khoản admin để bắt đầu.`
-          }
-        </p>
-      </div>
+        {step < 3 && (
+        <div className="mb-6">
+          <h2 className="text-lg font-bold text-slate-900">
+            {step === 1 ? 'Chọn ngành nghề kinh doanh' : `Thiết lập ${VERTICAL_REGISTRY[industryType].workspaceLabel.toLowerCase()}`}
+          </h2>
+          <p className="mt-1 text-sm text-slate-500">
+            {step === 1 
+              ? 'ONI sẽ tối ưu cấu hình và giao diện POS phù hợp nhất với lĩnh vực kinh doanh của bạn.' 
+              : `Tạo thông tin ${VERTICAL_REGISTRY[industryType].workspaceLabel.toLowerCase()} và tài khoản admin để bắt đầu.`
+            }
+          </p>
+        </div>
+        )}
 
-      <form onSubmit={onSubmit} className="space-y-5">
         {step === 1 && (
           <div className="space-y-5 animate-in fade-in duration-300">
             {/* Industry Type Selection */}
@@ -500,7 +520,7 @@ export function RegisterForm({ plans, initialDomain, initialIndustry, registrati
         {step === 2 && (
           <div className="space-y-5 animate-in fade-in duration-300">
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-700">Tên {VERTICAL_REGISTRY[industryType].workspaceLabel.toLowerCase()} / Đơn vị</label>
+              <label className="mb-1.5 block text-sm font-medium text-slate-700">Tên {VERTICAL_REGISTRY[industryType].workspaceLabel.toLowerCase()} / Đơn vị <span className="text-red-500 ml-0.5">*</span></label>
               <input
                 value={name}
                 onChange={(e) => handleNameChange(e.target.value)}
@@ -519,7 +539,7 @@ export function RegisterForm({ plans, initialDomain, initialIndustry, registrati
 
             {/* Subdomain */}
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-700">Đường dẫn truy cập (Tên miền)</label>
+              <label className="mb-1.5 block text-sm font-medium text-slate-700">Đường dẫn truy cập (Tên miền) <span className="text-red-500 ml-0.5">*</span></label>
               <div className={`flex overflow-hidden rounded-xl border transition-colors focus-within:ring-2 focus-within:ring-primary/20 ${
                   fieldErrors.slug || slugStatus === 'taken' || slugStatus === 'invalid' ? 'border-red-400 focus-within:ring-red-200/50' :
                   slugStatus === 'available' ? 'border-green-400' :
@@ -536,7 +556,7 @@ export function RegisterForm({ plans, initialDomain, initialIndustry, registrati
                   .{ROOT_DOMAIN}
                 </span>
               </div>
-              <p className="mt-1.5 text-xs text-slate-400">Chữ không dấu, số và dấu gạch ngang.</p>
+              <p className="mt-1.5 text-xs text-slate-400">Chữ không dấu và số.</p>
               {slugStatus === 'checking' && (
                 <p className="mt-1 text-xs text-slate-400">Đang kiểm tra...</p>
               )}
@@ -559,73 +579,31 @@ export function RegisterForm({ plans, initialDomain, initialIndustry, registrati
               )}
             </div>
 
-            {/* Email */}
+            {/* Phone */}
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-700">Email hoặc SĐT quản trị (Admin)</label>
+              <label className="mb-1.5 block text-sm font-medium text-slate-700 flex items-center gap-1.5">
+                <span>Số điện thoại đăng nhập (Tùy chọn)</span>
+              </label>
               <input
                 type="text"
-                value={email}
+                value={phone}
                 onChange={(e) => {
-                  setEmail(e.target.value.trim());
+                  setPhone(e.target.value.trim());
                   setError(null);
-                  setFieldErrors(prev => ({ ...prev, email: '' }));
+                  setFieldErrors(prev => ({ ...prev, phone: '' }));
                 }}
-                onBlur={handleEmailBlur}
-                placeholder="tenhokinhdoanh@gmail.com hoặc 0987654321"
+                onBlur={handlePhoneBlur}
+                placeholder="0987654321"
                 className={`w-full rounded-xl border px-4 py-3 text-sm focus:outline-none focus:ring-2 transition-all ${
-                  fieldErrors.email ? 'border-red-400 focus:border-red-400 focus:ring-red-200/50' : 'border-slate-200 focus:border-primary focus:ring-primary/20'
+                  fieldErrors.phone ? 'border-red-400 focus:border-red-400 focus:ring-red-200/50' : 'border-slate-200 focus:border-primary focus:ring-primary/20'
                 }`}
-                required
               />
-              <p className="mt-1.5 text-[10px] text-slate-400 leading-normal">Nhập Email hoặc Số điện thoại đang hoạt động để nhận mã xác thực.</p>
-              {fieldErrors.email && (
+              <p className="mt-1.5 text-[11px] text-slate-500 leading-normal">
+                (Dùng để đăng nhập độc lập nếu tài khoản mạng xã hội bị khóa)
+              </p>
+              {fieldErrors.phone && (
                 <p className="mt-1 text-xs text-red-500 font-semibold flex items-center gap-1 animate-in fade-in duration-200">
-                  <span className="shrink-0">⚠️</span> {fieldErrors.email}
-                </p>
-              )}
-            </div>
-
-            {/* Password */}
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-700">Mật khẩu</label>
-              <div className={`flex overflow-hidden rounded-xl border focus-within:ring-2 ${
-                  fieldErrors.password ? 'border-red-400 focus-within:border-red-400 focus-within:ring-red-200/50' : 'border-slate-200 focus-within:border-primary focus-within:ring-primary/20'
-                }`}>
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                    setError(null);
-                    setFieldErrors(prev => ({ ...prev, password: '' }));
-                  }}
-                  onBlur={handlePasswordBlur}
-                  placeholder="Tối thiểu 8 ký tự"
-                  className="flex-1 px-4 py-3 text-sm focus:outline-none"
-                  required
-                  minLength={8}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="px-3 text-slate-400 hover:text-slate-650 border-l border-slate-200 bg-slate-50"
-                  tabIndex={-1}
-                >
-                  {showPassword ? (
-                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                    </svg>
-                  ) : (
-                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                    </svg>
-                  )}
-                </button>
-              </div>
-              {fieldErrors.password && (
-                <p className="mt-1 text-xs text-red-500 font-semibold flex items-center gap-1 animate-in fade-in duration-200">
-                  <span className="shrink-0">⚠️</span> {fieldErrors.password}
+                  <span className="shrink-0">⚠️</span> {fieldErrors.phone}
                 </p>
               )}
             </div>
@@ -799,23 +777,7 @@ export function RegisterForm({ plans, initialDomain, initialIndustry, registrati
           </div>
         )}
       </form>
-
-      <div className="mt-6 text-center space-y-2">
-        <p className="text-sm text-slate-500">
-          Đã có tài khoản?{' '}
-          <Link href="/auth/signin" className="font-medium text-primary hover:underline">
-            Đăng nhập
-          </Link>
-        </p>
-        <div className="flex justify-center">
-          <Link href="/" className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-400 hover:text-primary transition-colors py-1">
-            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75" />
-            </svg>
-            Trang chủ
-          </Link>
-        </div>
-      </div>
-    </AuthSplitLayout>
+    </div>
+  </div>
   );
 }

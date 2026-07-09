@@ -28,10 +28,10 @@ export default function ProvisioningPage() {
     started.current = true;
 
     const raw = sessionStorage.getItem('oni_register');
-    if (!raw) { router.replace('/register'); return; }
+    if (!raw) { router.replace('/onboarding'); return; }
 
-    let data: { slug: string; name: string; email: string; password: string; plan_code?: string; invitation_code?: string };
-    try { data = JSON.parse(raw); } catch { router.replace('/register'); return; }
+    let data: { slug: string; name: string; phone?: string; plan_code?: string; invitation_code?: string };
+    try { data = JSON.parse(raw); } catch { router.replace('/onboarding'); return; }
 
     const ROOT = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
     const proto = ROOT.startsWith('localhost') ? 'http' : 'https';
@@ -75,9 +75,9 @@ export default function ProvisioningPage() {
         setTimeout(() => {
           setSteps(['done', 'done', 'done', 'done']);
           // Store result for success page (keep password for one-time display)
-          sessionStorage.setItem('oni_workspace', JSON.stringify({ ...result, password: data.password }));
+          sessionStorage.setItem('oni_workspace', JSON.stringify({ ...result }));
           sessionStorage.removeItem('oni_register');
-          setTimeout(() => router.push('/register/success'), 600);
+          setTimeout(() => router.push('/onboarding/success'), 600);
         }, 600);
       })
       .catch((err: Error) => {
@@ -96,7 +96,7 @@ export default function ProvisioningPage() {
 
   function handleRetry() {
     sessionStorage.removeItem('oni_workspace');
-    router.replace('/register');
+    router.replace('/onboarding');
   }
 
   return (

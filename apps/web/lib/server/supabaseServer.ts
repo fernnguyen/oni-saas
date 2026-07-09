@@ -7,6 +7,9 @@ export async function getSupabaseServerClient() {
   const headerStore = await headers();
   const authHeader = headerStore.get('Authorization');
 
+  const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN || 'localhost:3000';
+  const cookieDomain = rootDomain.includes('localhost') ? undefined : `.${rootDomain}`;
+
   const supabase = createServerClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY, {
     global: {
       headers: {
@@ -18,10 +21,10 @@ export async function getSupabaseServerClient() {
         return cookieStore.get(name)?.value;
       },
       set(name: string, value: string, options: any) {
-        cookieStore.set({ name, value, ...options });
+        cookieStore.set({ name, value, domain: cookieDomain, ...options });
       },
       remove(name: string, options: any) {
-        cookieStore.set({ name, value: '', ...options });
+        cookieStore.set({ name, value: '', domain: cookieDomain, ...options });
       },
     },
   });
