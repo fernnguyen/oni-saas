@@ -323,7 +323,7 @@ export async function POST(req: NextRequest) {
 
       // Update the user's phone and password so they can log in independently
       const { error: userUpdateError } = await admin.auth.admin.updateUserById(userId, {
-        phone: e164Phone,
+        phone: e164Phone || undefined,
         password: password,
         phone_confirm: true
       });
