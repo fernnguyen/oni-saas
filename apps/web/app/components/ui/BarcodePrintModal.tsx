@@ -3,6 +3,7 @@
 import React, { useState, useRef, useMemo } from 'react'
 import { SlideOver } from './SlideOver'
 import Barcode from 'react-barcode'
+import { Settings2 } from 'lucide-react'
 
 
 export interface PrintProduct {
@@ -36,6 +37,8 @@ export function BarcodePrintModal({ open, onClose, shopName, products }: Barcode
   const [showProductName, setShowProductName] = useState(true)
   const [showPrice, setShowPrice] = useState(true)
   const [paperSize, setPaperSize] = useState<'50x30' | '35x22'>('35x22')
+  const [showDebugBorders, setShowDebugBorders] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const [copies, setCopies] = useState<Record<string, number>>({})
 
   const printRef = useRef<HTMLDivElement>(null)
@@ -48,7 +51,7 @@ export function BarcodePrintModal({ open, onClose, shopName, products }: Barcode
   const labelHeightMm = isTwoUp ? 22 : 30
   
   // The actual page printed by the browser
-  const pageWidthMm = isTwoUp ? 72 : 50
+  const pageWidthMm = isTwoUp ? 75 : 50
   const pageHeightMm = isTwoUp ? 22 : 30
 
   const handlePrint = () => {
@@ -140,9 +143,9 @@ export function BarcodePrintModal({ open, onClose, shopName, products }: Barcode
   }
 
   // Barcode scaling to fit the small labels
-  const barcodeHeight = paperSize === '50x30' ? 30 : 20
-  const barcodeWidth = paperSize === '50x30' ? 1.6 : 1.2
-  const fontSize = paperSize === '50x30' ? 12 : 9
+  const barcodeHeight = isTwoUp ? 20 : 30
+  const barcodeWidth = isTwoUp ? 1.2 : 1.6
+  const fontSize = isTwoUp ? 9 : 12
 
   return (
     <SlideOver open={open} onClose={onClose} title="In tem mã vạch" width={600} footer={
@@ -152,33 +155,58 @@ export function BarcodePrintModal({ open, onClose, shopName, products }: Barcode
       </>
     }>
       <div className="space-y-6">
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-3">
-            <h3 className="font-semibold text-sm text-slate-800">Cài đặt hiển thị</h3>
-            <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
-              <input type="checkbox" checked={showShopName} onChange={(e) => setShowShopName(e.target.checked)} className="rounded border-slate-300 accent-primary w-4 h-4" />
-              Tên cửa hàng ({shopName})
-            </label>
-            <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
-              <input type="checkbox" checked={showProductName} onChange={(e) => setShowProductName(e.target.checked)} className="rounded border-slate-300 accent-primary w-4 h-4" />
-              Tên sản phẩm
-            </label>
-            <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
-              <input type="checkbox" checked={showPrice} onChange={(e) => setShowPrice(e.target.checked)} className="rounded border-slate-300 accent-primary w-4 h-4" />
-              Giá sản phẩm (... VND)
-            </label>
+        <div className="bg-slate-50 p-4 rounded-xl space-y-4 mb-6 border border-slate-100">
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold text-sm text-slate-800">Cấu hình in</h3>
+            <button 
+              onClick={() => setShowSettings(!showSettings)}
+              className={`p-1.5 rounded-lg transition-colors ${showSettings ? 'bg-primary text-white' : 'hover:bg-slate-200 text-slate-500'}`}
+              title="Cài đặt hiển thị"
+            >
+              <Settings2 className="w-4 h-4" />
+            </button>
           </div>
-          <div className="space-y-3">
-            <h3 className="font-semibold text-sm text-slate-800">Kích thước giấy (Máy in nhiệt)</h3>
+          
+          <div className="flex flex-col gap-2">
+            <label className="text-xs font-medium text-slate-600">Khổ giấy</label>
             <select
               value={paperSize}
               onChange={(e) => setPaperSize(e.target.value as any)}
               className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white"
             >
               <option value="50x30">Tem 50x30mm (Khổ in 50x30)</option>
-              <option value="35x22">Tem 35x22mm (2 tem ngang - Khổ in 72x22)</option>
+              <option value="35x22">Tem 35x22mm (2 tem ngang - Yêu cầu máy in khổ 75x22)</option>
             </select>
           </div>
+
+          {showSettings && (
+            <div className="pt-3 mt-3 border-t border-slate-200 space-y-3">
+              <h3 className="font-semibold text-sm text-slate-800">Cài đặt hiển thị</h3>
+              <div className="flex flex-col gap-3">
+                <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                  <input type="checkbox" checked={showShopName} onChange={(e) => setShowShopName(e.target.checked)} className="rounded border-slate-300 accent-primary w-4 h-4" />
+                  Tên cửa hàng ({shopName})
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                  <input type="checkbox" checked={showProductName} onChange={(e) => setShowProductName(e.target.checked)} className="rounded border-slate-300 accent-primary w-4 h-4" />
+                  Tên sản phẩm
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                  <input type="checkbox" checked={showPrice} onChange={(e) => setShowPrice(e.target.checked)} className="rounded border-slate-300 accent-primary w-4 h-4" />
+                  Giá sản phẩm (... VND)
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                  <input 
+                    type="checkbox" 
+                    checked={showDebugBorders}
+                    onChange={(e) => setShowDebugBorders(e.target.checked)}
+                    className="rounded border-slate-300 accent-primary w-4 h-4"
+                  />
+                  In viền tem (Hỗ trợ gỡ lỗi căn lề)
+                </label>
+              </div>
+            </div>
+          )}
         </div>
 
         <div>
@@ -229,7 +257,8 @@ export function BarcodePrintModal({ open, onClose, shopName, products }: Barcode
                       width: mmToPx(pageWidthMm), 
                       height: mmToPx(pageHeightMm), 
                       gap: isTwoUp ? mmToPx(2) : 0,
-                      justifyContent: isTwoUp ? 'space-between' : 'center'
+                      justifyContent: 'center',
+                      padding: isTwoUp ? `0 ${mmToPx(1.5)}px` : 0
                     }}
                   >
                     {previewItems.map((p, idx) => (
@@ -280,18 +309,18 @@ export function BarcodePrintModal({ open, onClose, shopName, products }: Barcode
               .label-page {
                 width: ${pageWidthMm}mm;
                 height: ${pageHeightMm}mm;
-                display: flex;
-                flex-direction: row;
-                align-items: center;
-                justify-content: ${isTwoUp ? 'space-between' : 'center'};
+                position: relative;
                 overflow: hidden;
                 page-break-after: always;
                 box-sizing: border-box;
                 padding: 0;
+                outline: ${showDebugBorders ? '1px solid #000' : 'none'};
               }
               .label-item {
                 width: ${labelWidthMm}mm;
                 height: ${labelHeightMm}mm;
+                position: absolute;
+                top: 0;
                 display: flex;
                 flex-direction: column;
                 align-items: center;
@@ -301,6 +330,13 @@ export function BarcodePrintModal({ open, onClose, shopName, products }: Barcode
                 box-sizing: border-box;
                 padding: 0 1mm;
                 color: #000;
+                outline: ${showDebugBorders ? '1px dashed #000' : 'none'};
+              }
+              .label-item.pos-0 {
+                left: ${isTwoUp ? '1.5mm' : '0'};
+              }
+              .label-item.pos-1 {
+                right: ${isTwoUp ? '1.5mm' : '0'};
               }
               .label-shop-name {
                 font-family: sans-serif;
@@ -354,7 +390,7 @@ export function BarcodePrintModal({ open, onClose, shopName, products }: Barcode
             return pages.map((pageItems, pageIdx) => (
               <div key={pageIdx} className="label-page">
                 {pageItems.map((item, itemIdx) => (
-                  <div key={itemIdx} className="label-item">
+                  <div key={itemIdx} className={`label-item pos-${isTwoUp ? itemIdx : 0}`}>
                     {showShopName && <div className="label-shop-name">{shopName}</div>}
                     {showProductName && <div className="label-product-name">{item.product.name}</div>}
                     <div className="label-barcode-container">
