@@ -40,9 +40,32 @@ export function BarcodePrintModal({ open, onClose, shopName, products }: Barcode
 
   const printRef = useRef<HTMLDivElement>(null)
 
+  const mmToPx = (mm: number) => Math.round((mm * 96) / 25.4)
+  const isTwoUp = paperSize === '35x22'
+  
+  // A single label's dimension
+  const labelWidthMm = isTwoUp ? 34 : 50
+  const labelHeightMm = isTwoUp ? 22 : 30
+  
+  // The actual page printed by the browser
+  const pageWidthMm = isTwoUp ? 70 : 50
+  const pageHeightMm = isTwoUp ? 22 : 30
+
   const handlePrint = useReactToPrint({
     contentRef: printRef,
     documentTitle: `In_Ma_Vach_${shopName}`,
+    pageStyle: `
+      @page {
+        size: ${pageWidthMm}mm ${pageHeightMm}mm !important;
+        margin: 0 !important;
+      }
+      body {
+        margin: 0 !important;
+        padding: 0 !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+    `
   })
 
   // Set default copies to 1 for new products
@@ -70,17 +93,6 @@ export function BarcodePrintModal({ open, onClose, shopName, products }: Barcode
     return num.toLocaleString('vi-VN') + ' VND'
   }
 
-  const mmToPx = (mm: number) => Math.round((mm * 96) / 25.4)
-  const isTwoUp = paperSize === '35x22'
-  
-  // A single label's dimension
-  const labelWidthMm = isTwoUp ? 35 : 50
-  const labelHeightMm = isTwoUp ? 22 : 30
-  
-  // The actual page printed by the browser
-  // For 2-up, we use a 72mm wide page containing 2x 35mm labels and a 2mm gap
-  const pageWidthMm = isTwoUp ? 72 : 50
-  const pageHeightMm = isTwoUp ? 22 : 30
 
   // Helper to chunk the print items
   const chunkArray = <T,>(arr: T[], size: number): T[][] => {
@@ -92,7 +104,7 @@ export function BarcodePrintModal({ open, onClose, shopName, products }: Barcode
   }
 
   // Barcode scaling to fit the small labels
-  const barcodeHeight = paperSize === '50x30' ? 35 : 25
+  const barcodeHeight = paperSize === '50x30' ? 30 : 20
   const barcodeWidth = paperSize === '50x30' ? 1.6 : 1.2
   const fontSize = paperSize === '50x30' ? 12 : 9
 
@@ -130,7 +142,6 @@ export function BarcodePrintModal({ open, onClose, shopName, products }: Barcode
               <option value="50x30">Tem 50x30mm (1 tem/hàng)</option>
               <option value="35x22">Tem 35x22mm (2 tem/hàng phổ biến)</option>
             </select>
-            <p className="text-xs text-slate-500">Mẹo: Cài đặt khổ giấy đúng kích thước này trong cửa sổ in của trình duyệt (Margins: None).</p>
           </div>
         </div>
 
@@ -186,23 +197,23 @@ export function BarcodePrintModal({ open, onClose, shopName, products }: Barcode
                     }}
                   >
                     {previewItems.map((p, idx) => (
-                      <div key={idx} className="bg-white flex flex-col items-center justify-center p-1 overflow-hidden" style={{ width: mmToPx(labelWidthMm), height: mmToPx(labelHeightMm) }}>
-                        {showShopName && <div className="font-extrabold w-full text-center leading-snug pt-0.5 line-clamp-2 text-black" style={{ fontSize: fontSize }}>{shopName}</div>}
-                        {showProductName && <div className="font-extrabold w-full text-center leading-snug line-clamp-2 text-black" style={{ fontSize: fontSize }}>{p.name}</div>}
+                      <div key={idx} className="bg-white flex flex-col items-center justify-center px-1 py-0 overflow-hidden" style={{ width: mmToPx(labelWidthMm), height: mmToPx(labelHeightMm) }}>
+                        {showShopName && <div className="font-bold w-full text-center leading-snug pt-0.5 line-clamp-2 text-black" style={{ fontSize: fontSize }}>{shopName}</div>}
+                        {showProductName && <div className="font-bold w-full text-center leading-snug line-clamp-2 text-black" style={{ fontSize: fontSize }}>{p.name}</div>}
                         <div className="flex items-center justify-center w-full overflow-hidden">
                           <Barcode 
                             value={extractPrintableCode((p.barcode && p.barcode.trim() !== '') ? p.barcode : p.sku)} 
                             height={barcodeHeight}
                             width={barcodeWidth}
                             displayValue={true}
-                            fontSize={fontSize + 1}
+                            fontSize={fontSize - 1}
                             fontOptions="bold"
                             margin={0}
                             textMargin={0}
                             background="transparent"
                           />
                         </div>
-                        {showPrice && <div className="font-extrabold w-full text-center leading-tight text-black" style={{ fontSize: fontSize + 1 }}>{formatPrice(p.sell_price)}</div>}
+                        {showPrice && <div className="font-bold w-full text-center leading-tight text-black" style={{ fontSize: fontSize + 1 }}>{formatPrice(p.sell_price)}</div>}
                       </div>
                     ))}
                   </div>
@@ -252,13 +263,13 @@ export function BarcodePrintModal({ open, onClose, shopName, products }: Barcode
                 gap: 1px;
                 overflow: hidden;
                 box-sizing: border-box;
-                padding: 1mm;
+                padding: 0 1mm;
                 color: #000;
               }
               .label-shop-name {
                 font-family: sans-serif;
                 font-size: ${fontSize}px;
-                font-weight: 900;
+                font-weight: bold;
                 text-align: center;
                 width: 100%;
                 overflow: hidden;
@@ -271,7 +282,7 @@ export function BarcodePrintModal({ open, onClose, shopName, products }: Barcode
               .label-product-name {
                 font-family: sans-serif;
                 font-size: ${fontSize}px;
-                font-weight: 900;
+                font-weight: bold;
                 text-align: center;
                 width: 100%;
                 overflow: hidden;
@@ -290,7 +301,7 @@ export function BarcodePrintModal({ open, onClose, shopName, products }: Barcode
               .label-price {
                 font-family: sans-serif;
                 font-size: ${fontSize + 1}px;
-                font-weight: 900;
+                font-weight: bold;
                 text-align: center;
                 width: 100%;
                 line-height: 1.2;
@@ -316,7 +327,7 @@ export function BarcodePrintModal({ open, onClose, shopName, products }: Barcode
                         height={barcodeHeight}
                         width={barcodeWidth}
                         displayValue={true}
-                        fontSize={fontSize + 1}
+                        fontSize={fontSize - 1}
                         fontOptions="bold"
                         margin={0}
                         textMargin={0}
