@@ -1149,14 +1149,15 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
                               <td className="px-3 py-2 text-left" colSpan={2}>Thành tiền</td>
                               {orderDiscount === 0 ? (
                                 <>
-                                  <td className="px-3 py-2 text-right text-blue-700">{fmtVND(String(selectedOrder?.total_amount || 0))}</td>
+                                  <td className={`px-3 py-2 text-right ${hasReturns ? 'line-through text-slate-400 font-normal' : 'text-blue-700'}`}>{fmtVND(String(selectedOrder?.total_amount || 0))}</td>
                                   {hasReturns && <td className="px-3 py-2 text-right text-orange-600 font-medium">{grandTotalDaHoan > 0 ? `-${fmtVND(String(grandTotalDaHoan))}` : '—'}</td>}
                                   {hasReturns && <td className="px-3 py-2 text-right font-semibold text-blue-700">{fmtVND(String(grandTotalConLai))}</td>}
                                 </>
                               ) : (
                                 <>
-                                  <td className="px-3 py-2 text-right text-blue-700">{fmtVND(String(selectedOrder?.total_amount || 0))}</td>
-                                  {hasReturns && <td colSpan={2}></td>}
+                                  <td className={`px-3 py-2 text-right ${hasReturns ? 'line-through text-slate-400 font-normal' : 'text-blue-700'}`}>{fmtVND(String(selectedOrder?.total_amount || 0))}</td>
+                                  {hasReturns && <td className="px-3 py-2 text-right text-orange-600 font-medium">{grandTotalDaHoan > 0 ? `-${fmtVND(String(grandTotalDaHoan))}` : '—'}</td>}
+                                  {hasReturns && <td className="px-3 py-2 text-right font-semibold text-blue-700">{fmtVND(String(Math.max(0, Number(selectedOrder?.total_amount || 0) - grandTotalDaHoan)))}</td>}
                                 </>
                               )}
                             </tr>
