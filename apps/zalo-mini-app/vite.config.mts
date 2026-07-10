@@ -14,5 +14,8 @@ export default () => {
         "@": path.resolve(__dirname, "./src"),
       },
     },
+    server: {
+      port: 3001,
+    },
   });
 };

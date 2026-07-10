@@ -25,6 +25,8 @@
     "mobile:ios:submit": "pnpm --filter @oni/mobile submit:ios:local",
     "mobile:android:build": "pnpm --filter @oni/mobile build:android:local",
     "mobile:android:submit": "pnpm --filter @oni/mobile submit:android:local",
+    "mini-app:start": "pnpm --filter zalo-mini-app start",
+    "mini-app:deploy": "pnpm --filter zalo-mini-app deploy",
     "oni:restore": "tsx scripts/restore.ts"
   },
   "devDependencies": {

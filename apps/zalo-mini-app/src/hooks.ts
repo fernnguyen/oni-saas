@@ -1,18 +1,8 @@
-import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { MutableRefObject, useLayoutEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import { UIMatch, useMatches, useNavigate } from "react-router-dom";
-import {
-  cartState,
-  cartTotalState,
-  ordersState,
-  userInfoKeyState,
-  userInfoState,
-} from "@/state";
-import { Product } from "@/types";
 import { getConfig } from "@/utils/template";
-import { authorize, createOrder, openChat } from "zmp-sdk/apis";
-import { useAtomCallback } from "jotai/utils";
+import { openChat } from "zmp-sdk/apis";
 
 export function useRealHeight(
   element: MutableRefObject<HTMLDivElement | null>,
@@ -37,65 +27,6 @@ export function useRealHeight(
   return height;
 }
 
-export function useRequestInformation() {
-  const getStoredUserInfo = useAtomCallback(async (get) => {
-    const userInfo = await get(userInfoState);
-    return userInfo;
-  });
-  const setInfoKey = useSetAtom(userInfoKeyState);
-  const refreshPermissions = () => setInfoKey((key) => key + 1);
-
-  return async () => {
-    const userInfo = await getStoredUserInfo();
-    if (!userInfo) {
-      await authorize({
-        scopes: ["scope.userInfo", "scope.userPhonenumber"],
-      }).then(refreshPermissions);
-      return await getStoredUserInfo();
-    }
-    return userInfo;
-  };
-}
-
-export function useAddToCart(product: Product) {
-  const [cart, setCart] = useAtom(cartState);
-
-  const currentCartItem = useMemo(
-    () => cart.find((item) => item.product.id === product.id),
-    [cart, product.id]
-  );
-
-  const addToCart = (
-    quantity: number | ((oldQuantity: number) => number),
-    options?: { toast: boolean }
-  ) => {
-    setCart((cart) => {
-      const newQuantity =
-        typeof quantity === "function"
-          ? quantity(currentCartItem?.quantity ?? 0)
-          : quantity;
-      if (newQuantity <= 0) {
-        cart.splice(cart.indexOf(currentCartItem!), 1);
-      } else {
-        if (currentCartItem) {
-          currentCartItem.quantity = newQuantity;
-        } else {
-          cart.push({
-            product,
-            quantity: newQuantity,
-          });
-        }
-      }
-      return [...cart];
-    });
-    if (options?.toast) {
-      toast.success("Đã thêm vào giỏ hàng");
-    }
-  };
-
-  return { addToCart, cartQuantity: currentCartItem?.quantity ?? 0 };
-}
-
 export function useCustomerSupport() {
   return () =>
     openChat({
@@ -106,47 +37,9 @@ export function useCustomerSupport() {
 
 export function useToBeImplemented() {
   return () =>
-    toast("Chức năng dành cho các bên tích hợp phát triển...", {
+    toast("Chức năng đang được phát triển...", {
       icon: "🛠️",
     });
-}
-
-export function useCheckout() {
-  const { totalAmount } = useAtomValue(cartTotalState);
-  const [cart, setCart] = useAtom(cartState);
-  const requestInfo = useRequestInformation();
-  const navigate = useNavigate();
-  const refreshNewOrders = useSetAtom(ordersState("pending"));
-
-  return async () => {
-    try {
-      await requestInfo();
-      await createOrder({
-        amount: totalAmount,
-        desc: "Thanh toán đơn hàng",
-        item: cart.map((item) => ({
-          id: item.product.id,
-          name: item.product.name,
-          price: item.product.price,
-          quantity: item.quantity,
-        })),
-      });
-      setCart([]);
-      refreshNewOrders();
-      navigate("/orders", {
-        viewTransition: true,
-      });
-      toast.success("Thanh toán thành công. Cảm ơn bạn đã mua hàng!", {
-        icon: "🎉",
-        duration: 5000,
-      });
-    } catch (error) {
-      console.warn(error);
-      toast.error(
-        "Thanh toán thất bại. Vui lòng kiểm tra nội dung lỗi bên trong Console."
-      );
-    }
-  };
 }
 
 export function useRouteHandle() {
