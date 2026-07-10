@@ -78,6 +78,7 @@ export function DataTable<T extends object>({
   const [sortKey, setSortKey] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<SortDir>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [selectedRowsMap, setSelectedRowsMap] = useState<Map<string, T>>(new Map())
 
   const getKey = (row: T, idx: number): string =>
     rowKey ? rowKey(row, idx) : String((row as Record<string, unknown>)['id'] ?? idx)
@@ -135,25 +136,42 @@ export function DataTable<T extends object>({
   const someSelected = allKeys.some((k) => selected.has(k)) && !allSelected
 
   const toggleAll = () => {
-    let next: Set<string>
+    const next = new Set(selected)
+    const nextMap = new Map(selectedRowsMap)
+    
     if (allSelected) {
-      next = new Set(Array.from(selected).filter((k) => !allKeys.includes(k)))
+      // Unselect all in current view
+      allKeys.forEach((k) => {
+        next.delete(k)
+        nextMap.delete(k)
+      })
     } else {
-      next = new Set([...Array.from(selected), ...allKeys])
+      // Select all in current view
+      sortedData.forEach((row, idx) => {
+        const k = getKey(row, idx)
+        next.add(k)
+        nextMap.set(k, row)
+      })
     }
     setSelected(next)
-    onSelectionChange?.(sortedData.filter((_, idx) => next.has(getKey(sortedData[idx], idx))))
+    setSelectedRowsMap(nextMap)
+    onSelectionChange?.(Array.from(nextMap.values()))
   }
 
   const toggleRow = (key: string, row: T) => {
     const next = new Set(selected)
+    const nextMap = new Map(selectedRowsMap)
+    
     if (next.has(key)) {
       next.delete(key)
+      nextMap.delete(key)
     } else {
       next.add(key)
+      nextMap.set(key, row)
     }
     setSelected(next)
-    onSelectionChange?.(sortedData.filter((r, idx) => next.has(getKey(r, idx))))
+    setSelectedRowsMap(nextMap)
+    onSelectionChange?.(Array.from(nextMap.values()))
   }
 
   const effectiveColumns: Column<T>[] = selectable
@@ -272,7 +290,7 @@ export function DataTable<T extends object>({
                       ].join(' ')}
                     >
                       {selectable && (
-                        <td className="px-4 py-3">
+                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                           <input
                             type="checkbox"
                             checked={selected.has(key)}
@@ -314,7 +332,7 @@ export function DataTable<T extends object>({
                   ].join(' ')}
                 >
                   {selectable && (
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
                         checked={selected.has(key)}

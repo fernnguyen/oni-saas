@@ -265,6 +265,12 @@ importers:
       ioredis:
         specifier: ^5.10.1
         version: 5.11.1
+      react-barcode:
+        specifier: ^1.6.1
+        version: 1.6.1(react@19.1.0)
+      react-to-print:
+        specifier: ^3.3.0
+        version: 3.3.0(react@19.1.0)
       xlsx:
         specifier: ^0.18.5
         version: 0.18.5
@@ -4919,6 +4925,9 @@ packages:
     resolution: {integrity: sha512-ePWsvanv0DWuDRsW8dnt+R4jQ31SCRCQ7hhNcPXZPsoBZiemuZNYGf7adZdqX2D86j6rvKp3RpCxVTSb8WQlOw==}
     hasBin: true
 
+  jsbarcode@3.12.3:
+    resolution: {integrity: sha512-CuHU9hC6dPsHF5oVFMo8NW76uQVjH4L22CsP4hW+dNnGywJHC/B0ThA1CTDVLnxKLrrpYdicBLnd2xsgTfRnvg==}
+
   jsc-safe-url@0.2.4:
     resolution: {integrity: sha512-0wM3YBWtYePOjfyXQH5MWQ8H7sdk5EXSwZvmSLKk2RboVQ2Bu239jycHDz5J/8Blf3K0Qnoy2b6xD+z10MFB+Q==}
 
@@ -5920,6 +5929,11 @@ packages:
     resolution: {integrity: sha512-y3bGgqKj3QBdxLbLkomlohkvsA8gdAiUQlSBJnBhfn+BPxg4bc62d8TcBW15wavDfgexCgccckhcZvywyQYPOw==}
     hasBin: true
 
+  react-barcode@1.6.1:
+    resolution: {integrity: sha512-pc4ftnO5syHa/UjCruEeRsomlhoxKSugIgTA8T4dH0fvc89UMHL+/1Sp25IAphqG44pJkE5hMXhv89iS09jQyw==}
+    peerDependencies:
+      react: 16 - 19
+
   react-devtools-core@6.1.5:
     resolution: {integrity: sha512-ePrwPfxAnB+7hgnEr8vpKxL9cmnp7F322t8oqcPshbIQQhDKgFDW4tjhF2wjVbdXF9O/nyuy3sQWd9JGpiLPvA==}
 
@@ -6063,6 +6077,11 @@ packages:
     peerDependenciesMeta:
       '@types/react':
         optional: true
+
+  react-to-print@3.3.0:
+    resolution: {integrity: sha512-7j9GIeNZA9glZlbv9mIbIHDOOx+WYfRMbJzh04NiSKjdaeGkxJuKjJQrtRuNKtt5AvEVVjrLCPokZ9yJX51Fvg==}
+    peerDependencies:
+      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ~19
 
   react@19.1.0:
     resolution: {integrity: sha512-FS+XFBNvn3GTAWq26joslQgWNoFu08F4kl0J4CgdNKADkdSGXQyTCnKteIAJy96Br6YbpEU1LSzV5dYtjMkMDg==}
@@ -12059,6 +12078,8 @@ snapshots:
     dependencies:
       argparse: 2.0.1
 
+  jsbarcode@3.12.3: {}
+
   jsc-safe-url@0.2.4: {}
 
   jsesc@3.1.0: {}
@@ -13308,6 +13329,12 @@ snapshots:
       minimist: 1.2.8
       strip-json-comments: 2.0.1
 
+  react-barcode@1.6.1(react@19.1.0):
+    dependencies:
+      jsbarcode: 3.12.3
+      prop-types: 15.8.1
+      react: 19.1.0
+
   react-devtools-core@6.1.5:
     dependencies:
       shell-quote: 1.8.4
@@ -13510,6 +13537,10 @@ snapshots:
       tslib: 2.8.1
     optionalDependencies:
       '@types/react': 19.1.10
+
+  react-to-print@3.3.0(react@19.1.0):
+    dependencies:
+      react: 19.1.0
 
   react@19.1.0: {}
 
