@@ -1,0 +1,227 @@
+[
+  {
+    "id": 1,
+    "categoryId": 1,
+    "name": "Táo Fuji Hảo Hạng - 1kg",
+    "price": 67900,
+    "originalPrice": 69900,
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/product/apples.png",
+    "detail": "Táo Fuji tươi ngon, giòn và ngọt tự nhiên. Được tuyển chọn kỹ càng từ những vườn cây chất lượng cao."
+  },
+  {
+    "id": 2,
+    "categoryId": 1,
+    "name": "Bắp cải xanh tươi - 300g",
+    "price": 27900,
+    "originalPrice": 30000,
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/product/cabbage.png",
+    "detail": "Bắp cải xanh tươi ngon, giàu vitamin và chất xơ, lý tưởng cho các món salad và canh rau."
+  },
+  {
+    "id": 3,
+    "categoryId": 8,
+    "name": "Kem sô cô la mát lạnh - 500ml",
+    "price": 313000,
+    "originalPrice": 500000,
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/product/creamy.png",
+    "detail": "Kem sô cô la mịn màng với vị sô cô la đậm đà, mang lại cảm giác sảng khoái mỗi khi thưởng thức."
+  },
+  {
+    "id": 4,
+    "categoryId": 6,
+    "name": "Bánh quy bơ Danisa - 200g",
+    "price": 150000,
+    "originalPrice": 300000,
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/product/danisa.png",
+    "detail": "Bánh quy bơ giòn tan, thơm lừng hương bơ tự nhiên, hoàn hảo cho bữa trà chiều."
+  },
+  {
+    "id": 5,
+    "categoryId": 7,
+    "name": "Chảo chống dính chuyên nghiệp",
+    "price": 150000,
+    "originalPrice": 300000,
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/product/pans.png",
+    "detail": "Chảo chống dính với lớp phủ cao cấp, giúp nấu ăn dễ dàng, tiết kiệm dầu mỡ và dễ dàng vệ sinh."
+  },
+  {
+    "id": 6,
+    "categoryId": 7,
+    "name": "Bột giặt Tide - Siêu sạch",
+    "price": 150000,
+    "originalPrice": 300000,
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/product/tide.png",
+    "detail": "Bột giặt Tide với công nghệ mạnh mẽ, loại bỏ vết bẩn ngay cả trong điều kiện khó khăn, mang lại sự tươi mới cho quần áo."
+  },
+  {
+    "id": 7,
+    "categoryId": 7,
+    "name": "Nồi cơm điện Sunhouse - 1.8L",
+    "price": 150000,
+    "originalPrice": 300000,
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/product/sunhouse.png",
+    "detail": "Nồi cơm điện Sunhouse với thiết kế hiện đại, nấu cơm đều và tiết kiệm điện, phù hợp cho mọi gia đình."
+  },
+  {
+    "id": 8,
+    "categoryId": 4,
+    "name": "Sữa tươi ít đường - 1 thùng",
+    "price": 409000,
+    "originalPrice": 420000,
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/product/milk.png",
+    "detail": "Sữa tươi ít đường với hương vị tự nhiên, bổ dưỡng và dễ tiêu, lý tưởng cho mọi lứa tuổi."
+  },
+  {
+    "id": 9,
+    "categoryId": 1,
+    "name": "Bắp cải tím hữu cơ - 1kg",
+    "price": 250000,
+    "originalPrice": 270000,
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/product/cabbage.png",
+    "detail": "Bắp cải tím có màu sắc bắt mắt, giàu chất chống oxy hóa, thích hợp cho mọi bữa ăn và chế biến sáng tạo."
+  },
+  {
+    "id": 10,
+    "categoryId": 8,
+    "name": "Kem dâu tươi ngon - 500ml",
+    "price": 350000,
+    "originalPrice": 370000,
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/product/creamy.png",
+    "detail": "Kem dâu với hương vị tự nhiên từ dâu tươi, mát lạnh và thơm ngon, là lựa chọn tuyệt vời cho mùa hè."
+  },
+  {
+    "id": 11,
+    "categoryId": 4,
+    "name": "Pudding Caramen mềm mịn - 250g",
+    "price": 45000,
+    "originalPrice": 50000,
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/product/creamy.png",
+    "detail": "Pudding Caramen với lớp caramel bùi bùi, kết cấu mịn màng và hương vị khó quên, là món tráng miệng lý tưởng."
+  },
+  {
+    "id": 12,
+    "categoryId": 5,
+    "name": "Bánh quy hạnh nhân - 150g",
+    "price": 15000,
+    "originalPrice": 20000,
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/product/danisa.png",
+    "detail": "Bánh quy hạnh nhân với hương vị nhẹ nhàng của hạnh nhân rang, giòn tan và thơm ngon, phù hợp cho bữa phụ."
+  },
+  {
+    "id": 13,
+    "categoryId": 4,
+    "name": "Sữa chua mịn màng - 200g",
+    "price": 50000,
+    "originalPrice": 60000,
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/product/milk.png",
+    "detail": "Sữa chua mịn màng với vị chua nhẹ, giàu vi khuẩn có lợi, hỗ trợ tiêu hóa và mang lại cảm giác sảng khoái."
+  },
+  {
+    "id": 14,
+    "categoryId": 7,
+    "name": "Chảo số 1 đa năng",
+    "price": 90000,
+    "originalPrice": 100000,
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/product/pans.png",
+    "detail": "Chảo đa năng với thiết kế hiện đại, chịu nhiệt tốt và bền bỉ, giúp nấu nướng trở nên dễ dàng và nhanh chóng."
+  },
+  {
+    "id": 15,
+    "categoryId": 8,
+    "name": "Kem vani ngọt ngào - 1L",
+    "price": 120000,
+    "originalPrice": 130000,
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/product/creamy.png",
+    "detail": "Kem vani với hương thơm tự nhiên và vị ngọt dịu, kết cấu mịn mượt, lý tưởng cho mọi dịp thưởng thức."
+  },
+  {
+    "id": 16,
+    "categoryId": 9,
+    "name": "Nước rửa chén Tide - Tẩy mỡ hiệu quả",
+    "price": 60000,
+    "originalPrice": 70000,
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/product/tide.png",
+    "detail": "Nước rửa chén Tide giúp làm sạch bát đĩa và dụng cụ bếp, loại bỏ dầu mỡ cứng đầu một cách dễ dàng và an toàn cho tay."
+  },
+  {
+    "id": 17,
+    "categoryId": 4,
+    "name": "Sữa đặc thơm ngọt - 1 lon",
+    "price": 150000,
+    "originalPrice": 160000,
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/product/milk.png",
+    "detail": "Sữa đặc với vị ngọt béo, lý tưởng để pha chế đồ uống hoặc làm bánh, đảm bảo chất lượng và hương vị truyền thống."
+  },
+  {
+    "id": 18,
+    "categoryId": 1,
+    "name": "Táo Granny Smith - 1kg",
+    "price": 20000,
+    "originalPrice": 25000,
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/product/apples.png",
+    "detail": "Táo Granny Smith có vị chua nhẹ, tươi mát, thích hợp cho cả ăn sống lẫn chế biến món ăn."
+  },
+  {
+    "id": 19,
+    "categoryId": 1,
+    "name": "Bắp cải mini hữu cơ - 1kg",
+    "price": 120000,
+    "originalPrice": 130000,
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/product/cabbage.png",
+    "detail": "Bắp cải mini có hương vị tươi mới, giàu dưỡng chất, dễ chế biến cho các món ăn nhanh và sáng tạo."
+  },
+  {
+    "id": 20,
+    "categoryId": 8,
+    "name": "Kem dừa thơm mát - 500ml",
+    "price": 180000,
+    "originalPrice": 200000,
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/product/creamy.png",
+    "detail": "Kem dừa kết hợp vị béo ngậy của dừa tươi, mát lạnh và sảng khoái, lý tưởng cho những ngày hè nóng bức."
+  },
+  {
+    "id": 21,
+    "categoryId": 6,
+    "name": "Bánh quy giòn ngọt - 200g",
+    "price": 70000,
+    "originalPrice": 80000,
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/product/danisa.png",
+    "detail": "Bánh quy giòn với vị bơ tự nhiên và chút mật ong, mang lại hương vị nhẹ nhàng, thích hợp cho bữa sáng hay trà chiều."
+  },
+  {
+    "id": 22,
+    "categoryId": 4,
+    "name": "Sữa chua trái cây - 250g",
+    "price": 50000,
+    "originalPrice": 60000,
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/product/milk.png",
+    "detail": "Sữa chua trái cây kết hợp vị chua thanh mát cùng mảnh vụn trái cây tươi, bổ dưỡng và thơm ngon."
+  },
+  {
+    "id": 23,
+    "categoryId": 7,
+    "name": "Chảo rán siêu bền",
+    "price": 90000,
+    "originalPrice": 100000,
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/product/pans.png",
+    "detail": "Chảo rán chất lượng cao, đảm bảo không dính và phân bố nhiệt đều, lý tưởng cho mọi món ăn từ chiên đến xào."
+  },
+  {
+    "id": 24,
+    "categoryId": 7,
+    "name": "Nồi chiên không dầu Sunhouse",
+    "price": 80000,
+    "originalPrice": 90000,
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/product/sunhouse.png",
+    "detail": "Nồi chiên không dầu Sunhouse giúp chiên thực phẩm vàng giòn mà không cần nhiều dầu, an toàn và tiện lợi cho gia đình."
+  },
+  {
+    "id": 25,
+    "categoryId": 9,
+    "name": "Nước giặt Tide - Sạch sáng",
+    "price": 150000,
+    "originalPrice": 160000,
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/product/tide.png",
+    "detail": "Nước giặt Tide với công thức độc quyền giữ cho vải vóc mềm mại, sạch sẽ và thơm mát sau mỗi lần giặt."
+  }
+]

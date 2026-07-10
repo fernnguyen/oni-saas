@@ -1,0 +1,52 @@
+[
+  {
+    "id": 1,
+    "name": "Rau, củ, quả",
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/category/fruits.png"
+  },
+  {
+    "id": 2,
+    "name": "Thịt",
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/category/meat.png"
+  },
+  {
+    "id": 3,
+    "name": "Thủy hải sản",
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/category/fish.png"
+  },
+  {
+    "id": 4,
+    "name": "Bơ, sữa, trứng",
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/category/egg.png"
+  },
+  {
+    "id": 5,
+    "name": "Bánh tươi",
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/category/bread.png"
+  },
+  {
+    "id": 6,
+    "name": "Bánh kẹo ngũ cốc",
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/category/cookies.png"
+  },
+  {
+    "id": 7,
+    "name": "Thực phẩm chế biến",
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/category/sushi.png"
+  },
+  {
+    "id": 8,
+    "name": "Thực phẩm đông lạnh",
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/category/ice-cream.png"
+  },
+  {
+    "id": 9,
+    "name": "Gia vị",
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/category/sauce.png"
+  },
+  {
+    "id": 10,
+    "name": "Nước giải khát",
+    "image": "https://zalo-miniapp.github.io/zaui-market/dummy/category/beverage.png"
+  }
+]
