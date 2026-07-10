@@ -2,8 +2,10 @@ export interface ListOptions {
   page?: number
   limit?: number
   search?: string
-  filters?: Record<string, string>
+  filters?: Record<string, any>
   sortDesc?: boolean  // true = newest-first (reverse append order)
+  sortBy?: string
+  date_range?: { column: string; start: string; end: string }
 }
 
 export interface ListResult {

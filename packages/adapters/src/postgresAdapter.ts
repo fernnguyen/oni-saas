@@ -258,7 +258,7 @@ export class PostgresConnector implements IDataConnector {
   }
 
   async list(entity: string, options: ListOptions = {}): Promise<ListResult> {
-    const { page = 1, limit = 50, search, filters, sortDesc } = options
+    const { page = 1, limit = 50, search, filters, sortDesc, sortBy, date_range } = options
     const tableName = this.getTableName(entity)
 
     const whereClauses: string[] = []
@@ -352,8 +352,24 @@ export class PostgresConnector implements IDataConnector {
       whereClauses.push(`("active" IS NULL OR "active" != 'FALSE')`)
     }
 
+    if (date_range) {
+      whereClauses.push(`"${date_range.column}" >= $${paramIdx}`)
+      params.push(date_range.start)
+      paramIdx++
+      whereClauses.push(`"${date_range.column}" <= $${paramIdx}`)
+      params.push(date_range.end)
+      paramIdx++
+    }
+
     const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : ''
-    const orderBySql = sortDesc ? 'ORDER BY updated_at DESC NULLS LAST, created_at DESC' : 'ORDER BY updated_at ASC NULLS FIRST, created_at ASC'
+    
+    let orderBySql = ''
+    if (sortBy) {
+      orderBySql = sortDesc ? `ORDER BY "${sortBy}" DESC NULLS LAST` : `ORDER BY "${sortBy}" ASC NULLS FIRST`
+    } else {
+      orderBySql = sortDesc ? 'ORDER BY updated_at DESC NULLS LAST, created_at DESC' : 'ORDER BY updated_at ASC NULLS FIRST, created_at ASC'
+    }
+
     const offset = (page - 1) * limit
 
     const dataQuery = `SELECT * FROM "${tableName}" AS t ${whereSql} ${orderBySql} LIMIT ${limit} OFFSET ${offset}`

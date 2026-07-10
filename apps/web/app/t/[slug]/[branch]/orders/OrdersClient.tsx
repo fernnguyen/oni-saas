@@ -122,6 +122,7 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
   const [search, setSearch] = useState(initialSearch)
   const [debouncedSearch] = useDebounce(search, 300)
   const [statusFilter, setStatusFilter] = useState('')
+  const [timeFilter, setTimeFilter] = useState('all')
   const [selectedOrder, setSelectedOrder] = useState<Row | null>(null)
   const [cancelTarget, setCancelTarget] = useState<Row | null>(null)
   const [cancelReason, setCancelReason] = useState('Sai sót hệ thống')
@@ -214,11 +215,12 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
 
   // Orders list
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['orders', shopId, page, debouncedSearch, statusFilter],
+    queryKey: ['orders', shopId, page, debouncedSearch, statusFilter, timeFilter],
     queryFn: async () => {
       const sp = new URLSearchParams({ page: String(page), limit: '50' })
       if (debouncedSearch) sp.set('search', debouncedSearch)
       if (statusFilter) sp.set('status', statusFilter)
+      if (timeFilter && timeFilter !== 'all') sp.set('time', timeFilter)
       const res = await fetch(`/api/shops/${shopId}/orders?${sp}`)
       if (!res.ok) throw new Error('Không tải được dữ liệu')
       return res.json() as Promise<{ data: Row[]; total: number }>
@@ -802,6 +804,17 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
             placeholder="Tìm kiếm đơn hàng..."
           />
         </div>
+        <select
+          value={timeFilter}
+          onChange={(e) => { setTimeFilter(e.target.value); setPage(1) }}
+          className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 max-w-[150px] sm:max-w-[180px]"
+        >
+          <option value="all">Tất cả</option>
+          <option value="today">Hôm nay</option>
+          <option value="yesterday">Hôm qua</option>
+          <option value="last7days">7 ngày trước</option>
+          <option value="lastmonth">Tháng trước</option>
+        </select>
         <button
           onClick={() => {
             queryClient.invalidateQueries({ queryKey: ['orders'] })
@@ -1009,17 +1022,20 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
                 <p className="text-sm text-slate-400">Chưa có sản phẩm</p>
               ) : (
                 <div className="overflow-x-auto rounded-xl border border-slate-100">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-slate-100 bg-slate-50">
-                        <th className="px-3 py-2 text-left font-medium text-slate-600">Sản phẩm</th>
-                        <th className="px-3 py-2 text-right font-medium text-slate-600">SL</th>
-                        <th className="px-3 py-2 text-right font-medium text-slate-600">Thành tiền</th>
-                        <th className="px-3 py-2 text-right font-medium text-slate-600">Đã hoàn</th>
-                        <th className="px-3 py-2 text-right font-medium text-slate-600">Còn lại</th>
-                      </tr>
-                    </thead>
-                    <tbody>
+                  {(() => {
+                    const hasReturns = Object.values(alreadyReturnedQty).some(qty => qty > 0)
+                    return (
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-slate-100 bg-slate-50">
+                            <th className="px-3 py-2 text-left font-medium text-slate-600">Sản phẩm</th>
+                            <th className="px-3 py-2 text-right font-medium text-slate-600">SL</th>
+                            <th className="px-3 py-2 text-right font-medium text-slate-600">Thành tiền</th>
+                            {hasReturns && <th className="px-3 py-2 text-right font-medium text-slate-600">Đã hoàn</th>}
+                            {hasReturns && <th className="px-3 py-2 text-right font-medium text-slate-600">Còn lại</th>}
+                          </tr>
+                        </thead>
+                        <tbody>
                       {(itemsData?.data ?? []).map((item) => {
                         const parsedModifiers = typeof item.modifiers === 'string' && item.modifiers.startsWith('[') 
                           ? (() => { try { return JSON.parse(item.modifiers) } catch { return [] } })() 
@@ -1086,12 +1102,16 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
                               </span>
                             )}
                           </td>
-                          <td className="px-3 py-2 text-right text-orange-600 font-medium">
-                            {returnedTotal > 0 ? `-${fmtVND(String(returnedTotal))}` : '—'}
-                          </td>
-                          <td className="px-3 py-2 text-right font-semibold text-slate-900">
-                            {fmtVND(String(remainingTotal))}
-                          </td>
+                          {hasReturns && (
+                            <td className="px-3 py-2 text-right text-orange-600 font-medium">
+                              {returnedTotal > 0 ? `-${fmtVND(String(returnedTotal))}` : '—'}
+                            </td>
+                          )}
+                          {hasReturns && (
+                            <td className="px-3 py-2 text-right font-semibold text-slate-900">
+                              {fmtVND(String(remainingTotal))}
+                            </td>
+                          )}
                         </tr>
                       )})}
                       {/* Total summary row */}
@@ -1105,18 +1125,48 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
                           return sum + (lineTotal / qty) * returnedQty
                         }, 0)
                         const grandTotalConLai = Math.max(0, grandTotalThanhTien - grandTotalDaHoan)
+                        
+                        const orderDiscount = Number(selectedOrder?.discount_amount || 0)
 
                         return (
-                          <tr className="border-t border-slate-200 bg-slate-50/50 font-semibold text-slate-900">
-                            <td className="px-3 py-2 text-left" colSpan={2}>Tổng cộng</td>
-                            <td className="px-3 py-2 text-right">{fmtVND(String(grandTotalThanhTien))}</td>
-                            <td className="px-3 py-2 text-right text-orange-600">{grandTotalDaHoan > 0 ? `-${fmtVND(String(grandTotalDaHoan))}` : '—'}</td>
-                            <td className="px-3 py-2 text-right text-blue-700">{fmtVND(String(grandTotalConLai))}</td>
-                          </tr>
+                          <>
+                            {orderDiscount > 0 && (
+                              <>
+                                <tr className="border-t border-slate-200 bg-slate-50/50 font-medium text-slate-700">
+                                  <td className="px-3 py-2 text-left" colSpan={2}>Tạm tính</td>
+                                  <td className="px-3 py-2 text-right">{fmtVND(String(grandTotalThanhTien))}</td>
+                                  {hasReturns && <td className="px-3 py-2 text-right text-orange-600">{grandTotalDaHoan > 0 ? `-${fmtVND(String(grandTotalDaHoan))}` : '—'}</td>}
+                                  {hasReturns && <td className="px-3 py-2 text-right font-semibold text-blue-700">{fmtVND(String(grandTotalConLai))}</td>}
+                                </tr>
+                                <tr className="bg-slate-50/50 font-medium text-slate-600">
+                                  <td className="px-3 py-2 text-left" colSpan={2}>Giảm giá</td>
+                                  <td className="px-3 py-2 text-right text-orange-600">-{fmtVND(String(orderDiscount))}</td>
+                                  {hasReturns && <td colSpan={2}></td>}
+                                </tr>
+                              </>
+                            )}
+                            <tr className={`${orderDiscount === 0 ? 'border-t border-slate-200 ' : ''}bg-slate-50/50 font-bold text-slate-900`}>
+                              <td className="px-3 py-2 text-left" colSpan={2}>Thành tiền</td>
+                              {orderDiscount === 0 ? (
+                                <>
+                                  <td className="px-3 py-2 text-right text-blue-700">{fmtVND(String(selectedOrder?.total_amount || 0))}</td>
+                                  {hasReturns && <td className="px-3 py-2 text-right text-orange-600 font-medium">{grandTotalDaHoan > 0 ? `-${fmtVND(String(grandTotalDaHoan))}` : '—'}</td>}
+                                  {hasReturns && <td className="px-3 py-2 text-right font-semibold text-blue-700">{fmtVND(String(grandTotalConLai))}</td>}
+                                </>
+                              ) : (
+                                <>
+                                  <td className="px-3 py-2 text-right text-blue-700">{fmtVND(String(selectedOrder?.total_amount || 0))}</td>
+                                  {hasReturns && <td colSpan={2}></td>}
+                                </>
+                              )}
+                            </tr>
+                          </>
                         )
                       })()}
                     </tbody>
                   </table>
+                  )
+                })()}
                 </div>
               )}
             </div>

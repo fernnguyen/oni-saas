@@ -30,7 +30,38 @@ export async function GET(
     if (channel) filters.channel = channel
     if (customer_id) filters.customer_id = customer_id
 
-    const result = await connector.list('orders', { page, limit, search: search || undefined, filters, sortDesc: true })
+    const time = sp.get('time') ?? ''
+
+    let date_range: { start: string; end: string; column: string } | undefined = undefined;
+    if (time && time !== 'all') {
+      const gmt7 = getGMT7Time()
+      const start = new Date(gmt7)
+      start.setHours(0, 0, 0, 0)
+      const end = new Date(gmt7)
+      end.setHours(23, 59, 59, 999)
+
+      if (time === 'today') {
+        date_range = { start: start.toISOString(), end: end.toISOString(), column: 'created_at' }
+      } else if (time === 'yesterday') {
+        start.setDate(start.getDate() - 1)
+        end.setDate(end.getDate() - 1)
+        date_range = { start: start.toISOString(), end: end.toISOString(), column: 'created_at' }
+      } else if (time === 'last7days') {
+        start.setDate(start.getDate() - 6)
+        date_range = { start: start.toISOString(), end: end.toISOString(), column: 'created_at' }
+      } else if (time === 'lastmonth') {
+        start.setMonth(start.getMonth() - 1)
+        start.setDate(1)
+        end.setMonth(end.getMonth())
+        end.setDate(0)
+        date_range = { start: start.toISOString(), end: end.toISOString(), column: 'created_at' }
+      }
+    }
+
+    const sortDesc = true;
+    const sortBy = time && time !== 'all' ? 'created_at' : 'updated_at' // Default to updated_at if not provided in list
+
+    const result = await connector.list('orders', { page, limit, search: search || undefined, filters, date_range, sortBy, sortDesc })
 
     return NextResponse.json(result)
   } catch (e) {
