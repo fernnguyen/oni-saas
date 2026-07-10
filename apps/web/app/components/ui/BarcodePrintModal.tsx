@@ -3,7 +3,7 @@
 import React, { useState, useRef, useMemo } from 'react'
 import { SlideOver } from './SlideOver'
 import Barcode from 'react-barcode'
-import { useReactToPrint } from 'react-to-print'
+
 
 export interface PrintProduct {
   id: string
@@ -44,29 +44,65 @@ export function BarcodePrintModal({ open, onClose, shopName, products }: Barcode
   const isTwoUp = paperSize === '35x22'
   
   // A single label's dimension
-  const labelWidthMm = isTwoUp ? 34 : 50
+  const labelWidthMm = isTwoUp ? 35 : 50
   const labelHeightMm = isTwoUp ? 22 : 30
   
   // The actual page printed by the browser
-  const pageWidthMm = isTwoUp ? 70 : 50
+  const pageWidthMm = isTwoUp ? 72 : 50
   const pageHeightMm = isTwoUp ? 22 : 30
 
-  const handlePrint = useReactToPrint({
-    contentRef: printRef,
-    documentTitle: `In_Ma_Vach_${shopName}`,
-    pageStyle: `
-      @page {
-        size: ${pageWidthMm}mm ${pageHeightMm}mm !important;
-        margin: 0 !important;
-      }
-      body {
-        margin: 0 !important;
-        padding: 0 !important;
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
-      }
-    `
-  })
+  const handlePrint = () => {
+    if (!printRef.current) return
+
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>In_Ma_Vach_${shopName}</title>
+<style>
+  @page {
+    size: ${pageWidthMm}mm ${pageHeightMm}mm !important;
+    margin: 0 !important;
+  }
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+</style>
+</head>
+<body>
+  ${printRef.current.innerHTML}
+</body>
+</html>`
+
+    const iframe = document.createElement('iframe')
+    iframe.style.position = 'fixed'
+    iframe.style.right = '0'
+    iframe.style.bottom = '0'
+    iframe.style.width = '0'
+    iframe.style.height = '0'
+    iframe.style.border = '0'
+    document.body.appendChild(iframe)
+    
+    const iframeDoc = iframe.contentWindow?.document
+    if (!iframeDoc) return
+    
+    iframeDoc.open()
+    iframeDoc.write(html)
+    iframeDoc.close()
+
+    iframe.onload = () => {
+      iframe.contentWindow?.focus()
+      iframe.contentWindow?.print()
+      setTimeout(() => {
+        if (document.body.contains(iframe)) {
+          document.body.removeChild(iframe)
+        }
+      }, 1000)
+    }
+  }
 
   // Set default copies to 1 for new products
   useMemo(() => {
@@ -139,8 +175,8 @@ export function BarcodePrintModal({ open, onClose, shopName, products }: Barcode
               onChange={(e) => setPaperSize(e.target.value as any)}
               className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white"
             >
-              <option value="50x30">Tem 50x30mm (1 tem/hàng)</option>
-              <option value="35x22">Tem 35x22mm (2 tem/hàng phổ biến)</option>
+              <option value="50x30">Tem 50x30mm (Khổ in 50x30)</option>
+              <option value="35x22">Tem 35x22mm (2 tem ngang - Khổ in 72x22)</option>
             </select>
           </div>
         </div>
