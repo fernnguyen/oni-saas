@@ -8,9 +8,20 @@ import { useReactToPrint } from 'react-to-print'
 export interface PrintProduct {
   id: string
   name: string
-  barcode: string
-  sku: string
+  barcode?: string
+  sku?: string
   sell_price: string
+}
+
+const extractPrintableCode = (code?: string) => {
+  if (!code) return ''
+  const parts = code.split('-')
+  // Pattern: P-[TENANT_HASH]-[ACTUAL_SKU]
+  // TENANT_HASH is typically 8 chars (e.g. 8A3D694D)
+  if (parts.length >= 3 && parts[0] === 'P' && parts[1].length === 8) {
+    return parts.slice(2).join('-')
+  }
+  return code
 }
 
 interface BarcodePrintModalProps {
@@ -24,7 +35,7 @@ export function BarcodePrintModal({ open, onClose, shopName, products }: Barcode
   const [showShopName, setShowShopName] = useState(true)
   const [showProductName, setShowProductName] = useState(true)
   const [showPrice, setShowPrice] = useState(true)
-  const [paperSize, setPaperSize] = useState<'50x30' | '35x22'>('50x30')
+  const [paperSize, setPaperSize] = useState<'50x30' | '35x22'>('35x22')
   const [copies, setCopies] = useState<Record<string, number>>({})
 
   const printRef = useRef<HTMLDivElement>(null)
@@ -59,14 +70,26 @@ export function BarcodePrintModal({ open, onClose, shopName, products }: Barcode
     return num.toLocaleString('vi-VN') + ' VND'
   }
 
-  // Dimensions based on paper size
-  // 50x30mm -> approx 189x113 pixels (at 96dpi)
-  // 35x22mm -> approx 132x83 pixels
   const mmToPx = (mm: number) => Math.round((mm * 96) / 25.4)
-  const widthMm = paperSize === '50x30' ? 50 : 35
-  const heightMm = paperSize === '50x30' ? 30 : 22
-  const widthPx = mmToPx(widthMm)
-  const heightPx = mmToPx(heightMm)
+  const isTwoUp = paperSize === '35x22'
+  
+  // A single label's dimension
+  const labelWidthMm = isTwoUp ? 35 : 50
+  const labelHeightMm = isTwoUp ? 22 : 30
+  
+  // The actual page printed by the browser
+  // For 2-up, we use a 72mm wide page containing 2x 35mm labels and a 2mm gap
+  const pageWidthMm = isTwoUp ? 72 : 50
+  const pageHeightMm = isTwoUp ? 22 : 30
+
+  // Helper to chunk the print items
+  const chunkArray = <T,>(arr: T[], size: number): T[][] => {
+    const res = []
+    for (let i = 0; i < arr.length; i += size) {
+      res.push(arr.slice(i, i + size))
+    }
+    return res
+  }
 
   // Barcode scaling to fit the small labels
   const barcodeHeight = paperSize === '50x30' ? 35 : 25
@@ -143,33 +166,51 @@ export function BarcodePrintModal({ open, onClose, shopName, products }: Barcode
         </div>
 
         {/* Preview section */}
-        <div>
-          <h3 className="font-semibold text-sm text-slate-800 mb-3">Xem trước tem (Minh họa)</h3>
-          {products.length > 0 && (
-            <div className="p-4 bg-slate-100 rounded-xl flex justify-center overflow-x-auto">
-              <div 
-                className="bg-white border border-slate-300 flex flex-col items-center justify-center p-1 shadow-sm"
-                style={{ width: widthPx, height: heightPx, overflow: 'hidden' }}
-              >
-                {showShopName && <div className="font-bold w-full text-center leading-tight line-clamp-2" style={{ fontSize: fontSize }}>{shopName}</div>}
-                {showProductName && <div className="w-full text-center leading-tight mt-0.5 line-clamp-2" style={{ fontSize: fontSize - 2 }}>{products[0].name}</div>}
-                <div className="flex-1 flex items-center justify-center -my-1 w-full overflow-hidden">
-                  <Barcode 
-                    value={(products[0].barcode && products[0].barcode.trim() !== '') ? products[0].barcode : products[0].sku} 
-                    height={barcodeHeight}
-                    width={barcodeWidth}
-                    displayValue={true}
-                    fontSize={fontSize + 1}
-                    margin={0}
-                    textMargin={0}
-                    background="transparent"
-                  />
+        {(() => {
+          const previewItems = isTwoUp 
+            ? [products[0], products[0]] 
+            : [products[0]]
+          
+          return (
+            <div>
+              <h3 className="font-semibold text-sm text-slate-800 mb-3">Xem trước tem (Minh họa)</h3>
+              {products.length > 0 && (
+                <div className="p-4 bg-slate-100 rounded-xl flex justify-center overflow-x-auto">
+                  <div 
+                    className="bg-slate-200 border border-slate-300 flex shadow-sm"
+                    style={{ 
+                      width: mmToPx(pageWidthMm), 
+                      height: mmToPx(pageHeightMm), 
+                      gap: isTwoUp ? mmToPx(2) : 0,
+                      justifyContent: isTwoUp ? 'space-between' : 'center'
+                    }}
+                  >
+                    {previewItems.map((p, idx) => (
+                      <div key={idx} className="bg-white flex flex-col items-center justify-center p-1 overflow-hidden" style={{ width: mmToPx(labelWidthMm), height: mmToPx(labelHeightMm) }}>
+                        {showShopName && <div className="font-extrabold w-full text-center leading-snug pt-0.5 line-clamp-2 text-black" style={{ fontSize: fontSize }}>{shopName}</div>}
+                        {showProductName && <div className="font-extrabold w-full text-center leading-snug line-clamp-2 text-black" style={{ fontSize: fontSize }}>{p.name}</div>}
+                        <div className="flex items-center justify-center w-full overflow-hidden">
+                          <Barcode 
+                            value={extractPrintableCode((p.barcode && p.barcode.trim() !== '') ? p.barcode : p.sku)} 
+                            height={barcodeHeight}
+                            width={barcodeWidth}
+                            displayValue={true}
+                            fontSize={fontSize + 1}
+                            fontOptions="bold"
+                            margin={0}
+                            textMargin={0}
+                            background="transparent"
+                          />
+                        </div>
+                        {showPrice && <div className="font-extrabold w-full text-center leading-tight text-black" style={{ fontSize: fontSize + 1 }}>{formatPrice(p.sell_price)}</div>}
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                {showPrice && <div className="font-bold w-full text-center leading-tight mb-0.5" style={{ fontSize: fontSize + 1 }}>{formatPrice(products[0].sell_price)}</div>}
-              </div>
+              )}
             </div>
-          )}
-        </div>
+          )
+        })()}
       </div>
 
       {/* Hidden printable area */}
@@ -178,7 +219,7 @@ export function BarcodePrintModal({ open, onClose, shopName, products }: Barcode
           <style type="text/css" media="print">
             {`
               @page {
-                size: ${widthMm}mm ${heightMm}mm;
+                size: ${pageWidthMm}mm ${pageHeightMm}mm;
                 margin: 0;
               }
               body {
@@ -187,88 +228,107 @@ export function BarcodePrintModal({ open, onClose, shopName, products }: Barcode
                 -webkit-print-color-adjust: exact;
               }
               .print-area {
-                width: ${widthMm}mm;
+                width: ${pageWidthMm}mm;
               }
               .label-page {
-                width: ${widthMm}mm;
-                height: ${heightMm}mm;
+                width: ${pageWidthMm}mm;
+                height: ${pageHeightMm}mm;
+                display: flex;
+                flex-direction: row;
+                align-items: center;
+                justify-content: ${isTwoUp ? 'space-between' : 'center'};
+                overflow: hidden;
+                page-break-after: always;
+                box-sizing: border-box;
+                padding: 0;
+              }
+              .label-item {
+                width: ${labelWidthMm}mm;
+                height: ${labelHeightMm}mm;
                 display: flex;
                 flex-direction: column;
                 align-items: center;
                 justify-content: center;
+                gap: 1px;
                 overflow: hidden;
-                page-break-after: always;
                 box-sizing: border-box;
                 padding: 1mm;
+                color: #000;
               }
               .label-shop-name {
                 font-family: sans-serif;
                 font-size: ${fontSize}px;
-                font-weight: bold;
+                font-weight: 900;
                 text-align: center;
                 width: 100%;
                 overflow: hidden;
                 display: -webkit-box;
                 -webkit-line-clamp: 2;
                 -webkit-box-orient: vertical;
-                line-height: 1.1;
+                line-height: 1.3;
+                padding-top: 1px;
               }
               .label-product-name {
                 font-family: sans-serif;
-                font-size: ${fontSize - 2}px;
-                font-weight: normal;
+                font-size: ${fontSize}px;
+                font-weight: 900;
                 text-align: center;
                 width: 100%;
                 overflow: hidden;
                 display: -webkit-box;
                 -webkit-line-clamp: 2;
                 -webkit-box-orient: vertical;
-                line-height: 1.1;
-                margin-top: 1px;
+                line-height: 1.3;
               }
               .label-barcode-container {
                 display: flex;
-                flex: 1;
                 align-items: center;
                 justify-content: center;
                 width: 100%;
-                margin: -2px 0;
                 overflow: hidden;
               }
               .label-price {
                 font-family: sans-serif;
                 font-size: ${fontSize + 1}px;
-                font-weight: bold;
+                font-weight: 900;
                 text-align: center;
                 width: 100%;
                 line-height: 1.2;
-                margin-bottom: 1px;
               }
             `}
           </style>
-          {products.flatMap(p => {
-            const count = copies[p.id] || 1
-            const code = (p.barcode && p.barcode.trim() !== '') ? p.barcode : p.sku
-            return Array.from({ length: count }).map((_, idx) => (
-              <div key={`${p.id}-${idx}`} className="label-page">
-                {showShopName && <div className="label-shop-name">{shopName}</div>}
-                {showProductName && <div className="label-product-name">{p.name}</div>}
-                <div className="label-barcode-container">
-                  <Barcode 
-                    value={code} 
-                    height={barcodeHeight}
-                    width={barcodeWidth}
-                    displayValue={true}
-                    fontSize={fontSize + 1}
-                    margin={0}
-                    textMargin={0}
-                    background="transparent"
-                  />
-                </div>
-                {showPrice && <div className="label-price">{formatPrice(p.sell_price)}</div>}
+          {(() => {
+            const printItems = products.flatMap(p => {
+              const count = copies[p.id] || 1
+              const code = extractPrintableCode((p.barcode && p.barcode.trim() !== '') ? p.barcode : p.sku)
+              return Array.from({ length: count }).map(() => ({ product: p, code }))
+            })
+            const pages = chunkArray(printItems, isTwoUp ? 2 : 1)
+            return pages.map((pageItems, pageIdx) => (
+              <div key={pageIdx} className="label-page">
+                {pageItems.map((item, itemIdx) => (
+                  <div key={itemIdx} className="label-item">
+                    {showShopName && <div className="label-shop-name">{shopName}</div>}
+                    {showProductName && <div className="label-product-name">{item.product.name}</div>}
+                    <div className="label-barcode-container">
+                      <Barcode 
+                        value={item.code} 
+                        height={barcodeHeight}
+                        width={barcodeWidth}
+                        displayValue={true}
+                        fontSize={fontSize + 1}
+                        fontOptions="bold"
+                        margin={0}
+                        textMargin={0}
+                        background="transparent"
+                      />
+                    </div>
+                    {showPrice && <div className="label-price">{formatPrice(item.product.sell_price)}</div>}
+                  </div>
+                ))}
               </div>
             ))
-          })}
+          })()}
         </div>
       </div>
     </SlideOver>
