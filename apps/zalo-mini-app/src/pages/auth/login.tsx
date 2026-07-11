@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { setTenantCode } from '@/lib/api-config';
 import toast from 'react-hot-toast';
-import { getUserInfo } from 'zmp-sdk/apis';
+import { getPhoneNumber, getAccessToken } from 'zmp-sdk/apis';
+import { loginWithZaloMiniApp } from '@/services/auth';
 
 /**
  * Build email cho Supabase auth dựa theo identifier + tenant:
@@ -90,13 +91,39 @@ export default function LoginPage() {
   const handleZaloLogin = async () => {
     setZaloLoading(true);
     try {
-      const userInfo = await getUserInfo({});
-      toast('Đăng nhập bằng Zalo sẽ sớm được hỗ trợ!\n' + (userInfo?.userInfo?.name || ''), {
-        icon: '🔜',
+      getPhoneNumber({
+        success: async (data) => {
+          try {
+            const { token } = data;
+            if (!token) throw new Error('Không nhận được token từ Zalo');
+            
+            const accessToken = await new Promise<string>((resolve, reject) => {
+              getAccessToken({
+                success: (token) => resolve(token as string),
+                fail: (err) => reject(new Error('Không thể lấy access token')),
+              });
+            });
+            
+            await loginWithZaloMiniApp(token, accessToken);
+            
+            toast.success('Đăng nhập thành công!');
+            navigate('/select-branch', { replace: true });
+          } catch (error: any) {
+            console.error('Lỗi khi gọi API:', error);
+            toast.error(error?.message || 'Có lỗi xảy ra khi xác thực');
+          } finally {
+            setZaloLoading(false);
+          }
+        },
+        fail: (error) => {
+          console.error('Từ chối cấp quyền số điện thoại', error);
+          toast.error('Vui lòng cấp quyền số điện thoại để tiếp tục');
+          setZaloLoading(false);
+        }
       });
-    } catch {
+    } catch (err) {
+      console.error('Lỗi zmp-sdk:', err);
       toast.error('Không thể kết nối Zalo');
-    } finally {
       setZaloLoading(false);
     }
   };

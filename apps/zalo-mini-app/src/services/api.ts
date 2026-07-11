@@ -22,7 +22,8 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.message || `API error: ${response.status}`);
+    const errMsg = errorData.details || errorData.error || errorData.message || `API error: ${response.status}`;
+    throw new Error(typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg));
   }
 
   return response.json();

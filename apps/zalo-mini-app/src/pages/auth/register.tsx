@@ -17,8 +17,12 @@ export default function RegisterPage() {
             const { token } = data;
             if (!token) throw new Error('Không nhận được token từ Zalo');
             
-            // Get access token for the mini app user
-            const accessToken = await getAccessToken({});
+            const accessToken = await new Promise<string>((resolve, reject) => {
+              getAccessToken({
+                success: (token) => resolve(token as string),
+                fail: (err) => reject(new Error('Không thể lấy access token')),
+              });
+            });
             
             // Call our backend API to authenticate and get session
             await loginWithZaloMiniApp(token, accessToken);
@@ -29,6 +33,7 @@ export default function RegisterPage() {
           } catch (error: any) {
             console.error('Lỗi khi gọi API:', error);
             toast.error(error?.message || 'Có lỗi xảy ra khi xác thực');
+          } finally {
             setLoading(false);
           }
         },

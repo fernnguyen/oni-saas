@@ -64,11 +64,15 @@ export async function POST(req: NextRequest) {
       }
     });
 
-    if (createError && (createError.message.toLowerCase().includes('already') || createError.status === 422)) {
-      // User exists, proceed to generate session
-    } else if (createError) {
-      console.error('Supabase Create User Error:', createError);
-      return NextResponse.json({ error: 'Failed to create user', details: createError }, { status: 500 });
+    if (createError) {
+      const isAlreadyExists = 
+        (createError.message && createError.message.toLowerCase().includes('already')) || 
+        createError.status === 422;
+        
+      if (!isAlreadyExists) {
+        console.error('Supabase Create User Error:', createError);
+        return NextResponse.json({ error: 'Failed to create user', details: createError }, { status: 500 });
+      }
     }
 
     // 4. Generate magic link to get OTP token
@@ -79,10 +83,11 @@ export async function POST(req: NextRequest) {
 
     if (linkError || !linkData?.properties?.action_link) {
       console.error('Supabase Generate Link Error:', linkError);
-      return NextResponse.json({ error: 'Failed to generate auth link' }, { status: 500 });
+      return NextResponse.json({ error: 'Failed to generate auth link', details: linkError }, { status: 500 });
     }
 
-    const actionUrl = new URL(linkData.properties.action_link);
+    // Pass the base URL in case action_link is relative
+    const actionUrl = new URL(linkData.properties.action_link, process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://oni.vn');
     const otpToken = actionUrl.searchParams.get('token');
 
     if (!otpToken) {
@@ -90,11 +95,16 @@ export async function POST(req: NextRequest) {
     }
 
     // 5. Verify OTP using an anonymous client (to get session JSON without setting cookies on backend)
-    const authClient = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { auth: { persistSession: false } }
-    );
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    
+    if (!supabaseUrl || !supabaseAnonKey) {
+      throw new Error('Missing Supabase public environment variables');
+    }
+
+    const authClient = createClient(supabaseUrl, supabaseAnonKey, { 
+      auth: { persistSession: false } 
+    });
 
     const { data: sessionData, error: verifyError } = await authClient.auth.verifyOtp({
       email: zaloEmail,
@@ -104,13 +114,17 @@ export async function POST(req: NextRequest) {
 
     if (verifyError || !sessionData.session) {
       console.error('Supabase Verify OTP Error:', verifyError);
-      return NextResponse.json({ error: 'Failed to verify session' }, { status: 500 });
+      return NextResponse.json({ error: 'Failed to verify session', details: verifyError }, { status: 500 });
     }
 
     // Return the session to the Mini App
     return NextResponse.json({ session: sessionData.session });
-  } catch (err) {
+  } catch (err: any) {
     console.error('Zalo Mini App Route Error:', err);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ 
+      error: 'Internal server error', 
+      details: err?.message || String(err),
+      stack: process.env.NODE_ENV === 'development' ? err?.stack : undefined
+    }, { status: 500 });
   }
 }
