@@ -35,18 +35,37 @@ export async function POST(req: NextRequest) {
   const { slug, name, phone, password, industry_type, turnstile_token, invitation_code } = parsed.data;
 
   try {
+  const admin = getSupabaseAdminClient();
 
-  // Cloudflare Turnstile Verification
-  const ip = req.headers.get('x-forwarded-for') || undefined;
-  const isTurnstileValid = await verifyTurnstileToken(turnstile_token, ip);
-  if (!isTurnstileValid) {
-    return NextResponse.json(
-      { message: 'Xác thực bảo mật không hợp lệ hoặc đã hết hạn. Vui lòng thử lại.' },
-      { status: 400 },
-    );
+  const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
+  const protocol   = rootDomain.startsWith('localhost') ? 'http' : 'https';
+
+  const supabaseClient = await getSupabaseServerClient();
+  const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
+  
+  if (authError || !user) {
+    return NextResponse.json({ message: 'Vui lòng đăng nhập để thiết lập hệ thống.' }, { status: 401 });
   }
 
-  const admin = getSupabaseAdminClient();
+  const userId = user.id;
+
+  // Bypass Turnstile for authenticated Zalo users (from Mini App)
+  let userProvider = user.app_metadata?.provider || 'email';
+  if (userProvider === 'email' && user.email?.startsWith('zalo_')) {
+    userProvider = 'zalo';
+  }
+
+  if (userProvider !== 'zalo') {
+    // Cloudflare Turnstile Verification
+    const ip = req.headers.get('x-forwarded-for') || undefined;
+    const isTurnstileValid = await verifyTurnstileToken(turnstile_token, ip);
+    if (!isTurnstileValid) {
+      return NextResponse.json(
+        { message: 'Xác thực bảo mật không hợp lệ hoặc đã hết hạn. Vui lòng thử lại.' },
+        { status: 400 },
+      );
+    }
+  }
 
   // 0 — Load global registration system settings
   const { data: settingsData } = await admin
@@ -118,18 +137,6 @@ export async function POST(req: NextRequest) {
       { status: 409 }
     );
   }
-
-  const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
-  const protocol   = rootDomain.startsWith('localhost') ? 'http' : 'https';
-
-  const supabaseClient = await getSupabaseServerClient();
-  const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
-  
-  if (authError || !user) {
-    return NextResponse.json({ message: 'Vui lòng đăng nhập để thiết lập hệ thống.' }, { status: 401 });
-  }
-
-  const userId = user.id;
 
   // 1.5 — Pre-check phone uniqueness using Auth API
   let e164Phone: string | null = null;

@@ -30,7 +30,7 @@ export default function OnboardingPage() {
   const [invitationCode, setInvitationCode] = useState('');
   const [promoDetails, setPromoDetails] = useState<{
     valid: boolean;
-    plan?: { id: number; code: string; name: string } | null;
+    plan?: { id: number; code: string; name: string; price_monthly?: number; price_yearly?: number } | null;
     trial_days?: number | null;
     message?: string;
   } | null>(null);
@@ -351,31 +351,83 @@ export default function OnboardingPage() {
 
             {/* Plan Display */}
             <div className="pt-2">
-              <label className="block text-sm font-medium text-foreground mb-1.5">Gói dịch vụ</label>
-              <div className="flex items-center gap-3 rounded-xl border border-[var(--primary)] bg-[var(--primary)]/5 px-4 py-3 text-[var(--primary)]">
-                <svg className="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <div className="flex-1 flex flex-col justify-center">
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-foreground">
-                      {promoDetails?.valid && promoDetails.plan ? promoDetails.plan.name : 'Tiên phong'}
-                    </span>
-                    {promoDetails?.valid && promoDetails.trial_days ? (
-                      <span className="rounded-md bg-[var(--primary)] px-1.5 py-0.5 text-[10px] font-bold text-white uppercase tracking-wide shrink-0">
-                        Dùng thử {promoDetails.trial_days} ngày
-                      </span>
-                    ) : (
-                      <span className="rounded-md bg-emerald-500 px-1.5 py-0.5 text-[10px] font-bold text-white uppercase tracking-wide shrink-0">
-                        Miễn phí
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-[11px] font-semibold text-subtitle mt-0.5">
-                    {promoDetails?.valid ? 'Áp dụng từ mã ưu đãi' : 'Có thể nâng cấp sau'}
-                  </span>
-                </div>
-              </div>
+              <label className="block text-sm font-medium text-foreground mb-1.5">Gói dịch vụ đăng ký</label>
+              
+              {(() => {
+                let totalOriginalPrice = 0;
+                let trialDurationText = '';
+                
+                if (promoDetails?.valid && promoDetails.plan && promoDetails.trial_days) {
+                  const days = promoDetails.trial_days;
+                  if (days % 365 === 0) {
+                    const years = days / 365;
+                    totalOriginalPrice = (promoDetails.plan.price_yearly || (promoDetails.plan.price_monthly || 0) * 12) * years;
+                    trialDurationText = `${years} năm`;
+                  } else if (days % 30 === 0) {
+                    const months = days / 30;
+                    totalOriginalPrice = (promoDetails.plan.price_monthly || 0) * months;
+                    trialDurationText = `${months} tháng`;
+                  } else {
+                    const monthsFraction = days / 30;
+                    totalOriginalPrice = Math.round((promoDetails.plan.price_monthly || 0) * monthsFraction);
+                    trialDurationText = `${days} ngày`;
+                  }
+                }
+
+                const formattedTotalPrice = totalOriginalPrice ? (() => {
+                  if (totalOriginalPrice >= 1000000) return `${(totalOriginalPrice / 1000000).toFixed(1).replace('.0', '')}M`;
+                  if (totalOriginalPrice >= 1000) return `${totalOriginalPrice / 1000}K`;
+                  return totalOriginalPrice.toString();
+                })() : '';
+
+                return (
+                  <>
+                    <div className="flex items-center gap-3 rounded-xl border border-[#ff6a00] bg-[#fff5eb] px-4 py-3 text-[#ff6a00]">
+                      <svg className="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <div className="flex-1 flex flex-col justify-center">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-foreground">
+                            {promoDetails?.valid && promoDetails.plan ? promoDetails.plan.name : 'Tiên phong'}
+                          </span>
+                          {promoDetails?.valid && promoDetails.trial_days ? (
+                            <span className="rounded bg-[#ff6a00] px-1.5 py-0.5 text-[9px] font-bold text-white uppercase tracking-wide shrink-0">
+                              Dùng thử {promoDetails.trial_days} ngày miễn phí
+                            </span>
+                          ) : (
+                            <span className="rounded bg-[#ff6a00] px-1.5 py-0.5 text-[9px] font-bold text-white uppercase tracking-wide shrink-0">
+                              Miễn phí vĩnh viễn
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      
+                      {promoDetails?.valid && (
+                        <div className="flex flex-col items-end justify-center text-right whitespace-nowrap">
+                          {totalOriginalPrice > 0 && (
+                            <div className="flex items-center gap-1 text-[11px] mb-0.5">
+                              <span className="line-through text-slate-400 font-medium">
+                                {formattedTotalPrice}/{trialDurationText}
+                              </span>
+                              <span className="font-extrabold text-emerald-600 bg-white px-1 rounded border border-emerald-200">
+                                0đ
+                              </span>
+                            </div>
+                          )}
+                          <span className="text-[10px] font-semibold text-[#ff6a00]/80">
+                            Áp dụng từ mã ưu đãi
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                    
+                    <p className="text-[11px] text-subtitle mt-2 leading-relaxed bg-[var(--border)]/30 p-2 rounded-lg">
+                      * Sau khi hết hạn dùng thử mà bạn không có nhu cầu nâng cấp, bạn vẫn được tự động chuyển về dùng gói Tiên phong miễn phí vĩnh viễn.
+                    </p>
+                  </>
+                );
+              })()}
             </div>
 
             <div className="flex space-x-3 pt-4">

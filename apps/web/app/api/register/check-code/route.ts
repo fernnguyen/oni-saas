@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
   if (codeData.plan_id) {
     const { data: planData } = await admin
       .from('plans')
-      .select('id, code, name')
+      .select('id, code, name, price_monthly, price_yearly')
       .eq('id', codeData.plan_id)
       .maybeSingle();
     plan = planData;
