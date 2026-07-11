@@ -106,27 +106,27 @@ export default function LoginPage() {
       <div className="auth-card">
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[var(--primary)] to-[color-mix(in_srgb,var(--primary)_70%,#000)] flex items-center justify-center mb-3 shadow-lg">
+          <div className="w-16 h-16 mb-3 shadow-lg rounded-2xl overflow-hidden flex items-center justify-center">
             <img
               src="/logo.png"
               alt="ONI"
-              className="w-10 h-10 object-contain"
+              className="w-full h-full object-contain"
               onError={(e) => {
                 (e.target as HTMLImageElement).style.display = 'none';
                 (e.target as HTMLImageElement).parentElement!.innerHTML =
-                  '<span class="text-2xl font-black text-white">ONI</span>';
+                  '<div class="w-full h-full bg-gradient-to-br from-[var(--primary)] to-[color-mix(in_srgb,var(--primary)_70%,#000)] flex items-center justify-center rounded-2xl"><span class="text-xl font-black text-white">ONI</span></div>';
               }}
             />
           </div>
           <h1 className="text-xl font-bold text-foreground">Đăng nhập</h1>
-          <p className="text-sm text-subtitle mt-1">Đăng nhập vào hệ thống ONI</p>
+          <p className="text-sm text-subtitle mt-1">Đăng nhập để bán hàng</p>
         </div>
 
         <form onSubmit={handleLogin} className="space-y-4">
           {/* Tenant Code */}
           <div>
             <label className="block text-sm font-medium text-foreground mb-1.5">
-              Mã doanh nghiệp
+              Mã cửa hàng
             </label>
             <div className="relative flex items-center">
               <input
@@ -240,16 +240,7 @@ export default function LoginPage() {
           className="auth-btn auth-btn-zalo flex items-center justify-center space-x-2"
           disabled={zaloLoading}
         >
-          <svg width="20" height="20" viewBox="0 0 48 48" fill="none">
-            <path
-              d="M24 0C10.745 0 0 10.745 0 24s10.745 24 24 24 24-10.745 24-24S37.255 0 24 0z"
-              fill="#006AF5"
-            />
-            <path
-              d="M33.6 13.2H14.4c-1.325 0-2.4 1.075-2.4 2.4v12c0 1.325 1.075 2.4 2.4 2.4h4.8l-1.2 4.8 6-4.8h9.6c1.325 0 2.4-1.075 2.4-2.4v-12c0-1.325-1.075-2.4-2.4-2.4z"
-              fill="white"
-            />
-          </svg>
+          <img src="/zalo.svg" alt="Zalo" className="w-5 h-5" />
           <span>{zaloLoading ? 'Đang kết nối...' : 'Đăng nhập bằng Zalo'}</span>
         </button>
 
@@ -261,13 +252,13 @@ export default function LoginPage() {
             onClick={() => navigate('/register')}
             className="text-[var(--primary)] font-semibold"
           >
-            Đăng ký
+            Đăng ký tài khoản mới
           </button>
         </p>
       </div>
 
       {/* Footer branding */}
-      <p className="mt-6 text-xs text-white/60">Powered by ONI Platform</p>
+      <p className="mt-6 text-xs text-white/60">Phát triển bởi ONI Software</p>
     </div>
   );
 }

@@ -59,12 +59,37 @@ export async function fetchShops(tenantId: string) {
   >(`/api/shops?tenant_id=${tenantId}`);
 }
 
+// Login via Zalo Mini App
+export async function loginWithZaloMiniApp(token: string, accessToken: string) {
+  // Ensure we call the root API for global auth (registration/login)
+  localStorage.removeItem('active_tenant_code');
+  localStorage.removeItem('custom_api_base_url');
+
+  const { session } = await apiFetch<{ session: any }>('/api/auth/zalo/mini-app', {
+    method: 'POST',
+    body: JSON.stringify({ token, accessToken }),
+  });
+
+  if (session) {
+    // Set the session directly using Supabase client
+    await supabase.auth.setSession({
+      access_token: session.access_token,
+      refresh_token: session.refresh_token,
+    });
+    // And also update store explicitly if needed (setSession listener might catch it, but good to be explicit)
+    useAuthStore.getState().setSession(session);
+  }
+
+  return session;
+}
+
 // Logout
 export async function logout() {
   await supabase.auth.signOut();
   useAuthStore.getState().logout();
   useTenantStore.getState().clearAll();
   localStorage.removeItem('active_tenant_code');
+  localStorage.removeItem('custom_api_base_url');
 }
 
 // Listen to auth state changes
