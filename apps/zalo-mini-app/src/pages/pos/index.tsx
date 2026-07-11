@@ -70,7 +70,7 @@ export default function PosPage() {
       const [prodRes, catRes, custRes, pmRes, pfRes] = await Promise.all([
         getProducts(shopId),
         getCategories(shopId),
-        getCustomers(shopId, { limit: '500' }),
+        getCustomers(shopId, { limit: '10' }),
         getPaymentMethods(shopId),
         getPaymentFunds(shopId),
       ]);

@@ -135,6 +135,15 @@ export default function DashboardPage() {
 
   const userName = profile?.full_name || profile?.email || 'Người dùng';
 
+  // Compute KPI values from nested or flat API structures
+  const todayRevenue = data?.kpi?.today?.revenue ?? data?.todayRevenue ?? 0;
+  const monthRevenue = data?.kpi?.month?.revenue ?? data?.monthRevenue ?? 0;
+  const todayOrders = data?.kpi?.today?.orders ?? data?.todayOrders ?? 0;
+  const monthOrders = data?.kpi?.month?.orders ?? data?.monthOrders ?? 0;
+  const aov = data?.aov ?? (monthOrders > 0 ? monthRevenue / monthOrders : 0);
+  const refundRevenue = data?.kpi?.returns?.refund ?? data?.refundRevenue ?? 0;
+  const refundCount = data?.kpi?.returns?.count ?? data?.refundCount ?? 0;
+
   const fetchData = useCallback(async () => {
     if (!shop?.id) return;
 
@@ -197,33 +206,32 @@ export default function DashboardPage() {
           {/* Doanh thu hôm nay */}
           <div className="kpi-card">
             <p className="kpi-label">Doanh thu hôm nay</p>
-            <p className="kpi-value">{formatCompactNumber(data?.todayRevenue ?? 0)}</p>
+            <p className="kpi-value">{formatCompactNumber(todayRevenue)}</p>
             <GrowthBadge value={data?.todayGrowth} />
           </div>
 
           {/* Doanh thu tháng */}
           <div className="kpi-card">
             <p className="kpi-label">Doanh thu tháng</p>
-            <p className="kpi-value">{formatCompactNumber(data?.monthRevenue ?? 0)}</p>
+            <p className="kpi-value">{formatCompactNumber(monthRevenue)}</p>
             <GrowthBadge value={data?.monthGrowth} />
           </div>
 
           {/* Giá trị TB (AOV) */}
           <div className="kpi-card">
             <p className="kpi-label">Giá trị TB</p>
-            <p className="kpi-value">{formatCurrency(data?.aov ?? 0)}</p>
-            {/* AOV growth not available in API — show order count instead */}
+            <p className="kpi-value">{formatCurrency(aov)}</p>
             <span className="kpi-change" style={{ color: '#64748b' }}>
-              {data?.todayOrders ?? 0} đơn hôm nay
+              {todayOrders} đơn hôm nay
             </span>
           </div>
 
           {/* Trả hàng */}
           <div className="kpi-card">
             <p className="kpi-label">Trả hàng</p>
-            <p className="kpi-value">{formatCurrency(data?.refundRevenue ?? 0)}</p>
+            <p className="kpi-value">{formatCurrency(refundRevenue)}</p>
             <span className="kpi-change" style={{ color: '#64748b' }}>
-              {data?.refundCount ?? 0} phiếu trả
+              {refundCount} phiếu trả
             </span>
           </div>
         </div>
@@ -311,7 +319,7 @@ export default function DashboardPage() {
                     {product.name}
                   </p>
                   <p style={{ fontSize: 11, color: '#94a3b8', margin: '2px 0 0' }}>
-                    SL: {product.quantity}
+                    SL: {product.quantity ?? product.qty ?? 0}
                   </p>
                 </div>
 

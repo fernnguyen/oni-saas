@@ -142,6 +142,11 @@ export interface LocationResource {
 }
 
 export interface ReportOverview {
+  kpi?: {
+    today?: { orders: number; revenue: number; debt: number };
+    month?: { orders: number; revenue: number; debt: number };
+    returns?: { count: number; refund: number };
+  };
   todayRevenue?: number;
   todayOrders?: number;
   monthRevenue?: number;
@@ -149,7 +154,7 @@ export interface ReportOverview {
   aov?: number;
   refundRevenue?: number;
   refundCount?: number;
-  topProducts?: Array<{ name: string; quantity: number; revenue: number }>;
+  topProducts?: Array<{ id?: string; name: string; quantity?: number; qty?: number; revenue: number }>;
   todayGrowth?: number;
   monthGrowth?: number;
   chartData?: Array<{ date: string; revenue: number }>;

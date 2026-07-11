@@ -3,7 +3,7 @@ import toast from 'react-hot-toast';
 import { usePosStore } from '@/stores/pos-store';
 import { useTenantStore } from '@/stores/tenant-store';
 import { useAuthStore } from '@/stores/auth-store';
-import { syncOrderDirect, createCustomer } from '@/services/shop-api';
+import { syncOrderDirect, createCustomer, getCustomers } from '@/services/shop-api';
 import { formatCurrency } from '@/utils/format';
 
 interface Customer {
@@ -52,15 +52,13 @@ export default function CheckoutModal() {
   const shop = useTenantStore((s) => s.shop);
   const shopId = shop?.id ?? '';
 
-  const profile = useAuthStore((s) => s.profile);
-
   const cart = usePosStore((s) => s.cart);
-  const customers = usePosStore((s) => s.customers);
   const paymentMethods = usePosStore((s) => s.paymentMethods);
   const paymentFunds = usePosStore((s) => s.paymentFunds);
   const selectedCustomer = usePosStore((s) => s.selectedCustomer);
   const discountAmount = usePosStore((s) => s.discountAmount);
   const orderNote = usePosStore((s) => s.orderNote);
+  const profile = useAuthStore((s) => s.profile);
 
   const {
     updateQuantity,
@@ -71,7 +69,6 @@ export default function CheckoutModal() {
     setDiscountAmount,
     setOrderNote,
     setIsCheckoutOpen,
-    setCustomers,
   } = usePosStore.getState();
 
   // ── Customer default ──
@@ -83,6 +80,13 @@ export default function CheckoutModal() {
   const [custSearchQuery, setCustSearchQuery] = useState('');
   const [showCustDropdown, setShowCustDropdown] = useState(false);
   const custDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Live / Paginated Customer state
+  const [customersList, setCustomersList] = useState<Customer[]>([]);
+  const [custLoading, setCustLoading] = useState(false);
+  const [custOffset, setCustOffset] = useState(0);
+  const [custHasMore, setCustHasMore] = useState(true);
+  const [debouncedSearch, setDebouncedSearch] = useState('');
 
   // Quick add customer modal state
   const [showAddCustModal, setShowAddCustModal] = useState(false);
@@ -104,6 +108,63 @@ export default function CheckoutModal() {
   // ── Multiple Payment Rows ──
   const [payments, setPayments] = useState<PaymentRow[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Debounce customer search input
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(custSearchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [custSearchQuery]);
+
+  // Reload customers on debounced search change
+  useEffect(() => {
+    if (showCustDropdown && shopId) {
+      loadCustomers(true);
+    }
+  }, [debouncedSearch, showCustDropdown, shopId]);
+
+  const loadCustomers = async (reset = false) => {
+    if (custLoading) return;
+    if (!reset && !custHasMore) return;
+
+    setCustLoading(true);
+    const newOffset = reset ? 0 : custOffset;
+
+    try {
+      const urlParams: Record<string, string> = {
+        limit: '10',
+        offset: String(newOffset),
+      };
+      if (debouncedSearch.trim()) {
+        urlParams.search = debouncedSearch.trim();
+      }
+
+      const res = await getCustomers(shopId, urlParams);
+      const fetched = res?.customers || [];
+
+      if (reset) {
+        setCustomersList(fetched);
+        setCustOffset(fetched.length);
+      } else {
+        setCustomersList((prev) => [...prev, ...fetched]);
+        setCustOffset((prev) => prev + fetched.length);
+      }
+
+      setCustHasMore(fetched.length === 10);
+    } catch (err) {
+      console.error('Error loading customers in dropdown:', err);
+    } finally {
+      setCustLoading(false);
+    }
+  };
+
+  const handleDropdownScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const target = e.currentTarget;
+    if (target.scrollHeight - target.scrollTop <= target.clientHeight + 10) {
+      loadCustomers(false);
+    }
+  };
 
   // Helper: Auto-match default funds when changing method
   const getAutoMatchedFund = (methodId: string) => {
@@ -205,17 +266,6 @@ export default function CheckoutModal() {
     return nonDebtReceived > finalAmount ? nonDebtReceived - finalAmount : 0;
   }, [payments, paymentMethods, finalAmount]);
 
-  // ── Filtered Customers ──
-  const filteredCustomers = useMemo(() => {
-    const q = custSearchQuery.trim().toLowerCase();
-    if (!q) return customers.slice(0, 10);
-    return customers.filter(
-      (c) =>
-        c.name.toLowerCase().includes(q) ||
-        c.phone?.toLowerCase().includes(q)
-    );
-  }, [customers, custSearchQuery]);
-
   // ── Constraints & Warnings ──
   const checkoutWarning = useMemo(() => {
     for (const p of payments) {
@@ -274,7 +324,6 @@ export default function CheckoutModal() {
         customer_type: newCustType,
       });
       toast.success('Thêm khách hàng thành công');
-      setCustomers([...customers, newCust]);
       setSelectedCustomer(newCust);
       setShowAddCustModal(false);
       setNewCustName('');
@@ -470,9 +519,10 @@ export default function CheckoutModal() {
               </div>
             )}
 
-            {/* Dropdown list results */}
+            {/* LIVE Autocomplete Dropdown List with scroll-pagination */}
             {showCustDropdown && activeCustomer.id === 'C-DEFAULT-RETAIL' && (
               <div
+                onScroll={handleDropdownScroll}
                 style={{
                   position: 'absolute', top: '100%', left: 12, right: 12,
                   background: 'white', border: '1px solid #cbd5e1', borderRadius: 10,
@@ -489,7 +539,7 @@ export default function CheckoutModal() {
                 >
                   <span style={{ color: 'var(--primary)' }}>Khách mua lẻ</span>
                 </div>
-                {filteredCustomers.map((c) => (
+                {customersList.map((c) => (
                   <div
                     key={c.id}
                     onClick={() => handleSelectCustomer(c)}
@@ -505,6 +555,16 @@ export default function CheckoutModal() {
                     </div>
                   </div>
                 ))}
+                {custLoading && (
+                  <div style={{ padding: 10, textAlign: 'center', fontSize: 11, color: '#64748b' }}>
+                    Đang tải thêm...
+                  </div>
+                )}
+                {!custLoading && customersList.length === 0 && (
+                  <div style={{ padding: 10, textAlign: 'center', fontSize: 11, color: '#94a3b8' }}>
+                    Không tìm thấy khách hàng
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -536,7 +596,7 @@ export default function CheckoutModal() {
 
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
                       
-                      {/* Price editing with dotted underline & edit mode */}
+                      {/* Price editing */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <span style={{ fontSize: 11, color: '#64748b' }}>Đơn giá:</span>
                         {editingPriceItemId === item.product.id ? (
@@ -689,14 +749,14 @@ export default function CheckoutModal() {
                 const matchingFunds = paymentFunds.filter((f) => f.type === pm?.type);
                 const resolvedFunds = matchingFunds.length > 0 ? matchingFunds : paymentFunds;
 
-                // Unique Select Filter: exclude already used payment methods in other rows
+                // Unique Select Filter
                 const usedMethods = new Set(payments.map((pay) => pay.method));
 
                 return (
                   <div key={p.id} style={{ border: '1.5px solid #cbd5e1', borderRadius: 12, padding: 12, background: 'white', position: 'relative' }}>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                       
-                      {/* Method selector with Unique Select Filtered options */}
+                      {/* Method selector */}
                       <select
                         value={p.method}
                         onChange={(e) => handleUpdatePayment(p.id, 'method', e.target.value)}
@@ -705,12 +765,12 @@ export default function CheckoutModal() {
                       >
                         {paymentMethods.map((m) => {
                           const isUsedElsewhere = usedMethods.has(m.id) && p.method !== m.id;
-                          if (isUsedElsewhere) return null; // hide already selected options!
+                          if (isUsedElsewhere) return null;
                           return <option key={m.id} value={m.id}>{m.name}</option>;
                         })}
                       </select>
 
-                      {/* Amount input - using 100% bug-free integer maskVnd */}
+                      {/* Amount input */}
                       <input
                         type="text"
                         value={maskVnd(p.amount)}
@@ -872,7 +932,7 @@ export default function CheckoutModal() {
               </div>
 
               <div className="form-group">
-                <label className="form-label">Số điện thoại</label>
+                <label className="block text-sm font-semibold mb-1">Số điện thoại</label>
                 <input
                   type="tel"
                   className="form-input"

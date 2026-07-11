@@ -14,14 +14,40 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // Check existing session on mount
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session);
+      if (session) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          useAuthStore.getState().setProfile({
+            id: user.id,
+            email: user.email || '',
+            full_name: user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'Người dùng',
+            phone: user.phone || user.user_metadata?.phone || '',
+            avatar_url: user.user_metadata?.avatar_url || '',
+          });
+        }
+      }
       setIsLoading(false);
     });
 
     // Listen for auth changes
-    const { data: { subscription } } = onAuthStateChange((session) => {
+    const { data: { subscription } } = onAuthStateChange(async (session) => {
       setSession(session);
+      if (session) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          useAuthStore.getState().setProfile({
+            id: user.id,
+            email: user.email || '',
+            full_name: user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'Người dùng',
+            phone: user.phone || user.user_metadata?.phone || '',
+            avatar_url: user.user_metadata?.avatar_url || '',
+          });
+        }
+      } else {
+        useAuthStore.getState().setProfile(null);
+      }
     });
 
     return () => subscription.unsubscribe();
