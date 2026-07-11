@@ -14,6 +14,7 @@ import CustomerDetailPage from "@/pages/customers/detail";
 import ProductsPage from "@/pages/products";
 import QrOrdersPage from "@/pages/qr-orders";
 import SettingsPage from "@/pages/settings";
+import DebtPage from "@/pages/debt";
 import { getBasePath } from "@/utils/zma";
 
 const router = createBrowserRouter(
@@ -76,6 +77,11 @@ const router = createBrowserRouter(
           path: "/qr-orders",
           element: <QrOrdersPage />,
           handle: { title: "Đơn QR" },
+        },
+        {
+          path: "/debt",
+          element: <DebtPage />,
+          handle: { title: "Công nợ" },
         },
         {
           path: "/settings",

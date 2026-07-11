@@ -410,3 +410,41 @@ export function getOrderPayments(shopId: string, params?: Record<string, string>
   return apiFetch<{ data?: Payment[] }>(`/api/shops/${shopId}/payments${query}`)
     .then(res => res?.data || []);
 }
+
+// ────────────────────────────── Debt ──────────────────────────────
+
+export interface DebtRow {
+  id: string;
+  customer_id?: string;
+  name?: string;
+  phone?: string;
+  debt_amount?: number | string;
+  debt_days?: number | string;
+  metadata?: string;
+}
+
+export function getDebt(shopId: string, type: 'customer' | 'supplier' = 'customer') {
+  return apiFetch<{ data: DebtRow[]; total: number; totalDebt: number }>(
+    `/api/shops/${shopId}/debt?type=${type}`
+  );
+}
+
+export interface DebtOrder {
+  id: string;
+  order_no: string;
+  created_at: string;
+  total_amount: string | number;
+  paid_amount: string | number;
+  debt_amount: string | number;
+  customer_name: string;
+  subtotal?: string | number;
+  discount_amount?: string | number;
+  shipping_fee?: string | number;
+  tax_amount?: string | number;
+}
+
+export function getDebtOrders(shopId: string, customerId: string) {
+  return apiFetch<{ data: DebtOrder[]; total: number; totalDebt: number }>(
+    `/api/shops/${shopId}/orders/debt?customer_id=${customerId}`
+  );
+}

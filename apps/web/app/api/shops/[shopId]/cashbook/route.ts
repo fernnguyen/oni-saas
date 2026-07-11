@@ -328,7 +328,23 @@ export async function POST(
       })
       const stats = statsRes.data[0]
       const customer = await connector.findById('customers', payload.reference_id)
-      const currentDebt = parseFloat(stats?.debt_amount ?? customer?.debt_amount ?? '0') || 0
+      let currentDebt = parseFloat(stats?.debt_amount ?? customer?.debt_amount ?? '0') || 0
+
+      // Self-healing: Query true outstanding debt from unpaid orders to fix database cache mismatch
+      try {
+        const unpaidOrdersRes = await connector.list('orders', {
+          filters: { customer_id: payload.reference_id }
+        })
+        const totalUnpaidOrdersDebt = unpaidOrdersRes.data
+          .filter((o: any) => parseFloat(o.debt_amount || '0') > 0 && o.is_return !== 'TRUE' && o.status !== 'cancelled' && o.status !== 'failed' && o.status !== 'refunded')
+          .reduce((sum: number, o: any) => sum + (parseFloat(o.debt_amount || '0') || 0), 0)
+
+        if (totalUnpaidOrdersDebt > currentDebt) {
+          currentDebt = totalUnpaidOrdersDebt
+        }
+      } catch (err) {
+        console.error('Failed to self-heal customer debt cache during cashbook entry:', err)
+      }
 
       if (currentDebt <= 0) {
         return NextResponse.json(

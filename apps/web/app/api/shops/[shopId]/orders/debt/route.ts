@@ -38,6 +38,25 @@ export async function GET(
       0
     )
 
+    // Self-healing: if cached customer.debt_amount is out of sync with actual unpaid orders sum, heal it in DB
+    try {
+      const customer = await connector.findById('customers', customer_id)
+      if (customer) {
+        const cachedDebt = parseFloat(customer.debt_amount || '0')
+        if (cachedDebt !== totalDebt) {
+          const { updateCustomerStats } = await import('@/lib/server/customerStats')
+          await updateCustomerStats(connector, customer_id, shopId, {
+            debt_amount: String(totalDebt)
+          })
+          
+          const { invalidate } = await import('@/lib/server/cache')
+          invalidate(shopId, 'customers')
+        }
+      }
+    } catch (err) {
+      console.error('Failed to sync customer debt cache:', err)
+    }
+
     return NextResponse.json({
       data: withDebt,
       total: withDebt.length,

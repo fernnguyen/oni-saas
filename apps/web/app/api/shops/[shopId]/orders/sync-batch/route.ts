@@ -924,7 +924,20 @@ export async function POST(
           const stats = statsRes.data[0]
           
           // 1. Debt amount
-          const currentDebt = parseFloat(stats?.debt_amount ?? customer.debt_amount ?? '0') || 0
+          let currentDebt = parseFloat(stats?.debt_amount ?? customer.debt_amount ?? '0') || 0
+          try {
+            const unpaidOrdersRes = await connector.list('orders', {
+              filters: { customer_id: finalCustomerId }
+            })
+            const totalUnpaidOrdersDebt = unpaidOrdersRes.data
+              .filter((o: any) => o.id !== serverId && parseFloat(o.debt_amount || '0') > 0 && o.is_return !== 'TRUE' && o.status !== 'cancelled' && o.status !== 'failed' && o.status !== 'refunded')
+              .reduce((sum: number, o: any) => sum + (parseFloat(o.debt_amount || '0') || 0), 0)
+            
+            currentDebt = Math.max(currentDebt, totalUnpaidOrdersDebt)
+          } catch (e) {
+            console.error('Failed to self-heal customer debt during order sync:', e)
+          }
+
           if (actualDebtAmount > 0) {
             const newDebt = currentDebt + actualDebtAmount
             updates.debt_amount = String(newDebt)

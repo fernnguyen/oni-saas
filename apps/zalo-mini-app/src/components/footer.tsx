@@ -52,11 +52,20 @@ function SettingsIcon({ active }: { active?: boolean }) {
   );
 }
 
+function DebtIcon({ active }: { active?: boolean }) {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={active ? "var(--primary)" : "#94a3b8"} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" />
+      <path d="M12 6v6l4 2" />
+    </svg>
+  );
+}
+
 const NAV_ITEMS = [
   { name: "Tổng quan", path: "/", icon: HomeIcon },
   { name: "Đơn hàng", path: "/orders", icon: OrdersIcon },
   { name: "Bán hàng", path: "/pos", icon: PosIcon, isFab: true },
-  { name: "Khách hàng", path: "/customers", icon: CustomersIcon },
+  { name: "Công nợ", path: "/debt", icon: DebtIcon },
   { name: "Cài đặt", path: "/settings", icon: SettingsIcon },
 ];
 

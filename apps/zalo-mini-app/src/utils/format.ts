@@ -164,12 +164,12 @@ export function cleanOrderNo(orderNo: string | undefined, orderId: string): stri
   const code = orderNo || orderId;
   if (!code) return '';
 
-  const matchTenantPattern = code.match(/(ORD|RET)-([a-fA-F0-9]{8})-([a-zA-Z0-9-]+)/i);
+  const matchTenantPattern = code.match(/(ORD|RET)-([a-fA-F0-9]{8})-+([a-zA-Z0-9-]+)/i);
   if (matchTenantPattern) {
     return matchTenantPattern[3];
   }
 
-  const match = code.match(/(ORD|RET)-([a-zA-Z0-9-]+)/i);
+  const match = code.match(/(ORD|RET)-+([a-zA-Z0-9-]+)/i);
   if (match) {
     return match[2];
   }
