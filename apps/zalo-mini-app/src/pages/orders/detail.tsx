@@ -15,7 +15,7 @@ import {
   type CashbookEntry,
 } from '@/services/shop-api';
 import { useTenantStore } from '@/stores/tenant-store';
-import { formatCurrency, formatDateTime } from '@/utils/format';
+import { formatCurrency, formatDateTime, cleanOrderNo } from '@/utils/format';
 import toast from 'react-hot-toast';
 
 // ────────────────────────────── Status helpers ──────────────────────────────
@@ -231,10 +231,29 @@ export default function OrderDetailPage() {
       <div className="p-4">
         <div className="dashboard-card">
           <div className="flex justify-between items-start mb-3">
-            <div>
-              <h2 className="text-base font-bold text-foreground">
-                {order.order_number || `#${order.id.slice(-6)}`}
-              </h2>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <h2 className="text-base font-bold text-foreground" style={{ margin: 0 }}>
+                  {cleanOrderNo(order.order_number, order.id)}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const original = order.order_number || order.id;
+                    navigator.clipboard.writeText(original);
+                    toast.success('Đã sao chép mã đơn hàng gốc!');
+                  }}
+                  style={{
+                    background: 'none', border: 'none', padding: 4, display: 'flex', alignItems: 'center', cursor: 'pointer', color: '#64748b'
+                  }}
+                  title="Sao chép mã đơn hàng gốc"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+                    <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
+                  </svg>
+                </button>
+              </div>
               <p className="text-2xs text-subtitle mt-0.5">
                 {formatDateTime(order.created_at)}
               </p>

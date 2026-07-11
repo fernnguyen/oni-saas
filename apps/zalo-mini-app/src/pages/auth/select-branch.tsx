@@ -20,6 +20,7 @@ export default function SelectBranchPage() {
   const setShop = useTenantStore((s) => s.setShop);
   const session = useAuthStore((s) => s.session);
   const setSession = useAuthStore((s) => s.setSession);
+  const setProfile = useAuthStore((s) => s.setProfile);
 
   const [shops, setShops] = useState<Shop[]>([]);
   const [loading, setLoading] = useState(true);
@@ -41,6 +42,18 @@ export default function SelectBranchPage() {
     try {
       const baseUrl = getApiBaseUrl();
       const headers = await getApiHeaders();
+
+      // Retrieve and save user profile info
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        setProfile({
+          id: user.id,
+          email: user.email || '',
+          full_name: user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'Người dùng',
+          phone: user.phone || user.user_metadata?.phone || '',
+          avatar_url: user.user_metadata?.avatar_url || '',
+        });
+      }
 
       // 1. Lấy tenant_id qua /api/tenants/me (giống mobile app)
       const meRes = await fetch(`${baseUrl}/api/tenants/me`, { headers });

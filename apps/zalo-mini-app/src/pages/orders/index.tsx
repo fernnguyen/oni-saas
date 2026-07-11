@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getOrders, getShifts, type Order } from '@/services/shop-api';
 import { useTenantStore } from '@/stores/tenant-store';
-import { formatCurrency, formatDateTime } from '@/utils/format';
+import { formatCurrency, formatDateTime, cleanOrderNo } from '@/utils/format';
 
 // ────────────────────────────── Constants ──────────────────────────────
 
@@ -246,7 +246,7 @@ export default function OrdersPage() {
               >
                 <div className="flex justify-between items-start mb-1">
                   <span className="text-sm font-semibold text-foreground">
-                    {order.order_number || `#${order.id.slice(-6)}`}
+                    {cleanOrderNo(order.order_number, order.id)}
                   </span>
                   <span className={`order-status ${getStatusClass(order.status)}`}>
                     {STATUS_LABELS[order.status] || order.status}

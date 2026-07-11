@@ -155,3 +155,38 @@ export function formatCompactNumber(value: number | null | undefined): string {
   if (value >= 1_000) return `${(value / 1_000).toFixed(1).replace(/\.0$/, '')}K`;
   return value.toString();
 }
+
+/**
+ * Trích xuất và rút gọn mã đơn hàng, loại bỏ tenant hash prefix.
+ * e.g., ORD-E007393D-10041 -> ORD-10041
+ */
+export function cleanOrderNo(orderNo: string | undefined, orderId: string): string {
+  const code = orderNo || orderId;
+  if (!code) return '';
+
+  const matchTenantPattern = code.match(/(ORD|RET)-([a-fA-F0-9]{8})-([a-zA-Z0-9-]+)/i);
+  if (matchTenantPattern) {
+    return matchTenantPattern[3];
+  }
+
+  const match = code.match(/(ORD|RET)-([a-zA-Z0-9-]+)/i);
+  if (match) {
+    return match[2];
+  }
+
+  if (code.length > 20 && /^[a-fA-F0-9-]{36}$/.test(code)) {
+    return code.slice(0, 8).toUpperCase();
+  }
+
+  if (code.length > 15) {
+    if (code.includes('_')) {
+      const parts = code.split('_');
+      const ordPart = parts.find(p => p.toUpperCase().startsWith('ORD-') || p.toUpperCase().startsWith('RET-'));
+      if (ordPart) return cleanOrderNo(ordPart, '');
+      return parts[parts.length - 1];
+    }
+    return code.slice(0, 10).toUpperCase();
+  }
+
+  return code.replace(/^(ORD|RET)-/i, '');
+}

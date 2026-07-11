@@ -441,11 +441,10 @@
 
 .pos-cart-bar {
   position: fixed;
-  bottom: 0;
+  bottom: calc(72px + var(--safe-bottom, 0px));
   left: 0;
   right: 0;
-  padding: 12px 16px;
-  padding-bottom: calc(12px + var(--safe-bottom, 0px));
+  padding: 10px 16px;
   background: white;
   border-top: 1px solid var(--border, #e5e7eb);
   display: flex;

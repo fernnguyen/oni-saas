@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { usePosStore } from '@/stores/pos-store';
 import { useTenantStore } from '@/stores/tenant-store';
+import { useAuthStore } from '@/stores/auth-store';
 import { syncOrderDirect, createCustomer } from '@/services/shop-api';
 import { formatCurrency } from '@/utils/format';
 
@@ -50,6 +51,8 @@ function parseVnd(formatted: string | number | null | undefined): number {
 export default function CheckoutModal() {
   const shop = useTenantStore((s) => s.shop);
   const shopId = shop?.id ?? '';
+
+  const profile = useAuthStore((s) => s.profile);
 
   const cart = usePosStore((s) => s.cart);
   const customers = usePosStore((s) => s.customers);
@@ -317,6 +320,7 @@ export default function CheckoutModal() {
           channel: 'mini_app',
           customer_id: activeCustomer.id === 'C-DEFAULT-RETAIL' ? 'C-DEFAULT-RETAIL' : activeCustomer.id,
           customer_name: activeCustomer.name,
+          employee_id: profile?.id || null,
           subtotal: subtotal,
           discount_amount: discountAmount,
           tax_amount: 0,

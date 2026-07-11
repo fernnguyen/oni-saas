@@ -50,7 +50,7 @@ const router = createBrowserRouter(
         {
           path: "/pos",
           element: <PosPage />,
-          handle: { title: "Bán hàng", noFooter: true },
+          handle: { title: "Bán hàng" },
         },
         {
           path: "/cashbook",
