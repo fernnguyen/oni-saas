@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getOrders, getShifts, type Order } from '@/services/shop-api';
+import { getOrders, getReportsOverview, type Order } from '@/services/shop-api';
 import { useTenantStore } from '@/stores/tenant-store';
-import { formatCurrency, formatDateTime, cleanOrderNo } from '@/utils/format';
+import { formatCurrency, formatDateTime, cleanOrderNo, getPaymentMethodLabel } from '@/utils/format';
 
 // ────────────────────────────── Constants ──────────────────────────────
 
@@ -114,19 +114,14 @@ export default function OrdersPage() {
     [shopId, activeTab, search],
   );
 
-  // ── Fetch revenue from today's shifts ──
+  // ── Fetch today's revenue from reports overview ──
   useEffect(() => {
     if (!shopId) return;
 
-    const today = new Date().toISOString().slice(0, 10);
-    getShifts(shopId, { date: today, status: 'closed' })
+    getReportsOverview(shopId)
       .then((data) => {
-        const shifts = data.shifts || [];
-        const total = shifts.reduce(
-          (sum, s) => sum + (s.actual_closing_cash ?? s.expected_closing_cash ?? 0),
-          0,
-        );
-        setRevenue(total);
+        const todayRev = data?.kpi?.today?.revenue ?? data?.todayRevenue ?? 0;
+        setRevenue(todayRev);
       })
       .catch(() => setRevenue(null));
   }, [shopId]);
@@ -238,36 +233,62 @@ export default function OrdersPage() {
           </div>
         ) : (
           <>
-            {orders.map((order) => (
-              <div
-                key={order.id}
-                className="order-card"
-                onClick={() => navigate(`/orders/${order.id}`)}
-              >
-                <div className="flex justify-between items-start mb-1">
-                  <span className="text-sm font-semibold text-foreground">
-                    {cleanOrderNo(order.order_number, order.id)}
-                  </span>
-                  <span className={`order-status ${getStatusClass(order.status)}`}>
-                    {STATUS_LABELS[order.status] || order.status}
-                  </span>
+            {orders.map((order) => {
+              const payMethod = order.payment_method
+                ? order.payment_method.split(',').map(m => getPaymentMethodLabel(m.trim())).join(', ')
+                : '';
+
+              return (
+                <div
+                  key={order.id}
+                  className="order-card flex items-center justify-between gap-3"
+                  onClick={() => navigate(`/orders/${order.id}`)}
+                  style={{ padding: '12px 16px', background: 'white', borderBottom: '1px solid #f1f5f9' }}
+                >
+                  <div className="flex-1 min-w-0">
+                    {/* Row 1: ID & Customer */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                      <span className="text-sm font-bold text-slate-800">
+                        #{cleanOrderNo(order.order_number, order.id)}
+                      </span>
+                      <span className="text-sm text-slate-500 font-medium truncate">
+                        - {order.customer_name || 'Khách lẻ'}
+                      </span>
+                    </div>
+
+                    {/* Row 2: Price & Payment Method */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }} className="text-3xs text-subtitle">
+                      <span className="font-semibold text-slate-700 text-xs">
+                        {formatCurrency(order.final_amount ?? order.total_amount)}
+                      </span>
+                      {payMethod && (
+                        <>
+                          <span style={{ color: '#cbd5e1' }}>·</span>
+                          <span style={{ background: '#f1f5f9', color: '#475569', padding: '2px 6px', borderRadius: 4, fontWeight: 500 }}>
+                            {payMethod}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Right side: Status and Time Column, and Chevron */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }} className="flex-shrink-0">
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                      <span className={`order-status ${getStatusClass(order.status)}`} style={{ margin: 0 }}>
+                        {STATUS_LABELS[order.status] || order.status}
+                      </span>
+                      <span style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 500 }}>
+                        {formatDateTime(order.created_at)}
+                      </span>
+                    </div>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="9 18 15 12 9 6" />
+                    </svg>
+                  </div>
                 </div>
-                {order.customer_name && (
-                  <p className="text-2xs text-subtitle mb-1.5 truncate">
-                    {order.customer_name}
-                    {order.customer_phone ? ` · ${order.customer_phone}` : ''}
-                  </p>
-                )}
-                <div className="flex justify-between items-center">
-                  <span className="text-sm font-bold text-foreground">
-                    {formatCurrency(order.final_amount ?? order.total_amount)}
-                  </span>
-                  <span className="text-3xs text-subtitle">
-                    {formatDateTime(order.created_at)}
-                  </span>
-                </div>
-              </div>
-            ))}
+              );
+            })}
 
             {/* Load more indicator */}
             {loadingMore && (

@@ -190,3 +190,52 @@ export function cleanOrderNo(orderNo: string | undefined, orderId: string): stri
 
   return code.replace(/^(ORD|RET)-/i, '');
 }
+
+/**
+ * Loại bỏ hậu tố uuid khỏi mã phương thức thanh toán.
+ * e.g., cash-e2e8f0 -> cash
+ */
+export function cleanPaymentMethodKey(methodId: string): string {
+  if (!methodId) return 'unknown';
+  const lastIndex = methodId.lastIndexOf('-');
+  if (lastIndex !== -1) {
+    return methodId.substring(0, lastIndex);
+  }
+  return methodId;
+}
+
+/**
+ * Chuẩn hóa phương thức thanh toán về các nhóm gốc.
+ */
+export function normalizePaymentMethod(methodId: string): string {
+  const clean = cleanPaymentMethodKey(methodId).toLowerCase();
+  if (clean === 'cash' || clean.startsWith('cash')) return 'cash';
+  if (clean === 'bank_transfer' || clean === 'bank' || clean.startsWith('bank') || clean.startsWith('transfer')) return 'bank_transfer';
+  if (clean === 'momo' || clean.startsWith('momo')) return 'momo';
+  if (clean === 'vnpay' || clean.startsWith('vnpay')) return 'vnpay';
+  if (clean === 'zalopay' || clean.startsWith('zalopay')) return 'zalopay';
+  if (clean === 'debt' || clean.startsWith('debt')) return 'debt';
+  if (clean === 'prepaid' || clean.startsWith('prepaid') || clean.startsWith('wallet')) return 'prepaid';
+  if (clean === 'card' || clean.startsWith('card')) return 'card';
+  return clean;
+}
+
+export const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  cash: 'Tiền mặt',
+  bank_transfer: 'Chuyển khoản',
+  card: 'Thẻ ATM / POS',
+  momo: 'Ví MoMo',
+  zalopay: 'Ví ZaloPay',
+  vnpay: 'Ví VNPay',
+  prepaid: 'Ví trả trước',
+  debt: 'Ghi nợ',
+  unknown: 'Khác',
+};
+
+/**
+ * Lấy nhãn tiếng Việt tương ứng cho mã phương thức thanh toán bất kỳ.
+ */
+export function getPaymentMethodLabel(methodId: string): string {
+  const norm = normalizePaymentMethod(methodId);
+  return PAYMENT_METHOD_LABELS[norm] || methodId || 'Khác';
+}

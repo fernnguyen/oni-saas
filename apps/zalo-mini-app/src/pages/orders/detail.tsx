@@ -15,20 +15,8 @@ import {
   type CashbookEntry,
 } from '@/services/shop-api';
 import { useTenantStore } from '@/stores/tenant-store';
-import { formatCurrency, formatDateTime, cleanOrderNo } from '@/utils/format';
+import { formatCurrency, formatDateTime, cleanOrderNo, getPaymentMethodLabel } from '@/utils/format';
 import toast from 'react-hot-toast';
-
-const METHOD_LABELS: Record<string, string> = {
-  cash: 'Tiền mặt',
-  bank: 'Chuyển khoản',
-  bank_transfer: 'Chuyển khoản',
-  card: 'Thẻ',
-  debt: 'Ghi nợ',
-  prepaid: 'Ví trả trước',
-  momo: 'MoMo',
-  vnpay: 'VNPay',
-  zalopay: 'ZaloPay',
-};
 
 const CHANNEL_LABELS: Record<string, string> = {
   pos: 'Tại quầy',
@@ -397,7 +385,7 @@ export default function OrderDetailPage() {
             </div>
             {order.payment_method && (
               <p className="text-3xs text-subtitle">
-                Phương thức: {order.payment_method.split(',').map(m => METHOD_LABELS[m.trim()] || m).join(', ')}
+                Phương thức: {order.payment_method.split(',').map(m => getPaymentMethodLabel(m.trim())).join(', ')}
               </p>
             )}
           </div>
