@@ -16,17 +16,36 @@ function isMainPublic(pathname: string) {
     MAIN_DOMAIN_PUBLIC.some((p) => pathname === p || pathname.startsWith(p + '/'));
 }
 
+function isAllowedOrigin(origin: string | null): boolean {
+  if (!origin) return false;
+  if (process.env.NODE_ENV === 'development') return true;
+  // Cho phép Zalo Mini App domains
+  if (
+    origin === 'https://h5.zdn.vn' ||
+    origin === 'zbrowser://h5.zdn.vn' ||
+    origin.endsWith('.zdn.vn') ||
+    origin.endsWith('.zapps.vn') ||
+    origin.startsWith('zbrowser://')
+  ) {
+    return true;
+  }
+  return false;
+}
+
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Xử lý CORS Preflight cho môi trường phát triển (VD: chạy Expo Web trên cổng 8081) - Chỉ cho phép ở môi trường Local/Development
-  if (pathname.startsWith('/api/') && req.method === 'OPTIONS' && process.env.NODE_ENV === 'development') {
-    const response = new NextResponse(null, { status: 204 });
-    response.headers.set('Access-Control-Allow-Origin', req.headers.get('origin') || '*');
-    response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-tenant-slug');
-    response.headers.set('Access-Control-Allow-Credentials', 'true');
-    return response;
+  // Xử lý CORS Preflight cho các client ngoài domain (Expo Web local, Zalo Mini App)
+  if (pathname.startsWith('/api/') && req.method === 'OPTIONS') {
+    const origin = req.headers.get('origin');
+    if (isAllowedOrigin(origin)) {
+      const response = new NextResponse(null, { status: 204 });
+      response.headers.set('Access-Control-Allow-Origin', origin || '*');
+      response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+      response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-tenant-slug');
+      response.headers.set('Access-Control-Allow-Credentials', 'true');
+      return response;
+    }
   }
 
   const xForwardedHost = req.headers.get('x-forwarded-host');
@@ -212,10 +231,11 @@ async function withSupabaseSession(req: NextRequest, res: NextResponse): Promise
   );
   await supabase.auth.getUser();
 
-  // Bổ sung CORS headers cho các API response trong môi trường local/testing - Chỉ cho phép ở môi trường Local/Development
+  // Bổ sung CORS headers cho các API response
   const { pathname } = req.nextUrl;
-  if (pathname.startsWith('/api/') && process.env.NODE_ENV === 'development') {
-    res.headers.set('Access-Control-Allow-Origin', req.headers.get('origin') || '*');
+  const origin = req.headers.get('origin');
+  if (pathname.startsWith('/api/') && isAllowedOrigin(origin)) {
+    res.headers.set('Access-Control-Allow-Origin', origin || '*');
     res.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-tenant-slug');
     res.headers.set('Access-Control-Allow-Credentials', 'true');
