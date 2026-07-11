@@ -346,10 +346,7 @@ export async function POST(req: NextRequest) {
 
   const workspaceUrl = `${protocol}://${slug}.${rootDomain}`;
 
-  let userProvider = user.app_metadata?.provider || 'email';
-  if (userProvider === 'email' && user.email?.startsWith('zalo_')) {
-    userProvider = 'zalo';
-  }
+
 
   return NextResponse.json({
     tenant_id: tenantId,
