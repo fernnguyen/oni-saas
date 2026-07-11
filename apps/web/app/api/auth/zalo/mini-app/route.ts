@@ -90,7 +90,10 @@ export async function POST(req: NextRequest) {
     const actionUrl = new URL(linkData.properties.action_link, process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://oni.vn');
     const otpToken = actionUrl.searchParams.get('token');
 
-    if (!otpToken) {
+    // Extract token_hash from properties, or fallback to URL parameter
+    const tokenHash = linkData.properties?.hashed_token || otpToken;
+
+    if (!tokenHash) {
       return NextResponse.json({ error: 'No token in action link' }, { status: 500 });
     }
 
@@ -106,9 +109,9 @@ export async function POST(req: NextRequest) {
       auth: { persistSession: false } 
     });
 
+    // Verify using token_hash (PKCE compatible) instead of email + token
     const { data: sessionData, error: verifyError } = await authClient.auth.verifyOtp({
-      email: zaloEmail,
-      token: otpToken,
+      token_hash: tokenHash,
       type: 'magiclink'
     });
 

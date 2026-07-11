@@ -22,8 +22,20 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    const errMsg = errorData.details || errorData.error || errorData.message || `API error: ${response.status}`;
-    throw new Error(typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg));
+    
+    let errMsg = errorData.error || errorData.message || `Lỗi hệ thống (${response.status})`;
+    if (errorData.details && typeof errorData.details === 'object' && errorData.details.message) {
+      errMsg = errorData.details.message; // Detailed Supabase/Auth error
+    } else if (typeof errorData.details === 'string') {
+      errMsg = errorData.details;
+    }
+
+    // Append full JSON data for debugging purposes
+    const fullErrorStr = typeof errMsg === 'string' 
+      ? `${errMsg} - Chi tiết: ${JSON.stringify(errorData)}`
+      : JSON.stringify(errorData);
+
+    throw new Error(fullErrorStr);
   }
 
   return response.json();
