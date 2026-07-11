@@ -726,29 +726,133 @@ export default function DebtPage() {
   const [data, setData] = useState<{ data: DebtRow[]; total: number; totalDebt: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [sort, setSort] = useState<SortKey>('debt_days_desc');
   const [selectedEntity, setSelectedEntity] = useState<DebtRow | null>(null);
 
-  const fetchData = useCallback(async () => {
+  // Pagination & Pull to Refresh
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [pullStart, setPullStart] = useState<number | null>(null);
+  const [pullOffset, setPullOffset] = useState(0);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  const fetchData = useCallback(async (pageNum = 1, append = false) => {
     if (!shopId) return;
-    setLoading(true);
+    if (pageNum === 1) {
+      setLoading(true);
+    } else {
+      setLoadingMore(true);
+    }
     try {
-      const res = await getDebt(shopId, tab);
-      setData(res ?? null);
+      const params: Record<string, string> = {
+        type: tab,
+        page: String(pageNum),
+        limit: '20',
+        sort: sort,
+      };
+      if (debouncedSearch.trim()) params.search = debouncedSearch.trim();
+
+      const res = await getDebt(shopId, params);
+      const list = res?.data || [];
+
+      setData((prev) => {
+        if (!prev || !append) return res;
+        return {
+          data: [...prev.data, ...list],
+          total: res.total,
+          totalDebt: res.totalDebt,
+        };
+      });
+
+      setHasMore(list.length === 20);
+      setPage(pageNum);
     } catch {
       toast.error('Không tải được dữ liệu công nợ');
     } finally {
       setLoading(false);
+      setLoadingMore(false);
+      setRefreshing(false);
     }
-  }, [shopId, tab]);
+  }, [shopId, tab, debouncedSearch, sort]);
 
   useEffect(() => {
-    fetchData();
+    fetchData(1, false);
   }, [fetchData]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await fetchData(1, false);
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    const container = document.querySelector('.overflow-y-auto');
+    const scrollTop = container ? container.scrollTop : window.scrollY;
+    if (scrollTop === 0) {
+      setPullStart(e.touches[0].clientY);
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (pullStart !== null) {
+      const currentY = e.touches[0].clientY;
+      const offset = currentY - pullStart;
+      if (offset > 0) {
+        setPullOffset(Math.min(offset * 0.4, 60));
+      }
+    }
+  };
+
+  const handleTouchEnd = async () => {
+    if (pullStart !== null) {
+      if (pullOffset >= 50) {
+        setRefreshing(true);
+        await fetchData(1, false);
+      }
+      setPullStart(null);
+      setPullOffset(0);
+    }
+  };
+
+  // ── Scroll event for infinite scroll ──
+  useEffect(() => {
+    const scrollEl = document.querySelector('.overflow-y-auto');
+    
+    const handleScroll = () => {
+      const el = scrollEl || document.documentElement;
+      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100) {
+        if (hasMore && !loading && !loadingMore) {
+          fetchData(page + 1, true);
+        }
+      }
+    };
+    
+    if (scrollEl) {
+      scrollEl.addEventListener('scroll', handleScroll);
+    } else {
+      window.addEventListener('scroll', handleScroll);
+    }
+    
+    return () => {
+      if (scrollEl) {
+        scrollEl.removeEventListener('scroll', handleScroll);
+      } else {
+        window.removeEventListener('scroll', handleScroll);
+      }
+    };
+  }, [page, hasMore, loading, loadingMore, fetchData]);
 
   const processedData = useMemo(() => {
     const raw = data?.data ?? [];
-    const mapped = raw.map((row) => {
+    return raw.map((row) => {
       let finalDebtDays = Number(row.debt_days || 0);
       try {
         if (row.metadata) {
@@ -758,32 +862,42 @@ export default function DebtPage() {
       } catch {/* ignore */}
       return { ...row, debt_days: finalDebtDays };
     });
-
-    // Filter
-    let filtered = mapped;
-    if (search) {
-      let s = search.toLowerCase();
-      if (s.startsWith('#')) s = s.substring(1);
-      filtered = mapped.filter((row) =>
-        row.name?.toLowerCase().includes(s) ||
-        row.phone?.toLowerCase().includes(s)
-      );
-    }
-
-    // Sort
-    return [...filtered].sort((a, b) => {
-      if (sort === 'debt_days_desc')   return Number(b.debt_days ?? 0) - Number(a.debt_days ?? 0);
-      if (sort === 'debt_days_asc')    return Number(a.debt_days ?? 0) - Number(b.debt_days ?? 0);
-      if (sort === 'debt_amount_desc') return Number(b.debt_amount ?? 0) - Number(a.debt_amount ?? 0);
-      if (sort === 'debt_amount_asc')  return Number(a.debt_amount ?? 0) - Number(b.debt_amount ?? 0);
-      return 0;
-    });
-  }, [data?.data, search, tab, sort]);
+  }, [data?.data]);
 
   const totalDebt = data?.totalDebt ?? 0;
 
   return (
-    <div className="page-container" style={{ paddingBottom: 80 }}>
+    <div 
+      className="page-container" 
+      style={{ paddingBottom: 80 }}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+    >
+      <style>{`
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        .animate-spin-custom {
+          animation: spin 0.8s linear infinite;
+        }
+      `}</style>
+
+      {/* Pull to Refresh Indicator */}
+      <div 
+        className="flex items-center justify-center transition-all overflow-hidden bg-slate-50"
+        style={{
+          height: refreshing ? '50px' : `${pullOffset}px`,
+          opacity: refreshing || pullOffset > 0 ? 1 : 0,
+        }}
+      >
+        <div className="flex items-center gap-2 text-xs text-subtitle">
+          <div className="animate-spin-custom rounded-full h-4 w-4 border-2 border-[var(--primary)] border-t-transparent" />
+          <span>{refreshing ? 'Đang làm mới...' : 'Kéo để làm mới...'}</span>
+        </div>
+      </div>
+
       <div className="px-4 pt-3 pb-0">
 
         {/* ── Tabs ── */}
@@ -792,7 +906,7 @@ export default function DebtPage() {
             <button
               key={t}
               type="button"
-              onClick={() => { setTab(t); setSearch(''); }}
+              onClick={() => { setTab(t); setSearch(''); setPage(1); setHasMore(true); }}
               style={{
                 padding: '8px 16px',
                 fontSize: '13px',
@@ -855,7 +969,7 @@ export default function DebtPage() {
               <button
                 key={opt.key}
                 type="button"
-                onClick={() => setSort(opt.key)}
+                onClick={() => { setSort(opt.key); setPage(1); setHasMore(true); }}
                 style={{
                   flexShrink: 0,
                   display: 'inline-flex',
@@ -880,7 +994,7 @@ export default function DebtPage() {
         </div>
 
         <p style={{ fontSize: '11px', color: '#94a3b8', marginBottom: '8px' }}>
-          {search ? `${processedData.length} / ` : ''}{data?.total ?? 0} {tab === 'supplier' ? 'nhà cung cấp' : 'khách hàng'} đang nợ
+          {data?.total ?? 0} {tab === 'supplier' ? 'nhà cung cấp' : 'khách hàng'} đang nợ
         </p>
       </div>
 
@@ -930,7 +1044,7 @@ export default function DebtPage() {
                         {row.name || '—'}
                       </p>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                        {/* Debt days badge — replaces ID */}
+                        {/* Debt days badge */}
                         <span style={{
                           display: 'inline-flex',
                           alignItems: 'center',
@@ -987,6 +1101,18 @@ export default function DebtPage() {
                 </div>
               );
             })}
+
+            {loadingMore && (
+              <div className="py-4 flex justify-center items-center gap-2">
+                <div className="animate-spin-custom rounded-full h-4 w-4 border-2 border-[var(--primary)] border-t-transparent" />
+                <span className="text-xs text-subtitle">Đang tải thêm...</span>
+              </div>
+            )}
+            {!hasMore && processedData.length > 0 && (
+              <div className="py-4 text-center text-3xs text-inactive">
+                Đã hiển thị toàn bộ công nợ
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/auth-store';
 import { useTenantStore } from '@/stores/tenant-store';
@@ -10,6 +11,13 @@ export default function SettingsPage() {
   const profile = useAuthStore((s) => s.profile);
   const shop = useTenantStore((s) => s.shop);
   const tenant = useTenantStore((s) => s.tenant);
+
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const appVersion = import.meta.env.VITE_APP_VERSION || 'v0.1.0-dev';
+
+  const triggerLogout = () => {
+    setShowLogoutConfirm(true);
+  };
 
   const handleLogout = async () => {
     try {
@@ -24,7 +32,8 @@ export default function SettingsPage() {
     try {
       await openChat({
         type: 'oa',
-        id: '4318657068771012646',
+        id: '2780444502954767948',
+        message: 'Xin chào, tôi cần hỗ trợ với ứng dụng bán hàng ONI trên Zalo app',
       });
     } catch {
       toast.error('Không thể mở Zalo OA Chat');
@@ -58,7 +67,7 @@ export default function SettingsPage() {
           {shop.address && <p className="text-2xs text-subtitle mt-0.5">{shop.address}</p>}
           {tenant?.name && (
             <p className="text-2xs text-subtitle mt-1">
-              Doanh nghiệp: {tenant.name}
+              Mã cửa hàng: <span className="font-semibold">{tenant.name}.oni.vn</span>
             </p>
           )}
         </div>
@@ -102,7 +111,7 @@ export default function SettingsPage() {
         <div className="h-px bg-[var(--border)] mx-4" />
 
         <button
-          onClick={handleLogout}
+          onClick={triggerLogout}
           className="settings-item w-full"
         >
           <div className="flex-none w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center mr-3">
@@ -118,9 +127,51 @@ export default function SettingsPage() {
 
       {/* Version */}
       <div className="text-center mt-8 pb-8">
-        <p className="text-2xs text-subtitle">ONI Business v1.0.0</p>
-        <p className="text-3xs text-inactive mt-0.5">Powered by ONI Platform</p>
+        <p className="text-2xs text-subtitle">ONI POS v{appVersion}</p>
+        <p className="text-3xs text-inactive mt-0.5">@2026 HKD Phần mềm ONI</p>
       </div>
+
+      {/* Confirm Logout Modal */}
+      {showLogoutConfirm && (
+        <div className="modal-backdrop" style={{ zIndex: 1200 }} onClick={() => setShowLogoutConfirm(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="text-base font-semibold text-red-600">Xác nhận đăng xuất</h3>
+              <button onClick={() => setShowLogoutConfirm(false)} className="p-1">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+            <div className="modal-body space-y-4 pb-6">
+              <p className="text-sm text-subtitle leading-relaxed">
+                Bạn có chắc chắn muốn đăng xuất khỏi tài khoản không?
+              </p>
+
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  className="auth-btn border border-[var(--border)] text-foreground bg-white w-full"
+                  onClick={() => setShowLogoutConfirm(false)}
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  className="auth-btn bg-red-600 text-white w-full"
+                  onClick={() => {
+                    setShowLogoutConfirm(false);
+                    handleLogout();
+                  }}
+                >
+                  Đăng xuất
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

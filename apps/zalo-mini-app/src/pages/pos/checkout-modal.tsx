@@ -431,17 +431,17 @@ export default function CheckoutModal() {
     <div className="modal-backdrop" onClick={() => setIsCheckoutOpen(false)}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ display: 'flex', flexDirection: 'column', maxHeight: '95dvh' }}>
         {/* Header */}
-        <div className="modal-header shrink-0">
-          <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Thanh toán đơn hàng</h3>
+        <div className="modal-header shrink-0" style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', gap: 10 }}>
           <button
             onClick={() => setIsCheckoutOpen(false)}
             style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer' }}
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           </button>
+          <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Thanh toán đơn hàng</h3>
         </div>
 
         {/* Body */}

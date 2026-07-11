@@ -305,8 +305,7 @@ export function updateCustomer(shopId: string, customerId: string, data: Partial
 
 export function getCashbook(shopId: string, params?: Record<string, string>) {
   const query = params ? '?' + new URLSearchParams(params).toString() : '';
-  return apiFetch<{ data?: CashbookEntry[] }>(`/api/shops/${shopId}/cashbook${query}`)
-    .then(res => res?.data || []);
+  return apiFetch<any>(`/api/shops/${shopId}/cashbook${query}`);
 }
 
 export function createCashbookEntry(shopId: string, data: any) {
@@ -427,9 +426,10 @@ export interface DebtRow {
   metadata?: string;
 }
 
-export function getDebt(shopId: string, type: 'customer' | 'supplier' = 'customer') {
+export function getDebt(shopId: string, params?: Record<string, string>) {
+  const query = params ? '?' + new URLSearchParams(params).toString() : '';
   return apiFetch<{ data: DebtRow[]; total: number; totalDebt: number }>(
-    `/api/shops/${shopId}/debt?type=${type}`
+    `/api/shops/${shopId}/debt${query}`
   );
 }
 

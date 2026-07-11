@@ -118,7 +118,7 @@ export default function OrderDetailPage() {
 
       setOrder(orderData);
       setItems(Array.isArray(itemsData) ? itemsData : []);
-      setCashbook(Array.isArray(cashbookData) ? cashbookData : []);
+      setCashbook(Array.isArray(cashbookData) ? cashbookData : (Array.isArray(cashbookData?.data) ? cashbookData.data : []));
       setPayments(Array.isArray(paymentsData) ? paymentsData : []);
     } catch (err) {
       console.error('[OrderDetail] fetch error:', err);

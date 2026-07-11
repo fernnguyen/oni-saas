@@ -200,7 +200,7 @@ export async function GET(
       }
 
       // Sort in memory if requested
-      if (sort_by && ['name', 'loyalty_points', 'prepaid_balance', 'debt_amount'].includes(sort_by)) {
+      if (sort_by && ['name', 'loyalty_points', 'prepaid_balance', 'debt_amount', 'created_at'].includes(sort_by)) {
         res.data.sort((a: any, b: any) => {
           const aVal = a[sort_by] ?? ''
           const bVal = b[sort_by] ?? ''
@@ -209,6 +209,10 @@ export async function GET(
             const aNum = parseFloat(String(aVal)) || 0
             const bNum = parseFloat(String(bVal)) || 0
             return sort_order === 'asc' ? aNum - bNum : bNum - aNum
+          } else if (sort_by === 'created_at') {
+            const timeA = new Date(aVal || 0).getTime()
+            const timeB = new Date(bVal || 0).getTime()
+            return sort_order === 'asc' ? timeA - timeB : timeB - timeA
           } else {
             return sort_order === 'asc'
               ? String(aVal).localeCompare(String(bVal), 'vi', { numeric: true })

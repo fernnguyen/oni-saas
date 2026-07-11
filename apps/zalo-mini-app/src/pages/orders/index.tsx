@@ -62,13 +62,43 @@ export default function OrdersPage() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [activeTab, setActiveTab] = useState('');
   const [revenue, setRevenue] = useState<number | null>(null);
   const [hasMore, setHasMore] = useState(true);
 
   const offsetRef = useRef(0);
-  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  // Pull-to-refresh states
+  const [refreshing, setRefreshing] = useState(false);
+  const [pullStart, setPullStart] = useState<number | null>(null);
+  const [pullOffset, setPullOffset] = useState(0);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    const container = document.querySelector('.overflow-y-auto');
+    const scrollTop = container ? container.scrollTop : window.scrollY;
+    if (scrollTop === 0) {
+      setPullStart(e.touches[0].clientY);
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (pullStart !== null) {
+      const currentY = e.touches[0].clientY;
+      const offset = currentY - pullStart;
+      if (offset > 0) {
+        setPullOffset(Math.min(offset * 0.4, 60));
+      }
+    }
+  };
 
   // ── Fetch orders ──
   const fetchOrders = useCallback(
@@ -84,12 +114,13 @@ export default function OrdersPage() {
       }
 
       try {
+        const pageNum = Math.floor(currentOffset / PAGE_SIZE) + 1;
         const params: Record<string, string> = {
           limit: String(PAGE_SIZE),
-          offset: String(currentOffset),
+          page: String(pageNum),
         };
         if (activeTab) params.status = activeTab;
-        if (search.trim()) params.search = search.trim();
+        if (debouncedSearch.trim()) params.search = debouncedSearch.trim();
 
         const data = await getOrders(shopId, params);
         const fetched = data.orders || [];
@@ -99,7 +130,11 @@ export default function OrdersPage() {
           setOrders(fetched);
           offsetRef.current = fetched.length;
         } else {
-          setOrders((prev) => [...prev, ...fetched]);
+          setOrders((prev) => {
+            const existingIds = new Set(prev.map(o => o.id));
+            const uniqueFetched = fetched.filter(o => !existingIds.has(o.id));
+            return [...prev, ...uniqueFetched];
+          });
           offsetRef.current += fetched.length;
         }
         setTotal(fetchedTotal);
@@ -111,7 +146,7 @@ export default function OrdersPage() {
         setLoadingMore(false);
       }
     },
-    [shopId, activeTab, search],
+    [shopId, activeTab, debouncedSearch],
   );
 
   // ── Fetch today's revenue from reports overview ──
@@ -135,25 +170,57 @@ export default function OrdersPage() {
   // ── Debounced search ──
   const handleSearchChange = (value: string) => {
     setSearch(value);
-    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-    searchTimeoutRef.current = setTimeout(() => {
-      offsetRef.current = 0;
-    }, 300);
   };
 
-  // ── Lazy load on scroll ──
-  const handleScroll = () => {
-    const el = scrollRef.current;
-    if (!el || loadingMore || !hasMore) return;
-    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100) {
-      fetchOrders(false);
+  // ── Scroll event for infinite scroll ──
+  useEffect(() => {
+    const scrollEl = document.querySelector('.overflow-y-auto');
+    
+    const handleScroll = () => {
+      const el = scrollEl || document.documentElement;
+      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100) {
+        if (hasMore && !loading && !loadingMore) {
+          fetchOrders(false);
+        }
+      }
+    };
+    
+    if (scrollEl) {
+      scrollEl.addEventListener('scroll', handleScroll);
+    } else {
+      window.addEventListener('scroll', handleScroll);
+    }
+    
+    return () => {
+      if (scrollEl) {
+        scrollEl.removeEventListener('scroll', handleScroll);
+      } else {
+        window.removeEventListener('scroll', handleScroll);
+      }
+    };
+  }, [hasMore, loading, loadingMore, fetchOrders]);
+
+  const handleTouchEnd = async () => {
+    if (pullStart !== null) {
+      if (pullOffset >= 50) {
+        setRefreshing(true);
+        await fetchOrders(true);
+        setRefreshing(false);
+      }
+      setPullStart(null);
+      setPullOffset(0);
     }
   };
 
   // ────────────────────────────── Render ──────────────────────────────
 
   return (
-    <div className="min-h-full bg-background flex flex-col">
+    <div 
+      className="min-h-full bg-background flex flex-col"
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+    >
       {/* Search */}
       <div className="search-bar">
         <svg className="search-bar-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -204,11 +271,30 @@ export default function OrdersPage() {
       </div>
 
       {/* Order List */}
-      <div
-        ref={scrollRef}
-        className="flex-1 overflow-y-auto"
-        onScroll={handleScroll}
-      >
+      <div className="flex-1 px-3">
+        <style>{`
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+          .animate-spin-custom {
+            animation: spin 0.8s linear infinite;
+          }
+        `}</style>
+
+        {/* Pull to Refresh Indicator */}
+        <div 
+          className="flex items-center justify-center transition-all overflow-hidden bg-slate-50"
+          style={{
+            height: refreshing ? '50px' : `${pullOffset}px`,
+            opacity: refreshing || pullOffset > 0 ? 1 : 0,
+          }}
+        >
+          <div className="flex items-center gap-2 text-xs text-subtitle">
+            <div className="animate-spin-custom rounded-full h-4 w-4 border-2 border-[var(--primary)] border-t-transparent" />
+            <span>{refreshing ? 'Đang làm mới...' : 'Kéo để làm mới...'}</span>
+          </div>
+        </div>
         {loading ? (
           <>
             <OrderCardSkeleton />
@@ -292,8 +378,9 @@ export default function OrdersPage() {
 
             {/* Load more indicator */}
             {loadingMore && (
-              <div className="flex justify-center py-4">
-                <div className="skeleton" style={{ width: 120, height: 14 }} />
+              <div className="py-4 flex justify-center items-center gap-2">
+                <div className="animate-spin-custom rounded-full h-4 w-4 border-2 border-[var(--primary)] border-t-transparent" />
+                <span className="text-xs text-subtitle">Đang tải thêm...</span>
               </div>
             )}
             {!hasMore && orders.length > 0 && (

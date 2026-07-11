@@ -31,9 +31,12 @@ export default function Header() {
   // Modal & Sidebar states
   const [showBranchModal, setShowBranchModal] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [branches, setBranches] = useState<Shop[]>([]);
   const [loadingBranches, setLoadingBranches] = useState(false);
   const [pendingBranch, setPendingBranch] = useState<Shop | null>(null);
+
+  const appVersion = import.meta.env.VITE_APP_VERSION || "v0.1.0-dev";
 
   // Fetch branches list when tenant ID is ready
   useEffect(() => {
@@ -81,8 +84,12 @@ export default function Header() {
     }, 300);
   };
 
-  const handleLogout = () => {
+  const triggerLogout = () => {
     setShowSidebar(false);
+    setShowLogoutConfirm(true);
+  };
+
+  const handleLogout = () => {
     logout();
     navigate("/login", { replace: true });
     toast.success("Đã đăng xuất tài khoản");
@@ -168,7 +175,7 @@ export default function Header() {
             onClick={(e) => e.stopPropagation()}
           >
             {/* Sidebar Header */}
-            <div style={{ padding: '16px 20px', background: 'var(--primary)', color: 'white', display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ padding: 'calc(var(--safe-area-inset-top, 24px) + 16px) 20px 16px', background: 'var(--primary)', color: 'white', display: 'flex', alignItems: 'center', gap: 12 }}>
               <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center font-black text-lg">
                 {tenant?.name?.charAt(0).toUpperCase() || "O"}
               </div>
@@ -237,10 +244,13 @@ export default function Header() {
             </div>
 
             {/* Sidebar Logout Footer */}
-            <div style={{ padding: '16px 20px', borderTop: '1px solid #e2e8f0' }}>
+            <div style={{ padding: '12px 20px 16px', borderTop: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ fontSize: 10, color: '#94a3b8', textAlign: 'center' }}>
+                Phiên bản {appVersion}
+              </div>
               <button
                 type="button"
-                onClick={handleLogout}
+                onClick={triggerLogout}
                 style={{
                   width: '100%',
                   height: 40,
@@ -391,6 +401,56 @@ export default function Header() {
                 }}
               >
                 Xác nhận
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ── SUB-MODAL: CONFIRM LOGOUT ── */}
+      {showLogoutConfirm && (
+        <div className="modal-backdrop" style={{ zIndex: 1200, alignItems: 'center' }} onClick={() => setShowLogoutConfirm(false)}>
+          <div className="modal-content modal-content-center" style={{ maxWidth: 320, padding: 18 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header" style={{ padding: '0 0 10px', borderBottom: '1px solid #cbd5e1' }}>
+              <h3 style={{ fontSize: 15, fontStyle: 'normal', fontWeight: 700, margin: 0, color: '#ef4444' }}>Xác nhận đăng xuất</h3>
+              <button
+                type="button"
+                onClick={() => setShowLogoutConfirm(false)}
+                style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer' }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+            
+            <div style={{ margin: '14px 0', fontSize: 13, color: '#475569', textAlign: 'center', lineHeight: 1.5 }}>
+              Bạn có chắc chắn muốn đăng xuất khỏi tài khoản không?
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+              <button
+                type="button"
+                onClick={() => setShowLogoutConfirm(false)}
+                style={{
+                  flex: 1, height: 38, border: '1.5px solid #cbd5e1', borderRadius: 8,
+                  background: 'white', color: '#475569', fontWeight: 700, fontSize: 13, cursor: 'pointer'
+                }}
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowLogoutConfirm(false);
+                  handleLogout();
+                }}
+                style={{
+                  flex: 1, height: 38, border: 'none', borderRadius: 8,
+                  background: '#ef4444', color: 'white', fontWeight: 700, fontSize: 13, cursor: 'pointer'
+                }}
+              >
+                Đăng xuất
               </button>
             </div>
           </div>

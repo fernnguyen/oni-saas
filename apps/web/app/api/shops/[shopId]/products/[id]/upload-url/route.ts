@@ -4,6 +4,8 @@ import { handleApiError } from '../../../../_helpers'
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { getTenantActivePlanDetails } from '@/lib/server/subscriptions'
+import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
+import { getSupabaseServerClient } from '@/lib/server/supabaseServer'
 
 const s3Client = new S3Client({
   region: process.env.R2_REGION || 'auto',

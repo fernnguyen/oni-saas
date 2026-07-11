@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { Session } from '@supabase/supabase-js';
+import { usePosStore } from './pos-store';
 
 interface UserProfile {
   id: string;
@@ -31,7 +32,10 @@ export const useAuthStore = create<AuthState>()(
       },
       setSession: (session: Session | null) => set({ session }),
       setProfile: (profile: UserProfile | null) => set({ profile }),
-      logout: () => set({ session: null, profile: null }),
+      logout: () => {
+        set({ session: null, profile: null });
+        usePosStore.getState().clearCart();
+      },
     }),
     {
       name: 'oni-auth',

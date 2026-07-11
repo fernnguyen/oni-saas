@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase';
 import { apiFetch } from './api';
 import { useAuthStore } from '@/stores/auth-store';
 import { useTenantStore } from '@/stores/tenant-store';
+import { usePosStore } from '@/stores/pos-store';
 
 // Resolve tenant by slug - returns tenant info
 export async function resolveTenant(slug: string) {
@@ -93,6 +94,7 @@ export async function logout() {
   await supabase.auth.signOut();
   useAuthStore.getState().logout();
   useTenantStore.getState().clearAll();
+  usePosStore.getState().clearCart();
   localStorage.removeItem('active_tenant_code');
   localStorage.removeItem('custom_api_base_url');
 }

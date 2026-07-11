@@ -62,7 +62,7 @@ function DebtIcon({ active }: { active?: boolean }) {
 }
 
 const NAV_ITEMS = [
-  { name: "Tổng quan", path: "/", icon: HomeIcon },
+  { name: "Trang chủ", path: "/", icon: HomeIcon },
   { name: "Đơn hàng", path: "/orders", icon: OrdersIcon },
   { name: "Bán hàng", path: "/pos", icon: PosIcon, isFab: true },
   { name: "Công nợ", path: "/debt", icon: DebtIcon },

@@ -55,11 +55,33 @@ export default function CashbookPage() {
   const [form, setForm] = useState<TxForm>(INITIAL_FORM);
   const [submitting, setSubmitting] = useState(false);
 
-  const fetchData = useCallback(async () => {
+  // Pagination & Lazy loading
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [selectedOrder, setSelectedOrder] = useState<'desc' | 'asc'>('desc');
+
+  // Overall stat states
+  const [totalReceipt, setTotalReceipt] = useState(0);
+  const [totalPayment, setTotalPayment] = useState(0);
+  const [balance, setBalance] = useState(0);
+
+  // Pull-to-refresh state
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchData = useCallback(async (pageNum = 1, append = false) => {
     if (!shopId) return;
-    setLoading(true);
+    if (pageNum === 1) {
+      setLoading(true);
+    } else {
+      setLoadingMore(true);
+    }
     try {
-      const params: Record<string, string> = {};
+      const params: Record<string, string> = {
+        page: String(pageNum),
+        limit: '20',
+        order: selectedOrder,
+      };
       if (selectedFund !== 'all') params.fund_id = selectedFund;
 
       const [cbRes, pmRes, custRes] = await Promise.all([
@@ -68,29 +90,71 @@ export default function CashbookPage() {
         getCustomers(shopId, { limit: '500' }),
       ]);
 
-      const txList = Array.isArray(cbRes) ? cbRes : [];
-      setEntries(txList);
+      const txList = cbRes?.data || [];
+      setEntries((prev) => append ? [...prev, ...txList] : txList);
       setFunds(Array.isArray(pmRes) ? pmRes : []);
       setCustomers(custRes?.customers ?? []);
+
+      setTotalReceipt(Number(cbRes?.total_receipt || 0));
+      setTotalPayment(Number(cbRes?.total_payment || 0));
+      setBalance(Number(cbRes?.closing_balance || 0));
+
+      setHasMore(txList.length === 20);
+      setPage(pageNum);
     } catch (err) {
       toast.error('Không thể tải dữ liệu sổ quỹ');
     } finally {
       setLoading(false);
+      setLoadingMore(false);
+      setRefreshing(false);
     }
-  }, [shopId, selectedFund]);
+  }, [shopId, selectedFund, selectedOrder]);
 
   useEffect(() => {
-    fetchData();
+    fetchData(1, false);
   }, [fetchData]);
 
-  // ── Computed summary ──
-  const totalReceipt = entries
-    .filter((e) => e.type === 'receipt')
-    .reduce((s, e) => s + Number(e.amount || 0), 0);
-  const totalPayment = entries
-    .filter((e) => e.type === 'payment')
-    .reduce((s, e) => s + Number(e.amount || 0), 0);
-  const balance = totalReceipt - totalPayment;
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await fetchData(1, false);
+  };
+
+  const handleLoadMore = () => {
+    if (loading || loadingMore || !hasMore) return;
+    fetchData(page + 1, true);
+  };
+
+  const [pullStart, setPullStart] = useState<number | null>(null);
+  const [pullOffset, setPullOffset] = useState(0);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    const container = document.querySelector('.overflow-y-auto');
+    const scrollTop = container ? container.scrollTop : window.scrollY;
+    if (scrollTop === 0) {
+      setPullStart(e.touches[0].clientY);
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (pullStart !== null) {
+      const currentY = e.touches[0].clientY;
+      const offset = currentY - pullStart;
+      if (offset > 0) {
+        setPullOffset(Math.min(offset * 0.4, 60));
+      }
+    }
+  };
+
+  const handleTouchEnd = async () => {
+    if (pullStart !== null) {
+      if (pullOffset >= 50) {
+        setRefreshing(true);
+        await fetchData(1, false);
+      }
+      setPullStart(null);
+      setPullOffset(0);
+    }
+  };
 
   // ── Modal helpers ──
   const openModal = () => {
@@ -147,8 +211,65 @@ export default function CashbookPage() {
     allCatMap[c.value] = c.label;
   });
 
+  // ── Scroll event for infinite scroll ──
+  useEffect(() => {
+    const scrollEl = document.querySelector('.overflow-y-auto');
+    
+    const handleScroll = () => {
+      const el = scrollEl || document.documentElement;
+      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100) {
+        if (hasMore && !loading && !loadingMore) {
+          fetchData(page + 1, true);
+        }
+      }
+    };
+    
+    if (scrollEl) {
+      scrollEl.addEventListener('scroll', handleScroll);
+    } else {
+      window.addEventListener('scroll', handleScroll);
+    }
+    
+    return () => {
+      if (scrollEl) {
+        scrollEl.removeEventListener('scroll', handleScroll);
+      } else {
+        window.removeEventListener('scroll', handleScroll);
+      }
+    };
+  }, [page, hasMore, loading, loadingMore, fetchData]);
+
   return (
-    <div className="min-h-full bg-background pb-20">
+    <div 
+      className="min-h-full bg-background pb-20"
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+    >
+      <style>{`
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        .animate-spin-custom {
+          animation: spin 0.8s linear infinite;
+        }
+      `}</style>
+
+      {/* Pull to Refresh Indicator */}
+      <div 
+        className="flex items-center justify-center transition-all overflow-hidden bg-slate-50"
+        style={{
+          height: refreshing ? '50px' : `${pullOffset}px`,
+          opacity: refreshing || pullOffset > 0 ? 1 : 0,
+        }}
+      >
+        <div className="flex items-center gap-2 text-xs text-subtitle">
+          <div className="animate-spin-custom rounded-full h-4 w-4 border-2 border-[var(--primary)] border-t-transparent" />
+          <span>{refreshing ? 'Đang làm mới...' : 'Kéo để làm mới...'}</span>
+        </div>
+      </div>
+
       {/* Summary */}
       <div className="cashbook-summary">
         <div className="cashbook-stat">
@@ -167,26 +288,36 @@ export default function CashbookPage() {
         </div>
       </div>
 
-      {/* Fund filter */}
-      {funds.length > 0 && (
-        <div className="px-3 pb-2 flex gap-2 overflow-x-auto scrollbar-none">
-          <button
-            className={`pos-category-chip ${selectedFund === 'all' ? 'active' : ''}`}
-            onClick={() => setSelectedFund('all')}
-          >
-            Tất cả
-          </button>
-          {funds.map((f) => (
+      {/* Fund filter & Sort */}
+      <div className="px-3 pb-2 flex items-center justify-between gap-2">
+        {funds.length > 0 && (
+          <div className="flex gap-2 overflow-x-auto scrollbar-none flex-1">
             <button
-              key={f.id}
-              className={`pos-category-chip ${selectedFund === f.id ? 'active' : ''}`}
-              onClick={() => setSelectedFund(f.id)}
+              className={`pos-category-chip ${selectedFund === 'all' ? 'active' : ''}`}
+              onClick={() => setSelectedFund('all')}
             >
-              {f.name}
+              Tất cả
             </button>
-          ))}
-        </div>
-      )}
+            {funds.map((f) => (
+              <button
+                key={f.id}
+                className={`pos-category-chip ${selectedFund === f.id ? 'active' : ''}`}
+                onClick={() => setSelectedFund(f.id)}
+              >
+                {f.name}
+              </button>
+            ))}
+          </div>
+        )}
+        <select
+          value={selectedOrder}
+          onChange={(e) => setSelectedOrder(e.target.value as 'desc' | 'asc')}
+          className="text-xs bg-white border border-[var(--border)] rounded-lg px-2 py-1.5 font-semibold text-foreground focus:outline-none flex-shrink-0"
+        >
+          <option value="desc">Mới nhất</option>
+          <option value="asc">Cũ nhất</option>
+        </select>
+      </div>
 
       {/* Transaction list */}
       {loading ? (
@@ -258,6 +389,18 @@ export default function CashbookPage() {
               </div>
             </div>
           ))}
+
+          {loadingMore && (
+            <div className="py-4 flex justify-center items-center gap-2">
+              <div className="animate-spin-custom rounded-full h-4 w-4 border-2 border-[var(--primary)] border-t-transparent" />
+              <span className="text-xs text-subtitle">Đang tải thêm...</span>
+            </div>
+          )}
+          {!hasMore && entries.length > 0 && (
+            <div className="py-4 text-center text-3xs text-inactive">
+              Đã hiển thị toàn bộ giao dịch
+            </div>
+          )}
         </div>
       )}
 

@@ -29,6 +29,7 @@ export async function GET(
     const search = searchParams.get('search')
     const is_virtual_query = searchParams.get('is_virtual') // 'TRUE' | 'FALSE' | 'all'
     const department_id = searchParams.get('department_id')
+    const order = searchParams.get('order') || 'desc'
 
     // --- TÍNH TOÁN SỐ DƯ ĐỘNG (Đầu kỳ, phát sinh, cuối kỳ) ---
     // 1. Lấy tất cả tài khoản quỹ để tính tổng initial_balance
@@ -106,11 +107,11 @@ export async function GET(
       return inDateRange && matchesType && matchesReference && matchesSearch && matchesVirtual && matchesDept
     })
 
-    // Sắp xếp các giao dịch theo thời gian giảm dần (mới nhất lên đầu)
+    // Sắp xếp các giao dịch theo thời gian
     const sortedTransactions = [...finalTransactions].sort((a, b) => {
       const timeA = new Date(a.created_at || '').getTime()
       const timeB = new Date(b.created_at || '').getTime()
-      return timeB - timeA
+      return order === 'asc' ? timeA - timeB : timeB - timeA
     })
 
     const total = sortedTransactions.length

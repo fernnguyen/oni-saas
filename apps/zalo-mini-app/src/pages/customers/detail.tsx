@@ -35,7 +35,7 @@ export default function CustomerDetailPage() {
       ]);
       setCustomer(custRes);
       setOrders(ordRes?.orders ?? []);
-      const txList = Array.isArray(txRes) ? txRes : [];
+      const txList = Array.isArray(txRes) ? txRes : (Array.isArray(txRes?.data) ? txRes.data : []);
       setTransactions(txList);
     } catch {
       toast.error('Không thể tải thông tin khách hàng');

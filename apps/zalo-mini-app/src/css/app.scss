@@ -183,6 +183,7 @@
   background: white;
   border-top: 1px solid var(--border, #e5e7eb);
   position: relative;
+  z-index: 60;
 }
 
 .footer-nav-item {
@@ -441,7 +442,7 @@
 
 .pos-cart-bar {
   position: fixed;
-  bottom: calc(72px + var(--safe-bottom, 0px));
+  bottom: calc(58px + var(--safe-bottom, 0px));
   left: 0;
   right: 0;
   padding: 10px 16px;
