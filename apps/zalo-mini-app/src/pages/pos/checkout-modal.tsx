@@ -389,11 +389,24 @@ export default function CheckoutModal() {
           line_total: item.unit_price * item.quantity,
           discount_amount: 0,
         })),
-        payments: payments.map((p) => ({
-          method: paymentMethods.find((m) => m.id === p.method)?.type || 'cash',
-          amount: parseFloat(p.amount) || 0,
-          fund_id: p.fund_id || null,
-        })),
+        payments: (() => {
+          const list = payments.map((p) => ({
+            method: paymentMethods.find((m) => m.id === p.method)?.type || 'cash',
+            amount: parseFloat(p.amount) || 0,
+            fund_id: p.fund_id || null,
+          }));
+          if (changeDue > 0) {
+            const cashPaymentRow = payments.find(
+              (p) => paymentMethods.find((m) => m.id === p.method)?.type === 'cash'
+            );
+            list.push({
+              method: 'cash',
+              amount: -changeDue,
+              fund_id: cashPaymentRow?.fund_id || null,
+            });
+          }
+          return list;
+        })(),
         stock_movements: [],
         customer: activeCustomer.id === 'C-DEFAULT-RETAIL' ? undefined : {
           name: activeCustomer.name,
