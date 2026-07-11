@@ -1286,7 +1286,7 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
                             </div>
                             {(p.note || p.paid_at || p.created_at) && (
                               <div className="text-xs text-slate-500 mt-0.5">
-                                {(p.paid_at || p.created_at) ? new Intl.DateTimeFormat('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(p.paid_at || p.created_at)).replace(',', '') + ' - ' : ''}{p.note || ''}
+                                {(p.paid_at || p.created_at) ? new Intl.DateTimeFormat('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(p.paid_at || p.created_at)).replace(',', '') + (p.note ? ' - ' : '') : ''}{p.note || ''}
                               </div>
                             )}
                           </div>
@@ -1365,7 +1365,7 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
                             </div>
                             {(cb.note || cb.paid_at || cb.created_at) && (
                               <div className="text-xs text-slate-500 mt-0.5">
-                                {(cb.paid_at || cb.created_at) ? new Intl.DateTimeFormat('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(cb.paid_at || cb.created_at)).replace(',', '') + ' - ' : ''}{cb.note || ''}
+                                {(cb.paid_at || cb.created_at) ? new Intl.DateTimeFormat('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(cb.paid_at || cb.created_at)).replace(',', '') + (cb.note ? ' - ' : '') : ''}{cb.note || ''}
                               </div>
                             )}
                           </div>

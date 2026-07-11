@@ -73,6 +73,8 @@ export interface Order {
   updated_at?: string;
   items?: OrderItem[];
   branch_id?: string;
+  debt_amount?: number | string;
+  paid_amount?: number | string;
 }
 
 export interface OrderItem {
@@ -128,6 +130,7 @@ export interface PaymentMethod {
   bank_name?: string;
   account_number?: string;
   account_holder?: string;
+  current_balance?: number | string;
 }
 
 export interface LocationResource {
@@ -321,6 +324,9 @@ export interface PaymentFund {
   bank_name?: string;
   is_default?: string;
   active?: string;
+  current_balance?: number | string;
+  account_holder?: string;
+  account_name?: string;
 }
 
 export function getPaymentFunds(shopId: string) {
@@ -386,4 +392,21 @@ export function getShopSettings(shopId: string) {
 
 export function getNotificationUnreadCounts(tenantId: string) {
   return apiFetch<any>(`/api/notifications/unread-counts?tenantId=${tenantId}`);
+}
+
+export interface Payment {
+  id: string;
+  order_id: string;
+  method: string;
+  amount: number | string;
+  reference_no?: string;
+  note?: string;
+  paid_at?: string;
+  created_at: string;
+}
+
+export function getOrderPayments(shopId: string, params?: Record<string, string>) {
+  const query = params ? '?' + new URLSearchParams(params).toString() : '';
+  return apiFetch<{ data?: Payment[] }>(`/api/shops/${shopId}/payments${query}`)
+    .then(res => res?.data || []);
 }

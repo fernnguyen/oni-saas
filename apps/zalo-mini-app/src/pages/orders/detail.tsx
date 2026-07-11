@@ -10,9 +10,14 @@ import {
   createReturn,
   createReturnItems,
   processReturn,
+  getPaymentFunds,
+  createCashbookEntry,
+  getOrderPayments,
   type Order,
   type OrderItem,
   type CashbookEntry,
+  type PaymentFund,
+  type Payment,
 } from '@/services/shop-api';
 import { useTenantStore } from '@/stores/tenant-store';
 import { formatCurrency, formatDateTime, cleanOrderNo, getPaymentMethodLabel } from '@/utils/format';
@@ -79,6 +84,17 @@ export default function OrderDetailPage() {
   const [cancelling, setCancelling] = useState(false);
   const [showDoubleConfirmCancel, setShowDoubleConfirmCancel] = useState(false);
 
+  // Debt modal
+  const [showDebtModal, setShowDebtModal] = useState(false);
+  const [debtCollectAmount, setDebtCollectAmount] = useState('');
+  const [debtMethod, setDebtMethod] = useState('cash');
+  const [debtFundId, setDebtFundId] = useState('');
+  const [debtNote, setDebtNote] = useState('');
+  const [submittingDebt, setSubmittingDebt] = useState(false);
+  const [fundsList, setFundsList] = useState<PaymentFund[]>([]);
+  const [showConfirmDebtCollect, setShowConfirmDebtCollect] = useState(false);
+  const [payments, setPayments] = useState<Payment[]>([]);
+
   // Return modal
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [returnReason, setReturnReason] = useState('');
@@ -93,15 +109,17 @@ export default function OrderDetailPage() {
     setLoading(true);
 
     try {
-      const [orderData, itemsData, cashbookData] = await Promise.all([
+      const [orderData, itemsData, cashbookData, paymentsData] = await Promise.all([
         getOrderDetail(shopId, orderId),
         getOrderItems(shopId, { order_id: orderId }),
         getCashbook(shopId, { reference_id: orderId, reference_type: 'order' }),
+        getOrderPayments(shopId, { order_id: orderId, limit: '50' }),
       ]);
 
       setOrder(orderData);
       setItems(Array.isArray(itemsData) ? itemsData : []);
       setCashbook(Array.isArray(cashbookData) ? cashbookData : []);
+      setPayments(Array.isArray(paymentsData) ? paymentsData : []);
     } catch (err) {
       console.error('[OrderDetail] fetch error:', err);
       toast.error('Không thể tải chi tiết đơn hàng');
@@ -130,6 +148,49 @@ export default function OrderDetailPage() {
       toast.error(err.message || 'Hủy đơn thất bại');
     } finally {
       setCancelling(false);
+    }
+  };
+
+  // ── Collect debt ──
+  const handleDebtCollect = async () => {
+    if (!shopId || !order || !debtCollectAmount) return;
+    const amount = Number(debtCollectAmount);
+    if (isNaN(amount) || amount <= 0) {
+      toast.error('Số tiền thu nợ không hợp lệ');
+      return;
+    }
+    if (amount > Number(order.debt_amount ?? 0)) {
+      toast.error(`Số tiền thu nợ vượt quá nợ hiện tại (${formatCurrency(order.debt_amount ?? 0)})`);
+      return;
+    }
+
+    setSubmittingDebt(true);
+    try {
+      await createCashbookEntry(shopId, {
+        type: 'receipt',
+        amount,
+        method: debtMethod,
+        fund_id: debtFundId || undefined,
+        category: 'debt_collection',
+        reference_id: order.customer_id,
+        reference_name: order.customer_name,
+        note: debtNote.trim() || `Thu nợ đơn hàng ${cleanOrderNo(order.order_number, order.id)}`,
+        order_allocations: [
+          {
+            order_id: order.id,
+            amount: amount,
+          },
+        ],
+      });
+
+      toast.success(`Đã thu nợ ${formatCurrency(amount)} thành công!`);
+      setShowDebtModal(false);
+      setShowConfirmDebtCollect(false);
+      fetchData();
+    } catch (err: any) {
+      toast.error(err.message || 'Thu nợ thất bại');
+    } finally {
+      setSubmittingDebt(false);
     }
   };
 
@@ -377,14 +438,57 @@ export default function OrderDetailPage() {
               </div>
             )}
             <div className="h-px bg-[var(--border)]" />
-            <div className="flex justify-between">
+             <div className="flex justify-between">
               <span className="text-sm font-semibold text-foreground">Tổng cộng</span>
               <span className="text-sm font-bold text-foreground">
                 {formatCurrency(order.final_amount ?? order.total_amount)}
               </span>
             </div>
+            <div className="flex justify-between text-2xs pt-1">
+              <span className="text-subtitle">Đã trả</span>
+              <span className="text-success font-semibold">{formatCurrency(order.paid_amount ?? 0)}</span>
+            </div>
+            <div className="flex justify-between items-center text-2xs">
+              <span className="text-subtitle">Còn nợ</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span className={Number(order.debt_amount ?? 0) > 0 ? 'text-danger font-bold text-xs' : 'text-foreground'}>
+                  {formatCurrency(order.debt_amount ?? 0)}
+                </span>
+                {Number(order.debt_amount ?? 0) > 0 && order.customer_id && order.customer_id !== 'C-DEFAULT-RETAIL' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDebtCollectAmount(String(Math.round(Number(order.debt_amount ?? 0))));
+                      setDebtNote(`Thu nợ đơn hàng ${cleanOrderNo(order.order_number, order.id)}`);
+                      setShowDebtModal(true);
+                      getPaymentFunds(shopId).then((res) => {
+                        setFundsList(res);
+                        const defaultFund = res.find((f) => f.is_default === 'TRUE') || res[0];
+                        if (defaultFund) {
+                          setDebtFundId(defaultFund.id);
+                          setDebtMethod(defaultFund.type === 'cash' ? 'cash' : 'bank_transfer');
+                        }
+                      });
+                    }}
+                    style={{
+                      background: '#006af5',
+                      color: 'white',
+                      border: 'none',
+                      padding: '4px 10px',
+                      borderRadius: '6px',
+                      fontSize: '11px',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                      boxShadow: '0 1px 2px rgba(0, 106, 245, 0.2)',
+                    }}
+                  >
+                    Thu nợ
+                  </button>
+                )}
+              </div>
+            </div>
             {order.payment_method && (
-              <p className="text-3xs text-subtitle">
+              <p className="text-3xs text-subtitle pt-1">
                 Phương thức: {order.payment_method.split(',').map(m => getPaymentMethodLabel(m.trim())).join(', ')}
               </p>
             )}
@@ -392,34 +496,46 @@ export default function OrderDetailPage() {
         </div>
       </div>
 
-      {/* ── Cashbook Entries ── */}
-      {cashbook.length > 0 && (
+      {/* ── Payments History ── */}
+      {payments.length > 0 && (
         <div className="px-4 pb-3">
-          <div className="dashboard-card">
-            <h3 className="text-sm font-semibold text-foreground mb-3">
-              Sổ quỹ ({cashbook.length})
+          <div className="dashboard-card" style={{ background: '#f8fafc', border: 'none', padding: '16px 0 8px 0' }}>
+            <h3 className="text-sm font-bold text-slate-800 px-4 mb-3">
+              Thanh toán
             </h3>
-            <div className="space-y-2">
-              {cashbook.map((entry) => (
-                <div key={entry.id} className="flex justify-between items-center">
-                  <div className="flex-1 min-w-0 mr-3">
-                    <p className="text-2xs text-foreground truncate">
-                      {CASHBOOK_CATEGORIES[entry.category || ''] || entry.category || (entry.type === 'receipt' ? 'Thu' : 'Chi')}
-                    </p>
-                    <p className="text-3xs text-subtitle">
-                      {formatDateTime(entry.created_at)}
-                    </p>
-                  </div>
-                  <span
-                    className={`text-sm font-semibold ${
-                      entry.type === 'receipt' ? 'text-[#16a34a]' : 'text-danger'
-                    }`}
+            <div className="px-4">
+              {payments.map((p) => {
+                const isDebt = p.method === 'debt' || p.method?.startsWith('debt-');
+                return (
+                  <div 
+                    key={p.id} 
+                    className="flex justify-between items-center" 
+                    style={{ 
+                      border: '1px solid #e2e8f0', 
+                      borderRadius: '12px', 
+                      background: 'white', 
+                      padding: '12px 16px', 
+                      marginBottom: '8px' 
+                    }}
                   >
-                    {entry.type === 'receipt' ? '+' : '-'}
-                    {formatCurrency(entry.amount)}
-                  </span>
-                </div>
-              ))}
+                    <div className="flex-1 min-w-0 mr-3">
+                      <p className="text-sm font-bold text-slate-800">
+                        {isDebt ? 'Nợ' : getPaymentMethodLabel(p.method)}
+                        {p.reference_no && <span className="text-2xs text-slate-400 font-normal ml-1.5">#{p.reference_no}</span>}
+                      </p>
+                      <p style={{ fontSize: '10px', color: '#94a3b8', margin: '4px 0 0' }}>
+                        {formatDateTime(p.created_at || p.paid_at)}{p.note ? ` - ${p.note}` : ''}
+                      </p>
+                    </div>
+                    <span
+                      className="text-sm font-bold whitespace-nowrap"
+                      style={{ color: isDebt ? '#ef4444' : '#16a34a' }}
+                    >
+                      {formatCurrency(p.amount)}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -534,6 +650,205 @@ export default function OrderDetailPage() {
                   onClick={handleCancel}
                 >
                   {cancelling ? 'Đang hủy...' : 'Xác nhận'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ════════════════════ Debt Collection Modal ════════════════════ */}
+      {/* ════════════════════ Debt Collection Modal ════════════════════ */}
+      {showDebtModal && order && (() => {
+        const selectedFund = fundsList.find((f) => f.id === debtFundId);
+        const isBankType = selectedFund && (selectedFund.type === 'bank' || selectedFund.type === 'bank_transfer');
+
+        return (
+          <div className="modal-backdrop" onClick={() => setShowDebtModal(false)}>
+            <div
+              className="modal-content modal-content-center"
+              onClick={(e) => e.stopPropagation()}
+              style={{ maxWidth: 360 }}
+            >
+              <div className="modal-header">
+                <h3 className="text-sm font-semibold">Thu nợ đơn hàng</h3>
+                <button
+                  onClick={() => setShowDebtModal(false)}
+                  className="p-1"
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+              </div>
+              <div className="modal-body">
+                <div className="form-group mb-3">
+                  <label className="form-label">Khách hàng</label>
+                  <div className="text-sm font-semibold text-foreground">
+                    {order.customer_name || 'Khách nợ'}
+                  </div>
+                </div>
+
+                <div className="form-group mb-3">
+                  <label className="form-label">Dư nợ đơn hàng</label>
+                  <div className="text-sm font-bold text-danger">
+                    {formatCurrency(order.debt_amount ?? 0)}
+                  </div>
+                </div>
+
+                <div className="form-group mb-3">
+                  <label className="form-label">Số tiền thu *</label>
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      type="text"
+                      className="form-input"
+                      style={{ paddingRight: '32px', textAlign: 'right', fontWeight: 'bold' }}
+                      placeholder="Nhập số tiền thu..."
+                      value={debtCollectAmount ? Number(debtCollectAmount).toLocaleString('vi-VN') : ''}
+                      onChange={(e) => {
+                        const raw = e.target.value.replace(/\D/g, '');
+                        setDebtCollectAmount(raw);
+                      }}
+                    />
+                    <span style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '14px' }}>
+                      đ
+                    </span>
+                  </div>
+                  <p style={{ fontSize: '11px', color: '#94a3b8', margin: '4px 0 0' }}>
+                    Có thể sửa số tiền để trả một phần
+                  </p>
+                </div>
+
+                {fundsList.length > 0 && (
+                  <div className="form-group mb-3">
+                    <label className="form-label">Tài khoản/Sổ quỹ nhận tiền *</label>
+                    <select
+                      className="form-input"
+                      value={debtFundId}
+                      onChange={(e) => {
+                        const selectedId = e.target.value;
+                        setDebtFundId(selectedId);
+                        const fund = fundsList.find((f) => f.id === selectedId);
+                        if (fund) {
+                          setDebtMethod(fund.type === 'cash' ? 'cash' : 'bank_transfer');
+                        }
+                      }}
+                    >
+                      {fundsList.map((f) => (
+                        <option key={f.id} value={f.id}>
+                          {f.name} ({f.type === 'cash' ? 'Quỹ tiền mặt' : 'Tài khoản ngân hàng'} - Số dư: {formatCurrency(f.current_balance ?? 0)})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {/* Bank transfer payment details preview card */}
+                {isBankType && selectedFund && (
+                  <div style={{
+                    background: '#f5f9ff',
+                    border: '1px solid #e0eeff',
+                    borderRadius: '12px',
+                    padding: '12px 16px',
+                    margin: '12px 0',
+                  }}>
+                    <h4 style={{ fontSize: '11px', fontWeight: 'bold', color: '#2563eb', margin: '0 0 8px 0', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
+                      🏛️ Thông tin thanh toán (Chuyển khoản)
+                    </h4>
+                    <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse' }}>
+                      <tbody>
+                        <tr>
+                          <td style={{ color: '#475569', padding: '3px 0', width: '90px' }}>Ngân hàng:</td>
+                          <td style={{ color: '#1e293b', fontWeight: 'bold', padding: '3px 0' }}>{selectedFund.bank_name || '—'}</td>
+                        </tr>
+                        <tr>
+                          <td style={{ color: '#475569', padding: '3px 0' }}>Số tài khoản:</td>
+                          <td style={{ color: '#0f172a', fontWeight: 'bold', padding: '3px 0' }}>{selectedFund.account_number || '—'}</td>
+                        </tr>
+                        <tr>
+                          <td style={{ color: '#475569', padding: '3px 0' }}>Chủ tài khoản:</td>
+                          <td style={{ color: '#0f172a', fontWeight: 'bold', padding: '3px 0', textTransform: 'uppercase' }}>{selectedFund.account_name || selectedFund.account_holder || '—'}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                <div className="form-group mb-3">
+                  <label className="form-label">Ghi chú</label>
+                  <textarea
+                    className="form-input"
+                    rows={2}
+                    placeholder="Ghi chú thu nợ..."
+                    value={debtNote}
+                    onChange={(e) => setDebtNote(e.target.value)}
+                  />
+                </div>
+
+                <div className="flex gap-3 mt-4">
+                  <button
+                    type="button"
+                    className="auth-btn auth-btn-outline flex-1"
+                    style={{ background: 'white', color: '#0f172a', border: '1px solid #cbd5e1' }}
+                    onClick={() => setShowDebtModal(false)}
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="button"
+                    className="auth-btn flex-1"
+                    style={{ background: '#006af5', color: 'white', border: 'none' }}
+                    disabled={!debtCollectAmount || Number(debtCollectAmount) <= 0 || !debtFundId || submittingDebt}
+                    onClick={() => {
+                      setShowConfirmDebtCollect(true);
+                    }}
+                  >
+                    Thu nợ
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ════════════════════ Double Confirm Debt Collection Modal ════════════════════ */}
+      {showConfirmDebtCollect && order && (
+        <div className="modal-backdrop" style={{ zIndex: 1200 }} onClick={() => setShowConfirmDebtCollect(false)}>
+          <div className="modal-content modal-content-center" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 320 }}>
+            <div className="modal-header">
+              <h3 className="text-sm font-semibold">Xác nhận thu nợ</h3>
+              <button onClick={() => setShowConfirmDebtCollect(false)} className="p-1">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+            <div className="modal-body">
+              <p className="text-2xs text-subtitle mb-4 text-center">
+                Bạn có chắc chắn muốn thu nợ số tiền <strong>{formatCurrency(Number(debtCollectAmount))}</strong> cho đơn hàng này? Dư nợ của khách hàng và đơn hàng sẽ được giảm tương ứng.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  className="auth-btn auth-btn-outline flex-1"
+                  style={{ background: 'white', color: '#0f172a', border: '1px solid #cbd5e1' }}
+                  onClick={() => {
+                    setShowConfirmDebtCollect(false);
+                  }}
+                >
+                  Quay lại
+                </button>
+                <button
+                  type="button"
+                  className="auth-btn flex-1"
+                  style={{ background: '#006af5', color: 'white', border: 'none' }}
+                  disabled={submittingDebt}
+                  onClick={handleDebtCollect}
+                >
+                  {submittingDebt ? 'Đang lưu...' : 'Xác nhận'}
                 </button>
               </div>
             </div>
