@@ -37,6 +37,7 @@ export function BarcodePrintModal({ open, onClose, shopName, products }: Barcode
   const [showProductName, setShowProductName] = useState(true)
   const [showPrice, setShowPrice] = useState(true)
   const [paperSize, setPaperSize] = useState<'50x30' | '35x22'>('35x22')
+  const [pageWidthOverride, setPageWidthOverride] = useState<string>('')
   const [showDebugBorders, setShowDebugBorders] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [copies, setCopies] = useState<Record<string, number>>({})
@@ -50,9 +51,13 @@ export function BarcodePrintModal({ open, onClose, shopName, products }: Barcode
   const labelWidthMm = isTwoUp ? 35 : 50
   const labelHeightMm = isTwoUp ? 22 : 30
   
-  // The actual page printed by the browser
-  const pageWidthMm = isTwoUp ? 75 : 50
+  // The actual page printed by the browser — can be overridden by user
+  const defaultPageWidthMm = isTwoUp ? 75 : 50
+  const pageWidthMm = pageWidthOverride ? parseFloat(pageWidthOverride) || defaultPageWidthMm : defaultPageWidthMm
   const pageHeightMm = isTwoUp ? 22 : 30
+
+  // Margin on each side = (pageWidth - 2*labelWidth) / 2
+  const sideMargMm = isTwoUp ? Math.max(0, (pageWidthMm - labelWidthMm * 2) / 2) : 0
 
   const handlePrint = () => {
     if (!printRef.current) return
@@ -171,12 +176,27 @@ export function BarcodePrintModal({ open, onClose, shopName, products }: Barcode
             <label className="text-xs font-medium text-slate-600">Khổ giấy</label>
             <select
               value={paperSize}
-              onChange={(e) => setPaperSize(e.target.value as any)}
+              onChange={(e) => { setPaperSize(e.target.value as any); setPageWidthOverride('') }}
               className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none bg-white"
             >
               <option value="50x30">Tem 50x30mm (Khổ in 50x30)</option>
-              <option value="35x22">Tem 35x22mm (2 tem ngang - Yêu cầu máy in khổ 75x22)</option>
+              <option value="35x22">Tem 35x22mm (2 tem ngang)</option>
             </select>
+
+            {isTwoUp && (
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-slate-500 whitespace-nowrap">Chiều rộng tờ in (mm):</label>
+                <input
+                  type="number"
+                  step="0.5"
+                  placeholder={String(defaultPageWidthMm)}
+                  value={pageWidthOverride}
+                  onChange={(e) => setPageWidthOverride(e.target.value)}
+                  className="w-24 rounded-lg border border-slate-200 px-2 py-1 text-sm text-center focus:border-primary focus:outline-none bg-white"
+                />
+                <span className="text-xs text-slate-400">Mặc định: {defaultPageWidthMm}mm</span>
+              </div>
+            )}
           </div>
 
           {showSettings && (
@@ -333,10 +353,10 @@ export function BarcodePrintModal({ open, onClose, shopName, products }: Barcode
                 outline: ${showDebugBorders ? '1px dashed #000' : 'none'};
               }
               .label-item.pos-0 {
-                left: ${isTwoUp ? '1.5mm' : '0'};
+                left: ${sideMargMm}mm;
               }
               .label-item.pos-1 {
-                right: ${isTwoUp ? '1.5mm' : '0'};
+                right: ${sideMargMm}mm;
               }
               .label-shop-name {
                 font-family: sans-serif;
