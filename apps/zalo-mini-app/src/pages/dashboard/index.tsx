@@ -173,11 +173,8 @@ export default function DashboardPage() {
       {/* ══════ Welcome Header ══════ */}
       <div style={{ padding: '16px 12px 8px' }}>
         <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--foreground)', margin: 0 }}>
-          Xin chào, {userName} 👋
+          Xin chào, {userName}
         </h2>
-        {shop?.name && (
-          <p style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>{shop.name}</p>
-        )}
       </div>
 
       {/* ══════ KPI Cards ══════ */}

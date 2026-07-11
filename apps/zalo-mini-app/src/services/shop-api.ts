@@ -274,6 +274,10 @@ export function getCategories(shopId: string) {
     .then(res => ({ categories: res?.data || [] }));
 }
 
+export function createCategory(shopId: string, data: { name: string; description?: string }) {
+  return apiPost<any>(`/api/shops/${shopId}/categories`, data);
+}
+
 // ────────────────────────────── Customers ──────────────────────────────
 
 export function getCustomers(shopId: string, params?: Record<string, string>) {
