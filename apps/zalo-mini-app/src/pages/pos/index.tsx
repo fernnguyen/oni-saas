@@ -7,6 +7,7 @@ import {
   getCategories,
   getCustomers,
   getPaymentMethods,
+  getPaymentFunds,
 } from '@/services/shop-api';
 import { formatCurrency } from '@/utils/format';
 import CheckoutModal from './checkout-modal';
@@ -31,6 +32,7 @@ export default function PosPage() {
     setCategories,
     setCustomers,
     setPaymentMethods,
+    setPaymentFunds,
     setSelectedCategory,
     setSearchQuery,
     setIsCheckoutOpen,
@@ -51,34 +53,39 @@ export default function PosPage() {
       const cachedData = localStorage.getItem(cacheKey);
 
       if (!bypassCache && cachedData) {
-        const { products: cachedProds, categories: cachedCats, customers: cachedCusts, paymentMethods: cachedPms, timestamp } = JSON.parse(cachedData);
-        if (Date.now() - timestamp < CACHE_TTL) {
+        const parsed = JSON.parse(cachedData);
+        const { products: cachedProds, categories: cachedCats, customers: cachedCusts, paymentMethods: cachedPms, paymentFunds: cachedFunds, timestamp } = parsed;
+        if (Date.now() - timestamp < CACHE_TTL && Array.isArray(cachedFunds) && cachedFunds.length > 0) {
           setProducts(cachedProds || []);
           setCategories(cachedCats || []);
           setCustomers(cachedCusts || []);
           setPaymentMethods(cachedPms || []);
+          setPaymentFunds(cachedFunds || []);
           setIsLoading(false);
           return;
         }
       }
 
       // Fetch fresh data
-      const [prodRes, catRes, custRes, pmRes] = await Promise.all([
+      const [prodRes, catRes, custRes, pmRes, pfRes] = await Promise.all([
         getProducts(shopId),
         getCategories(shopId),
         getCustomers(shopId, { limit: '500' }),
         getPaymentMethods(shopId),
+        getPaymentFunds(shopId),
       ]);
 
       const freshProds = prodRes?.products || [];
       const freshCats = catRes?.categories || [];
       const freshCusts = custRes?.customers || [];
       const freshPms = Array.isArray(pmRes) ? pmRes : [];
+      const freshFunds = Array.isArray(pfRes) ? pfRes : [];
 
       setProducts(freshProds);
       setCategories(freshCats);
       setCustomers(freshCusts);
       setPaymentMethods(freshPms);
+      setPaymentFunds(freshFunds);
 
       // Save cache
       localStorage.setItem(
@@ -88,6 +95,7 @@ export default function PosPage() {
           categories: freshCats,
           customers: freshCusts,
           paymentMethods: freshPms,
+          paymentFunds: freshFunds,
           timestamp: Date.now(),
         })
       );

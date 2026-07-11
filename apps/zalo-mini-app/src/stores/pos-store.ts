@@ -16,6 +16,7 @@ interface PosState {
   categories: Category[];
   customers: Customer[];
   paymentMethods: PaymentMethod[];
+  paymentFunds: any[];
 
   // Cart
   cart: CartItem[];
@@ -33,6 +34,7 @@ interface PosState {
   addToCart: (product: Product) => void;
   removeFromCart: (productId: string) => void;
   updateQuantity: (productId: string, quantity: number) => void;
+  updateUnitPrice: (productId: string, price: number) => void;
   clearCart: () => void;
 
   // Setters
@@ -40,6 +42,7 @@ interface PosState {
   setCategories: (categories: Category[]) => void;
   setCustomers: (customers: Customer[]) => void;
   setPaymentMethods: (paymentMethods: PaymentMethod[]) => void;
+  setPaymentFunds: (paymentFunds: any[]) => void;
   setSelectedCategory: (categoryId: string | null) => void;
   setSearchQuery: (query: string) => void;
   setSelectedCustomer: (customer: Customer | null) => void;
@@ -55,6 +58,7 @@ export const usePosStore = create<PosState>()((set, get) => ({
   categories: [],
   customers: [],
   paymentMethods: [],
+  paymentFunds: [],
 
   // Cart
   cart: [],
@@ -109,6 +113,13 @@ export const usePosStore = create<PosState>()((set, get) => ({
     set({ cart: updated });
   },
 
+  updateUnitPrice: (productId: string, price: number) => {
+    const updated = get().cart.map((item) =>
+      item.product.id === productId ? { ...item, unit_price: Math.max(0, price) } : item,
+    );
+    set({ cart: updated });
+  },
+
   clearCart: () =>
     set({
       cart: [],
@@ -123,6 +134,7 @@ export const usePosStore = create<PosState>()((set, get) => ({
   setCategories: (categories) => set({ categories }),
   setCustomers: (customers) => set({ customers }),
   setPaymentMethods: (paymentMethods) => set({ paymentMethods }),
+  setPaymentFunds: (paymentFunds) => set({ paymentFunds }),
   setSelectedCategory: (selectedCategory) => set({ selectedCategory }),
   setSearchQuery: (searchQuery) => set({ searchQuery }),
   setSelectedCustomer: (selectedCustomer) => set({ selectedCustomer }),

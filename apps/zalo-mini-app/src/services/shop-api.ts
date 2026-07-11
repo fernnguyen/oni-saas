@@ -199,8 +199,8 @@ export function cancelOrder(shopId: string, orderId: string, reason: string) {
   });
 }
 
-export function createOrderBatch(shopId: string, orders: any[]) {
-  return apiPost<any>(`/api/shops/${shopId}/orders/sync-batch`, { orders });
+export function syncOrderDirect(shopId: string, payload: any) {
+  return apiPost<any>(`/api/shops/${shopId}/orders/sync-batch`, payload);
 }
 
 // ────────────────────────────── Order Items ──────────────────────────────
@@ -305,6 +305,21 @@ export function getPaymentMethods(shopId: string, params?: Record<string, string
   const defaultParams = { active: 'TRUE', ...params };
   const query = '?' + new URLSearchParams(defaultParams).toString();
   return apiFetch<{ data?: PaymentMethod[] }>(`/api/shops/${shopId}/payment-methods${query}`)
+    .then(res => res?.data || []);
+}
+
+export interface PaymentFund {
+  id: string;
+  name: string;
+  type: string; // cash, bank, wallet
+  account_number?: string;
+  bank_name?: string;
+  is_default?: string;
+  active?: string;
+}
+
+export function getPaymentFunds(shopId: string) {
+  return apiFetch<{ data?: PaymentFund[] }>(`/api/shops/${shopId}/payment-funds?active=TRUE`)
     .then(res => res?.data || []);
 }
 
