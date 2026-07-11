@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { usePosStore } from '@/stores/pos-store';
 import { useTenantStore } from '@/stores/tenant-store';
@@ -10,6 +10,9 @@ import {
 } from '@/services/shop-api';
 import { formatCurrency } from '@/utils/format';
 import CheckoutModal from './checkout-modal';
+import { scanQRCode } from 'zmp-sdk/apis';
+
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache
 
 export default function PosPage() {
   const shop = useTenantStore((s) => s.shop);
@@ -35,30 +38,79 @@ export default function PosPage() {
     addToCart,
   } = usePosStore.getState();
 
-  // ── Fetch data on mount ──
-  useEffect(() => {
-    if (!shopId) return;
+  // ── Local pagination state for product grid ──
+  const [displayLimit, setDisplayLimit] = useState(30);
 
+  // ── Load Data (with optional cache bypass) ──
+  const loadData = async (bypassCache = false) => {
+    if (!shopId) return;
     setIsLoading(true);
 
-    Promise.all([
-      getProducts(shopId),
-      getCategories(shopId),
-      getCustomers(shopId, { limit: '500' }),
-      getPaymentMethods(shopId),
-    ])
-      .then(([prodRes, catRes, custRes, pmRes]) => {
-        setProducts(prodRes?.products ?? []);
-        setCategories(catRes?.categories ?? []);
-        setCustomers(custRes?.customers ?? []);
-        setPaymentMethods(Array.isArray(pmRes) ? pmRes : []);
-      })
-      .catch((err) => {
-        console.error('POS load error:', err);
-        toast.error('Không thể tải dữ liệu. Vui lòng thử lại.');
-      })
-      .finally(() => setIsLoading(false));
+    try {
+      const cacheKey = `pos_cache_${shopId}`;
+      const cachedData = localStorage.getItem(cacheKey);
+
+      if (!bypassCache && cachedData) {
+        const { products: cachedProds, categories: cachedCats, customers: cachedCusts, paymentMethods: cachedPms, timestamp } = JSON.parse(cachedData);
+        if (Date.now() - timestamp < CACHE_TTL) {
+          setProducts(cachedProds || []);
+          setCategories(cachedCats || []);
+          setCustomers(cachedCusts || []);
+          setPaymentMethods(cachedPms || []);
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      // Fetch fresh data
+      const [prodRes, catRes, custRes, pmRes] = await Promise.all([
+        getProducts(shopId),
+        getCategories(shopId),
+        getCustomers(shopId, { limit: '500' }),
+        getPaymentMethods(shopId),
+      ]);
+
+      const freshProds = prodRes?.products || [];
+      const freshCats = catRes?.categories || [];
+      const freshCusts = custRes?.customers || [];
+      const freshPms = Array.isArray(pmRes) ? pmRes : [];
+
+      setProducts(freshProds);
+      setCategories(freshCats);
+      setCustomers(freshCusts);
+      setPaymentMethods(freshPms);
+
+      // Save cache
+      localStorage.setItem(
+        cacheKey,
+        JSON.stringify({
+          products: freshProds,
+          categories: freshCats,
+          customers: freshCusts,
+          paymentMethods: freshPms,
+          timestamp: Date.now(),
+        })
+      );
+
+      if (bypassCache) {
+        toast.success('Đã cập nhật dữ liệu mới');
+      }
+    } catch (err) {
+      console.error('POS load error:', err);
+      toast.error('Không thể tải dữ liệu. Vui lòng thử lại.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
   }, [shopId]);
+
+  // Reset pagination limit when search or category changes
+  useEffect(() => {
+    setDisplayLimit(30);
+  }, [searchQuery, selectedCategory]);
 
   // ── Filter products ──
   const filteredProducts = useMemo(() => {
@@ -83,6 +135,13 @@ export default function PosPage() {
     return filtered;
   }, [products, selectedCategory, searchQuery]);
 
+  // Paginated view of filtered products
+  const paginatedProducts = useMemo(() => {
+    return filteredProducts.slice(0, displayLimit);
+  }, [filteredProducts, displayLimit]);
+
+  const hasMoreProducts = filteredProducts.length > displayLimit;
+
   // ── Cart totals ──
   const cartTotal = useMemo(
     () => cart.reduce((sum, item) => sum + item.unit_price * item.quantity, 0),
@@ -97,36 +156,96 @@ export default function PosPage() {
   // ── Handlers ──
   const handleAddToCart = (product: (typeof products)[0]) => {
     addToCart(product);
-    toast.success(`Đã thêm ${product.name}`, { duration: 1500 });
+    toast.success(`Đã thêm ${product.name}`, { duration: 1000 });
+  };
+
+  const handleScanBarcode = async () => {
+    try {
+      const res = await scanQRCode({}) as any;
+      const code = res?.data || res?.content || res?.result;
+      if (code) {
+        setSearchQuery(code);
+        toast.success(`Đã quét mã: ${code}`);
+      } else {
+        toast.error('Không tìm thấy nội dung mã QR/Barcode');
+      }
+    } catch (err) {
+      toast.error('Quét mã thất bại hoặc không được hỗ trợ');
+    }
   };
 
   return (
     <div className="pos-page">
       {/* ══════ Top Bar: Search + Cart Badge ══════ */}
       <div className="pos-topbar">
-        <div style={{ position: 'relative', flex: 1 }}>
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="#94a3b8"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }}
+        <div style={{ display: 'flex', gap: 8, flex: 1, alignItems: 'center' }}>
+          <div style={{ position: 'relative', flex: 1 }}>
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#94a3b8"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }}
+            >
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <input
+              className="form-input"
+              style={{ paddingLeft: 38, paddingRight: searchQuery ? 36 : 14, fontSize: 14 }}
+              placeholder="Tìm sản phẩm..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                style={{
+                  position: 'absolute',
+                  right: 8,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none',
+                  border: 'none',
+                  color: '#94a3b8',
+                  padding: 4,
+                  cursor: 'pointer'
+                }}
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          {/* Barcode scanner */}
+          <button
+            onClick={handleScanBarcode}
+            className="zaui-btn zaui-btn-tertiary"
+            style={{ padding: 10, minWidth: 'unset', height: 40, width: 40, borderRadius: 10 }}
+            title="Quét mã vạch"
           >
-            <circle cx="11" cy="11" r="8" />
-            <line x1="21" y1="21" x2="16.65" y2="16.65" />
-          </svg>
-          <input
-            className="form-input"
-            style={{ paddingLeft: 38, fontSize: 14 }}
-            placeholder="Tìm sản phẩm..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 5v14M21 5v14M7 5v14M17 5v14M12 5v14" />
+            </svg>
+          </button>
+
+          {/* Refresh cache */}
+          <button
+            onClick={() => loadData(true)}
+            className="zaui-btn zaui-btn-tertiary"
+            style={{ padding: 10, minWidth: 'unset', height: 40, width: 40, borderRadius: 10 }}
+            title="Tải lại dữ liệu"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+            </svg>
+          </button>
         </div>
+
         <button
           style={{
             position: 'relative',
@@ -165,7 +284,7 @@ export default function PosPage() {
       {/* ══════ Body ══════ */}
       <div className="pos-body">
         {/* Category Chips */}
-        <div className="pos-categories">
+        <div className="pos-categories scrollbar-none">
           <button
             className={`pos-category-chip ${selectedCategory === null ? 'active' : ''}`}
             onClick={() => setSelectedCategory(null)}
@@ -190,15 +309,15 @@ export default function PosPage() {
           <div className="pos-products">
             {Array.from({ length: 9 }).map((_, i) => (
               <div key={i} className="pos-product-card">
-                <div className="skeleton" style={{ width: '100%', aspectRatio: '1' }} />
+                <div className="skeleton" style={{ width: '100%', height: 90 }} />
                 <div className="pos-product-info">
-                  <div className="skeleton" style={{ width: '80%', height: 14, marginBottom: 4 }} />
-                  <div className="skeleton" style={{ width: '50%', height: 12 }} />
+                  <div className="skeleton" style={{ width: '80%', height: 12, marginBottom: 4 }} />
+                  <div className="skeleton" style={{ width: '50%', height: 10 }} />
                 </div>
               </div>
             ))}
           </div>
-        ) : filteredProducts.length === 0 ? (
+        ) : paginatedProducts.length === 0 ? (
           <div className="empty-state" style={{ flex: 1 }}>
             <div className="empty-state-icon">
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="1.5">
@@ -210,7 +329,7 @@ export default function PosPage() {
           </div>
         ) : (
           <div className="pos-products">
-            {filteredProducts.map((product) => (
+            {paginatedProducts.map((product) => (
               <div
                 key={product.id}
                 className="pos-product-card"
@@ -230,7 +349,7 @@ export default function PosPage() {
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      fontSize: 28,
+                      fontSize: 24,
                       background: '#f1f5f9',
                     }}
                   >
@@ -245,6 +364,19 @@ export default function PosPage() {
                 </div>
               </div>
             ))}
+
+            {/* Load More Button */}
+            {hasMoreProducts && (
+              <div style={{ gridColumn: 'span 3', padding: '12px 0', textAlign: 'center' }}>
+                <button
+                  onClick={() => setDisplayLimit((prev) => prev + 30)}
+                  className="zaui-btn zaui-btn-tertiary"
+                  style={{ width: '100%', fontSize: 13, height: 38 }}
+                >
+                  Xem thêm sản phẩm
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -253,21 +385,21 @@ export default function PosPage() {
       {cart.length > 0 && (
         <div className="pos-cart-bar">
           <div>
-            <p style={{ fontSize: 13, color: '#64748b' }}>
+            <p style={{ fontSize: 12, color: '#64748b' }}>
               {cartCount} sản phẩm
             </p>
-            <p style={{ fontSize: 17, fontWeight: 700, color: 'var(--foreground)' }}>
+            <p style={{ fontSize: 16, fontWeight: 700, color: 'var(--foreground)' }}>
               {formatCurrency(cartTotal)}
             </p>
           </div>
           <button
             className="pos-cart-btn"
-            style={{ flex: 'unset', padding: '12px 24px' }}
+            style={{ flex: 'unset', padding: '10px 20px', height: 40, fontSize: 14 }}
             onClick={() => setIsCheckoutOpen(true)}
           >
             <svg
-              width="20"
-              height="20"
+              width="18"
+              height="18"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"

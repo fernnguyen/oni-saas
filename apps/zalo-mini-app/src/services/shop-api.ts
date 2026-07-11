@@ -165,7 +165,8 @@ export function getReportsOverview(shopId: string) {
 
 export function getShifts(shopId: string, params?: Record<string, string>) {
   const query = params ? '?' + new URLSearchParams(params).toString() : '';
-  return apiFetch<{ shifts?: Shift[] }>(`/api/shops/${shopId}/shifts${query}`);
+  return apiFetch<{ data?: Shift[] }>(`/api/shops/${shopId}/shifts${query}`)
+    .then(res => ({ shifts: res?.data || [] }));
 }
 
 export function createShift(shopId: string, data: { opening_cash?: number; user_email?: string }) {
@@ -183,7 +184,8 @@ export function closeShift(shopId: string, shiftId: string, data: { actual_closi
 
 export function getOrders(shopId: string, params?: Record<string, string>) {
   const query = params ? '?' + new URLSearchParams(params).toString() : '';
-  return apiFetch<{ orders?: Order[]; total?: number }>(`/api/shops/${shopId}/orders${query}`);
+  return apiFetch<{ data?: Order[]; total?: number }>(`/api/shops/${shopId}/orders${query}`)
+    .then(res => ({ orders: res?.data || [], total: res?.total ?? 0 }));
 }
 
 export function getOrderDetail(shopId: string, orderId: string) {
@@ -205,14 +207,16 @@ export function createOrderBatch(shopId: string, orders: any[]) {
 
 export function getOrderItems(shopId: string, params?: Record<string, string>) {
   const query = params ? '?' + new URLSearchParams(params).toString() : '';
-  return apiFetch<OrderItem[]>(`/api/shops/${shopId}/order-items${query}`);
+  return apiFetch<{ data?: OrderItem[] }>(`/api/shops/${shopId}/order-items${query}`)
+    .then(res => res?.data || []);
 }
 
 // ────────────────────────────── Returns ──────────────────────────────
 
 export function getReturns(shopId: string, params?: Record<string, string>) {
   const query = params ? '?' + new URLSearchParams(params).toString() : '';
-  return apiFetch<any[]>(`/api/shops/${shopId}/returns${query}`);
+  return apiFetch<{ data?: any[] }>(`/api/shops/${shopId}/returns${query}`)
+    .then(res => res?.data || []);
 }
 
 export function createReturn(shopId: string, data: any) {
@@ -229,7 +233,8 @@ export function processReturn(shopId: string, returnId: string, data: any) {
 
 export function getReturnItems(shopId: string, params?: Record<string, string>) {
   const query = params ? '?' + new URLSearchParams(params).toString() : '';
-  return apiFetch<any[]>(`/api/shops/${shopId}/return-items${query}`);
+  return apiFetch<{ data?: any[] }>(`/api/shops/${shopId}/return-items${query}`)
+    .then(res => res?.data || []);
 }
 
 // ────────────────────────────── Products & Categories ──────────────────────────────
@@ -237,7 +242,8 @@ export function getReturnItems(shopId: string, params?: Record<string, string>) 
 export function getProducts(shopId: string, params?: Record<string, string>) {
   const defaultParams = { limit: '5000', nocache: 'true', ...params };
   const query = '?' + new URLSearchParams(defaultParams).toString();
-  return apiFetch<{ products?: Product[] }>(`/api/shops/${shopId}/products${query}`);
+  return apiFetch<{ data?: Product[] }>(`/api/shops/${shopId}/products${query}`)
+    .then(res => ({ products: res?.data || [] }));
 }
 
 export function getProductDetail(shopId: string, productId: string) {
@@ -256,14 +262,16 @@ export function updateProduct(shopId: string, productId: string, data: any) {
 }
 
 export function getCategories(shopId: string) {
-  return apiFetch<{ categories?: Category[] }>(`/api/shops/${shopId}/categories?limit=500`);
+  return apiFetch<{ data?: Category[] }>(`/api/shops/${shopId}/categories?limit=500`)
+    .then(res => ({ categories: res?.data || [] }));
 }
 
 // ────────────────────────────── Customers ──────────────────────────────
 
 export function getCustomers(shopId: string, params?: Record<string, string>) {
   const query = params ? '?' + new URLSearchParams(params).toString() : '';
-  return apiFetch<{ customers?: Customer[] }>(`/api/shops/${shopId}/customers${query}`);
+  return apiFetch<{ data?: Customer[] }>(`/api/shops/${shopId}/customers${query}`)
+    .then(res => ({ customers: res?.data || [] }));
 }
 
 export function getCustomerDetail(shopId: string, customerId: string) {
@@ -285,7 +293,8 @@ export function updateCustomer(shopId: string, customerId: string, data: Partial
 
 export function getCashbook(shopId: string, params?: Record<string, string>) {
   const query = params ? '?' + new URLSearchParams(params).toString() : '';
-  return apiFetch<CashbookEntry[]>(`/api/shops/${shopId}/cashbook${query}`);
+  return apiFetch<{ data?: CashbookEntry[] }>(`/api/shops/${shopId}/cashbook${query}`)
+    .then(res => res?.data || []);
 }
 
 export function createCashbookEntry(shopId: string, data: any) {
@@ -295,13 +304,15 @@ export function createCashbookEntry(shopId: string, data: any) {
 export function getPaymentMethods(shopId: string, params?: Record<string, string>) {
   const defaultParams = { active: 'TRUE', ...params };
   const query = '?' + new URLSearchParams(defaultParams).toString();
-  return apiFetch<PaymentMethod[]>(`/api/shops/${shopId}/payment-methods${query}`);
+  return apiFetch<{ data?: PaymentMethod[] }>(`/api/shops/${shopId}/payment-methods${query}`)
+    .then(res => res?.data || []);
 }
 
 // ────────────────────────────── Location Resources (Tables/Rooms) ──────────────────────────────
 
 export function getLocationResources(shopId: string) {
-  return apiFetch<LocationResource[]>(`/api/shops/${shopId}/location-resources?limit=500`);
+  return apiFetch<{ data?: LocationResource[] }>(`/api/shops/${shopId}/location-resources?limit=500`)
+    .then(res => res?.data || []);
 }
 
 export function updateLocationResource(shopId: string, resourceId: string, data: any) {
@@ -315,7 +326,8 @@ export function updateLocationResource(shopId: string, resourceId: string, data:
 
 export function getQrOrders(shopId: string, params?: Record<string, string>) {
   const query = params ? '?' + new URLSearchParams(params).toString() : '';
-  return apiFetch<any[]>(`/api/shops/${shopId}/qr-orders${query}`);
+  return apiFetch<{ data?: any[] }>(`/api/shops/${shopId}/qr-orders${query}`)
+    .then(res => res?.data || []);
 }
 
 export function updateQrOrder(shopId: string, orderId: string, data: any) {
@@ -327,7 +339,8 @@ export function updateQrOrder(shopId: string, orderId: string, data: any) {
 
 export function getQrSessions(shopId: string, params?: Record<string, string>) {
   const query = params ? '?' + new URLSearchParams(params).toString() : '';
-  return apiFetch<any[]>(`/api/shops/${shopId}/qr-sessions${query}`);
+  return apiFetch<{ data?: any[] }>(`/api/shops/${shopId}/qr-sessions${query}`)
+    .then(res => res?.data || []);
 }
 
 export function updateQrSession(shopId: string, sessionId: string, data: any) {
