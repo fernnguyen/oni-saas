@@ -123,25 +123,27 @@ export default function SelectBranchPage() {
   return (
     <div className="auth-page">
       <div className="auth-card">
-        <div className="flex flex-col items-center mb-6">
-          <div className="w-12 h-12 rounded-xl bg-[var(--primary)]/10 flex items-center justify-center mb-3">
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="var(--primary)"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-              <polyline points="9 22 9 12 15 12 15 22" />
-            </svg>
+        {!accessError && (
+          <div className="flex flex-col items-center mb-6">
+            <div className="w-12 h-12 rounded-xl bg-[var(--primary)]/10 flex items-center justify-center mb-3">
+              <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="var(--primary)"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                <polyline points="9 22 9 12 15 12 15 22" />
+              </svg>
+            </div>
+            <h1 className="text-xl font-bold text-foreground">Chọn chi nhánh</h1>
+            <p className="text-sm text-subtitle mt-1">Vui lòng chọn chi nhánh làm việc</p>
           </div>
-          <h1 className="text-xl font-bold text-foreground">Chọn chi nhánh</h1>
-          <p className="text-sm text-subtitle mt-1">Vui lòng chọn chi nhánh làm việc</p>
-        </div>
+        )}
 
         {accessError ? (
           <div className="text-center py-6">
