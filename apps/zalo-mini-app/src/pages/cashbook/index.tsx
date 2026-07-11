@@ -128,6 +128,20 @@ export default function CashbookPage() {
   const categories = form.type === 'receipt' ? RECEIPT_CATEGORIES : PAYMENT_CATEGORIES;
 
   // ── Category label map ──
+  const categoryLabels: Record<string, string> = {
+    sales: 'Bán hàng',
+    sale: 'Bán hàng',
+    debt_collection: 'Thu nợ',
+    debt_payment: 'Trả nợ nhà cung cấp',
+    import: 'Nhập hàng',
+    import_goods: 'Nhập hàng',
+    salary: 'Lương nhân viên',
+    utilities: 'Chi phí vận hành',
+    returns: 'Trả hàng',
+    refund: 'Hoàn tiền trả',
+    other: 'Khác',
+  };
+
   const allCatMap: Record<string, string> = {};
   [...RECEIPT_CATEGORIES, ...PAYMENT_CATEGORIES].forEach((c) => {
     allCatMap[c.value] = c.label;
@@ -227,7 +241,7 @@ export default function CashbookPage() {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-foreground truncate">
-                  {allCatMap[tx.category || ''] || tx.category || (tx.type === 'receipt' ? 'Thu' : 'Chi')}
+                  {categoryLabels[tx.category || ''] || allCatMap[tx.category || ''] || tx.category || (tx.type === 'receipt' ? 'Thu' : 'Chi')}
                 </p>
                 <p className="text-2xs text-subtitle truncate">
                   {tx.customer_name || tx.note || tx.fund_name || formatDateTime(tx.created_at)}

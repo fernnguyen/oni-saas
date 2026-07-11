@@ -18,6 +18,41 @@ import { useTenantStore } from '@/stores/tenant-store';
 import { formatCurrency, formatDateTime, cleanOrderNo } from '@/utils/format';
 import toast from 'react-hot-toast';
 
+const METHOD_LABELS: Record<string, string> = {
+  cash: 'Tiền mặt',
+  bank: 'Chuyển khoản',
+  bank_transfer: 'Chuyển khoản',
+  card: 'Thẻ',
+  debt: 'Ghi nợ',
+  prepaid: 'Ví trả trước',
+  momo: 'MoMo',
+  vnpay: 'VNPay',
+  zalopay: 'ZaloPay',
+};
+
+const CHANNEL_LABELS: Record<string, string> = {
+  pos: 'Tại quầy',
+  online: 'Online',
+  phone: 'Điện thoại',
+  zalo: 'Zalo',
+  'pos-mobile': 'POS Mobile',
+  mini_app: 'Mini App',
+};
+
+const CASHBOOK_CATEGORIES: Record<string, string> = {
+  sales: 'Bán hàng',
+  sale: 'Bán hàng',
+  debt_collection: 'Thu nợ',
+  debt_payment: 'Trả nợ nhà cung cấp',
+  import: 'Nhập hàng',
+  import_goods: 'Nhập hàng',
+  salary: 'Lương nhân viên',
+  utilities: 'Chi phí vận hành',
+  returns: 'Trả hàng',
+  refund: 'Hoàn tiền trả',
+  other: 'Khác',
+};
+
 // ────────────────────────────── Status helpers ──────────────────────────────
 
 const STATUS_LABELS: Record<string, string> = {
@@ -54,6 +89,7 @@ export default function OrderDetailPage() {
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const [cancelling, setCancelling] = useState(false);
+  const [showDoubleConfirmCancel, setShowDoubleConfirmCancel] = useState(false);
 
   // Return modal
   const [showReturnModal, setShowReturnModal] = useState(false);
@@ -99,6 +135,7 @@ export default function OrderDetailPage() {
       await cancelOrder(shopId, orderId, cancelReason.trim());
       toast.success('Đã hủy đơn hàng');
       setShowCancelModal(false);
+      setShowDoubleConfirmCancel(false);
       setCancelReason('');
       fetchData();
     } catch (err: any) {
@@ -222,7 +259,7 @@ export default function OrderDetailPage() {
     );
   }
 
-  const canCancel = order.status === 'pending' || order.status === 'processing';
+  const canCancel = order.status !== 'cancelled';
   const canReturn = order.status === 'completed';
 
   return (
@@ -265,7 +302,7 @@ export default function OrderDetailPage() {
 
           {order.channel && (
             <p className="text-2xs text-subtitle">
-              Kênh bán: <span className="font-medium text-foreground">{order.channel}</span>
+              Kênh bán: <span className="font-medium text-foreground">{CHANNEL_LABELS[order.channel] || order.channel}</span>
             </p>
           )}
           {order.note && (
@@ -317,11 +354,11 @@ export default function OrderDetailPage() {
                       <p className="text-3xs text-subtitle">{item.variant_name}</p>
                     )}
                     <p className="text-2xs text-subtitle mt-0.5">
-                      {formatCurrency(item.unit_price)} × {item.quantity}
+                      {formatCurrency(item.unit_price)} × {item.quantity ?? (item as any).qty ?? 0}
                     </p>
                   </div>
                   <p className="text-sm font-semibold text-foreground whitespace-nowrap">
-                    {formatCurrency(item.total_price)}
+                    {formatCurrency(item.total_price ?? (item as any).line_total ?? (Number(item.unit_price) * Number(item.quantity ?? (item as any).qty ?? 0)))}
                   </p>
                 </div>
               ))}
@@ -360,7 +397,7 @@ export default function OrderDetailPage() {
             </div>
             {order.payment_method && (
               <p className="text-3xs text-subtitle">
-                Phương thức: {order.payment_method}
+                Phương thức: {order.payment_method.split(',').map(m => METHOD_LABELS[m.trim()] || m).join(', ')}
               </p>
             )}
           </div>
@@ -379,7 +416,7 @@ export default function OrderDetailPage() {
                 <div key={entry.id} className="flex justify-between items-center">
                   <div className="flex-1 min-w-0 mr-3">
                     <p className="text-2xs text-foreground truncate">
-                      {entry.category || (entry.type === 'receipt' ? 'Thu' : 'Chi')}
+                      {CASHBOOK_CATEGORIES[entry.category || ''] || entry.category || (entry.type === 'receipt' ? 'Thu' : 'Chi')}
                     </p>
                     <p className="text-3xs text-subtitle">
                       {formatDateTime(entry.created_at)}
@@ -468,9 +505,47 @@ export default function OrderDetailPage() {
                   className="auth-btn flex-1"
                   style={{ background: '#ef4444', color: 'white' }}
                   disabled={!cancelReason.trim() || cancelling}
+                  onClick={() => {
+                    setShowCancelModal(false);
+                    setShowDoubleConfirmCancel(true);
+                  }}
+                >
+                  Tiếp tục
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ════════════════════ Double Confirm Cancel Modal ════════════════════ */}
+      {showDoubleConfirmCancel && (
+        <div className="modal-backdrop" style={{ zIndex: 1200 }} onClick={() => setShowDoubleConfirmCancel(false)}>
+          <div className="modal-content modal-content-center" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 320 }}>
+            <div className="modal-header">
+              <h3 className="text-sm font-semibold">Xác nhận hủy đơn</h3>
+              <button onClick={() => setShowDoubleConfirmCancel(false)} className="p-1">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+            <div className="modal-body">
+              <p className="text-2xs text-subtitle mb-4 text-center">
+                Bạn có chắc chắn muốn hủy đơn hàng này không? Hành động này sẽ hủy hóa đơn và khôi phục tồn kho tương ứng.
+              </p>
+              <div className="flex gap-3">
+                <button className="auth-btn auth-btn-outline flex-1" onClick={() => setShowDoubleConfirmCancel(false)}>
+                  Hủy
+                </button>
+                <button
+                  className="auth-btn flex-1"
+                  style={{ background: '#ef4444', color: 'white' }}
+                  disabled={cancelling}
                   onClick={handleCancel}
                 >
-                  {cancelling ? 'Đang hủy...' : 'Xác nhận hủy'}
+                  {cancelling ? 'Đang hủy...' : 'Xác nhận'}
                 </button>
               </div>
             </div>

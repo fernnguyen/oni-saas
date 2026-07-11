@@ -61,6 +61,7 @@ const CHANNEL_LABEL: Record<string, string> = {
   phone: 'Điện thoại',
   zalo: 'Zalo',
   'pos-mobile': 'POS Mobile',
+  mini_app: 'Mini App',
 }
 
 const METHOD_LABEL: Record<string, string> = {
