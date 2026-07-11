@@ -120,10 +120,14 @@ export default function OnboardingPage() {
     }
 
     setIsCheckingCode(true);
+    const controller = new AbortController();
+
     if (codeDebounceRef.current) clearTimeout(codeDebounceRef.current);
     codeDebounceRef.current = setTimeout(async () => {
       try {
-        const res = await apiFetch<any>(`/api/register/check-code?code=${encodeURIComponent(trimmed)}`);
+        const res = await apiFetch<any>(`/api/register/check-code?code=${encodeURIComponent(trimmed)}`, {
+          signal: controller.signal
+        });
         if (res.valid) {
           setPromoDetails(res);
           if (res.plan && res.plan.code) setSelectedPlanCode(res.plan.code);
@@ -131,15 +135,18 @@ export default function OnboardingPage() {
           setPromoDetails({ valid: false, message: res.message });
           setSelectedPlanCode('plan_mini');
         }
-      } catch {
-        setPromoDetails(null);
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
+          setPromoDetails(null);
+        }
       } finally {
         setIsCheckingCode(false);
       }
-    }, 500);
+    }, 1200);
 
     return () => {
       if (codeDebounceRef.current) clearTimeout(codeDebounceRef.current);
+      controller.abort();
     };
   }, [invitationCode]);
   const handleSubmit = async (e: React.FormEvent) => {
