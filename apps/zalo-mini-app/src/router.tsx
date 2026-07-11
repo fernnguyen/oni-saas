@@ -6,9 +6,14 @@ import RegisterPage from "@/pages/auth/register";
 import SelectBranchPage from "@/pages/auth/select-branch";
 import DashboardPage from "@/pages/dashboard";
 import OrdersPage from "@/pages/orders";
-import CatalogPage from "@/pages/catalog/category-list";
+import OrderDetailPage from "@/pages/orders/detail";
+import PosPage from "@/pages/pos";
+import CashbookPage from "@/pages/cashbook";
+import CustomersPage from "@/pages/customers";
+import CustomerDetailPage from "@/pages/customers/detail";
+import ProductsPage from "@/pages/products";
+import QrOrdersPage from "@/pages/qr-orders";
 import SettingsPage from "@/pages/settings";
-
 import { getBasePath } from "@/utils/zma";
 
 const router = createBrowserRouter(
@@ -38,14 +43,39 @@ const router = createBrowserRouter(
           handle: { title: "Đơn hàng" },
         },
         {
-          path: "/orders/:status?",
-          element: <OrdersPage />,
-          handle: { title: "Đơn hàng" },
+          path: "/orders/:orderId",
+          element: <OrderDetailPage />,
+          handle: { title: "Chi tiết đơn hàng" },
+        },
+        {
+          path: "/pos",
+          element: <PosPage />,
+          handle: { title: "Bán hàng", noFooter: true },
+        },
+        {
+          path: "/cashbook",
+          element: <CashbookPage />,
+          handle: { title: "Sổ quỹ" },
+        },
+        {
+          path: "/customers",
+          element: <CustomersPage />,
+          handle: { title: "Khách hàng" },
+        },
+        {
+          path: "/customers/:customerId",
+          element: <CustomerDetailPage />,
+          handle: { title: "Chi tiết khách hàng" },
         },
         {
           path: "/products",
-          element: <CatalogPage />,
+          element: <ProductsPage />,
           handle: { title: "Sản phẩm" },
+        },
+        {
+          path: "/qr-orders",
+          element: <QrOrdersPage />,
+          handle: { title: "Đơn QR" },
         },
         {
           path: "/settings",
