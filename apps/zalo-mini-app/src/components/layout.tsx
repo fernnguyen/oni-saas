@@ -13,7 +13,6 @@ function PageSkeleton() {
     </div>
   );
 }
-import { Toaster } from "react-hot-toast";
 import { ScrollRestoration } from "./scroll-restoration";
 import BrandThemeProvider from "./brand-theme-provider";
 
@@ -28,12 +27,6 @@ export default function Layout() {
           </Suspense>
         </div>
         <Footer />
-        <Toaster
-          containerClassName="toast-container"
-          containerStyle={{
-            top: "calc(50% - 24px)",
-          }}
-        />
         <ScrollRestoration />
       </div>
     </BrandThemeProvider>

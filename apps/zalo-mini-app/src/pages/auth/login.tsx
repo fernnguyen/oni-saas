@@ -24,12 +24,16 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [zaloLoading, setZaloLoading] = useState(false);
+  const [isTenantLocked, setIsTenantLocked] = useState(false);
 
   // Auto-fill from localStorage
   useEffect(() => {
     const savedTenant = localStorage.getItem('saved_tenant_code');
     const savedEmail = localStorage.getItem('saved_email');
-    if (savedTenant) setTenantCodeInput(savedTenant);
+    if (savedTenant) {
+      setTenantCodeInput(savedTenant);
+      setIsTenantLocked(true);
+    }
     if (savedEmail) setEmail(savedEmail);
   }, []);
 
@@ -57,8 +61,10 @@ export default function LoginPage() {
       // 1. Set tenant code → build base URL https://{slug}.oni.vn
       setTenantCode(slug);
 
-      // 2. Lưu email để auto-fill lần sau
+      // 2. Lưu email và tenant để auto-fill lần sau
       localStorage.setItem('saved_email', identifier);
+      localStorage.setItem('saved_tenant_code', slug);
+      setIsTenantLocked(true);
 
       // 3. Build email cho Supabase auth
       const authEmail = buildAuthEmail(identifier, slug);
@@ -89,8 +95,18 @@ export default function LoginPage() {
   };
 
   const handleZaloLogin = async () => {
+    const slug = tenantCodeInput.trim().toLowerCase();
+    if (!slug) {
+      toast.error('Vui lòng nhập mã cửa hàng trước khi đăng nhập');
+      return;
+    }
+
     setZaloLoading(true);
     try {
+      // Khóa cứng tenant code
+      localStorage.setItem('saved_tenant_code', slug);
+      setIsTenantLocked(true);
+
       getPhoneNumber({
         success: async (data) => {
           try {
@@ -104,7 +120,7 @@ export default function LoginPage() {
               });
             });
             
-            await loginWithZaloMiniApp(token, accessToken);
+            await loginWithZaloMiniApp(token, accessToken, slug);
             
             toast.success('Đăng nhập thành công!');
             navigate('/select-branch', { replace: true });
@@ -155,20 +171,46 @@ export default function LoginPage() {
             <label className="block text-sm font-medium text-foreground mb-1.5">
               Mã cửa hàng
             </label>
-            <div className="relative flex items-center">
-              <input
-                type="text"
-                value={tenantCodeInput}
-                onChange={(e) => setTenantCodeInput(e.target.value.toLowerCase().replace(/\s/g, ''))}
-                placeholder="myshop"
-                className="auth-input pr-[85px]"
-                autoCapitalize="none"
-                autoCorrect="off"
-              />
-              <span className="absolute right-3 text-sm text-subtitle font-medium pointer-events-none">
-                .oni.vn
-              </span>
-            </div>
+            
+            {isTenantLocked ? (
+              <div className="flex items-center justify-between bg-[var(--border)]/30 rounded-xl pl-4 pr-2.5 py-2.5 border border-[var(--border)]">
+                <div className="flex items-center overflow-hidden min-w-0">
+                  <span className="font-semibold text-foreground truncate">{tenantCodeInput}</span>
+                  <span className="text-subtitle font-medium whitespace-nowrap">.oni.vn</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsTenantLocked(false);
+                    localStorage.removeItem('saved_tenant_code');
+                  }}
+                  className="text-xs text-[var(--primary)] font-semibold bg-[var(--primary)]/10 px-2.5 py-1.5 rounded-lg ml-2 shrink-0 hover:bg-[var(--primary)]/20 transition-colors"
+                >
+                  Thay đổi
+                </button>
+              </div>
+            ) : (
+              <div className="relative flex items-center">
+                <input
+                  type="text"
+                  value={tenantCodeInput}
+                  onChange={(e) => setTenantCodeInput(e.target.value.toLowerCase().replace(/\s/g, ''))}
+                  onBlur={() => {
+                    if (tenantCodeInput.trim()) {
+                      setIsTenantLocked(true);
+                      localStorage.setItem('saved_tenant_code', tenantCodeInput.trim());
+                    }
+                  }}
+                  placeholder="myshop"
+                  className="auth-input pr-[85px]"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                />
+                <span className="absolute right-3 text-sm text-subtitle font-medium pointer-events-none">
+                  .oni.vn
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Email / Username */}

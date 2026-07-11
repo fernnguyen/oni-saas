@@ -5,6 +5,7 @@ import { RouterProvider } from "react-router-dom";
 
 // Router
 import router from "@/router";
+import { Toaster } from "react-hot-toast";
 
 // ZaUI stylesheet
 import "zmp-ui/zaui.css";
@@ -22,4 +23,9 @@ if (!window.APP_CONFIG) {
 
 // Mount the app
 const root = createRoot(document.getElementById("app")!);
-root.render(createElement(RouterProvider, { router }));
+root.render(
+  createElement('div', null,
+    createElement(RouterProvider, { router }),
+    createElement(Toaster)
+  )
+);

@@ -24,6 +24,7 @@ export default function SelectBranchPage() {
 
   const [shops, setShops] = useState<Shop[]>([]);
   const [loading, setLoading] = useState(true);
+  const [accessError, setAccessError] = useState(false);
 
   // Check session on mount
   useEffect(() => {
@@ -63,9 +64,17 @@ export default function SelectBranchPage() {
       const meData = await meRes.json();
       const tenantId = meData.tenant_id;
 
+      const activeTenant = localStorage.getItem('active_tenant_code');
+
       if (!tenantId) {
-        toast.error('Tài khoản này chưa được liên kết với doanh nghiệp nào');
-        navigate('/login', { replace: true });
+        if (activeTenant) {
+          // Specific tenant login but no access
+          setAccessError(true);
+        } else {
+          // Global login but no tenant -> Go to Onboarding
+          navigate('/onboarding', { replace: true });
+        }
+        setLoading(false);
         return;
       }
 
@@ -134,7 +143,29 @@ export default function SelectBranchPage() {
           <p className="text-sm text-subtitle mt-1">Vui lòng chọn chi nhánh làm việc</p>
         </div>
 
-        {loading ? (
+        {accessError ? (
+          <div className="text-center py-6">
+            <div className="w-16 h-16 mx-auto rounded-full bg-red-100 flex items-center justify-center mb-4">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="text-red-600" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <h2 className="text-lg font-bold text-foreground mb-2">Không có quyền truy cập</h2>
+            <p className="text-sm text-subtitle mb-6 px-4">
+              Tài khoản Zalo của bạn chưa được cấp quyền truy cập vào cửa hàng này. Vui lòng liên hệ chủ cửa hàng hoặc thử lại với mã cửa hàng khác.
+            </p>
+            <button
+              onClick={async () => {
+                const { logout } = await import('@/services/auth');
+                await logout();
+                navigate('/login', { replace: true });
+              }}
+              className="auth-btn auth-btn-secondary w-full"
+            >
+              Đăng xuất và thử lại
+            </button>
+          </div>
+        ) : loading ? (
           <div className="space-y-3">
             {[1, 2, 3].map((i) => (
               <div key={i} className="branch-card animate-pulse">
