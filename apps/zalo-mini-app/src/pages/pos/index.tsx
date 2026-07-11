@@ -43,6 +43,11 @@ export default function PosPage() {
   // ── Local pagination state for product grid ──
   const [displayLimit, setDisplayLimit] = useState(30);
 
+  // Pull to Refresh state
+  const [refreshing, setRefreshing] = useState(false);
+  const [pullStart, setPullStart] = useState<number | null>(null);
+  const [pullOffset, setPullOffset] = useState(0);
+
   // ── Load Data (with optional cache bypass) ──
   const loadData = async (bypassCache = false) => {
     if (!shopId) return;
@@ -108,6 +113,7 @@ export default function PosPage() {
       toast.error('Không thể tải dữ liệu. Vui lòng thử lại.');
     } finally {
       setIsLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -182,8 +188,65 @@ export default function PosPage() {
     }
   };
 
+  const handleTouchStart = (e: React.TouchEvent) => {
+    const container = document.querySelector('.pos-page');
+    const scrollTop = container ? container.scrollTop : window.scrollY;
+    if (scrollTop === 0) {
+      setPullStart(e.touches[0].clientY);
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (pullStart !== null) {
+      const currentY = e.touches[0].clientY;
+      const offset = currentY - pullStart;
+      if (offset > 0) {
+        setPullOffset(Math.min(offset * 0.4, 60));
+      }
+    }
+  };
+
+  const handleTouchEnd = async () => {
+    if (pullStart !== null) {
+      if (pullOffset >= 50) {
+        setRefreshing(true);
+        await loadData(true);
+      }
+      setPullStart(null);
+      setPullOffset(0);
+    }
+  };
+
   return (
-    <div className="pos-page">
+    <div
+      className="pos-page"
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+    >
+      <style>{`
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        .animate-spin-custom {
+          animation: spin 0.8s linear infinite;
+        }
+      `}</style>
+
+      {/* Pull to Refresh Indicator */}
+      <div 
+        className="flex items-center justify-center transition-all overflow-hidden bg-slate-50"
+        style={{
+          height: refreshing ? '50px' : `${pullOffset}px`,
+          opacity: refreshing || pullOffset > 0 ? 1 : 0,
+        }}
+      >
+        <div className="flex items-center gap-2 text-xs text-subtitle" style={{ padding: '10px 0' }}>
+          <div className="animate-spin-custom rounded-full h-4 w-4 border-2 border-[var(--primary)] border-t-transparent" />
+          <span>{refreshing ? 'Đang làm mới...' : 'Kéo để làm mới...'}</span>
+        </div>
+      </div>
       {/* ══════ Top Bar: Search + Cart Badge ══════ */}
       <div className="pos-topbar">
         <div style={{ display: 'flex', gap: 8, flex: 1, alignItems: 'center' }}>
@@ -238,18 +301,6 @@ export default function PosPage() {
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M3 5v14M21 5v14M7 5v14M17 5v14M12 5v14" />
-            </svg>
-          </button>
-
-          {/* Refresh cache */}
-          <button
-            onClick={() => loadData(true)}
-            className="zaui-btn zaui-btn-tertiary"
-            style={{ padding: 10, minWidth: 'unset', height: 40, width: 40, borderRadius: 10 }}
-            title="Tải lại dữ liệu"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
             </svg>
           </button>
         </div>
