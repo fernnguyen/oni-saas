@@ -314,12 +314,9 @@ export default function ProductsPage() {
       if (selectedLocalImageUri && productId) {
         try {
           toast.loading('Đang tải ảnh lên...', { id: 'image-upload' });
-          const { data: { session } } = await supabase.auth.getSession();
-          const token = session?.access_token || '';
-
-          const uploadUrlRes = await fetch(`/api/shops/${shopId}/products/${productId}/upload-url?token=${token}`);
-          if (!uploadUrlRes.ok) throw new Error('Không lấy được link upload');
-          const { uploadUrl, publicUrl } = await uploadUrlRes.json();
+          const { uploadUrl, publicUrl } = await apiFetch<{ uploadUrl: string, publicUrl: string }>(
+            `/api/shops/${shopId}/products/${productId}/upload-url`
+          );
 
           const imgRes = await fetch(selectedLocalImageUri);
           const blob = await imgRes.blob();
