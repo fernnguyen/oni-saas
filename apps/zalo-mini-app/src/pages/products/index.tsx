@@ -13,6 +13,7 @@ import { formatCurrency } from '@/utils/format';
 import { supabase } from '@/lib/supabase';
 import { apiFetch } from '@/services/api';
 import toast from 'react-hot-toast';
+import { BarcodeScannerModal } from '@/components/barcode-scanner-modal';
 
 // Simple VND integer format masking
 const maskVNDInput = (text: string): string => {
@@ -30,6 +31,7 @@ const parseVNDToNumber = (formattedValue: string): number => {
 interface ProductForm {
   name: string;
   sku: string;
+  barcode: string;
   sell_price: string;
   cost_price: string;
   category_id: string;
@@ -42,6 +44,7 @@ interface ProductForm {
 const INITIAL_FORM: ProductForm = {
   name: '',
   sku: '',
+  barcode: '',
   sell_price: '',
   cost_price: '',
   category_id: '',
@@ -63,6 +66,14 @@ export default function ProductsPage() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [form, setForm] = useState<ProductForm>(INITIAL_FORM);
   const [submitting, setSubmitting] = useState(false);
+
+  // Barcode scanner modal state
+  const [isBarcodeScannerOpen, setIsBarcodeScannerOpen] = useState(false);
+
+  const handleBarcodeScanned = (code: string) => {
+    setForm((prev) => ({ ...prev, barcode: code }));
+    setIsBarcodeScannerOpen(false);
+  };
 
   // Pagination & Lazy loading
   const [page, setPage] = useState(1);
@@ -223,6 +234,7 @@ export default function ProductsPage() {
     setForm({
       name: product.name || '',
       sku: product.sku || '',
+      barcode: product.barcode || '',
       sell_price: maskVNDInput(String(product.sell_price || '')),
       cost_price: maskVNDInput(String(product.cost_price || '')),
       category_id: product.category_id || '',
@@ -283,6 +295,7 @@ export default function ProductsPage() {
     const payload = {
       name: form.name.trim(),
       sku: form.sku.trim() || undefined,
+      barcode: form.barcode.trim() || undefined,
       sell_price: String(sellVal), // Backend expects string representation of decimal
       cost_price: String(costVal), // Backend expects string representation of decimal
       category_id: form.category_id || undefined,
@@ -564,6 +577,40 @@ export default function ProductsPage() {
                 />
               </div>
 
+              <div className="form-group">
+                <label className="form-label">Mã vạch (Barcode)</label>
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                  <input
+                    className="form-input"
+                    placeholder="Quét hoặc nhập mã vạch..."
+                    value={form.barcode}
+                    onChange={(e) => setForm({ ...form, barcode: e.target.value })}
+                    style={{ paddingRight: 40 }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setIsBarcodeScannerOpen(true)}
+                    style={{
+                      position: 'absolute',
+                      right: 8,
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: 4,
+                      color: '#fa5908'
+                    }}
+                    title="Quét mã vạch"
+                  >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 5v14M21 5v14M7 5v14M17 5v14M12 5v14" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div className="form-group">
                   <label className="form-label">Giá bán</label>
@@ -761,6 +808,13 @@ export default function ProductsPage() {
           </div>
         </div>
       )}
+
+      {/* ══════ Barcode Scanner Modal ══════ */}
+      <BarcodeScannerModal
+        visible={isBarcodeScannerOpen}
+        onClose={() => setIsBarcodeScannerOpen(false)}
+        onScan={handleBarcodeScanned}
+      />
     </div>
   );
 }
