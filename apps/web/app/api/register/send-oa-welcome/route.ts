@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '../../../../lib/server/supabaseServer';
+import { getSupabaseAdminClient } from '../../../../lib/server/supabaseAdmin';
 
 export async function POST(req: NextRequest) {
   try {
@@ -9,16 +10,32 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { slug, name } = await req.json();
+    const { slug, name, zaloIdByOA } = await req.json();
     if (!slug || !name) {
       return NextResponse.json({ error: 'Missing slug or name' }, { status: 400 });
     }
 
-    // Get Zalo ID from user metadata
-    const zaloId = auth.user.user_metadata?.zalo_id || auth.user.user_metadata?.phone;
+    // Prioritize OA UID (zaloIdByOA) because Zalo OA Customer Service API requires it
+    const zaloId = zaloIdByOA || auth.user.user_metadata?.zalo_id_by_oa || auth.user.user_metadata?.zalo_id || auth.user.user_metadata?.phone;
     const phone = auth.user.user_metadata?.phone || '';
 
-    console.log(`[SendOAWelcome] Preparing welcome message for user Zalo ID: ${zaloId}, phone: ${phone}, Shop: ${name} (${slug})`);
+    // Save zalo_id_by_oa to user metadata if it was passed and not yet saved
+    if (zaloIdByOA && !auth.user.user_metadata?.zalo_id_by_oa) {
+      try {
+        const admin = getSupabaseAdminClient();
+        await admin.auth.admin.updateUserById(auth.user.id, {
+          user_metadata: {
+            ...auth.user.user_metadata,
+            zalo_id_by_oa: zaloIdByOA
+          }
+        });
+        console.log(`[SendOAWelcome] Successfully saved user's OA User ID: ${zaloIdByOA} to metadata`);
+      } catch (metaErr) {
+        console.error('[SendOAWelcome] Failed to update user metadata with zaloIdByOA:', metaErr);
+      }
+    }
+
+    console.log(`[SendOAWelcome] Preparing welcome message for user Zalo ID (resolved): ${zaloId}, phone: ${phone}, Shop: ${name} (${slug})`);
 
     const messageText = `Cảm ơn bạn đã đăng ký thành công cửa hàng ${name}!\n\n` +
       `Thông tin cửa hàng của bạn:\n` +
