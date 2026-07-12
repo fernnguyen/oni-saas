@@ -439,15 +439,18 @@ export default function ProductsPage() {
           >
             Tất cả
           </button>
-          {categories.map((cat) => (
-            <button
-              key={cat.id}
-              className={`pos-category-chip ${selectedCategory === cat.id ? 'active' : ''}`}
-              onClick={() => setSelectedCategory(cat.id)}
-            >
-              {cat.name}
-            </button>
-          ))}
+          {categories.map((cat) => {
+            const catId = cat.id || cat.category_id || '';
+            return (
+              <button
+                key={catId}
+                className={`pos-category-chip ${selectedCategory === catId ? 'active' : ''}`}
+                onClick={() => setSelectedCategory(catId)}
+              >
+                {cat.name}
+              </button>
+            );
+          })}
         </div>
       )}
 
@@ -685,11 +688,14 @@ export default function ProductsPage() {
                   onChange={(e) => setForm({ ...form, category_id: e.target.value })}
                 >
                   <option value="">-- Không chọn --</option>
-                  {categories.map((cat) => (
-                    <option key={cat.id} value={cat.id}>
-                      {cat.name}
-                    </option>
-                  ))}
+                  {categories.map((cat) => {
+                    const catId = cat.id || cat.category_id || '';
+                    return (
+                      <option key={catId} value={catId}>
+                        {cat.name}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
 

@@ -170,7 +170,7 @@ export function ResourcesClient({ shopId, industryType }: Props) {
   const getQrUrl = (resourceId: string) => {
     if (shopSettings?.qr_ordering_type === 'zalo') {
       const zaloAppId = process.env.NEXT_PUBLIC_ZALO_MINI_APP_ID || '3208409885005498355';
-      return `https://zalo.me/s/${zaloAppId}/?shop_slug=${branchSlug}&table_id=${resourceId}`;
+      return `https://zalo.me/s/${zaloAppId}/?tenant_slug=${slug}&shop_slug=${branchSlug}&table_id=${resourceId}`;
     }
     return `${window.location.origin}/qr-order/${branchSlug}/${resourceId}`;
   };

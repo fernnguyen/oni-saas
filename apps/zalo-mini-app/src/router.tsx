@@ -21,11 +21,13 @@ import { getBasePath } from "@/utils/zma";
 
 function RootRedirector() {
   const [searchParams] = useSearchParams();
+  const tenantSlug = searchParams.get("tenant_slug");
   const shopSlug = searchParams.get("shop_slug");
   const tableId = searchParams.get("table_id") || searchParams.get("tableId");
 
   if (shopSlug && tableId) {
-    return <Navigate to={`/qr-client?shop_slug=${shopSlug}&table_id=${tableId}`} replace />;
+    const tenantParam = tenantSlug ? `&tenant_slug=${tenantSlug}` : "";
+    return <Navigate to={`/qr-client?shop_slug=${shopSlug}&table_id=${tableId}${tenantParam}`} replace />;
   }
 
   return (

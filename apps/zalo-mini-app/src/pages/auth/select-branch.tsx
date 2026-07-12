@@ -14,6 +14,13 @@ interface Shop {
   industry_type?: string;
 }
 
+interface Tenant {
+  id: string;
+  name: string;
+  slug: string;
+  industry_type?: string;
+}
+
 export default function SelectBranchPage() {
   const navigate = useNavigate();
   const setTenant = useTenantStore((s) => s.setTenant);
@@ -22,6 +29,8 @@ export default function SelectBranchPage() {
   const setSession = useAuthStore((s) => s.setSession);
   const setProfile = useAuthStore((s) => s.setProfile);
 
+  const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [selectedTenant, setSelectedTenant] = useState<Tenant | null>(null);
   const [shops, setShops] = useState<Shop[]>([]);
   const [loading, setLoading] = useState(true);
   const [accessError, setAccessError] = useState(false);
@@ -34,11 +43,11 @@ export default function SelectBranchPage() {
         navigate('/login', { replace: true });
         return;
       }
-      loadBranches();
+      loadTenants();
     });
   }, []);
 
-  const loadBranches = async () => {
+  const loadTenants = async () => {
     setLoading(true);
     try {
       const baseUrl = getApiBaseUrl();
@@ -56,38 +65,59 @@ export default function SelectBranchPage() {
         });
       }
 
-      // 1. Lấy tenant_id qua /api/tenants/me (giống mobile app)
-      const meRes = await fetch(`${baseUrl}/api/tenants/me`, { headers });
-      if (!meRes.ok) {
-        throw new Error(`Không thể xác thực Tenant. Mã lỗi: ${meRes.status}`);
+      // 1. Fetch all tenants of this user via /api/tenants/list
+      const listRes = await fetch(`${baseUrl}/api/tenants/list`, { headers });
+      if (!listRes.ok) {
+        throw new Error(`Không thể lấy danh sách cửa hàng. Mã lỗi: ${listRes.status}`);
       }
-      const meData = await meRes.json();
-      const tenantId = meData.tenant_id;
+      const listData = await listRes.json();
+      const userTenants: Tenant[] = listData.tenants || [];
+      setTenants(userTenants);
 
-      const activeTenant = localStorage.getItem('active_tenant_code');
-
-      if (!tenantId) {
-        if (activeTenant) {
-          // Specific tenant login but no access
-          setAccessError(true);
-        } else {
-          // Global login but no tenant -> Go to Onboarding
-          navigate('/onboarding', { replace: true });
-        }
-        setLoading(false);
+      if (userTenants.length === 0) {
+        // No tenants -> Redirect to onboarding
+        navigate('/onboarding', { replace: true });
         return;
       }
 
-      // Lưu tenant info
-      const slug = localStorage.getItem('active_tenant_code') || '';
-      setTenant({
-        id: tenantId,
-        name: slug,
-        slug: slug,
-      });
+      // If active tenant slug exists in localStorage, auto select it
+      const activeTenantCode = localStorage.getItem('active_tenant_code');
+      const foundTenant = userTenants.find((t) => t.slug === activeTenantCode);
+      if (foundTenant) {
+        await handleSelectTenant(foundTenant);
+      } else {
+        setLoading(false);
+      }
+    } catch (err: any) {
+      console.error('loadTenants error:', err);
+      toast.error(err?.message || 'Có lỗi xảy ra khi tải dữ liệu');
+      setLoading(false);
+    }
+  };
 
-      // 2. Lấy danh sách shops (giống mobile app)
-      const shopsRes = await fetch(`${baseUrl}/api/shops?tenant_id=${tenantId}`, { headers });
+  const handleSelectTenant = async (tenant: Tenant) => {
+    setLoading(true);
+    try {
+      const baseUrl = getApiBaseUrl();
+      
+      // Save tenant info in localStorage
+      localStorage.setItem('active_tenant_code', tenant.slug);
+      localStorage.removeItem('custom_api_base_url');
+      
+      // Save in store
+      setTenant({
+        id: tenant.id,
+        name: tenant.name,
+        slug: tenant.slug,
+      });
+      
+      setSelectedTenant(tenant);
+
+      // Re-fetch headers since active_tenant_code changed
+      const headers = await getApiHeaders();
+
+      // 2. Fetch shops/branches for the selected tenant
+      const shopsRes = await fetch(`${baseUrl}/api/shops?tenant_id=${tenant.id}`, { headers });
       if (!shopsRes.ok) {
         throw new Error(`Không thể tải danh sách chi nhánh. Mã lỗi: ${shopsRes.status}`);
       }
@@ -96,14 +126,14 @@ export default function SelectBranchPage() {
 
       setShops(rawShops);
 
-      // Auto-select nếu chỉ có 1 branch
+      // Auto-select if only 1 branch
       if (rawShops.length === 1) {
         handleSelectBranch(rawShops[0]);
         return;
       }
     } catch (err: any) {
-      console.error('loadBranches error:', err);
-      toast.error(err?.message || 'Có lỗi xảy ra khi tải dữ liệu');
+      console.error('handleSelectTenant error:', err);
+      toast.error(err?.message || 'Có lỗi xảy ra khi chọn cửa hàng');
     } finally {
       setLoading(false);
     }
@@ -120,31 +150,15 @@ export default function SelectBranchPage() {
     navigate('/', { replace: true });
   };
 
+  const handleLogout = async () => {
+    const { logout } = await import('@/services/auth');
+    await logout();
+    navigate('/login', { replace: true });
+  };
+
   return (
     <div className="auth-page">
       <div className="auth-card">
-        {!accessError && (
-          <div className="flex flex-col items-center mb-6">
-            <div className="w-12 h-12 rounded-xl bg-[var(--primary)]/10 flex items-center justify-center mb-3">
-              <svg
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="var(--primary)"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-                <polyline points="9 22 9 12 15 12 15 22" />
-              </svg>
-            </div>
-            <h1 className="text-xl font-bold text-foreground">Chọn chi nhánh</h1>
-            <p className="text-sm text-subtitle mt-1">Vui lòng chọn chi nhánh làm việc</p>
-          </div>
-        )}
-
         {accessError ? (
           <div className="text-center py-6">
             <div className="w-16 h-16 mx-auto rounded-full bg-red-100 flex items-center justify-center mb-4">
@@ -154,83 +168,206 @@ export default function SelectBranchPage() {
             </div>
             <h2 className="text-lg font-bold text-foreground mb-2">Không có quyền truy cập</h2>
             <p className="text-sm text-subtitle mb-6 px-4">
-              Tài khoản Zalo của bạn chưa được cấp quyền truy cập vào cửa hàng này. Vui lòng liên hệ chủ cửa hàng hoặc thử lại với mã cửa hàng khác.
+              Tài khoản của bạn chưa được cấp quyền truy cập vào cửa hàng này. Vui lòng liên hệ chủ cửa hàng hoặc thử lại với tài khoản khác.
             </p>
             <button
-              onClick={async () => {
-                const { logout } = await import('@/services/auth');
-                await logout();
-                navigate('/login', { replace: true });
-              }}
+              onClick={handleLogout}
               className="auth-btn auth-btn-secondary w-full"
             >
               Đăng xuất và thử lại
             </button>
           </div>
         ) : loading ? (
-          <div className="space-y-3">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="branch-card animate-pulse">
-                <div className="h-5 w-3/4 bg-skeleton rounded mb-2" />
-                <div className="h-4 w-full bg-skeleton rounded" />
+          <div className="space-y-4">
+            <div className="flex flex-col items-center mb-6">
+              <div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full" />
+              <p className="text-xs text-subtitle mt-2">Đang tải dữ liệu...</p>
+            </div>
+          </div>
+        ) : !selectedTenant ? (
+          // ── Tenant Selection Screen ──
+          <div>
+            <div className="flex flex-col items-center mb-6">
+              <div className="w-12 h-12 rounded-xl bg-[var(--primary)]/10 flex items-center justify-center mb-3">
+                <svg
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="var(--primary)"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <rect x="3" y="3" width="7" height="9" />
+                  <rect x="14" y="3" width="7" height="5" />
+                  <rect x="14" y="12" width="7" height="9" />
+                  <rect x="3" y="16" width="7" height="5" />
+                </svg>
               </div>
-            ))}
-          </div>
-        ) : shops.length === 0 ? (
-          <div className="text-center py-8">
-            <p className="text-subtitle text-sm">Không tìm thấy chi nhánh nào</p>
-            <button
-              onClick={() => navigate('/login', { replace: true })}
-              className="mt-4 text-sm text-[var(--primary)] font-semibold"
-            >
-              Quay lại đăng nhập
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {shops.map((shop) => (
-              <button
-                key={shop.id}
-                onClick={() => handleSelectBranch(shop)}
-                className="branch-card w-full text-left"
-              >
-                <div className="flex items-center space-x-3">
-                  <div className="flex-none w-10 h-10 rounded-lg bg-[var(--primary)]/10 flex items-center justify-center">
+              <h1 className="text-xl font-bold text-foreground">Chọn cửa hàng</h1>
+              <p className="text-sm text-subtitle mt-1">Chọn cửa hàng của bạn hoặc tạo mới</p>
+            </div>
+
+            <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
+              {tenants.map((tenant) => (
+                <button
+                  key={tenant.id}
+                  onClick={() => handleSelectTenant(tenant)}
+                  className="branch-card w-full text-left"
+                >
+                  <div className="flex items-center space-x-3">
+                    <div className="flex-none w-10 h-10 rounded-lg bg-[var(--primary)]/10 flex items-center justify-center">
+                      <svg
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="var(--primary)"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                        <circle cx="12" cy="7" r="4" />
+                      </svg>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-foreground truncate">{tenant.name}</p>
+                      <p className="text-2xs text-subtitle truncate mt-0.5">{tenant.slug}.oni.vn</p>
+                    </div>
                     <svg
-                      width="20"
-                      height="20"
+                      width="16"
+                      height="16"
                       viewBox="0 0 24 24"
                       fill="none"
-                      stroke="var(--primary)"
-                      strokeWidth="1.5"
+                      stroke="var(--inactive)"
+                      strokeWidth="2"
                       strokeLinecap="round"
                       strokeLinejoin="round"
                     >
-                      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
-                      <circle cx="12" cy="10" r="3" />
+                      <polyline points="9 18 15 12 9 6" />
                     </svg>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-foreground truncate">{shop.name}</p>
-                    {shop.address && (
-                      <p className="text-2xs text-subtitle truncate mt-0.5">{shop.address}</p>
-                    )}
-                  </div>
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="var(--inactive)"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={() => {
+                localStorage.removeItem('active_tenant_code');
+                navigate('/onboarding');
+              }}
+              className="auth-btn auth-btn-primary w-full mt-4 flex items-center justify-center gap-2"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              Tạo cửa hàng mới
+            </button>
+
+            <button
+              onClick={handleLogout}
+              className="text-xs text-slate-400 mt-6 block text-center w-full hover:text-[var(--primary)] font-medium"
+            >
+              Đăng xuất tài khoản
+            </button>
+          </div>
+        ) : (
+          // ── Branch Selection Screen ──
+          <div>
+            <div className="flex flex-col items-center mb-6">
+              <div className="w-12 h-12 rounded-xl bg-[var(--primary)]/10 flex items-center justify-center mb-3">
+                <svg
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="var(--primary)"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                  <polyline points="9 22 9 12 15 12 15 22" />
+                </svg>
+              </div>
+              <h1 className="text-xl font-bold text-foreground">Chọn chi nhánh</h1>
+              <p className="text-sm text-subtitle mt-1">Cửa hàng: {selectedTenant.name}</p>
+            </div>
+
+            {shops.length === 0 ? (
+              <div className="text-center py-6">
+                <p className="text-subtitle text-sm">Cửa hàng này chưa cấu hình chi nhánh.</p>
+              </div>
+            ) : (
+              <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
+                {shops.map((shop) => (
+                  <button
+                    key={shop.id}
+                    onClick={() => handleSelectBranch(shop)}
+                    className="branch-card w-full text-left"
                   >
-                    <polyline points="9 18 15 12 9 6" />
-                  </svg>
-                </div>
+                    <div className="flex items-center space-x-3">
+                      <div className="flex-none w-10 h-10 rounded-lg bg-[var(--primary)]/10 flex items-center justify-center">
+                        <svg
+                          width="20"
+                          height="20"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="var(--primary)"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+                          <circle cx="12" cy="10" r="3" />
+                        </svg>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-foreground truncate">{shop.name}</p>
+                        {shop.address && (
+                          <p className="text-2xs text-subtitle truncate mt-0.5">{shop.address}</p>
+                        )}
+                      </div>
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="var(--inactive)"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <polyline points="9 18 15 12 9 6" />
+                      </svg>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="space-y-2 mt-4">
+              <button
+                onClick={() => {
+                  localStorage.removeItem('active_tenant_code');
+                  setSelectedTenant(null);
+                  setShops([]);
+                }}
+                className="auth-btn auth-btn-secondary w-full"
+              >
+                Quay lại chọn cửa hàng
               </button>
-            ))}
+              
+              <button
+                onClick={handleLogout}
+                className="text-xs text-slate-400 pt-3 block text-center w-full hover:text-[var(--primary)] font-medium"
+              >
+                Đăng xuất tài khoản
+              </button>
+            </div>
           </div>
         )}
       </div>

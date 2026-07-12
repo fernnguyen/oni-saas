@@ -35,6 +35,8 @@ export interface Category {
   slug?: string;
   sort_order?: number;
   image_url?: string;
+  category_id?: string;
+  categoryId?: string;
 }
 
 export interface Customer {

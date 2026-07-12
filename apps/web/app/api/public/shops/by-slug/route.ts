@@ -5,33 +5,36 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
   try {
-    const slug = req.nextUrl.searchParams.get('slug');
-    if (!slug) {
-      return NextResponse.json({ error: 'Missing slug parameter' }, { status: 400 });
+    const tenantSlug = req.nextUrl.searchParams.get('tenant_slug');
+    const shopSlug = req.nextUrl.searchParams.get('shop_slug');
+    
+    if (!tenantSlug || !shopSlug) {
+      return NextResponse.json({ error: 'Missing tenant_slug or shop_slug parameter' }, { status: 400 });
     }
 
     const admin = getSupabaseAdminClient();
     
-    // Fetch shop details by slug
-    const { data: shop, error: shopError } = await admin
-      .from('shops')
-      .select('id, tenant_id, name, slug, address, phone, logo_url, banner_url')
-      .eq('slug', slug)
-      .maybeSingle();
-
-    if (shopError || !shop) {
-      return NextResponse.json({ error: 'Shop not found' }, { status: 404 });
-    }
-
-    // Resolve the tenant's slug for subdomain routing
+    // 1. Fetch tenant by slug to get tenant ID
     const { data: tenant, error: tenantError } = await admin
       .from('tenants')
-      .select('slug')
-      .eq('id', shop.tenant_id)
+      .select('id, slug')
+      .eq('slug', tenantSlug)
       .maybeSingle();
 
     if (tenantError || !tenant) {
       return NextResponse.json({ error: 'Tenant not found' }, { status: 404 });
+    }
+
+    // 2. Fetch shop details by tenant_id and shop_slug
+    const { data: shop, error: shopError } = await admin
+      .from('shops')
+      .select('id, tenant_id, name, slug, address, phone, logo_url, banner_url')
+      .eq('tenant_id', tenant.id)
+      .eq('slug', shopSlug)
+      .maybeSingle();
+
+    if (shopError || !shop) {
+      return NextResponse.json({ error: 'Shop not found' }, { status: 404 });
     }
 
     return NextResponse.json({

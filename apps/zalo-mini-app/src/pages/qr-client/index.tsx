@@ -111,6 +111,7 @@ const SvgIcons = {
 
 export default function QRClientPage() {
   const [searchParams] = useSearchParams();
+  const tenantSlug = searchParams.get('tenant_slug');
   const shopSlug = searchParams.get('shop_slug');
   const tableId = searchParams.get('table_id') || searchParams.get('tableId');
 
@@ -152,8 +153,8 @@ export default function QRClientPage() {
   // 1. Fetch public shop metadata from main domain
   useEffect(() => {
     async function loadShopData() {
-      if (!shopSlug) {
-        setError('Thiếu tham số mã cửa hàng (shop_slug).');
+      if (!tenantSlug || !shopSlug) {
+        setError('Thiếu tham số mã phân hệ (tenant_slug) hoặc mã cửa hàng (shop_slug).');
         setLoadingShop(false);
         return;
       }
@@ -164,7 +165,7 @@ export default function QRClientPage() {
         const isDev = import.meta.env.DEV;
         const baseUrl = isDev && devApiUrl ? devApiUrl : `https://${rootDomain}`;
 
-        const res = await fetch(`${baseUrl}/api/public/shops/by-slug?slug=${shopSlug}`);
+        const res = await fetch(`${baseUrl}/api/public/shops/by-slug?tenant_slug=${tenantSlug}&shop_slug=${shopSlug}`);
         if (!res.ok) {
           throw new Error('Không tìm thấy thông tin cửa hàng.');
         }
@@ -188,7 +189,7 @@ export default function QRClientPage() {
     }
 
     void loadShopData();
-  }, [shopSlug]);
+  }, [tenantSlug, shopSlug]);
 
   // 2. Fetch session details when shop info and tableId are available
   const fetchSessionStatus = async (showLoading = false) => {
@@ -610,7 +611,7 @@ export default function QRClientPage() {
       colabCart.clearCart();
       setIsCartOpen(false);
       setIsHistoryOpen(true);
-      toast.success('Đã gửi yêu cầu gọi món! Đang đợi bếp duyệt...');
+      toast.success('Đã gửi yêu cầu gọi món thành công!');
     } catch (err: any) {
       toast.error(err.message || 'Có lỗi xảy ra khi đặt món.');
     } finally {
@@ -680,7 +681,10 @@ export default function QRClientPage() {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col justify-between">
         {/* Banner header */}
-        <div className="relative h-48 w-full bg-slate-900 overflow-hidden flex items-center justify-center">
+        <div 
+          className="relative h-48 w-full bg-slate-900 overflow-hidden flex items-center justify-center"
+          style={{ paddingTop: 'var(--safe-top)' }}
+        >
           {shop.banner_url ? (
             <img src={shop.banner_url} alt={shop.name} className="absolute inset-0 h-full w-full object-cover opacity-60" />
           ) : (
@@ -776,7 +780,7 @@ export default function QRClientPage() {
   // B. PENDING APPROVAL SCREEN
   if (session.status === 'pending') {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col justify-between p-6">
+      <div className="min-h-screen bg-slate-50 flex flex-col justify-between p-6" style={{ paddingTop: 'calc(var(--safe-top) + 24px)' }}>
         <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6">
           <div className="relative">
             <div className="animate-ping absolute inset-0 h-16 w-16 rounded-full bg-orange-100 opacity-75"></div>
@@ -826,7 +830,7 @@ export default function QRClientPage() {
   // C. COMPLETED SESSION Recapitulation
   if (session.status === 'completed') {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col justify-between p-6">
+      <div className="min-h-screen bg-slate-50 flex flex-col justify-between p-6" style={{ paddingTop: 'calc(var(--safe-top) + 24px)' }}>
         <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6">
           <div className="h-16 w-16 rounded-full bg-green-100 text-green-600 flex items-center justify-center text-3xl shadow-sm">
             ✅
@@ -879,7 +883,10 @@ export default function QRClientPage() {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-between pb-24">
       {/* Header Info */}
-      <div className="sticky top-0 z-30 bg-white border-b border-slate-100 px-4 py-3 flex items-center justify-between shadow-xs">
+      <div 
+        className="sticky top-0 z-30 bg-white border-b border-slate-100 pl-4 pr-[100px] pb-3 flex items-center justify-between shadow-xs"
+        style={{ paddingTop: 'calc(var(--safe-top) + 12px)' }}
+      >
         <div className="flex items-center gap-3">
           <div className="h-8 w-8 rounded-lg overflow-hidden bg-orange-100 text-orange-600 flex items-center justify-center font-bold text-sm shrink-0">
             {shop.logo_url ? (
@@ -1017,26 +1024,26 @@ export default function QRClientPage() {
 
       {/* Floating Bottom Cart Bar */}
       {colabCart.cartItems.length > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200/80 p-3 shadow-xl flex items-center justify-between gap-3">
+        <div className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200/80 p-3 shadow-xl flex items-center justify-between gap-3 pb-safe">
           <div
             onClick={() => setIsCartOpen(true)}
-            className="flex-1 flex items-center gap-3 bg-orange-50 border border-orange-100 hover:bg-orange-100/55 rounded-2xl p-2.5 cursor-pointer transition-all"
+            className="flex-1 h-[56px] flex items-center gap-3 bg-orange-50 border border-orange-100 hover:bg-orange-100/55 rounded-2xl px-3 cursor-pointer transition-all"
           >
-            <div className="relative h-10 w-10 rounded-xl bg-orange-500 text-white flex items-center justify-center">
+            <div className="relative h-10 w-10 rounded-xl bg-orange-500 text-white flex items-center justify-center shrink-0">
               <SvgIcons.Cart />
-              <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full text-[9px] font-black h-4.5 w-4.5 flex items-center justify-center border border-white">
+              <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full text-[9px] font-black h-5 w-5 flex items-center justify-center border border-white">
                 {colabCart.cartItems.reduce((acc, curr) => acc + curr.qty, 0)}
               </span>
             </div>
-            <div>
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">Giỏ hàng chung</p>
-              <p className="text-sm font-black text-slate-800">{fmtVND(colabCart.total)}</p>
+            <div className="min-w-0">
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide truncate">Giỏ hàng chung</p>
+              <p className="text-sm font-black text-slate-800 truncate">{fmtVND(colabCart.total)}</p>
             </div>
           </div>
 
           <button
             onClick={() => setIsCartOpen(true)}
-            className="rounded-2xl bg-orange-500 hover:bg-orange-600 text-white font-bold px-6 py-3.5 text-xs transition-colors shrink-0 cursor-pointer shadow-md shadow-orange-500/10"
+            className="h-[56px] rounded-2xl bg-orange-500 hover:bg-orange-600 text-white font-bold px-6 text-xs transition-colors shrink-0 cursor-pointer shadow-md shadow-orange-500/10 flex items-center justify-center"
           >
             Xem giỏ hàng
           </button>
@@ -1068,33 +1075,52 @@ export default function QRClientPage() {
               ) : (
                 <div className="space-y-3">
                   {colabCart.cartItems.map((item, index) => (
-                    <div key={index} className="flex justify-between items-start border-b border-slate-50 pb-3 gap-3">
-                      <div className="flex-1">
-                        <h4 className="text-xs font-bold text-slate-800 leading-tight">{item.product_name}</h4>
-                        {item.variant_label && <p className="text-[9px] text-slate-500 font-medium">{item.variant_label}</p>}
-                        {item.modifiers && item.modifiers.length > 0 && (
-                          <p className="text-[9px] text-slate-450 italic leading-snug">
-                            + {item.modifiers.map(m => m.option).join(', ')}
-                          </p>
-                        )}
-                        <p className="text-xs font-extrabold text-orange-600 mt-1">{fmtVND(item.line_total)}</p>
+                    <div key={index} className="flex items-center border-b border-slate-50 pb-3.5 gap-2 w-full">
+                      {/* 1. STT & Product Info */}
+                      <div className="flex items-start gap-2.5 flex-1 min-w-0">
+                        <span className="text-[10px] font-bold text-slate-400 min-w-[16px] text-center pt-0.5">{index + 1}</span>
+                        <div className="min-w-0">
+                          <h4 className="text-xs font-bold text-slate-800 leading-tight truncate">{item.product_name}</h4>
+                          {item.variant_label && <p className="text-[9px] text-slate-500 font-medium mt-0.5">{item.variant_label}</p>}
+                          {item.modifiers && item.modifiers.length > 0 && (
+                            <p className="text-[9px] text-slate-400 italic leading-snug mt-0.5 truncate">
+                              + {item.modifiers.map(m => m.option).join(', ')}
+                            </p>
+                          )}
+                          <p className="text-[10px] text-slate-400 font-medium mt-1">Đơn giá: {fmtVND(item.unit_price + (item.modifier_total ?? 0))}</p>
+                        </div>
                       </div>
 
-                      <div className="flex items-center gap-2 border border-slate-150 rounded-xl bg-slate-50 px-2 py-1 shrink-0">
+                      {/* 2. Quantity Controls (Middle) */}
+                      <div className="flex items-center gap-1.5 border border-slate-100 rounded-xl bg-slate-50 px-1.5 py-0.5 shrink-0 mx-2">
                         <button
                           onClick={() => colabCart.setQty(item.product_id, item.qty - 1, item.variant_label, item.modifiers)}
-                          className="text-slate-500 font-black text-sm w-5 h-5 flex items-center justify-center cursor-pointer active:scale-90"
+                          className="text-slate-500 font-black text-xs w-5 h-5 flex items-center justify-center cursor-pointer active:scale-90"
                         >
                           -
                         </button>
-                        <span className="text-xs font-bold text-slate-700 w-6 text-center">{item.qty}</span>
+                        <span className="text-xs font-bold text-slate-700 w-5 text-center">{item.qty}</span>
                         <button
                           onClick={() => colabCart.setQty(item.product_id, item.qty + 1, item.variant_label, item.modifiers)}
-                          className="text-slate-500 font-black text-sm w-5 h-5 flex items-center justify-center cursor-pointer active:scale-90"
+                          className="text-slate-500 font-black text-xs w-5 h-5 flex items-center justify-center cursor-pointer active:scale-90"
                         >
                           +
                         </button>
                       </div>
+
+                      {/* 3. Line Total */}
+                      <div className="text-right shrink-0 min-w-[70px]">
+                        <span className="text-xs font-black text-orange-650">{fmtVND(item.line_total)}</span>
+                      </div>
+
+                      {/* 4. Delete Button */}
+                      <button
+                        onClick={() => colabCart.setQty(item.product_id, 0, item.variant_label, item.modifiers)}
+                        className="h-7 w-7 rounded-lg bg-red-50 hover:bg-red-100 text-red-650 flex items-center justify-center shrink-0 cursor-pointer active:scale-90 transition-colors ml-1 font-bold text-xs"
+                        title="Xóa món"
+                      >
+                        ✕
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -1102,7 +1128,7 @@ export default function QRClientPage() {
 
               {/* Order note input */}
               <div className="space-y-1.5 pt-2">
-                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Ghi chú cho bếp</label>
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Ghi chú</label>
                 <textarea
                   placeholder="Ví dụ: Không hành, nhiều đá, ít cay..."
                   value={colabCart.note}
@@ -1115,7 +1141,7 @@ export default function QRClientPage() {
             {/* Submission Actions */}
             <div className="border-t border-slate-100 p-4 space-y-3 bg-slate-50">
               <div className="flex justify-between items-center text-sm">
-                <span className="font-bold text-slate-500">Tổng cộng cộng tác:</span>
+                <span className="font-bold text-slate-500">Tạm tính:</span>
                 <span className="font-black text-orange-600 text-lg">{fmtVND(colabCart.total)}</span>
               </div>
 
@@ -1125,7 +1151,7 @@ export default function QRClientPage() {
                     setIsCartOpen(false);
                     setIsHistoryOpen(true);
                   }}
-                  className="flex-1 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 font-bold py-3 text-xs text-slate-600 shadow-xs cursor-pointer text-center"
+                  className="w-[40%] shrink-0 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 font-bold py-3 text-xs text-slate-600 shadow-xs cursor-pointer text-center"
                 >
                   Lịch sử gọi món
                 </button>
@@ -1133,7 +1159,7 @@ export default function QRClientPage() {
                 <button
                   onClick={handleSubmitOrder}
                   disabled={colabCart.cartItems.length === 0 || submittingOrder}
-                  className="flex-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-md disabled:opacity-60"
+                  className="flex-1 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-md disabled:opacity-60"
                 >
                   {submittingOrder ? (
                     <>
@@ -1143,7 +1169,7 @@ export default function QRClientPage() {
                   ) : (
                     <>
                       <span>🔔</span>
-                      <span>Gửi món vào bếp</span>
+                      <span>Gọi món</span>
                     </>
                   )}
                 </button>
@@ -1159,8 +1185,8 @@ export default function QRClientPage() {
           <div className="w-full max-w-lg bg-white rounded-t-3xl shadow-2xl flex flex-col max-h-[85vh]">
             <div className="p-4 border-b border-slate-100 flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-black text-slate-800">Lịch sử gửi món</h3>
-                <p className="text-[10px] text-slate-400 font-bold">Theo dõi trạng thái các món đã gửi</p>
+                <h3 className="text-sm font-black text-slate-800">Lịch sử gọi món</h3>
+                <p className="text-[10px] text-slate-400 font-bold">Theo dõi trạng thái các món đã gọi</p>
               </div>
               <button
                 onClick={() => setIsHistoryOpen(false)}
@@ -1181,13 +1207,13 @@ export default function QRClientPage() {
                     const items = safeJson(req.items) || [];
                     const createdTime = new Date(req.created_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
                     
-                    const statusText = req.status === 'approved' 
-                      ? 'Đã duyệt' 
+                    const statusText = req.status === 'accepted' 
+                      ? 'Đang chuẩn bị' 
                       : req.status === 'rejected' 
                       ? 'Từ chối' 
-                      : 'Đang đợi';
+                      : 'Chờ duyệt';
                     
-                    const statusClass = req.status === 'approved'
+                    const statusClass = req.status === 'accepted'
                       ? 'bg-green-100 text-green-600'
                       : req.status === 'rejected'
                       ? 'bg-red-100 text-red-600'
@@ -1212,6 +1238,11 @@ export default function QRClientPage() {
                         {req.note && (
                           <p className="text-[10px] text-slate-400 italic bg-white/70 p-1.5 rounded-md mt-1">
                             Ghi chú: {req.note}
+                          </p>
+                        )}
+                        {req.reject_reason && (
+                          <p className="text-[10px] text-red-600 bg-red-50 border border-red-100/55 rounded-lg p-2 mt-1.5 font-medium">
+                            Lý do từ chối: {req.reject_reason}
                           </p>
                         )}
                       </div>
