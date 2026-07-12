@@ -357,21 +357,22 @@ export function updateLocationResource(shopId: string, resourceId: string, data:
 
 export function getQrOrders(shopId: string, params?: Record<string, string>) {
   const query = params ? '?' + new URLSearchParams(params).toString() : '';
-  return apiFetch<{ data?: any[] }>(`/api/shops/${shopId}/qr-orders${query}`)
-    .then(res => res?.data || []);
+  return apiFetch<any[]>(`/api/shops/${shopId}/qr-orders${query}`)
+    .then(res => Array.isArray(res) ? res : (res as any)?.data || []);
 }
 
 export function updateQrOrder(shopId: string, orderId: string, data: any) {
-  return apiFetch<any>(`/api/shops/${shopId}/qr-orders/${orderId}`, {
-    method: 'PUT',
-    body: JSON.stringify(data),
+  const action = data.status === 'confirmed' || data.status === 'accepted' ? 'accept' : 'reject';
+  return apiFetch<any>(`/api/shops/${shopId}/qr-orders`, {
+    method: 'PATCH',
+    body: JSON.stringify({ action, request_id: orderId, ...data }),
   });
 }
 
 export function getQrSessions(shopId: string, params?: Record<string, string>) {
   const query = params ? '?' + new URLSearchParams(params).toString() : '';
-  return apiFetch<{ data?: any[] }>(`/api/shops/${shopId}/qr-sessions${query}`)
-    .then(res => res?.data || []);
+  return apiFetch<any[]>(`/api/shops/${shopId}/qr-sessions${query}`)
+    .then(res => Array.isArray(res) ? res : (res as any)?.data || []);
 }
 
 export function updateQrSession(shopId: string, sessionId: string, data: any) {
@@ -453,4 +454,20 @@ export function getDebtOrders(shopId: string, customerId: string) {
   return apiFetch<{ data: DebtOrder[]; total: number; totalDebt: number }>(
     `/api/shops/${shopId}/orders/debt?customer_id=${customerId}`
   );
+}
+
+// ────────────────────────────── Notifications ──────────────────────────────
+
+export function getNotifications(tenantId: string, shopId?: string) {
+  const query = `?tenantId=${tenantId}${shopId ? `&shopId=${shopId}` : ''}`;
+  return apiFetch<any>(`/api/notifications${query}`);
+}
+
+export function markNotificationRead(id: string) {
+  return apiFetch<any>(`/api/notifications/${id}/read`, { method: 'POST' });
+}
+
+export function markAllNotificationsRead(tenantId: string, shopId?: string) {
+  const query = `?tenantId=${tenantId}${shopId ? `&shopId=${shopId}` : ''}`;
+  return apiFetch<any>(`/api/notifications/read-all${query}`, { method: 'POST' });
 }

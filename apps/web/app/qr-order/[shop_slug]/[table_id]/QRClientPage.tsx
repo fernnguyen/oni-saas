@@ -1918,9 +1918,9 @@ export default function QRClientPage({
                             ⏳ Chờ duyệt
                           </span>
                         )}
-                        {req.status === 'accepted' && (
+                        {(req.status === 'accepted' || req.status === 'confirmed') && (
                           <span className="rounded-full bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-800/30 px-2.5 py-0.5 text-[9px] font-extrabold text-green-600 dark:text-green-400 flex items-center gap-1">
-                            ⏳ Đang chuẩn bị
+                            ✅ Đã xác nhận
                           </span>
                         )}
                         {req.status === 'rejected' && (

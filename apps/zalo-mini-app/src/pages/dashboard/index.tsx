@@ -4,6 +4,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import { useTenantStore } from '@/stores/tenant-store';
 import { getReportsOverview, type ReportOverview, getQrOrders } from '@/services/shop-api';
 import { formatCurrency, formatCompactNumber } from '@/utils/format';
+import { useNotificationStore } from '@/stores/notification-store';
 
 // ────────────────────────────── Quick Actions Config ──────────────────────────────
 
@@ -177,10 +178,26 @@ export default function DashboardPage() {
     <div style={{ minHeight: '100%', background: 'var(--background, #f8fafc)', paddingBottom: 16 }}>
 
       {/* ══════ Welcome Header ══════ */}
-      <div style={{ padding: '16px 12px 8px' }}>
+      <div style={{ padding: '16px 12px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--foreground)', margin: 0 }}>
           Xin chào, {userName}
         </h2>
+        
+        <button 
+          onClick={() => navigate('/notifications')}
+          style={{ position: 'relative', padding: 8, background: 'transparent', border: 'none', cursor: 'pointer' }}
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--foreground)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+            <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+          </svg>
+          {useNotificationStore().unreadCount > 0 && (
+            <div style={{
+              position: 'absolute', top: 4, right: 6, width: 10, height: 10, 
+              background: '#ef4444', borderRadius: '50%', border: '2px solid var(--background, #f8fafc)'
+            }} />
+          )}
+        </button>
       </div>
 
       {/* ══════ KPI Cards ══════ */}

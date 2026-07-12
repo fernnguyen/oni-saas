@@ -17,6 +17,7 @@ import QrOrdersPage from "@/pages/qr-orders";
 import SettingsPage from "@/pages/settings";
 import DebtPage from "@/pages/debt";
 import QRClientPage from "@/pages/qr-client";
+import NotificationsPage from "@/pages/notifications";
 import { getBasePath } from "@/utils/zma";
 
 function RootRedirector() {
@@ -105,6 +106,11 @@ const router = createBrowserRouter(
           path: "/settings",
           element: <SettingsPage />,
           handle: { title: "Cài đặt" },
+        },
+        {
+          path: "/notifications",
+          element: <NotificationsPage />,
+          handle: { title: "Thông báo" },
         },
       ],
     },

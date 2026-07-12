@@ -4,7 +4,7 @@ import { apiFetch } from '@/services/api';
 import { supabase } from '@/lib/supabase';
 import { setTenantCode } from '@/lib/api-config';
 import { useAuthStore } from '@/stores/auth-store';
-import { interactOA } from 'zmp-sdk/apis';
+import { interactOA, getUserInfo } from 'zmp-sdk/apis';
 import toast from 'react-hot-toast';
 
 const INDUSTRY_TYPES = [
@@ -221,6 +221,22 @@ export default function OnboardingPage() {
         });
       });
 
+      // Get user info to retrieve the idbyOA
+      let idByOA = '';
+      try {
+        const userInfoRes = await new Promise<any>((resolve, reject) => {
+          getUserInfo({
+            success: (data) => resolve(data),
+            fail: (err) => reject(err),
+          });
+        });
+        const userInfo = userInfoRes.userInfo;
+        idByOA = userInfo?.idbyOA || userInfo?.idByOA || '';
+        console.log('Retrieved idbyOA after interactOA:', idByOA);
+      } catch (err) {
+        console.warn('Failed to retrieve user info / idbyOA:', err);
+      }
+
       // Call welcome message API
       try {
         await apiFetch('/api/register/send-oa-welcome', {
@@ -228,6 +244,7 @@ export default function OnboardingPage() {
           body: JSON.stringify({
             slug: registeredInfo.slug,
             name: registeredInfo.name,
+            zaloIdByOA: idByOA,
           }),
         });
       } catch (err) {

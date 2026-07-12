@@ -41,7 +41,7 @@ export async function proxy(req: NextRequest) {
     if (isAllowedOrigin(origin)) {
       const response = new NextResponse(null, { status: 204 });
       response.headers.set('Access-Control-Allow-Origin', origin || '*');
-      response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+      response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
       response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-tenant-slug');
       response.headers.set('Access-Control-Allow-Credentials', 'true');
       return response;
@@ -236,7 +236,7 @@ async function withSupabaseSession(req: NextRequest, res: NextResponse): Promise
   const origin = req.headers.get('origin');
   if (pathname.startsWith('/api/') && isAllowedOrigin(origin)) {
     res.headers.set('Access-Control-Allow-Origin', origin || '*');
-    res.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
     res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-tenant-slug');
     res.headers.set('Access-Control-Allow-Credentials', 'true');
   }

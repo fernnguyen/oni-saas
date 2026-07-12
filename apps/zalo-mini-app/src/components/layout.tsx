@@ -2,6 +2,7 @@ import { Outlet } from "react-router-dom";
 import Header from "./header";
 import Footer from "./footer";
 import { Suspense } from "react";
+import { useNotificationListener } from "@/stores/notification-store";
 
 function PageSkeleton() {
   return (
@@ -16,7 +17,9 @@ function PageSkeleton() {
 import { ScrollRestoration } from "./scroll-restoration";
 import BrandThemeProvider from "./brand-theme-provider";
 
-export default function Layout() {
+function LayoutContent() {
+  useNotificationListener();
+  
   return (
     <BrandThemeProvider>
       <div className="w-screen h-screen flex flex-col bg-section text-foreground">
@@ -30,5 +33,11 @@ export default function Layout() {
         <ScrollRestoration />
       </div>
     </BrandThemeProvider>
+  );
+}
+
+export default function Layout() {
+  return (
+    <LayoutContent />
   );
 }
