@@ -251,28 +251,22 @@ export default function ProductsPage() {
   const handleSelectImage = async () => {
     try {
       const { openMediaPicker } = await import('zmp-sdk/apis');
-      const tempId = editingProduct ? editingProduct.id : `new-${Date.now()}`;
       
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token || '';
-      
-      const uploadUrl = `${window.location.origin}/api/shops/${shopId}/products/${tempId}/upload-url?token=${token}`;
-      
-      toast.loading('Đang mở máy ảnh...', { id: 'media-picker' });
+      toast.loading('Đang mở thư viện...', { id: 'media-picker' });
       const { data } = await openMediaPicker({
         type: 'photo',
         maxSelectItem: 1,
-        serverUploadUrl: uploadUrl,
       });
       toast.dismiss('media-picker');
 
-      const responseStr = typeof data === 'string' ? data : (Array.isArray(data) ? data[0] : '');
-      const response = responseStr ? JSON.parse(responseStr) : null;
-      if (response && response.error === 0 && response.data?.url) {
-        setForm(prev => ({ ...prev, image_url: response.data.url }));
-        toast.success('Tải ảnh lên thành công');
+      const fileUri = Array.isArray(data) ? data[0] : (typeof data === 'string' ? data : '');
+      if (fileUri) {
+        setSelectedLocalImageUri(fileUri);
+        // Set form image_url to local URI for instant preview
+        setForm(prev => ({ ...prev, image_url: fileUri }));
+        toast.success('Đã chọn ảnh');
       } else {
-        toast.error(response?.message || 'Không thể tải ảnh lên');
+        toast.error('Không thể chọn ảnh');
       }
     } catch (err: any) {
       toast.dismiss('media-picker');
@@ -302,16 +296,52 @@ export default function ProductsPage() {
       unit: form.unit || undefined,
       product_type: form.product_type || 'product',
       active: form.active,
-      image_url: form.image_url || undefined,
+      // If we have selected a local image, don't save its temporary URI to database yet
+      image_url: selectedLocalImageUri ? (editingProduct?.image_url || undefined) : (form.image_url || undefined),
     };
 
     try {
+      let savedProduct;
       if (editingProduct) {
-        await updateProduct(shopId, editingProduct.id, payload);
-        toast.success('Cập nhật sản phẩm thành công');
+        savedProduct = await updateProduct(shopId, editingProduct.id, payload);
       } else {
-        await createProduct(shopId, payload);
-        toast.success('Thêm sản phẩm thành công');
+        savedProduct = await createProduct(shopId, payload);
+      }
+
+      const productId = editingProduct?.id || savedProduct?.product_id || savedProduct?.id;
+
+      // Upload image to Cloudflare R2 / S3 if a local image was picked
+      if (selectedLocalImageUri && productId) {
+        try {
+          toast.loading('Đang tải ảnh lên...', { id: 'image-upload' });
+          const { data: { session } } = await supabase.auth.getSession();
+          const token = session?.access_token || '';
+
+          const uploadUrlRes = await fetch(`/api/shops/${shopId}/products/${productId}/upload-url?token=${token}`);
+          if (!uploadUrlRes.ok) throw new Error('Không lấy được link upload');
+          const { uploadUrl, publicUrl } = await uploadUrlRes.json();
+
+          const imgRes = await fetch(selectedLocalImageUri);
+          const blob = await imgRes.blob();
+
+          const uploadRes = await fetch(uploadUrl, {
+            method: 'PUT',
+            body: blob,
+            headers: {
+              'Content-Type': 'image/jpeg',
+            }
+          });
+          if (!uploadRes.ok) throw new Error('Upload ảnh thất bại');
+
+          // Update product record with the public URL
+          await updateProduct(shopId, productId, { image_url: publicUrl });
+          toast.success('Đã lưu sản phẩm và ảnh thành công', { id: 'image-upload' });
+        } catch (uploadErr: any) {
+          console.error('Image upload failed:', uploadErr);
+          toast.error(`Đã lưu sản phẩm nhưng tải ảnh lỗi: ${uploadErr.message}`, { id: 'image-upload', duration: 4000 });
+        }
+      } else {
+        toast.success(editingProduct ? 'Cập nhật sản phẩm thành công' : 'Thêm sản phẩm thành công');
       }
 
       setShowModal(false);

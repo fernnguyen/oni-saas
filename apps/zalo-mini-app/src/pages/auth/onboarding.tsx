@@ -382,49 +382,51 @@ export default function OnboardingPage() {
 
                 return (
                   <>
-                    <div className="flex items-center gap-3 rounded-xl border border-[#ff6a00] bg-[#fff5eb] px-4 py-3 text-[#ff6a00]">
-                      <svg className="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      <div className="flex-1 flex flex-col justify-center">
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-foreground">
+                    <div className="rounded-xl border border-[#ff6a00] bg-[#fff5eb] p-3.5 text-[#ff6a00] flex flex-col gap-2">
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <svg className="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          <span className="font-bold text-foreground text-sm">
                             {promoDetails?.valid && promoDetails.plan ? promoDetails.plan.name : 'Tiên phong'}
                           </span>
-                          {promoDetails?.valid && promoDetails.trial_days ? (
-                            <span className="rounded bg-[#ff6a00] px-1.5 py-0.5 text-[9px] font-bold text-white uppercase tracking-wide shrink-0">
-                              Dùng thử {promoDetails.trial_days} ngày miễn phí
-                            </span>
-                          ) : (
-                            <span className="rounded bg-[#ff6a00] px-1.5 py-0.5 text-[9px] font-bold text-white uppercase tracking-wide shrink-0">
-                              Miễn phí vĩnh viễn
-                            </span>
-                          )}
                         </div>
+                        {promoDetails?.valid && promoDetails.trial_days ? (
+                          <span className="rounded bg-[#ff6a00] px-2 py-0.5 text-[9px] font-bold text-white uppercase tracking-wide shrink-0">
+                            Dùng thử {promoDetails.trial_days} ngày
+                          </span>
+                        ) : (
+                          <span className="rounded bg-[#ff6a00] px-2 py-0.5 text-[9px] font-bold text-white uppercase tracking-wide shrink-0">
+                            Miễn phí vĩnh viễn
+                          </span>
+                        )}
                       </div>
                       
                       {promoDetails?.valid && (
-                        <div className="flex flex-col items-end justify-center text-right whitespace-nowrap">
-                          {totalOriginalPrice > 0 && (
-                            <div className="flex items-center gap-1 text-[11px] mb-0.5">
-                              <span className="line-through text-slate-400 font-medium">
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid rgba(255, 106, 0, 0.1)', paddingTop: 8, marginTop: 4 }}>
+                          <span className="text-[10px] font-semibold text-[#ff6a00]/80">
+                            Áp dụng từ mã ưu đãi:
+                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            {totalOriginalPrice > 0 && (
+                              <span className="line-through text-slate-400 font-medium text-[10px]">
                                 {formattedTotalPrice}/{trialDurationText}
                               </span>
-                              <span className="font-extrabold text-emerald-600 bg-white px-1 rounded border border-emerald-200">
-                                0đ
-                              </span>
-                            </div>
-                          )}
-                          <span className="text-[10px] font-semibold text-[#ff6a00]/80">
-                            Áp dụng từ mã ưu đãi
-                          </span>
+                            )}
+                            <span className="font-extrabold text-emerald-600 bg-white px-2 py-0.5 rounded border border-emerald-200 text-[11px]">
+                              0đ
+                            </span>
+                          </div>
                         </div>
                       )}
                     </div>
                     
-                    <p className="text-[11px] text-subtitle mt-2 leading-relaxed bg-[var(--border)]/30 p-2 rounded-lg">
-                      * Sau khi hết hạn dùng thử mà bạn không có nhu cầu nâng cấp, bạn vẫn được tự động chuyển về dùng gói Tiên phong miễn phí vĩnh viễn.
-                    </p>
+                    {promoDetails?.valid && promoDetails.trial_days && (
+                      <p className="text-[11px] text-subtitle mt-2 leading-relaxed bg-[var(--border)]/30 p-2 rounded-lg">
+                        * Sau khi hết hạn dùng thử mà bạn không có nhu cầu nâng cấp, bạn vẫn được tự động chuyển về dùng gói Tiên phong miễn phí vĩnh viễn.
+                      </p>
+                    )}
                   </>
                 );
               })()}
