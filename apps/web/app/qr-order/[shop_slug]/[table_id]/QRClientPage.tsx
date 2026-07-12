@@ -1843,7 +1843,7 @@ export default function QRClientPage({
 
       {/* Bottom Floating Bar when cart is empty but order history is present */}
       {colabCart.cartItems.length === 0 && orderRequests.length > 0 && (
-        <div className={`fixed bottom-0 left-0 right-0 z-40 p-3 shadow-[0_-4px_20px_rgba(0,0,0,0.05)] flex justify-center border-t ${themeClasses.bottomBar}`}>
+        <div className={`fixed bottom-0 left-0 right-0 z-40 p-3 shadow-[0_-4px_20px_rgba(0,0,0,0.05)] flex justify-center border-t ${isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
           <button
             onClick={() => setIsHistoryOpen(true)}
             className={`w-full max-w-md rounded-xl border font-bold py-3 text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors ${

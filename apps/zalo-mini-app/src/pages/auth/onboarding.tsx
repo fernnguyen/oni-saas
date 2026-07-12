@@ -4,6 +4,7 @@ import { apiFetch } from '@/services/api';
 import { supabase } from '@/lib/supabase';
 import { setTenantCode } from '@/lib/api-config';
 import { useAuthStore } from '@/stores/auth-store';
+import { interactOA } from 'zmp-sdk/apis';
 import toast from 'react-hot-toast';
 
 const INDUSTRY_TYPES = [
@@ -30,22 +31,35 @@ export default function OnboardingPage() {
   const [invitationCode, setInvitationCode] = useState('');
   const [promoDetails, setPromoDetails] = useState<{
     valid: boolean;
-    plan?: { id: number; code: string; name: string; price_monthly?: number; price_yearly?: number } | null;
-    trial_days?: number | null;
     message?: string;
+    trial_days?: number | null;
+    plan?: {
+      code: string;
+      name: string;
+      price_monthly?: number;
+      price_yearly?: number;
+    } | null;
   } | null>(null);
   const [isCheckingCode, setIsCheckingCode] = useState(false);
   const [selectedPlanCode, setSelectedPlanCode] = useState('plan_mini');
 
+  // Success state (step 3)
+  const [registeredInfo, setRegisteredInfo] = useState<{ slug: string; name: string } | null>(null);
+  const [oaInteracted, setOaInteracted] = useState(false);
+  const [oaLoading, setOaLoading] = useState(false);
+
   const profile = useAuthStore((s) => s.profile);
   const setProfile = useAuthStore((s) => s.setProfile);
 
-  // Check session and fetch profile
+  // Retrieve user session info on mount
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user) {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!session) {
         navigate('/login', { replace: true });
-      } else if (!profile) {
+        return;
+      }
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user && !profile) {
         setProfile({
           id: user.id,
           email: user.email || '',
@@ -149,6 +163,7 @@ export default function OnboardingPage() {
       controller.abort();
     };
   }, [invitationCode]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (slugStatus !== 'available') {
@@ -162,14 +177,12 @@ export default function OnboardingPage() {
 
     setLoading(true);
     try {
-      // Bỏ qua phone/password vì Zalo đã cấp.
       const payload = {
         slug,
         name,
         industry_type: industryType,
         invitation_code: invitationCode,
         plan_code: selectedPlanCode,
-        // turnstile_token: '',
       };
 
       const res = await apiFetch<{ tenant_id: string; slug: string }>('/api/register', {
@@ -177,11 +190,12 @@ export default function OnboardingPage() {
         body: JSON.stringify(payload),
       });
 
-      // Lưu lại thông tin và chuyển thẳng sang /select-branch (nó sẽ auto-select)
+      // Save active tenant slug
       localStorage.setItem('active_tenant_code', res.slug);
       setTenantCode(res.slug);
-      toast.success('Khởi tạo cửa hàng thành công!');
-      navigate('/select-branch', { replace: true });
+      
+      setRegisteredInfo({ slug: res.slug, name: name });
+      setStep(3);
     } catch (err: any) {
       toast.error(err?.message || 'Có lỗi xảy ra khi tạo cửa hàng');
     } finally {
@@ -189,11 +203,57 @@ export default function OnboardingPage() {
     }
   };
 
+  const handleInteractOA = async () => {
+    if (!registeredInfo) return;
+    setOaLoading(true);
+    try {
+      await new Promise<void>((resolve) => {
+        interactOA({
+          oaId: '2780444502954767948',
+          success: () => {
+            console.log('interactOA success');
+            resolve();
+          },
+          fail: (err) => {
+            console.warn('interactOA failed/denied:', err);
+            resolve(); // Still resolve to let them proceed
+          }
+        });
+      });
+
+      // Call welcome message API
+      try {
+        await apiFetch('/api/register/send-oa-welcome', {
+          method: 'POST',
+          body: JSON.stringify({
+            slug: registeredInfo.slug,
+            name: registeredInfo.name,
+          }),
+        });
+      } catch (err) {
+        console.error('send-oa-welcome trigger failed:', err);
+      }
+
+      setOaInteracted(true);
+      toast.success('Đăng ký nhận tin nhắn thành công!');
+    } catch (err) {
+      console.error(err);
+      toast.error('Có lỗi xảy ra khi kết nối Zalo OA');
+    } finally {
+      setOaLoading(false);
+    }
+  };
+
+  const handleComplete = () => {
+    toast.success('Bắt đầu quản lý cửa hàng!');
+    navigate('/select-branch', { replace: true });
+  };
+
   return (
     <div className="auth-page">
       <div className="auth-card">
         {/* User Profile Header */}
-        {profile && (
+        {profile && step !== 3 && (
           <div className="flex items-center justify-between mb-8 pb-4 border-b border-[var(--border)]">
             <div className="flex items-center space-x-3 min-w-0">
               <div className="w-10 h-10 rounded-full overflow-hidden bg-[var(--border)] shrink-0">
@@ -226,17 +286,27 @@ export default function OnboardingPage() {
 
         {/* Header */}
         <div className="flex flex-col items-center mb-6">
-          <div className="w-12 h-12 rounded-xl bg-[var(--primary)]/10 flex items-center justify-center mb-3">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>
-              <circle cx="12" cy="10" r="3"/>
-            </svg>
-          </div>
+          {step === 3 ? (
+            <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center mb-3">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="rgb(16, 185, 129)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            </div>
+          ) : (
+            <div className="w-12 h-12 rounded-xl bg-[var(--primary)]/10 flex items-center justify-center mb-3">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>
+                <circle cx="12" cy="10" r="3"/>
+              </svg>
+            </div>
+          )}
           <h1 className="text-xl font-bold text-foreground">
-            Thiết lập cửa hàng
+            {step === 3 ? 'Khởi tạo thành công!' : 'Thiết lập cửa hàng'}
           </h1>
-          <p className="text-sm text-subtitle mt-1 text-center">
-            {step === 1 ? 'Chọn ngành nghề kinh doanh' : 'Đặt tên cho cửa hàng của bạn'}
+          <p className="text-sm text-subtitle mt-1 text-center px-2">
+            {step === 1 ? 'Chọn ngành nghề kinh doanh' : 
+             step === 2 ? 'Đặt tên cho cửa hàng của bạn' :
+             'Nhận thông báo đơn hàng và hệ thống'}
           </p>
         </div>
 
@@ -450,6 +520,68 @@ export default function OnboardingPage() {
               </button>
             </div>
           </form>
+        )}
+
+        {/* Step 3: Zalo OA interaction request */}
+        {step === 3 && registeredInfo && (
+          <div className="space-y-5 text-center">
+            <div className="bg-slate-50 border border-[var(--border)] rounded-2xl p-4 flex flex-col items-center">
+              <div className="w-12 h-12 rounded-xl bg-[var(--primary)]/10 flex items-center justify-center mb-3">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                  <polyline points="22,6 12,13 2,6"/>
+                </svg>
+              </div>
+              <h2 className="text-sm font-bold text-foreground mb-1">Đăng ký nhận tin nhắn từ Zalo OA</h2>
+              <p className="text-xs text-subtitle leading-relaxed">
+                Cho phép hệ thống liên kết Zalo Official Account gửi thông tin hoạt động cửa hàng, thông báo đơn hàng và hỗ trợ khách hàng tức thì cho bạn.
+              </p>
+            </div>
+
+            {oaInteracted ? (
+              <div className="bg-emerald-50 text-emerald-700 text-xs border border-emerald-200 rounded-xl p-3 flex items-center justify-center gap-2">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                <span>Đã gửi thông tin và mã QR qua tin nhắn OA thành công!</span>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={handleInteractOA}
+                disabled={oaLoading}
+                className="auth-btn auth-btn-primary w-full flex items-center justify-center gap-2 bg-[#ff6a00] hover:bg-[#e05d00] transition-colors"
+              >
+                {oaLoading ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25" />
+                      <path fill="currentColor" className="opacity-75" d="M4 12a8 8 0 018-8v8H4z" />
+                    </svg>
+                    <span>Đang kết nối Zalo...</span>
+                  </>
+                ) : (
+                  <>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                    </svg>
+                    <span>Đồng ý nhận tin nhắn từ OA</span>
+                  </>
+                )}
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={handleComplete}
+              className="auth-btn auth-btn-secondary w-full border-dashed flex items-center justify-center gap-1.5"
+            >
+              <span>Bắt đầu quản lý cửa hàng</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+            </button>
+          </div>
         )}
       </div>
     </div>
