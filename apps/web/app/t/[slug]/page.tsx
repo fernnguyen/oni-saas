@@ -3,6 +3,7 @@ import { getSupabaseServerClient } from '@/lib/server/supabaseServer';
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
 import { getShopsForTenant } from '@/lib/server/shops';
 import { SignInForm } from '@/app/components/auth/SignInForm';
+import { UnauthorizedWorkspace } from '@/app/components/auth/UnauthorizedWorkspace';
 import type { Metadata } from 'next';
 import { MapPin, ChevronRight } from 'lucide-react';
 
@@ -100,14 +101,7 @@ export default async function TenantRootPage({ params }: Props) {
   const allowedShopIds = shopAccesses?.map((s) => s.shop_id) ?? null;
 
   if (!tenantAccess && (!allowedShopIds || allowedShopIds.length === 0)) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="text-center space-y-2">
-          <p className="text-slate-900 font-medium">Không có quyền truy cập</p>
-          <p className="text-slate-500 text-sm">Tài khoản của bạn chưa được thêm vào workspace này.</p>
-        </div>
-      </div>
-    );
+    return <UnauthorizedWorkspace />;
   }
 
   const allBranches = await getShopsForTenant(tenant.id);
