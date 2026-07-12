@@ -78,6 +78,7 @@ export default async function BranchSettingsPage({ params }: Props) {
     mute_pos_sound: false,
     default_price_type: 'retail',
     qr_auto_approve_session: false,
+    qr_ordering_type: 'web',
     synced_from_sheet_at: null as string | null,
     updated_at: new Date().toISOString(),
   };

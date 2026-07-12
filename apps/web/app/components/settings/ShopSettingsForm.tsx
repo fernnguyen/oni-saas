@@ -34,6 +34,7 @@ interface ShopSettings {
   show_brand_attribution?: boolean;
   default_price_type: string;
   qr_auto_approve_session?: boolean;
+  qr_ordering_type?: 'web' | 'zalo';
   enable_shift_management?: boolean;
   strict_shift_lock?: boolean;
   synced_from_sheet_at: string | null;
@@ -143,6 +144,7 @@ export function ShopSettingsForm({
     show_brand_attribution: initial.show_brand_attribution ?? true,
     default_price_type: initial.default_price_type,
     qr_auto_approve_session: initial.qr_auto_approve_session ?? false,
+    qr_ordering_type: initial.qr_ordering_type ?? 'web',
     enable_shift_management: initial.enable_shift_management ?? false,
     strict_shift_lock: initial.strict_shift_lock ?? false,
     default_max_debt_days: String(initial.default_max_debt_days ?? 30),
@@ -671,6 +673,7 @@ export function ShopSettingsForm({
           skip_cleaning_process: form.skip_cleaning_process,
           skip_return_confirmation: form.skip_return_confirmation,
           qr_auto_approve_session: form.qr_auto_approve_session,
+          qr_ordering_type: form.qr_ordering_type,
         };
       } else if (tab === 'debt') {
         payload = {
@@ -1418,6 +1421,23 @@ export function ShopSettingsForm({
                         : `Khách quét QR gửi yêu cầu, nhân viên phải duyệt mở ${resourceLabel} bằng tay (Mặc định)`}
                     </span>
                   </div>
+                </Field>
+
+                <Field label={`Hình thức gọi món qua QR` + (!canManageQr ? ' 🔒 (Cần quyền)' : '')}>
+                  <select
+                    disabled={!canManageQr}
+                    value={form.qr_ordering_type || 'web'}
+                    onChange={(e) => set('qr_ordering_type', e.target.value as any)}
+                    className="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-xs focus:border-primary focus:outline-hidden"
+                  >
+                    <option value="web">Web App vãng lai (Mặc định)</option>
+                    <option value="zalo">Zalo Mini App</option>
+                  </select>
+                  <p className="mt-1.5 text-xs text-slate-450">
+                    {form.qr_ordering_type === 'zalo'
+                      ? 'Khách hàng quét mã QR sẽ tự động mở Zalo Mini App (ID: 3208409885005498355) để tiến hành gọi món.'
+                      : 'Khách hàng quét mã QR sẽ mở website di động thông thường.'}
+                  </p>
                 </Field>
               </div>
             </Section>

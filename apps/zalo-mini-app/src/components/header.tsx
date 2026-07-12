@@ -5,6 +5,7 @@ import { useTenantStore } from "@/stores/tenant-store";
 import { useAuthStore } from "@/stores/auth-store";
 import { getApiBaseUrl, getApiHeaders } from "@/lib/api-config";
 import toast from "react-hot-toast";
+import { getAppInfo } from "zmp-sdk/apis";
 
 interface Shop {
   id: string;
@@ -36,7 +37,21 @@ export default function Header() {
   const [loadingBranches, setLoadingBranches] = useState(false);
   const [pendingBranch, setPendingBranch] = useState<Shop | null>(null);
 
-  const appVersion = import.meta.env.VITE_APP_VERSION || "v0.1.0-dev";
+  const [appVersion, setAppVersion] = useState(import.meta.env.VITE_APP_VERSION || "v0.1.0-dev");
+
+  useEffect(() => {
+    const fetchAppVersion = async () => {
+      try {
+        const info = await getAppInfo({});
+        if (info && info.version) {
+          setAppVersion(info.version);
+        }
+      } catch (err) {
+        console.warn("Failed to get Zalo Mini App info:", err);
+      }
+    };
+    fetchAppVersion();
+  }, []);
 
   // Fetch branches list when tenant ID is ready
   useEffect(() => {
@@ -96,7 +111,9 @@ export default function Header() {
   };
 
   return (
-    <div className="w-full flex flex-col px-4 bg-primary text-primaryForeground pt-st relative z-40">
+    <div className={`w-full flex flex-col px-4 bg-primary text-primaryForeground pt-st relative ${
+      showSidebar || showBranchModal || showLogoutConfirm || pendingBranch ? 'z-[9999]' : 'z-40'
+    }`}>
       <div className="w-full min-h-12 flex py-2 items-center justify-between">
         
         {showBack ? (

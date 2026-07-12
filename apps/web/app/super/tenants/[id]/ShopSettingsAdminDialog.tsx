@@ -30,6 +30,7 @@ interface ShopSettings {
   show_brand_attribution?: boolean;
   default_price_type: string;
   qr_auto_approve_session?: boolean;
+  qr_ordering_type?: 'web' | 'zalo';
   enable_shift_management?: boolean;
   strict_shift_lock?: boolean;
   address?: string;
@@ -475,6 +476,18 @@ export function ShopSettingsAdminDialog({
                             <p className="text-xs text-slate-400">Hệ thống tự động duyệt món khi thực khách gửi yêu cầu qua QR Table.</p>
                           </div>
                         </label>
+
+                        <div className="flex flex-col gap-1.5 mt-2">
+                          <label className="text-sm font-semibold text-slate-700">Hình thức gọi món QR</label>
+                          <select
+                            value={settings.qr_ordering_type || 'web'}
+                            onChange={(e) => updateField('qr_ordering_type', e.target.value)}
+                            className="rounded-lg border-slate-300 text-sm p-2 w-full"
+                          >
+                            <option value="web">Web App</option>
+                            <option value="zalo">Zalo Mini App</option>
+                          </select>
+                        </div>
 
                         <label className="flex items-center gap-3 cursor-pointer">
                           <input
