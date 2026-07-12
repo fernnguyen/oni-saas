@@ -1841,6 +1841,23 @@ export default function QRClientPage({
         </div>
       )}
 
+      {/* Bottom Floating Bar when cart is empty but order history is present */}
+      {colabCart.cartItems.length === 0 && orderRequests.length > 0 && (
+        <div className={`fixed bottom-0 left-0 right-0 z-40 p-3 shadow-[0_-4px_20px_rgba(0,0,0,0.05)] flex justify-center border-t ${themeClasses.bottomBar}`}>
+          <button
+            onClick={() => setIsHistoryOpen(true)}
+            className={`w-full max-w-md rounded-xl border font-bold py-3 text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors ${
+              isDark 
+                ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700' 
+                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            <SvgIcons.History />
+            <span>Lịch sử gọi món ({orderRequests.length} lượt)</span>
+          </button>
+        </div>
+      )}
+
       {/* 8. Order Requests History Sidebar/Modal */}
       {isHistoryOpen && (
         <div className="fixed inset-0 z-50 flex items-end justify-center">

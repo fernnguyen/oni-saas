@@ -2,22 +2,23 @@ import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/auth-store';
 import { useTenantStore } from '@/stores/tenant-store';
-import { getReportsOverview, type ReportOverview } from '@/services/shop-api';
+import { getReportsOverview, type ReportOverview, getQrOrders } from '@/services/shop-api';
 import { formatCurrency, formatCompactNumber } from '@/utils/format';
 
 // ────────────────────────────── Quick Actions Config ──────────────────────────────
 
 const QUICK_ACTIONS = [
   {
-    label: 'Bán hàng',
-    path: '/pos',
-    color: '#f97316',
-    bg: '#fff7ed',
+    label: 'Gọi món QR',
+    path: '/qr-orders',
+    color: '#ef4444',
+    bg: '#fef2f2',
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-        <line x1="8" y1="21" x2="16" y2="21" />
-        <line x1="12" y1="17" x2="12" y2="21" />
+        <rect x="3" y="3" width="7" height="7" rx="1" />
+        <rect x="14" y="3" width="7" height="7" rx="1" />
+        <rect x="14" y="14" width="7" height="7" rx="1" />
+        <rect x="3" y="14" width="7" height="7" rx="1" />
       </svg>
     ),
   },
@@ -132,6 +133,7 @@ export default function DashboardPage() {
   const [data, setData] = useState<ReportOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [qrOrdersCount, setQrOrdersCount] = useState(0);
 
   const userName = profile?.full_name || profile?.email || 'Người dùng';
 
@@ -153,6 +155,10 @@ export default function DashboardPage() {
     try {
       const result = await getReportsOverview(shop.id);
       setData(result);
+
+      // Fetch pending QR orders count
+      const pendingQRs = await getQrOrders(shop.id, { status: 'pending' });
+      setQrOrdersCount(Array.isArray(pendingQRs) ? pendingQRs.length : 0);
     } catch (err: any) {
       console.error('[Dashboard] fetch error:', err);
       setError(err?.message || 'Không thể tải dữ liệu báo cáo');
@@ -239,13 +245,18 @@ export default function DashboardPage() {
         <h3 style={{ fontSize: 14, fontWeight: 600, color: 'var(--foreground)', padding: '0 12px', marginBottom: 8 }}>
           Truy cập nhanh
         </h3>
-        <div className="quick-actions">
+        <div className="quick-actions relative">
           {QUICK_ACTIONS.map((action) => (
             <button
               key={action.path}
-              className="quick-action"
+              className="quick-action relative"
               onClick={() => navigate(action.path)}
             >
+              {action.path === '/qr-orders' && qrOrdersCount > 0 && (
+                <div className="absolute top-0 right-1 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full z-10 animate-bounce">
+                  {qrOrdersCount}
+                </div>
+              )}
               <div
                 className="quick-action-icon"
                 style={{ background: action.bg, color: action.color }}

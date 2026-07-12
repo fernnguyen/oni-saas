@@ -149,6 +149,7 @@ export default function QRClientPage() {
   const [selectedParentProduct, setSelectedParentProduct] = useState<any | null>(null);
   const [selectedModifierProduct, setSelectedModifierProduct] = useState<any | null>(null);
   const [modifierSelections, setModifierSelections] = useState<Record<string, string[]>>({});
+  const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({});
 
   // 1. Fetch public shop metadata from main domain
   useEffect(() => {
@@ -633,7 +634,17 @@ export default function QRClientPage() {
   const filteredProducts = useMemo(() => {
     let list = displayProducts;
     if (selectedCategory !== 'all') {
-      list = list.filter((p) => p.category_id === selectedCategory);
+      list = list.filter((p) => {
+        const pCatStr = String(p.category_id || p.categoryId || p.category?.id || '').trim();
+        const selCat = String(selectedCategory).trim();
+        
+        // Exact match
+        if (pCatStr === selCat) return true;
+        
+        // Check if it's a comma-separated list of IDs
+        const catArray = pCatStr.split(',').map(s => s.trim());
+        return catArray.includes(selCat);
+      });
     }
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -952,19 +963,22 @@ export default function QRClientPage() {
             >
               Tất cả
             </button>
-            {categories.map((cat) => (
+            {categories.map((cat, idx) => {
+              const catId = cat.id || cat.category_id || cat.categoryId || String(idx);
+              return (
               <button
-                key={cat.id}
-                onClick={() => setSelectedCategory(cat.id)}
+                key={catId}
+                onClick={() => setSelectedCategory(catId)}
                 className={`rounded-full px-4 py-1.5 text-xs font-semibold shrink-0 cursor-pointer transition-all ${
-                  selectedCategory === cat.id
+                  selectedCategory === catId
                     ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-sm shadow-orange-500/10'
                     : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
                 }`}
               >
                 {cat.name}
               </button>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -992,8 +1006,13 @@ export default function QRClientPage() {
                   className="rounded-2xl bg-white border border-slate-100 overflow-hidden shadow-xs hover:border-slate-200 transition-all flex flex-col justify-between active:scale-98 cursor-pointer"
                 >
                   <div className="relative aspect-video w-full bg-slate-100 overflow-hidden">
-                    {p.image_url ? (
-                      <img src={p.image_url} alt={p.name} className="h-full w-full object-cover" />
+                    {p.image_url && !imageErrors[p.id] ? (
+                      <img 
+                        src={p.image_url} 
+                        alt={p.name} 
+                        className="h-full w-full object-cover" 
+                        onError={() => setImageErrors(prev => ({ ...prev, [p.id]: true }))}
+                      />
                     ) : (
                       <div className="h-full w-full flex items-center justify-center text-slate-300 font-black text-2xl uppercase select-none">
                         {p.name.charAt(0)}
