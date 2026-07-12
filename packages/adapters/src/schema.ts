@@ -407,6 +407,9 @@ export const qr_order_requests = mysqlTable('qr_order_requests', {
   items: json('items').notNull(),
   status: varchar('status', { length: 50 }).default('pending'),
   reject_reason: text('reject_reason'),
+  customer_name: text('customer_name'),
+  customer_phone: text('customer_phone'),
+  note: text('note'),
 });
 
 // ── Procure-to-Pay (P2P) Enterprise Add-on Tables ────────────────────────

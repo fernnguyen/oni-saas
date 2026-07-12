@@ -85,7 +85,7 @@ export async function POST(
   try {
     const { shopId } = await params
     const body = await req.json()
-    const { session_id, session_token, items } = body
+    const { session_id, session_token, items, customer_name, customer_phone, note } = body
 
     if (!session_id || !session_token || !items || !Array.isArray(items)) {
       return NextResponse.json({ error: 'Missing session_id, session_token or items array' }, { status: 400 })
@@ -132,7 +132,10 @@ export async function POST(
         resource_id: session.resource_id,
         items, // jsonb array
         status: 'pending',
-        active: 'TRUE'
+        active: 'TRUE',
+        customer_name: customer_name || null,
+        customer_phone: customer_phone || null,
+        note: note || null
       })
       .select()
       .single()
@@ -318,7 +321,7 @@ export async function PATCH(
           status: 'in_progress',
           channel: 'qr',
           customer_id: 'C-DEFAULT-RETAIL',
-          customer_name: 'Khách lẻ',
+          customer_name: request.customer_name || 'Khách lẻ',
           branch_id: shopId,
           subtotal: String(newSubtotal),
           discount_amount: '0',
@@ -326,7 +329,9 @@ export async function PATCH(
           total_amount: String(newSubtotal),
           paid_amount: '0',
           debt_amount: '0',
-          note: `Gọi món tại bàn ${table.name || table.resource_id}`,
+          note: request.note 
+            ? `Gọi món tại bàn ${table.name || table.resource_id} | Ghi chú: ${request.note}` 
+            : `Gọi món tại bàn ${table.name || table.resource_id}`,
           order_no: orderNo,
           created_at: getGMT7Time()
         })

@@ -814,6 +814,8 @@ export default function QRClientPage({
           session_id: session.id,
           session_token: session.session_token,
           items: colabCart.cartItems,
+          customer_name: colabCart.guestName || null,
+          note: colabCart.note || null,
         }),
       });
 

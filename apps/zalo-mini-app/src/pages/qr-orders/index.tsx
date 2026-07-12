@@ -300,13 +300,21 @@ export default function QrOrdersPage() {
                 </div>
 
                 {/* Order details */}
-                {order.customer_name && (
-                  <div className="mb-2 bg-muted/30 p-2 rounded-lg">
-                    <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
-                      <span className="opacity-70 text-xs">👤</span> 
-                      <span className="font-medium text-foreground">{order.customer_name}</span>
-                      {order.customer_phone ? ` • ${order.customer_phone}` : ''}
-                    </p>
+                {(order.customer_name || order.note) && (
+                  <div className="mb-2 bg-muted/30 p-2 rounded-lg space-y-1">
+                    {order.customer_name && (
+                      <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                        <span className="opacity-70 text-xs">👤</span> 
+                        <span className="font-medium text-foreground">{order.customer_name}</span>
+                        {order.customer_phone ? ` • ${order.customer_phone}` : ''}
+                      </p>
+                    )}
+                    {order.note && (
+                      <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">
+                        <span className="opacity-70 text-xs">📝</span>
+                        <span className="font-medium text-foreground italic">"{order.note}"</span>
+                      </p>
+                    )}
                   </div>
                 )}
 
