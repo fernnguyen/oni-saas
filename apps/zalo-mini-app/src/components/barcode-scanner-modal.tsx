@@ -365,23 +365,25 @@ export function BarcodeScannerModal({
               muted
             />
 
-            {/* Viewfinder scanner overlay mask */}
+            {/* Viewfinder scanner overlay mask (Absolutely positioned to stay immune to flex resizing) */}
             <div style={{
               position: 'absolute',
               inset: 0,
-              display: 'flex',
-              flexDirection: 'column',
               pointerEvents: 'none'
             }}>
               {/* Top mask */}
               <div style={{
-                flex: 1,
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                height: 'calc(50% - 110px)',
                 backgroundColor: 'rgba(0, 0, 0, 0.6)',
                 display: 'flex',
                 flexDirection: 'column',
                 justifyContent: 'center',
                 alignItems: 'center',
-                padding: '16px'
+                padding: '10px'
               }}>
                 <div style={{
                   backgroundColor: '#fa5908',
@@ -399,47 +401,65 @@ export function BarcodeScannerModal({
                 </span>
               </div>
 
-              {/* Middle Row (Left Mask + Viewfinder box + Right Mask) */}
-              <div style={{ display: 'flex', height: 220 }}>
-                <div style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.6)' }} />
-                
-                {/* Viewfinder box (280px wide) */}
-                <div style={{
-                  width: 280,
-                  height: 220,
-                  position: 'relative',
-                  boxSizing: 'border-box'
-                }}>
-                  {/* Corners */}
-                  <div style={{ position: 'absolute', top: 0, left: 0, width: 24, height: 24, borderTop: '4px solid #fa5908', borderLeft: '4px solid #fa5908', borderTopLeftRadius: 8 }} />
-                  <div style={{ position: 'absolute', top: 0, right: 0, width: 24, height: 24, borderTop: '4px solid #fa5908', borderRight: '4px solid #fa5908', borderTopRightRadius: 8 }} />
-                  <div style={{ position: 'absolute', bottom: 0, left: 0, width: 24, height: 24, borderBottom: '4px solid #fa5908', borderLeft: '4px solid #fa5908', borderBottomLeftRadius: 8 }} />
-                  <div style={{ position: 'absolute', bottom: 0, right: 0, width: 24, height: 24, borderBottom: '4px solid #fa5908', borderRight: '4px solid #fa5908', borderBottomRightRadius: 8 }} />
-                  
-                  {/* Laser line scanner */}
-                  <div className="animate-laser" style={{
-                    position: 'absolute',
-                    left: '5%',
-                    width: '90%',
-                    height: '2.5px',
-                    backgroundColor: '#fa5908',
-                    borderRadius: '2px',
-                    boxShadow: '0 0 8px #fa5908'
-                  }} />
-                </div>
+              {/* Left mask */}
+              <div style={{
+                position: 'absolute',
+                top: 'calc(50% - 110px)',
+                left: 0,
+                width: 'calc(50% - 140px)',
+                height: 220,
+                backgroundColor: 'rgba(0, 0, 0, 0.6)'
+              }} />
 
-                <div style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.6)' }} />
+              {/* Viewfinder box (280px wide, 220px high) */}
+              <div style={{
+                position: 'absolute',
+                top: '50%',
+                left: '50%',
+                width: 280,
+                height: 220,
+                transform: 'translate(-50%, -50%)',
+                boxSizing: 'border-box'
+              }}>
+                {/* Corners */}
+                <div style={{ position: 'absolute', top: 0, left: 0, width: 24, height: 24, borderTop: '4px solid #fa5908', borderLeft: '4px solid #fa5908', borderTopLeftRadius: 8 }} />
+                <div style={{ position: 'absolute', top: 0, right: 0, width: 24, height: 24, borderTop: '4px solid #fa5908', borderRight: '4px solid #fa5908', borderTopRightRadius: 8 }} />
+                <div style={{ position: 'absolute', bottom: 0, left: 0, width: 24, height: 24, borderBottom: '4px solid #fa5908', borderLeft: '4px solid #fa5908', borderBottomLeftRadius: 8 }} />
+                <div style={{ position: 'absolute', bottom: 0, right: 0, width: 24, height: 24, borderBottom: '4px solid #fa5908', borderRight: '4px solid #fa5908', borderBottomRightRadius: 8 }} />
+                
+                {/* Laser line scanner */}
+                <div className="animate-laser" style={{
+                  position: 'absolute',
+                  left: '5%',
+                  width: '90%',
+                  height: '2.5px',
+                  backgroundColor: '#fa5908',
+                  borderRadius: '2px',
+                  boxShadow: '0 0 8px #fa5908'
+                }} />
               </div>
+
+              {/* Right mask */}
+              <div style={{
+                position: 'absolute',
+                top: 'calc(50% - 110px)',
+                right: 0,
+                width: 'calc(50% - 140px)',
+                height: 220,
+                backgroundColor: 'rgba(0, 0, 0, 0.6)'
+              }} />
 
               {/* Bottom mask */}
               <div style={{
-                flex: 1,
+                position: 'absolute',
+                bottom: 0,
+                left: 0,
+                right: 0,
+                height: 'calc(50% - 110px)',
                 backgroundColor: 'rgba(0, 0, 0, 0.6)',
                 display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'flex-end',
+                justifyContent: 'center',
                 alignItems: 'center',
-                padding: '24px 16px',
                 pointerEvents: 'auto'
               }}>
                 {/* Toggle Keyboard / Manual input */}
