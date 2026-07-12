@@ -11,7 +11,7 @@ import {
 } from '@/services/shop-api';
 import { formatCurrency } from '@/utils/format';
 import CheckoutModal from './checkout-modal';
-import { scanQRCode } from 'zmp-sdk/apis';
+import { BarcodeScannerModal } from '@/components/barcode-scanner-modal';
 
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache
 
@@ -47,6 +47,9 @@ export default function PosPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [pullStart, setPullStart] = useState<number | null>(null);
   const [pullOffset, setPullOffset] = useState(0);
+
+  // Barcode scanner modal state
+  const [isBarcodeScannerOpen, setIsBarcodeScannerOpen] = useState(false);
 
   // ── Load Data (with optional cache bypass) ──
   const loadData = async (bypassCache = false) => {
@@ -173,18 +176,24 @@ export default function PosPage() {
     toast.success(`Đã thêm ${product.name}`, { duration: 1000 });
   };
 
-  const handleScanBarcode = async () => {
-    try {
-      const res = await scanQRCode({}) as any;
-      const code = res?.data || res?.content || res?.result;
-      if (code) {
-        setSearchQuery(code);
-        toast.success(`Đã quét mã: ${code}`);
-      } else {
-        toast.error('Không tìm thấy nội dung mã QR/Barcode');
-      }
-    } catch (err) {
-      toast.error('Quét mã thất bại hoặc không được hỗ trợ');
+  const handleScanBarcode = () => {
+    setIsBarcodeScannerOpen(true);
+  };
+
+  const handleBarcodeScanned = (code: string) => {
+    setSearchQuery(code);
+    setIsBarcodeScannerOpen(false);
+
+    // Auto-add to cart if exactly 1 product matches barcode or SKU
+    const query = code.trim().toLowerCase();
+    const matches = products.filter(
+      (p) =>
+        (p.barcode && p.barcode.toLowerCase() === query) ||
+        (p.sku && p.sku.toLowerCase() === query)
+    );
+
+    if (matches.length === 1) {
+      handleAddToCart(matches[0]);
     }
   };
 
@@ -476,6 +485,13 @@ export default function PosPage() {
 
       {/* ══════ Checkout Modal ══════ */}
       {isCheckoutOpen && <CheckoutModal />}
+
+      {/* ══════ Barcode Scanner Modal ══════ */}
+      <BarcodeScannerModal
+        visible={isBarcodeScannerOpen}
+        onClose={() => setIsBarcodeScannerOpen(false)}
+        onScan={handleBarcodeScanned}
+      />
     </div>
   );
 }
