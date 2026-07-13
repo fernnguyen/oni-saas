@@ -27,7 +27,8 @@
     "mobile:android:submit": "pnpm --filter @oni/mobile submit:android:local",
     "mini-app:start": "pnpm --filter zalo-mini-app start",
     "mini-app:deploy": "pnpm --filter zalo-mini-app deploy",
-    "oni:restore": "tsx scripts/restore.ts"
+    "oni:restore": "tsx scripts/restore.ts",
+    "release:web": "tsx scripts/release-web.ts"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
