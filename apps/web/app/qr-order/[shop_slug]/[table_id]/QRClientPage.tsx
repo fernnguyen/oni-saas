@@ -5,6 +5,52 @@ import { useQRCollaborativeCart, CartItem, SelectedModifier, generateRandomNickn
 import { getSupabaseBrowserClient } from '@/lib/supabaseBrowser';
 import { toast } from 'sonner';
 
+function playChime() {
+  try {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const ctx = new AudioContextClass();
+    
+    const playTone = (freq: number, startTime: number, duration: number) => {
+      const osc = ctx.createOscillator();
+      const gainNode = ctx.createGain();
+      const oscHarmonic = ctx.createOscillator();
+      const gainHarmonic = ctx.createGain();
+      
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, startTime);
+      
+      oscHarmonic.type = 'triangle';
+      oscHarmonic.frequency.setValueAtTime(freq * 1.5, startTime);
+      
+      gainNode.gain.setValueAtTime(0.12, startTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+      
+      gainHarmonic.gain.setValueAtTime(0.04, startTime);
+      gainHarmonic.gain.exponentialRampToValueAtTime(0.001, startTime + duration * 0.7);
+      
+      osc.connect(gainNode);
+      oscHarmonic.connect(gainHarmonic);
+      
+      gainNode.connect(ctx.destination);
+      gainHarmonic.connect(ctx.destination);
+      
+      osc.start(startTime);
+      oscHarmonic.start(startTime);
+      
+      osc.stop(startTime + duration);
+      oscHarmonic.stop(startTime + duration);
+    };
+
+    // Ding (A5 - 880Hz)
+    playTone(880, ctx.currentTime, 1.0);
+    // Dong (E5 - 659.25Hz) after 0.25 seconds
+    playTone(659.25, ctx.currentTime + 0.25, 1.2);
+  } catch (err) {
+    console.error('AudioContext synthesis failed:', err);
+  }
+}
+
 interface QRClientPageProps {
   shopId: string;
   shopName: string;
@@ -12,6 +58,37 @@ interface QRClientPageProps {
   shopSlug: string;
   resourceId: string;
 }
+
+const safeStorage = {
+  getItem: (key: string): string | null => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        return window.localStorage.getItem(key);
+      }
+    } catch (e) {
+      console.warn('localStorage.getItem error:', e);
+    }
+    return null;
+  },
+  setItem: (key: string, value: string): void => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(key, value);
+      }
+    } catch (e) {
+      console.warn('localStorage.setItem error:', e);
+    }
+  },
+  removeItem: (key: string): void => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.removeItem(key);
+      }
+    } catch (e) {
+      console.warn('localStorage.removeItem error:', e);
+    }
+  }
+};
 
 interface ModifierOption {
   id: string;
@@ -311,14 +388,14 @@ export default function QRClientPage({
   // 1. Theme and Name configuration loading from localStorage
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const savedTheme = localStorage.getItem('oni_qr_theme') as 'light' | 'dark';
+      const savedTheme = safeStorage.getItem('oni_qr_theme') as 'light' | 'dark';
       if (savedTheme === 'light' || savedTheme === 'dark') {
         setTheme(savedTheme);
       } else {
         setTheme('light'); // default is light
       }
 
-      const configured = localStorage.getItem('oni_qr_guest_name_configured') === 'true';
+      const configured = safeStorage.getItem('oni_qr_guest_name_configured') === 'true';
       setNameConfigured(configured);
     }
   }, []);
@@ -326,7 +403,7 @@ export default function QRClientPage({
   const toggleTheme = () => {
     const next = theme === 'light' ? 'dark' : 'light';
     setTheme(next);
-    localStorage.setItem('oni_qr_theme', next);
+    safeStorage.setItem('oni_qr_theme', next);
   };
 
   // Trigger Onboarding Name Modal if guest lands on active session and hasn't configured name
@@ -350,7 +427,7 @@ export default function QRClientPage({
     if (nameToUse) {
       colabCart.updateGuestName(nameToUse);
     }
-    localStorage.setItem('oni_qr_guest_name_configured', 'true');
+    safeStorage.setItem('oni_qr_guest_name_configured', 'true');
     setNameConfigured(true);
     setShowOnboardingNameModal(false);
 
@@ -387,12 +464,12 @@ export default function QRClientPage({
         });
 
         // Persist active session credentials
-        localStorage.setItem('oni_qr_session_id', data.session.id);
-        localStorage.setItem('oni_qr_session_token', data.session.session_token);
+        safeStorage.setItem('oni_qr_session_id', data.session.id);
+        safeStorage.setItem('oni_qr_session_token', data.session.session_token);
       } else {
         // No active session on table. Check if we have a saved session in localStorage to resume recap
-        const savedId = localStorage.getItem('oni_qr_session_id');
-        const savedToken = localStorage.getItem('oni_qr_session_token');
+        const savedId = safeStorage.getItem('oni_qr_session_id');
+        const savedToken = safeStorage.getItem('oni_qr_session_token');
         if (savedId && savedToken) {
           const verifyRes = await fetch(`/api/shops/${shopId}/qr-sessions?session_id=${savedId}&session_token=${savedToken}`);
           if (verifyRes.ok) {
@@ -501,9 +578,19 @@ export default function QRClientPage({
             });
           } else if (payload.eventType === 'UPDATE') {
             const updatedRequest = payload.new as any;
-            setOrderRequests((prev) =>
-              prev.map((r) => (r.id === updatedRequest.id ? updatedRequest : r))
-            );
+            setOrderRequests((prev) => {
+              const oldReq = prev.find((r) => r.id === updatedRequest.id);
+              if (oldReq && oldReq.status !== updatedRequest.status) {
+                if (updatedRequest.status === 'accepted') {
+                  toast.success('Yêu cầu gọi món của bạn đã được xác nhận!');
+                  playChime();
+                } else if (updatedRequest.status === 'rejected') {
+                  toast.error(`Yêu cầu gọi món bị từ chối: ${updatedRequest.reject_reason || 'Vui lòng liên hệ nhân viên.'}`);
+                  playChime();
+                }
+              }
+              return prev.map((r) => (r.id === updatedRequest.id ? updatedRequest : r));
+            });
           } else if (payload.eventType === 'DELETE') {
             const deletedRequest = payload.old as any;
             setOrderRequests((prev) => prev.filter((r) => r.id !== deletedRequest.id));
@@ -534,8 +621,8 @@ export default function QRClientPage({
       setTable(data.table);
 
       if (data.session) {
-        localStorage.setItem('oni_qr_session_id', data.session.id);
-        localStorage.setItem('oni_qr_session_token', data.session.session_token);
+        safeStorage.setItem('oni_qr_session_id', data.session.id);
+        safeStorage.setItem('oni_qr_session_token', data.session.session_token);
       }
 
       toast.success('Đã gửi yêu cầu mở bàn!');
@@ -1293,9 +1380,9 @@ export default function QRClientPage({
             onClick={() => {
               setSession(null);
               setOrderRequests([]);
-              localStorage.removeItem('oni_qr_guest_name_configured');
-              localStorage.removeItem('oni_qr_session_id');
-              localStorage.removeItem('oni_qr_session_token');
+              safeStorage.removeItem('oni_qr_guest_name_configured');
+              safeStorage.removeItem('oni_qr_session_id');
+              safeStorage.removeItem('oni_qr_session_token');
               toast.success('Bắt đầu phiên gọi món mới.');
             }}
             className="w-full py-4 px-6 bg-gradient-to-r from-orange-600 to-amber-500 hover:from-orange-500 hover:to-amber-400 font-bold text-sm rounded-2xl shadow-lg transition-all text-white flex items-center justify-center gap-2"

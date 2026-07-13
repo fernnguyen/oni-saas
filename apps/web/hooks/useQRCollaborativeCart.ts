@@ -4,6 +4,37 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { getSupabaseBrowserClient } from '@/lib/supabaseBrowser';
 import { toast } from 'sonner';
 
+const safeStorage = {
+  getItem: (key: string): string | null => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        return window.localStorage.getItem(key);
+      }
+    } catch (e) {
+      console.warn('localStorage.getItem error:', e);
+    }
+    return null;
+  },
+  setItem: (key: string, value: string): void => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(key, value);
+      }
+    } catch (e) {
+      console.warn('localStorage.setItem error:', e);
+    }
+  },
+  removeItem: (key: string): void => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.removeItem(key);
+      }
+    } catch (e) {
+      console.warn('localStorage.removeItem error:', e);
+    }
+  }
+};
+
 export interface SelectedModifier {
   group: string;
   option: string;
@@ -82,17 +113,17 @@ export function useQRCollaborativeCart(sessionId: string, tenantId: string) {
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    let savedId = localStorage.getItem('oni_qr_guest_id');
+    let savedId = safeStorage.getItem('oni_qr_guest_id');
     if (!savedId) {
       savedId = generateShortId();
-      localStorage.setItem('oni_qr_guest_id', savedId);
+      safeStorage.setItem('oni_qr_guest_id', savedId);
     }
     setGuestId(savedId);
 
-    let savedName = localStorage.getItem('oni_qr_guest_name');
+    let savedName = safeStorage.getItem('oni_qr_guest_name');
     if (!savedName) {
       savedName = generateRandomNickname();
-      localStorage.setItem('oni_qr_guest_name', savedName);
+      safeStorage.setItem('oni_qr_guest_name', savedName);
     }
     setGuestName(savedName);
   }, []);
@@ -326,7 +357,7 @@ export function useQRCollaborativeCart(sessionId: string, tenantId: string) {
     if (!newName.trim() || newName === guestNameRef.current) return;
 
     setGuestName(newName);
-    localStorage.setItem('oni_qr_guest_name', newName);
+    safeStorage.setItem('oni_qr_guest_name', newName);
 
     // Track the new name in Presence immediately
     if (channelRef.current && isConnected) {

@@ -255,6 +255,36 @@ export async function PATCH(
         // --- CASE 1: MERGE INTO EXISTING IN-PROGRESS ORDER ---
         finalOrderId = existingOrderId
 
+        // Update existing order metadata and customer name
+        try {
+          const orderMeta = currentOrder.metadata 
+            ? (typeof currentOrder.metadata === 'string' ? JSON.parse(currentOrder.metadata) : currentOrder.metadata) 
+            : {};
+          
+          const currentGuests = Array.isArray(orderMeta.guests_list) ? orderMeta.guests_list : [];
+          const updatedGuests = request.customer_name 
+            ? Array.from(new Set([...currentGuests, request.customer_name]))
+            : currentGuests;
+
+          const updatedOrderMeta = {
+            ...orderMeta,
+            resource_id: orderMeta.resource_id || resourceId,
+            guests_list: updatedGuests
+          };
+
+          const updatePayload: any = {
+            metadata: JSON.stringify(updatedOrderMeta)
+          };
+
+          if ((currentOrder.customer_name === 'Khách lẻ' || !currentOrder.customer_name) && request.customer_name) {
+            updatePayload.customer_name = request.customer_name;
+          }
+
+          await connector.update('orders', finalOrderId, updatePayload);
+        } catch (err) {
+          console.error('[Accept QR Order] Failed to update existing order metadata:', err);
+        }
+
         // Fetch current order items
         const existingItemsResult = await connector.list('order-items', {
           page: 1, limit: 200,
@@ -333,7 +363,14 @@ export async function PATCH(
             ? `Gọi món tại bàn ${table.name || table.resource_id} | Ghi chú: ${request.note}` 
             : `Gọi món tại bàn ${table.name || table.resource_id}`,
           order_no: orderNo,
-          created_at: getGMT7Time()
+          created_at: getGMT7Time(),
+          metadata: JSON.stringify({
+            resource_id: resourceId,
+            check_in: getGMT7Time(),
+            guests_list: request.customer_name ? [request.customer_name] : [],
+            num_guests: 1,
+            rental_type: 'hourly'
+          })
         })
 
         finalOrderId = createdOrder.order_id || createdOrder.id
@@ -363,11 +400,38 @@ export async function PATCH(
           await connector.batchCreate('order-items', itemsToCreate)
         }
 
-        // Update location resource to occupied and bind to new order
-        await connector.update('location-resources', resourceId, {
-          status: 'occupied',
-          current_order_id: finalOrderId
-        })
+        // Update location resource to occupied and bind to new order with metadata
+        try {
+          const currentMeta = table.metadata 
+            ? (typeof table.metadata === 'string' ? JSON.parse(table.metadata) : table.metadata) 
+            : {};
+          
+          const currentGuests = Array.isArray(currentMeta.guests_list) ? currentMeta.guests_list : [];
+          const updatedGuests = request.customer_name 
+            ? Array.from(new Set([...currentGuests, request.customer_name]))
+            : currentGuests;
+
+          const updatedMeta = {
+            ...currentMeta,
+            check_in: currentMeta.check_in || getGMT7Time(),
+            num_guests: currentMeta.num_guests || 1,
+            guests_list: updatedGuests,
+            rental_type: currentMeta.rental_type || 'hourly'
+          };
+
+          await connector.update('location-resources', resourceId, {
+            status: 'occupied',
+            current_order_id: finalOrderId,
+            metadata: JSON.stringify(updatedMeta)
+          });
+        } catch (err) {
+          console.error('[Accept QR Order] Failed to update table metadata:', err);
+          // Fallback to update basic fields if metadata update fails
+          await connector.update('location-resources', resourceId, {
+            status: 'occupied',
+            current_order_id: finalOrderId
+          });
+        }
       }
 
       // Update Supabase request status

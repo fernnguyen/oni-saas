@@ -183,7 +183,7 @@ export default function QrOrdersPage() {
   };
 
   const handleTouchStart = (e: React.TouchEvent) => {
-    const container = document.querySelector('.overflow-y-auto');
+    const container = document.getElementById('main-scroll-container');
     const scrollTop = container ? container.scrollTop : window.scrollY;
     if (scrollTop === 0) {
       setPullStart(e.touches[0].clientY);
@@ -214,7 +214,7 @@ export default function QrOrdersPage() {
 
   return (
     <div 
-      className="min-h-full bg-background pb-8 overflow-y-auto"
+      className="min-h-full bg-background pb-8"
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
@@ -259,9 +259,39 @@ export default function QrOrdersPage() {
 
       {/* Order List */}
       {loading ? (
-        <div className="px-4 space-y-3 mt-4">
+        <div className="px-4 space-y-4 mt-4">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="animate-pulse bg-muted h-32 rounded-xl" />
+            <div key={i} className="bg-card border border-border rounded-xl p-3 shadow-sm space-y-3 animate-pulse">
+              {/* Header skeleton */}
+              <div className="flex justify-between items-center pb-1.5 border-b border-border">
+                <div className="h-3.5 bg-muted rounded-md w-1/3" />
+                <div className="h-4 bg-muted rounded-full w-16" />
+              </div>
+              
+              {/* Items skeleton */}
+              <div className="space-y-2 py-1">
+                <div className="flex justify-between items-center">
+                  <div className="space-y-1 flex-1">
+                    <div className="h-3 bg-muted rounded-md w-1/2" />
+                    <div className="h-2 bg-muted rounded-md w-1/4" />
+                  </div>
+                  <div className="h-3 bg-muted rounded-md w-12" />
+                </div>
+                <div className="flex justify-between items-center">
+                  <div className="space-y-1 flex-1">
+                    <div className="h-3 bg-muted rounded-md w-2/3" />
+                    <div className="h-2 bg-muted rounded-md w-1/5" />
+                  </div>
+                  <div className="h-3 bg-muted rounded-md w-10" />
+                </div>
+              </div>
+
+              {/* Footer skeleton */}
+              <div className="pt-2 border-t border-border flex justify-between items-center">
+                <div className="h-3 bg-muted rounded-md w-20" />
+                <div className="h-4 bg-muted rounded-md w-16" />
+              </div>
+            </div>
           ))}
         </div>
       ) : orders.length === 0 ? (

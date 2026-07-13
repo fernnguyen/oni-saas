@@ -131,6 +131,54 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
   }
 }));
 
+// Synthesize Premium Ding-Dong Chime using Web Audio API (0% static asset dependency)
+export function playChime() {
+  try {
+    const AudioContextClass = (window as any).AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+    
+    const ctx = new AudioContextClass();
+    
+    const playTone = (freq: number, startTime: number, duration: number) => {
+      const osc = ctx.createOscillator();
+      const gainNode = ctx.createGain();
+      const oscHarmonic = ctx.createOscillator();
+      const gainHarmonic = ctx.createGain();
+      
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, startTime);
+      
+      oscHarmonic.type = 'triangle';
+      oscHarmonic.frequency.setValueAtTime(freq * 1.5, startTime);
+      
+      gainNode.gain.setValueAtTime(0.15, startTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+      
+      gainHarmonic.gain.setValueAtTime(0.05, startTime);
+      gainHarmonic.gain.exponentialRampToValueAtTime(0.001, startTime + duration * 0.7);
+      
+      osc.connect(gainNode);
+      oscHarmonic.connect(gainHarmonic);
+      
+      gainNode.connect(ctx.destination);
+      gainHarmonic.connect(ctx.destination);
+      
+      osc.start(startTime);
+      oscHarmonic.start(startTime);
+      
+      osc.stop(startTime + duration);
+      oscHarmonic.stop(startTime + duration);
+    };
+
+    // Ding (A5 - 880Hz)
+    playTone(880, ctx.currentTime, 1.0);
+    // Dong (E5 - 659.25Hz) after 0.25 seconds
+    playTone(659.25, ctx.currentTime + 0.25, 1.2);
+  } catch (err) {
+    console.error('AudioContext synthesis failed:', err);
+  }
+}
+
 // A hook to handle realtime subscriptions and showing toasts
 export function useNotificationListener() {
   const { tenant, shop } = useTenantStore();
@@ -157,6 +205,7 @@ export function useNotificationListener() {
           
           addRealtimeNotification(newNotif);
           toast.success(`${newNotif.title}: ${newNotif.content}`, { duration: 4000 });
+          playChime();
         }
       )
       .subscribe();
@@ -187,6 +236,7 @@ export function useNotificationListener() {
               
               addRealtimeNotification(qrNotif);
               toast.success(`${qrNotif.title}: ${qrNotif.content}`, { duration: 4000 });
+              playChime();
             }
           }
         )
