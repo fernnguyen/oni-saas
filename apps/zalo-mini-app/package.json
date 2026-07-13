@@ -20,6 +20,7 @@
     "build:css": "postcss src/css/tailwind.css -o src/css/styles.css"
   },
   "dependencies": {
+    "@oni/core": "workspace:*",
     "@react-spring/web": "^9.7.4",
     "@supabase/supabase-js": "^2.110.1",
     "@use-gesture/react": "^10.3.1",

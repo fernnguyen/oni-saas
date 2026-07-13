@@ -77,6 +77,7 @@ export interface Order {
   branch_id?: string;
   debt_amount?: number | string;
   paid_amount?: number | string;
+  metadata?: string | Record<string, any>; // JSON: resource_id, check_in, rental_type, num_guests, guests_list…
 }
 
 export interface OrderItem {
@@ -85,12 +86,19 @@ export interface OrderItem {
   product_id: string;
   product_name: string;
   quantity: number;
+  qty?: string | number; // Server maps to 'qty'
   unit_price: number | string;
-  total_price: number | string;
+  total_price?: number | string;
+  line_total?: string | number; // Server maps to 'line_total'
+  line_no?: string;
+  original_price?: string | number;
   discount_amount?: number | string;
-  note?: string;
+  line_discount?: string | number;
   variant_name?: string;
+  variant_label?: string;
   modifiers?: string;
+  modifier_total?: string | number;
+  note?: string;
   returned_quantity?: number;
 }
 
@@ -139,11 +147,16 @@ export interface LocationResource {
   id: string;
   name: string;
   zone?: string;
-  type?: string; // table, room, court
-  status?: string; // available, occupied, cleaning, reserved
+  type?: string;           // 'room' | 'table' | 'court' | 'billiards'
+  status?: string;         // available, occupied, dirty, cleaning, reserved, maintenance
   current_order_id?: string;
   industry_type?: string;
   sort_order?: number;
+  capacity?: number;
+  hourly_rate?: number;
+  daily_rate?: number;
+  overnight_rate?: number;
+  metadata?: string;       // JSON: advanced_pricing, check_in, num_guests, rental_type, guests_list…
 }
 
 export interface ReportOverview {
@@ -213,12 +226,47 @@ export function syncOrderDirect(shopId: string, payload: any) {
   return apiPost<any>(`/api/shops/${shopId}/orders/sync-batch`, payload);
 }
 
+export function createOrder(shopId: string, data: Partial<Order> & { metadata?: any }) {
+  return apiPost<Order>(`/api/shops/${shopId}/orders`, data);
+}
+
+export function updateOrder(shopId: string, orderId: string, data: Partial<Order> & { metadata?: any }) {
+  return apiFetch<Order>(`/api/shops/${shopId}/orders/${orderId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export function cancelOrderById(shopId: string, orderId: string, reason?: string) {
+  return apiFetch<Order>(`/api/shops/${shopId}/orders/${orderId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ status: 'cancelled', cancel_reason: reason || 'Hủy đơn' }),
+  });
+}
+
 // ────────────────────────────── Order Items ──────────────────────────────
 
 export function getOrderItems(shopId: string, params?: Record<string, string>) {
   const query = params ? '?' + new URLSearchParams(params).toString() : '';
   return apiFetch<{ data?: OrderItem[] }>(`/api/shops/${shopId}/order-items${query}`)
     .then(res => res?.data || []);
+}
+
+export function createOrderItem(shopId: string, data: Partial<OrderItem>) {
+  return apiPost<OrderItem>(`/api/shops/${shopId}/order-items`, data);
+}
+
+export function updateOrderItem(shopId: string, itemId: string, data: Partial<OrderItem>) {
+  return apiFetch<OrderItem>(`/api/shops/${shopId}/order-items/${itemId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export function deleteOrderItem(shopId: string, itemId: string) {
+  return apiFetch<void>(`/api/shops/${shopId}/order-items/${itemId}`, {
+    method: 'DELETE',
+  });
 }
 
 // ────────────────────────────── Returns ──────────────────────────────

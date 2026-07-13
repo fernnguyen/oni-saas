@@ -38,6 +38,15 @@ interface PosState {
   updateUnitPrice: (productId: string, price: number) => void;
   clearCart: () => void;
 
+  retailCartBackup: {
+    cart: CartItem[];
+    selectedCustomer: Customer | null;
+    discountAmount: number;
+    orderNote: string;
+  } | null;
+  backupRetailCart: () => void;
+  restoreRetailCart: () => void;
+
   // Setters
   setProducts: (products: Product[]) => void;
   setCategories: (categories: Category[]) => void;
@@ -65,6 +74,7 @@ export const usePosStore = create<PosState>()(
 
       // Cart
       cart: [],
+      retailCartBackup: null,
 
       // UI State
       selectedCategory: null,
@@ -131,6 +141,37 @@ export const usePosStore = create<PosState>()(
           orderNote: '',
         }),
 
+      backupRetailCart: () => {
+        set({
+          retailCartBackup: {
+            cart: get().cart,
+            selectedCustomer: get().selectedCustomer,
+            discountAmount: get().discountAmount,
+            orderNote: get().orderNote,
+          }
+        });
+      },
+
+      restoreRetailCart: () => {
+        const backup = get().retailCartBackup;
+        if (backup) {
+          set({
+            cart: backup.cart,
+            selectedCustomer: backup.selectedCustomer,
+            discountAmount: backup.discountAmount,
+            orderNote: backup.orderNote,
+            retailCartBackup: null,
+          });
+        } else {
+          set({
+            cart: [],
+            selectedCustomer: null,
+            discountAmount: 0,
+            orderNote: '',
+          });
+        }
+      },
+
       // ── Setters ──
 
       setProducts: (products) => set({ products }),
@@ -154,6 +195,7 @@ export const usePosStore = create<PosState>()(
         selectedCustomer: state.selectedCustomer,
         discountAmount: state.discountAmount,
         orderNote: state.orderNote,
+        retailCartBackup: state.retailCartBackup,
       }),
     }
   )

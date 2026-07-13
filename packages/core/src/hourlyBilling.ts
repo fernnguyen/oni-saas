@@ -35,9 +35,10 @@ export function calculateHourlyBilling({
   const diffMs = Math.max(0, checkOut.getTime() - checkIn.getTime());
   const totalMinutes = Math.ceil(diffMs / 60000);
   
+  const stdRate = Number(standardRate) || 0;
   const enabled = config?.enabled ?? false;
   const baseHours = enabled ? (Number(config?.base_hours) || 1) : 1;
-  const basePrice = enabled ? (Number(config?.base_price) || standardRate) : standardRate;
+  const basePrice = enabled ? (Number(config?.base_price) || stdRate) : stdRate;
   const graceMinutes = enabled ? (Number(config?.grace_minutes) || 0) : 0;
   const progRates = config?.progressive_rates ?? {};
 
@@ -82,7 +83,7 @@ export function calculateHourlyBilling({
 
   // Map resolved hourly rates sequentially for inheritance
   const resolvedHourlyRates: Record<number, number> = {};
-  const baseHourlyRate = baseHours > 0 ? (basePrice / baseHours) : standardRate;
+  const baseHourlyRate = baseHours > 0 ? (basePrice / baseHours) : stdRate;
   for (let i = 1; i <= baseHours; i++) {
     resolvedHourlyRates[i] = baseHourlyRate;
   }

@@ -17,6 +17,7 @@ export default () => {
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./src"),
+        "@oni/core": path.resolve(__dirname, "../../packages/core/src"),
       },
     },
     server: {

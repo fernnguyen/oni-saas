@@ -1,17 +1,22 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { usePosStore } from '@/stores/pos-store';
 import { useTenantStore } from '@/stores/tenant-store';
+import { useTableStore, makeTableCartItemId, type TableCartItem } from '@/stores/table-store';
 import {
   getProducts,
   getCategories,
   getCustomers,
   getPaymentMethods,
   getPaymentFunds,
+  getOrderItems,
+  createOrderItem,
+  updateOrderItem,
 } from '@/services/shop-api';
 import { formatCurrency } from '@/utils/format';
 import CheckoutModal from './checkout-modal';
 import { BarcodeScannerModal } from '@/components/barcode-scanner-modal';
+import TableMapPage from './TableMapPage';
 
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache
 
@@ -26,6 +31,139 @@ export default function PosPage() {
   const searchQuery = usePosStore((s) => s.searchQuery);
   const isCheckoutOpen = usePosStore((s) => s.isCheckoutOpen);
   const isLoading = usePosStore((s) => s.isLoading);
+
+  // ── Table store ──
+  const cartOwnerTableId = useTableStore((s) => s.cartOwnerTableId);
+  const resources = useTableStore((s) => s.resources);
+  const isTableCheckoutOpen = useTableStore((s) => s.isTableCheckoutOpen);
+  const activeTable = useTableStore((s) => s.activeTable);
+  const cartOwnerTable = cartOwnerTableId
+    ? resources.find((r) => r.id === cartOwnerTableId)
+    : null;
+
+  // ── POS mode ──
+  const [posMode, setPosMode] = useState<'retail' | 'table'>('retail');
+  const [isSavingTableItems, setIsSavingTableItems] = useState(false);
+
+  const handleSaveTableCart = async () => {
+    if (!cartOwnerTableId || !cartOwnerTable) return;
+    const tableSession = useTableStore.getState().tableSessions[cartOwnerTableId];
+    if (!tableSession?.orderId) {
+      toast.error('Không tìm thấy mã đơn hàng của bàn này');
+      return;
+    }
+
+    setIsSavingTableItems(true);
+    const loadingToast = toast.loading('Đang lưu món vào bàn...');
+    try {
+      // 1. Get current server items
+      const serverItems = await getOrderItems(shopId, { order_id: tableSession.orderId, limit: '200' });
+
+      // 2. Loop through retail cart items and save them
+      let index = serverItems.length + 1;
+      for (const item of cart) {
+        const existing = serverItems.find((si) => si.product_id === item.product.id);
+        const lineTotal = item.unit_price * item.quantity;
+        const lineNo = String(index++);
+
+        if (existing) {
+          const existingQty = parseInt(String(existing.quantity || existing.qty || 0), 10);
+          const newQty = existingQty + item.quantity;
+          const existingPrice = parseFloat(String(existing.unit_price)) || item.unit_price;
+          const newTotal = existingPrice * newQty;
+
+          await updateOrderItem(shopId, existing.id, {
+            qty: String(newQty),
+            line_total: String(newTotal),
+            unit_price: String(existingPrice),
+            original_price: String(existingPrice),
+            discount_amount: '0',
+          });
+        } else {
+          await createOrderItem(shopId, {
+            order_id: tableSession.orderId,
+            line_no: lineNo,
+            product_id: item.product.id,
+            product_name: item.product.name,
+            qty: String(item.quantity),
+            unit_price: String(item.unit_price),
+            original_price: String(item.unit_price),
+            discount_amount: '0',
+            line_total: String(lineTotal),
+            line_discount: '0',
+            variant_label: '',
+            modifiers: '',
+            modifier_total: '0',
+          });
+        }
+      }
+
+      // 3. Re-fetch all items for this table order to sync local store
+      const updatedItems = await getOrderItems(shopId, { order_id: tableSession.orderId, limit: '200' });
+      const newTableCart: Record<string, TableCartItem> = {};
+      for (const item of updatedItems) {
+        const cartItemId = makeTableCartItemId(item.product_id, item.variant_name);
+        const priceVal = parseFloat(String(item.unit_price || 0)) || 0;
+        const qtyVal = parseInt(String(item.qty || item.quantity || 0), 10) || 1;
+        newTableCart[cartItemId] = {
+          productId: item.product_id,
+          name: item.product_name,
+          price: priceVal,
+          quantity: qtyVal,
+          note: item.note || undefined,
+          variantLabel: item.variant_name || undefined,
+        };
+      }
+
+      useTableStore.getState().setTableCart(cartOwnerTableId, newTableCart);
+
+      toast.dismiss(loadingToast);
+      toast.success(`Đã lưu món vào ${cartOwnerTable.name}!`);
+
+      // 4. Reset states & return to table mode
+      usePosStore.getState().clearCart();
+      useTableStore.getState().setCartOwnerTableId(null);
+      setPosMode('table');
+    } catch (err) {
+      console.error('Error saving table cart:', err);
+      toast.dismiss(loadingToast);
+      toast.error('Không thể lưu món. Vui lòng thử lại.');
+    } finally {
+      setIsSavingTableItems(false);
+    }
+  };
+
+  // ── Backup and restore retail cart when entering/leaving room/table ordering ──
+  const prevTableIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prevTableId = prevTableIdRef.current;
+    if (cartOwnerTableId !== prevTableId) {
+      if (cartOwnerTableId) {
+        if (!prevTableId) {
+          // Entering table order from retail: backup retail cart
+          usePosStore.getState().backupRetailCart();
+        }
+        // Always reset cart when starting an order session for any table
+        usePosStore.getState().clearCart();
+      } else {
+        // Exiting table order to retail: restore retail cart
+        usePosStore.getState().restoreRetailCart();
+      }
+      prevTableIdRef.current = cartOwnerTableId;
+    }
+  }, [cartOwnerTableId]);
+
+  // When user chooses to add items for a table, switch to retail mode and show banner
+  const handleTableAddItems = () => {
+    setPosMode('retail');
+  };
+
+  // When table checkout opens: trigger checkout modal
+  useEffect(() => {
+    if (isTableCheckoutOpen) {
+      usePosStore.getState().setIsCheckoutOpen(true);
+    }
+  }, [isTableCheckoutOpen]);
 
   const {
     setProducts,
@@ -229,257 +367,351 @@ export default function PosPage() {
   return (
     <div
       className="pos-page"
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
+      onTouchStart={posMode === 'retail' ? handleTouchStart : undefined}
+      onTouchMove={posMode === 'retail' ? handleTouchMove : undefined}
+      onTouchEnd={posMode === 'retail' ? handleTouchEnd : undefined}
     >
       <style>{`
         @keyframes spin {
           0% { transform: rotate(0deg); }
           100% { transform: rotate(360deg); }
         }
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
         .animate-spin-custom {
           animation: spin 0.8s linear infinite;
         }
       `}</style>
 
-      {/* Pull to Refresh Indicator */}
-      <div 
-        className="flex items-center justify-center transition-all overflow-hidden bg-slate-50"
-        style={{
-          height: refreshing ? '50px' : `${pullOffset}px`,
-          opacity: refreshing || pullOffset > 0 ? 1 : 0,
-        }}
-      >
-        <div className="flex items-center gap-2 text-xs text-subtitle" style={{ padding: '10px 0' }}>
-          <div className="animate-spin-custom rounded-full h-4 w-4 border-2 border-[var(--primary)] border-t-transparent" />
-          <span>{refreshing ? 'Đang làm mới...' : 'Kéo để làm mới...'}</span>
-        </div>
-      </div>
-      {/* ══════ Top Bar: Search + Cart Badge ══════ */}
-      <div className="pos-topbar">
-        <div style={{ display: 'flex', gap: 8, flex: 1, alignItems: 'center' }}>
-          <div style={{ position: 'relative', flex: 1 }}>
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="#94a3b8"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }}
-            >
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
-            <input
-              className="form-input"
-              style={{ paddingLeft: 38, paddingRight: searchQuery ? 36 : 14, fontSize: 14 }}
-              placeholder="Tìm sản phẩm..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                style={{
-                  position: 'absolute',
-                  right: 8,
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  background: 'none',
-                  border: 'none',
-                  color: '#94a3b8',
-                  padding: 4,
-                  cursor: 'pointer'
-                }}
-              >
-                ✕
-              </button>
-            )}
-          </div>
-
-          {/* Barcode scanner */}
-          <button
-            onClick={handleScanBarcode}
-            className="zaui-btn zaui-btn-tertiary"
-            style={{ padding: 10, minWidth: 'unset', height: 40, width: 40, borderRadius: 10 }}
-            title="Quét mã vạch"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 5v14M21 5v14M7 5v14M17 5v14M12 5v14" />
-            </svg>
-          </button>
-        </div>
-
-        <button
+      {/* Pull to Refresh Indicator (retail only) */}
+      {posMode === 'retail' && (
+        <div 
+          className="flex items-center justify-center transition-all overflow-hidden bg-slate-50"
           style={{
-            position: 'relative',
-            background: 'none',
-            border: 'none',
-            padding: 8,
-            cursor: 'pointer',
+            height: refreshing ? '50px' : `${pullOffset}px`,
+            opacity: refreshing || pullOffset > 0 ? 1 : 0,
           }}
-          onClick={() => cartCount > 0 && setIsCheckoutOpen(true)}
         >
-          <svg
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="var(--foreground)"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <circle cx="9" cy="21" r="1" />
-            <circle cx="20" cy="21" r="1" />
-            <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
-          </svg>
-          {cartCount > 0 && (
-            <span className="badge badge-red" style={{
-              position: 'absolute', top: 0, right: 0,
-              minWidth: 18, height: 18, fontSize: 11,
-            }}>
-              {cartCount}
-            </span>
-          )}
-        </button>
-      </div>
+          <div className="flex items-center gap-2 text-xs text-subtitle" style={{ padding: '10px 0' }}>
+            <div className="animate-spin-custom rounded-full h-4 w-4 border-2 border-[var(--primary)] border-t-transparent" />
+            <span>{refreshing ? 'Đang làm mới...' : 'Kéo để làm mới...'}</span>
+          </div>
+        </div>
+      )}
 
-      {/* ══════ Body ══════ */}
-      <div className="pos-body">
-        {/* Category Chips */}
-        <div className="pos-categories scrollbar-none">
+      {/* ═════ Top Bar ═════ */}
+      <div className="pos-topbar" style={{ flexDirection: 'column', gap: 8, paddingBottom: 8, alignItems: 'stretch' }}>
+        {/* Mode switcher */}
+        <div style={{ display: 'flex', gap: 6, width: '100%' }}>
           <button
-            className={`pos-category-chip ${selectedCategory === null ? 'active' : ''}`}
-            onClick={() => setSelectedCategory(null)}
+            onClick={() => setPosMode('retail')}
+            style={{
+              flex: 1, height: 36, borderRadius: 10,
+              border: '1.5px solid',
+              borderColor: posMode === 'retail' ? 'var(--primary, #3b82f6)' : '#e2e8f0',
+              background: posMode === 'retail' ? 'var(--primary, #3b82f6)' : '#f8fafc',
+              color: posMode === 'retail' ? '#fff' : '#64748b',
+              fontSize: 12, fontWeight: 700,
+            }}
           >
-            Tất cả
+            🛒 Bán lẻ
           </button>
-          {categories.map((cat) => (
-            <button
-              key={cat.id}
-              className={`pos-category-chip ${selectedCategory === cat.id ? 'active' : ''}`}
-              onClick={() =>
-                setSelectedCategory(selectedCategory === cat.id ? null : cat.id)
-              }
-            >
-              {cat.name}
-            </button>
-          ))}
+          <button
+            onClick={() => setPosMode('table')}
+            style={{
+              flex: 1, height: 36, borderRadius: 10,
+              border: '1.5px solid',
+              borderColor: posMode === 'table' ? 'var(--primary, #3b82f6)' : '#e2e8f0',
+              background: posMode === 'table' ? 'var(--primary, #3b82f6)' : '#f8fafc',
+              color: posMode === 'table' ? '#fff' : '#64748b',
+              fontSize: 12, fontWeight: 700,
+            }}
+          >
+            🏪 Bàn / Phòng
+          </button>
         </div>
 
-        {/* Product Grid */}
-        {isLoading ? (
-          <div className="pos-products">
-            {Array.from({ length: 9 }).map((_, i) => (
-              <div key={i} className="pos-product-card">
-                <div className="skeleton" style={{ width: '100%', height: 90 }} />
-                <div className="pos-product-info">
-                  <div className="skeleton" style={{ width: '80%', height: 12, marginBottom: 4 }} />
-                  <div className="skeleton" style={{ width: '50%', height: 10 }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : paginatedProducts.length === 0 ? (
-          <div className="empty-state" style={{ flex: 1 }}>
-            <div className="empty-state-icon">
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="1.5">
-                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-              </svg>
-            </div>
-            <p className="empty-state-title">Không tìm thấy sản phẩm</p>
-            <p className="empty-state-desc">Thử thay đổi bộ lọc hoặc từ khoá tìm kiếm</p>
-          </div>
-        ) : (
-          <div className="pos-products">
-            {paginatedProducts.map((product) => (
-              <div
-                key={product.id}
-                className="pos-product-card"
-                onClick={() => handleAddToCart(product)}
+        {/* Search + Barcode + Cart icon (retail mode only) */}
+        {posMode === 'retail' && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <div style={{ position: 'relative', flex: 1 }}>
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#94a3b8"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }}
               >
-                {product.image_url ? (
-                  <img
-                    className="pos-product-img"
-                    src={product.image_url}
-                    alt={product.name}
-                    loading="lazy"
-                  />
-                ) : (
-                  <div
-                    className="pos-product-img"
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: 24,
-                      background: '#f1f5f9',
-                    }}
-                  >
-                    📦
-                  </div>
-                )}
-                <div className="pos-product-info">
-                  <p className="pos-product-name">{product.name}</p>
-                  <p className="pos-product-price">
-                    {formatCurrency(product.sell_price)}
-                  </p>
-                </div>
-              </div>
-            ))}
-
-            {/* Load More Button */}
-            {hasMoreProducts && (
-              <div style={{ gridColumn: 'span 3', padding: '12px 0', textAlign: 'center' }}>
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+              <input
+                className="form-input"
+                style={{ paddingLeft: 38, paddingRight: searchQuery ? 36 : 14, fontSize: 14 }}
+                placeholder="Tìm sản phẩm..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              {searchQuery && (
                 <button
-                  onClick={() => setDisplayLimit((prev) => prev + 30)}
-                  className="zaui-btn zaui-btn-tertiary"
-                  style={{ width: '100%', fontSize: 13, height: 38 }}
+                  onClick={() => setSearchQuery('')}
+                  style={{
+                    position: 'absolute', right: 8, top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'none', border: 'none',
+                    color: '#94a3b8', padding: 4, cursor: 'pointer',
+                  }}
                 >
-                  Xem thêm sản phẩm
+                  ✕
                 </button>
-              </div>
-            )}
+              )}
+            </div>
+            <button
+              onClick={handleScanBarcode}
+              className="zaui-btn zaui-btn-tertiary"
+              style={{ padding: 10, minWidth: 'unset', height: 40, width: 40, borderRadius: 10 }}
+              title="Quét mã vạch"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 5v14M21 5v14M7 5v14M17 5v14M12 5v14" />
+              </svg>
+            </button>
+            <button
+              style={{ position: 'relative', background: 'none', border: 'none', padding: 8, cursor: 'pointer' }}
+              onClick={() => cartCount > 0 && setIsCheckoutOpen(true)}
+            >
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--foreground)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="9" cy="21" r="1" />
+                <circle cx="20" cy="21" r="1" />
+                <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+              </svg>
+              {cartCount > 0 && (
+                <span className="badge badge-red" style={{ position: 'absolute', top: 0, right: 0, minWidth: 18, height: 18, fontSize: 11 }}>
+                  {cartCount}
+                </span>
+              )}
+            </button>
           </div>
         )}
       </div>
 
-      {/* ══════ Bottom Cart Bar ══════ */}
-      {cart.length > 0 && (
+      {/* Cart-owner table banner (when adding items for a table) */}
+      {posMode === 'retail' && cartOwnerTableId && cartOwnerTable && (
+        <div style={{
+          background: '#fef2f2', borderLeft: '4px solid #ef4444',
+          padding: '8px 16px',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          fontSize: 12,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 16 }}>🏪</span>
+            <div>
+              <p style={{ fontWeight: 700, color: '#dc2626', margin: 0 }}>
+                Thêm món cho: {cartOwnerTable.name}
+              </p>
+              <p style={{ color: '#94a3b8', margin: '1px 0 0', fontSize: 11 }}>
+                Sản phẩm sẽ được gắn vào đơn bàn này
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              useTableStore.getState().setCartOwnerTableId(null);
+              setPosMode('table');
+            }}
+            style={{
+              padding: '4px 10px', borderRadius: 8,
+              border: '1.5px solid #fecdd3', background: '#fff1f2',
+              fontSize: 11, fontWeight: 700, color: '#f43f5e',
+            }}
+          >
+            ✕ Hủy
+          </button>
+        </div>
+      )}
+
+      {/* ═════ Table Mode Body ═════ */}
+      {posMode === 'table' && (
+        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <TableMapPage onAddItems={handleTableAddItems} />
+        </div>
+      )}
+
+      {/* ═════ Retail Mode Body ═════ */}
+      {posMode === 'retail' && (
+        <div className="pos-body">
+          {/* Category Chips */}
+          <div className="pos-categories scrollbar-none">
+            <button
+              className={`pos-category-chip ${selectedCategory === null ? 'active' : ''}`}
+              onClick={() => setSelectedCategory(null)}
+            >
+              Tất cả
+            </button>
+            {categories.map((cat) => (
+              <button
+                key={cat.id}
+                className={`pos-category-chip ${selectedCategory === cat.id ? 'active' : ''}`}
+                onClick={() =>
+                  setSelectedCategory(selectedCategory === cat.id ? null : cat.id)
+                }
+              >
+                {cat.name}
+              </button>
+            ))}
+          </div>
+
+          {/* Product Grid */}
+          {isLoading ? (
+            <div className="pos-products">
+              {Array.from({ length: 9 }).map((_, i) => (
+                <div key={i} className="pos-product-card">
+                  <div className="skeleton" style={{ width: '100%', height: 90 }} />
+                  <div className="pos-product-info">
+                    <div className="skeleton" style={{ width: '80%', height: 12, marginBottom: 4 }} />
+                    <div className="skeleton" style={{ width: '50%', height: 10 }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : paginatedProducts.length === 0 ? (
+            <div className="empty-state" style={{ flex: 1 }}>
+              <div className="empty-state-icon">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="1.5">
+                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+                </svg>
+              </div>
+              <p className="empty-state-title">Không tìm thấy sản phẩm</p>
+              <p className="empty-state-desc">Thử thay đổi bộ lọc hoặc từ khoá tìm kiếm</p>
+            </div>
+          ) : (
+            <div className="pos-products">
+              {paginatedProducts.map((product) => (
+                <div
+                  key={product.id}
+                  className="pos-product-card"
+                  onClick={() => handleAddToCart(product)}
+                >
+                  {product.image_url ? (
+                    <img
+                      className="pos-product-img"
+                      src={product.image_url}
+                      alt={product.name}
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div
+                      className="pos-product-img"
+                      style={{
+                        display: 'flex', alignItems: 'center',
+                        justifyContent: 'center', fontSize: 24,
+                        background: '#f1f5f9',
+                      }}
+                    >
+                      📦
+                    </div>
+                  )}
+                  <div className="pos-product-info">
+                    <p className="pos-product-name">{product.name}</p>
+                    <p className="pos-product-price">{formatCurrency(product.sell_price)}</p>
+                  </div>
+                </div>
+              ))}
+
+              {/* Load More */}
+              {hasMoreProducts && (
+                <div style={{ gridColumn: 'span 3', padding: '12px 0', textAlign: 'center' }}>
+                  <button
+                    onClick={() => setDisplayLimit((prev) => prev + 30)}
+                    className="zaui-btn zaui-btn-tertiary"
+                    style={{ width: '100%', fontSize: 13, height: 38 }}
+                  >
+                    Xem thêm sản phẩm
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+
+      {/* ══════ Bottom Cart Bar (retail mode only) ══════ */}
+      {posMode === 'retail' && cart.length > 0 && (
         <div className="pos-cart-bar">
           <div>
             <p style={{ fontSize: 12, color: '#64748b' }}>
-              {cartCount} sản phẩm
+              {cartOwnerTable
+                ? `${cartCount} món · ${cartOwnerTable.name}`
+                : `${cartCount} sản phẩm`}
             </p>
             <p style={{ fontSize: 16, fontWeight: 700, color: 'var(--foreground)' }}>
               {formatCurrency(cartTotal)}
             </p>
           </div>
-          <button
-            className="pos-cart-btn"
-            style={{ flex: 'unset', padding: '10px 20px', height: 40, fontSize: 14 }}
-            onClick={() => setIsCheckoutOpen(true)}
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+
+          {cartOwnerTableId ? (
+            <button
+              className="pos-cart-btn"
+              style={{
+                flex: 'unset', padding: '10px 20px', height: 40, fontSize: 14,
+                background: 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)',
+                border: 'none',
+              }}
+              onClick={handleSaveTableCart}
+              disabled={isSavingTableItems}
             >
-              <polyline points="9 11 12 14 22 4" />
-              <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-            </svg>
-            Thanh toán
-          </button>
+              {isSavingTableItems ? (
+                'Đang lưu...'
+              ) : (
+                <>
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    style={{ marginRight: 4 }}
+                  >
+                    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                    <polyline points="17 21 17 13 7 13 7 21" />
+                    <polyline points="7 3 7 8 15 8" />
+                  </svg>
+                  Lưu món
+                </>
+              )}
+            </button>
+          ) : (
+            <button
+              className="pos-cart-btn"
+              style={{ flex: 'unset', padding: '10px 20px', height: 40, fontSize: 14 }}
+              onClick={() => setIsCheckoutOpen(true)}
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polyline points="9 11 12 14 22 4" />
+                <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+              </svg>
+              Thanh toán
+            </button>
+          )}
         </div>
       )}
 

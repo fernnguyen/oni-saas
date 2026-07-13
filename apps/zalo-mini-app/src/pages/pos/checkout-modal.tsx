@@ -3,8 +3,10 @@ import toast from 'react-hot-toast';
 import { usePosStore } from '@/stores/pos-store';
 import { useTenantStore } from '@/stores/tenant-store';
 import { useAuthStore } from '@/stores/auth-store';
-import { syncOrderDirect, createCustomer, getCustomers } from '@/services/shop-api';
+import { useTableStore } from '@/stores/table-store';
+import { syncOrderDirect, createCustomer, getCustomers, updateLocationResource } from '@/services/shop-api';
 import { formatCurrency } from '@/utils/format';
+import { calculateBilling } from '@/utils/billing';
 
 interface Customer {
   id: string;
@@ -60,6 +62,14 @@ export default function CheckoutModal() {
   const orderNote = usePosStore((s) => s.orderNote);
   const profile = useAuthStore((s) => s.profile);
 
+  // ── Table context ──
+  const cartOwnerTableId = useTableStore((s) => s.cartOwnerTableId);
+  const tableSessions = useTableStore((s) => s.tableSessions);
+  const resources = useTableStore((s) => s.resources);
+  const tableSession = cartOwnerTableId ? tableSessions[cartOwnerTableId] : null;
+  const tableResource = cartOwnerTableId ? resources.find((r) => r.id === cartOwnerTableId) : null;
+  const isTableCheckout = !!cartOwnerTableId && !!tableSession;
+
   const {
     updateQuantity,
     updateUnitPrice,
@@ -96,6 +106,161 @@ export default function CheckoutModal() {
 
   // Custom Confirmation Dialog Modal State
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+
+  // ── Adjustable Check-in / Check-out times ──
+  const [customCheckInTime, setCustomCheckInTime] = useState<Date | null>(null);
+  const [customCheckOutTime, setCustomCheckOutTime] = useState<Date | null>(null);
+  const [isEditingTimes, setIsEditingTimes] = useState(false);
+  const [editInHour, setEditInHour] = useState('');
+  const [editInMinute, setEditInMinute] = useState('');
+  const [editInDate, setEditInDate] = useState(''); // DD/MM/YYYY
+  const [editOutHour, setEditOutHour] = useState('');
+  const [editOutMinute, setEditOutMinute] = useState('');
+  const [editOutDate, setEditOutDate] = useState(''); // DD/MM/YYYY
+
+  useEffect(() => {
+    if (tableSession) {
+      setCustomCheckInTime(new Date(tableSession.checkInTime));
+      setCustomCheckOutTime(new Date());
+    } else {
+      setCustomCheckInTime(null);
+      setCustomCheckOutTime(null);
+    }
+  }, [cartOwnerTableId, tableSession]);
+
+  const billingInfo = useMemo(() => {
+    if (!isTableCheckout || !tableResource || !customCheckInTime || !customCheckOutTime) return null;
+
+    const billing = calculateBilling({
+      rentalType: tableSession.rentalType,
+      checkInISO: customCheckInTime.toISOString(),
+      checkOutISO: customCheckOutTime.toISOString(),
+      hourlyRate: tableSession.hourlyRate ?? tableResource.hourly_rate ?? 0,
+      dailyRate: tableSession.dailyRate ?? tableResource.daily_rate ?? 0,
+      overnightRate: tableSession.overnightRate ?? tableResource.overnight_rate ?? 0,
+      advancedPricing: tableSession.advancedPricing,
+    });
+
+    const formatDateTime = (date: any) => {
+      if (!date) return '';
+      const dObj = (typeof date === 'string' || typeof date === 'number' || date instanceof Date) ? new Date(date) : null;
+      if (!dObj || isNaN(dObj.getTime())) return '';
+      const pad = (n: number) => n.toString().padStart(2, '0');
+      const d = pad(dObj.getDate());
+      const m = pad(dObj.getMonth() + 1);
+      const y = dObj.getFullYear();
+      const h = pad(dObj.getHours());
+      const min = pad(dObj.getMinutes());
+      return `${h}:${min} ${d}/${m}/${y}`;
+    };
+
+    return {
+      checkIn: formatDateTime(customCheckInTime),
+      checkOut: formatDateTime(customCheckOutTime),
+      duration: billing.label,
+      cost: billing.cost,
+      qty: billing.qty,
+      unitPrice: billing.unitPrice,
+    };
+  }, [isTableCheckout, tableResource, tableSession, customCheckInTime, customCheckOutTime]);
+
+  useEffect(() => {
+    if (billingInfo && isTableCheckout) {
+      const hasTimeCharge = usePosStore.getState().cart.some((item) => item.product.id === 'TIME_CHARGE');
+      if (hasTimeCharge) {
+        usePosStore.setState({
+          cart: usePosStore.getState().cart.map((item) =>
+            item.product.id === 'TIME_CHARGE' ? {
+              ...item,
+              quantity: billingInfo.qty,
+              unit_price: billingInfo.unitPrice
+            } : item
+          ),
+        });
+      } else if (billingInfo.cost > 0) {
+        const name = tableResource?.name || '';
+        const billingName = tableResource?.type === 'room'
+          ? `Tiền phòng - ${name} (${billingInfo.duration})`
+          : `Tiền giờ - ${name} (${billingInfo.duration})`;
+        usePosStore.setState({
+          cart: [
+            {
+              product: {
+                id: 'TIME_CHARGE',
+                name: billingName,
+                sell_price: billingInfo.unitPrice,
+              },
+              quantity: billingInfo.qty,
+              unit_price: billingInfo.unitPrice,
+            },
+            ...usePosStore.getState().cart,
+          ],
+        });
+      }
+    }
+  }, [billingInfo, isTableCheckout, tableResource]);
+
+  const handleStartEditTimes = () => {
+    if (!customCheckInTime || !customCheckOutTime) return;
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    
+    setEditInHour(pad(customCheckInTime.getHours()));
+    setEditInMinute(pad(customCheckInTime.getMinutes()));
+    setEditInDate(`${pad(customCheckInTime.getDate())}/${pad(customCheckInTime.getMonth() + 1)}/${customCheckInTime.getFullYear()}`);
+    
+    setEditOutHour(pad(customCheckOutTime.getHours()));
+    setEditOutMinute(pad(customCheckOutTime.getMinutes()));
+    setEditOutDate(`${pad(customCheckOutTime.getDate())}/${pad(customCheckOutTime.getMonth() + 1)}/${customCheckOutTime.getFullYear()}`);
+    
+    setIsEditingTimes(true);
+  };
+
+  const handleSaveTimes = () => {
+    try {
+      const parseTime = (h: string, m: string, dStr: string) => {
+        const hour = parseInt(h, 10);
+        const minute = parseInt(m, 10);
+        if (isNaN(hour) || hour < 0 || hour > 23 || isNaN(minute) || minute < 0 || minute > 59) {
+          throw new Error('Giờ hoặc phút không hợp lệ!');
+        }
+        const dateParts = dStr.split('/');
+        if (dateParts.length !== 3) {
+          throw new Error('Định dạng ngày phải là DD/MM/YYYY!');
+        }
+        const day = parseInt(dateParts[0], 10);
+        const month = parseInt(dateParts[1], 10);
+        const year = parseInt(dateParts[2], 10);
+        if (isNaN(day) || day < 1 || day > 31 || isNaN(month) || month < 1 || month > 12 || isNaN(year) || year < 2000) {
+          throw new Error('Ngày, tháng hoặc năm không hợp lệ!');
+        }
+        return new Date(year, month - 1, day, hour, minute, 0);
+      };
+
+      const newIn = parseTime(editInHour, editInMinute, editInDate);
+      const newOut = parseTime(editOutHour, editOutMinute, editOutDate);
+
+      if (newOut.getTime() < newIn.getTime()) {
+        toast.error('Giờ ra không được nhỏ hơn giờ vào!');
+        return;
+      }
+
+      setCustomCheckInTime(newIn);
+      setCustomCheckOutTime(newOut);
+      setIsEditingTimes(false);
+      toast.success('Đã cập nhật thời gian sử dụng');
+    } catch (err: any) {
+      toast.error(err.message || 'Lỗi định dạng thời gian!');
+    }
+  };
+
+  const handleResetTimes = () => {
+    if (tableSession) {
+      setCustomCheckInTime(new Date(tableSession.checkInTime));
+      setCustomCheckOutTime(new Date());
+      setIsEditingTimes(false);
+      toast.success('Đã khôi phục giờ hệ thống');
+    }
+  };
 
   // ── Discount & Unit Price edit states ──
   const [isEditingDiscount, setIsEditingDiscount] = useState(false);
@@ -356,18 +521,21 @@ export default function CheckoutModal() {
     setIsSubmitting(true);
 
     try {
-      const orderId = crypto.randomUUID();
+      // For table checkout: reuse existing orderId. For retail: new UUID.
+      const orderId = isTableCheckout && tableSession?.orderId
+        ? tableSession.orderId
+        : crypto.randomUUID();
       const isDebt = payments.some(
         (p) =>
           paymentMethods.find((m) => m.id === p.method)?.type === 'debt'
       );
 
-      const orderPayload = {
+      const orderPayload: any = {
         local_order_id: orderId,
         server_order_id: orderId,
         order: {
           status: 'completed',
-          channel: 'mini_app',
+          channel: 'zalo',
           customer_id: activeCustomer.id === 'C-DEFAULT-RETAIL' ? 'C-DEFAULT-RETAIL' : activeCustomer.id,
           customer_name: activeCustomer.name,
           employee_id: profile?.id || null,
@@ -415,7 +583,40 @@ export default function CheckoutModal() {
         },
       };
 
+      // Table checkout: add table_action to payload
+      if (isTableCheckout && cartOwnerTableId) {
+        orderPayload.table_action = {
+          resource_id: cartOwnerTableId,
+          resource_name: tableResource?.name ?? '',
+          action: 'checkout',
+        };
+      }
+
       await syncOrderDirect(shopId, orderPayload);
+
+      // ── Table-specific post-checkout: mark table cleaning ──
+      if (isTableCheckout && cartOwnerTableId) {
+        try {
+          await updateLocationResource(shopId, cartOwnerTableId, {
+            status: 'cleaning',
+            current_order_id: '',
+          });
+          const {
+            updateResource,
+            removeTableSession,
+            clearTableCart,
+            setCartOwnerTableId,
+            setIsTableCheckoutOpen,
+          } = useTableStore.getState();
+          updateResource(cartOwnerTableId, { status: 'cleaning', current_order_id: '' });
+          removeTableSession(cartOwnerTableId);
+          clearTableCart(cartOwnerTableId);
+          setCartOwnerTableId(null);
+          setIsTableCheckoutOpen(false);
+        } catch (tableErr) {
+          console.warn('Table post-checkout error:', tableErr);
+        }
+      }
 
       toast.success('Thanh toán thành công!', { duration: 2000 });
 
@@ -487,8 +688,32 @@ Cảm ơn Quý khách và hẹn gặp lại! 🙏`;
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           </button>
-          <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Thanh toán đơn hàng</h3>
+          <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>
+            {isTableCheckout && tableResource
+              ? `Thanh toán · ${tableResource.name}`
+              : 'Thanh toán đơn hàng'}
+          </h3>
         </div>
+
+        {/* Table context banner */}
+        {isTableCheckout && tableResource && (
+          <div style={{
+            background: '#fef2f2', borderLeft: '4px solid #ef4444',
+            padding: '10px 16px', margin: '0', fontSize: 12,
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          }}>
+            <div>
+              <span style={{ fontWeight: 700, color: '#dc2626' }}>🏠 {tableResource.name}</span>
+              {tableSession?.rentalType && (
+                <span style={{ color: '#94a3b8', marginLeft: 8, fontSize: 11 }}>
+                  {tableSession.rentalType === 'hourly' ? '⏱ Theo giờ'
+                    : tableSession.rentalType === 'daily' ? '☀️ Theo ngày'
+                    : '🌙 Qua đêm'}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Body */}
         <div className="modal-body" style={{ flex: 1, overflowY: 'auto', paddingBottom: 24 }}>
@@ -628,101 +853,300 @@ Cảm ơn Quý khách và hẹn gặp lại! 🙏`;
             )}
           </div>
 
+          {/* ══════ SECTION 1.5: Rent/Stay Time Details (Adjustable) ══════ */}
+          {isTableCheckout && billingInfo && (
+            <div style={{
+              background: '#f8fafc', borderRadius: 12, padding: 14,
+              border: '1.5px solid #cbd5e1', marginBottom: 16,
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Thời gian sử dụng
+                </span>
+                {!isEditingTimes && (
+                  <button
+                    type="button"
+                    onClick={handleStartEditTimes}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 4,
+                      background: '#fff7ed', border: '1.5px solid #fed7aa',
+                      borderRadius: 8, padding: '4px 8px', fontSize: 11, fontWeight: 600, color: '#ea580c',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                      <path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4z" />
+                    </svg>
+                    Sửa giờ vào/ra
+                  </button>
+                )}
+              </div>
+
+              {isEditingTimes ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, background: 'white', border: '1px solid #cbd5e1', borderRadius: 10, padding: 12 }}>
+                  <p style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', margin: 0, textTransform: 'uppercase' }}>
+                    Nhập thời gian mới
+                  </p>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {/* Check-in input */}
+                    <div>
+                      <label style={{ display: 'block', fontSize: 10, fontWeight: 700, color: '#475569', marginBottom: 6 }}>GIỜ VÀO</label>
+                      <div style={{ display: 'flex', gap: 6, width: '105%', marginLeft: '-2.5%' }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <span style={{ display: 'block', fontSize: 8, fontWeight: 700, color: '#94a3b8', marginBottom: 2, textAlign: 'center' }}>GIỜ (0-23)</span>
+                          <input
+                            style={{ width: '100%', minWidth: 0, boxSizing: 'border-box', height: 32, border: '1.5px solid #cbd5e1', borderRadius: 6, textAlign: 'center', fontSize: 12, fontWeight: 600 }}
+                            value={editInHour}
+                            onChange={(e) => setEditInHour(e.target.value)}
+                            placeholder="HH"
+                            maxLength={2}
+                            inputMode="numeric"
+                          />
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <span style={{ display: 'block', fontSize: 8, fontWeight: 700, color: '#94a3b8', marginBottom: 2, textAlign: 'center' }}>PHÚT (0-59)</span>
+                          <input
+                            style={{ width: '100%', minWidth: 0, boxSizing: 'border-box', height: 32, border: '1.5px solid #cbd5e1', borderRadius: 6, textAlign: 'center', fontSize: 12, fontWeight: 600 }}
+                            value={editInMinute}
+                            onChange={(e) => setEditInMinute(e.target.value)}
+                            placeholder="mm"
+                            maxLength={2}
+                            inputMode="numeric"
+                          />
+                        </div>
+                        <div style={{ flex: 2.2, minWidth: 0 }}>
+                          <span style={{ display: 'block', fontSize: 8, fontWeight: 700, color: '#94a3b8', marginBottom: 2, textAlign: 'center' }}>NGÀY (DD/MM/YYYY)</span>
+                          <input
+                            style={{ width: '100%', minWidth: 0, boxSizing: 'border-box', height: 32, border: '1.5px solid #cbd5e1', borderRadius: 6, textAlign: 'center', fontSize: 12, fontWeight: 600 }}
+                            value={editInDate}
+                            onChange={(e) => setEditInDate(e.target.value)}
+                            placeholder="DD/MM/YYYY"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Check-out input */}
+                    <div>
+                      <label style={{ display: 'block', fontSize: 10, fontWeight: 700, color: '#475569', marginBottom: 6 }}>GIỜ RA</label>
+                      <div style={{ display: 'flex', gap: 6, width: '105%', marginLeft: '-2.5%' }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <span style={{ display: 'block', fontSize: 8, fontWeight: 700, color: '#94a3b8', marginBottom: 2, textAlign: 'center' }}>GIỜ (0-23)</span>
+                          <input
+                            style={{ width: '100%', minWidth: 0, boxSizing: 'border-box', height: 32, border: '1.5px solid #cbd5e1', borderRadius: 6, textAlign: 'center', fontSize: 12, fontWeight: 600 }}
+                            value={editOutHour}
+                            onChange={(e) => setEditOutHour(e.target.value)}
+                            placeholder="HH"
+                            maxLength={2}
+                            inputMode="numeric"
+                          />
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <span style={{ display: 'block', fontSize: 8, fontWeight: 700, color: '#94a3b8', marginBottom: 2, textAlign: 'center' }}>PHÚT (0-59)</span>
+                          <input
+                            style={{ width: '100%', minWidth: 0, boxSizing: 'border-box', height: 32, border: '1.5px solid #cbd5e1', borderRadius: 6, textAlign: 'center', fontSize: 12, fontWeight: 600 }}
+                            value={editOutMinute}
+                            onChange={(e) => setEditOutMinute(e.target.value)}
+                            placeholder="mm"
+                            maxLength={2}
+                            inputMode="numeric"
+                          />
+                        </div>
+                        <div style={{ flex: 2.2, minWidth: 0 }}>
+                          <span style={{ display: 'block', fontSize: 8, fontWeight: 700, color: '#94a3b8', marginBottom: 2, textAlign: 'center' }}>NGÀY (DD/MM/YYYY)</span>
+                          <input
+                            style={{ width: '100%', minWidth: 0, boxSizing: 'border-box', height: 32, border: '1.5px solid #cbd5e1', borderRadius: 6, textAlign: 'center', fontSize: 12, fontWeight: 600 }}
+                            value={editOutDate}
+                            onChange={(e) => setEditOutDate(e.target.value)}
+                            placeholder="DD/MM/YYYY"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleResetTimes}
+                    style={{
+                      width: '100%', height: 34, borderRadius: 8,
+                      border: '1.5px dashed #3b82f6', background: '#eff6ff',
+                      fontSize: 11, fontWeight: 600, color: '#2563eb',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                      marginTop: 4, cursor: 'pointer'
+                    }}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+                    </svg>
+                    Sử dụng giờ hệ thống (Khôi phục)
+                  </button>
+
+                  <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingTimes(false)}
+                      style={{
+                        flex: 1, height: 34, borderRadius: 8,
+                        border: '1.5px solid #cbd5e1', background: '#f8fafc',
+                        fontSize: 12, fontWeight: 600, color: '#64748b', cursor: 'pointer'
+                      }}
+                    >
+                      Hủy
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveTimes}
+                      style={{
+                        flex: 1, height: 34, borderRadius: 8,
+                        border: 'none', background: '#ea580c',
+                        fontSize: 12, fontWeight: 700, color: '#fff', cursor: 'pointer'
+                      }}
+                    >
+                      Xác nhận
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: 12, color: '#64748b' }}>Giờ vào:</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: '#1e293b' }}>{billingInfo.checkIn}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: 12, color: '#64748b' }}>Giờ ra:</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: '#1e293b' }}>{billingInfo.checkOut}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #e2e8f0', paddingTop: 6, marginTop: 4 }}>
+                    <span style={{ fontSize: 12, color: '#64748b' }}>Tổng thời gian:</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: '#16a34a' }}>{billingInfo.duration}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* ══════ SECTION 2: Cart Items & Prices ══════ */}
           <div style={{ marginBottom: 16 }}>
             <p style={{ fontSize: 13, fontWeight: 600, margin: '0 0 8px' }}>
               Danh sách mặt hàng & Đơn giá
             </p>
             <div style={{ border: '1px solid #cbd5e1', borderRadius: 12, overflow: 'hidden', background: 'white' }}>
-              {cart.map((item) => {
-                const lineTotal = item.unit_price * item.quantity;
-                return (
-                  <div
-                    key={item.product.id}
-                    style={{
-                      display: 'flex', flexDirection: 'column', gap: 6,
-                      padding: '10px 12px', borderBottom: '1px solid #f1f5f9',
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyItems: 'center', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: '#334155' }} className="truncate pr-4">
-                        {item.product.name}
-                      </span>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--foreground)' }}>
-                        {formatCurrency(lineTotal)}
-                      </span>
-                    </div>
+              {(() => {
+                const sortedCart = [...cart].sort((a, b) => {
+                  if (a.product.id === 'TIME_CHARGE') return -1;
+                  if (b.product.id === 'TIME_CHARGE') return 1;
+                  return 0;
+                });
 
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-                      
-                      {/* Price editing */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ fontSize: 11, color: '#64748b' }}>Đơn giá:</span>
-                        {editingPriceItemId === item.product.id ? (
-                          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                            <input
-                              type="text"
-                              value={maskVnd(item.unit_price)}
-                              onChange={(e) => updateUnitPrice(item.product.id, parseVnd(e.target.value))}
-                              onBlur={() => setEditingPriceItemId(null)}
-                              onKeyDown={(e) => { if (e.key === 'Enter') setEditingPriceItemId(null) }}
+                return sortedCart.map((item) => {
+                  const lineTotal = item.unit_price * item.quantity;
+                  const isTimeCharge = item.product.id === 'TIME_CHARGE';
+
+                  return (
+                    <div
+                      key={item.product.id}
+                      style={{
+                        display: 'flex', flexDirection: 'column', gap: 6,
+                        padding: '10px 12px', borderBottom: '1px solid #f1f5f9',
+                        background: isTimeCharge ? '#ecfdf5' : 'white',
+                        borderLeft: isTimeCharge ? '4px solid #10b981' : 'none',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyItems: 'center', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: isTimeCharge ? '#065f46' : '#334155' }} className="truncate pr-4">
+                          {item.product.name}
+                        </span>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: isTimeCharge ? '#047857' : 'var(--foreground)' }}>
+                          {formatCurrency(lineTotal)}
+                        </span>
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                        
+                        {/* Price editing */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 11, color: isTimeCharge ? '#047857' : '#64748b', opacity: isTimeCharge ? 0.8 : 1 }}>Đơn giá:</span>
+                          {isTimeCharge ? (
+                            <span style={{ fontSize: 12, fontWeight: 700, color: '#047857' }}>
+                              {formatCurrency(item.unit_price)}
+                            </span>
+                          ) : editingPriceItemId === item.product.id ? (
+                            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                              <input
+                                type="text"
+                                value={maskVnd(item.unit_price)}
+                                onChange={(e) => updateUnitPrice(item.product.id, parseVnd(e.target.value))}
+                                onBlur={() => setEditingPriceItemId(null)}
+                                onKeyDown={(e) => { if (e.key === 'Enter') setEditingPriceItemId(null) }}
+                                style={{
+                                  width: 100, height: 28, padding: '2px 6px',
+                                  border: '1px solid #cbd5e1', borderRadius: 6,
+                                  fontSize: 12, fontWeight: 700, textAlign: 'right', background: 'white'
+                                }}
+                                autoFocus
+                                inputMode="numeric"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setEditingPriceItemId(null)}
+                                style={{ background: '#10b981', color: 'white', border: 'none', borderRadius: 6, padding: '2px 6px', fontSize: 10, fontWeight: 600 }}
+                              >
+                                Xong
+                              </button>
+                            </div>
+                          ) : (
+                            <span
+                              onClick={() => setEditingPriceItemId(item.product.id)}
                               style={{
-                                width: 100, height: 28, padding: '2px 6px',
-                                border: '1px solid #cbd5e1', borderRadius: 6,
-                                fontSize: 12, fontWeight: 700, textAlign: 'right', background: 'white'
+                                fontSize: 12, fontWeight: 700, color: '#1e293b', borderBottom: '1px dotted #64748b', cursor: 'pointer', paddingBottom: 1
                               }}
-                              autoFocus
-                              inputMode="numeric"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => setEditingPriceItemId(null)}
-                              style={{ background: '#10b981', color: 'white', border: 'none', borderRadius: 6, padding: '2px 6px', fontSize: 10, fontWeight: 600 }}
                             >
-                              Xong
-                            </button>
-                          </div>
-                        ) : (
-                          <span
-                            onClick={() => setEditingPriceItemId(item.product.id)}
-                            style={{
-                              fontSize: 12, fontWeight: 700, color: '#1e293b', borderBottom: '1px dotted #64748b', cursor: 'pointer', paddingBottom: 1
-                            }}
-                          >
-                            {formatCurrency(item.unit_price)}
-                          </span>
-                        )}
-                      </div>
+                              {formatCurrency(item.unit_price)}
+                            </span>
+                          )}
+                        </div>
 
-                      {/* Quantity editing & remove */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <button
-                          type="button"
-                          onClick={() => updateQuantity(item.product.id, item.quantity - 1)}
-                          style={{ width: 24, height: 24, border: '1px solid #e2e8f0', borderRadius: 4, background: '#f8fafc', fontWeight: 600 }}
-                        >
-                          −
-                        </button>
-                        <span style={{ fontSize: 12, fontWeight: 600 }}>{item.quantity}</span>
-                        <button
-                          type="button"
-                          onClick={() => updateQuantity(item.product.id, item.quantity + 1)}
-                          style={{ width: 24, height: 24, border: '1px solid #e2e8f0', borderRadius: 4, background: '#f8fafc', fontWeight: 600 }}
-                        >
-                          +
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => removeFromCart(item.product.id)}
-                          style={{ color: '#ef4444', fontSize: 12, border: 'none', background: 'none', cursor: 'pointer', marginLeft: 8 }}
-                        >
-                          Xoá
-                        </button>
+                        {/* Quantity editing & remove */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          {isTimeCharge ? (
+                            <span style={{ fontSize: 12, fontWeight: 600, color: '#047857' }}>
+                              Số lượng: {item.quantity}
+                            </span>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => updateQuantity(item.product.id, item.quantity - 1)}
+                                style={{ width: 24, height: 24, border: '1px solid #e2e8f0', borderRadius: 4, background: '#f8fafc', fontWeight: 600 }}
+                              >
+                                −
+                              </button>
+                              <span style={{ fontSize: 12, fontWeight: 600 }}>{item.quantity}</span>
+                              <button
+                                type="button"
+                                onClick={() => updateQuantity(item.product.id, item.quantity + 1)}
+                                style={{ width: 24, height: 24, border: '1px solid #e2e8f0', borderRadius: 4, background: '#f8fafc', fontWeight: 600 }}
+                              >
+                                +
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => removeFromCart(item.product.id)}
+                                style={{ color: '#ef4444', fontSize: 12, border: 'none', background: 'none', cursor: 'pointer', marginLeft: 8 }}
+                              >
+                                Xoá
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                });
+              })()}
             </div>
           </div>
 
