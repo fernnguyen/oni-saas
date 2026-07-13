@@ -76,6 +76,7 @@ function getLatestTag(): { major: number; minor: number; patch: number; raw: str
 async function main() {
   printHeader();
 
+  let tagCreatedLocally = false;
   const latest = getLatestTag();
   let nextTag = '';
   
@@ -104,7 +105,7 @@ async function main() {
 
   console.log(`🚀 Phiên bản sẽ phát hành: ${COLORS.bold}${COLORS.green}${nextTag}${COLORS.reset}\n`);
 
-  // Check working directory status
+  // 1. Check working directory status (uncommitted changes)
   try {
     const status = execSync('git status --porcelain', { encoding: 'utf8' }).trim();
     if (status) {
@@ -118,6 +119,55 @@ async function main() {
     }
   } catch (e) {
     console.log(`${COLORS.yellow}⚠️ Không thể kiểm tra trạng thái git status.${COLORS.reset}`);
+  }
+
+  // 2. Check sync status (ahead / behind / no upstream)
+  try {
+    const currentBranch = execSync('git branch --show-current', { encoding: 'utf8' }).trim();
+    const statusSb = execSync('git status -sb', { encoding: 'utf8' }).trim();
+    const firstLine = statusSb.split('\n')[0];
+    const hasUpstream = firstLine.includes('...');
+    
+    let ahead = 0;
+    let behind = 0;
+    
+    const aheadMatch = firstLine.match(/ahead (\d+)/);
+    if (aheadMatch) ahead = parseInt(aheadMatch[1], 10);
+    
+    const behindMatch = firstLine.match(/behind (\d+)/);
+    if (behindMatch) behind = parseInt(behindMatch[1], 10);
+
+    if (!hasUpstream) {
+      console.log(`${COLORS.yellow}⚠️ Cảnh báo: Nhánh '${currentBranch}' hiện tại chưa được thiết lập remote tracking (upstream).${COLORS.reset}`);
+      const setupUpstream = await question(`Bạn có muốn push thiết lập remote tracking và upstream không? (Y/n): `);
+      if (setupUpstream.trim().toLowerCase() !== 'n') {
+        console.log(`\n🚀 Đang chạy: git push -u origin ${currentBranch}...`);
+        execSync(`git push -u origin ${currentBranch}`, { stdio: 'inherit' });
+        console.log(`${COLORS.green}✅ Thiết lập upstream thành công!${COLORS.reset}\n`);
+      }
+    } else {
+      if (behind > 0) {
+        console.log(`${COLORS.yellow}⚠️ Cảnh báo: Nhánh local đang bị chậm hơn remote ${behind} commit(s).${COLORS.reset}`);
+        const pullChanges = await question(`Bạn có muốn chạy 'git pull' để cập nhật mã nguồn mới nhất không? (Y/n): `);
+        if (pullChanges.trim().toLowerCase() !== 'n') {
+          console.log(`\n🚀 Đang chạy: git pull...`);
+          execSync('git pull', { stdio: 'inherit' });
+          console.log(`${COLORS.green}✅ Đồng bộ code mới thành công!${COLORS.reset}\n`);
+        }
+      }
+
+      if (ahead > 0) {
+        console.log(`${COLORS.yellow}⚠️ Cảnh báo: Bạn đang có ${ahead} commit(s) ở local chưa được push lên remote.${COLORS.reset}`);
+        const pushChanges = await question(`Bạn có muốn chạy 'git push' để đưa các commit này lên remote trước không? (Y/n): `);
+        if (pushChanges.trim().toLowerCase() !== 'n') {
+          console.log(`\n🚀 Đang chạy: git push...`);
+          execSync('git push', { stdio: 'inherit' });
+          console.log(`${COLORS.green}✅ Push commit thành công!${COLORS.reset}\n`);
+        }
+      }
+    }
+  } catch (e: any) {
+    console.log(`${COLORS.yellow}⚠️ Không thể kiểm tra hoặc đồng bộ trạng thái git: ${e.message}${COLORS.reset}`);
   }
 
   const confirm = await question(`Bạn có chắc chắn muốn phát hành phiên bản ${COLORS.bold}${nextTag}${COLORS.reset}? (Y/n): `);
@@ -135,6 +185,7 @@ async function main() {
     // Step 2: git tag
     console.log(`\n🏷️ ${COLORS.bold}${COLORS.yellow}[Step 2/3] Đang tạo git tag ${nextTag}...${COLORS.reset}`);
     execSync(`git tag ${nextTag}`, { stdio: 'inherit' });
+    tagCreatedLocally = true;
     console.log(`${COLORS.green}✅ Đã tạo tag ${nextTag} thành công!${COLORS.reset}`);
 
     // Step 3: git push origin
@@ -148,16 +199,18 @@ async function main() {
     console.log(`\n${COLORS.bold}${COLORS.red}❌ Có lỗi xảy ra trong quá trình phát hành phiên bản web:${COLORS.reset}`);
     console.error((error as Error).message);
     
-    // Automatically delete local tag if it was created but the process failed (e.g. push failed)
-    try {
-      const checkTagLocal = execSync(`git tag -l "${nextTag}"`, { encoding: 'utf8' }).trim();
-      if (checkTagLocal) {
-        console.log(`\n${COLORS.yellow}🧹 Đang tự động dọn dẹp tag local ${nextTag}...${COLORS.reset}`);
-        execSync(`git tag -d ${nextTag}`, { stdio: 'inherit' });
-        console.log(`${COLORS.green}✅ Đã xóa tag local ${nextTag}${COLORS.reset}`);
+    // Automatically delete local tag if it was created in this run but process failed (e.g. push failed)
+    if (tagCreatedLocally) {
+      try {
+        const checkTagLocal = execSync(`git tag -l "${nextTag}"`, { encoding: 'utf8' }).trim();
+        if (checkTagLocal) {
+          console.log(`\n${COLORS.yellow}🧹 Đang tự động dọn dẹp tag local ${nextTag}...${COLORS.reset}`);
+          execSync(`git tag -d ${nextTag}`, { stdio: 'inherit' });
+          console.log(`${COLORS.green}✅ Đã xóa tag local ${nextTag}${COLORS.reset}`);
+        }
+      } catch (cleanupError) {
+        console.error(`${COLORS.red}⚠️ Không thể tự động xóa tag local ${nextTag}: ${(cleanupError as Error).message}${COLORS.reset}`);
       }
-    } catch (cleanupError) {
-      console.error(`${COLORS.red}⚠️ Không thể tự động xóa tag local ${nextTag}: ${(cleanupError as Error).message}${COLORS.reset}`);
     }
     
     process.exit(1);
