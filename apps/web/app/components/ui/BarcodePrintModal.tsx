@@ -52,7 +52,8 @@ export function BarcodePrintModal({ open, onClose, shopName, products }: Barcode
   const labelHeightMm = isTwoUp ? 22 : 30
   
   // The actual page printed by the browser — can be overridden by user
-  const defaultPageWidthMm = isTwoUp ? 75 : 50
+  // Default 72mm = 2.83in which matches the standard Xprinter 365B driver setting
+  const defaultPageWidthMm = isTwoUp ? 72 : 50
   const pageWidthMm = pageWidthOverride ? parseFloat(pageWidthOverride) || defaultPageWidthMm : defaultPageWidthMm
   const pageHeightMm = isTwoUp ? 22 : 30
 
@@ -194,7 +195,7 @@ export function BarcodePrintModal({ open, onClose, shopName, products }: Barcode
                   onChange={(e) => setPageWidthOverride(e.target.value)}
                   className="w-24 rounded-lg border border-slate-200 px-2 py-1 text-sm text-center focus:border-primary focus:outline-none bg-white"
                 />
-                <span className="text-xs text-slate-400">Mặc định: {defaultPageWidthMm}mm</span>
+                <span className="text-xs text-slate-400">Mặc định: {defaultPageWidthMm}mm (2.83in)</span>
               </div>
             )}
           </div>
