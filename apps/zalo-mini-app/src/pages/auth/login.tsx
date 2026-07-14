@@ -3,14 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { setTenantCode } from '@/lib/api-config';
 import toast from 'react-hot-toast';
-import { getPhoneNumber, getAccessToken } from 'zmp-sdk/apis';
-import { loginWithZaloMiniApp } from '@/services/auth';
+import { getAccessToken } from 'zmp-sdk/apis';
+import { apiFetch } from '@/services/api';
 
-/**
- * Build email cho Supabase auth dựa theo identifier + tenant:
- * - Nếu identifier chứa '@' → dùng luôn (là email thật)
- * - Nếu không (là username) → build fake email: {username}@{tenantSlug}.oni.vn
- */
 function buildAuthEmail(identifier: string, tenantSlug: string): string {
   if (identifier.includes('@')) return identifier;
   return `${identifier}@${tenantSlug}.oni.vn`;
@@ -23,10 +18,13 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [zaloLoading, setZaloLoading] = useState(false);
   const [isTenantLocked, setIsTenantLocked] = useState(false);
+  
+  // Login Gate states
+  const [isCheckingZalo, setIsCheckingZalo] = useState(true);
+  const [zaloSession, setZaloSession] = useState<any>(null);
+  const [zaloUser, setZaloUser] = useState<any>(null); // To store name/avatar
 
-  // Auto-fill from localStorage
   useEffect(() => {
     const savedTenant = localStorage.getItem('saved_tenant_code');
     const savedEmail = localStorage.getItem('saved_email');
@@ -35,7 +33,62 @@ export default function LoginPage() {
       setIsTenantLocked(true);
     }
     if (savedEmail) setEmail(savedEmail);
+
+    checkZaloLinked();
   }, []);
+
+  const checkZaloLinked = async () => {
+    try {
+      const accessToken = await new Promise<string>((resolve, reject) => {
+        getAccessToken({
+          success: (token) => resolve(token as string),
+          fail: () => reject('Cannot get access token'),
+        });
+      });
+
+      const res = await apiFetch<any>('/api/auth/zalo/verify', {
+        method: 'POST',
+        body: JSON.stringify({ accessToken }),
+      });
+
+      if (res.status === 'LOGGED_IN' && res.session) {
+        // They are linked, show the gate
+        setZaloSession(res.session);
+        setZaloUser({
+           name: res.session.user?.user_metadata?.full_name || 'Người dùng Zalo',
+           avatar: res.session.user?.user_metadata?.avatar_url
+        });
+      }
+    } catch (e) {
+      console.warn('Check Zalo linked failed', e);
+    } finally {
+      setIsCheckingZalo(false);
+    }
+  };
+
+  const handleContinueWithZalo = async () => {
+    if (!zaloSession) return;
+    setLoading(true);
+    try {
+      const { error } = await supabase.auth.setSession({
+        access_token: zaloSession.access_token,
+        refresh_token: zaloSession.refresh_token,
+      });
+      if (error) throw error;
+      
+      // Re-initialize API config with tenant if known (tenant is chosen later or from saved)
+      const savedTenant = localStorage.getItem('saved_tenant_code');
+      if (savedTenant) {
+        setTenantCode(savedTenant);
+      }
+      navigate('/select-branch', { replace: true });
+    } catch (e: any) {
+      toast.error('Lỗi khi đăng nhập bằng Zalo: ' + e.message);
+      setZaloSession(null);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,19 +111,14 @@ export default function LoginPage() {
 
     setLoading(true);
     try {
-      // 1. Set tenant code → build base URL https://{slug}.oni.vn
       setTenantCode(slug);
-
-      // 2. Lưu email và tenant để auto-fill lần sau
       localStorage.setItem('saved_email', identifier);
       localStorage.setItem('saved_tenant_code', slug);
       setIsTenantLocked(true);
 
-      // 3. Build email cho Supabase auth
       const authEmail = buildAuthEmail(identifier, slug);
 
-      // 4. Login qua Supabase
-      const { error } = await supabase.auth.signInWithPassword({
+      const { error, data } = await supabase.auth.signInWithPassword({
         email: authEmail,
         password,
       });
@@ -85,8 +133,8 @@ export default function LoginPage() {
         return;
       }
 
-      // 5. Login OK → chuyển sang select branch
-      navigate('/select-branch', { replace: true });
+      // Login OK → check if we should link Zalo
+      navigate('/link-zalo', { replace: true });
     } catch (err: any) {
       toast.error(err?.message || 'Có lỗi xảy ra');
     } finally {
@@ -94,55 +142,50 @@ export default function LoginPage() {
     }
   };
 
-  const handleZaloLogin = async () => {
-    const slug = tenantCodeInput.trim().toLowerCase();
-    if (!slug) {
-      toast.error('Vui lòng nhập mã cửa hàng trước khi đăng nhập');
-      return;
-    }
+  if (isCheckingZalo) {
+    return (
+      <div className="w-screen h-screen flex flex-col items-center justify-center bg-background">
+        <div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full mb-4" />
+        <p className="text-subtitle">Đang kiểm tra tài khoản...</p>
+      </div>
+    );
+  }
 
-    setZaloLoading(true);
-    try {
-      // Khóa cứng tenant code
-      localStorage.setItem('saved_tenant_code', slug);
-      setIsTenantLocked(true);
-
-      getPhoneNumber({
-        success: async (data) => {
-          try {
-            const { token } = data;
-            if (!token) throw new Error('Không nhận được token từ Zalo');
-            
-            const accessToken = await new Promise<string>((resolve, reject) => {
-              getAccessToken({
-                success: (token) => resolve(token as string),
-                fail: (err) => reject(new Error('Không thể lấy access token')),
-              });
-            });
-            
-            await loginWithZaloMiniApp(token, accessToken, slug);
-            
-            toast.success('Đăng nhập thành công!');
-            navigate('/select-branch', { replace: true });
-          } catch (error: any) {
-            console.error('Lỗi khi gọi API:', error);
-            toast.error(error?.message || 'Có lỗi xảy ra khi xác thực');
-          } finally {
-            setZaloLoading(false);
-          }
-        },
-        fail: (error) => {
-          console.error('Từ chối cấp quyền số điện thoại', error);
-          toast.error('Vui lòng cấp quyền số điện thoại để tiếp tục');
-          setZaloLoading(false);
-        }
-      });
-    } catch (err) {
-      console.error('Lỗi zmp-sdk:', err);
-      toast.error('Không thể kết nối Zalo');
-      setZaloLoading(false);
-    }
-  };
+  if (zaloSession && zaloUser) {
+    return (
+      <div className="auth-page">
+        <div className="auth-card flex flex-col items-center text-center">
+          <div className="w-20 h-20 mb-4 rounded-full overflow-hidden shadow-md">
+            <img 
+              src={zaloUser.avatar || '/avatar-placeholder.png'} 
+              alt={zaloUser.name} 
+              className="w-full h-full object-cover" 
+            />
+          </div>
+          <h2 className="text-xl font-bold mb-2">Xin chào, {zaloUser.name}</h2>
+          <p className="text-subtitle mb-8">Bạn muốn tiếp tục đăng nhập với tài khoản này?</p>
+          
+          <button 
+            onClick={handleContinueWithZalo} 
+            disabled={loading}
+            className="auth-btn auth-btn-primary w-full mb-3"
+          >
+            {loading ? 'Đang đăng nhập...' : 'Tiếp tục'}
+          </button>
+          
+          <button 
+            onClick={() => {
+              setZaloSession(null);
+              setZaloUser(null);
+            }}
+            className="auth-btn bg-[var(--border)]/30 text-foreground w-full hover:bg-[var(--border)]/50"
+          >
+            Đăng xuất
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="auth-page">
@@ -162,7 +205,12 @@ export default function LoginPage() {
             />
           </div>
           <h1 className="text-xl font-bold text-foreground">Đăng nhập</h1>
-          <p className="text-sm text-subtitle mt-1">Đăng nhập để bán hàng</p>
+          <p className="text-sm text-subtitle mt-1">Đăng nhập để quản lý bán hàng</p>
+          <div className="mt-3 px-3 py-2 bg-blue-50/50 rounded-lg border border-blue-100 max-w-xs text-center">
+            <p className="text-[11px] text-blue-600 font-medium">
+              Ứng dụng nội bộ dành riêng cho chủ cửa hàng và nhân viên. Vui lòng đăng nhập bằng tài khoản được cấp.
+            </p>
+          </div>
         </div>
 
         <form onSubmit={handleLogin} className="space-y-4">
@@ -294,24 +342,6 @@ export default function LoginPage() {
             )}
           </button>
         </form>
-
-        {/* Divider */}
-        <div className="flex items-center my-6">
-          <div className="flex-1 h-px bg-[var(--border)]" />
-          <span className="px-3 text-sm text-subtitle">hoặc</span>
-          <div className="flex-1 h-px bg-[var(--border)]" />
-        </div>
-
-        {/* Zalo Login */}
-        <button
-          type="button"
-          onClick={handleZaloLogin}
-          className="auth-btn auth-btn-zalo flex items-center justify-center space-x-2"
-          disabled={zaloLoading}
-        >
-          <img src="/zalo.svg" alt="Zalo" className="w-5 h-5" />
-          <span>{zaloLoading ? 'Đang kết nối...' : 'Đăng nhập bằng Zalo'}</span>
-        </button>
 
         {/* Register link */}
         <p className="text-center mt-6 text-sm text-subtitle">

@@ -5,6 +5,7 @@ import LoginPage from "@/pages/auth/login";
 import RegisterPage from "@/pages/auth/register";
 import OnboardingPage from "@/pages/auth/onboarding";
 import SelectBranchPage from "@/pages/auth/select-branch";
+import LinkZaloPage from "@/pages/auth/link-zalo";
 import DashboardPage from "@/pages/dashboard";
 import OrdersPage from "@/pages/orders";
 import OrderDetailPage from "@/pages/orders/detail";
@@ -47,6 +48,7 @@ const router = createBrowserRouter(
     // Semi-protected (needs auth but not shop)
     { path: "/onboarding", element: <OnboardingPage /> },
     { path: "/select-branch", element: <SelectBranchPage /> },
+    { path: "/link-zalo", element: <LinkZaloPage /> },
     // Protected routes (needs auth + shop)
     {
       path: "/",

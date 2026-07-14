@@ -120,6 +120,32 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Failed to verify session', details: verifyError }, { status: 500 });
     }
 
+    // --- AUTO-LINKING ZALO ID ---
+    // At this point, the user is successfully created or logged in.
+    // We insert into user_identities so the next time they open the app, 
+    // the verify flow can auto-login without needing phone number again.
+    const userId = sessionData.session.user.id;
+    if (profileData.id) {
+      const { data: existing } = await admin
+        .from('user_identities')
+        .select('id')
+        .eq('provider', 'zalo')
+        .eq('provider_id', profileData.id)
+        .limit(1);
+
+      if (!existing || existing.length === 0) {
+        await admin.from('user_identities').insert({
+          id: `zalo_${profileData.id}`,
+          user_id: userId,
+          provider: 'zalo',
+          provider_id: profileData.id,
+          name: profileData.name || null,
+          avatar: profileData.picture?.data?.url || null,
+        });
+      }
+    }
+    // ----------------------------
+
     // Return the session to the Mini App
     return NextResponse.json({ session: sessionData.session });
   } catch (err: any) {
