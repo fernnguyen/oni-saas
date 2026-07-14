@@ -103,7 +103,12 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ 
       status: 'LOGGED_IN', 
-      session: sessionData.session 
+      session: sessionData.session,
+      zaloProfile: {
+        id: zaloId,
+        name: zaloData.name,
+        avatar: zaloData.picture?.data?.url || null,
+      }
     });
   } catch (err: any) {
     console.error('Zalo Verify API Error:', err);

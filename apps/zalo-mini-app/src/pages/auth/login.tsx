@@ -67,11 +67,11 @@ export default function LoginPage() {
       });
 
       if (res.status === 'LOGGED_IN' && res.session) {
-        // They are linked, show the gate
+        // They are linked, show the gate with profile from Zalo
         setZaloSession(res.session);
         setZaloUser({
-           name: res.session.user?.user_metadata?.full_name || 'Người dùng Zalo',
-           avatar: res.session.user?.user_metadata?.avatar_url
+           name: res.zaloProfile?.name || 'Người dùng',
+           avatar: res.zaloProfile?.avatar || null,
         });
       }
     } catch (e) {
@@ -170,22 +170,36 @@ export default function LoginPage() {
     return (
       <div className="auth-page">
         <div className="auth-card flex flex-col items-center text-center">
-          <div className="w-20 h-20 mb-4 rounded-full overflow-hidden shadow-md">
-            <img 
-              src={zaloUser.avatar || '/avatar-placeholder.png'} 
-              alt={zaloUser.name} 
-              className="w-full h-full object-cover" 
-            />
+          {/* Avatar */}
+          <div className="w-20 h-20 mb-4 rounded-full overflow-hidden shadow-md bg-gray-100 flex items-center justify-center">
+            {zaloUser.avatar ? (
+              <img 
+                src={zaloUser.avatar} 
+                alt={zaloUser.name} 
+                className="w-full h-full object-cover" 
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = 'none';
+                  (e.target as HTMLImageElement).parentElement!.innerHTML = 
+                    `<div class="w-full h-full flex items-center justify-center bg-gradient-to-br from-[var(--primary)] to-blue-600 text-white text-2xl font-bold">${zaloUser.name?.charAt(0) || 'U'}</div>`;
+                }}
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[var(--primary)] to-blue-600 text-white text-2xl font-bold">
+                {zaloUser.name?.charAt(0) || 'U'}
+              </div>
+            )}
           </div>
-          <h2 className="text-xl font-bold mb-2">Xin chào, {zaloUser.name}</h2>
-          <p className="text-subtitle mb-8">Bạn muốn tiếp tục đăng nhập với tài khoản này?</p>
+          
+          <p className="text-sm text-subtitle mb-1">Xin chào,</p>
+          <h2 className="text-xl font-bold mb-2">{zaloUser.name}</h2>
+          <p className="text-sm text-subtitle mb-8">Tiếp tục để chọn chi nhánh làm việc</p>
           
           <button 
             onClick={handleContinueWithZalo} 
             disabled={loading}
             className="auth-btn auth-btn-primary w-full mb-3"
           >
-            {loading ? 'Đang đăng nhập...' : 'Tiếp tục'}
+            {loading ? 'Đang xử lý...' : 'Tiếp tục'}
           </button>
           
           <button 

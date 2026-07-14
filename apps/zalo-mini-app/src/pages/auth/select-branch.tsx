@@ -80,6 +80,12 @@ export default function SelectBranchPage() {
         return;
       }
 
+      // Auto-select if only 1 tenant (no need to show selection screen)
+      if (userTenants.length === 1) {
+        await handleSelectTenant(userTenants[0]);
+        return;
+      }
+
       // If active tenant slug exists in localStorage, auto select it
       const activeTenantCode = localStorage.getItem('active_tenant_code');
       const foundTenant = userTenants.find((t) => t.slug === activeTenantCode);

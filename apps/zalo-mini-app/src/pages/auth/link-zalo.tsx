@@ -9,15 +9,16 @@ export default function LinkZaloPage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(true);
-  const [zaloProfile, setZaloProfile] = useState<any>(null);
 
   useEffect(() => {
-    checkStatus();
+    // Only check if Zalo is ALREADY LINKED (silently) to redirect past this screen
+    // We do NOT fetch any Zalo profile data until user explicitly clicks the button
+    checkIfAlreadyLinked();
   }, []);
 
-  const checkStatus = async () => {
+  const checkIfAlreadyLinked = async () => {
     try {
-      // Check permission before silently requesting token
+      // Only proceed silently if user has previously granted permission
       const hasPermission = await new Promise<boolean>((resolve) => {
         getSetting({
           success: (data) => resolve(!!data.authSetting['scope.userInfo']),
@@ -26,6 +27,7 @@ export default function LinkZaloPage() {
       });
 
       if (!hasPermission) {
+        // Not granted yet → show link screen, wait for user action
         setChecking(false);
         return;
       }
@@ -43,17 +45,15 @@ export default function LinkZaloPage() {
       });
 
       if (res.status === 'LOGGED_IN') {
-        // Already linked, skip this page
+        // Already linked → skip this page entirely
         navigate('/select-branch', { replace: true });
         return;
       }
-      
-      if (res.zaloProfile) {
-        setZaloProfile(res.zaloProfile);
-      }
+
+      // NOT_LINKED → show link screen, but DO NOT display any profile data
+      setChecking(false);
     } catch (e) {
       console.warn('Check Zalo linked failed', e);
-    } finally {
       setChecking(false);
     }
   };
@@ -61,29 +61,32 @@ export default function LinkZaloPage() {
   const handleLink = async () => {
     setLoading(true);
     try {
-      // Explicitly request permission to show prompt per Zalo policy
+      // Step 1: Explicitly request permission → this shows the Zalo consent sheet
       await new Promise<void>((resolve, reject) => {
         authorize({
           scopes: ['scope.userInfo'],
           success: () => resolve(),
-          fail: (err) => reject(new Error('Bạn cần cấp quyền để liên kết tài khoản Zalo')),
+          fail: () => reject(new Error('Bạn cần cấp quyền để liên kết tài khoản Zalo')),
         });
       });
 
+      // Step 2: Get access token after permission granted
       const accessToken = await new Promise<string>((resolve, reject) => {
         getAccessToken({
           success: (token) => resolve(token as string),
           fail: () => reject('Cannot get access token'),
         });
       });
-      
+
+      // Step 3: Get current session
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
-         toast.error('Vui lòng đăng nhập lại');
-         navigate('/login', { replace: true });
-         return;
+        toast.error('Vui lòng đăng nhập lại');
+        navigate('/login', { replace: true });
+        return;
       }
 
+      // Step 4: Send to backend to link
       await apiFetch('/api/auth/zalo/link', {
         method: 'POST',
         headers: {
@@ -95,7 +98,11 @@ export default function LinkZaloPage() {
       toast.success('Liên kết thành công!');
       navigate('/select-branch', { replace: true });
     } catch (e: any) {
-      toast.error('Lỗi khi liên kết: ' + e.message);
+      if (e.message?.includes('đã được liên kết với một tài khoản khác')) {
+        toast.error('Tài khoản Zalo này đã liên kết với người dùng khác. Vui lòng hủy liên kết ở tài khoản đó trước.');
+      } else {
+        toast.error(e.message || 'Lỗi khi liên kết tài khoản Zalo');
+      }
     } finally {
       setLoading(false);
     }
@@ -117,34 +124,39 @@ export default function LinkZaloPage() {
   return (
     <div className="auth-page">
       <div className="auth-card flex flex-col items-center text-center">
-        {zaloProfile?.avatar ? (
-           <div className="w-20 h-20 mb-4 rounded-full overflow-hidden shadow-md">
-             <img 
-               src={zaloProfile.avatar} 
-               alt={zaloProfile.name} 
-               className="w-full h-full object-cover" 
-             />
-           </div>
-        ) : (
-           <div className="w-16 h-16 mb-4 rounded-2xl overflow-hidden flex items-center justify-center bg-blue-100">
-             <img src="/zalo.svg" alt="Zalo" className="w-8 h-8" />
-           </div>
-        )}
-        
-        <h2 className="text-xl font-bold mb-2">Liên kết tài khoản</h2>
-        <p className="text-subtitle mb-8 text-sm px-4">
-          Bạn có muốn liên kết với tài khoản Zalo <strong>{zaloProfile?.name}</strong> để đăng nhập nhanh cho các lần sau?
+        {/* Zalo logo icon */}
+        <div className="w-16 h-16 mb-5 rounded-2xl overflow-hidden flex items-center justify-center bg-blue-50 border border-blue-100 shadow-sm">
+          <img src="/zalo.svg" alt="Zalo" className="w-10 h-10" />
+        </div>
+
+        <h2 className="text-xl font-bold mb-2">Liên kết tài khoản Zalo</h2>
+        <p className="text-subtitle mb-8 text-sm px-4 leading-relaxed">
+          Liên kết để đăng nhập tự động bằng Zalo cho các lần sau, không cần nhập mật khẩu.
         </p>
-        
-        <button 
-          onClick={handleLink} 
+
+        <button
+          onClick={handleLink}
           disabled={loading}
-          className="auth-btn auth-btn-primary w-full mb-3"
+          className="auth-btn w-full mb-3 flex items-center justify-center gap-2"
+          style={{
+            background: 'linear-gradient(135deg, #0068FF 0%, #0052CC 100%)',
+            color: 'white',
+          }}
         >
-          {loading ? 'Đang xử lý...' : 'Liên kết ngay'}
+          {loading ? (
+            <>
+              <span className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+              <span>Đang xử lý...</span>
+            </>
+          ) : (
+            <>
+              <img src="/zalo.svg" alt="" className="w-5 h-5 brightness-0 invert" />
+              <span className="font-semibold">Liên kết tài khoản Zalo</span>
+            </>
+          )}
         </button>
-        
-        <button 
+
+        <button
           onClick={handleSkip}
           disabled={loading}
           className="auth-btn bg-[var(--border)]/30 text-foreground w-full hover:bg-[var(--border)]/50"
