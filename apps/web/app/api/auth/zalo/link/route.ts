@@ -61,16 +61,36 @@ export async function POST(req: Request) {
       );
     }
 
-    // Upsert to user_identities
     const admin = getSupabaseAdminClient();
-    const { error: insertError } = await admin.from('user_identities').upsert({
+    
+    // Check if Zalo ID is already linked to anyone
+    const { data: existingLinked } = await admin
+      .from('user_identities')
+      .select('user_id')
+      .eq('provider', 'zalo')
+      .eq('provider_id', zaloData.id)
+      .single();
+
+    if (existingLinked) {
+      if (existingLinked.user_id !== user.id) {
+        return NextResponse.json(
+          { error: 'Tài khoản Zalo này đã được liên kết với một tài khoản khác. Vui lòng hủy liên kết ở tài khoản kia trước.' },
+          { status: 409 }
+        );
+      }
+      // If it's already linked to the CURRENT user, just return success
+      return NextResponse.json({ success: true, message: 'Already linked' });
+    }
+
+    // Not linked to anyone, so we insert it
+    const { error: insertError } = await admin.from('user_identities').insert({
       id: `zalo_${zaloData.id}`,
       user_id: user.id,
       provider: 'zalo',
       provider_id: zaloData.id,
       name: zaloData.name || null,
       avatar: zaloData.picture?.data?.url || null,
-    }, { onConflict: 'provider, provider_id' });
+    });
     
     if (insertError) {
       return NextResponse.json(

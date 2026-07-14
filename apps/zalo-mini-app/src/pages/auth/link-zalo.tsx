@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getAccessToken } from 'zmp-sdk/apis';
+import { getAccessToken, getSetting, authorize } from 'zmp-sdk/apis';
 import { apiFetch } from '@/services/api';
 import toast from 'react-hot-toast';
 import { supabase } from '@/lib/supabase';
@@ -17,6 +17,19 @@ export default function LinkZaloPage() {
 
   const checkStatus = async () => {
     try {
+      // Check permission before silently requesting token
+      const hasPermission = await new Promise<boolean>((resolve) => {
+        getSetting({
+          success: (data) => resolve(!!data.authSetting['scope.userInfo']),
+          fail: () => resolve(false),
+        });
+      });
+
+      if (!hasPermission) {
+        setChecking(false);
+        return;
+      }
+
       const accessToken = await new Promise<string>((resolve, reject) => {
         getAccessToken({
           success: (token) => resolve(token as string),
@@ -48,6 +61,15 @@ export default function LinkZaloPage() {
   const handleLink = async () => {
     setLoading(true);
     try {
+      // Explicitly request permission to show prompt per Zalo policy
+      await new Promise<void>((resolve, reject) => {
+        authorize({
+          scopes: ['scope.userInfo'],
+          success: () => resolve(),
+          fail: (err) => reject(new Error('Bạn cần cấp quyền để liên kết tài khoản Zalo')),
+        });
+      });
+
       const accessToken = await new Promise<string>((resolve, reject) => {
         getAccessToken({
           success: (token) => resolve(token as string),

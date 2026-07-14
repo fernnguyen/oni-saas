@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { setTenantCode } from '@/lib/api-config';
 import toast from 'react-hot-toast';
-import { getAccessToken } from 'zmp-sdk/apis';
+import { getAccessToken, getSetting } from 'zmp-sdk/apis';
 import { apiFetch } from '@/services/api';
 
 function buildAuthEmail(identifier: string, tenantSlug: string): string {
@@ -39,6 +39,21 @@ export default function LoginPage() {
 
   const checkZaloLinked = async () => {
     try {
+      // Check if user has granted permission before
+      const hasPermission = await new Promise<boolean>((resolve) => {
+        getSetting({
+          success: (data) => {
+            resolve(!!data.authSetting['scope.userInfo']);
+          },
+          fail: () => resolve(false),
+        });
+      });
+
+      if (!hasPermission) {
+        setIsCheckingZalo(false);
+        return;
+      }
+
       const accessToken = await new Promise<string>((resolve, reject) => {
         getAccessToken({
           success: (token) => resolve(token as string),

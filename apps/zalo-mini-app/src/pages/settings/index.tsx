@@ -3,8 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/auth-store';
 import { useTenantStore } from '@/stores/tenant-store';
 import { logout } from '@/services/auth';
-import { openChat } from 'zmp-sdk/apis';
+import { openChat, getAccessToken, authorize } from 'zmp-sdk/apis';
+import { apiFetch } from '@/services/api';
 import toast from 'react-hot-toast';
+import { useEffect } from 'react';
 
 export default function SettingsPage() {
   const navigate = useNavigate();
@@ -14,6 +16,78 @@ export default function SettingsPage() {
 
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const appVersion = import.meta.env.VITE_APP_VERSION || 'v0.1.0-dev';
+
+  // Zalo Link States
+  const [zaloLinked, setZaloLinked] = useState<boolean | null>(null);
+  const [zaloProfile, setZaloProfile] = useState<{name: string; avatar: string} | null>(null);
+  const [linking, setLinking] = useState(false);
+
+  useEffect(() => {
+    fetchZaloStatus();
+  }, []);
+
+  const fetchZaloStatus = async () => {
+    try {
+      const res = await apiFetch<any>('/api/auth/zalo/status');
+      if (res.linked) {
+        setZaloLinked(true);
+        setZaloProfile(res.profile);
+      } else {
+        setZaloLinked(false);
+        setZaloProfile(null);
+      }
+    } catch (e) {
+      console.warn('Failed to fetch Zalo status', e);
+    }
+  };
+
+  const handleLinkZalo = async () => {
+    setLinking(true);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        authorize({
+          scopes: ['scope.userInfo'],
+          success: () => resolve(),
+          fail: () => reject(new Error('Bạn cần cấp quyền để liên kết tài khoản Zalo')),
+        });
+      });
+
+      const accessToken = await new Promise<string>((resolve, reject) => {
+        getAccessToken({
+          success: (token) => resolve(token as string),
+          fail: () => reject('Cannot get access token'),
+        });
+      });
+
+      await apiFetch('/api/auth/zalo/link', {
+        method: 'POST',
+        body: JSON.stringify({ accessToken }),
+      });
+
+      toast.success('Liên kết thành công!');
+      fetchZaloStatus();
+    } catch (e: any) {
+      toast.error(e.message || 'Lỗi khi liên kết Zalo');
+    } finally {
+      setLinking(false);
+    }
+  };
+
+  const handleUnlinkZalo = async () => {
+    if (!confirm('Bạn có chắc chắn muốn hủy liên kết tài khoản Zalo này?')) return;
+    setLinking(true);
+    try {
+      await apiFetch('/api/auth/zalo/unlink', {
+        method: 'POST'
+      });
+      toast.success('Hủy liên kết thành công');
+      fetchZaloStatus();
+    } catch (e: any) {
+      toast.error(e.message || 'Lỗi khi hủy liên kết');
+    } finally {
+      setLinking(false);
+    }
+  };
 
   const triggerLogout = () => {
     setShowLogoutConfirm(true);
@@ -72,6 +146,42 @@ export default function SettingsPage() {
           )}
         </div>
       )}
+
+      {/* Zalo Link Info */}
+      <div className="mx-4 mt-3 bg-section rounded-xl p-4">
+        <p className="text-2xs text-subtitle uppercase font-medium tracking-wider mb-3">
+          Tài khoản Zalo
+        </p>
+        
+        {zaloLinked === null ? (
+          <p className="text-sm text-subtitle">Đang tải...</p>
+        ) : zaloLinked && zaloProfile ? (
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <img src={zaloProfile.avatar} alt={zaloProfile.name} className="w-8 h-8 rounded-full border border-gray-200" />
+              <span className="text-sm font-semibold text-foreground">{zaloProfile.name}</span>
+            </div>
+            <button
+              onClick={handleUnlinkZalo}
+              disabled={linking}
+              className="text-sm font-medium text-red-500 hover:text-red-600 disabled:opacity-50"
+            >
+              Hủy
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-subtitle">Chưa liên kết</span>
+            <button
+              onClick={handleLinkZalo}
+              disabled={linking}
+              className="text-sm font-medium text-blue-500 hover:text-blue-600 disabled:opacity-50"
+            >
+              Liên kết ngay
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* Actions */}
       <div className="mx-4 mt-3 bg-section rounded-xl overflow-hidden">
