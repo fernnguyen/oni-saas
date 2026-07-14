@@ -1,3 +1,11 @@
+/* Global font — match mobile app (Inter from Google Fonts) */
+html, body, #app {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
 :not(input):not(textarea) {
   -webkit-user-select: none;
   user-select: none;

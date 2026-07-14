@@ -931,3 +931,26 @@ export function DefaultUserAvatar(props: HTMLProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+/** Retail / Shopping cart icon */
+export function RetailIcon({ size = 24, color = 'currentColor', active }: { size?: number; color?: string; active?: boolean }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="9" cy="21" r="1" stroke={color} strokeWidth="2" />
+      <circle cx="20" cy="21" r="1" stroke={color} strokeWidth="2" />
+      <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** Table / Room icon — minimal table with surface and legs */
+export function TableRoomIcon({ size = 24, color = 'currentColor', active }: { size?: number; color?: string; active?: boolean }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="2" y="7" width="20" height="3" rx="1.5" stroke={color} strokeWidth="2" />
+      <path d="M5 10v8" stroke={color} strokeWidth="2" strokeLinecap="round" />
+      <path d="M19 10v8" stroke={color} strokeWidth="2" strokeLinecap="round" />
+      <path d="M5 14h14" stroke={color} strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}

@@ -12,11 +12,14 @@ import {
   getOrderItems,
   createOrderItem,
   updateOrderItem,
+  getLocationResources,
+  getShopSettings,
 } from '@/services/shop-api';
 import { formatCurrency } from '@/utils/format';
 import CheckoutModal from './checkout-modal';
 import { BarcodeScannerModal } from '@/components/barcode-scanner-modal';
 import TableMapPage from './TableMapPage';
+import { RetailIcon, TableRoomIcon } from '@/components/vectors';
 
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache
 
@@ -43,6 +46,16 @@ export default function PosPage() {
 
   // ── POS mode ──
   const [posMode, setPosMode] = useState<'retail' | 'table'>('retail');
+  const hasTableRoomSupport = useMemo(() => {
+    return shop?.industry_type !== 'retail' && resources.length > 0;
+  }, [shop?.industry_type, resources.length]);
+
+  useEffect(() => {
+    if (!hasTableRoomSupport && posMode !== 'retail') {
+      setPosMode('retail');
+    }
+  }, [hasTableRoomSupport, posMode]);
+
   const [isSavingTableItems, setIsSavingTableItems] = useState(false);
 
   const handleSaveTableCart = async () => {
@@ -143,8 +156,12 @@ export default function PosPage() {
           // Entering table order from retail: backup retail cart
           usePosStore.getState().backupRetailCart();
         }
-        // Always reset cart when starting an order session for any table
-        usePosStore.getState().clearCart();
+        // Only clear cart when entering "add items" mode, NOT checkout mode.
+        // In checkout mode, handleSessionCheckout already pre-populated the cart
+        // with food items + TIME_CHARGE, so clearing would wipe them out.
+        if (!useTableStore.getState().isTableCheckoutOpen) {
+          usePosStore.getState().clearCart();
+        }
       } else {
         // Exiting table order to retail: restore retail cart
         usePosStore.getState().restoreRetailCart();
@@ -258,9 +275,40 @@ export default function PosPage() {
     }
   };
 
+  // Track shop changes to reset state on branch switch
+  const prevShopIdRef = useRef(shopId);
   useEffect(() => {
+    if (prevShopIdRef.current && shopId && prevShopIdRef.current !== shopId) {
+      // Branch changed — clear all POS and table state
+      usePosStore.getState().clearCart();
+      useTableStore.getState().clearAllTableData();
+      setPosMode('retail');
+    }
+    prevShopIdRef.current = shopId;
     loadData();
-  }, [shopId]);
+
+    // Prefetch table resources to verify table support
+    if (shopId && shop?.industry_type !== 'retail') {
+      getLocationResources(shopId)
+        .then((resData) => {
+          const raw = (resData || []) as any[];
+          useTableStore.getState().setResources(raw.filter((r) => r.deleted_at == null));
+        })
+        .catch((err) => {
+          console.error('Error prefetching resources:', err);
+        });
+
+      getShopSettings(shopId)
+        .then((settingsData) => {
+          if (settingsData) {
+            useTableStore.getState().setShopSettings(settingsData as any);
+          }
+        })
+        .catch((err) => {
+          console.error('Error prefetching shop settings:', err);
+        });
+    }
+  }, [shopId, shop?.industry_type]);
 
   // Reset pagination limit when search or category changes
   useEffect(() => {
@@ -404,34 +452,40 @@ export default function PosPage() {
       {/* ═════ Top Bar ═════ */}
       <div className="pos-topbar" style={{ flexDirection: 'column', gap: 8, paddingBottom: 8, alignItems: 'stretch' }}>
         {/* Mode switcher */}
-        <div style={{ display: 'flex', gap: 6, width: '100%' }}>
-          <button
-            onClick={() => setPosMode('retail')}
-            style={{
-              flex: 1, height: 36, borderRadius: 10,
-              border: '1.5px solid',
-              borderColor: posMode === 'retail' ? 'var(--primary, #3b82f6)' : '#e2e8f0',
-              background: posMode === 'retail' ? 'var(--primary, #3b82f6)' : '#f8fafc',
-              color: posMode === 'retail' ? '#fff' : '#64748b',
-              fontSize: 12, fontWeight: 700,
-            }}
-          >
-            🛒 Bán lẻ
-          </button>
-          <button
-            onClick={() => setPosMode('table')}
-            style={{
-              flex: 1, height: 36, borderRadius: 10,
-              border: '1.5px solid',
-              borderColor: posMode === 'table' ? 'var(--primary, #3b82f6)' : '#e2e8f0',
-              background: posMode === 'table' ? 'var(--primary, #3b82f6)' : '#f8fafc',
-              color: posMode === 'table' ? '#fff' : '#64748b',
-              fontSize: 12, fontWeight: 700,
-            }}
-          >
-            🏪 Bàn / Phòng
-          </button>
-        </div>
+        {hasTableRoomSupport && (
+          <div style={{ display: 'flex', gap: 6, width: '100%' }}>
+            <button
+              onClick={() => setPosMode('retail')}
+              style={{
+                flex: 1, height: 36, borderRadius: 10,
+                border: '1.5px solid',
+                borderColor: posMode === 'retail' ? 'var(--primary, #3b82f6)' : '#e2e8f0',
+                background: posMode === 'retail' ? 'var(--primary, #3b82f6)' : '#f8fafc',
+                color: posMode === 'retail' ? '#fff' : '#64748b',
+                fontSize: 12, fontWeight: 700,
+              }}
+            >
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                <RetailIcon size={15} color={posMode === 'retail' ? '#fff' : '#64748b'} /> Bán lẻ
+              </span>
+            </button>
+            <button
+              onClick={() => setPosMode('table')}
+              style={{
+                flex: 1, height: 36, borderRadius: 10,
+                border: '1.5px solid',
+                borderColor: posMode === 'table' ? 'var(--primary, #3b82f6)' : '#e2e8f0',
+                background: posMode === 'table' ? 'var(--primary, #3b82f6)' : '#f8fafc',
+                color: posMode === 'table' ? '#fff' : '#64748b',
+                fontSize: 12, fontWeight: 700,
+              }}
+            >
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                <TableRoomIcon size={15} color={posMode === 'table' ? '#fff' : '#64748b'} /> Bàn / Phòng
+              </span>
+            </button>
+          </div>
+        )}
 
         {/* Search + Barcode + Cart icon (retail mode only) */}
         {posMode === 'retail' && (

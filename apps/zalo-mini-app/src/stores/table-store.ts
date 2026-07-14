@@ -158,6 +158,7 @@ interface TableState {
   // ── Optimistic resource update ──
   updateResource: (resourceId: string, updates: Partial<ResourceFull>) => void;
   removeResource: (resourceId: string) => void;
+  clearAllTableData: () => void;
 }
 
 export const useTableStore = create<TableState>()(
@@ -274,6 +275,21 @@ export const useTableStore = create<TableState>()(
         })),
       removeResource: (resourceId) =>
         set((s) => ({ resources: s.resources.filter((r) => r.id !== resourceId) })),
+      clearAllTableData: () => set({
+        tableCarts: {},
+        tableCustomers: {},
+        tableSessions: {},
+        cartOwnerTableId: null,
+        resources: [],
+        inProgressOrders: [],
+        lastFetched: null,
+        isSessionModalOpen: false,
+        isCheckInModalOpen: false,
+        isTableCheckoutOpen: false,
+        isTransferModalOpen: false,
+        activeTable: null,
+        selectedTableForOpen: null,
+      }),
     }),
     {
       name: 'oni-table-store',

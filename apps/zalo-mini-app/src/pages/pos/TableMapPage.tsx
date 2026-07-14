@@ -21,6 +21,7 @@ import { formatCurrency } from '@/utils/format';
 import { calculateBilling, formatElapsed } from '@/utils/billing';
 import TableCheckInModal from './TableCheckInModal';
 import TableSessionModal from './TableSessionModal';
+import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 
 const CACHE_TTL = 30 * 1000; // 30 seconds
 
@@ -73,153 +74,203 @@ function TableCard({ table, session, onClick }: TableCardProps) {
   const isActive = table.status === 'occupied';
   const isDirty = table.status === 'dirty' || table.status === 'cleaning';
 
-  const stripeColor = isActive ? '#f43f5e' : isDirty ? '#f59e0b' : '#10b981';
-  const cardBg = isActive ? '#fff1f2' : isDirty ? '#fffbeb' : '#ffffff';
-  const cardBorder = isActive ? '#fda4af' : isDirty ? '#fde68a' : '#e2e8f0';
+  // Gradient backgrounds & left border colors
+  const cardGradient = isActive
+    ? 'linear-gradient(135deg, #fff1f2 0%, #fef2f2 100%)'
+    : isDirty
+    ? 'linear-gradient(135deg, #fffbeb 0%, #fefce8 100%)'
+    : 'linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%)';
+  const leftBorderColor = isActive ? '#ef4444' : isDirty ? '#f59e0b' : '#22c55e';
+  const cardBorder = isActive ? '#fda4af' : isDirty ? '#fde68a' : '#d1fae5';
+
+  const statusCfg = STATUS_CONFIG[table.status] ?? STATUS_CONFIG.available;
+
+  // Animation: pulse for checking_out, glow for occupied
+  const animationStyle =
+    table.status === 'checking_out'
+      ? 'pulse 2s infinite'
+      : isActive
+      ? 'occupiedGlow 3s ease-in-out infinite'
+      : undefined;
 
   return (
-    <button
-      onClick={onClick}
-      style={{
-        background: cardBg,
-        border: `1.5px solid ${cardBorder}`,
-        borderRadius: 16,
-        padding: '16px 12px 12px',
-        textAlign: 'left',
-        cursor: 'pointer',
-        position: 'relative',
-        minHeight: 120,
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'space-between',
-        width: '100%',
-        boxShadow: '0 1.5px 3px rgba(0,0,0,0.04)',
-        overflow: 'hidden',
-        animation: table.status === 'checking_out' ? 'pulse 2s infinite' : undefined,
-      }}
-    >
-      {/* Top Stripe */}
-      <div style={{ height: 4, width: '100%', backgroundColor: stripeColor, position: 'absolute', top: 0, left: 0, right: 0 }} />
+    <>
+      {/* Inject keyframe animations once */}
+      <style>{`
+        @keyframes occupiedGlow {
+          0%, 100% { box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+          50% { box-shadow: 0 2px 16px rgba(239,68,68,0.18), 0 0 0 2px rgba(239,68,68,0.08); }
+        }
+      `}</style>
+      <button
+        onClick={onClick}
+        style={{
+          background: cardGradient,
+          border: `1.5px solid ${cardBorder}`,
+          borderLeft: `4px solid ${leftBorderColor}`,
+          borderRadius: 14,
+          padding: '14px 14px 12px',
+          textAlign: 'left',
+          cursor: 'pointer',
+          position: 'relative',
+          minHeight: 130,
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'space-between',
+          width: '100%',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+          overflow: 'hidden',
+          animation: animationStyle,
+          transition: 'box-shadow 0.2s ease, transform 0.15s ease',
+        }}
+      >
 
-      {/* Info */}
-      <div style={{ width: '100%' }}>
-        <p style={{
-          fontWeight: 700, fontSize: 13, color: '#1e293b',
-          margin: '0 0 6px',
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        }}>
-          {table.name}
-        </p>
-
-        {/* Capacity */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.5">
-            <path d="M17 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-            <circle cx="12" cy="7" r="4" />
-          </svg>
-          <span style={{ fontSize: 10, color: '#64748b', fontWeight: 500 }}>
-            {table.capacity || '4'} người
-          </span>
-        </div>
-
-        {/* Rate */}
-        {table.hourly_rate ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 8 }}>
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.5">
-              <line x1="12" y1="1" x2="12" y2="23" />
-              <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-            </svg>
-            <span style={{ fontSize: 10, color: '#64748b', fontWeight: 500 }}>
-              {formatCurrency(table.hourly_rate)}/h
+        {/* Info */}
+        <div style={{ width: '100%' }}>
+          {/* Table name + status pill */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+            <p style={{
+              fontWeight: 800, fontSize: 15, color: '#0f172a',
+              margin: 0,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              flex: 1,
+            }}>
+              {table.name}
+            </p>
+            <span style={{
+              fontSize: 8, fontWeight: 700,
+              color: statusCfg.color,
+              background: statusCfg.bg,
+              border: `1px solid ${statusCfg.border}`,
+              borderRadius: 10, padding: '2px 7px',
+              whiteSpace: 'nowrap', flexShrink: 0, lineHeight: '14px',
+              letterSpacing: 0.2,
+            }}>
+              {statusCfg.label}
             </span>
           </div>
-        ) : null}
 
-        {/* Billing details if active */}
-        {isActive && billing && (
-          <div style={{
-            background: '#fff1f2', border: '1px solid #ffe4e6',
-            borderRadius: 8, padding: '6px 8px', marginBottom: 8,
-          }}>
-            <p style={{ fontSize: 9, color: '#e11d48', fontWeight: 700, margin: '0 0 2px', display: 'flex', alignItems: 'center', gap: 3 }}>
-              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#e11d48" strokeWidth="2.5">
-                <circle cx="12" cy="12" r="10" />
-                <polyline points="12 6 12 12 16 14" />
+          {/* Rate + Capacity row */}
+          {(table.hourly_rate || (table.capacity ?? 0) > 0) ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              {table.hourly_rate ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.5">
+                    <line x1="12" y1="1" x2="12" y2="23" />
+                    <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+                  </svg>
+                  <span style={{ fontSize: 10, color: '#64748b', fontWeight: 500 }}>
+                    {formatCurrency(table.hourly_rate)}/h
+                  </span>
+                </div>
+              ) : <div />}
+              {(table.capacity ?? 0) > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2.5">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                    <circle cx="12" cy="7" r="4" />
+                  </svg>
+                  <span style={{ fontSize: 10, color: '#64748b', fontWeight: 600 }}>{table.capacity}</span>
+                </div>
+              )}
+            </div>
+          ) : null}
+
+          {/* Billing details if active */}
+          {isActive && billing && (
+            <div style={{
+              background: 'rgba(255,241,242,0.8)', border: '1px solid #ffe4e6',
+              borderRadius: 10, padding: '7px 9px', marginBottom: 8,
+            }}>
+              <p style={{ fontSize: 10, color: '#e11d48', fontWeight: 700, margin: '0 0 3px', display: 'flex', alignItems: 'center', gap: 4 }}>
+                {/* SVG clock icon */}
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#e11d48" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <polyline points="12 6 12 12 16 14" />
+                </svg>
+                Dùng: {billing.label}
+              </p>
+              <p style={{ fontSize: 16, color: '#dc2626', fontWeight: 800, margin: 0, letterSpacing: -0.3 }}>
+                {formatCurrency(billing.cost)}
+              </p>
+              {(() => {
+                const cart = tableCarts[table.id] ?? {};
+                const count = Object.values(cart).reduce((sum, item) => sum + item.quantity, 0);
+                if (count > 0) {
+                  return (
+                    <p style={{
+                      fontSize: 9, color: '#475569', fontWeight: 600,
+                      marginTop: 4, paddingTop: 4, borderTop: '1px dashed rgba(225,29,72,0.15)',
+                      display: 'flex', alignItems: 'center', gap: 3, margin: '4px 0 0'
+                    }}>
+                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#475569" strokeWidth="2.5">
+                        <circle cx="9" cy="21" r="1" /><circle cx="20" cy="21" r="1" />
+                        <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+                      </svg>
+                      Đã gọi: {count} món
+                    </p>
+                  );
+                }
+                return null;
+              })()}
+            </div>
+          )}
+
+          {/* Housekeeping details if dirty */}
+          {isDirty && (
+            <div style={{
+              background: 'rgba(255,251,235,0.8)', border: '1px solid #fef3c7',
+              borderRadius: 10, padding: '7px 9px', marginBottom: 8,
+            }}>
+              <p style={{ fontSize: 10, color: '#d97706', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: 3 }}>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2.5">
+                  <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+                </svg>
+                Chờ dọn dẹp
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Bottom Button */}
+        <div style={{
+          width: '100%',
+          padding: '6px 0',
+          borderRadius: 8,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 5,
+          fontSize: 11,
+          fontWeight: 700,
+          border: '1px solid',
+          background: isActive ? '#ffeef0'
+                    : isDirty ? '#fef3c7'
+                    : '#f0fdf4',
+          borderColor: isActive ? '#fda4af'
+                    : isDirty ? '#fde68a'
+                    : '#86efac',
+          color: isActive ? '#e11d48'
+                    : isDirty ? '#d97706'
+                    : '#16a34a',
+        }}>
+          {isActive ? (
+            <>
+              {/* SVG user icon */}
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
               </svg>
-              Dùng: {billing.label}
-            </p>
-            <p style={{ fontSize: 11, color: '#e11d48', fontWeight: 800, margin: 0 }}>
-              Tiền giờ: {formatCurrency(billing.cost)}
-            </p>
-            {(() => {
-              const cart = tableCarts[table.id] ?? {};
-              const count = Object.values(cart).reduce((sum, item) => sum + item.quantity, 0);
-              if (count > 0) {
-                return (
-                  <p style={{
-                    fontSize: 9, color: '#475569', fontWeight: 600,
-                    marginTop: 4, paddingTop: 4, borderTop: '1px dashed rgba(225,29,72,0.15)',
-                    display: 'flex', alignItems: 'center', gap: 3, margin: '4px 0 0'
-                  }}>
-                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#475569" strokeWidth="2.5">
-                      <circle cx="9" cy="21" r="1" /><circle cx="20" cy="21" r="1" />
-                      <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
-                    </svg>
-                    Đã gọi: {count} món
-                  </p>
-                );
-              }
-              return null;
-            })()}
-          </div>
-        )}
-
-        {/* Housekeeping details if dirty */}
-        {isDirty && (
-          <div style={{
-            background: '#fffbeb', border: '1px solid #fef3c7',
-            borderRadius: 8, padding: '6px 8px', marginBottom: 8,
-          }}>
-            <p style={{ fontSize: 9, color: '#d97706', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: 3 }}>
-              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2.5">
-                <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-              </svg>
-              Chờ dọn dẹp
-            </p>
-          </div>
-        )}
-      </div>
-
-      {/* Bottom Button */}
-      <div style={{
-        width: '100%',
-        padding: '6px 0',
-        borderRadius: 8,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontSize: 11,
-        fontWeight: 700,
-        border: '1px solid',
-        background: isActive ? '#ffeef0'
-                  : isDirty ? '#fef3c7'
-                  : '#f0fdf4',
-        borderColor: isActive ? '#fda4af'
-                  : isDirty ? '#fde68a'
-                  : '#86efac',
-        color: isActive ? '#e11d48'
-                  : isDirty ? '#d97706'
-                  : '#16a34a',
-      }}>
-        {isActive ? (
-          tableCustomers[table.id]?.name || session?.customerName || 'Khách lẻ'
-        ) : isDirty ? (
-          'Đã dọn'
-        ) : (
-          'Trống'
-        )}
-      </div>
-    </button>
+              {tableCustomers[table.id]?.name || session?.customerName || 'Khách lẻ'}
+            </>
+          ) : isDirty ? (
+            'Đã dọn'
+          ) : (
+            'Trống'
+          )}
+        </div>
+      </button>
+    </>
   );
 }
 
@@ -266,7 +317,14 @@ export default function TableMapPage({ onAddItems }: Props) {
     setCartOwnerTableId,
     updateResource,
     setTableSession,
+    setTableCustomer,
   } = useTableStore.getState();
+
+  // ── Realtime sync ──
+  const { broadcastSync } = useRealtimeSync(shopId, (payload) => {
+    console.log('[TableMap] Sync event received:', payload);
+    fetchData(true);
+  });
 
   // ── Fetch data ──
   const fetchData = useCallback(async (force = false) => {
@@ -295,6 +353,10 @@ export default function TableMapPage({ onAddItems }: Props) {
         try { meta = typeof order.metadata === 'string' ? JSON.parse(order.metadata as string) : (order.metadata ?? {}); } catch {}
         const tableId = meta.resource_id;
         if (tableId && !tableSessions[tableId]) {
+          // Find matching resource to get rates
+          const matchedResource = rawResources.find((r) => r.id === tableId);
+          let resourceMeta: any = {};
+          try { resourceMeta = matchedResource?.metadata ? JSON.parse(matchedResource.metadata) : {}; } catch {}
           setTableSession(tableId, {
             tableId,
             orderId: order.id,
@@ -303,8 +365,22 @@ export default function TableMapPage({ onAddItems }: Props) {
             numGuests: meta.num_guests ?? 1,
             customerId: order.customer_id,
             customerName: meta.customer_name ?? undefined,
+            customerPhone: meta.customer_phone ?? undefined,
             expectedCheckout: meta.expected_checkout,
+            hourlyRate: meta.hourly_rate ?? matchedResource?.hourly_rate,
+            dailyRate: meta.daily_rate ?? matchedResource?.daily_rate,
+            overnightRate: meta.overnight_rate ?? matchedResource?.overnight_rate,
+            advancedPricing: meta.advanced_pricing ?? resourceMeta?.advanced_pricing,
           });
+          if (order.customer_id) {
+            setTableCustomer(tableId, {
+              id: order.customer_id,
+              name: meta.customer_name || '',
+              phone: meta.customer_phone || '',
+            } as any);
+          } else {
+            setTableCustomer(tableId, null);
+          }
         }
       }
 
@@ -402,6 +478,7 @@ export default function TableMapPage({ onAddItems }: Props) {
       await updateLocationResource(shopId, tableToClean.id, { status: 'available' });
       updateResource(tableToClean.id, { status: 'available' });
       toast.success(`${tableToClean.name} đã được dọn sạch`);
+      broadcastSync('TABLE_UPDATED', { tableId: tableToClean.id });
     } catch {
       toast.error('Không thể cập nhật trạng thái');
     } finally {
@@ -418,6 +495,7 @@ export default function TableMapPage({ onAddItems }: Props) {
       setActiveTable(selectedTableForOpen);
       setIsSessionModalOpen(true);
     }
+    broadcastSync('TABLE_UPDATED', { tableId: session.tableId });
   };
 
   const handleSessionAddItems = () => {
@@ -433,8 +511,8 @@ export default function TableMapPage({ onAddItems }: Props) {
     const session = tableSessions[activeTable.id];
     if (!session) return;
 
-    // Set the table owner ID in table-store
-    setCartOwnerTableId(activeTable.id);
+    // Backup the current retail cart before overwriting it with table items
+    usePosStore.getState().backupRetailCart();
 
     // Construct cart items for POS store
     const tableCart = tableCarts[activeTable.id] ?? {};
@@ -486,15 +564,19 @@ export default function TableMapPage({ onAddItems }: Props) {
     usePosStore.setState({ cart: newCartItems });
     usePosStore.getState().setIsCheckoutOpen(true);
 
-    // Close active table modal and trigger checkout modal
-    setIsSessionModalOpen(false);
-    setIsTableCheckoutOpen(true);
+    // Update all table-store states atomically to avoid intermediate useEffect triggers
+    useTableStore.setState({
+      cartOwnerTableId: activeTable.id,
+      isSessionModalOpen: false,
+      isTableCheckoutOpen: true,
+    });
   };
 
   const handleSessionEnd = () => {
     setIsSessionModalOpen(false);
     setActiveTable(null);
     fetchData(true);
+    broadcastSync('TABLE_UPDATED');
   };
 
   const chipStyle = (active: boolean): React.CSSProperties => ({
@@ -508,10 +590,10 @@ export default function TableMapPage({ onAddItems }: Props) {
   });
 
   const filterOptions = [
-    { value: 'all', label: `Tất cả (${stats.total})`, dotColor: null },
-    { value: 'available', label: `Trống (${stats.available})`, dotColor: '#10b981' },
-    { value: 'occupied', label: `Đang dùng (${stats.occupied})`, dotColor: '#f43f5e' },
-    { value: 'dirty', label: `Chờ dọn (${stats.dirty})`, dotColor: '#f59e0b' },
+    { value: 'all', label: `Tất cả`, count: stats.total, dotColor: null as string | null, pillBg: '#f1f5f9', pillColor: '#334155' },
+    { value: 'available', label: `Trống`, count: stats.available, dotColor: '#10b981', pillBg: '#ecfdf5', pillColor: '#059669' },
+    { value: 'occupied', label: `Đang dùng`, count: stats.occupied, dotColor: '#f43f5e', pillBg: '#fff1f2', pillColor: '#e11d48' },
+    { value: 'dirty', label: `Chờ dọn`, count: stats.dirty, dotColor: '#f59e0b', pillBg: '#fffbeb', pillColor: '#d97706' },
   ];
 
   return (
@@ -549,22 +631,38 @@ export default function TableMapPage({ onAddItems }: Props) {
           display: 'flex', gap: 8, overflowX: 'auto', flex: 1,
           scrollbarWidth: 'none',
         }} className="scrollbar-none">
-          {filterOptions.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() => setStatusFilter(opt.value as any)}
-              style={chipStyle(statusFilter === opt.value)}
-            >
-              {opt.dotColor && (
+          {filterOptions.map((opt) => {
+            const isSel = statusFilter === opt.value;
+            return (
+              <button
+                key={opt.value}
+                onClick={() => setStatusFilter(opt.value as any)}
+                style={{
+                  ...chipStyle(isSel),
+                  ...(!isSel ? { background: opt.pillBg, borderColor: opt.pillBg, color: opt.pillColor } : {}),
+                }}
+              >
+                {opt.dotColor && (
+                  <span style={{
+                    display: 'inline-block',
+                    width: 7, height: 7, borderRadius: '50%',
+                    backgroundColor: isSel ? '#fff' : opt.dotColor, marginRight: 5,
+                    opacity: isSel ? 0.85 : 1,
+                  }} />
+                )}
+                {opt.label}
                 <span style={{
-                  display: 'inline-block',
-                  width: 8, height: 8, borderRadius: '50%',
-                  backgroundColor: opt.dotColor, marginRight: 6,
-                }} />
-              )}
-              {opt.label}
-            </button>
-          ))}
+                  marginLeft: 5,
+                  fontSize: 10, fontWeight: 800,
+                  background: isSel ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.06)',
+                  borderRadius: 8, padding: '1px 6px',
+                  lineHeight: '16px',
+                }}>
+                  {opt.count}
+                </span>
+              </button>
+            );
+          })}
         </div>
 
         {/* Sync button */}
@@ -612,7 +710,7 @@ export default function TableMapPage({ onAddItems }: Props) {
                 100% { background-position: 200% 0; }
               }
             `}</style>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               {Array.from({ length: 6 }).map((_, i) => (
                 <div
                   key={i}
@@ -638,7 +736,7 @@ export default function TableMapPage({ onAddItems }: Props) {
             <p style={{ fontSize: 13, margin: '4px 0 0' }}>Thử thay đổi bộ lọc</p>
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             {filteredResources.map((table) => (
               <TableCard
                 key={table.id}

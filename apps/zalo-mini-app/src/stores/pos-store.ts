@@ -142,6 +142,7 @@ export const usePosStore = create<PosState>()(
         }),
 
       backupRetailCart: () => {
+        if (get().retailCartBackup) return;
         set({
           retailCartBackup: {
             cart: get().cart,

@@ -7,6 +7,7 @@ import { useTableStore } from '@/stores/table-store';
 import { syncOrderDirect, createCustomer, getCustomers, updateLocationResource } from '@/services/shop-api';
 import { formatCurrency } from '@/utils/format';
 import { calculateBilling } from '@/utils/billing';
+import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 
 interface Customer {
   id: string;
@@ -54,6 +55,9 @@ export default function CheckoutModal() {
   const shop = useTenantStore((s) => s.shop);
   const shopId = shop?.id ?? '';
 
+  // Realtime sync for broadcasting checkout events
+  const { broadcastSync } = useRealtimeSync(shopId, () => {});
+
   const cart = usePosStore((s) => s.cart);
   const paymentMethods = usePosStore((s) => s.paymentMethods);
   const paymentFunds = usePosStore((s) => s.paymentFunds);
@@ -79,7 +83,24 @@ export default function CheckoutModal() {
     setDiscountAmount,
     setOrderNote,
     setIsCheckoutOpen,
+    restoreRetailCart,
   } = usePosStore.getState();
+
+  // Close checkout: if this was a table checkout, restore the retail cart
+  const handleCloseCheckout = () => {
+    if (isTableCheckout) {
+      // Restore backed-up retail cart and reset table checkout state
+      restoreRetailCart();
+      const { setCartOwnerTableId, setIsTableCheckoutOpen, setIsSessionModalOpen, setActiveTable } = useTableStore.getState();
+      if (tableResource) {
+        setActiveTable(tableResource);
+        setIsSessionModalOpen(true);
+      }
+      setCartOwnerTableId(null);
+      setIsTableCheckoutOpen(false);
+    }
+    setIsCheckoutOpen(false);
+  };
 
   // ── Customer default ──
   const activeCustomer = useMemo<Customer>(() => {
@@ -103,6 +124,7 @@ export default function CheckoutModal() {
   const [newCustName, setNewCustName] = useState('');
   const [newCustPhone, setNewCustPhone] = useState('');
   const [newCustType, setNewCustType] = useState('retail');
+  const [addingCustomer, setAddingCustomer] = useState(false);
 
   // Custom Confirmation Dialog Modal State
   const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -613,6 +635,7 @@ export default function CheckoutModal() {
           clearTableCart(cartOwnerTableId);
           setCartOwnerTableId(null);
           setIsTableCheckoutOpen(false);
+          broadcastSync('ORDER_COMPLETED', { tableId: cartOwnerTableId });
         } catch (tableErr) {
           console.warn('Table post-checkout error:', tableErr);
         }
@@ -664,7 +687,11 @@ Cảm ơn Quý khách và hẹn gặp lại! 🙏`;
         }
       }
 
-      clearCart();
+      if (isTableCheckout) {
+        restoreRetailCart();
+      } else {
+        clearCart();
+      }
       setIsCheckoutOpen(false);
     } catch (err) {
       console.error('Checkout error:', err);
@@ -675,12 +702,12 @@ Cảm ơn Quý khách và hẹn gặp lại! 🙏`;
   };
 
   return (
-    <div className="modal-backdrop" onClick={() => setIsCheckoutOpen(false)}>
+    <div className="modal-backdrop" onClick={handleCloseCheckout}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ display: 'flex', flexDirection: 'column', maxHeight: '95dvh' }}>
         {/* Header */}
         <div className="modal-header shrink-0" style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', gap: 10 }}>
           <button
-            onClick={() => setIsCheckoutOpen(false)}
+            onClick={handleCloseCheckout}
             style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer' }}
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -718,137 +745,256 @@ Cảm ơn Quý khách và hẹn gặp lại! 🙏`;
         {/* Body */}
         <div className="modal-body" style={{ flex: 1, overflowY: 'auto', paddingBottom: 24 }}>
           
-          {/* ══════ SECTION 1: Customer ══════ */}
-          <div className="form-group" style={{ position: 'relative', background: '#f8fafc', padding: 12, borderRadius: 12, border: '1px solid #e2e8f0' }} ref={custDropdownRef}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-              <label className="form-label" style={{ fontWeight: 600, margin: 0 }}>Khách hàng</label>
-              {activeCustomer.id === 'C-DEFAULT-RETAIL' && (
-                <span style={{ fontSize: 13, color: 'var(--primary)', fontWeight: 700 }}>Khách lẻ</span>
+          <div className="form-group" style={{ position: 'relative', background: '#fff', padding: 14, borderRadius: 12, border: '1.5px solid #e2e8f0', marginBottom: 14 }} ref={custDropdownRef}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: selectedCustomer ? 8 : 10 }}>
+              <p style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', margin: 0, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Khách hàng</p>
+              {!selectedCustomer && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  background: '#f8fafc', borderRadius: 20, padding: '4px 10px',
+                  border: '1.5px solid #e2e8f0',
+                }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2.5">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                    <circle cx="12" cy="7" r="4" />
+                  </svg>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b' }}>Khách lẻ</span>
+                </div>
               )}
             </div>
 
-            {/* HIDE INPUT SEARCH IF CUSTOMER IS SELECTED */}
-            {activeCustomer.id === 'C-DEFAULT-RETAIL' ? (
-              <div style={{ display: 'flex', border: '1.5px solid #cbd5e1', borderRadius: 10, background: 'white', overflow: 'hidden', height: 40, marginTop: 4 }}>
-                <div style={{ position: 'relative', flex: 1, display: 'flex', alignItems: 'center' }}>
-                  <input
-                    type="text"
-                    style={{ border: 'none', background: 'transparent', flex: 1, padding: '0 10px', fontSize: 14, outline: 'none' }}
-                    placeholder="Tìm khách hàng..."
-                    value={custSearchQuery}
-                    onChange={(e) => {
-                      setCustSearchQuery(e.target.value);
-                      setShowCustDropdown(true);
-                    }}
-                    onFocus={() => setShowCustDropdown(true)}
-                  />
-                  {custSearchQuery && (
-                    <button
-                      onClick={() => {
-                        setCustSearchQuery('');
-                        setShowCustDropdown(false);
-                      }}
-                      style={{ position: 'absolute', right: 8, background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: 4 }}
-                    >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <line x1="18" y1="6" x2="6" y2="18" />
-                        <line x1="6" y1="6" x2="18" y2="18" />
-                      </svg>
-                    </button>
-                  )}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setShowAddCustModal(true)}
-                  style={{
-                    width: 44, background: '#f1f5f9', border: 'none', borderLeft: '1.5px solid #cbd5e1',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--primary)'
-                  }}
-                  title="Tạo khách mới"
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="12" y1="5" x2="12" y2="19" />
-                    <line x1="5" y1="12" x2="19" y2="12" />
-                  </svg>
-                </button>
-              </div>
-            ) : (
-              /* Active customer details shown directly when selected */
-              <div style={{ marginTop: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, background: 'white', padding: 10, borderRadius: 8, border: '1px solid #cbd5e1' }}>
+            {selectedCustomer ? (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#f0fdf4', borderRadius: 10, padding: '10px 12px', border: '1.5px solid #bbf7d0', marginBottom: 10 }}>
                 <div>
-                  <span className="font-bold text-slate-800" style={{ fontSize: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                      <circle cx="12" cy="7" r="4" />
-                    </svg>
-                    {activeCustomer.name}
-                  </span>
-                  {activeCustomer.phone && <span className="text-xs text-slate-500 font-mono block mt-0.5">{activeCustomer.phone}</span>}
-                  <div className="flex gap-4 mt-1 text-[10px] text-slate-500 font-medium">
-                    <span>Nợ: <strong className="text-rose-600">{formatCurrency(activeCustomer.debt_amount ?? 0)}</strong></span>
-                    <span>Ví trả trước: <strong className="text-emerald-600">{formatCurrency(activeCustomer.prepaid_balance ?? 0)}</strong></span>
+                  <p style={{ fontSize: 13, fontWeight: 700, color: '#166534', margin: 0 }}>{selectedCustomer.name}</p>
+                  {selectedCustomer.phone && <p style={{ fontSize: 12, color: '#15803d', margin: '2px 0 0' }}>{selectedCustomer.phone}</p>}
+                  <div style={{ display: 'flex', gap: 12, marginTop: 4, fontSize: 10, color: '#15803d', fontWeight: 500 }}>
+                    <span>Nợ: <strong className="text-rose-600">{formatCurrency(selectedCustomer.debt_amount ?? 0)}</strong></span>
+                    <span>Ví: <strong className="text-emerald-600">{formatCurrency(selectedCustomer.prepaid_balance ?? 0)}</strong></span>
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => handleSelectCustomer(null)}
                   style={{
-                    border: '1px solid #cbd5e1', borderRadius: 8, padding: '4px 10px',
-                    color: '#ef4444', fontSize: 12, fontWeight: 600, cursor: 'pointer', background: '#fee2e2'
+                    height: 30, borderRadius: 8,
+                    border: '1.5px solid #cbd5e1', background: '#fff',
+                    color: '#64748b', fontSize: 11, fontWeight: 600, padding: '0 12px',
+                    cursor: 'pointer',
                   }}
                 >
                   Bỏ chọn
                 </button>
               </div>
+            ) : null}
+
+            {/* Search input – always visible if no customer is selected */}
+            {!selectedCustomer && (
+              <div style={{ position: 'relative' }}>
+                 <input
+                   type="text"
+                   placeholder="Tìm khách hàng..."
+                   value={custSearchQuery}
+                   onChange={(e) => {
+                     setCustSearchQuery(e.target.value);
+                     setShowCustDropdown(true);
+                     setAddingCustomer(false);
+                   }}
+                   onFocus={() => {
+                     setShowCustDropdown(true);
+                     loadCustomers(true);
+                   }}
+                   onBlur={() => setTimeout(() => setShowCustDropdown(false), 200)}
+                   style={{
+                     width: '100%', height: 38, borderRadius: 8,
+                     border: '1.5px solid #cbd5e1', padding: '0 40px 0 12px',
+                     fontSize: 13, boxSizing: 'border-box', outline: 'none',
+                   }}
+                 />
+                 <button
+                   type="button"
+                   onMouseDown={(e) => e.preventDefault()}
+                   onClick={() => {
+                     setNewCustName(custSearchQuery.trim());
+                     setAddingCustomer(true);
+                     setShowCustDropdown(false);
+                   }}
+                   style={{
+                     position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                     background: 'none', border: 'none', width: 24, height: 24,
+                     display: 'flex', alignItems: 'center', justifyContent: 'center',
+                     cursor: 'pointer', color: '#3b82f6'
+                   }}
+                   title="Thêm khách hàng mới"
+                 >
+                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                     <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                     <circle cx="8.5" cy="7" r="4" />
+                     <line x1="20" y1="8" x2="20" y2="14" />
+                     <line x1="23" y1="11" x2="17" y2="11" />
+                   </svg>
+                 </button>
+
+                {showCustDropdown && (
+                  <div style={{
+                    position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4,
+                    background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 10,
+                    boxShadow: '0 4px 20px rgba(0,0,0,0.12)', zIndex: 110,
+                    maxHeight: 200, overflowY: 'auto',
+                  }} onScroll={handleDropdownScroll}>
+                    {/* Always show Khách mua lẻ at top */}
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => handleSelectCustomer(null)}
+                      style={{
+                        width: '100%', padding: '10px 14px', textAlign: 'left',
+                        background: 'none', border: 'none', borderBottom: '1px solid #f1f5f9',
+                        cursor: 'pointer', fontSize: 13, color: 'var(--primary)', fontWeight: 600
+                      }}
+                    >
+                      Khách mua lẻ
+                    </button>
+                    {customersList.map((c) => (
+                      <button
+                        type="button"
+                        key={c.id}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => handleSelectCustomer(c)}
+                        style={{
+                          width: '100%', padding: '10px 14px', textAlign: 'left',
+                          background: 'none', border: 'none', borderBottom: '1px solid #f1f5f9',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontWeight: 600, fontSize: 13, color: '#0f172a' }}>{c.name}</span>
+                          {c.phone && <span style={{ fontSize: 11, color: '#94a3b8' }}>{c.phone}</span>}
+                        </div>
+                      </button>
+                    ))}
+                    {custLoading && (
+                      <div style={{ padding: 10, textAlign: 'center', fontSize: 11, color: '#64748b' }}>
+                        Đang tải thêm...
+                      </div>
+                    )}
+                    {!custLoading && customersList.length === 0 && custSearchQuery.trim() ? (
+                      <button
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          setNewCustName(custSearchQuery.trim());
+                          setAddingCustomer(true);
+                          setShowCustDropdown(false);
+                        }}
+                        style={{
+                          width: '100%', padding: '10px 14px', textAlign: 'left',
+                          background: 'none', border: 'none', borderBottom: '1px solid #f1f5f9',
+                          fontSize: 13, fontWeight: 600, color: '#3b82f6',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        + Tạo mới "{custSearchQuery.trim()}"
+                      </button>
+                    ) : null}
+
+                    {/* Always-visible add button */}
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        setNewCustName(custSearchQuery.trim());
+                        setAddingCustomer(true);
+                        setShowCustDropdown(false);
+                      }}
+                      style={{
+                        width: '100%', padding: '10px 14px', textAlign: 'left',
+                        background: '#f8fafc', border: 'none',
+                        fontSize: 12, fontWeight: 600, color: '#3b82f6',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      + Thêm khách hàng mới
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
 
-            {/* LIVE Autocomplete Dropdown List with scroll-pagination */}
-            {showCustDropdown && activeCustomer.id === 'C-DEFAULT-RETAIL' && (
-              <div
-                onScroll={handleDropdownScroll}
-                style={{
-                  position: 'absolute', top: '100%', left: 12, right: 12,
-                  background: 'white', border: '1px solid #cbd5e1', borderRadius: 10,
-                  boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 110, maxHeight: 180, overflowY: 'auto', marginTop: 4
-                }}
-              >
-                <div
-                  onClick={() => handleSelectCustomer(null)}
-                  style={{
-                    padding: '10px 14px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer',
-                    background: activeCustomer.id === 'C-DEFAULT-RETAIL' ? '#f8fafc' : 'white',
-                    fontWeight: activeCustomer.id === 'C-DEFAULT-RETAIL' ? 600 : 400
-                  }}
-                >
-                  <span style={{ color: 'var(--primary)' }}>Khách mua lẻ</span>
-                </div>
-                {customersList.map((c) => (
-                  <div
-                    key={c.id}
-                    onClick={() => handleSelectCustomer(c)}
+            {/* Inline add-customer form */}
+            {addingCustomer && (
+              <div style={{
+                background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 10,
+                padding: 12, marginTop: 10,
+              }}>
+                <p style={{ fontWeight: 700, fontSize: 13, color: '#0f172a', margin: '0 0 8px' }}>
+                  Thêm khách hàng mới
+                </p>
+                <input
+                  style={{ width: '100%', height: 38, border: '1.5px solid #cbd5e1', borderRadius: 8, padding: '0 12px', fontSize: 13, color: '#0f172a', background: '#fff', boxSizing: 'border-box', outline: 'none', marginBottom: 8 }}
+                  placeholder="Họ và tên *"
+                  value={newCustName}
+                  onChange={(e) => setNewCustName(e.target.value)}
+                />
+                <input
+                  style={{ width: '100%', height: 38, border: '1.5px solid #cbd5e1', borderRadius: 8, padding: '0 12px', fontSize: 13, color: '#0f172a', background: '#fff', boxSizing: 'border-box', outline: 'none', marginBottom: 10 }}
+                  placeholder="Số điện thoại *"
+                  value={newCustPhone}
+                  onChange={(e) => setNewCustPhone(e.target.value)}
+                  type="tel"
+                />
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => { setAddingCustomer(false); setNewCustName(''); setNewCustPhone(''); }}
                     style={{
-                      padding: '10px 14px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer',
-                      background: activeCustomer.id === c.id ? '#f8fafc' : 'white',
-                      fontWeight: activeCustomer.id === c.id ? 600 : 400
+                      flex: 1, height: 36, borderRadius: 8,
+                      border: '1.5px solid #cbd5e1', background: '#fff',
+                      fontSize: 13, fontWeight: 600, color: '#64748b',
+                      cursor: 'pointer',
                     }}
                   >
-                    <div className="flex justify-between">
-                      <span className="font-semibold text-xs text-slate-800">{c.name}</span>
-                      {c.phone && <span className="text-[10px] text-slate-500 font-mono">{c.phone}</span>}
-                    </div>
-                  </div>
-                ))}
-                {custLoading && (
-                  <div style={{ padding: 10, textAlign: 'center', fontSize: 11, color: '#64748b' }}>
-                    Đang tải thêm...
-                  </div>
-                )}
-                {!custLoading && customersList.length === 0 && (
-                  <div style={{ padding: 10, textAlign: 'center', fontSize: 11, color: '#94a3b8' }}>
-                    Không tìm thấy khách hàng
-                  </div>
-                )}
+                    Hủy
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async (e) => {
+                      e.preventDefault();
+                      if (!newCustName.trim()) {
+                        toast.error('Vui lòng nhập tên khách hàng');
+                        return;
+                      }
+                      if (!newCustPhone.trim()) {
+                        toast.error('Vui lòng nhập số điện thoại');
+                        return;
+                      }
+                      try {
+                        const newCust = await createCustomer(shopId, {
+                          name: newCustName.trim(),
+                          phone: newCustPhone.trim(),
+                          customer_type: newCustType,
+                        });
+                        toast.success('Thêm khách hàng thành công');
+                        setSelectedCustomer(newCust);
+                        setAddingCustomer(false);
+                        setNewCustName('');
+                        setNewCustPhone('');
+                      } catch (err) {
+                        toast.error('Không thể tạo khách hàng mới');
+                      }
+                    }}
+                    disabled={!newCustName.trim() || !newCustPhone.trim()}
+                    style={{
+                      flex: 1, height: 36, borderRadius: 8,
+                      background: '#3b82f6', border: 'none',
+                      fontSize: 13, fontWeight: 700, color: '#fff',
+                      opacity: !newCustName.trim() || !newCustPhone.trim() ? 0.6 : 1,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Lưu
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -1120,24 +1266,44 @@ Cảm ơn Quý khách và hẹn gặp lại! 🙏`;
                               <button
                                 type="button"
                                 onClick={() => updateQuantity(item.product.id, item.quantity - 1)}
-                                style={{ width: 24, height: 24, border: '1px solid #e2e8f0', borderRadius: 4, background: '#f8fafc', fontWeight: 600 }}
+                                style={{
+                                  width: 28, height: 28, borderRadius: '50%',
+                                  border: 'none', background: '#f1f5f9',
+                                  fontSize: 15, color: '#334155', fontWeight: 700,
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                  cursor: 'pointer'
+                                }}
                               >
                                 −
                               </button>
-                              <span style={{ fontSize: 12, fontWeight: 600 }}>{item.quantity}</span>
+                              <span style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', minWidth: 20, textAlign: 'center' }}>{item.quantity}</span>
                               <button
                                 type="button"
                                 onClick={() => updateQuantity(item.product.id, item.quantity + 1)}
-                                style={{ width: 24, height: 24, border: '1px solid #e2e8f0', borderRadius: 4, background: '#f8fafc', fontWeight: 600 }}
+                                style={{
+                                  width: 28, height: 28, borderRadius: '50%',
+                                  border: 'none', background: '#f1f5f9',
+                                  fontSize: 15, color: '#334155', fontWeight: 700,
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                  cursor: 'pointer'
+                                }}
                               >
                                 +
                               </button>
                               <button
                                 type="button"
                                 onClick={() => removeFromCart(item.product.id)}
-                                style={{ color: '#ef4444', fontSize: 12, border: 'none', background: 'none', cursor: 'pointer', marginLeft: 8 }}
+                                style={{
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                  background: 'none', border: 'none', color: '#ef4444',
+                                  cursor: 'pointer', marginLeft: 10, padding: 4
+                                }}
+                                title="Xóa"
                               >
-                                Xoá
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                  <line x1="18" y1="6" x2="6" y2="18" />
+                                  <line x1="6" y1="6" x2="18" y2="18" />
+                                </svg>
                               </button>
                             </>
                           )}
@@ -1403,7 +1569,7 @@ Cảm ơn Quý khách và hẹn gặp lại! 🙏`;
           <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
             <button
               type="button"
-              onClick={() => setIsCheckoutOpen(false)}
+              onClick={handleCloseCheckout}
               style={{
                 width: 80, height: 44, border: '1.5px solid #cbd5e1', borderRadius: 10,
                 background: 'white', color: '#1e293b', fontWeight: 700, fontSize: 14, cursor: 'pointer'

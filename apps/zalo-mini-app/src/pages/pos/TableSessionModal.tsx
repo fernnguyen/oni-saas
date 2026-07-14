@@ -18,7 +18,11 @@ import {
   createOrderItem,
   updateOrderItem,
   deleteOrderItem,
+  updateOrder,
+  createCustomer,
+  getCustomers,
   type OrderItem,
+  type Customer,
 } from '@/services/shop-api';
 import { calculateBilling, formatElapsed, formatViDatetime } from '@/utils/billing';
 import { formatCurrency } from '@/utils/format';
@@ -74,6 +78,32 @@ export default function TableSessionModal({
   const [lodgingGuests, setLodgingGuests] = useState(session.lodgingGuests ?? []);
   const [savingGuests, setSavingGuests] = useState(false);
 
+  // Editable customer info
+  const [editingCustomer, setEditingCustomer] = useState(false);
+  const [customerName, setCustomerName] = useState(session.customerName || '');
+  const [customerPhone, setCustomerPhone] = useState(session.customerPhone || '');
+  const [savingCustomer, setSavingCustomer] = useState(false);
+
+  // Autocomplete customer search state
+  const [custSearchQuery, setCustSearchQuery] = useState('');
+  const [showCustDropdown, setShowCustDropdown] = useState(false);
+  const [customersList, setCustomersList] = useState<Customer[]>([]);
+  const [custLoading, setCustLoading] = useState(false);
+  const [custOffset, setCustOffset] = useState(0);
+  const [custHasMore, setCustHasMore] = useState(true);
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const custDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Inline add customer form state
+  const [addingCustomer, setAddingCustomer] = useState(false);
+  const [newCustName, setNewCustName] = useState('');
+  const [newCustPhone, setNewCustPhone] = useState('');
+
+  // Search products
+  const products = usePosStore((s) => s.products);
+  const [searchQuery, setSearchQuery] = useState('');
+  const addTableCartItem = useTableStore((s) => s.addTableCartItem);
+
   // Realtime billing counter (every 1 second for hourly)
   useEffect(() => {
     if (session.rentalType !== 'hourly') return;
@@ -82,18 +112,22 @@ export default function TableSessionModal({
   }, [session.rentalType]);
 
   // Calculate current billing
+  const tableMeta = useMemo(() => {
+    try { return table.metadata ? JSON.parse(table.metadata) : {}; } catch { return {}; }
+  }, [table.metadata]);
+
   const billing = useMemo(() => {
     if (!session.checkInTime) return null;
     return calculateBilling({
       rentalType: session.rentalType,
       checkInISO: session.checkInTime,
-      hourlyRate: session.hourlyRate ?? 0,
-      dailyRate: session.dailyRate ?? 0,
-      overnightRate: session.overnightRate ?? 0,
-      advancedPricing: session.advancedPricing,
+      hourlyRate: session.hourlyRate ?? table.hourly_rate ?? 0,
+      dailyRate: session.dailyRate ?? table.daily_rate ?? 0,
+      overnightRate: session.overnightRate ?? table.overnight_rate ?? 0,
+      advancedPricing: session.advancedPricing ?? tableMeta?.advanced_pricing,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, tick]);
+  }, [session, tick, tableMeta]);
 
   // Items total
   const itemsTotal = useMemo(
@@ -165,6 +199,52 @@ export default function TableSessionModal({
     }
   };
 
+  const handleAddItemDirect = async (product: any) => {
+    const cartItemId = makeTableCartItemId(product.id, '');
+    const existingItem = tableCartItems.find(i => i.id === cartItemId);
+    const itemPrice = Number(product.sell_price) || 0;
+    
+    if (existingItem) {
+      handleQtyChange(cartItemId, existingItem, 1);
+    } else {
+      const newItem: TableCartItem = {
+        productId: product.id,
+        name: product.name,
+        price: itemPrice,
+        quantity: 1,
+      };
+      addTableCartItem(table.id, newItem);
+      if (session.orderId) {
+        setSyncingItems((prev) => ({ ...prev, [cartItemId]: true }));
+        try {
+          const lineNo = String(serverItems.length + 1);
+          const created = await createOrderItem(shopId, {
+            order_id: session.orderId,
+            line_no: lineNo,
+            product_id: product.id,
+            product_name: product.name,
+            qty: '1',
+            unit_price: String(itemPrice),
+            original_price: String(itemPrice),
+            discount_amount: '0',
+            line_total: String(itemPrice),
+            line_discount: '0',
+            variant_label: '',
+            modifiers: '',
+            modifier_total: '0',
+          });
+          setServerItems((prev) => [...prev, created as OrderItem]);
+        } catch (e) {
+          console.warn('Update item error:', e);
+        } finally {
+          setSyncingItems((prev) => ({ ...prev, [cartItemId]: false }));
+        }
+      }
+    }
+  };
+
+
+
   // Fetch server items on mount (to enable sync)
   useEffect(() => {
     if (!session.orderId) return;
@@ -192,6 +272,162 @@ export default function TableSessionModal({
         console.error('Error fetching server items:', err);
       });
   }, [shopId, session.orderId, table.id]);
+
+  // Debounce customer search input
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(custSearchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [custSearchQuery]);
+
+  // Reload customers on debounced search change
+  useEffect(() => {
+    if (showCustDropdown && shopId) {
+      loadCustomers(true);
+    }
+  }, [debouncedSearch, showCustDropdown, shopId]);
+
+  const loadCustomers = async (reset = false) => {
+    if (custLoading) return;
+    if (!reset && !custHasMore) return;
+
+    setCustLoading(true);
+    const newOffset = reset ? 0 : custOffset;
+
+    try {
+      const urlParams: Record<string, string> = {
+        limit: '10',
+        offset: String(newOffset),
+      };
+      if (debouncedSearch.trim()) {
+        urlParams.search = debouncedSearch.trim();
+      }
+
+      const res = await getCustomers(shopId, urlParams);
+      const fetched = res?.customers || [];
+
+      if (reset) {
+        setCustomersList(fetched);
+        setCustOffset(fetched.length);
+      } else {
+        setCustomersList((prev) => [...prev, ...fetched]);
+        setCustOffset((prev) => prev + fetched.length);
+      }
+
+      setCustHasMore(fetched.length === 10);
+    } catch (err) {
+      console.error('Error loading customers in dropdown:', err);
+    } finally {
+      setCustLoading(false);
+    }
+  };
+
+  const handleDropdownScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const target = e.currentTarget;
+    if (target.scrollHeight - target.scrollTop <= target.clientHeight + 10) {
+      loadCustomers(false);
+    }
+  };
+
+  const handleSelectCustomer = async (cust: Customer | null) => {
+    setSavingCustomer(true);
+    try {
+      const customerName = cust?.name || '';
+      const customerPhone = cust?.phone || '';
+      const customerId = cust?.id || '';
+
+      updateTableSession(table.id, {
+        customerName,
+        customerPhone,
+        customerId: customerId || undefined,
+      });
+
+      if (session.orderId) {
+        const newMeta = {
+          ...session,
+          customerName,
+          customerPhone,
+          customerId: customerId || undefined,
+        };
+        await updateOrder(shopId, session.orderId, {
+          customer_id: customerId || undefined,
+          customer_name: customerName || undefined,
+          customer_phone: customerPhone || undefined,
+          metadata: JSON.stringify(newMeta),
+        });
+      }
+      
+      // Update store tableCustomers
+      useTableStore.getState().setTableCustomer(table.id, cust);
+
+      setCustSearchQuery('');
+      setShowCustDropdown(false);
+      setEditingCustomer(false);
+      toast.success('Đã cập nhật thông tin khách');
+    } catch {
+      toast.error('Lỗi khi lưu thông tin');
+    } finally {
+      setSavingCustomer(false);
+    }
+  };
+
+  const handleCreateCustomerInline = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCustName.trim()) {
+      toast.error('Vui lòng nhập tên khách hàng');
+      return;
+    }
+    if (!newCustPhone.trim()) {
+      toast.error('Vui lòng nhập số điện thoại');
+      return;
+    }
+    setSavingCustomer(true);
+    try {
+      const created = await createCustomer(shopId, {
+        name: newCustName.trim(),
+        phone: newCustPhone.trim(),
+        customer_type: 'retail',
+      });
+      
+      const customerName = created.name;
+      const customerPhone = created.phone;
+      const customerId = created.id;
+
+      updateTableSession(table.id, {
+        customerName,
+        customerPhone,
+        customerId: customerId || undefined,
+      });
+
+      if (session.orderId) {
+        const newMeta = {
+          ...session,
+          customerName,
+          customerPhone,
+          customerId: customerId || undefined,
+        };
+        await updateOrder(shopId, session.orderId, {
+          customer_id: customerId || undefined,
+          customer_name: customerName || undefined,
+          customer_phone: customerPhone || undefined,
+          metadata: JSON.stringify(newMeta),
+        });
+      }
+      
+      useTableStore.getState().setTableCustomer(table.id, created as Customer);
+      
+      setAddingCustomer(false);
+      setNewCustName('');
+      setNewCustPhone('');
+      setEditingCustomer(false);
+      toast.success('Đã tạo khách hàng mới');
+    } catch {
+      toast.error('Không thể tạo khách hàng mới');
+    } finally {
+      setSavingCustomer(false);
+    }
+  };
 
   // Cancel order
   const handleCancel = async () => {
@@ -340,6 +576,233 @@ export default function TableSessionModal({
                   })()}
                 </div>
 
+                {/* Editable Customer Info */}
+                <div className="form-group" style={{ position: 'relative', background: '#fff', padding: 14, borderRadius: 12, border: '1.5px solid #e2e8f0', marginBottom: 16 }} ref={custDropdownRef}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: (session.customerName || session.customerPhone) ? 8 : 10 }}>
+                    <p style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', margin: 0, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Khách hàng</p>
+                    {(!session.customerName && !session.customerPhone) && (
+                      <div style={{
+                        display: 'flex', alignItems: 'center', gap: 5,
+                        background: '#f8fafc', borderRadius: 20, padding: '4px 10px',
+                        border: '1.5px solid #e2e8f0',
+                      }}>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2.5">
+                          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                          <circle cx="12" cy="7" r="4" />
+                        </svg>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b' }}>Khách lẻ</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {(session.customerName || session.customerPhone) ? (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#f0fdf4', borderRadius: 10, padding: '10px 12px', border: '1.5px solid #bbf7d0', marginBottom: 10 }}>
+                      <div>
+                        {session.customerName && <p style={{ fontSize: 13, fontWeight: 700, color: '#166534', margin: 0 }}>{session.customerName}</p>}
+                        {session.customerPhone && <p style={{ fontSize: 12, color: '#15803d', margin: '2px 0 0' }}>{session.customerPhone}</p>}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleSelectCustomer(null)}
+                        style={{
+                          height: 30, borderRadius: 8,
+                          border: '1.5px solid #cbd5e1', background: '#fff',
+                          color: '#64748b', fontSize: 11, fontWeight: 600, padding: '0 12px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Bỏ chọn
+                      </button>
+                    </div>
+                  ) : null}
+
+                  {/* Search input – always visible if no customer is selected */}
+                  {(!session.customerName && !session.customerPhone) && (
+                    <div style={{ position: 'relative' }}>
+                      <input
+                        type="text"
+                        placeholder="Tìm khách hàng..."
+                        value={custSearchQuery}
+                        onChange={(e) => {
+                          setCustSearchQuery(e.target.value);
+                          setShowCustDropdown(true);
+                          setAddingCustomer(false);
+                        }}
+                        onFocus={() => {
+                          setShowCustDropdown(true);
+                          loadCustomers(true);
+                        }}
+                        onBlur={() => setTimeout(() => setShowCustDropdown(false), 200)}
+                        style={{
+                          width: '100%', height: 38, borderRadius: 8,
+                          border: '1.5px solid #cbd5e1', padding: '0 40px 0 12px',
+                          fontSize: 13, boxSizing: 'border-box', outline: 'none',
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          setNewCustName(custSearchQuery.trim());
+                          setAddingCustomer(true);
+                          setShowCustDropdown(false);
+                        }}
+                        style={{
+                          position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                          background: 'none', border: 'none', width: 24, height: 24,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          cursor: 'pointer', color: '#3b82f6'
+                        }}
+                        title="Thêm khách hàng mới"
+                      >
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                          <circle cx="8.5" cy="7" r="4" />
+                          <line x1="20" y1="8" x2="20" y2="14" />
+                          <line x1="23" y1="11" x2="17" y2="11" />
+                        </svg>
+                      </button>
+
+                      {showCustDropdown && (
+                        <div style={{
+                          position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4,
+                          background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 10,
+                          boxShadow: '0 4px 20px rgba(0,0,0,0.12)', zIndex: 110,
+                          maxHeight: 185, overflowY: 'auto',
+                        }} onScroll={handleDropdownScroll}>
+                          {/* Always show Khách mua lẻ at top */}
+                          <button
+                            type="button"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => handleSelectCustomer(null)}
+                            style={{
+                              width: '100%', padding: '10px 14px', textAlign: 'left',
+                              background: 'none', border: 'none', borderBottom: '1px solid #f1f5f9',
+                              cursor: 'pointer', fontSize: 13, color: 'var(--primary)', fontWeight: 600
+                            }}
+                          >
+                            Khách mua lẻ
+                          </button>
+                          {customersList.map((c) => (
+                            <button
+                              type="button"
+                              key={c.id}
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => handleSelectCustomer(c)}
+                              style={{
+                                width: '100%', padding: '10px 14px', textAlign: 'left',
+                                background: 'none', border: 'none', borderBottom: '1px solid #f1f5f9',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ fontWeight: 600, fontSize: 13, color: '#0f172a' }}>{c.name}</span>
+                                {c.phone && <span style={{ fontSize: 11, color: '#94a3b8' }}>{c.phone}</span>}
+                              </div>
+                            </button>
+                          ))}
+                          {custLoading && (
+                            <div style={{ padding: 10, textAlign: 'center', fontSize: 11, color: '#64748b' }}>
+                              Đang tải thêm...
+                            </div>
+                          )}
+                          {!custLoading && customersList.length === 0 && custSearchQuery.trim() ? (
+                            <button
+                              type="button"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => {
+                                setNewCustName(custSearchQuery.trim());
+                                setAddingCustomer(true);
+                                setShowCustDropdown(false);
+                              }}
+                              style={{
+                                width: '100%', padding: '10px 14px', textAlign: 'left',
+                                background: 'none', border: 'none', borderBottom: '1px solid #f1f5f9',
+                                fontSize: 13, fontWeight: 600, color: '#3b82f6',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              + Tạo mới "{custSearchQuery.trim()}"
+                            </button>
+                          ) : null}
+
+                          {/* Always-visible add button */}
+                          <button
+                            type="button"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setNewCustName(custSearchQuery.trim());
+                              setAddingCustomer(true);
+                              setShowCustDropdown(false);
+                            }}
+                            style={{
+                              width: '100%', padding: '10px 14px', textAlign: 'left',
+                              background: '#f8fafc', border: 'none',
+                              fontSize: 12, fontWeight: 600, color: '#3b82f6',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            + Thêm khách hàng mới
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Inline add-customer form */}
+                  {addingCustomer && (
+                    <div style={{
+                      background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 10,
+                      padding: 12, marginTop: 10,
+                    }}>
+                      <p style={{ fontWeight: 700, fontSize: 13, color: '#0f172a', margin: '0 0 8px' }}>
+                        Thêm khách hàng mới
+                      </p>
+                      <input
+                        style={{ width: '100%', height: 38, border: '1.5px solid #cbd5e1', borderRadius: 8, padding: '0 12px', fontSize: 13, color: '#0f172a', background: '#fff', boxSizing: 'border-box', outline: 'none', marginBottom: 8 }}
+                        placeholder="Họ và tên *"
+                        value={newCustName}
+                        onChange={(e) => setNewCustName(e.target.value)}
+                      />
+                      <input
+                        style={{ width: '100%', height: 38, border: '1.5px solid #cbd5e1', borderRadius: 8, padding: '0 12px', fontSize: 13, color: '#0f172a', background: '#fff', boxSizing: 'border-box', outline: 'none', marginBottom: 10 }}
+                        placeholder="Số điện thoại *"
+                        value={newCustPhone}
+                        onChange={(e) => setNewCustPhone(e.target.value)}
+                        type="tel"
+                      />
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button
+                          type="button"
+                          onClick={() => { setAddingCustomer(false); setNewCustName(''); setNewCustPhone(''); }}
+                          style={{
+                            flex: 1, height: 36, borderRadius: 8,
+                            border: '1.5px solid #cbd5e1', background: '#fff',
+                            fontSize: 13, fontWeight: 600, color: '#64748b',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Hủy
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleCreateCustomerInline}
+                          disabled={!newCustName.trim() || !newCustPhone.trim()}
+                          style={{
+                            flex: 1, height: 36, borderRadius: 8,
+                            background: '#3b82f6', border: 'none',
+                            fontSize: 13, fontWeight: 700, color: '#fff',
+                            opacity: !newCustName.trim() || !newCustPhone.trim() ? 0.6 : 1,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Lưu
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 {session.note && (
                   <div style={{
                     background: '#fffbeb', border: '1.5px solid #fde68a', borderRadius: 10,
@@ -431,12 +894,77 @@ export default function TableSessionModal({
                     Hủy đơn
                   </button>
                 </div>
+
+                {/* Add items button directly on Info Tab */}
+                <button
+                  onClick={onAddItems}
+                  style={{
+                    width: '100%', height: 46, borderRadius: 12,
+                    border: '2px dashed #93c5fd', background: '#eff6ff',
+                    fontSize: 13, fontWeight: 700, color: '#3b82f6',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                    marginTop: 16,
+                  }}
+                >
+                  <span style={{ fontSize: 16, fontWeight: 800 }}>+</span>
+                  Gọi món / Thêm dịch vụ
+                </button>
               </div>
             )}
 
             {/* ── TAB: ORDER ── */}
             {tab === 'order' && (
               <div style={{ padding: '16px 20px' }}>
+                {/* Search and add items directly */}
+                <div style={{ marginBottom: 16 }}>
+                  <input
+                    type="text"
+                    placeholder="Tìm và thêm món trực tiếp..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    style={{
+                      width: '100%', height: 42, borderRadius: 10, padding: '0 14px',
+                      border: '1.5px solid #cbd5e1', fontSize: 13, boxSizing: 'border-box',
+                      boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                    }}
+                  />
+                  {searchQuery.trim().length > 0 && (
+                    <div style={{
+                      marginTop: 8, maxHeight: 220, overflowY: 'auto',
+                      background: '#fff', borderRadius: 10, border: '1.5px solid #e2e8f0',
+                      boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'
+                    }}>
+                      {products
+                        .filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
+                        .slice(0, 15)
+                        .map(product => (
+                          <div
+                            key={product.id}
+                            onClick={() => {
+                              handleAddItemDirect(product);
+                              setSearchQuery('');
+                            }}
+                            style={{
+                              padding: '12px 14px', borderBottom: '1px solid #f1f5f9',
+                              display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                            }}
+                          >
+                            <span style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>{product.name}</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              <span style={{ fontSize: 13, color: '#ef4444', fontWeight: 700 }}>{formatCurrency(Number(product.sell_price) || 0)}</span>
+                              <div style={{ background: '#eff6ff', color: '#3b82f6', width: 24, height: 24, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>+</div>
+                            </div>
+                          </div>
+                        ))}
+                      {products.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 && (
+                        <div style={{ padding: '16px', textAlign: 'center', fontSize: 13, color: '#94a3b8' }}>
+                          Không tìm thấy món nào
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 {tableCartItems.length === 0 ? (
                   <div style={{ textAlign: 'center', padding: '32px 0', color: '#94a3b8' }}>
                     <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" strokeWidth="2" style={{ margin: '0 auto 8px' }}>
@@ -469,26 +997,30 @@ export default function TableSessionModal({
                             {formatCurrency(item.price * item.quantity)}
                           </p>
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <button
                             onClick={() => handleQtyChange(item.id, item, -1)}
                             style={{
-                              width: 30, height: 30, borderRadius: 8,
-                              border: '1.5px solid #e2e8f0', background: '#f8fafc',
-                              fontSize: 16, color: '#374151',
+                              width: 28, height: 28, borderRadius: '50%',
+                              border: 'none', background: '#f1f5f9',
+                              fontSize: 15, color: '#334155', fontWeight: 700,
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              cursor: 'pointer'
                             }}
                           >
                             −
                           </button>
-                          <span style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', minWidth: 24, textAlign: 'center' }}>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', minWidth: 20, textAlign: 'center' }}>
                             {syncingItems[item.id] ? '...' : item.quantity}
                           </span>
                           <button
                             onClick={() => handleQtyChange(item.id, item, 1)}
                             style={{
-                              width: 30, height: 30, borderRadius: 8,
-                              border: '1.5px solid #e2e8f0', background: '#f8fafc',
-                              fontSize: 16, color: '#374151',
+                              width: 28, height: 28, borderRadius: '50%',
+                              border: 'none', background: '#f1f5f9',
+                              fontSize: 15, color: '#334155', fontWeight: 700,
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              cursor: 'pointer'
                             }}
                           >
                             +

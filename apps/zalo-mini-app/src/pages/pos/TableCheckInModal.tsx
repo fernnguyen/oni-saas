@@ -40,6 +40,7 @@ export default function TableCheckInModal({ table, onClose, onSuccess }: Props) 
   const shopSettings = useTableStore((s) => s.shopSettings);
   const cachedCustomers = usePosStore((s) => s.customers);
   const setTableSession = useTableStore((s) => s.setTableSession);
+  const setTableCustomer = useTableStore((s) => s.setTableCustomer);
   const updateResource = useTableStore((s) => s.updateResource);
 
   const isLodging =
@@ -106,9 +107,13 @@ export default function TableCheckInModal({ table, onClose, onSuccess }: Props) 
 
   const handleCreateCustomer = async () => {
     if (!newCustName.trim()) return;
+    if (!newCustPhone.trim()) {
+      toast.error('Vui lòng nhập số điện thoại');
+      return;
+    }
     setSavingNewCust(true);
     try {
-      const created = await createCustomer(shopId, { name: newCustName, phone: newCustPhone });
+      const created = await createCustomer(shopId, { name: newCustName.trim(), phone: newCustPhone.trim() });
       setSelectedCustomer(created as Customer);
       setAddingCustomer(false);
       setNewCustName('');
@@ -141,6 +146,8 @@ export default function TableCheckInModal({ table, onClose, onSuccess }: Props) 
         check_in: checkInISO,
         num_guests: numGuests,
         rental_type: rentalType,
+        customer_name: selectedCustomer?.name ?? undefined,
+        customer_phone: selectedCustomer?.phone ?? undefined,
         expected_checkout: expectedCheckout ? new Date(expectedCheckout).toISOString() : undefined,
         advanced_pricing: (() => {
           try {
@@ -160,7 +167,8 @@ export default function TableCheckInModal({ table, onClose, onSuccess }: Props) 
       const order = await createOrder(shopId, {
         status: 'in_progress',
         channel: 'zalo',
-        customer_id: selectedCustomer?.id,
+        customer_id: selectedCustomer?.id || undefined,
+        customer_name: selectedCustomer?.name || undefined,
         note,
         branch_id: shop?.id,
         metadata: JSON.stringify(metadata),
@@ -195,6 +203,7 @@ export default function TableCheckInModal({ table, onClose, onSuccess }: Props) 
       };
 
       setTableSession(table.id, session);
+      setTableCustomer(table.id, selectedCustomer);
       updateResource(table.id, { status: 'occupied', current_order_id: orderId });
 
       toast.success(`Đã mở ${table.name}`);
@@ -245,7 +254,7 @@ export default function TableCheckInModal({ table, onClose, onSuccess }: Props) 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
               <p style={{ fontWeight: 700, fontSize: 17, color: '#0f172a', margin: 0 }}>
-                Mở bàn
+                Mở {isLodging ? 'phòng' : 'bàn'}
               </p>
               <p style={{ fontSize: 13, color: '#64748b', margin: '2px 0 0' }}>
                 {table.name}{table.zone ? ` · ${table.zone}` : ''}
@@ -288,60 +297,112 @@ export default function TableCheckInModal({ table, onClose, onSuccess }: Props) 
         <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
           {tab === 'info' ? (
             <>
-              {/* Customer */}
-              <div style={{ marginBottom: 14 }}>
-                <label style={labelStyle}>Khách hàng</label>
-                {selectedCustomer ? (
+              {/* Customer section */}
+              <div style={{ background: '#fff', borderRadius: 12, padding: 14, border: '1.5px solid #e2e8f0', marginBottom: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: selectedCustomer ? 8 : 10 }}>
+                  <p style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', margin: 0, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Khách hàng</p>
+                  {!selectedCustomer && (
+                    <div style={{
+                      display: 'flex', alignItems: 'center', gap: 5,
+                      background: '#f8fafc', borderRadius: 20, padding: '4px 10px',
+                      border: '1.5px solid #e2e8f0',
+                    }}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2.5">
+                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                        <circle cx="12" cy="7" r="4" />
+                      </svg>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b' }}>Khách lẻ</span>
+                    </div>
+                  )}
+                </div>
+
+                {selectedCustomer && (
                   <div style={{
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    background: '#f0fdf4', border: '1.5px solid #86efac', borderRadius: 10,
-                    padding: '10px 14px',
+                    background: '#f0fdf4', borderRadius: 10, padding: '10px 12px',
+                    border: '1.5px solid #bbf7d0', marginBottom: 10,
                   }}>
                     <div>
-                      <p style={{ fontWeight: 700, fontSize: 13, color: '#0f172a', margin: 0 }}>{selectedCustomer.name}</p>
-                      {selectedCustomer.phone && (
-                        <p style={{ fontSize: 11, color: '#64748b', margin: '2px 0 0' }}>{selectedCustomer.phone}</p>
-                      )}
+                      <p style={{ fontSize: 13, fontWeight: 700, color: '#166534', margin: 0 }}>{selectedCustomer.name}</p>
+                      {selectedCustomer.phone && <p style={{ fontSize: 12, color: '#15803d', margin: '2px 0 0' }}>{selectedCustomer.phone}</p>}
                     </div>
                     <button
                       onClick={() => setSelectedCustomer(null)}
                       style={{
-                        background: 'none', border: 'none',
-                        fontSize: 18, color: '#94a3b8', cursor: 'pointer',
+                        height: 30, borderRadius: 8,
+                        border: '1.5px solid #cbd5e1', background: '#fff',
+                        color: '#64748b', fontSize: 11, fontWeight: 600, padding: '0 12px',
+                        cursor: 'pointer',
                       }}
                     >
-                      ✕
+                      Bỏ chọn
                     </button>
                   </div>
-                ) : (
-                  <div style={{ position: 'relative' }}>
-                    <input
-                      style={inputStyle}
-                      placeholder="Tìm khách hàng..."
-                      value={customerQuery}
-                      onChange={(e) => {
-                        setCustomerQuery(e.target.value);
-                        setShowCustomerDrop(true);
-                      }}
-                      onFocus={() => {
-                        setShowCustomerDrop(true);
-                        setCustomerResults(cachedCustomers.slice(0, 8));
-                      }}
-                    />
-                    {showCustomerDrop && (
-                      <div style={{
-                        position: 'absolute', top: '100%', left: 0, right: 0,
-                        background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 10,
-                        boxShadow: '0 4px 20px rgba(0,0,0,0.12)', zIndex: 50,
-                        maxHeight: 200, overflowY: 'auto',
-                      }}>
-                        {customerResults.map((c) => (
+                )}
+
+                {/* Search input – always visible */}
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="text"
+                    placeholder="Tìm khách hàng..."
+                    value={customerQuery}
+                    onChange={(e) => {
+                      setCustomerQuery(e.target.value);
+                      setShowCustomerDrop(true);
+                      setAddingCustomer(false);
+                    }}
+                    onFocus={() => {
+                      setShowCustomerDrop(true);
+                      if (!customerQuery.trim()) setCustomerResults(cachedCustomers.slice(0, 8));
+                    }}
+                    onBlur={() => setTimeout(() => setShowCustomerDrop(false), 200)}
+                    style={{
+                      width: '100%', height: 38, borderRadius: 8,
+                      border: '1.5px solid #cbd5e1', padding: '0 40px 0 12px',
+                      fontSize: 13, boxSizing: 'border-box', outline: 'none',
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      setNewCustName(customerQuery.trim());
+                      setAddingCustomer(true);
+                      setShowCustomerDrop(false);
+                    }}
+                    style={{
+                      position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                      background: 'none', border: 'none', width: 24, height: 24,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      cursor: 'pointer', color: '#3b82f6'
+                    }}
+                    title="Thêm khách hàng mới"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                      <circle cx="8.5" cy="7" r="4" />
+                      <line x1="20" y1="8" x2="20" y2="14" />
+                      <line x1="23" y1="11" x2="17" y2="11" />
+                    </svg>
+                  </button>
+
+                  {showCustomerDrop && (
+                    <div style={{
+                      position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4,
+                      background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 10,
+                      boxShadow: '0 4px 20px rgba(0,0,0,0.12)', zIndex: 50,
+                      maxHeight: 240, overflowY: 'auto',
+                    }}>
+                      {customerResults.length > 0 ? (
+                        customerResults.map((c) => (
                           <button
                             key={c.id}
+                            onMouseDown={(e) => e.preventDefault()}
                             onClick={() => {
                               setSelectedCustomer(c);
                               setCustomerQuery('');
                               setShowCustomerDrop(false);
+                              setAddingCustomer(false);
                             }}
                             style={{
                               width: '100%', padding: '10px 14px', textAlign: 'left',
@@ -352,72 +413,98 @@ export default function TableCheckInModal({ table, onClose, onSuccess }: Props) 
                             <p style={{ fontWeight: 600, fontSize: 13, color: '#0f172a', margin: 0 }}>{c.name}</p>
                             {c.phone && <p style={{ fontSize: 11, color: '#94a3b8', margin: '1px 0 0' }}>{c.phone}</p>}
                           </button>
-                        ))}
+                        ))
+                      ) : customerQuery.trim() ? (
                         <button
-                          onClick={() => { setAddingCustomer(true); setShowCustomerDrop(false); }}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            setNewCustName(customerQuery.trim());
+                            setAddingCustomer(true);
+                            setShowCustomerDrop(false);
+                          }}
                           style={{
                             width: '100%', padding: '10px 14px', textAlign: 'left',
-                            background: '#f8fafc', border: 'none',
-                            fontSize: 12, fontWeight: 600, color: '#3b82f6',
+                            background: 'none', border: 'none', borderBottom: '1px solid #f1f5f9',
+                            fontSize: 13, fontWeight: 600, color: '#3b82f6',
                             cursor: 'pointer',
                           }}
                         >
-                          + Tạo khách hàng mới
+                          + Tạo mới "{customerQuery.trim()}"
                         </button>
-                      </div>
-                    )}
+                      ) : null}
+
+                      {/* Always-visible add button */}
+                      <button
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          setNewCustName(customerQuery.trim());
+                          setAddingCustomer(true);
+                          setShowCustomerDrop(false);
+                        }}
+                        style={{
+                          width: '100%', padding: '10px 14px', textAlign: 'left',
+                          background: '#f8fafc', border: 'none',
+                          fontSize: 12, fontWeight: 600, color: '#3b82f6',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        + Thêm khách hàng mới
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Inline add-customer form */}
+                {addingCustomer && (
+                  <div style={{
+                    background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 10,
+                    padding: 12, marginTop: 10,
+                  }}>
+                    <p style={{ fontWeight: 700, fontSize: 13, color: '#0f172a', margin: '0 0 8px' }}>
+                      Thêm khách hàng mới
+                    </p>
+                    <input
+                      style={{ ...inputStyle, height: 38, marginBottom: 8 }}
+                      placeholder="Họ và tên *"
+                      value={newCustName}
+                      onChange={(e) => setNewCustName(e.target.value)}
+                    />
+                    <input
+                      style={{ ...inputStyle, height: 38, marginBottom: 10 }}
+                      placeholder="Số điện thoại *"
+                      value={newCustPhone}
+                      onChange={(e) => setNewCustPhone(e.target.value)}
+                      type="tel"
+                    />
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        onClick={() => { setAddingCustomer(false); setNewCustName(''); setNewCustPhone(''); }}
+                        style={{
+                          flex: 1, height: 36, borderRadius: 8,
+                          border: '1.5px solid #e2e8f0', background: '#fff',
+                          fontSize: 13, fontWeight: 600, color: '#64748b',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Hủy
+                      </button>
+                      <button
+                        onClick={handleCreateCustomer}
+                        disabled={savingNewCust || !newCustName.trim() || !newCustPhone.trim()}
+                        style={{
+                          flex: 1, height: 36, borderRadius: 8,
+                          background: '#3b82f6', border: 'none',
+                          fontSize: 13, fontWeight: 700, color: '#fff',
+                          opacity: savingNewCust || !newCustName.trim() || !newCustPhone.trim() ? 0.6 : 1,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {savingNewCust ? '...' : 'Lưu'}
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
-
-              {/* Quick add customer */}
-              {addingCustomer && (
-                <div style={{
-                  background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 12,
-                  padding: 14, marginBottom: 14,
-                }}>
-                  <p style={{ fontWeight: 700, fontSize: 13, color: '#0f172a', marginBottom: 10 }}>
-                    Thêm khách hàng mới
-                  </p>
-                  <input
-                    style={{ ...inputStyle, marginBottom: 8 }}
-                    placeholder="Họ và tên *"
-                    value={newCustName}
-                    onChange={(e) => setNewCustName(e.target.value)}
-                  />
-                  <input
-                    style={{ ...inputStyle, marginBottom: 10 }}
-                    placeholder="Số điện thoại"
-                    value={newCustPhone}
-                    onChange={(e) => setNewCustPhone(e.target.value)}
-                    type="tel"
-                  />
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button
-                      onClick={() => setAddingCustomer(false)}
-                      style={{
-                        flex: 1, height: 38, borderRadius: 8,
-                        border: '1.5px solid #e2e8f0', background: '#fff',
-                        fontSize: 13, fontWeight: 600, color: '#64748b',
-                      }}
-                    >
-                      Hủy
-                    </button>
-                    <button
-                      onClick={handleCreateCustomer}
-                      disabled={savingNewCust || !newCustName.trim()}
-                      style={{
-                        flex: 1, height: 38, borderRadius: 8,
-                        background: '#3b82f6', border: 'none',
-                        fontSize: 13, fontWeight: 700, color: '#fff',
-                        opacity: savingNewCust || !newCustName.trim() ? 0.6 : 1,
-                      }}
-                    >
-                      {savingNewCust ? '...' : 'Tạo'}
-                    </button>
-                  </div>
-                </div>
-              )}
 
               {/* Rental type */}
               {isLodging && (
