@@ -703,29 +703,48 @@ export default function TableMapPage({ onAddItems }: Props) {
       {/* Grid body */}
       <div style={{ flex: 1, padding: '12px 16px 32px', overflowY: 'auto' }}>
         {isLoading ? (
-          <>
-            <style>{`
-              @keyframes shimmer-glow {
-                0% { background-position: -200% 0; }
-                100% { background-position: 200% 0; }
-              }
-            `}</style>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              {Array.from({ length: 6 }).map((_, i) => (
-                <div
-                  key={i}
-                  style={{
-                    height: 100,
-                    borderRadius: 14,
-                    background: 'linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%)',
-                    backgroundSize: '200% 100%',
-                    animation: 'shimmer-glow 1.6s infinite linear',
-                    border: '1px solid #e2e8f0',
-                  }}
-                />
-              ))}
-            </div>
-          </>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div
+                key={i}
+                style={{
+                  minHeight: 130,
+                  borderRadius: 14,
+                  border: '1.5px solid #e2e8f0',
+                  background: '#fff',
+                  padding: '14px 14px 12px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+                }}
+              >
+                {/* Header Row Skeleton */}
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                    {/* Name skeleton */}
+                    <div className="skeleton" style={{ width: '50%', height: 14 }} />
+                    {/* Status pill skeleton */}
+                    <div className="skeleton" style={{ width: '30%', height: 16, borderRadius: 10 }} />
+                  </div>
+
+                  {/* Rate & Capacity Row Skeleton */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                    {/* Rate skeleton */}
+                    <div className="skeleton" style={{ width: '35%', height: 10 }} />
+                    {/* Capacity skeleton */}
+                    <div className="skeleton" style={{ width: '15%', height: 10 }} />
+                  </div>
+                </div>
+
+                {/* Bottom Area Skeleton */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div className="skeleton" style={{ width: '75%', height: 10 }} />
+                  <div className="skeleton" style={{ width: '45%', height: 14 }} />
+                </div>
+              </div>
+            ))}
+          </div>
         ) : filteredResources.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '48px 0', color: '#94a3b8' }}>
             <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" strokeWidth="2" style={{ margin: '0 auto 8px' }}>

@@ -1014,8 +1014,19 @@ export default function QRClientPage() {
                         onError={() => setImageErrors(prev => ({ ...prev, [p.id]: true }))}
                       />
                     ) : (
-                      <div className="h-full w-full flex items-center justify-center text-slate-300 font-black text-2xl uppercase select-none">
-                        {p.name.charAt(0)}
+                      <div className="h-full w-full flex items-center justify-center bg-slate-50 border-b border-slate-100">
+                        <img
+                          src="/logo.png"
+                          alt="ONI Logo"
+                          style={{
+                            width: '42px',
+                            height: '42px',
+                            objectFit: 'contain',
+                            opacity: 0.7,
+                            userSelect: 'none',
+                            pointerEvents: 'none',
+                          }}
+                        />
                       </div>
                     )}
                   </div>

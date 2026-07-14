@@ -206,6 +206,9 @@ export default function PosPage() {
   // Barcode scanner modal state
   const [isBarcodeScannerOpen, setIsBarcodeScannerOpen] = useState(false);
 
+  // Track image load errors to display fallback watermark
+  const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({});
+
   // ── Load Data (with optional cache bypass) ──
   const loadData = async (bypassCache = false) => {
     if (!shopId) return;
@@ -625,11 +628,11 @@ export default function PosPage() {
           {isLoading ? (
             <div className="pos-products">
               {Array.from({ length: 9 }).map((_, i) => (
-                <div key={i} className="pos-product-card">
-                  <div className="skeleton" style={{ width: '100%', height: 90 }} />
-                  <div className="pos-product-info">
-                    <div className="skeleton" style={{ width: '80%', height: 12, marginBottom: 4 }} />
-                    <div className="skeleton" style={{ width: '50%', height: 10 }} />
+                <div key={i} className="pos-product-card" style={{ pointerEvents: 'none', background: '#fff' }}>
+                  <div className="skeleton" style={{ width: '100%', height: 90, borderRadius: '10px 10px 0 0' }} />
+                  <div className="pos-product-info" style={{ padding: '8px 10px' }}>
+                    <div className="skeleton" style={{ width: '85%', height: 11, marginBottom: 6 }} />
+                    <div className="skeleton" style={{ width: '45%', height: 9 }} />
                   </div>
                 </div>
               ))}
@@ -652,23 +655,40 @@ export default function PosPage() {
                   className="pos-product-card"
                   onClick={() => handleAddToCart(product)}
                 >
-                  {product.image_url ? (
+                  {product.image_url && !imageErrors[product.id] ? (
                     <img
                       className="pos-product-img"
                       src={product.image_url}
                       alt={product.name}
                       loading="lazy"
+                      onError={() => {
+                        setImageErrors((prev) => ({ ...prev, [product.id]: true }));
+                      }}
                     />
                   ) : (
                     <div
                       className="pos-product-img"
                       style={{
                         display: 'flex', alignItems: 'center',
-                        justifyContent: 'center', fontSize: 24,
-                        background: '#f1f5f9',
+                        justifyContent: 'center',
+                        background: '#f8fafc',
+                        position: 'relative',
+                        overflow: 'hidden',
+                        borderBottom: '1px solid #f1f5f9'
                       }}
                     >
-                      📦
+                      <img
+                        src="/logo.png"
+                        alt="ONI Logo"
+                        style={{
+                          width: '42px',
+                          height: '42px',
+                          objectFit: 'contain',
+                          opacity: 0.7,
+                          userSelect: 'none',
+                          pointerEvents: 'none',
+                        }}
+                      />
                     </div>
                   )}
                   <div className="pos-product-info">
