@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState, useMemo, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 import {
   localDb,
@@ -18,6 +19,7 @@ import { calculateHourlyBilling, isTimeChargeProduct, isSystemTimeChargeProduct 
 import { VietQRPreview } from '@/app/components/ui/VietQRPreview'
 import { useConfirm } from '@/app/components/ui/ConfirmProvider'
 import { BANKS } from '@/lib/constants/banks'
+import { Printer } from 'lucide-react'
 
 function calculateDebtAge(
   orders: any[] = [],
@@ -239,6 +241,7 @@ export function CheckoutModal({
     { id: nextId(), method: 'cash', amount: String(total - discount_amount - orderPaidAmount) },
   ])
   const [saving, setSaving] = useState(false)
+  const [printingTemp, setPrintingTemp] = useState(false)
   const [localRentalType, setLocalRentalType] = useState<'hourly' | 'overnight' | 'daily'>(() => {
     return metadata?.rental_type || 'hourly'
   })
@@ -1409,24 +1412,47 @@ export function CheckoutModal({
   }
 
   async function handlePrintTemp() {
-    const tempOrder = {
-      ...createdLocalOrderRef.current,
-      status: 'pending',
-      note: `(PHIẾU TẠM TÍNH) ${localNote || ''}`
+    if (computedItems.length === 0) return
+
+    const now = new Date().toISOString()
+    const tempOrderId = existingOrder?.local_id || crypto.randomUUID()
+    const tempMetadata = {
+      ...metadata,
+      check_out: localCheckoutTime || customCheckoutTime || now,
+      rental_type: localRentalType,
+      customer_phone: localCustomer?.phone || metadata?.customer_phone,
+      customer_address: localCustomer?.address || metadata?.customer_address,
+      fund_id: qrFund?.id || metadata?.fund_id,
     }
-    const printPayments = [
-      ...createdLocalPaymentsRef.current,
-      {
-        method: qrPayment?.method || 'bank_transfer',
-        amount: bankTransferAmt,
-        note: 'Chờ chuyển khoản',
-        fund_id: qrFund?.id || ''
-      }
-    ]
+    const activePayments = isSplitActive ? [...paymentsA, ...paymentsB] : payments
+    const printPayments = activePayments
+      .filter((payment) => (parseFloat(payment.amount) || 0) > 0)
+      .map((payment) => ({
+        local_id: crypto.randomUUID(),
+        order_local_id: tempOrderId,
+        method: payment.method,
+        amount: parseFloat(payment.amount) || 0,
+        fund_id: payment.fund_id || '',
+      }))
+
+    setPrintingTemp(true)
     try {
       await printBill({
-        order: tempOrder,
-        items: createdLocalItemsRef.current,
+        order: {
+          local_id: tempOrderId,
+          order_no: existingOrder?.order_no || `HD-${tempOrderId.slice(-6).toUpperCase()}`,
+          customer_name: localCustomer?.name,
+          subtotal: computedSubtotal,
+          discount_amount: localDiscount + tierDiscountAmount,
+          tax_amount: totalTaxAmount,
+          total_amount: finalTotal,
+          paid_amount: 0,
+          note: localNote,
+          created_at: existingOrder?.created_at || now,
+          status: 'pending',
+          metadata: JSON.stringify(tempMetadata),
+        },
+        items: computedItems,
         payments: printPayments,
         shopName,
         settings: {
@@ -1437,12 +1463,15 @@ export function CheckoutModal({
           qr_template: activeTemplate,
         },
         printCount: 1,
-        shopId
+        shopId,
+        receiptType: 'temporary',
       })
       toast.success('Đã gửi lệnh in phiếu tạm tính!')
     } catch (err) {
       console.error(err)
       toast.error('In phiếu tạm tính thất bại')
+    } finally {
+      setPrintingTemp(false)
     }
   }
 
@@ -2420,7 +2449,7 @@ export function CheckoutModal({
 
   if (!open) return null
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={showQrGate ? undefined : onClose} />
 
@@ -3136,26 +3165,35 @@ export function CheckoutModal({
             </div>
 
             {/* Footer */}
-            <div className="flex flex-col sm:flex-row gap-3 border-t border-slate-100 px-5 py-4">
+            <div className="flex gap-3 border-t border-slate-100 px-5 py-4">
               <button
                 onClick={onClose}
                 disabled={saving}
-                className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-650 hover:bg-slate-50 disabled:opacity-50 transition-colors"
+                className="w-20 shrink-0 rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold text-slate-650 hover:bg-slate-50 disabled:opacity-50 transition-colors"
               >
                 Đóng
               </button>
 
-              <div className="flex-1 flex flex-col sm:flex-row gap-3">
+              <button
+                onClick={handlePrintTemp}
+                disabled={printingTemp || items.length === 0}
+                className="flex flex-1 min-w-0 items-center justify-center gap-2 rounded-xl border border-primary/30 bg-primary/5 px-3 py-2.5 text-center text-sm font-semibold text-primary hover:bg-primary/10 disabled:opacity-50 transition-colors"
+              >
+                <Printer className="h-4.5 w-4.5 shrink-0" strokeWidth={2.5} />
+                {printingTemp ? 'Đang in...' : 'In phiếu tạm tính'}
+              </button>
+
+              <div className="contents">
                 {/* Green button: Lưu & xác nhận (Đã thu) */}
                 <button
                   onClick={() => handleSubmit({ bypassQr: true })}
                   disabled={saving || items.length === 0 || isBlocked || finalTotal <= 0}
-                  className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 py-2.5 px-4 text-sm font-bold text-white shadow-xs disabled:opacity-40 transition-all active:scale-98"
+                  className="flex-1 min-w-0 flex items-center justify-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 py-2.5 px-3 text-center text-sm font-bold text-white shadow-xs disabled:opacity-40 transition-all active:scale-98"
                 >
                   <svg className="h-4.5 w-4.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
-                  Lưu & xác nhận ({fmtVND(finalTotal + clampedDebtRepay)})
+                  Thanh toán ({fmtVND(finalTotal + clampedDebtRepay)})
                 </button>
 
                 {/* Primary brand yellow button: Lưu & chờ thanh toán */}
@@ -3163,7 +3201,7 @@ export function CheckoutModal({
                   <button
                     onClick={() => handleSubmit({ bypassQr: false })}
                     disabled={saving || items.length === 0 || isBlocked || finalTotal <= 0}
-                    className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-primary hover:bg-primary-dark py-2.5 px-4 text-sm font-bold text-white shadow-xs disabled:opacity-40 transition-all active:scale-98 animate-in fade-in slide-in-from-right-1 duration-200"
+                    className="flex-1 min-w-0 flex items-center justify-center gap-2 rounded-xl bg-primary hover:bg-primary-dark py-2.5 px-3 text-center text-sm font-bold text-white shadow-xs disabled:opacity-40 transition-all active:scale-98 animate-in fade-in slide-in-from-right-1 duration-200"
                   >
                     Lưu & chờ thanh toán
                   </button>
@@ -3173,6 +3211,7 @@ export function CheckoutModal({
           </>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

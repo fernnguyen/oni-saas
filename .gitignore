@@ -9,6 +9,7 @@ dist
 apps/web/next-env.d.ts
 supabase/.temp
 .claude
+.codex
 .pnpm-store
 scratch/
 tests/

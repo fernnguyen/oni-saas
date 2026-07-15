@@ -85,6 +85,7 @@ export async function printBill({
   settings,
   printCount = 1,
   shopId,
+  receiptType = 'sale',
 }: {
   order: LocalOrder | Record<string, any>
   items: LocalOrderItem[] | Record<string, any>[]
@@ -93,6 +94,7 @@ export async function printBill({
   settings?: any
   printCount?: number
   shopId?: string
+  receiptType?: 'sale' | 'temporary'
 }) {
   let currentSettings = settings
   if (!currentSettings && shopId) {
@@ -129,8 +131,11 @@ export async function printBill({
     : ''
 
   const isBilingual = !!currentSettings?.print_bilingual
-  const billTitle = isBilingual ? 'HOÁ ĐƠN BÁN HÀNG<br/><span style="font-size:10px;font-weight:normal;text-transform:uppercase;color:#000">SALES RECEIPT</span>' : 'HOÁ ĐƠN BÁN HÀNG'
-  const reprintHtml = printCount > 1 
+  const isTemporaryReceipt = receiptType === 'temporary'
+  const billTitle = isTemporaryReceipt
+    ? (isBilingual ? 'PHIẾU TẠM TÍNH<br/><span style="font-size:10px;font-weight:normal;text-transform:uppercase;color:#000">PROVISIONAL BILL</span>' : 'PHIẾU TẠM TÍNH')
+    : (isBilingual ? 'HOÁ ĐƠN BÁN HÀNG<br/><span style="font-size:10px;font-weight:normal;text-transform:uppercase;color:#000">SALES RECEIPT</span>' : 'HOÁ ĐƠN BÁN HÀNG')
+  const reprintHtml = !isTemporaryReceipt && printCount > 1
     ? (isBilingual 
         ? `<p class="sub" style="font-style: italic; margin-top: 2px;">(In lại lần ${printCount - 1} / Duplicate #${printCount - 1})</p>`
         : `<p class="sub" style="font-style: italic; margin-top: 2px;">(In lại lần ${printCount - 1})</p>`)
@@ -436,4 +441,3 @@ ${footerHtml}
     }, 1000)
   }
 }
-
