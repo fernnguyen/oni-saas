@@ -290,6 +290,10 @@ export function DebtCollectionSlideOver({
       if (!entity) throw new Error('Không có đối tượng')
       if (amountToCollect <= 0) throw new Error('Số tiền phải lớn hơn 0')
 
+      const collectionNote = entityType === 'customer' && allocations.length > 0
+        ? `Gạch nợ ${allocations.map(a => `đơn ${a.order_no || a.order_id} (${fmtVND(a.amount)}đ)`).join(', ')} của khách hàng ${entity.name}`
+        : `Thu nợ khách hàng ${entity.name}`
+
       const payload: Record<string, any> = {
         type: entityType === 'supplier' ? 'payment' : 'receipt',
         amount: amountToCollect,
@@ -300,7 +304,7 @@ export function DebtCollectionSlideOver({
         reference_name: entity.name,
         note: entityType === 'supplier'
           ? `Trả nợ nhà cung cấp ${entity.name}`
-          : `Thu nợ khách hàng ${entity.name}`,
+          : collectionNote,
       }
 
       // If by_order mode and we have allocations, send them

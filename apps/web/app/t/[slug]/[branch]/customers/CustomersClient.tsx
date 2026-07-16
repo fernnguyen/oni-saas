@@ -2151,6 +2151,10 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
                                 debt: 'Ghi nợ',
                                 system: 'Hệ thống'
                               }
+                              const orderAllocations = tx.order_allocations || []
+                              const allocationNote = orderAllocations.length > 0
+                                ? `Gạch nợ ${orderAllocations.map((allocation: any) => `đơn ${allocation.order_no || allocation.order_id} (${Number(allocation.amount || 0).toLocaleString('vi-VN')}đ)`).join(', ')}`
+                                : tx.note
                               return (
                                 <tr key={tx.transaction_id || i} className="hover:bg-slate-50">
                                   <td className="px-3 py-2.5">
@@ -2165,7 +2169,7 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
                                     <span className="font-semibold text-slate-700 block">
                                       {catMap[tx.category] || tx.category || 'Thu/Chi khác'}
                                     </span>
-                                    {tx.note && <div className="text-[10px] text-slate-500 max-w-[220px] break-words mt-0.5">{tx.note}</div>}
+                                    {allocationNote && <div className="text-[10px] text-slate-500 max-w-[220px] break-words mt-0.5">{allocationNote}</div>}
                                   </td>
                                   <td className="px-3 py-2.5">
                                     <span className="inline-flex text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200/60 font-medium">

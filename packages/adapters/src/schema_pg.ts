@@ -1,4 +1,4 @@
-import { pgTable, varchar, text, timestamp, jsonb, index, primaryKey, integer } from 'drizzle-orm/pg-core';
+import { pgTable, varchar, text, timestamp, jsonb, index, primaryKey, integer, boolean } from 'drizzle-orm/pg-core';
 
 // Base columns for all tables
 const getBaseColumns = () => ({
@@ -89,7 +89,9 @@ export const payments = pgTable('payments', {
   cashier_id: varchar('cashier_id', { length: 255 }),
   reference_no: varchar('reference_no', { length: 255 }),
   note: text('note'),
-});
+}, (table) => ({
+  tenantReferenceIdx: index('idx_payments_tenant_reference_no').on(table.tenant_id, table.reference_no),
+}));
 
 export const products = pgTable('products', {
   ...getBaseColumns(),
@@ -179,7 +181,9 @@ export const cashbook = pgTable('cashbook', {
   department_id: varchar('department_id', { length: 255 }),
   parent_transaction_id: varchar('parent_transaction_id', { length: 255 }),
   is_virtual: varchar('is_virtual', { length: 10 }).default('FALSE'),
-});
+}, (table) => ({
+  tenantBranchCreatedIdx: index('idx_cashbook_tenant_branch_created_at').on(table.tenant_id, table.branch_id, table.created_at),
+}));
 
 export const payment_funds = pgTable('payment_funds', {
   ...getBaseColumns(),
@@ -434,6 +438,8 @@ export const qr_order_requests = pgTable('qr_order_requests', {
   customer_name: text('customer_name'),
   customer_phone: text('customer_phone'),
   note: text('note'),
+  oa_notified: boolean('oa_notified').notNull().default(false),
+  notified_at: timestamp('notified_at', { withTimezone: true }),
 });
 
 // ── Procure-to-Pay (P2P) Enterprise Add-on Tables ────────────────────────
@@ -811,9 +817,6 @@ export const tax_locked_periods = pgTable('tax_locked_periods', {
   locked_at: varchar('locked_at', { length: 50 }),
   locked_by: varchar('locked_by', { length: 255 }),
 });
-
-
-
 
 
 

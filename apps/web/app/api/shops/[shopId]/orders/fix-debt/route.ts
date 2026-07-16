@@ -168,18 +168,12 @@ export async function GET(
       const collectedAgainstOpening = collections.reduce((sum, cb) => {
         const transactionId = cb.id || cb.transaction_id || ''
         const collected = parseFloat(cb.amount || '0') || 0
-        const allocatedToOrders = totalOrderDebt > 0
-          ? paymentsByReference[transactionId] || 0
-          : 0
+        const allocatedToOrders = paymentsByReference[transactionId] || 0
         return sum + Math.max(0, collected - allocatedToOrders)
       }, 0)
       const remainingOpeningDebt = Math.max(0, openingDebt - collectedAgainstOpening)
-      const restoredAmount = totalOrderDebt === 0
-        ? Math.max(0, remainingOpeningDebt - currentCustomerDebt)
-        : 0
-      const expectedCustomerDebt = totalOrderDebt === 0
-        ? remainingOpeningDebt
-        : currentCustomerDebt
+      const expectedCustomerDebt = remainingOpeningDebt + totalOrderDebt
+      const restoredAmount = Math.max(0, expectedCustomerDebt - currentCustomerDebt)
       const adjustmentAmount = expectedCustomerDebt - currentCustomerDebt
 
       if (Math.abs(adjustmentAmount) > 0.01 && openingDebt > 0) {
@@ -212,6 +206,10 @@ export async function GET(
         totalOpeningRestored += Math.max(0, adjustmentAmount)
         totalOpeningReduced += Math.max(0, -adjustmentAmount)
       }
+
+      // When opening debt exists, the current order balances are already the
+      // remaining balances after their own payments. Do not FIFO-reduce them again.
+      if (openingDebt > 0) continue
 
       // 4. amountToReconcile = totalOrderDebt - currentCustomerDebt
       // This is the amount that was collected from customer but not applied to orders

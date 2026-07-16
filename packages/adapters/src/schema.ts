@@ -410,6 +410,8 @@ export const qr_order_requests = mysqlTable('qr_order_requests', {
   customer_name: text('customer_name'),
   customer_phone: text('customer_phone'),
   note: text('note'),
+  oa_notified: boolean('oa_notified').notNull().default(false),
+  notified_at: timestamp('notified_at'),
 });
 
 // ── Procure-to-Pay (P2P) Enterprise Add-on Tables ────────────────────────
@@ -757,7 +759,6 @@ export const tax_locked_periods = mysqlTable('tax_locked_periods', {
   locked_at: varchar('locked_at', { length: 50 }),
   locked_by: varchar('locked_by', { length: 255 }),
 });
-
 
 
 

@@ -116,9 +116,47 @@ export async function GET(
 
     const total = sortedTransactions.length
     const paginatedData = sortedTransactions.slice((page - 1) * limit, page * limit)
+    let responseData: any[] = paginatedData
+
+    if (paginatedData.some(tx => tx.category === 'debt_collection')) {
+      const cashbookReferences = paginatedData
+        .map(tx => tx.transaction_id || tx.id || '')
+        .filter(Boolean)
+      let paymentsRes
+
+      try {
+        paymentsRes = await connector.list('payments', {
+          filters: { reference_no: cashbookReferences },
+          limit: 100000
+        })
+      } catch {
+        // Keep non-SQL adapters working when array filters are unsupported.
+        paymentsRes = await connector.list('payments', { limit: 100000 })
+      }
+      const allocationsByCashbook: Record<string, Array<Record<string, string>>> = {}
+
+      for (const payment of paymentsRes.data as Record<string, string>[]) {
+        const reference = payment.reference_no
+        if (!reference) continue
+        if (!allocationsByCashbook[reference]) allocationsByCashbook[reference] = []
+        allocationsByCashbook[reference].push({
+          order_id: payment.order_id || '',
+          order_no: payment.order_no || payment.order_id || '',
+          amount: payment.amount || '0',
+        })
+      }
+
+      responseData = paginatedData.map(tx => {
+        const transactionId = tx.transaction_id || tx.id || ''
+        const orderAllocations = allocationsByCashbook[transactionId]
+        return orderAllocations?.length
+          ? { ...tx, order_allocations: orderAllocations }
+          : tx
+      })
+    }
 
     return NextResponse.json({
-      data: paginatedData,
+      data: responseData,
       total,
       page,
       limit,

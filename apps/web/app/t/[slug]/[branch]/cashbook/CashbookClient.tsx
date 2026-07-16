@@ -670,18 +670,25 @@ export function CashbookClient({ shopId, shopName, permissions, planCode }: Prop
       key: 'reference_name',
       label: 'Người nhận/nộp',
       className: 'whitespace-nowrap',
-      render: (row) => (
-        <div>
-          <span className="block text-sm font-medium text-slate-900">
-            {row.reference_name || '—'}
-          </span>
-          {row.note && (
-            <span className="block text-[11px] text-slate-500 mt-1 max-w-xs break-words whitespace-normal">
-              {row.note}
+      render: (row) => {
+        const orderAllocations: any[] = Array.isArray(row.order_allocations) ? row.order_allocations : []
+        const allocationNote = orderAllocations.length > 0
+          ? `Gạch nợ ${orderAllocations.map((allocation: any) => `đơn ${allocation.order_no || allocation.order_id} (${Number(allocation.amount || 0).toLocaleString('vi-VN')}đ)`).join(', ')}`
+          : row.note
+
+        return (
+          <div>
+            <span className="block text-sm font-medium text-slate-900">
+              {row.reference_name || '—'}
             </span>
-          )}
-        </div>
-      ),
+            {allocationNote && (
+              <span className="block text-[11px] text-slate-500 mt-1 max-w-xs break-words whitespace-normal">
+                {allocationNote}
+              </span>
+            )}
+          </div>
+        )
+      },
     },
     { 
       key: 'balance_after_transaction', 
