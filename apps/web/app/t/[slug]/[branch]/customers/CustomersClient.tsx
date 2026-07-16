@@ -1906,10 +1906,21 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
                   importedDebtDays,
                   viewTarget.created_at
                 )
+                const customerSpentAmount = (customerOrders?.data || []).reduce((sum, order) => {
+                  const status = String(order.status || '').toLowerCase()
+                  if (status === 'cancelled' || status === 'draft') return sum
+                  return sum + Number(order.total_amount || 0)
+                }, 0)
                 return (
                   <div className="space-y-4 animate-in fade-in slide-in-from-top-1 duration-200">
                     {/* Financial Quick Cards */}
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                      <div className="rounded-xl border border-amber-100 bg-amber-50/40 p-3 text-center space-y-0.5">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Đã chi tiêu</span>
+                        <span className="text-sm font-bold text-amber-700 block">
+                          {customerSpentAmount.toLocaleString('vi-VN')} đ
+                        </span>
+                      </div>
                       <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-3 text-center space-y-0.5">
                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Điểm tích lũy</span>
                         <span className="text-sm font-bold text-blue-600 block">
@@ -1919,13 +1930,13 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
                       <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-3 text-center space-y-0.5">
                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Ví trả trước</span>
                         <span className="text-sm font-bold text-emerald-600 block">
-                          {Number(viewTarget.prepaid_balance || 0).toLocaleString('vi-VN')}đ
+                          {Number(viewTarget.prepaid_balance || 0).toLocaleString('vi-VN')} đ
                         </span>
                       </div>
                       <div className="rounded-xl border border-red-100 bg-red-50/40 p-3 text-center space-y-0.5 relative overflow-hidden">
                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Nợ hiện tại</span>
                         <span className="text-sm font-bold text-red-655 block">
-                          {Number(viewTarget.debt_amount || 0).toLocaleString('vi-VN')}đ
+                          {Number(viewTarget.debt_amount || 0).toLocaleString('vi-VN')} đ
                         </span>
                       </div>
                     </div>
