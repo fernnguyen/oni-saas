@@ -26,6 +26,19 @@ export async function GET(
       (cb: Record<string, string>) =>
         cb.category === 'debt_collection' && cb.is_virtual !== 'TRUE'
     )
+    const openingDebtEntries = cbRes.data.filter(
+      (cb: Record<string, string>) =>
+        cb.category === 'debt_collection' && cb.is_virtual === 'TRUE'
+    )
+
+    const paymentsRes = await connector.list('payments', { limit: 100000 })
+    const paymentsByReference: Record<string, number> = {}
+    for (const payment of paymentsRes.data as Record<string, string>[]) {
+      const reference = payment.reference_no
+      if (!reference) continue
+      paymentsByReference[reference] =
+        (paymentsByReference[reference] || 0) + parseFloat(payment.amount || '0')
+    }
 
     // 2. Group by reference_id (customer_id)
     const byCustomer: Record<string, Array<Record<string, string>>> = {}
@@ -34,6 +47,14 @@ export async function GET(
       if (!cid) continue
       if (!byCustomer[cid]) byCustomer[cid] = []
       byCustomer[cid].push(cb)
+    }
+
+    const openingByCustomer: Record<string, Array<Record<string, string>>> = {}
+    for (const cb of openingDebtEntries) {
+      const cid = cb.reference_id
+      if (!cid) continue
+      if (!openingByCustomer[cid]) openingByCustomer[cid] = []
+      openingByCustomer[cid].push(cb)
     }
 
     const report: Array<{
@@ -51,16 +72,38 @@ export async function GET(
         applied: number
       }>
     }> = []
+    const openingReport: Array<{
+      customer_id: string
+      customer_name: string
+      openingDebt: number
+      collectedAgainstOpening: number
+      remainingOpeningDebt: number
+      totalOrderDebt: number
+      currentCustomerDebt: number
+      expectedCustomerDebt: number
+      restoredAmount: number
+    }> = []
 
     let totalFixed = 0
     let totalOrdersFixed = 0
+    let totalOpeningRestored = 0
 
-    // 3. For each customer: get their orders sorted FIFO, get current customer debt
-    for (const [customerId, collections] of Object.entries(byCustomer)) {
+    // 3. For each customer: get their orders sorted FIFO and calculate the expected debt.
+    const customerIds = new Set([
+      ...Object.keys(byCustomer),
+      ...Object.keys(openingByCustomer),
+    ])
+    for (const customerId of customerIds) {
+      const collections = byCustomer[customerId] || []
       const customer = await connector.findById('customers', customerId)
       if (!customer) continue
 
-      const currentCustomerDebt = parseFloat(customer.debt_amount || '0')
+      const statsRes = await connector.list('customer-branch-stats', {
+        filters: { customer_id: customerId, branch_id: shopId }
+      })
+      const statsDebt = parseFloat(statsRes.data[0]?.debt_amount || '0') || 0
+      const profileDebt = parseFloat(customer.debt_amount || '0') || 0
+      const currentCustomerDebt = Math.max(statsDebt, profileDebt)
 
       // Get all orders for this customer
       const ordersRes = await connector.list('orders', {
@@ -78,6 +121,51 @@ export async function GET(
         (sum: number, o: Record<string, string>) => sum + parseFloat(o.debt_amount || '0'),
         0
       )
+
+      const openingDebt = (openingByCustomer[customerId] || []).reduce(
+        (sum: number, cb: Record<string, string>) => sum + (parseFloat(cb.amount || '0') || 0),
+        0
+      )
+      const collectedAgainstOpening = collections.reduce((sum, cb) => {
+        const transactionId = cb.id || cb.transaction_id || ''
+        const collected = parseFloat(cb.amount || '0') || 0
+        const allocatedToOrders = paymentsByReference[transactionId] || 0
+        return sum + Math.max(0, collected - allocatedToOrders)
+      }, 0)
+      const remainingOpeningDebt = Math.max(0, openingDebt - collectedAgainstOpening)
+      const restoredAmount = totalOrderDebt === 0
+        ? Math.max(0, remainingOpeningDebt - currentCustomerDebt)
+        : 0
+      const expectedCustomerDebt = currentCustomerDebt + restoredAmount
+
+      if (restoredAmount > 0 && openingDebt > 0) {
+        openingReport.push({
+          customer_id: customerId,
+          customer_name: (customer.name as string) || '',
+          openingDebt,
+          collectedAgainstOpening,
+          remainingOpeningDebt,
+          totalOrderDebt,
+          currentCustomerDebt,
+          expectedCustomerDebt,
+          restoredAmount
+        })
+
+        if (!dryRun) {
+          await connector.update('customers', customerId, {
+            debt_amount: String(expectedCustomerDebt)
+          })
+
+          const stats = statsRes.data[0]
+          if (stats) {
+            await connector.update('customer-branch-stats', stats.id, {
+              debt_amount: String(expectedCustomerDebt)
+            })
+          }
+        }
+
+        totalOpeningRestored += restoredAmount
+      }
 
       // 4. amountToReconcile = totalOrderDebt - currentCustomerDebt
       // This is the amount that was collected from customer but not applied to orders
@@ -162,13 +250,17 @@ export async function GET(
 
     if (!dryRun) {
       invalidate(shopId, 'orders')
+      if (totalOpeningRestored > 0) invalidate(shopId, 'customers')
     }
 
     return NextResponse.json({
       dry_run: dryRun,
       customers_affected: totalFixed,
       orders_fixed: totalOrdersFixed,
-      report
+      report,
+      opening_balance_customers_affected: openingReport.length,
+      opening_balance_restored: totalOpeningRestored,
+      opening_balance_report: openingReport
     })
   } catch (e) {
     return handleApiError(e, 'GET fix-debt')
