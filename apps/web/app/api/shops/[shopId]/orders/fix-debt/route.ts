@@ -99,12 +99,14 @@ export async function GET(
       totalOrderDebt: number
       currentCustomerDebt: number
       expectedCustomerDebt: number
+      adjustmentAmount: number
       restoredAmount: number
     }> = []
 
     let totalFixed = 0
     let totalOrdersFixed = 0
     let totalOpeningRestored = 0
+    let totalOpeningReduced = 0
 
     // 3. For each customer: get their orders sorted FIFO and calculate the expected debt.
     const customerIds = new Set([
@@ -175,9 +177,12 @@ export async function GET(
       const restoredAmount = totalOrderDebt === 0
         ? Math.max(0, remainingOpeningDebt - currentCustomerDebt)
         : 0
-      const expectedCustomerDebt = currentCustomerDebt + restoredAmount
+      const expectedCustomerDebt = totalOrderDebt === 0
+        ? remainingOpeningDebt
+        : currentCustomerDebt
+      const adjustmentAmount = expectedCustomerDebt - currentCustomerDebt
 
-      if (restoredAmount > 0 && openingDebt > 0) {
+      if (Math.abs(adjustmentAmount) > 0.01 && openingDebt > 0) {
         openingReport.push({
           customer_id: customerId,
           customer_name: (customer.name as string) || '',
@@ -187,6 +192,7 @@ export async function GET(
           totalOrderDebt,
           currentCustomerDebt,
           expectedCustomerDebt,
+          adjustmentAmount,
           restoredAmount
         })
 
@@ -203,7 +209,8 @@ export async function GET(
           }
         }
 
-        totalOpeningRestored += restoredAmount
+        totalOpeningRestored += Math.max(0, adjustmentAmount)
+        totalOpeningReduced += Math.max(0, -adjustmentAmount)
       }
 
       // 4. amountToReconcile = totalOrderDebt - currentCustomerDebt
@@ -289,7 +296,9 @@ export async function GET(
 
     if (!dryRun) {
       invalidate(shopId, 'orders')
-      if (totalOpeningRestored > 0) invalidate(shopId, 'customers')
+      if (totalOpeningRestored > 0 || totalOpeningReduced > 0) {
+        invalidate(shopId, 'customers')
+      }
     }
 
     return NextResponse.json({
@@ -299,6 +308,8 @@ export async function GET(
       report,
       opening_balance_customers_affected: openingReport.length,
       opening_balance_restored: totalOpeningRestored,
+      opening_balance_reduced: totalOpeningReduced,
+      opening_balance_adjustment: totalOpeningRestored - totalOpeningReduced,
       opening_balance_report: openingReport
     })
   } catch (e) {
