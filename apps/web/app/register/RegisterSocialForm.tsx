@@ -17,7 +17,7 @@ export function RegisterSocialForm() {
     const rootProtocol = window.location.hostname.includes('localhost') ? 'http' : 'https';
     const rootOrigin = `${rootProtocol}://${process.env.NEXT_PUBLIC_ROOT_DOMAIN}`;
     const redirectTo = new URL('/api/auth/callback', rootOrigin);
-    redirectTo.searchParams.set('next', `${window.location.origin}/api/auth/login-success?intent=register`);
+    redirectTo.searchParams.set('next', '/api/auth/login-success?intent=register');
     
     const supabase = getSupabaseBrowserClient();
     const { error: oauthError } = await supabase.auth.signInWithOAuth({

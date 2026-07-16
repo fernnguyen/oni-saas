@@ -57,10 +57,17 @@ export async function GET(req: NextRequest) {
 
   const tenantCount = tenantMembers?.length || 0;
 
-  if (tenantCount === 0 || intent === 'register') {
+  if (tenantCount === 0) {
     const protocol = rootDomain.includes('localhost') ? 'http' : 'https';
     return NextResponse.redirect(`${protocol}://${rootDomain}/onboarding`);
-  } else if (tenantCount === 1) {
+  }
+
+  if (intent === 'register') {
+    const protocol = rootDomain.includes('localhost') ? 'http' : 'https';
+    return NextResponse.redirect(`${protocol}://${rootDomain}/auth/select-workspace?intent=register`);
+  }
+
+  if (tenantCount === 1) {
     const { data: tenant } = await supabase
       .from('tenants')
       .select('slug')
@@ -74,5 +81,5 @@ export async function GET(req: NextRequest) {
   }
   
   const protocol = rootDomain.includes('localhost') ? 'http' : 'https';
-  return NextResponse.redirect(`${protocol}://${rootDomain}/auth/select-workspace`);
+  return NextResponse.redirect(`${protocol}://${rootDomain}/auth/select-workspace?intent=${intent}`);
 }

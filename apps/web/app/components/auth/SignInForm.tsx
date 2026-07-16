@@ -137,10 +137,15 @@ export function SignInForm({
   async function onGoogleSignIn() {
     setLoading(true);
     setError(null);
-    const rootProtocol = window.location.hostname.includes('localhost') ? 'http' : 'https';
-    const rootOrigin = `${rootProtocol}://${ROOT_DOMAIN}`;
-    const redirectTo = new URL('/api/auth/callback', rootOrigin);
-    redirectTo.searchParams.set('next', window.location.origin); // tell callback where to return
+    const protocol = window.location.hostname.includes('localhost') ? 'http' : 'https';
+    const callbackOrigin = tenantSlug ? window.location.origin : `${protocol}://${ROOT_DOMAIN}`;
+    const redirectTo = new URL('/api/auth/callback', callbackOrigin);
+
+    if (tenantSlug) {
+      redirectTo.searchParams.set('next', '/');
+    } else {
+      redirectTo.searchParams.set('next', '/api/auth/login-success?intent=login');
+    }
     
     const supabase = getSupabaseBrowserClient();
     const { error: oauthError } = await supabase.auth.signInWithOAuth({

@@ -9,15 +9,18 @@ export async function GET(req: NextRequest) {
   
   const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
   let next = '/super/dashboard';
+  let nextPath = next;
   
   if (nextParam) {
     if (nextParam.startsWith('/') && !nextParam.startsWith('//')) {
       next = nextParam;
+      nextPath = nextParam;
     } else {
       try {
         const nextUrl = new URL(nextParam);
         if (nextUrl.host.endsWith(rootDomain)) {
           next = nextParam;
+          nextPath = `${nextUrl.pathname}${nextUrl.search}`;
         }
       } catch (e) {
         // invalid URL
@@ -44,8 +47,12 @@ export async function GET(req: NextRequest) {
         const { data: userData } = await supabase.auth.getUser();
         const isSuperAdmin = userData.user?.app_metadata?.role === 'super_admin';
         
-        // Allow non-superadmins if they are in the registration/onboarding flow
-        const isAuthFlow = next.startsWith('/api/auth/login-success') || next.startsWith('/onboarding') || next.startsWith('/register');
+        // Allow non-superadmins if they are in the login/registration routing flow.
+        const isAuthFlow =
+          nextPath.startsWith('/api/auth/login-success') ||
+          nextPath.startsWith('/onboarding') ||
+          nextPath.startsWith('/register') ||
+          nextPath.startsWith('/auth/select-workspace');
 
         if (!isSuperAdmin && !isAuthFlow) {
           let workspaceSlug: string | null = null;
