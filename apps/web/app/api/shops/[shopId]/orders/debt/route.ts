@@ -38,12 +38,13 @@ export async function GET(
       0
     )
 
-    // Self-healing: if cached customer.debt_amount is out of sync with actual unpaid orders sum, heal it in DB
+    // Keep opening-balance debt when there are no matching orders. Only repair the
+    // aggregate when unpaid orders prove that the cached value is too low.
     try {
       const customer = await connector.findById('customers', customer_id)
       if (customer) {
         const cachedDebt = parseFloat(customer.debt_amount || '0')
-        if (cachedDebt !== totalDebt) {
+        if (cachedDebt < totalDebt) {
           const { updateCustomerStats } = await import('@/lib/server/customerStats')
           await updateCustomerStats(connector, customer_id, shopId, {
             debt_amount: String(totalDebt)

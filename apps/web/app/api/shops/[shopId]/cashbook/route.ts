@@ -329,7 +329,9 @@ export async function POST(
       })
       const stats = statsRes.data[0]
       const customer = await connector.findById('customers', payload.reference_id)
-      let currentDebt = parseFloat(stats?.debt_amount ?? customer?.debt_amount ?? '0') || 0
+      const statsDebt = parseFloat(stats?.debt_amount || '0') || 0
+      const customerDebt = parseFloat(customer?.debt_amount || '0') || 0
+      let currentDebt = Math.max(statsDebt, customerDebt)
 
       // Self-healing: Query true outstanding debt from unpaid orders to fix database cache mismatch
       try {
