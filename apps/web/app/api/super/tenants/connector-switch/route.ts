@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getSuperAdminUser } from '@/lib/server/auth'
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
 
 export async function POST(req: NextRequest) {
   try {
+    const user = await getSuperAdminUser()
+    if (!user) {
+      return NextResponse.json({ message: 'Unauthorized' }, { status: 401 })
+    }
+
     const admin = getSupabaseAdminClient()
     const body = await req.json()
     const { tenant_id, type } = body as { tenant_id: string; type: string }
