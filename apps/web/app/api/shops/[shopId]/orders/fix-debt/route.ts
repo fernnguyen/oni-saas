@@ -22,13 +22,24 @@ export async function GET(
 
     // 1. Get all cashbook entries with category === 'debt_collection' and is_virtual !== 'TRUE'
     const cbRes = await connector.list('cashbook', { limit: 100000 })
+    const isVirtualEntry = (cb: Record<string, string>) =>
+      String(cb.is_virtual || '').toUpperCase() === 'TRUE'
+    const isDebtCollectionEntry = (cb: Record<string, string>) => {
+      const note = String(cb.note || '').toLowerCase()
+      return cb.type === 'receipt' && (
+        cb.category === 'debt_collection' ||
+        note.includes('thu nợ') ||
+        note.includes('khấu trừ nợ') ||
+        note.includes('debt collection')
+      )
+    }
     const debtCollections = cbRes.data.filter(
       (cb: Record<string, string>) =>
-        cb.category === 'debt_collection' && cb.is_virtual !== 'TRUE'
+        !isVirtualEntry(cb) && isDebtCollectionEntry(cb)
     )
     const openingDebtEntries = cbRes.data.filter(
       (cb: Record<string, string>) =>
-        cb.category === 'debt_collection' && cb.is_virtual === 'TRUE'
+        isVirtualEntry(cb) && cb.category === 'debt_collection'
     )
 
     const paymentsRes = await connector.list('payments', { limit: 100000 })
@@ -50,11 +61,18 @@ export async function GET(
     }
 
     const openingByCustomer: Record<string, Array<Record<string, string>>> = {}
+    const openingCustomerIdsByName: Record<string, Set<string>> = {}
     for (const cb of openingDebtEntries) {
       const cid = cb.reference_id
       if (!cid) continue
       if (!openingByCustomer[cid]) openingByCustomer[cid] = []
       openingByCustomer[cid].push(cb)
+
+      const name = String(cb.reference_name || '').trim().toLowerCase()
+      if (name) {
+        if (!openingCustomerIdsByName[name]) openingCustomerIdsByName[name] = new Set()
+        openingCustomerIdsByName[name].add(cid)
+      }
     }
 
     const report: Array<{
@@ -94,9 +112,28 @@ export async function GET(
       ...Object.keys(openingByCustomer),
     ])
     for (const customerId of customerIds) {
-      const collections = byCustomer[customerId] || []
       const customer = await connector.findById('customers', customerId)
       if (!customer) continue
+
+      let collections = byCustomer[customerId] || []
+      if (collections.length === 0) {
+        const customerCashbookRes = await connector.list('cashbook', {
+          filters: { reference_id: customerId },
+          limit: 100000
+        })
+        collections = customerCashbookRes.data.filter(
+          (cb: Record<string, string>) => !isVirtualEntry(cb) && isDebtCollectionEntry(cb)
+        )
+      }
+      if (collections.length === 0) {
+        const customerName = String(customer.name || '').trim().toLowerCase()
+        const nameMatches = openingCustomerIdsByName[customerName]
+        if (customerName && nameMatches?.size === 1) {
+          collections = debtCollections.filter(
+            cb => String(cb.reference_name || '').trim().toLowerCase() === customerName
+          )
+        }
+      }
 
       const statsRes = await connector.list('customer-branch-stats', {
         filters: { customer_id: customerId, branch_id: shopId }
@@ -129,7 +166,9 @@ export async function GET(
       const collectedAgainstOpening = collections.reduce((sum, cb) => {
         const transactionId = cb.id || cb.transaction_id || ''
         const collected = parseFloat(cb.amount || '0') || 0
-        const allocatedToOrders = paymentsByReference[transactionId] || 0
+        const allocatedToOrders = totalOrderDebt > 0
+          ? paymentsByReference[transactionId] || 0
+          : 0
         return sum + Math.max(0, collected - allocatedToOrders)
       }, 0)
       const remainingOpeningDebt = Math.max(0, openingDebt - collectedAgainstOpening)
