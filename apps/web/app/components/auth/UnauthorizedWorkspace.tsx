@@ -26,7 +26,7 @@ export function UnauthorizedWorkspace() {
         <div className="pt-2">
           <button
             onClick={handleSignOut}
-            className="w-full rounded-xl bg-red-650 hover:bg-red-700 text-white font-semibold py-2.5 px-4 text-sm transition-colors cursor-pointer shadow-sm hover:shadow active:scale-98"
+            className="w-full rounded-xl bg-red-600 hover:bg-red-700 text-white font-semibold py-2.5 px-4 text-sm transition-colors cursor-pointer shadow-sm hover:shadow active:scale-98"
           >
             Đăng xuất
           </button>

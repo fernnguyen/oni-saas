@@ -70,9 +70,19 @@ export function SignInForm({
 
   useEffect(() => {
     const err = searchParams.get('error');
+    if (!err) return;
+
     if (err === 'oauth_failed') {
       setError('Đăng nhập Google thất bại. Vui lòng thử lại.');
+      return;
     }
+
+    if (err === 'AuthFailed') {
+      setError('Phiên đăng nhập không hợp lệ hoặc đã hết hạn. Vui lòng thử lại.');
+      return;
+    }
+
+    setError(decodeURIComponent(err.replace(/\+/g, ' ')));
   }, [searchParams]);
 
   async function onSubmit(e: FormEvent) {
