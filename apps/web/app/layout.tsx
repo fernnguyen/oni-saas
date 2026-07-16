@@ -1,6 +1,7 @@
 import './globals.css';
 import type { ReactNode } from 'react';
 import type { Metadata } from 'next';
+import Script from 'next/script';
 import { Toaster } from 'sonner';
 import { QueryProvider } from '@/app/components/providers/QueryProvider';
 
@@ -59,6 +60,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         style={{ fontFamily: "'Inter', sans-serif" }}
         suppressHydrationWarning
       >
+        <Script src="https://sp.zalo.me/plugins/sdk.js" strategy="afterInteractive" />
         <QueryProvider>
           {children}
           <Toaster position="top-center" richColors />

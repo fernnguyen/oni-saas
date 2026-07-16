@@ -13,11 +13,25 @@ export function Footer() {
               <span className="text-xl font-black tracking-tight text-white">ONI.vn</span>
             </Link>
             <p className="text-sm text-slate-500 font-medium max-w-sm leading-relaxed">
-              Nền tảng Mini ERP &amp; quản lý bán hàng đa chi nhánh đột phá. Cơ chế kết nối cơ sở dữ liệu riêng tư BYOD biệt lập, tích hợp AI phân tích thông minh và Zalo/Telegram.
+              Nền tảng quản lý bán hàng dành cho HKD, doanh nghiệp vừa và nhỏ
             </p>
-            <div className="text-xs text-slate-500 font-bold">
-              &copy; {new Date().getFullYear()} ONI.vn. Đã đăng ký bản quyền.
+            <div className="space-y-2 text-sm text-slate-400">
+              <p className="font-semibold text-white">Đơn vị quản lý: HKD Phần mềm ONI</p>
+              <p>Địa chỉ: Thôn 4, xã Quỳnh Văn, tỉnh Nghệ An</p>
+              <p>
+                Email:{' '}
+                <a href="mailto:support@oni.vn" className="font-semibold text-slate-200 hover:text-white transition-colors">
+                  support@oni.vn
+                </a>
+              </p>
+              <div className="pt-2">
+                <p className="mb-2 text-sm font-bold  text-slate-500">Quan tâm Zalo OA để nhận ưu đãi</p>
+                <div className="zalo-follow-only-button" data-oaid="2780444502954767948" />
+              </div>
             </div>
+            {/* <div className="text-xs text-slate-500 font-bold">
+              &copy; {new Date().getFullYear()} ONI.vn. Đã đăng ký bản quyền.
+            </div> */}
           </div>
           
           {ALL_SECTORS.map((group) => (
@@ -39,11 +53,10 @@ export function Footer() {
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-xs font-bold text-slate-500">
           <div className="flex flex-wrap gap-x-8 gap-y-2 justify-center">
             <Link href="/#features" className="hover:text-white transition-colors">Tính năng nghiệp vụ</Link>
-            <Link href="/#how" className="hover:text-white transition-colors">Cách hoạt động</Link>
-            <Link href="/#pricing" className="hover:text-white transition-colors">Bảng giá gói cước</Link>
+            <Link href="/#pricing" className="hover:text-white transition-colors">Bảng giá</Link>
             <Link href="/privacy" className="hover:text-white transition-colors">Chính sách bảo mật</Link>
             <Link href="/support" className="hover:text-white transition-colors">Liên hệ hỗ trợ</Link>
-            <a href="https://zalo.me/g/owlxjd9bqfhocunnrjos" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">Cộng đồng Zalo hỗ trợ</a>
+            <a href="https://zalo.me/s/3208409885005498355" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">Mở Zalo Mini App</a>
           </div>
           <div className="text-[10px] text-slate-600">
             Sản phẩm phục vụ Chuyển đổi số Hộ kinh doanh &amp; Doanh nghiệp Việt Nam.

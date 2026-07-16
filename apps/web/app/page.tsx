@@ -737,11 +737,45 @@ export default async function LandingPage() {
           <p className="text-xl text-slate-650 font-medium mb-10 max-w-2xl mx-auto">
             Bắt đầu bán hàng ngay với gói Tiên phong miễn phí vĩnh viễn. Nâng cấp linh hoạt khi quy mô mở rộng.
           </p>
+          <div className="mb-8 rounded-3xl border border-slate-200 bg-white/80 px-6 py-5 text-left shadow-sm backdrop-blur-sm">
+            <div className="grid gap-3 text-sm text-slate-600 md:grid-cols-3">
+              <div>
+                <div className="text-xs font-bold uppercase tracking-[0.16em] text-primary">Đơn vị quản lý</div>
+                <div className="mt-1 font-semibold text-slate-900">HKD Phần mềm ONI</div>
+              </div>
+              <div>
+                <div className="text-xs font-bold uppercase tracking-[0.16em] text-primary">Địa chỉ</div>
+                <div className="mt-1 font-medium text-slate-900">Thôn 4, xã Quỳnh Văn, tỉnh Nghệ An</div>
+              </div>
+              <div>
+                <div className="text-xs font-bold uppercase tracking-[0.16em] text-primary">Email hỗ trợ</div>
+                <a href="mailto:support@oni.vn" className="mt-1 inline-block font-semibold text-slate-900 hover:text-primary transition-colors">
+                  support@oni.vn
+                </a>
+              </div>
+            </div>
+          </div>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link href="/register" id="cta-bottom-register" className="group flex items-center justify-center gap-2 rounded-xl bg-primary px-8 py-4 text-lg font-bold text-white shadow-xl hover:bg-primary-dark transition-all hover:scale-105">
               Đăng ký ngay
               <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-1" />
             </Link>
+            <a
+              href="https://zalo.me/2780444502954767948"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center rounded-xl border border-blue-200 bg-blue-50 px-8 py-4 text-lg font-bold text-blue-700 shadow-sm transition-all hover:bg-blue-100"
+            >
+              Quan tâm Zalo OA
+            </a>
+            <a
+              href="https://zalo.me/s/3208409885005498355"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center rounded-xl border border-slate-200 bg-white px-8 py-4 text-lg font-bold text-slate-800 shadow-sm transition-all hover:bg-slate-50"
+            >
+              Sử dụng Mini App
+            </a>
           </div>
         </div>
       </section>
