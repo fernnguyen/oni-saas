@@ -52,6 +52,10 @@ export async function POST(req: NextRequest) {
   }
 
   const userId = user.id;
+  const userMetadata =
+    user.user_metadata && typeof user.user_metadata === 'object' && !Array.isArray(user.user_metadata)
+      ? user.user_metadata
+      : {};
   const metadataPhone = typeof user.user_metadata?.phone === 'string' ? user.user_metadata.phone : '';
   const effectivePhoneInput = phone?.trim() || metadataPhone.trim() || '';
   const normalizedPhone = effectivePhoneInput ? normalizeVNPhone(effectivePhoneInput) : null;
@@ -330,20 +334,48 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  const hasInitializedLoginPassword = Boolean(
+    (userMetadata as Record<string, any>).has_login_password ||
+    (userMetadata as Record<string, any>).temporary_password_initialized_at
+  );
   const generatedTemporaryPassword =
-    !password && userProvider === 'zalo' && normalizedPhone ? generateTemporaryPassword() : null;
+    !password && userProvider === 'zalo' && normalizedPhone && !hasInitializedLoginPassword
+      ? generateTemporaryPassword()
+      : null;
   const effectivePassword = password?.trim() || generatedTemporaryPassword;
+  const hasExistingPassword = hasInitializedLoginPassword && !generatedTemporaryPassword;
 
   let phoneLogin = normalizedPhone;
 
-  if (normalizedPhone && effectivePassword) {
+  if (normalizedPhone) {
     try {
-      // Update the user's phone and password so they can log in independently
-      const { error: userUpdateError } = await admin.auth.admin.updateUserById(userId, {
+      const nextUserMetadata = {
+        ...userMetadata,
+      } as Record<string, any>;
+
+      if (effectivePassword) {
+        nextUserMetadata.has_login_password = true;
+        nextUserMetadata.temporary_password_initialized_at =
+          nextUserMetadata.temporary_password_initialized_at || new Date().toISOString();
+      }
+
+      const updatePayload: {
+        phone?: string;
+        phone_confirm: boolean;
+        password?: string;
+        user_metadata?: Record<string, any>;
+      } = {
         phone: e164Phone || undefined,
-        password: effectivePassword,
         phone_confirm: true
-      });
+      };
+
+      if (effectivePassword) {
+        updatePayload.password = effectivePassword;
+        updatePayload.user_metadata = nextUserMetadata;
+      }
+
+      // Always sync phone, but only initialize password once for Zalo users.
+      const { error: userUpdateError } = await admin.auth.admin.updateUserById(userId, updatePayload);
 
       if (userUpdateError) {
         console.warn('Could not set user phone/password in Auth:', userUpdateError.message);
@@ -367,6 +399,7 @@ export async function POST(req: NextRequest) {
     phone_login: phoneLogin,
     phone: normalizedPhone,
     temporary_password: generatedTemporaryPassword,
+    has_existing_password: hasExistingPassword,
     provider: userProvider
   }, { status: 201 });
   } catch (error: any) {

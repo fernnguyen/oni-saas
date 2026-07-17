@@ -25,6 +25,7 @@ type RegisteredInfo = {
   email: string;
   phone: string;
   temporaryPassword: string;
+  hasExistingPassword: boolean;
   workspaceUrl?: string;
 };
 
@@ -138,12 +139,16 @@ function createCredentialsImage(info: RegisteredInfo) {
   ctx.font = '500 28px Inter, Arial, sans-serif';
   ctx.fillText('Lưu ảnh này để xem lại khi cần đăng nhập hoặc hỗ trợ vận hành.', cardX + 44, cardY + 210);
 
+  const passwordDisplay =
+    info.temporaryPassword ||
+    (info.hasExistingPassword ? 'Không thay đổi' : 'Sẽ cập nhật sau');
+
   const rows = [
     ['Tên cửa hàng', info.name],
     ['Tên miền cửa hàng', `${info.slug}.oni.vn`],
     ['Email', info.email],
     ['Số điện thoại', info.phone],
-    ['Mật khẩu tạm', info.temporaryPassword],
+    [info.temporaryPassword ? 'Mật khẩu tạm' : 'Mật khẩu', passwordDisplay],
   ];
 
   let rowY = cardY + 280;
@@ -165,7 +170,7 @@ function createCredentialsImage(info: RegisteredInfo) {
     ctx.fillText(label.toUpperCase(), cardX + 64, blockY + 42);
 
     ctx.fillStyle = '#111827';
-    ctx.font = value === info.temporaryPassword ? '800 38px Inter, Arial, sans-serif' : '700 30px Inter, Arial, sans-serif';
+    ctx.font = value === info.temporaryPassword && info.temporaryPassword ? '800 38px Inter, Arial, sans-serif' : '700 26px Inter, Arial, sans-serif';
     ctx.fillText(value, cardX + 64, blockY + 88);
   });
 
@@ -389,6 +394,7 @@ export default function OnboardingPage() {
         phone?: string | null;
         phone_login?: string | null;
         temporary_password?: string | null;
+        has_existing_password?: boolean;
         workspace_url?: string;
       }>('/api/register', {
         method: 'POST',
@@ -405,6 +411,7 @@ export default function OnboardingPage() {
         email: res.email,
         phone: res.phone_login || res.phone || profile?.phone || '',
         temporaryPassword: res.temporary_password || '',
+        hasExistingPassword: Boolean(res.has_existing_password),
         workspaceUrl: res.workspace_url,
       });
       setStep(3);
@@ -554,7 +561,7 @@ export default function OnboardingPage() {
 
   const handleSaveCredentialsImage = async () => {
     if (!registeredInfo) return;
-    if (!registeredInfo.temporaryPassword) {
+    if (!registeredInfo.temporaryPassword && !registeredInfo.hasExistingPassword) {
       toast.error('Chưa có đủ thông tin tài khoản để lưu ảnh. Vui lòng thử lại sau.');
       return;
     }
@@ -1045,7 +1052,13 @@ export default function OnboardingPage() {
                       ['Tên miền cửa hàng', `${registeredInfo.slug}.oni.vn`],
                       ['Email', registeredInfo.email],
                       ['Số điện thoại', registeredInfo.phone || profile?.phone || 'Chưa có'],
-                      ['Mật khẩu tạm', registeredInfo.temporaryPassword || 'Chưa nhận được từ máy chủ'],
+                      [
+                        registeredInfo.temporaryPassword ? 'Mật khẩu tạm' : 'Mật khẩu',
+                        registeredInfo.temporaryPassword ||
+                          (registeredInfo.hasExistingPassword
+                            ? 'Mật khẩu đã tạo trước đó'
+                            : 'Chưa nhận được từ máy chủ'),
+                      ],
                     ].map(([label, value]) => (
                       <div
                         key={label}
@@ -1054,20 +1067,29 @@ export default function OnboardingPage() {
                           flexDirection: 'column',
                           gap: 4,
                           padding: '10px 0',
-                          borderBottom: label === 'Mật khẩu tạm' ? 'none' : '1px solid rgba(255,255,255,0.14)',
+                          borderBottom:
+                            label === 'Mật khẩu tạm' || label === 'Mật khẩu'
+                              ? 'none'
+                              : '1px solid rgba(255,255,255,0.14)',
                         }}
                       >
                         <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.68)' }}>
                           {label}
                         </span>
-                        <span style={{ fontSize: label === 'Mật khẩu tạm' ? 24 : 14, fontWeight: label === 'Mật khẩu tạm' ? 800 : 700, letterSpacing: label === 'Mật khẩu tạm' ? '0.08em' : 'normal' }}>
+                        <span
+                          style={{
+                            fontSize: label === 'Mật khẩu tạm' ? 24 : 14,
+                            fontWeight: label === 'Mật khẩu tạm' ? 800 : 700,
+                            letterSpacing: label === 'Mật khẩu tạm' ? '0.08em' : 'normal',
+                          }}
+                        >
                           {value}
                         </span>
                       </div>
                     ))}
                   </div>
 
-                  {!registeredInfo.temporaryPassword && (
+                  {!registeredInfo.temporaryPassword && !registeredInfo.hasExistingPassword && (
                     <div
                       style={{
                         marginTop: 14,
@@ -1123,7 +1145,12 @@ export default function OnboardingPage() {
                               `Tên miền cửa hàng: ${registeredInfo.slug}.oni.vn`,
                               `Email: ${registeredInfo.email}`,
                               `Số điện thoại: ${registeredInfo.phone || profile?.phone || 'Chưa có'}`,
-                              `Mật khẩu tạm: ${registeredInfo.temporaryPassword || 'Chưa nhận được từ máy chủ'}`,
+                              `Mật khẩu: ${
+                                registeredInfo.temporaryPassword ||
+                                (registeredInfo.hasExistingPassword
+                                  ? 'Không thay đổi'
+                                  : 'Chưa nhận được từ máy chủ')
+                              }`,
                             ].join('\n')
                           );
                           toast.success('Đã sao chép thông tin tài khoản');
