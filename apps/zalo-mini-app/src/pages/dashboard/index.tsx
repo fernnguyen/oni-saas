@@ -5,6 +5,8 @@ import { useTenantStore } from '@/stores/tenant-store';
 import { getReportsOverview, type ReportOverview, getQrOrders } from '@/services/shop-api';
 import { formatCurrency, formatCompactNumber } from '@/utils/format';
 import { useNotificationStore } from '@/stores/notification-store';
+import { createShortcut } from 'zmp-sdk';
+import toast from 'react-hot-toast';
 
 // ────────────────────────────── Quick Actions Config ──────────────────────────────
 
@@ -63,6 +65,8 @@ const QUICK_ACTIONS = [
     ),
   },
 ];
+
+const SHORTCUT_PROMPT_KEY_PREFIX = 'oni-shortcut-prompt-dismissed';
 
 // ────────────────────────────── Helpers ──────────────────────────────
 
@@ -130,13 +134,18 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const profile = useAuthStore((s) => s.profile);
   const shop = useTenantStore((s) => s.shop);
+  const unreadCount = useNotificationStore((s) => s.unreadCount);
 
   const [data, setData] = useState<ReportOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [qrOrdersCount, setQrOrdersCount] = useState(0);
+  const [showShortcutPrompt, setShowShortcutPrompt] = useState(false);
+  const [shortcutLoading, setShortcutLoading] = useState(false);
 
   const userName = profile?.full_name || profile?.email || 'Người dùng';
+  const shortcutPromptStorageKey =
+    profile?.id && shop?.id ? `${SHORTCUT_PROMPT_KEY_PREFIX}:${profile.id}:${shop.id}` : null;
 
   // Compute KPI values from nested or flat API structures
   const todayRevenue = data?.kpi?.today?.revenue ?? data?.todayRevenue ?? 0;
@@ -172,6 +181,42 @@ export default function DashboardPage() {
     fetchData();
   }, [fetchData]);
 
+  useEffect(() => {
+    if (!shortcutPromptStorageKey) return;
+
+    const wasDismissed = localStorage.getItem(shortcutPromptStorageKey);
+    setShowShortcutPrompt(!wasDismissed);
+  }, [shortcutPromptStorageKey]);
+
+  const dismissShortcutPrompt = useCallback(() => {
+    if (shortcutPromptStorageKey) {
+      localStorage.setItem(shortcutPromptStorageKey, '1');
+    }
+    setShowShortcutPrompt(false);
+  }, [shortcutPromptStorageKey]);
+
+  const handleCreateShortcut = useCallback(async () => {
+    setShortcutLoading(true);
+    try {
+      await createShortcut({
+        params: {
+          utm_source: 'shortcut',
+          utm_medium: 'zalo_home_prompt',
+        },
+      });
+
+      toast.success('Đã gửi yêu cầu thêm ứng dụng ra màn hình chính');
+      dismissShortcutPrompt();
+    } catch (err: any) {
+      const message = typeof err?.message === 'string' && err.message.trim()
+        ? err.message
+        : 'Không thể tạo lối tắt lúc này. Vui lòng thử lại trong Zalo.';
+      toast.error(message);
+    } finally {
+      setShortcutLoading(false);
+    }
+  }, [dismissShortcutPrompt]);
+
   // ── Render ──
 
   return (
@@ -191,7 +236,7 @@ export default function DashboardPage() {
             <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
             <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
           </svg>
-          {useNotificationStore().unreadCount > 0 && (
+          {unreadCount > 0 && (
             <div style={{
               position: 'absolute', top: 4, right: 6, width: 10, height: 10, 
               background: '#ef4444', borderRadius: '50%', border: '2px solid var(--background, #f8fafc)'
@@ -199,6 +244,66 @@ export default function DashboardPage() {
           )}
         </button>
       </div>
+
+      {showShortcutPrompt && (
+        <div className="shortcut-prompt-shell">
+          <section className="shortcut-prompt-card">
+            <div className="shortcut-prompt-orb shortcut-prompt-orb-top" />
+            <div className="shortcut-prompt-orb shortcut-prompt-orb-bottom" />
+
+            <div className="shortcut-prompt-header">
+              <div>
+                <span className="shortcut-prompt-badge">Truy cập nhanh</span>
+                <h3 className="shortcut-prompt-title">Thêm ONI ra màn hình chính</h3>
+              </div>
+              <button
+                type="button"
+                className="shortcut-prompt-close"
+                onClick={dismissShortcutPrompt}
+                aria-label="Đóng gợi ý thêm vào trang chủ"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+
+            <p className="shortcut-prompt-copy">
+              Tạo biểu tượng ngoài màn hình để mở ứng dụng chỉ với 1 chạm mỗi lần vào ca làm việc.
+            </p>
+
+            <div className="shortcut-prompt-preview">
+              <div className="shortcut-preview-icon">
+                <img src="/logo.png" alt="ONI shortcut" />
+              </div>
+              <div className="shortcut-preview-content">
+                <strong>ONI Mini App</strong>
+                <span>Mở nhanh từ màn hình chính Zalo của bạn</span>
+              </div>
+            </div>
+
+            <div className="shortcut-prompt-actions">
+              <button
+                type="button"
+                className="shortcut-primary-button"
+                onClick={handleCreateShortcut}
+                disabled={shortcutLoading}
+              >
+                {shortcutLoading ? 'Đang tạo lối tắt...' : 'Thêm vào trang chủ'}
+              </button>
+              <button
+                type="button"
+                className="shortcut-secondary-button"
+                onClick={dismissShortcutPrompt}
+                disabled={shortcutLoading}
+              >
+                Để sau
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {/* ══════ KPI Cards ══════ */}
       {loading ? (
