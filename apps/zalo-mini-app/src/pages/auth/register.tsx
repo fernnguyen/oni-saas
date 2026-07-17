@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getPhoneNumber, getAccessToken } from 'zmp-sdk/apis';
+import { getPhoneNumber, getAccessToken, getUserInfo } from 'zmp-sdk/apis';
 import toast from 'react-hot-toast';
 import { loginWithZaloMiniApp } from '@/services/auth';
 import { getApiBaseUrl, getApiHeaders } from '@/lib/api-config';
@@ -32,9 +32,31 @@ export default function RegisterPage() {
                 fail: (err) => reject(new Error('Không thể lấy access token')),
               });
             });
+
+            let zaloProfile: { name?: string; avatar?: string } | undefined;
+            try {
+              const userInfoRes = await new Promise<any>((resolve, reject) => {
+                getUserInfo({
+                  success: (data) => resolve(data),
+                  fail: (err) => reject(err),
+                });
+              });
+              const userInfo = userInfoRes?.userInfo || {};
+              zaloProfile = {
+                name: typeof userInfo.name === 'string' ? userInfo.name.trim() : undefined,
+                avatar:
+                  typeof userInfo.avatar === 'string'
+                    ? userInfo.avatar.trim()
+                    : typeof userInfo.avatarUrl === 'string'
+                      ? userInfo.avatarUrl.trim()
+                      : undefined,
+              };
+            } catch (error) {
+              console.warn('Không thể lấy user info từ Zalo Mini App, sẽ fallback về backend graph API.', error);
+            }
             
             // Call our backend API to authenticate and get session
-            await loginWithZaloMiniApp(token, accessToken);
+            await loginWithZaloMiniApp(token, accessToken, undefined, zaloProfile);
             
             // Fetch their tenants list to see if they already have shops
             const baseUrl = getApiBaseUrl();

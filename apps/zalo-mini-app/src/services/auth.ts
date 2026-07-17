@@ -61,7 +61,12 @@ export async function fetchShops(tenantId: string) {
 }
 
 // Login via Zalo Mini App
-export async function loginWithZaloMiniApp(token: string, accessToken: string, tenantCode?: string) {
+export async function loginWithZaloMiniApp(
+  token: string,
+  accessToken: string,
+  tenantCode?: string,
+  profile?: { name?: string; avatar?: string }
+) {
   if (tenantCode) {
     localStorage.setItem('active_tenant_code', tenantCode);
     localStorage.removeItem('custom_api_base_url');
@@ -73,7 +78,12 @@ export async function loginWithZaloMiniApp(token: string, accessToken: string, t
 
   const { session } = await apiFetch<{ session: any }>('/api/auth/zalo/mini-app', {
     method: 'POST',
-    body: JSON.stringify({ token, accessToken }),
+    body: JSON.stringify({
+      token,
+      accessToken,
+      profileName: profile?.name,
+      profileAvatar: profile?.avatar,
+    }),
   });
 
   if (session) {

@@ -22,7 +22,11 @@ async function findAuthUserByEmail(admin: ReturnType<typeof getSupabaseAdminClie
 
 export async function POST(req: NextRequest) {
   try {
-    const { token, accessToken } = await req.json();
+    const body = await req.json();
+    const token = typeof body?.token === 'string' ? body.token : '';
+    const accessToken = typeof body?.accessToken === 'string' ? body.accessToken : '';
+    const fallbackProfileName = typeof body?.profileName === 'string' ? body.profileName.trim() : '';
+    const fallbackProfileAvatar = typeof body?.profileAvatar === 'string' ? body.profileAvatar.trim() : '';
 
     if (!token || !accessToken) {
       return NextResponse.json({ error: 'Missing token or accessToken' }, { status: 400 });
@@ -70,6 +74,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing Zalo profile id' }, { status: 400 });
     }
 
+    const resolvedProfileName =
+      (typeof profileData.name === 'string' && profileData.name.trim()) ||
+      fallbackProfileName ||
+      'Người dùng Zalo';
+    const resolvedAvatarUrl =
+      (typeof profileData.picture?.data?.url === 'string' && profileData.picture.data.url.trim()) ||
+      fallbackProfileAvatar ||
+      '';
+
     const canonicalZaloEmail = `zalo_${zaloId}@oni.vn`;
     const legacyPhoneEmail = `zalo_${phoneNumberStr}@oni.vn`;
     const admin = getSupabaseAdminClient();
@@ -113,8 +126,8 @@ export async function POST(req: NextRequest) {
         email: canonicalZaloEmail,
         email_confirm: true,
         user_metadata: {
-          full_name: profileData.name || 'Người dùng Zalo',
-          avatar_url: profileData.picture?.data?.url || '',
+          full_name: resolvedProfileName,
+          avatar_url: resolvedAvatarUrl,
           phone: phoneNumberStr,
           zalo_id: zaloId,
         }
@@ -135,8 +148,8 @@ export async function POST(req: NextRequest) {
         phone: authPhone,
         phone_confirm: true,
         user_metadata: {
-          full_name: profileData.name || 'Người dùng Zalo',
-          avatar_url: profileData.picture?.data?.url || '',
+          full_name: resolvedProfileName,
+          avatar_url: resolvedAvatarUrl,
           phone: phoneNumberStr,
           zalo_id: zaloId,
         },
@@ -201,8 +214,8 @@ export async function POST(req: NextRequest) {
         user_id: userId,
         provider: 'zalo',
         provider_id: zaloId,
-        name: profileData.name || null,
-        avatar: profileData.picture?.data?.url || null,
+        name: resolvedProfileName || null,
+        avatar: resolvedAvatarUrl || null,
       });
     }
 
