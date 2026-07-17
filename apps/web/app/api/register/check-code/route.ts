@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdminClient } from '../../../../lib/server/supabaseAdmin';
 
+const INVITATION_CODE_REGEX = /^[A-Z0-9_-]+$/;
+
 export async function GET(req: NextRequest) {
-  const code = req.nextUrl.searchParams.get('code')?.trim();
+  const code = req.nextUrl.searchParams.get('code')?.trim().toUpperCase();
   if (!code) {
     return NextResponse.json({ valid: false, message: 'Vui lòng cung cấp mã mời.' });
+  }
+  if (code.length < 3) {
+    return NextResponse.json({ valid: false, message: 'Mã mời cần ít nhất 3 ký tự.' });
+  }
+  if (!INVITATION_CODE_REGEX.test(code)) {
+    return NextResponse.json({ valid: false, message: 'Mã mời chỉ được chứa chữ, số, dấu gạch ngang hoặc gạch dưới.' });
   }
 
   const admin = getSupabaseAdminClient();
@@ -12,8 +20,8 @@ export async function GET(req: NextRequest) {
   // Query invitation code from DB
   const { data: codeData, error } = await admin
     .from('invitation_codes')
-    .select('*')
-    .ilike('code', code)
+    .select('code, expires_at, max_uses, used_count, plan_id, trial_days')
+    .eq('code', code)
     .maybeSingle();
 
   if (error || !codeData) {

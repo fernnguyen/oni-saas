@@ -17,6 +17,7 @@ const INDUSTRY_TYPES = [
   { id: 'fashion', label: 'Thời trang & Phụ kiện', icon: '👗' },
   { id: 'service_hourly', label: 'Spa & Dịch vụ', icon: '💆‍♀️' },
 ];
+const INVITATION_CODE_REGEX = /^[A-Z0-9_-]+$/;
 
 export default function OnboardingPage() {
   type PermissionStatus = 'pending' | 'granted' | 'skipped';
@@ -130,9 +131,21 @@ export default function OnboardingPage() {
   const codeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const trimmed = invitationCode.trim();
+    const trimmed = invitationCode.trim().toUpperCase();
     if (!trimmed) {
       setPromoDetails(null);
+      setIsCheckingCode(false);
+      setSelectedPlanCode('plan_mini');
+      return;
+    }
+    if (trimmed.length < 3) {
+      setPromoDetails(null);
+      setIsCheckingCode(false);
+      setSelectedPlanCode('plan_mini');
+      return;
+    }
+    if (!INVITATION_CODE_REGEX.test(trimmed)) {
+      setPromoDetails({ valid: false, message: 'Mã mời không đúng định dạng.' });
       setIsCheckingCode(false);
       setSelectedPlanCode('plan_mini');
       return;

@@ -12,6 +12,7 @@ import { getSupabaseBrowserClient } from '../../lib/supabaseBrowser';
 import { AuthSplitLayout } from '../components/layout/AuthSplitLayout';
 
 const SLUG_REGEX = /^[a-z0-9-]+$/;
+const INVITATION_CODE_REGEX = /^[A-Z0-9_-]+$/;
 const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
 const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
 
@@ -249,7 +250,7 @@ export function OnboardingForm({ plans, initialDomain, initialIndustry, registra
   const codeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const trimmed = invitationCode.trim();
+    const trimmed = invitationCode.trim().toUpperCase();
     if (!trimmed) {
       setPromoDetails(null);
       setIsCheckingCode(false);
@@ -258,12 +259,29 @@ export function OnboardingForm({ plans, initialDomain, initialIndustry, registra
       setSelectedPlanCode(defaultPlan?.code || '');
       return;
     }
+    if (trimmed.length < 3) {
+      setPromoDetails(null);
+      setIsCheckingCode(false);
+      setFieldErrors(prev => ({ ...prev, invitationCode: '' }));
+      setSelectedPlanCode(defaultPlan?.code || '');
+      return;
+    }
+    if (!INVITATION_CODE_REGEX.test(trimmed)) {
+      setPromoDetails({ valid: false, message: 'Mã mời chỉ được chứa chữ, số, dấu gạch ngang hoặc gạch dưới.' });
+      setIsCheckingCode(false);
+      setFieldErrors(prev => ({ ...prev, invitationCode: 'Mã mời không đúng định dạng.' }));
+      setSelectedPlanCode(defaultPlan?.code || '');
+      return;
+    }
 
     setIsCheckingCode(true);
+    const controller = new AbortController();
     if (codeDebounceRef.current) clearTimeout(codeDebounceRef.current);
     codeDebounceRef.current = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/register/check-code?code=${encodeURIComponent(trimmed)}`);
+        const res = await fetch(`/api/register/check-code?code=${encodeURIComponent(trimmed)}`, {
+          signal: controller.signal,
+        });
         const data = await res.json();
         if (data.valid) {
           setPromoDetails(data);
@@ -276,15 +294,17 @@ export function OnboardingForm({ plans, initialDomain, initialIndustry, registra
           setFieldErrors(prev => ({ ...prev, invitationCode: data.message || 'Mã mời không hợp lệ.' }));
           setSelectedPlanCode(defaultPlan?.code || '');
         }
-      } catch {
+      } catch (err: any) {
+        if (err.name === 'AbortError') return;
         setPromoDetails(null);
       } finally {
         setIsCheckingCode(false);
       }
-    }, 500);
+    }, 1200);
 
     return () => {
       if (codeDebounceRef.current) clearTimeout(codeDebounceRef.current);
+      controller.abort();
     };
   }, [invitationCode, defaultPlan]);
 
