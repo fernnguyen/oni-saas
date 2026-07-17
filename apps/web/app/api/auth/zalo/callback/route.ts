@@ -1,27 +1,42 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdminClient } from '../../../../../lib/server/supabaseAdmin';
 
+async function findAuthUserByEmail(admin: ReturnType<typeof getSupabaseAdminClient>, email: string) {
+  let page = 1;
+
+  while (page <= 5) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 });
+    if (error) throw error;
+
+    const users = data?.users || [];
+    const matchedUser = users.find((user) => user.email?.toLowerCase() === email.toLowerCase());
+    if (matchedUser) return matchedUser;
+    if (users.length < 200) break;
+    page += 1;
+  }
+
+  return null;
+}
+
 export async function GET(req: NextRequest) {
   const { searchParams, origin } = new URL(req.url);
   const code = searchParams.get('code');
   const stateParam = searchParams.get('state');
-  
+
   const xForwardedHost = req.headers.get('x-forwarded-host');
   const xForwardedProto = req.headers.get('x-forwarded-proto') || 'http';
   const realHost = xForwardedHost || req.headers.get('host') || '';
   const resolvedOrigin = realHost ? `${xForwardedProto}://${realHost}` : origin;
-  const redirectUri = `${resolvedOrigin}/api/auth/zalo/callback`;
 
-  // Parse state to get intent
   let intent = 'login';
-  let originalOrigin = resolvedOrigin; // Fallback to current origin
+  let originalOrigin = resolvedOrigin;
   if (stateParam) {
     try {
       const stateObj = JSON.parse(Buffer.from(stateParam, 'base64').toString('utf-8'));
       if (stateObj.intent) intent = stateObj.intent;
       if (stateObj.origin) originalOrigin = stateObj.origin;
     } catch (err) {
-      console.warn("Invalid state param", err);
+      console.warn('Invalid state param', err);
     }
   }
 
@@ -42,7 +57,6 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // 1. Exchange code for Zalo Access Token
     const tokenRes = await fetch('https://oauth.zaloapp.com/v4/access_token', {
       method: 'POST',
       headers: {
@@ -51,7 +65,7 @@ export async function GET(req: NextRequest) {
       },
       body: new URLSearchParams({
         app_id: appId,
-        code: code,
+        code,
         grant_type: 'authorization_code',
         code_verifier: codeVerifier,
       }),
@@ -63,7 +77,6 @@ export async function GET(req: NextRequest) {
       return NextResponse.redirect(`${originalOrigin}/auth/signin?error=Failed to get Zalo access token`);
     }
 
-    // 2. Get User Profile from Zalo Graph API
     const profileRes = await fetch('https://graph.zalo.me/v2.0/me?fields=id,name,picture', {
       method: 'GET',
       headers: {
@@ -81,33 +94,77 @@ export async function GET(req: NextRequest) {
     const zaloEmail = `zalo_${zaloId}@oni.vn`;
     const admin = getSupabaseAdminClient();
 
-    // 3. Find or Create User via Supabase Admin
-    // Using email lookup directly. We try to generate a link first, which acts as a check if user exists.
-    // Or we can just createUser and ignore the 'already exists' error.
-    let userRecord = null;
-    
-    // First, try to create the user. If they exist, it will fail gracefully (with User already exists error).
-    const { data: createdUser, error: createError } = await admin.auth.admin.createUser({
-      email: zaloEmail,
-      email_confirm: true,
-      user_metadata: {
-        full_name: profileData.name,
-        avatar_url: profileData.picture?.data?.url || '',
-      }
-    });
+    let resolvedEmail = zaloEmail;
+    let resolvedUserId: string | null = null;
 
-    if (createError && (createError.message.toLowerCase().includes('already') || createError.status === 422)) {
-      // User exists, that's perfectly fine. We will generate a link for them.
-      console.log("Zalo user already exists, proceeding to login.");
-    } else if (createError) {
-      console.error('Supabase Create User Error:', createError);
-      return NextResponse.redirect(`${originalOrigin}/auth/signin?error=Failed to create auth user`);
+    const { data: linkedIdentity } = await admin
+      .from('user_identities')
+      .select('user_id')
+      .eq('provider', 'zalo')
+      .eq('provider_id', zaloId)
+      .maybeSingle();
+
+    if (linkedIdentity?.user_id) {
+      const { data: linkedUser } = await admin.auth.admin.getUserById(linkedIdentity.user_id);
+      if (linkedUser.user?.email) {
+        resolvedEmail = linkedUser.user.email;
+        resolvedUserId = linkedUser.user.id;
+      }
     }
 
-    // 4. Generate Magic Link to securely log the user in via client-side cookie exchange
+    if (!resolvedUserId) {
+      const canonicalUser = await findAuthUserByEmail(admin, zaloEmail);
+      if (canonicalUser?.email) {
+        resolvedEmail = canonicalUser.email;
+        resolvedUserId = canonicalUser.id;
+      }
+    }
+
+    if (!resolvedUserId) {
+      const { data: createdUser, error: createError } = await admin.auth.admin.createUser({
+        email: zaloEmail,
+        email_confirm: true,
+        user_metadata: {
+          full_name: profileData.name,
+          avatar_url: profileData.picture?.data?.url || '',
+          zalo_id: zaloId,
+        }
+      });
+
+      if (createError || !createdUser.user) {
+        console.error('Supabase Create User Error:', createError);
+        return NextResponse.redirect(`${originalOrigin}/auth/signin?error=Failed to create auth user`);
+      }
+
+      resolvedEmail = createdUser.user.email || zaloEmail;
+      resolvedUserId = createdUser.user.id;
+    }
+
+    const { data: existingIdentity } = await admin
+      .from('user_identities')
+      .select('id')
+      .eq('provider', 'zalo')
+      .eq('provider_id', zaloId)
+      .maybeSingle();
+
+    if (!existingIdentity && resolvedUserId) {
+      const { error: insertIdentityError } = await admin.from('user_identities').insert({
+        id: `zalo_${zaloId}`,
+        user_id: resolvedUserId,
+        provider: 'zalo',
+        provider_id: zaloId,
+        name: profileData.name || null,
+        avatar: profileData.picture?.data?.url || null,
+      });
+
+      if (insertIdentityError) {
+        console.error('Failed to insert Zalo identity:', insertIdentityError);
+      }
+    }
+
     const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
       type: 'magiclink',
-      email: zaloEmail,
+      email: resolvedEmail,
     });
 
     if (linkError || !linkData?.properties?.action_link) {
@@ -115,30 +172,20 @@ export async function GET(req: NextRequest) {
       return NextResponse.redirect(`${originalOrigin}/auth/signin?error=Failed to generate login link`);
     }
 
-    // 5. Build the final redirect URL (Supabase's action_link already sets cookies)
-    // We add a 'next' param to guide the user after successful login
-    let nextPath = '/super/dashboard';
-    
-    // Custom routing based on intent and tenant check will be handled in middleware or frontend.
-    // But since `action_link` is a Supabase internal URL, we append `&next=/auth/callback-routing?intent=...` 
-    // Actually, action_link structure: /auth/v1/verify?token=...&type=magiclink&redirect_to=...
-    // Let's parse and append redirect_to
-    
     const actionUrl = new URL(linkData.properties.action_link);
-    
-    // Use the root domain for redirect_to to ensure it's always allowed by Supabase's whitelist.
-    // We pass the tenant origin so the root domain can forward the hash token to the tenant.
     const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN || 'localhost:3000';
     const rootProtocol = rootDomain.includes('localhost') ? 'http' : 'https';
     const rootOrigin = `${rootProtocol}://${rootDomain}`;
-    
-    actionUrl.searchParams.set('redirect_to', `${rootOrigin}/auth/zalo-success?intent=${intent}&tenant=${encodeURIComponent(originalOrigin)}`);
+
+    actionUrl.searchParams.set(
+      'redirect_to',
+      `${rootOrigin}/auth/zalo-success?intent=${intent}&tenant=${encodeURIComponent(originalOrigin)}`
+    );
 
     const response = NextResponse.redirect(actionUrl.toString());
     response.cookies.set('zalo_code_verifier', '', { maxAge: 0, path: '/' });
-    
-    return response;
 
+    return response;
   } catch (err) {
     console.error('Zalo Callback Catch Error:', err);
     return NextResponse.redirect(`${resolvedOrigin}/auth/signin?error=Internal server error during callback`);

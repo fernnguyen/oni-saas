@@ -1,13 +1,39 @@
-/**
- * Kiểm tra xem một chuỗi có phải là số điện thoại di động Việt Nam hợp lệ hay không.
- * Các đầu số hợp lệ (nhà mạng Viettel, VinaPhone, MobiFone, Vietnamobile, Gmobile, Itelecom, Wintel...):
- * - Đầu 03, 05, 07, 08, 09
- * - Độ dài chính xác 10 số (bao gồm cả số 0 ở đầu)
- */
-export const VN_PHONE_REGEX = /^(0[3|5|7|8|9])+([0-9]{8})$/;
+const VN_PHONE_LOCAL_REGEX = /^0(3|5|7|8|9)[0-9]{8}$/;
+const VN_PHONE_84_REGEX = /^84(3|5|7|8|9)[0-9]{8}$/;
+const VN_PHONE_PLUS_84_REGEX = /^\+84(3|5|7|8|9)[0-9]{8}$/;
+
+export function normalizeVNPhone(phone: string): string | null {
+  const cleanPhone = phone.trim().replace(/[.\s()-]/g, '');
+
+  if (VN_PHONE_LOCAL_REGEX.test(cleanPhone)) {
+    return cleanPhone;
+  }
+
+  if (VN_PHONE_84_REGEX.test(cleanPhone)) {
+    return `0${cleanPhone.slice(2)}`;
+  }
+
+  if (VN_PHONE_PLUS_84_REGEX.test(cleanPhone)) {
+    return `0${cleanPhone.slice(3)}`;
+  }
+
+  return null;
+}
+
+export function toVNPhone84(phone: string): string | null {
+  const normalized = normalizeVNPhone(phone);
+  if (!normalized) return null;
+  return `84${normalized.slice(1)}`;
+}
+
+export function toVNPhonePlus84(phone: string): string | null {
+  const normalized = normalizeVNPhone(phone);
+  if (!normalized) return null;
+  return `+84${normalized.slice(1)}`;
+}
 
 export function isValidVNPhone(phone: string): boolean {
-  return VN_PHONE_REGEX.test(phone.trim());
+  return normalizeVNPhone(phone) !== null;
 }
 
 /**
@@ -15,11 +41,11 @@ export function isValidVNPhone(phone: string): boolean {
  * Ví dụ: 0987654321 -> 0987654321@user.oni.vn
  */
 export function formatPhoneAsEmail(phone: string): string {
-  const cleanPhone = phone.trim();
-  if (isValidVNPhone(cleanPhone)) {
-    return `${cleanPhone}@user.oni.vn`;
+  const normalized = normalizeVNPhone(phone);
+  if (normalized) {
+    return `${normalized}@user.oni.vn`;
   }
-  return cleanPhone;
+  return phone.trim();
 }
 
 /**

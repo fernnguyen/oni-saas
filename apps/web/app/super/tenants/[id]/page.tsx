@@ -7,6 +7,8 @@ import { EditPlanDialog } from './EditPlanDialog';
 import { EditFeaturesDialog } from './EditFeaturesDialog';
 import { ConnectorSwitchAdmin } from './ConnectorSwitchAdmin';
 import { ShopSettingsAdminDialog } from './ShopSettingsAdminDialog';
+import { TenantMembersAdminCard } from './TenantMembersAdminCard';
+import { loadTenantMemberSummaries } from './memberDirectory';
 import { getVerticalConfig } from '@oni/core';
 
 const FEATURE_LABELS: Record<string, string> = {
@@ -45,11 +47,10 @@ export default async function SuperTenantDetail({
   const { id } = await params;
   const admin = getSupabaseAdminClient();
 
-  const [tenantRes, subsRes, shopsRes, membersRes, plansRes, featureRes, auditRes, ordersRes, modulesRes] = await Promise.all([
+  const [tenantRes, subsRes, shopsRes, plansRes, featureRes, auditRes, ordersRes, modulesRes, memberSummaries] = await Promise.all([
     admin.from('tenants').select('*').eq('id', id).single(),
     admin.from('subscriptions').select('*, plans(id, code, name, metadata)').eq('tenant_id', id).maybeSingle(),
     admin.from('shops').select('id, name, slug, created_at').eq('tenant_id', id).order('created_at'),
-    admin.from('user_tenants').select('user_id, roles(code)').eq('tenant_id', id),
     admin.from('plans').select('id, code, name').order('id'),
     admin.from('feature_flags').select('key, enabled').eq('tenant_id', id),
     admin.from('audit_logs').select('id, action, user_id, metadata, created_at')
@@ -61,6 +62,7 @@ export default async function SuperTenantDetail({
       .order('created_at', { ascending: false })
       .limit(20),
     admin.from('system_modules').select('code, name, description').order('code'),
+    loadTenantMemberSummaries(id),
   ]);
 
   if (tenantRes.error || !tenantRes.data) notFound();
@@ -70,7 +72,6 @@ export default async function SuperTenantDetail({
   };
   const sub = subsRes.data as any;
   const shops = (shopsRes.data ?? []) as any[];
-  const members = (membersRes.data ?? []) as any[];
   const plans = (plansRes.data ?? []) as any[];
   const features = (featureRes.data ?? []) as Array<{ key: string; enabled: boolean }>;
   const auditLogs = (auditRes.data ?? []) as Array<{ id: string; action: string; user_id: string | null; metadata: Record<string, unknown>; created_at: string }>;
@@ -109,7 +110,7 @@ export default async function SuperTenantDetail({
 
   const limits = [
     { label: 'Chi nhánh',    used: shops.length,     max: planMeta.create_shop ?? 0 },
-    { label: 'Thành viên',   used: members.length,   max: planMeta.create_shop_user ?? 0 },
+    { label: 'Thành viên',   used: memberSummaries.length,   max: planMeta.create_shop_user ?? 0 },
     { label: 'Connectors',   used: connectors.length, max: (planMeta.create_connector ?? 0) * Math.max(shops.length, 1) },
     { label: 'Custom domain',used: domains.length,   max: planMeta.create_domain ?? 0 },
   ];
@@ -418,32 +419,7 @@ export default async function SuperTenantDetail({
             )}
           </div>
 
-          {/* Members */}
-          <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <svg className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-                <span className="font-semibold text-slate-800 text-sm">Thành viên</span>
-              </div>
-              <span className="text-xs text-slate-400">{members.length} người</span>
-            </div>
-            <div className="p-4 space-y-2">
-              {members.length === 0 ? (
-                <p className="text-xs text-slate-400 text-center py-3">Chưa có thành viên</p>
-              ) : (
-                members.map((m: any) => (
-                  <div key={m.user_id} className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
-                    <span className="text-xs text-slate-500 font-mono truncate">{m.user_id.slice(0, 16)}…</span>
-                    <span className="ml-2 shrink-0 inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-slate-200 text-slate-600">
-                      {(m.roles as any)?.code ?? '—'}
-                    </span>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
+          <TenantMembersAdminCard tenantId={tenant.id} members={memberSummaries} />
 
           {/* Connector Switch */}
           <ConnectorSwitchAdmin

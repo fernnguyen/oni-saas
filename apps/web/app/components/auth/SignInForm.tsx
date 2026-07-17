@@ -45,7 +45,7 @@ export function SignInForm({
       }
     } else if (isAllDigits) {
       if (!isValidVNPhone(identifier)) {
-        setFieldErrors(prev => ({ ...prev, identifier: 'Số điện thoại không hợp lệ (10 số, đầu 03,05,07,08,09)' }));
+        setFieldErrors(prev => ({ ...prev, identifier: 'Số điện thoại không hợp lệ. Hỗ trợ 097..., 8497... hoặc +8497...' }));
       }
     }
   }

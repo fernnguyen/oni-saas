@@ -73,7 +73,9 @@ export function SuperSignInForm() {
     setError(null);
     setWorkspaceSlug(null);
     const supabase = getSupabaseBrowserClient();
-    const redirectTo = new URL('/api/auth/callback', window.location.origin);
+    const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? window.location.host;
+    const rootProtocol = rootDomain.includes('localhost') ? 'http' : 'https';
+    const redirectTo = new URL('/api/auth/callback', `${rootProtocol}://${rootDomain}`);
     redirectTo.searchParams.set('next', '/super/dashboard');
     const { error: oauthErr } = await supabase.auth.signInWithOAuth({
       provider: 'google',

@@ -1,6 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdminClient } from '../../../../../lib/server/supabaseAdmin';
 import { createClient } from '@supabase/supabase-js';
+import { toVNPhonePlus84 } from '../../../../../lib/utils/phone';
+
+async function findAuthUserByEmail(admin: ReturnType<typeof getSupabaseAdminClient>, email: string) {
+  let page = 1;
+
+  while (page <= 5) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 });
+    if (error) throw error;
+
+    const users = data?.users || [];
+    const matchedUser = users.find((user) => user.email?.toLowerCase() === email.toLowerCase());
+    if (matchedUser) return matchedUser;
+    if (users.length < 200) break;
+    page += 1;
+  }
+
+  return null;
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -17,7 +35,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing Zalo Config' }, { status: 500 });
     }
 
-    // 1. Fetch phone number from Zalo
     const infoRes = await fetch('https://graph.zalo.me/v2.0/me/info', {
       method: 'GET',
       headers: {
@@ -38,7 +55,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Phone number not returned by Zalo' }, { status: 400 });
     }
 
-    // 2. Fetch Zalo profile for name and avatar
     let profileData: any = {};
     try {
       const profileRes = await fetch('https://graph.zalo.me/v2.0/me?fields=id,name,picture', {
@@ -49,36 +65,89 @@ export async function POST(req: NextRequest) {
       console.warn('Failed to fetch profile', e);
     }
 
-    const zaloEmail = `zalo_${phoneNumberStr}@oni.vn`;
+    const zaloId = typeof profileData.id === 'string' ? profileData.id : '';
+    if (!zaloId) {
+      return NextResponse.json({ error: 'Missing Zalo profile id' }, { status: 400 });
+    }
+
+    const canonicalZaloEmail = `zalo_${zaloId}@oni.vn`;
+    const legacyPhoneEmail = `zalo_${phoneNumberStr}@oni.vn`;
     const admin = getSupabaseAdminClient();
 
-    // 3. Create user if they don't exist
-    const { error: createError } = await admin.auth.admin.createUser({
-      email: zaloEmail,
-      email_confirm: true,
-      user_metadata: {
-        full_name: profileData.name || 'Người dùng Zalo',
-        avatar_url: profileData.picture?.data?.url || '',
-        phone: phoneNumberStr,
-        zalo_id: profileData.id,
-      }
-    });
+    let resolvedEmail = canonicalZaloEmail;
+    let resolvedUserId: string | null = null;
 
-    if (createError) {
-      const isAlreadyExists = 
-        (createError.message && createError.message.toLowerCase().includes('already')) || 
-        createError.status === 422;
-        
-      if (!isAlreadyExists) {
-        console.error('Supabase Create User Error:', createError);
-        return NextResponse.json({ error: 'Failed to create user', details: createError }, { status: 500 });
+    const { data: linkedIdentity } = await admin
+      .from('user_identities')
+      .select('user_id')
+      .eq('provider', 'zalo')
+      .eq('provider_id', zaloId)
+      .maybeSingle();
+
+    if (linkedIdentity?.user_id) {
+      const { data: linkedUser } = await admin.auth.admin.getUserById(linkedIdentity.user_id);
+      if (linkedUser.user?.email) {
+        resolvedEmail = linkedUser.user.email;
+        resolvedUserId = linkedUser.user.id;
       }
     }
 
-    // 4. Generate magic link to get OTP token
+    if (!resolvedUserId) {
+      const canonicalUser = await findAuthUserByEmail(admin, canonicalZaloEmail);
+      if (canonicalUser?.email) {
+        resolvedEmail = canonicalUser.email;
+        resolvedUserId = canonicalUser.id;
+      }
+    }
+
+    if (!resolvedUserId) {
+      const legacyPhoneUser = await findAuthUserByEmail(admin, legacyPhoneEmail);
+      if (legacyPhoneUser?.email) {
+        resolvedEmail = legacyPhoneUser.email;
+        resolvedUserId = legacyPhoneUser.id;
+      }
+    }
+
+    if (!resolvedUserId) {
+      const { data: createdUser, error: createError } = await admin.auth.admin.createUser({
+        email: canonicalZaloEmail,
+        email_confirm: true,
+        user_metadata: {
+          full_name: profileData.name || 'Người dùng Zalo',
+          avatar_url: profileData.picture?.data?.url || '',
+          phone: phoneNumberStr,
+          zalo_id: zaloId,
+        }
+      });
+
+      if (createError || !createdUser.user) {
+        console.error('Supabase Create User Error:', createError);
+        return NextResponse.json({ error: 'Failed to create user', details: createError }, { status: 500 });
+      }
+
+      resolvedEmail = createdUser.user.email || canonicalZaloEmail;
+      resolvedUserId = createdUser.user.id;
+    }
+
+    const authPhone = toVNPhonePlus84(phoneNumberStr);
+    if (resolvedUserId && authPhone) {
+      await admin.auth.admin.updateUserById(resolvedUserId, {
+        phone: authPhone,
+        phone_confirm: true,
+        user_metadata: {
+          full_name: profileData.name || 'Người dùng Zalo',
+          avatar_url: profileData.picture?.data?.url || '',
+          phone: phoneNumberStr,
+          zalo_id: zaloId,
+        },
+      }).catch((error) => {
+        console.warn('Failed to sync auth phone for Zalo user', error);
+      });
+    }
+
     const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
       type: 'magiclink',
-      email: zaloEmail,
+      email: resolvedEmail,
     });
 
     if (linkError || !linkData?.properties?.action_link) {
@@ -86,30 +155,28 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Failed to generate auth link', details: linkError }, { status: 500 });
     }
 
-    // Pass the base URL in case action_link is relative
-    const actionUrl = new URL(linkData.properties.action_link, process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://oni.vn');
+    const actionUrl = new URL(
+      linkData.properties.action_link,
+      process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://oni.vn'
+    );
     const otpToken = actionUrl.searchParams.get('token');
-
-    // Extract token_hash from properties, or fallback to URL parameter
     const tokenHash = linkData.properties?.hashed_token || otpToken;
 
     if (!tokenHash) {
       return NextResponse.json({ error: 'No token in action link' }, { status: 500 });
     }
 
-    // 5. Verify OTP using an anonymous client (to get session JSON without setting cookies on backend)
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-    
+
     if (!supabaseUrl || !supabaseAnonKey) {
       throw new Error('Missing Supabase public environment variables');
     }
 
-    const authClient = createClient(supabaseUrl, supabaseAnonKey, { 
-      auth: { persistSession: false } 
+    const authClient = createClient(supabaseUrl, supabaseAnonKey, {
+      auth: { persistSession: false }
     });
 
-    // Verify using token_hash (PKCE compatible) instead of email + token
     const { data: sessionData, error: verifyError } = await authClient.auth.verifyOtp({
       token_hash: tokenHash,
       type: 'magiclink'
@@ -120,38 +187,30 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Failed to verify session', details: verifyError }, { status: 500 });
     }
 
-    // --- AUTO-LINKING ZALO ID ---
-    // At this point, the user is successfully created or logged in.
-    // We insert into user_identities so the next time they open the app, 
-    // the verify flow can auto-login without needing phone number again.
     const userId = sessionData.session.user.id;
-    if (profileData.id) {
-      const { data: existing } = await admin
-        .from('user_identities')
-        .select('id')
-        .eq('provider', 'zalo')
-        .eq('provider_id', profileData.id)
-        .limit(1);
+    const { data: existingIdentity } = await admin
+      .from('user_identities')
+      .select('id')
+      .eq('provider', 'zalo')
+      .eq('provider_id', zaloId)
+      .maybeSingle();
 
-      if (!existing || existing.length === 0) {
-        await admin.from('user_identities').insert({
-          id: `zalo_${profileData.id}`,
-          user_id: userId,
-          provider: 'zalo',
-          provider_id: profileData.id,
-          name: profileData.name || null,
-          avatar: profileData.picture?.data?.url || null,
-        });
-      }
+    if (!existingIdentity) {
+      await admin.from('user_identities').insert({
+        id: `zalo_${zaloId}`,
+        user_id: userId,
+        provider: 'zalo',
+        provider_id: zaloId,
+        name: profileData.name || null,
+        avatar: profileData.picture?.data?.url || null,
+      });
     }
-    // ----------------------------
 
-    // Return the session to the Mini App
     return NextResponse.json({ session: sessionData.session });
   } catch (err: any) {
     console.error('Zalo Mini App Route Error:', err);
-    return NextResponse.json({ 
-      error: 'Internal server error', 
+    return NextResponse.json({
+      error: 'Internal server error',
       details: err?.message || String(err),
       stack: process.env.NODE_ENV === 'development' ? err?.stack : undefined
     }, { status: 500 });

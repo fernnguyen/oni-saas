@@ -4,7 +4,13 @@ import { getSupabaseServerClient } from '../../../../lib/server/supabaseServer';
 import { getSupabaseAdminClient } from '../../../../lib/server/supabaseAdmin';
 import { buildFakeEmail } from '../../../../lib/server/tenantUsers';
 import { verifyTurnstileToken } from '../../../../lib/server/turnstile';
-import { formatPhoneAsEmail, isValidVNPhone } from '../../../../lib/utils/phone';
+import {
+  formatPhoneAsEmail,
+  isValidVNPhone,
+  normalizeVNPhone,
+  toVNPhone84,
+  toVNPhonePlus84,
+} from '../../../../lib/utils/phone';
 
 // Blocks fake-email registration from the public domain
 const ONI_EMAIL_PATTERN = /^[^@]+@[^.]+\..+$/;
@@ -66,24 +72,29 @@ export async function POST(req: NextRequest) {
 
   if (isPhone) {
     const admin = getSupabaseAdminClient();
-    
-    // Convert 09... to +849... and 849...
-    const clean = identifier.replace(/[^0-9+]/g, '');
-    const phonePlus84 = clean.startsWith('0') ? `+84${clean.slice(1)}` : (clean.startsWith('84') ? `+${clean}` : (clean.startsWith('+84') ? clean : `+84${clean}`));
-    const phone84 = phonePlus84.replace('+', '');
+    const normalizedPhone = normalizeVNPhone(identifier);
+    const phonePlus84 = normalizedPhone ? toVNPhonePlus84(normalizedPhone) : null;
+    const phone84 = normalizedPhone ? toVNPhone84(normalizedPhone) : null;
     
     // Lookup user by phone using RPC directly against auth.users
     let foundEmail: string | undefined;
     
-    const { data: userData, error: rpcError } = await admin.rpc('get_user_by_phone', { p_phone: phonePlus84 });
-    if (!rpcError && userData && userData.email) {
-      foundEmail = userData.email;
-    } else {
-      // Fallback to check without the '+'
+    if (phonePlus84) {
+      const { data: userData, error: rpcError } = await admin.rpc('get_user_by_phone', { p_phone: phonePlus84 });
+      if (!rpcError && userData && userData.email) {
+        foundEmail = userData.email;
+      }
+    }
+
+    if (!foundEmail && phone84) {
       const { data: userData2, error: rpcError2 } = await admin.rpc('get_user_by_phone', { p_phone: phone84 });
       if (!rpcError2 && userData2 && userData2.email) {
         foundEmail = userData2.email;
       }
+    }
+
+    if (!foundEmail && phone84) {
+      foundEmail = `zalo_${phone84}@oni.vn`;
     }
 
     if (foundEmail) {

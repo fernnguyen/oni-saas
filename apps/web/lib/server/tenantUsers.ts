@@ -237,15 +237,50 @@ export async function deleteTenantUser(userId: string, tenantId: string) {
 
 // ─── Reset password ───────────────────────────────────────────────────────────
 
-export async function resetTenantUserPassword(userId: string, tenantId: string, newPassword: string) {
+async function assertUserBelongsToTenant(userId: string, tenantId: string) {
   const admin = getSupabaseAdminClient();
+
   const { data: profile } = await admin
     .from('tenant_user_profiles')
     .select('id')
     .eq('user_id', userId)
     .eq('tenant_id', tenantId)
     .maybeSingle();
-  if (!profile) throw new Error('Người dùng không thuộc workspace này');
+
+  if (profile) return;
+
+  const { data: tenantMembership } = await admin
+    .from('user_tenants')
+    .select('user_id')
+    .eq('user_id', userId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+
+  if (tenantMembership) return;
+
+  const { data: tenantShops } = await admin
+    .from('shops')
+    .select('id')
+    .eq('tenant_id', tenantId);
+
+  const shopIds = (tenantShops ?? []).map((shop) => shop.id);
+  if (shopIds.length > 0) {
+    const { data: shopMembership } = await admin
+      .from('user_shops')
+      .select('user_id')
+      .eq('user_id', userId)
+      .in('shop_id', shopIds)
+      .maybeSingle();
+
+    if (shopMembership) return;
+  }
+
+  throw new Error('Người dùng không thuộc workspace này');
+}
+
+export async function resetTenantUserPassword(userId: string, tenantId: string, newPassword: string) {
+  const admin = getSupabaseAdminClient();
+  await assertUserBelongsToTenant(userId, tenantId);
 
   const { error } = await admin.auth.admin.updateUserById(userId, { password: newPassword });
   if (error) throw new Error(error.message);
@@ -285,4 +320,3 @@ export async function updateTenantUserRole(userId: string, tenantId: string, rol
     if (e) throw new Error(e.message);
   }
 }
-
