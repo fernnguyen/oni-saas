@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '../../../../lib/server/supabaseServer';
 import { getSupabaseAdminClient } from '../../../../lib/server/supabaseAdmin';
+import { isZaloOAMessageEnabled, sendZaloOAMessageToUser } from '@/lib/server/zaloOA';
 
 export async function POST(req: NextRequest) {
   try {
@@ -15,8 +16,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing slug or name' }, { status: 400 });
     }
 
-    // Prioritize OA UID (zaloIdByOA) because Zalo OA Customer Service API requires it
-    const zaloId = zaloIdByOA || auth.user.user_metadata?.zalo_id_by_oa || auth.user.user_metadata?.zalo_id || auth.user.user_metadata?.phone;
+    // Zalo OA Customer Service API requires OA-scoped user id.
+    const zaloId = zaloIdByOA || auth.user.user_metadata?.zalo_id_by_oa || '';
     const phone = auth.user.user_metadata?.phone || '';
 
     // Save zalo_id_by_oa to user metadata if it was passed and not yet saved
@@ -44,48 +45,42 @@ export async function POST(req: NextRequest) {
       `Quản lý cửa hàng trực tiếp trên Zalo Mini App bằng cách quét mã QR hoặc truy cập:\n` +
       `https://zalo.me/s/${process.env.NEXT_PUBLIC_ZALO_MINI_APP_ID || '3208409885005498355'}/?tenant_slug=${slug}`;
 
-    const oaAccessToken = process.env.ZALO_OA_ACCESS_TOKEN;
     let sentSuccessfully = false;
     let zaloResponse = null;
+    let reason: string | null = null;
 
-    if (oaAccessToken && zaloId) {
+    const sendOAMsgEnabled = await isZaloOAMessageEnabled();
+
+    if (!sendOAMsgEnabled) {
+      reason = 'disabled_by_setting';
+      console.info('[SendOAWelcome] Skipped OA send because system_settings.config.sendOAMsg is disabled.');
+    } else if (!zaloId) {
+      reason = 'missing_oa_user_id';
+      console.warn('[SendOAWelcome] Missing zaloIdByOA. User may not have granted OA interaction or Mini App is not OA-authenticated.');
+    } else {
       try {
-        // Send message to user via Zalo OA Customer Service API
-        const response = await fetch('https://openapi.zalo.me/v3.0/oa/message/cs', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'access_token': oaAccessToken,
-          },
-          body: JSON.stringify({
-            recipient: {
-              user_id: zaloId,
-            },
-            message: {
-              text: messageText,
-            },
-          }),
-        });
-
-        zaloResponse = await response.json();
-        if (response.ok && zaloResponse?.error === 0) {
+        const delivery = await sendZaloOAMessageToUser(zaloId, messageText);
+        zaloResponse = delivery.zaloResponse || null;
+        reason = delivery.reason;
+        if (delivery.sent) {
           sentSuccessfully = true;
           console.log('[SendOAWelcome] Message sent successfully via Zalo OA API');
         } else {
-          console.error('[SendOAWelcome] Zalo OA API Error:', zaloResponse);
+          console.error('[SendOAWelcome] Zalo OA delivery failed:', delivery);
         }
       } catch (e) {
+        reason = 'zalo_fetch_failed';
         console.error('[SendOAWelcome] Fetch to Zalo OpenAPI failed:', e);
       }
-    } else {
-      console.warn('[SendOAWelcome] ZALO_OA_ACCESS_TOKEN or zaloId is missing. Simulating successful dispatch.');
     }
 
     return NextResponse.json({
-      success: true,
+      success: sentSuccessfully,
       sent: sentSuccessfully,
+      reason,
+      zaloIdByOA: zaloId || null,
       zaloResponse: zaloResponse,
-      mocked: !sentSuccessfully,
+      mocked: false,
       message: messageText
     });
   } catch (err: any) {

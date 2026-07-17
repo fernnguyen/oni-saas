@@ -1,25 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
+import { isZaloOAMessageEnabled, sendZaloOAMessageToUser } from '@/lib/server/zaloOA';
 
-const ZALO_OA_ID = '2780444502954767948';
 const PENDING_THRESHOLD_MINUTES = 5;
 
 // Gửi tin nhắn OA qua Zalo Customer Service API
-async function sendZaloOAMessage(zaloIdByOA: string, message: string, oaAccessToken: string): Promise<boolean> {
+async function sendZaloOAMessage(zaloIdByOA: string, message: string): Promise<boolean> {
   try {
-    const res = await fetch('https://openapi.zalo.me/v3.0/oa/message/cs', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'access_token': oaAccessToken,
-      },
-      body: JSON.stringify({
-        recipient: { user_id: zaloIdByOA },
-        message: { text: message },
-      }),
-    });
-    const data = await res.json();
-    return res.ok && data?.error === 0;
+    const result = await sendZaloOAMessageToUser(zaloIdByOA, message);
+    return result.sent;
   } catch (e) {
     console.error('[OA Cron] sendZaloOAMessage error:', e);
     return false;
@@ -34,15 +23,21 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const oaAccessToken = process.env.ZALO_OA_ACCESS_TOKEN;
-  if (!oaAccessToken) {
-    console.warn('[OA Cron] ZALO_OA_ACCESS_TOKEN not set – skipping OA push');
-  }
-
   const admin = getSupabaseAdminClient();
   const thresholdTime = new Date(Date.now() - PENDING_THRESHOLD_MINUTES * 60 * 1000).toISOString();
 
   try {
+    const sendOAMsgEnabled = await isZaloOAMessageEnabled();
+    if (!sendOAMsgEnabled) {
+      return NextResponse.json({
+        processed: 0,
+        notified: 0,
+        skipped: true,
+        reason: 'disabled_by_setting',
+        message: 'Zalo OA sending is disabled by system setting',
+      });
+    }
+
     // 1. Lấy tất cả đơn hàng QR đang chờ > 5 phút và chưa gửi thông báo OA
     const { data: pendingOrders, error: fetchError } = await admin
       .from('qr_order_requests')
@@ -103,8 +98,8 @@ export async function GET(req: NextRequest) {
             const { data: userData } = await admin.auth.admin.getUserById(user_id);
             const zaloIdByOA = userData?.user?.user_metadata?.zalo_id_by_oa;
 
-            if (zaloIdByOA && oaAccessToken) {
-              const sent = await sendZaloOAMessage(zaloIdByOA, message, oaAccessToken);
+            if (zaloIdByOA) {
+              const sent = await sendZaloOAMessage(zaloIdByOA, message);
               if (sent) sentToAny = true;
             }
           } catch (userErr) {

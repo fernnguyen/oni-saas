@@ -4,7 +4,8 @@ import { apiFetch } from '@/services/api';
 import { supabase } from '@/lib/supabase';
 import { setTenantCode } from '@/lib/api-config';
 import { useAuthStore } from '@/stores/auth-store';
-import { interactOA, getUserInfo } from 'zmp-sdk/apis';
+import { getUserInfo, followOA, interactOA } from 'zmp-sdk/apis';
+import { requestSendNotification } from 'zmp-sdk';
 import toast from 'react-hot-toast';
 
 const INDUSTRY_TYPES = [
@@ -18,6 +19,7 @@ const INDUSTRY_TYPES = [
 ];
 
 export default function OnboardingPage() {
+  type PermissionStatus = 'pending' | 'granted' | 'skipped';
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
   const [industryType, setIndustryType] = useState('retail');
@@ -47,6 +49,9 @@ export default function OnboardingPage() {
   const [registeredInfo, setRegisteredInfo] = useState<{ slug: string; name: string } | null>(null);
   const [oaInteracted, setOaInteracted] = useState(false);
   const [oaLoading, setOaLoading] = useState(false);
+  const [followStatus, setFollowStatus] = useState<PermissionStatus>('pending');
+  const [interactionStatus, setInteractionStatus] = useState<PermissionStatus>('pending');
+  const [notifyStatus, setNotifyStatus] = useState<PermissionStatus>('pending');
 
   const profile = useAuthStore((s) => s.profile);
   const setProfile = useAuthStore((s) => s.setProfile);
@@ -203,11 +208,36 @@ export default function OnboardingPage() {
     }
   };
 
-  const handleInteractOA = async () => {
-    if (!registeredInfo) return;
+  const handleFollowOA = async () => {
     setOaLoading(true);
     try {
-      await new Promise<void>((resolve) => {
+      await new Promise<void>((resolve, reject) => {
+        followOA({
+          id: '2780444502954767948',
+          success: () => {
+            console.log('followOA success');
+            resolve();
+          },
+          fail: (err) => {
+            console.warn('followOA failed/denied:', err);
+            reject(err);
+          },
+        });
+      });
+      setFollowStatus('granted');
+      toast.success('Đã quan tâm OA thành công');
+    } catch (err) {
+      console.error(err);
+      toast.error('Không thể hoàn tất bước quan tâm OA');
+    } finally {
+      setOaLoading(false);
+    }
+  };
+
+  const handleGrantInteraction = async () => {
+    setOaLoading(true);
+    try {
+      await new Promise<void>((resolve, reject) => {
         interactOA({
           oaId: '2780444502954767948',
           success: () => {
@@ -216,14 +246,52 @@ export default function OnboardingPage() {
           },
           fail: (err) => {
             console.warn('interactOA failed/denied:', err);
-            resolve(); // Still resolve to let them proceed
-          }
+            reject(err);
+          },
         });
       });
+      setInteractionStatus('granted');
+      toast.success('Đã cấp quyền tương tác với OA');
+    } catch (err) {
+      console.error(err);
+      toast.error('Không thể hoàn tất bước cấp tương tác');
+    } finally {
+      setOaLoading(false);
+    }
+  };
 
-      // Get user info to retrieve the idbyOA
+  const handleGrantNotification = async () => {
+    setOaLoading(true);
+    try {
+      await requestSendNotification();
+      setNotifyStatus('granted');
+      toast.success('Đã cho phép nhận thông báo OA');
+    } catch (err) {
+      console.error(err);
+      toast.error('Không thể hoàn tất bước nhận thông báo');
+    } finally {
+      setOaLoading(false);
+    }
+  };
+
+  const handleInteractOA = async () => {
+    if (!registeredInfo) return;
+    if (
+      followStatus === 'pending' ||
+      interactionStatus === 'pending' ||
+      notifyStatus === 'pending'
+    ) {
+      toast.error('Vui lòng chọn cho phép hoặc bỏ qua cho từng bước trước khi tiếp tục');
+      return;
+    }
+    setOaLoading(true);
+    try {
       let idByOA = '';
-      try {
+      if (
+        followStatus === 'granted' &&
+        interactionStatus === 'granted' &&
+        notifyStatus === 'granted'
+      ) {
         const userInfoRes = await new Promise<any>((resolve, reject) => {
           getUserInfo({
             success: (data) => resolve(data),
@@ -233,13 +301,14 @@ export default function OnboardingPage() {
         const userInfo = userInfoRes.userInfo;
         idByOA = userInfo?.idbyOA || userInfo?.idByOA || '';
         console.log('Retrieved idbyOA after interactOA:', idByOA);
-      } catch (err) {
-        console.warn('Failed to retrieve user info / idbyOA:', err);
+      } else {
+        console.log('User skipped at least one OA permission step, skipping OA message delivery.');
       }
 
       // Call welcome message API
-      try {
-        await apiFetch('/api/register/send-oa-welcome', {
+      let welcomeResult: any = null;
+      if (idByOA) {
+        welcomeResult = await apiFetch('/api/register/send-oa-welcome', {
           method: 'POST',
           body: JSON.stringify({
             slug: registeredInfo.slug,
@@ -247,15 +316,25 @@ export default function OnboardingPage() {
             zaloIdByOA: idByOA,
           }),
         });
-      } catch (err) {
-        console.error('send-oa-welcome trigger failed:', err);
       }
 
       setOaInteracted(true);
-      toast.success('Đăng ký nhận tin nhắn thành công!');
+      if (welcomeResult?.sent) {
+        toast.success('Đã cấp quyền và gửi tin nhắn OA thành công!');
+      } else if (idByOA) {
+        const deliveryReason = welcomeResult?.reason || 'unknown';
+        console.warn('OA welcome message was not delivered:', {
+          deliveryReason,
+          welcomeResult,
+          idByOA,
+        });
+        toast.success('Đã lưu lựa chọn của bạn. Bạn vẫn có thể bắt đầu dùng ứng dụng ngay.');
+      } else {
+        toast.success('Đã lưu lựa chọn của bạn. Bạn có thể cấp quyền sau trong ứng dụng nếu cần.');
+      }
     } catch (err) {
       console.error(err);
-      toast.error('Có lỗi xảy ra khi kết nối Zalo OA');
+      toast.error('Không thể hoàn tất bước thiết lập OA');
     } finally {
       setOaLoading(false);
     }
@@ -264,6 +343,12 @@ export default function OnboardingPage() {
   const handleComplete = () => {
     toast.success('Bắt đầu quản lý cửa hàng!');
     navigate('/select-branch', { replace: true });
+  };
+
+  const renderPermissionStatus = (status: PermissionStatus) => {
+    if (status === 'granted') return 'Đã cho phép';
+    if (status === 'skipped') return 'Đã bỏ qua';
+    return 'Chưa chọn';
   };
 
   return (
@@ -551,7 +636,7 @@ export default function OnboardingPage() {
               </div>
               <h2 className="text-sm font-bold text-foreground mb-1">Đăng ký nhận tin nhắn từ Zalo OA</h2>
               <p className="text-xs text-subtitle leading-relaxed">
-                Cho phép hệ thống liên kết Zalo Official Account gửi thông tin hoạt động cửa hàng, thông báo đơn hàng và hỗ trợ khách hàng tức thì cho bạn.
+                Hệ thống có thể gửi thông tin đơn hàng, yêu cầu vận hành và thông báo hệ thống qua Zalo OA. Bạn có thể tắt các thông báo này sau trong ứng dụng.
               </p>
             </div>
 
@@ -560,32 +645,101 @@ export default function OnboardingPage() {
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                <span>Đã gửi thông tin và mã QR qua tin nhắn OA thành công!</span>
+                <span>Đã cấp quyền nhận thông báo từ OA.</span>
               </div>
             ) : (
-              <button
-                type="button"
-                onClick={handleInteractOA}
-                disabled={oaLoading}
-                className="auth-btn auth-btn-primary w-full flex items-center justify-center gap-2 bg-[#ff6a00] hover:bg-[#e05d00] transition-colors"
-              >
-                {oaLoading ? (
-                  <>
-                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
-                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25" />
-                      <path fill="currentColor" className="opacity-75" d="M4 12a8 8 0 018-8v8H4z" />
-                    </svg>
-                    <span>Đang kết nối Zalo...</span>
-                  </>
-                ) : (
-                  <>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-                    </svg>
-                    <span>Đồng ý nhận tin nhắn từ OA</span>
-                  </>
-                )}
-              </button>
+              <div className="space-y-3 text-left">
+                {[
+                  {
+                    stepNo: 1,
+                    title: 'Quan tâm OA',
+                    description: 'Để OA có thể đồng hành cùng bạn và gửi các cập nhật cần thiết.',
+                    status: followStatus,
+                    onAllow: handleFollowOA,
+                    onSkip: () => setFollowStatus('skipped'),
+                    enabled: true,
+                  },
+                  {
+                    stepNo: 2,
+                    title: 'Cấp quyền tương tác',
+                    description: 'Để hệ thống gửi các yêu cầu và thông báo vận hành liên quan tới cửa hàng.',
+                    status: interactionStatus,
+                    onAllow: handleGrantInteraction,
+                    onSkip: () => setInteractionStatus('skipped'),
+                    enabled: followStatus !== 'pending',
+                  },
+                  {
+                    stepNo: 3,
+                    title: 'Cho phép nhận thông báo',
+                    description: 'Để nhận cảnh báo đơn hàng, yêu cầu và thông báo hệ thống theo thời gian thực.',
+                    status: notifyStatus,
+                    onAllow: handleGrantNotification,
+                    onSkip: () => setNotifyStatus('skipped'),
+                    enabled: interactionStatus !== 'pending',
+                  },
+                ].map((item) => (
+                  <div
+                    key={item.stepNo}
+                    className={`rounded-2xl border p-4 ${
+                      item.enabled ? 'border-[var(--border)] bg-white' : 'border-slate-100 bg-slate-50 opacity-70'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-xs font-semibold text-[var(--primary)]">Bước {item.stepNo}</div>
+                        <div className="mt-1 text-sm font-bold text-foreground">{item.title}</div>
+                        <p className="mt-1 text-xs text-subtitle leading-relaxed">{item.description}</p>
+                      </div>
+                      <div className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-600">
+                        {renderPermissionStatus(item.status)}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex gap-2">
+                      <button
+                        type="button"
+                        onClick={item.onAllow}
+                        disabled={oaLoading || !item.enabled || item.status === 'granted'}
+                        className="auth-btn auth-btn-primary flex-1 flex items-center justify-center gap-2 bg-[#ff6a00] hover:bg-[#e05d00] transition-colors disabled:opacity-60"
+                      >
+                        {oaLoading && item.status === 'pending' ? 'Đang xử lý...' : 'Cho phép'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={item.onSkip}
+                        disabled={oaLoading || !item.enabled || item.status !== 'pending'}
+                        className="auth-btn auth-btn-secondary flex-1 disabled:opacity-60"
+                      >
+                        Bỏ qua
+                      </button>
+                    </div>
+                  </div>
+                ))}
+
+                <button
+                  type="button"
+                  onClick={handleInteractOA}
+                  disabled={
+                    oaLoading ||
+                    followStatus === 'pending' ||
+                    interactionStatus === 'pending' ||
+                    notifyStatus === 'pending'
+                  }
+                  className="auth-btn auth-btn-primary w-full flex items-center justify-center gap-2 bg-[#ff6a00] hover:bg-[#e05d00] transition-colors disabled:opacity-60"
+                >
+                  {oaLoading ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25" />
+                        <path fill="currentColor" className="opacity-75" d="M4 12a8 8 0 018-8v8H4z" />
+                      </svg>
+                      <span>Đang xử lý...</span>
+                    </>
+                  ) : (
+                    <span>Lưu lựa chọn và tiếp tục</span>
+                  )}
+                </button>
+              </div>
             )}
 
             <button

@@ -144,6 +144,20 @@ export function SettingsClient({
     })
   }
 
+  const handleSendOAMsgToggle = (checked: boolean) => {
+    const newConfig = { ...config, sendOAMsg: checked }
+    setConfig(newConfig)
+    startTransition(async () => {
+      try {
+        await updateSystemSettings(newConfig)
+        toast.success('Đã cập nhật cấu hình gửi Zalo OA')
+      } catch (err) {
+        toast.error('Lỗi khi cập nhật cấu hình gửi Zalo OA')
+        setConfig(config)
+      }
+    })
+  }
+
   const handleStarterTrialDaysSave = (daysVal: number) => {
     const finalDays = Math.max(1, daysVal)
     setStarterTrialDays(finalDays)
@@ -405,6 +419,41 @@ export function SettingsClient({
                       }
                     })
                   }}
+                  disabled={isPending}
+                />
+                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        <div className="border-b border-slate-100 px-6 py-4 bg-slate-50/50">
+          <h2 className="text-sm font-semibold text-slate-900">Zalo OA Messaging</h2>
+          <p className="text-xs text-slate-400 mt-0.5">
+            Bật hoặc tắt toàn bộ luồng gửi tin nhắn OA từ backend trong thời gian chưa dùng gói OA trả phí.
+          </p>
+        </div>
+        <div className="px-6 py-5">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h4 className="text-sm font-medium text-slate-800">Cho phép gửi tin nhắn Zalo OA</h4>
+              <p className="text-sm text-slate-500 mt-0.5 max-w-2xl leading-normal">
+                Khi tắt, onboarding vẫn lưu `idByOA` và các bước tương tác OA vẫn hoạt động, nhưng welcome message,
+                cron nhắc đơn QR và test send trong `/super` sẽ không gửi ra ngoài.
+              </p>
+              <div className="mt-2 text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded px-2.5 py-1.5 inline-block">
+                Trạng thái hiện tại: {config.sendOAMsg ? 'Đang bật' : 'Đang tắt'}
+              </div>
+            </div>
+            <div className="flex-shrink-0">
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="sr-only peer"
+                  checked={!!config.sendOAMsg}
+                  onChange={(e) => handleSendOAMsgToggle(e.target.checked)}
                   disabled={isPending}
                 />
                 <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>

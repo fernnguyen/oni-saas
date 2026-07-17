@@ -1,13 +1,28 @@
 import React from 'react'
-import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
 import { SettingsClient } from './SettingsClient'
 import { getSystemSettings } from '@/lib/server/settings'
-
 import { getTaxGroupsAction } from './actions'
+import { getZaloOAStatus } from '@/lib/server/zaloOA'
+import { ZaloOASettingsCard } from './ZaloOASettingsCard'
 
 export default async function SuperSettingsPage() {
   const config = await getSystemSettings()
   const taxGroups = await getTaxGroupsAction().catch(() => [])
+  const zaloOAStatus = await getZaloOAStatus().catch(() => ({
+    configured: false,
+    hasAccessToken: false,
+    hasRefreshToken: false,
+    accessTokenExpiresAt: null,
+    refreshTokenExpiresAt: null,
+    accessTokenSecondsLeft: null,
+    refreshTokenSecondsLeft: null,
+    isAccessTokenExpiringSoon: false,
+    lastSyncedAt: null,
+    lastError: null,
+    lastErrorAt: null,
+    tokenSource: null,
+    oaId: null,
+  }))
 
   return (
     <div className="space-y-6">
@@ -17,6 +32,7 @@ export default async function SuperSettingsPage() {
         <p className="text-sm text-slate-500 mt-0.5">Quản lý cấu hình chung cho toàn bộ dự án.</p>
       </div>
 
+      <ZaloOASettingsCard initialStatus={zaloOAStatus} />
       <SettingsClient initialConfig={config} initialTaxGroups={taxGroups} />
     </div>
   )
