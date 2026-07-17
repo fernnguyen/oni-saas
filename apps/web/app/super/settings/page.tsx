@@ -4,10 +4,23 @@ import { getSystemSettings } from '@/lib/server/settings'
 import { getTaxGroupsAction } from './actions'
 import { getZaloOAStatus } from '@/lib/server/zaloOA'
 import { ZaloOASettingsCard } from './ZaloOASettingsCard'
+import { buildZaloPhoneSyncReport } from '@/lib/server/zaloUserPhoneSync'
+import { ZaloUserPhoneSyncCard } from './ZaloUserPhoneSyncCard'
 
 export default async function SuperSettingsPage() {
   const config = await getSystemSettings()
   const taxGroups = await getTaxGroupsAction().catch(() => [])
+  const zaloPhoneSyncReport = await buildZaloPhoneSyncReport().catch(() => ({
+    summary: {
+      scannedAuthUsers: 0,
+      zaloUsers: 0,
+      alreadySynced: 0,
+      safeToSync: 0,
+      manualReview: 0,
+      noPhoneSource: 0,
+    },
+    candidates: [],
+  }))
   const zaloOAStatus = await getZaloOAStatus().catch(() => ({
     configured: false,
     hasAccessToken: false,
@@ -33,6 +46,7 @@ export default async function SuperSettingsPage() {
       </div>
 
       <ZaloOASettingsCard initialStatus={zaloOAStatus} />
+      <ZaloUserPhoneSyncCard initialReport={zaloPhoneSyncReport} />
       <SettingsClient initialConfig={config} initialTaxGroups={taxGroups} />
     </div>
   )

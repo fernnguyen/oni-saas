@@ -32,6 +32,8 @@ export async function GET(req: NextRequest) {
   const xForwardedProto = req.headers.get('x-forwarded-proto') || 'http';
   const realHost = xForwardedHost || req.headers.get('host') || '';
   const resolvedOrigin = realHost ? `${xForwardedProto}://${realHost}` : origin;
+  const isSuperAdminFlow = nextPath.startsWith('/super/');
+  const rejectPath = isSuperAdminFlow ? '/admin-login' : '/auth/signin';
 
   if (code) {
     const supabase = await getSupabaseServerClient();
@@ -69,7 +71,7 @@ export async function GET(req: NextRequest) {
           }
 
           await supabase.auth.signOut();
-          const rejectUrl = new URL('/auth/signin', resolvedOrigin);
+          const rejectUrl = new URL(rejectPath, resolvedOrigin);
           rejectUrl.searchParams.set('error', 'not_superadmin');
           if (workspaceSlug) rejectUrl.searchParams.set('workspace', workspaceSlug);
           return NextResponse.redirect(rejectUrl);
@@ -81,7 +83,12 @@ export async function GET(req: NextRequest) {
       }
       return NextResponse.redirect(`${resolvedOrigin}${next}`);
     }
+
+    const rejectUrl = new URL(rejectPath, resolvedOrigin);
+    rejectUrl.searchParams.set('error', 'oauth_failed');
+    rejectUrl.searchParams.set('reason', error.message);
+    return NextResponse.redirect(rejectUrl);
   }
 
-  return NextResponse.redirect(`${resolvedOrigin}/auth/signin?error=oauth_failed`);
+  return NextResponse.redirect(`${resolvedOrigin}${rejectPath}?error=oauth_failed`);
 }

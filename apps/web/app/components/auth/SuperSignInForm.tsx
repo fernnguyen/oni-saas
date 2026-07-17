@@ -26,12 +26,13 @@ export function SuperSignInForm() {
   // Handle error params from OAuth callback or redirect
   useEffect(() => {
     const err = searchParams.get('error');
+    const reason = searchParams.get('reason');
     const ws = searchParams.get('workspace');
     if (err === 'not_superadmin') {
       setError('Tài khoản này không có quyền superadmin. Vui lòng đăng nhập tại workspace của bạn.');
       if (ws) setWorkspaceSlug(ws);
     } else if (err === 'oauth_failed') {
-      setError('Đăng nhập Google thất bại. Vui lòng thử lại.');
+      setError(reason ? `Đăng nhập Google thất bại: ${reason}` : 'Đăng nhập Google thất bại. Vui lòng thử lại.');
     }
   }, [searchParams]);
 
@@ -73,9 +74,17 @@ export function SuperSignInForm() {
     setError(null);
     setWorkspaceSlug(null);
     const supabase = getSupabaseBrowserClient();
-    const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? window.location.host;
-    const rootProtocol = rootDomain.includes('localhost') ? 'http' : 'https';
-    const redirectTo = new URL('/api/auth/callback', `${rootProtocol}://${rootDomain}`);
+    const configuredRootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? window.location.host;
+    const currentHost = window.location.hostname;
+    const isLocalLikeHost =
+      currentHost === 'localhost' ||
+      currentHost === '127.0.0.1' ||
+      /^\d+\.\d+\.\d+\.\d+$/.test(currentHost);
+    const rootProtocol = configuredRootDomain.includes('localhost') ? 'http' : 'https';
+    const callbackOrigin = isLocalLikeHost
+      ? window.location.origin
+      : `${rootProtocol}://${configuredRootDomain}`;
+    const redirectTo = new URL('/api/auth/callback', callbackOrigin);
     redirectTo.searchParams.set('next', '/super/dashboard');
     const { error: oauthErr } = await supabase.auth.signInWithOAuth({
       provider: 'google',
