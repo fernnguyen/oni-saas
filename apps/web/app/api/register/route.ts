@@ -4,7 +4,7 @@ import { getSupabaseAdminClient } from '../../../lib/server/supabaseAdmin';
 import { getSupabaseServerClient } from '../../../lib/server/supabaseServer';
 import { verifyTurnstileToken } from '../../../lib/server/turnstile';
 import { INDUSTRY_TYPES } from '@oni/core';
-import { formatPhoneAsEmail, isValidVNPhone } from '../../../lib/utils/phone';
+import { normalizeVNPhone } from '../../../lib/utils/phone';
 
 // Reject fake tenant emails — these are reserved for tenant user accounts
 const ONI_FAKE_EMAIL_RE = /^[^@]+@[^.]+\.oni\.vn$/i;
@@ -19,6 +19,10 @@ const schema = z.object({
   turnstile_token: z.string().optional(),
   invitation_code: z.string().optional(),
 });
+
+function generateTemporaryPassword() {
+  return `${Math.floor(100000 + Math.random() * 900000)}`;
+}
 
 export async function POST(req: NextRequest) {
   const json = await req.json().catch(() => null);
@@ -48,6 +52,9 @@ export async function POST(req: NextRequest) {
   }
 
   const userId = user.id;
+  const metadataPhone = typeof user.user_metadata?.phone === 'string' ? user.user_metadata.phone : '';
+  const effectivePhoneInput = phone?.trim() || metadataPhone.trim() || '';
+  const normalizedPhone = effectivePhoneInput ? normalizeVNPhone(effectivePhoneInput) : null;
 
   // Bypass Turnstile for authenticated Zalo users (from Mini App)
   let userProvider = user.app_metadata?.provider || 'email';
@@ -140,8 +147,8 @@ export async function POST(req: NextRequest) {
 
   // 1.5 — Pre-check phone uniqueness using Auth API
   let e164Phone: string | null = null;
-  if (phone) {
-    const clean = phone.replace(/[^0-9+]/g, '');
+  if (normalizedPhone) {
+    const clean = normalizedPhone.replace(/[^0-9+]/g, '');
     e164Phone = clean.startsWith('0') ? `+84${clean.slice(1)}` : (clean.startsWith('84') ? `+${clean}` : (clean.startsWith('+84') ? clean : `+84${clean}`));
     const phonePlus84 = e164Phone;
     const phone84 = phonePlus84.replace('+', '');
@@ -298,7 +305,8 @@ export async function POST(req: NextRequest) {
   });
 
   // 6 — Handle Invitation Code Usage Records
-  if (registrationMode === 'code' && invitation_code) {
+  // Track every valid invitation code usage, including optional codes in free-registration mode.
+  if (codeData && invitation_code) {
     const trimmedCode = invitation_code.trim();
     
     // Atomic safe increment
@@ -322,16 +330,18 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  let phoneLogin = null;
+  const generatedTemporaryPassword =
+    !password && userProvider === 'zalo' && normalizedPhone ? generateTemporaryPassword() : null;
+  const effectivePassword = password?.trim() || generatedTemporaryPassword;
 
-  if (phone && password) {
+  let phoneLogin = normalizedPhone;
+
+  if (normalizedPhone && effectivePassword) {
     try {
-      phoneLogin = phone; // Keep the original format (09...) for UI display
-
       // Update the user's phone and password so they can log in independently
       const { error: userUpdateError } = await admin.auth.admin.updateUserById(userId, {
         phone: e164Phone || undefined,
-        password: password,
+        password: effectivePassword,
         phone_confirm: true
       });
 
@@ -351,10 +361,12 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     tenant_id: tenantId,
     workspace_url: workspaceUrl,
-    email: user.email || phone || 'unknown',
+    email: user.email || 'unknown',
     slug,
     verification_required: false,
     phone_login: phoneLogin,
+    phone: normalizedPhone,
+    temporary_password: generatedTemporaryPassword,
     provider: userProvider
   }, { status: 201 });
   } catch (error: any) {
@@ -365,4 +377,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-

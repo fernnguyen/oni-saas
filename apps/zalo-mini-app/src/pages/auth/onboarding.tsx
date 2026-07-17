@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { setTenantCode } from '@/lib/api-config';
 import { useAuthStore } from '@/stores/auth-store';
 import { getUserInfo, followOA, interactOA } from 'zmp-sdk/apis';
-import { requestSendNotification } from 'zmp-sdk';
+import { requestSendNotification, saveImageToGallery } from 'zmp-sdk';
 import toast from 'react-hot-toast';
 
 const INDUSTRY_TYPES = [
@@ -18,6 +18,184 @@ const INDUSTRY_TYPES = [
   { id: 'service_hourly', label: 'Spa & Dịch vụ', icon: '💆‍♀️' },
 ];
 const INVITATION_CODE_REGEX = /^[A-Z0-9_-]+$/;
+
+type RegisteredInfo = {
+  slug: string;
+  name: string;
+  email: string;
+  phone: string;
+  temporaryPassword: string;
+  workspaceUrl?: string;
+};
+
+function isRunningInsideZaloMiniApp() {
+  const searchParams = new URLSearchParams(window.location.search);
+  const appEnv = searchParams.get('env');
+
+  return (
+    window.location.hostname.includes('h5.zdn.vn') &&
+    (
+      appEnv === 'TESTING_LOCAL' ||
+      appEnv === 'TESTING' ||
+      appEnv === 'DEVELOPMENT' ||
+      window.location.pathname.startsWith('/zapps')
+    )
+  );
+}
+
+function isLocalMiniAppTestMode() {
+  return window.location.hostname.includes('localhost');
+}
+
+function downloadImageFromDataUrl(dataUrl: string, filename: string) {
+  const anchor = document.createElement('a');
+  anchor.href = dataUrl;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+}
+
+function drawWrappedText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  maxWidth: number,
+  lineHeight: number
+) {
+  const words = text.split(' ');
+  let line = '';
+  let lineY = y;
+
+  for (const word of words) {
+    const testLine = line ? `${line} ${word}` : word;
+    if (ctx.measureText(testLine).width > maxWidth && line) {
+      ctx.fillText(line, x, lineY);
+      line = word;
+      lineY += lineHeight;
+    } else {
+      line = testLine;
+    }
+  }
+
+  if (line) {
+    ctx.fillText(line, x, lineY);
+  }
+
+  return lineY + lineHeight;
+}
+
+function createCredentialsImage(info: RegisteredInfo) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1080;
+  canvas.height = 1500;
+  const ctx = canvas.getContext('2d');
+
+  if (!ctx) {
+    throw new Error('Thiết bị không hỗ trợ tạo ảnh lúc này.');
+  }
+
+  const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+  gradient.addColorStop(0, '#ff7a18');
+  gradient.addColorStop(0.45, '#ff5400');
+  gradient.addColorStop(1, '#151515');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  ctx.beginPath();
+  ctx.arc(920, 180, 180, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(140, 1330, 140, 0, Math.PI * 2);
+  ctx.fill();
+
+  const cardX = 70;
+  const cardY = 90;
+  const cardWidth = canvas.width - 140;
+  const cardHeight = canvas.height - 180;
+
+  ctx.fillStyle = '#fffaf5';
+  ctx.beginPath();
+  ctx.roundRect(cardX, cardY, cardWidth, cardHeight, 42);
+  ctx.fill();
+
+  ctx.fillStyle = '#ffede2';
+  ctx.beginPath();
+  ctx.roundRect(cardX + 36, cardY + 36, 150, 54, 27);
+  ctx.fill();
+
+  ctx.fillStyle = '#ff5a00';
+  ctx.font = '700 28px Inter, Arial, sans-serif';
+  ctx.fillText('ONI POS', cardX + 68, cardY + 72);
+
+  ctx.fillStyle = '#1f2937';
+  ctx.font = '800 52px Inter, Arial, sans-serif';
+  ctx.fillText('THÔNG TIN TÀI KHOẢN', cardX + 44, cardY + 160);
+
+  ctx.fillStyle = '#6b7280';
+  ctx.font = '500 28px Inter, Arial, sans-serif';
+  ctx.fillText('Lưu ảnh này để xem lại khi cần đăng nhập hoặc hỗ trợ vận hành.', cardX + 44, cardY + 210);
+
+  const rows = [
+    ['Tên cửa hàng', info.name],
+    ['Tên miền cửa hàng', `${info.slug}.oni.vn`],
+    ['Email', info.email],
+    ['Số điện thoại', info.phone],
+    ['Mật khẩu tạm', info.temporaryPassword],
+  ];
+
+  let rowY = cardY + 280;
+
+  rows.forEach(([label, value], index) => {
+    const blockY = rowY + index * 150;
+
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.roundRect(cardX + 36, blockY, cardWidth - 72, 120, 26);
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(255, 90, 0, 0.12)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.fillStyle = '#9a3412';
+    ctx.font = '700 22px Inter, Arial, sans-serif';
+    ctx.fillText(label.toUpperCase(), cardX + 64, blockY + 42);
+
+    ctx.fillStyle = '#111827';
+    ctx.font = value === info.temporaryPassword ? '800 38px Inter, Arial, sans-serif' : '700 30px Inter, Arial, sans-serif';
+    ctx.fillText(value, cardX + 64, blockY + 88);
+  });
+
+  ctx.fillStyle = '#fff5ea';
+  ctx.beginPath();
+  ctx.roundRect(cardX + 36, cardY + 1100, cardWidth - 72, 220, 30);
+  ctx.fill();
+
+  ctx.fillStyle = '#b45309';
+  ctx.font = '800 26px Inter, Arial, sans-serif';
+  ctx.fillText('Lưu ý bảo mật', cardX + 64, cardY + 1152);
+
+  ctx.fillStyle = '#7c2d12';
+  ctx.font = '600 28px Inter, Arial, sans-serif';
+  drawWrappedText(
+    ctx,
+    'Đây là những thông tin quan trọng, không chia sẻ cho bất kỳ ai, kể cả người tự xưng là nhân viên ONI.',
+    cardX + 64,
+    cardY + 1200,
+    cardWidth - 128,
+    38
+  );
+
+  ctx.fillStyle = '#6b7280';
+  ctx.font = '600 22px Inter, Arial, sans-serif';
+  ctx.fillText('ONI Mini App', cardX + 44, cardY + cardHeight - 36);
+  ctx.fillText(new Date().toLocaleDateString('vi-VN'), cardX + cardWidth - 170, cardY + cardHeight - 36);
+
+  return canvas.toDataURL('image/jpeg', 0.96);
+}
 
 export default function OnboardingPage() {
   type PermissionStatus = 'pending' | 'granted' | 'skipped';
@@ -47,9 +225,10 @@ export default function OnboardingPage() {
   const [selectedPlanCode, setSelectedPlanCode] = useState('plan_mini');
 
   // Success state (step 3)
-  const [registeredInfo, setRegisteredInfo] = useState<{ slug: string; name: string } | null>(null);
+  const [registeredInfo, setRegisteredInfo] = useState<RegisteredInfo | null>(null);
   const [oaInteracted, setOaInteracted] = useState(false);
   const [oaLoading, setOaLoading] = useState(false);
+  const [savingImage, setSavingImage] = useState(false);
   const [followStatus, setFollowStatus] = useState<PermissionStatus>('pending');
   const [interactionStatus, setInteractionStatus] = useState<PermissionStatus>('pending');
   const [notifyStatus, setNotifyStatus] = useState<PermissionStatus>('pending');
@@ -203,7 +382,15 @@ export default function OnboardingPage() {
         plan_code: selectedPlanCode,
       };
 
-      const res = await apiFetch<{ tenant_id: string; slug: string }>('/api/register', {
+      const res = await apiFetch<{
+        tenant_id: string;
+        slug: string;
+        email: string;
+        phone?: string | null;
+        phone_login?: string | null;
+        temporary_password?: string | null;
+        workspace_url?: string;
+      }>('/api/register', {
         method: 'POST',
         body: JSON.stringify(payload),
       });
@@ -212,7 +399,14 @@ export default function OnboardingPage() {
       localStorage.setItem('active_tenant_code', res.slug);
       setTenantCode(res.slug);
       
-      setRegisteredInfo({ slug: res.slug, name: name });
+      setRegisteredInfo({
+        slug: res.slug,
+        name,
+        email: res.email,
+        phone: res.phone_login || res.phone || profile?.phone || '',
+        temporaryPassword: res.temporary_password || '',
+        workspaceUrl: res.workspace_url,
+      });
       setStep(3);
     } catch (err: any) {
       toast.error(err?.message || 'Có lỗi xảy ra khi tạo cửa hàng');
@@ -358,6 +552,52 @@ export default function OnboardingPage() {
     navigate('/select-branch', { replace: true });
   };
 
+  const handleSaveCredentialsImage = async () => {
+    if (!registeredInfo) return;
+    if (!registeredInfo.temporaryPassword) {
+      toast.error('Chưa có đủ thông tin tài khoản để lưu ảnh. Vui lòng thử lại sau.');
+      return;
+    }
+
+    setSavingImage(true);
+    const imageBase64Data = createCredentialsImage(registeredInfo);
+    const filename = `oni-${registeredInfo.slug}-thong-tin-tai-khoan.jpg`;
+    const toastId = toast.loading('Đang chuẩn bị lưu ảnh...');
+
+    try {
+      if (isLocalMiniAppTestMode()) {
+        downloadImageFromDataUrl(imageBase64Data, filename);
+        toast.success('Đã tải ảnh xuống thiết bị.', {
+          id: toastId,
+        });
+        return;
+      }
+
+      if (!isRunningInsideZaloMiniApp()) {
+        toast.error('Chức năng này chỉ hoạt động khi mở Mini App bên trong ứng dụng Zalo trên điện thoại.', {
+          id: toastId,
+        });
+        return;
+      }
+
+      await saveImageToGallery({
+        imageBase64Data,
+        onProgress: (progress) => {
+          toast.loading(`Đang lưu ảnh... ${progress}%`, { id: toastId });
+        },
+      });
+      toast.success('Đã lưu ảnh thông tin tài khoản vào thư viện ảnh của thiết bị.', {
+        id: toastId,
+      });
+    } catch (err: any) {
+      const rawMessage = typeof err?.message === 'string' ? err.message : '';
+      const message = rawMessage || 'Không thể lưu ảnh vào thư viện thiết bị. Hãy kiểm tra quyền lưu ảnh của Mini App trong Zalo.';
+      toast.error(message, { id: toastId });
+    } finally {
+      setSavingImage(false);
+    }
+  };
+
   const renderPermissionStatus = (status: PermissionStatus) => {
     if (status === 'granted') return 'Đã cho phép';
     if (status === 'skipped') return 'Đã bỏ qua';
@@ -421,7 +661,7 @@ export default function OnboardingPage() {
           <p className="text-sm text-subtitle mt-1 text-center px-2">
             {step === 1 ? 'Chọn ngành nghề kinh doanh' : 
              step === 2 ? 'Đặt tên cho cửa hàng của bạn' :
-             'Nhận thông báo đơn hàng và hệ thống'}
+             'Lưu thông tin đăng nhập và thiết lập thông báo OA'}
           </p>
         </div>
 
@@ -640,27 +880,21 @@ export default function OnboardingPage() {
         {/* Step 3: Zalo OA interaction request */}
         {step === 3 && registeredInfo && (
           <div className="space-y-5 text-center">
-            <div className="bg-slate-50 border border-[var(--border)] rounded-2xl p-4 flex flex-col items-center">
-              <div className="w-12 h-12 rounded-xl bg-[var(--primary)]/10 flex items-center justify-center mb-3">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
-                  <polyline points="22,6 12,13 2,6"/>
-                </svg>
-              </div>
-              <h2 className="text-sm font-bold text-foreground mb-1">Đăng ký nhận tin nhắn từ Zalo OA</h2>
-              <p className="text-xs text-subtitle leading-relaxed">
-                Hệ thống có thể gửi thông tin đơn hàng, yêu cầu vận hành và thông báo hệ thống qua Zalo OA. Bạn có thể tắt các thông báo này sau trong ứng dụng.
-              </p>
-            </div>
+            {!oaInteracted ? (
+              <>
+                <div className="bg-slate-50 border border-[var(--border)] rounded-2xl p-4 flex flex-col items-center">
+                  <div className="w-12 h-12 rounded-xl bg-[var(--primary)]/10 flex items-center justify-center mb-3">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                      <polyline points="22,6 12,13 2,6"/>
+                    </svg>
+                  </div>
+                  <h2 className="text-sm font-bold text-foreground mb-1">Đăng ký nhận tin nhắn từ Zalo OA</h2>
+                  <p className="text-xs text-subtitle leading-relaxed">
+                    Hệ thống có thể gửi thông tin đơn hàng, yêu cầu vận hành và thông báo hệ thống qua Zalo OA. Bạn có thể tắt các thông báo này sau trong ứng dụng.
+                  </p>
+                </div>
 
-            {oaInteracted ? (
-              <div className="bg-emerald-50 text-emerald-700 text-xs border border-emerald-200 rounded-xl p-3 flex items-center justify-center gap-2">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                <span>Đã cấp quyền nhận thông báo từ OA.</span>
-              </div>
-            ) : (
               <div className="space-y-3 text-left">
                 {[
                   {
@@ -753,18 +987,174 @@ export default function OnboardingPage() {
                   )}
                 </button>
               </div>
-            )}
+              </>
+            ) : (
+              <>
+                <div className="bg-emerald-50 text-emerald-700 text-xs border border-emerald-200 rounded-xl p-3 flex items-center justify-center gap-2">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                  <span>Đã lưu lựa chọn thiết lập quyền thành công.</span>
+                </div>
 
-            <button
-              type="button"
-              onClick={handleComplete}
-              className="auth-btn auth-btn-secondary w-full border-dashed flex items-center justify-center gap-1.5"
-            >
-              <span>Bắt đầu quản lý cửa hàng</span>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="9 18 15 12 9 6" />
-              </svg>
-            </button>
+                <div
+                  style={{
+                    borderRadius: 24,
+                    padding: 18,
+                    textAlign: 'left',
+                    color: '#fff',
+                    background: 'linear-gradient(135deg, #ff7a18 0%, #ff5400 55%, #2b170f 100%)',
+                    boxShadow: '0 24px 40px -28px rgba(255, 90, 0, 0.85)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                    <div>
+                      <div
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          padding: '6px 10px',
+                          borderRadius: 999,
+                          background: 'rgba(255,255,255,0.16)',
+                          fontSize: 10,
+                          fontWeight: 800,
+                          letterSpacing: '0.08em',
+                          textTransform: 'uppercase',
+                        }}
+                      >
+                        Tài khoản mới
+                      </div>
+                      <h2 style={{ fontSize: 20, fontWeight: 800, margin: '12px 0 6px' }}>THÔNG TIN TÀI KHOẢN</h2>
+                      <p style={{ fontSize: 12, lineHeight: 1.6, color: 'rgba(255,255,255,0.88)', margin: 0 }}>
+                        Lưu lại ảnh này để xem nhanh khi đăng nhập, giao cho nhân viên hoặc cần hỗ trợ thao tác.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      marginTop: 16,
+                      borderRadius: 18,
+                      background: 'rgba(255,255,255,0.12)',
+                      padding: 14,
+                      backdropFilter: 'blur(10px)',
+                    }}
+                  >
+                    {[
+                      ['Tên cửa hàng', registeredInfo.name],
+                      ['Tên miền cửa hàng', `${registeredInfo.slug}.oni.vn`],
+                      ['Email', registeredInfo.email],
+                      ['Số điện thoại', registeredInfo.phone || profile?.phone || 'Chưa có'],
+                      ['Mật khẩu tạm', registeredInfo.temporaryPassword || 'Chưa nhận được từ máy chủ'],
+                    ].map(([label, value]) => (
+                      <div
+                        key={label}
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 4,
+                          padding: '10px 0',
+                          borderBottom: label === 'Mật khẩu tạm' ? 'none' : '1px solid rgba(255,255,255,0.14)',
+                        }}
+                      >
+                        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.68)' }}>
+                          {label}
+                        </span>
+                        <span style={{ fontSize: label === 'Mật khẩu tạm' ? 24 : 14, fontWeight: label === 'Mật khẩu tạm' ? 800 : 700, letterSpacing: label === 'Mật khẩu tạm' ? '0.08em' : 'normal' }}>
+                          {value}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {!registeredInfo.temporaryPassword && (
+                    <div
+                      style={{
+                        marginTop: 14,
+                        borderRadius: 16,
+                        background: 'rgba(120, 53, 15, 0.3)',
+                        border: '1px solid rgba(255,255,255,0.16)',
+                        padding: 12,
+                        fontSize: 12,
+                        lineHeight: 1.6,
+                        color: '#fff7ed',
+                      }}
+                    >
+                      Mật khẩu tạm chưa hiển thị. Vui lòng thử lại sau khi hệ thống cập nhật hoàn tất.
+                    </div>
+                  )}
+
+                  <div
+                    style={{
+                      marginTop: 14,
+                      borderRadius: 16,
+                      background: 'rgba(32, 16, 8, 0.24)',
+                      border: '1px solid rgba(255,255,255,0.14)',
+                      padding: 12,
+                      fontSize: 12,
+                      lineHeight: 1.6,
+                      color: '#fff6ed',
+                    }}
+                  >
+                    Đây là những thông tin quan trọng, không chia sẻ cho bất kỳ ai, kể cả người tự xưng là nhân viên ONI.
+                  </div>
+
+                  <div className="mt-4 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={handleSaveCredentialsImage}
+                      className="auth-btn flex-1"
+                      style={{
+                        background: '#fff',
+                        color: '#c2410c',
+                        fontWeight: 800,
+                      }}
+                    >
+                      {savingImage ? 'Đang lưu ảnh...' : 'Lưu ảnh'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(
+                            [
+                              'THÔNG TIN TÀI KHOẢN',
+                              `Tên cửa hàng: ${registeredInfo.name}`,
+                              `Tên miền cửa hàng: ${registeredInfo.slug}.oni.vn`,
+                              `Email: ${registeredInfo.email}`,
+                              `Số điện thoại: ${registeredInfo.phone || profile?.phone || 'Chưa có'}`,
+                              `Mật khẩu tạm: ${registeredInfo.temporaryPassword || 'Chưa nhận được từ máy chủ'}`,
+                            ].join('\n')
+                          );
+                          toast.success('Đã sao chép thông tin tài khoản');
+                        } catch {
+                          toast.error('Không thể sao chép thông tin lúc này');
+                        }
+                      }}
+                      className="auth-btn flex-1"
+                      style={{
+                        background: 'rgba(255,255,255,0.14)',
+                        color: '#fff',
+                        border: '1px solid rgba(255,255,255,0.18)',
+                      }}
+                    >
+                      Sao chép nhanh
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleComplete}
+                  className="auth-btn auth-btn-secondary w-full border-dashed flex items-center justify-center gap-1.5"
+                >
+                  <span>Bắt đầu quản lý cửa hàng</span>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="9 18 15 12 9 6" />
+                  </svg>
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>
