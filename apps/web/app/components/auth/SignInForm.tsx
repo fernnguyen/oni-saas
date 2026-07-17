@@ -14,6 +14,21 @@ import { isValidVNPhone } from '../../../lib/utils/phone';
 const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
 const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
 
+function inferTenantSlugFromHost(hostname: string) {
+  const rootBase = ROOT_DOMAIN.replace(/^https?:\/\//, '').split(':')[0];
+
+  if (hostname === rootBase || !hostname.endsWith(`.${rootBase}`)) {
+    return '';
+  }
+
+  const inferredSlug = hostname.slice(0, hostname.length - rootBase.length - 1);
+  if (!inferredSlug || inferredSlug === 'www') {
+    return '';
+  }
+
+  return inferredSlug;
+}
+
 export function SignInForm({ 
   tenantSlug, 
   tenantName,
@@ -24,6 +39,7 @@ export function SignInForm({
   industryType?: string;
 }) {
   const searchParams = useSearchParams();
+  const [detectedTenantSlug, setDetectedTenantSlug] = useState('');
   const [subdomain, setSubdomain] = useState(tenantSlug || '');
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
@@ -61,8 +77,36 @@ export function SignInForm({
     setTurnstileKey((prev) => prev + 1);
   };
 
+  useEffect(() => {
+    const inferredSlug = inferTenantSlugFromHost(window.location.hostname);
+    if (inferredSlug) {
+      setDetectedTenantSlug(inferredSlug);
+      setSubdomain((prev) => prev || inferredSlug);
+    }
+  }, []);
+
+  function getEffectiveTenantSlug() {
+    if (tenantSlug) return tenantSlug;
+    const inferredSlug = typeof window !== 'undefined' ? inferTenantSlugFromHost(window.location.hostname) : '';
+    return inferredSlug || detectedTenantSlug;
+  }
+
+  function getEffectiveSubdomain() {
+    const effectiveTenantSlug = getEffectiveTenantSlug();
+    if (effectiveTenantSlug) return effectiveTenantSlug;
+    return subdomain.trim().toLowerCase();
+  }
+
+  const effectiveTenantSlug = getEffectiveTenantSlug();
+
+  useEffect(() => {
+    if (effectiveTenantSlug) {
+      setSubdomain((prev) => prev || effectiveTenantSlug);
+    }
+  }, [effectiveTenantSlug]);
+
   function handleForgotPassword() {
-    const displayName = tenantName || tenantSlug || 'hệ thống';
+    const displayName = tenantName || effectiveTenantSlug || 'hệ thống';
     toast.info(`Vui lòng liên hệ người quản trị của ${displayName} để lấy lại mật khẩu.`, {
       duration: 6000,
     });
@@ -87,6 +131,7 @@ export function SignInForm({
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    const activeTenantSlug = getEffectiveSubdomain();
     if (!subdomain.trim() && !isPreFilled) {
       setError('Vui lòng nhập địa chỉ gian hàng.');
       return;
@@ -109,7 +154,7 @@ export function SignInForm({
         body: JSON.stringify({
           identifier,
           password,
-          tenant_slug: subdomain.trim().toLowerCase(),
+          tenant_slug: activeTenantSlug,
           turnstile_token: turnstileToken,
         }),
       });
@@ -120,21 +165,21 @@ export function SignInForm({
       }
 
       if (data.mfa_required) {
-        if (tenantSlug) {
+        if (activeTenantSlug) {
           window.location.href = '/auth/2fa?next=/';
         } else {
           const protocol = window.location.protocol;
-          window.location.href = `${protocol}//${subdomain}.${ROOT_DOMAIN}/auth/2fa?next=/`;
+          window.location.href = `${protocol}//${activeTenantSlug}.${ROOT_DOMAIN}/auth/2fa?next=/`;
         }
         return;
       }
 
       // Redirect to tenant workspace
-      if (tenantSlug) {
+      if (activeTenantSlug) {
         window.location.href = '/';
       } else {
         const protocol = window.location.protocol;
-        window.location.href = `${protocol}//${subdomain}.${ROOT_DOMAIN}`;
+        window.location.href = `${protocol}//${activeTenantSlug}.${ROOT_DOMAIN}`;
       }
     } catch (err: unknown) {
       resetTurnstile();
@@ -148,10 +193,11 @@ export function SignInForm({
     setLoading(true);
     setError(null);
     const protocol = window.location.hostname.includes('localhost') ? 'http' : 'https';
-    const callbackOrigin = tenantSlug ? window.location.origin : `${protocol}://${ROOT_DOMAIN}`;
+    const activeTenantSlug = getEffectiveTenantSlug();
+    const callbackOrigin = activeTenantSlug ? window.location.origin : `${protocol}://${ROOT_DOMAIN}`;
     const redirectTo = new URL('/api/auth/callback', callbackOrigin);
 
-    if (tenantSlug) {
+    if (activeTenantSlug) {
       redirectTo.searchParams.set('next', '/');
     } else {
       redirectTo.searchParams.set('next', '/api/auth/login-success?intent=login');
@@ -168,7 +214,7 @@ export function SignInForm({
     }
   }
 
-  const isPreFilled = !!tenantSlug;
+  const isPreFilled = !!effectiveTenantSlug;
 
   const vertical = getVerticalConfig(industryType ?? 'retail');
   const workspaceLabel = vertical.workspaceLabel.toLowerCase();
@@ -191,7 +237,7 @@ export function SignInForm({
               <span className="font-bold text-slate-900 text-lg" title={tenantName}>{tenantName}</span>
             </div>
             <h1 className="text-2xl font-bold text-slate-900">Đăng nhập vào quản lý</h1>
-            <p className="mt-1 text-sm text-slate-500">{tenantName} ({tenantSlug}.{ROOT_DOMAIN})</p>
+            <p className="mt-1 text-sm text-slate-500">{tenantName} ({effectiveTenantSlug}.{ROOT_DOMAIN})</p>
           </>
         ) : (
           <>
