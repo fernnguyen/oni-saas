@@ -48,7 +48,6 @@ insert into public.permissions (code, name, group_code, group_name, sort_order) 
   ('products.create',       'Thêm sản phẩm',            'products',    'Sản phẩm',           2),
   ('products.edit',         'Sửa sản phẩm',             'products',    'Sản phẩm',           3),
   ('products.delete',       'Xóa sản phẩm',             'products',    'Sản phẩm',           4),
-  ('products.manage_prices','Quản lý giá bán và giá vốn','products',   'Sản phẩm',           5),
 
   -- inventory
   ('inventory.view',        'Xem kho',                  'inventory',   'Kho',                1),
@@ -155,7 +154,7 @@ do $$ declare p text; begin
     'dashboard.view',
     'orders.view','orders.create','orders.edit','orders.cancel','orders.delete',
     'returns.view','returns.create','returns.approve',
-    'products.view','products.create','products.edit','products.delete','products.manage_prices',
+    'products.view','products.create','products.edit','products.delete',
     'inventory.view','inventory.create','inventory.edit',
     'customers.view','customers.create','customers.edit',
     'pos.use',
