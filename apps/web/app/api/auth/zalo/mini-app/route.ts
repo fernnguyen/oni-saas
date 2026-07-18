@@ -20,6 +20,21 @@ async function findAuthUserByEmail(admin: ReturnType<typeof getSupabaseAdminClie
   return null;
 }
 
+async function findAuthUserByPhone(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+  phone: string,
+) {
+  const authPhone = toVNPhonePlus84(phone);
+  if (!authPhone) return null;
+
+  const { data: phoneUser, error: phoneError } = await admin.rpc('get_user_by_phone', { p_phone: authPhone });
+  if (!phoneError && phoneUser?.id) {
+    return phoneUser as { id: string; email?: string | null; phone?: string | null; user_metadata?: Record<string, unknown> };
+  }
+
+  return null;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -57,6 +72,11 @@ export async function POST(req: NextRequest) {
     const phoneNumberStr = infoData.data?.number;
     if (!phoneNumberStr) {
       return NextResponse.json({ error: 'Phone number not returned by Zalo' }, { status: 400 });
+    }
+
+    const authPhone = toVNPhonePlus84(phoneNumberStr);
+    if (!authPhone) {
+      return NextResponse.json({ error: 'Invalid phone number returned by Zalo' }, { status: 400 });
     }
 
     let profileData: any = {};
@@ -97,34 +117,75 @@ export async function POST(req: NextRequest) {
       .eq('provider_id', zaloId)
       .maybeSingle();
 
+    const phoneUser = await findAuthUserByPhone(admin, phoneNumberStr);
+    const canonicalUser = await findAuthUserByEmail(admin, canonicalZaloEmail);
+    const legacyPhoneUser = await findAuthUserByEmail(admin, legacyPhoneEmail);
+    let shouldSyncCanonicalEmail = false;
+
+    if (phoneUser?.id && canonicalUser?.id && canonicalUser.id !== phoneUser.id) {
+      return NextResponse.json({
+        error: 'Zalo email conflicts with trusted phone user',
+        details: 'Zalo này và số điện thoại Zalo đang trỏ tới hai tài khoản khác nhau. Vui lòng liên hệ hỗ trợ để gộp tài khoản.',
+      }, { status: 409 });
+    }
+
+    if (phoneUser?.id && legacyPhoneUser?.id && legacyPhoneUser.id !== phoneUser.id) {
+      return NextResponse.json({
+        error: 'Legacy Zalo phone account conflicts with trusted phone user',
+        details: 'Số điện thoại Zalo đang có dữ liệu lịch sử trên tài khoản khác. Vui lòng liên hệ hỗ trợ để gộp tài khoản.',
+      }, { status: 409 });
+    }
+
     if (linkedIdentity?.user_id) {
+      if (phoneUser?.id && phoneUser.id !== linkedIdentity.user_id) {
+        return NextResponse.json({
+          error: 'Zalo identity conflicts with trusted phone user',
+          details: 'Số điện thoại Zalo đã thuộc một tài khoản khác. Vui lòng liên hệ hỗ trợ để gộp tài khoản.',
+        }, { status: 409 });
+      }
+      if (canonicalUser?.id && canonicalUser.id !== linkedIdentity.user_id) {
+        return NextResponse.json({
+          error: 'Zalo identity conflicts with canonical Zalo email user',
+          details: 'Zalo này đã liên kết với tài khoản khác với email Zalo canonical. Vui lòng liên hệ hỗ trợ.',
+        }, { status: 409 });
+      }
+      if (legacyPhoneUser?.id && legacyPhoneUser.id !== linkedIdentity.user_id) {
+        return NextResponse.json({
+          error: 'Zalo identity conflicts with legacy phone user',
+          details: 'Zalo này đã liên kết với tài khoản khác với dữ liệu phone lịch sử. Vui lòng liên hệ hỗ trợ.',
+        }, { status: 409 });
+      }
+
       const { data: linkedUser } = await admin.auth.admin.getUserById(linkedIdentity.user_id);
-      if (linkedUser.user?.email) {
-        resolvedEmail = linkedUser.user.email;
+      if (linkedUser.user) {
+        shouldSyncCanonicalEmail = !linkedUser.user.email;
+        resolvedEmail = linkedUser.user.email || canonicalZaloEmail;
         resolvedUserId = linkedUser.user.id;
       }
     }
 
-    if (!resolvedUserId) {
-      const canonicalUser = await findAuthUserByEmail(admin, canonicalZaloEmail);
-      if (canonicalUser?.email) {
-        resolvedEmail = canonicalUser.email;
-        resolvedUserId = canonicalUser.id;
-      }
+    if (!resolvedUserId && phoneUser?.id) {
+      shouldSyncCanonicalEmail = !phoneUser.email;
+      resolvedEmail = phoneUser.email || canonicalZaloEmail;
+      resolvedUserId = phoneUser.id;
     }
 
-    if (!resolvedUserId) {
-      const legacyPhoneUser = await findAuthUserByEmail(admin, legacyPhoneEmail);
-      if (legacyPhoneUser?.email) {
-        resolvedEmail = legacyPhoneUser.email;
-        resolvedUserId = legacyPhoneUser.id;
-      }
+    if (!resolvedUserId && canonicalUser?.id) {
+      resolvedEmail = canonicalUser.email || canonicalZaloEmail;
+      resolvedUserId = canonicalUser.id;
+    }
+
+    if (!resolvedUserId && legacyPhoneUser?.id) {
+      resolvedEmail = legacyPhoneUser.email || legacyPhoneEmail;
+      resolvedUserId = legacyPhoneUser.id;
     }
 
     if (!resolvedUserId) {
       const { data: createdUser, error: createError } = await admin.auth.admin.createUser({
         email: canonicalZaloEmail,
         email_confirm: true,
+        phone: authPhone,
+        phone_confirm: true,
         user_metadata: {
           full_name: resolvedProfileName,
           avatar_url: resolvedAvatarUrl,
@@ -142,20 +203,63 @@ export async function POST(req: NextRequest) {
       resolvedUserId = createdUser.user.id;
     }
 
-    const authPhone = toVNPhonePlus84(phoneNumberStr);
-    if (resolvedUserId && authPhone) {
-      await admin.auth.admin.updateUserById(resolvedUserId, {
-        phone: authPhone,
-        phone_confirm: true,
-        user_metadata: {
-          full_name: resolvedProfileName,
-          avatar_url: resolvedAvatarUrl,
-          phone: phoneNumberStr,
-          zalo_id: zaloId,
-        },
-      }).catch((error) => {
-        console.warn('Failed to sync auth phone for Zalo user', error);
+    const updatePayload: {
+      phone?: string;
+      phone_confirm: boolean;
+      email?: string;
+      email_confirm?: boolean;
+      user_metadata: Record<string, string>;
+    } = {
+      phone: authPhone,
+      phone_confirm: true,
+      user_metadata: {
+        full_name: resolvedProfileName,
+        avatar_url: resolvedAvatarUrl,
+        phone: phoneNumberStr,
+        zalo_id: zaloId,
+      },
+    };
+
+    if (shouldSyncCanonicalEmail || !resolvedEmail) {
+      updatePayload.email = canonicalZaloEmail;
+      updatePayload.email_confirm = true;
+      resolvedEmail = canonicalZaloEmail;
+    }
+
+    const { error: syncError } = await admin.auth.admin.updateUserById(resolvedUserId, updatePayload);
+    if (syncError) {
+      console.error('Failed to sync auth phone for Zalo user', syncError);
+      return NextResponse.json({ error: 'Failed to sync trusted Zalo phone', details: syncError }, { status: 409 });
+    }
+
+    const { data: existingIdentity } = await admin
+      .from('user_identities')
+      .select('id, user_id')
+      .eq('provider', 'zalo')
+      .eq('provider_id', zaloId)
+      .maybeSingle();
+
+    if (existingIdentity && existingIdentity.user_id !== resolvedUserId) {
+      return NextResponse.json({
+        error: 'Zalo identity conflicts with resolved user',
+        details: 'Zalo này đã liên kết với tài khoản khác. Vui lòng liên hệ hỗ trợ.',
+      }, { status: 409 });
+    }
+
+    if (!existingIdentity) {
+      const { error: identityError } = await admin.from('user_identities').insert({
+        id: `zalo_${zaloId}`,
+        user_id: resolvedUserId,
+        provider: 'zalo',
+        provider_id: zaloId,
+        name: resolvedProfileName || null,
+        avatar: resolvedAvatarUrl || null,
       });
+
+      if (identityError) {
+        console.error('Failed to insert Zalo identity:', identityError);
+        return NextResponse.json({ error: 'Failed to link Zalo identity', details: identityError }, { status: 500 });
+      }
     }
 
     const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
@@ -198,25 +302,6 @@ export async function POST(req: NextRequest) {
     if (verifyError || !sessionData.session) {
       console.error('Supabase Verify OTP Error:', verifyError);
       return NextResponse.json({ error: 'Failed to verify session', details: verifyError }, { status: 500 });
-    }
-
-    const userId = sessionData.session.user.id;
-    const { data: existingIdentity } = await admin
-      .from('user_identities')
-      .select('id')
-      .eq('provider', 'zalo')
-      .eq('provider_id', zaloId)
-      .maybeSingle();
-
-    if (!existingIdentity) {
-      await admin.from('user_identities').insert({
-        id: `zalo_${zaloId}`,
-        user_id: userId,
-        provider: 'zalo',
-        provider_id: zaloId,
-        name: resolvedProfileName || null,
-        avatar: resolvedAvatarUrl || null,
-      });
     }
 
     return NextResponse.json({ session: sessionData.session });
