@@ -110,7 +110,7 @@ export async function POST(
             await client.query(`DELETE FROM products WHERE branch_id = $1 AND tenant_id = $2`, [branchId, tenantId]);
             
             // Cleanup unreferenced categories
-            await client.query(`DELETE FROM categories WHERE tenant_id = $1 AND id NOT IN (SELECT DISTINCT category_id FROM products WHERE tenant_id = $1 AND category_id IS NOT NULL)`, [tenantId]);
+            await client.query(`DELETE FROM categories WHERE tenant_id = $1 AND branch_id = $2 AND id NOT IN (SELECT DISTINCT category_id FROM products WHERE tenant_id = $1 AND branch_id = $2 AND category_id IS NOT NULL)`, [tenantId, branchId]);
           }
 
           await client.query('COMMIT');

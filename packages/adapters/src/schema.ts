@@ -220,6 +220,7 @@ export const fund_audits = mysqlTable('fund_audits', {
 export const categories = mysqlTable('categories', {
   ...getBaseColumns(),
   id: varchar('id', { length: 255 }).primaryKey(),
+  branch_id: varchar('branch_id', { length: 255 }),
   name: varchar('name', { length: 255 }),
   parent_id: varchar('parent_id', { length: 255 }),
   sort_order: varchar('sort_order', { length: 50 }),
@@ -311,6 +312,7 @@ export const employees = mysqlTable('employees', {
 export const suppliers = mysqlTable('suppliers', {
   ...getBaseColumns(),
   id: varchar('id', { length: 255 }).primaryKey(),
+  branch_id: varchar('branch_id', { length: 255 }),
   name: varchar('name', { length: 255 }),
   phone: varchar('phone', { length: 50 }),
   email: varchar('email', { length: 255 }),
@@ -759,6 +761,4 @@ export const tax_locked_periods = mysqlTable('tax_locked_periods', {
   locked_at: varchar('locked_at', { length: 50 }),
   locked_by: varchar('locked_by', { length: 255 }),
 });
-
-
 

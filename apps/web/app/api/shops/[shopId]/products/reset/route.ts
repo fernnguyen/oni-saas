@@ -57,12 +57,13 @@ export async function POST(
         await client.query(
           `DELETE FROM categories 
            WHERE tenant_id = $1 
+             AND branch_id = $2
              AND id NOT IN (
                SELECT DISTINCT category_id 
                FROM products 
-               WHERE tenant_id = $1 AND category_id IS NOT NULL
+               WHERE tenant_id = $1 AND branch_id = $2 AND category_id IS NOT NULL
              )`,
-          [tenantId]
+          [tenantId, branchId]
         )
 
         // 7. Delete returns and return items (to clear FK references to orders and products)

@@ -113,10 +113,8 @@ export class PostgresConnector implements IDataConnector {
 
   // Entities scoped only by tenant, not by branch
   private readonly tenantScopedEntities = [
-    'categories',
     'price-lists',
     'discounts',
-    'suppliers',
     'product-bom',
     'product-units',
     'product-purchase-history',

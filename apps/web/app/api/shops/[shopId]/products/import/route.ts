@@ -62,8 +62,8 @@ export async function POST(
             }
 
             const res: any = await client.query(
-              `SELECT id FROM categories WHERE name = $1 AND (parent_id = $2 OR (parent_id IS NULL AND $2 IS NULL)) AND tenant_id = $3 AND active != 'FALSE' LIMIT 1`,
-              [part, parentId, tenantId]
+              `SELECT id FROM categories WHERE name = $1 AND (parent_id = $2 OR (parent_id IS NULL AND $2 IS NULL)) AND tenant_id = $3 AND branch_id = $4 AND active != 'FALSE' LIMIT 1`,
+              [part, parentId, tenantId, branchId]
             )
 
             if (res.rows.length > 0) {
@@ -74,8 +74,8 @@ export async function POST(
               const newCatId = `CAT-${tenantHash}-${randomIdSuffix}`
 
               await client.query(
-                `INSERT INTO categories (id, tenant_id, name, parent_id, active, created_at, updated_at) VALUES ($1, $2, $3, $4, 'TRUE', NOW(), NOW())`,
-                [newCatId, tenantId, part, parentId]
+                `INSERT INTO categories (id, tenant_id, branch_id, name, parent_id, active, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, 'TRUE', NOW(), NOW())`,
+                [newCatId, tenantId, branchId, part, parentId]
               )
               parentId = newCatId
             }

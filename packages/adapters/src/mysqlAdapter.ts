@@ -79,10 +79,8 @@ export class MysqlConnector implements IDataConnector {
 
   // Entities that do not have branch_id and are scoped only by tenant
   private readonly tenantScopedEntities = [
-    'categories',
     'price-lists',
     'discounts',
-    'suppliers',
     'product-bom',
     'product-units',
     'product-purchase-history',
