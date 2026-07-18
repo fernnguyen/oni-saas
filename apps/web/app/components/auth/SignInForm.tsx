@@ -633,13 +633,17 @@ export function SignInForm({
 
       {qrLogin.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 px-4">
-          <div className="w-full max-w-sm rounded-3xl bg-white p-6 shadow-2xl">
-            <div className="mb-4 flex items-start justify-between gap-4">
+          <div className="w-full max-w-sm rounded-3xl bg-white p-4 shadow-2xl">
+            <div className="mb-2 flex items-start justify-between gap-4">
               <div>
                 <h3 className="text-lg font-bold text-slate-900">Đăng nhập bằng mã QR</h3>
-                <p className="mt-1 text-sm text-slate-500">
-                  Mở Mini App ONI, nhấn biểu tượng quét ở đầu trang chủ rồi xác nhận đăng nhập.
-                </p>
+                <div className="mt-1 flex items-start gap-2 text-sm text-slate-500">
+                  <p>
+                    Vào ứng dụng Zalo Mini App ONI, bấm biểu tượng quét mã QR <span className="inline-flex translate-y-[2px] items-center text-emerald-600">
+                      <QrLoginIcon size={18} />
+                    </span> để tiến hành đăng nhập
+                  </p>
+                </div>
               </div>
               <button
                 type="button"
@@ -661,9 +665,27 @@ export function SignInForm({
                 </div>
               ) : qrLogin.qrDataUrl ? (
                 <>
-                  <img src={qrLogin.qrDataUrl} alt="QR đăng nhập ONI" className="mx-auto h-64 w-64 rounded-2xl bg-white p-3 shadow-sm" />
+                  <div className="relative mx-auto h-64 w-64">
+                    <img
+                      src={qrLogin.qrDataUrl}
+                      alt="QR đăng nhập ONI"
+                      className={`h-64 w-64 rounded-2xl bg-white p-3 shadow-sm transition-all ${qrLogin.status === 'expired' ? 'scale-[0.985] opacity-35 blur-[1px]' : ''}`}
+                    />
+                    {qrLogin.status === 'expired' && (
+                      <div className="absolute inset-0 flex items-center justify-center rounded-2xl bg-slate-950/35 p-4">
+                        <button
+                          type="button"
+                          onClick={onQrSignIn}
+                          disabled={qrLogin.loading}
+                          className="rounded-2xl bg-white px-5 py-3 text-sm font-semibold text-slate-900 shadow-lg hover:bg-slate-50 disabled:opacity-60"
+                        >
+                          Tạo mã mới
+                        </button>
+                      </div>
+                    )}
+                  </div>
                   <p className="mt-4 text-sm font-semibold text-slate-700">{qrLogin.requestedHost}</p>
-                  <div className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-center">
+                  <div className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-center" hidden={qrLogin.status === 'expired'}>
                     <p className="text-sm font-semibold text-emerald-800">
                       Mã sẽ hết hạn sau{' '}
                       <span className={`tabular-nums ${qrTimeRemainingMs <= 60_000 ? 'text-amber-600' : 'text-emerald-600'}`}>
@@ -697,14 +719,16 @@ export function SignInForm({
               >
                 Đóng
               </button>
-              <button
-                type="button"
-                onClick={onQrSignIn}
-                disabled={qrLogin.loading || qrLogin.status === 'completing'}
-                className="flex-1 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
-              >
-                Tạo mã mới
-              </button>
+              {qrLogin.status !== 'expired' && (
+                <button
+                  type="button"
+                  onClick={onQrSignIn}
+                  disabled={qrLogin.loading || qrLogin.status === 'completing'}
+                  className="flex-1 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                >
+                  Tạo mã mới
+                </button>
+              )}
             </div>
           </div>
         </div>
