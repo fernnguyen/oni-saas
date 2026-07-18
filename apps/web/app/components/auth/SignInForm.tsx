@@ -14,6 +14,55 @@ import { isValidVNPhone } from '../../../lib/utils/phone';
 const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
 const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
 
+type QrLoginState = {
+  isOpen: boolean;
+  loading: boolean;
+  token: string;
+  qrDataUrl: string;
+  requestedHost: string;
+  tenantSlug: string;
+  expiresAt: string;
+  error: string | null;
+  status: 'idle' | 'pending' | 'expired' | 'completing';
+};
+
+const INITIAL_QR_LOGIN_STATE: QrLoginState = {
+  isOpen: false,
+  loading: false,
+  token: '',
+  qrDataUrl: '',
+  requestedHost: '',
+  tenantSlug: '',
+  expiresAt: '',
+  error: null,
+  status: 'idle',
+};
+
+function QrLoginIcon({ className = '', size = 20 }: { className?: string; size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <rect x="3" y="3" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.8" />
+      <rect x="5" y="5" width="2" height="2" rx="0.5" fill="currentColor" />
+      <rect x="15" y="3" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.8" />
+      <rect x="17" y="5" width="2" height="2" rx="0.5" fill="currentColor" />
+      <rect x="3" y="15" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.8" />
+      <rect x="5" y="17" width="2" height="2" rx="0.5" fill="currentColor" />
+      <rect x="14.5" y="14.5" width="2.5" height="2.5" rx="0.5" fill="currentColor" />
+      <rect x="18" y="14.5" width="2.5" height="2.5" rx="0.5" fill="currentColor" opacity="0.9" />
+      <rect x="14.5" y="18" width="2.5" height="2.5" rx="0.5" fill="currentColor" opacity="0.9" />
+      <rect x="18" y="18" width="2.5" height="2.5" rx="0.5" fill="currentColor" />
+      <rect x="11" y="11" width="1.75" height="1.75" rx="0.45" fill="currentColor" opacity="0.7" />
+    </svg>
+  );
+}
+
+function formatCountdown(ms: number) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
 function inferTenantSlugFromHost(hostname: string) {
   const rootBase = ROOT_DOMAIN.replace(/^https?:\/\//, '').split(':')[0];
 
@@ -49,6 +98,8 @@ export function SignInForm({
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [turnstileKey, setTurnstileKey] = useState(0);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [qrLogin, setQrLogin] = useState<QrLoginState>(INITIAL_QR_LOGIN_STATE);
+  const [qrCountdownNow, setQrCountdownNow] = useState(() => Date.now());
 
   function handleIdentifierBlur() {
     if (!identifier) return;
@@ -216,6 +267,132 @@ export function SignInForm({
 
   const isPreFilled = !!effectiveTenantSlug;
 
+  function closeQrLoginModal() {
+    setQrLogin(INITIAL_QR_LOGIN_STATE);
+  }
+
+  async function onQrSignIn() {
+    setQrLogin({
+      ...INITIAL_QR_LOGIN_STATE,
+      isOpen: true,
+      loading: true,
+    });
+
+    try {
+      const res = await fetch('/api/auth/qr-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenantSlug: getEffectiveSubdomain() || undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Không thể tạo mã QR đăng nhập');
+      }
+
+      setQrLogin({
+        isOpen: true,
+        loading: false,
+        token: data.token || '',
+        qrDataUrl: data.qrDataUrl || '',
+        requestedHost: data.requestedHost || window.location.host,
+        tenantSlug: data.tenantSlug || '',
+        expiresAt: data.expiresAt || '',
+        error: null,
+        status: 'pending',
+      });
+    } catch (err) {
+      setQrLogin({
+        ...INITIAL_QR_LOGIN_STATE,
+        isOpen: true,
+        loading: false,
+        error: err instanceof Error ? err.message : 'Không thể tạo mã QR đăng nhập',
+      });
+    }
+  }
+
+  useEffect(() => {
+    if (!qrLogin.isOpen || !qrLogin.token || qrLogin.status !== 'pending') {
+      return;
+    }
+
+    let cancelled = false;
+
+    const pollStatus = async () => {
+      try {
+        const res = await fetch(`/api/auth/qr-login?token=${encodeURIComponent(qrLogin.token)}`);
+        const data = await res.json().catch(() => ({}));
+
+        if (!res.ok || cancelled) {
+          return;
+        }
+
+        if (data.status === 'expired') {
+          setQrLogin((prev) => ({
+            ...prev,
+            status: 'expired',
+            error: 'Mã QR đã hết hạn. Vui lòng tạo mã mới.',
+          }));
+          return;
+        }
+
+        if (data.status === 'confirmed' && data.session?.access_token && data.session?.refresh_token) {
+          setQrLogin((prev) => ({
+            ...prev,
+            status: 'completing',
+            error: null,
+          }));
+
+          const supabase = getSupabaseBrowserClient();
+          const { error: sessionError } = await supabase.auth.setSession({
+            access_token: data.session.access_token,
+            refresh_token: data.session.refresh_token,
+          });
+
+          if (sessionError) {
+            throw sessionError;
+          }
+
+          window.location.href = '/api/auth/login-success?intent=login';
+        }
+      } catch (err) {
+        if (cancelled) return;
+        setQrLogin((prev) => ({
+          ...prev,
+          error: err instanceof Error ? err.message : 'Không thể đồng bộ phiên đăng nhập QR',
+        }));
+      }
+    };
+
+    pollStatus();
+    const timer = window.setInterval(pollStatus, 2000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [qrLogin.isOpen, qrLogin.status, qrLogin.token]);
+
+  useEffect(() => {
+    if (!qrLogin.isOpen || !qrLogin.expiresAt || qrLogin.status !== 'pending') {
+      return;
+    }
+
+    setQrCountdownNow(Date.now());
+    const timer = window.setInterval(() => {
+      setQrCountdownNow(Date.now());
+    }, 1000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [qrLogin.expiresAt, qrLogin.isOpen, qrLogin.status]);
+
+  const qrTimeRemainingMs = qrLogin.expiresAt ? new Date(qrLogin.expiresAt).getTime() - qrCountdownNow : 0;
+  const qrCountdown = formatCountdown(qrTimeRemainingMs);
+
   const vertical = getVerticalConfig(industryType ?? 'retail');
   const workspaceLabel = vertical.workspaceLabel.toLowerCase();
 
@@ -267,6 +444,16 @@ export function SignInForm({
           >
             <Image src="/partners/zalo.svg" alt="Zalo" width={18} height={18} />
             Đăng nhập bằng Zalo
+          </button>
+
+          <button
+            type="button"
+            onClick={onQrSignIn}
+            disabled={loading}
+            className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 text-sm font-bold text-emerald-700 hover:bg-emerald-100 hover:border-emerald-300 disabled:opacity-60 transition-all shadow-sm"
+          >
+            <QrLoginIcon size={18} />
+            Đăng nhập bằng mã QR
           </button>
           
           <button
@@ -443,6 +630,85 @@ export function SignInForm({
           </>
         )}
       </div>
+
+      {qrLogin.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 px-4">
+          <div className="w-full max-w-sm rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Đăng nhập bằng mã QR</h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  Mở Mini App ONI, nhấn biểu tượng quét ở đầu trang chủ rồi xác nhận đăng nhập.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeQrLoginModal}
+                className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                aria-label="Đóng"
+              >
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6l-12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-center">
+              {qrLogin.loading ? (
+                <div className="flex flex-col items-center gap-3 py-10">
+                  <div className="h-8 w-8 animate-spin rounded-full border-4 border-emerald-600 border-t-transparent" />
+                  <p className="text-sm text-slate-500">Đang tạo mã QR...</p>
+                </div>
+              ) : qrLogin.qrDataUrl ? (
+                <>
+                  <img src={qrLogin.qrDataUrl} alt="QR đăng nhập ONI" className="mx-auto h-64 w-64 rounded-2xl bg-white p-3 shadow-sm" />
+                  <p className="mt-4 text-sm font-semibold text-slate-700">{qrLogin.requestedHost}</p>
+                  <div className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-center">
+                    <p className="text-sm font-semibold text-emerald-800">
+                      Mã sẽ hết hạn sau{' '}
+                      <span className={`tabular-nums ${qrTimeRemainingMs <= 60_000 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                        {qrCountdown}
+                      </span>
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <p className="py-10 text-sm text-slate-500">Không thể hiển thị mã QR đăng nhập.</p>
+              )}
+            </div>
+
+            {qrLogin.error && (
+              <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+                {qrLogin.error}
+              </div>
+            )}
+
+            {qrLogin.status === 'completing' && (
+              <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                Đã xác nhận trên Mini App. Đang hoàn tất đăng nhập...
+              </div>
+            )}
+
+            <div className="mt-5 flex gap-3">
+              <button
+                type="button"
+                onClick={closeQrLoginModal}
+                className="flex-1 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+              >
+                Đóng
+              </button>
+              <button
+                type="button"
+                onClick={onQrSignIn}
+                disabled={qrLogin.loading || qrLogin.status === 'completing'}
+                className="flex-1 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+              >
+                Tạo mã mới
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </AuthSplitLayout>
   );
 }

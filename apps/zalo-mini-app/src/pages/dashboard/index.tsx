@@ -5,7 +5,9 @@ import { useTenantStore } from '@/stores/tenant-store';
 import { getReportsOverview, type ReportOverview, getQrOrders } from '@/services/shop-api';
 import { formatCurrency, formatCompactNumber } from '@/utils/format';
 import { useNotificationStore } from '@/stores/notification-store';
-import { createShortcut } from 'zmp-sdk';
+import { apiFetch } from '@/services/api';
+import { createShortcut, scanQRCode } from 'zmp-sdk';
+import { getAccessToken } from 'zmp-sdk/apis';
 import toast from 'react-hot-toast';
 
 // ────────────────────────────── Quick Actions Config ──────────────────────────────
@@ -67,6 +69,54 @@ const QUICK_ACTIONS = [
 ];
 
 const SHORTCUT_PROMPT_KEY_PREFIX = 'oni-shortcut-prompt-dismissed';
+
+type PendingQrLogin = {
+  token: string;
+  requestedHost: string;
+  requestedTenantSlug: string | null;
+};
+
+function parseQrLoginContent(content: string): PendingQrLogin | null {
+  try {
+    const parsed = new URL(content);
+    const isSupportedScheme = parsed.protocol === 'oni:' || parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    const isQrLoginPath = parsed.pathname === '/qr-login' || parsed.pathname === '/auth/qr-login';
+    if (!isSupportedScheme || !isQrLoginPath) {
+      return null;
+    }
+
+    const token = parsed.searchParams.get('token');
+    if (!token) {
+      return null;
+    }
+
+    return {
+      token,
+      requestedHost: parsed.searchParams.get('origin') || 'thiết bị web',
+      requestedTenantSlug: parsed.searchParams.get('tenant_slug'),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function QrLoginIcon({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="3" y="3" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.8" />
+      <rect x="5" y="5" width="2" height="2" rx="0.5" fill="currentColor" />
+      <rect x="15" y="3" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.8" />
+      <rect x="17" y="5" width="2" height="2" rx="0.5" fill="currentColor" />
+      <rect x="3" y="15" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.8" />
+      <rect x="5" y="17" width="2" height="2" rx="0.5" fill="currentColor" />
+      <rect x="14.5" y="14.5" width="2.5" height="2.5" rx="0.5" fill="currentColor" />
+      <rect x="18" y="14.5" width="2.5" height="2.5" rx="0.5" fill="currentColor" opacity="0.9" />
+      <rect x="14.5" y="18" width="2.5" height="2.5" rx="0.5" fill="currentColor" opacity="0.9" />
+      <rect x="18" y="18" width="2.5" height="2.5" rx="0.5" fill="currentColor" />
+      <rect x="11" y="11" width="1.75" height="1.75" rx="0.45" fill="currentColor" opacity="0.7" />
+    </svg>
+  );
+}
 
 // ────────────────────────────── Helpers ──────────────────────────────
 
@@ -133,6 +183,7 @@ function TopProductsSkeleton() {
 export default function DashboardPage() {
   const navigate = useNavigate();
   const profile = useAuthStore((s) => s.profile);
+  const tenant = useTenantStore((s) => s.tenant);
   const shop = useTenantStore((s) => s.shop);
   const unreadCount = useNotificationStore((s) => s.unreadCount);
 
@@ -142,6 +193,8 @@ export default function DashboardPage() {
   const [qrOrdersCount, setQrOrdersCount] = useState(0);
   const [showShortcutPrompt, setShowShortcutPrompt] = useState(false);
   const [shortcutLoading, setShortcutLoading] = useState(false);
+  const [pendingQrLogin, setPendingQrLogin] = useState<PendingQrLogin | null>(null);
+  const [qrLoginSubmitting, setQrLoginSubmitting] = useState(false);
 
   const userName = profile?.full_name || profile?.email || 'Người dùng';
   const shortcutPromptStorageKey =
@@ -217,6 +270,59 @@ export default function DashboardPage() {
     }
   }, [dismissShortcutPrompt]);
 
+  const handleScanQrLogin = useCallback(async () => {
+    try {
+      const { content } = await scanQRCode({});
+      if (!content) return;
+
+      const parsed = parseQrLoginContent(content);
+      if (!parsed) {
+        toast.error('Mã QR này không phải mã đăng nhập ONI hợp lệ');
+        return;
+      }
+
+      setPendingQrLogin(parsed);
+    } catch (err: any) {
+      const message = typeof err?.message === 'string' ? err.message.toLowerCase() : '';
+      if (message.includes('cancel')) return;
+      toast.error(err?.message || 'Không thể quét mã QR lúc này');
+    }
+  }, []);
+
+  const handleConfirmQrLogin = useCallback(async () => {
+    if (!pendingQrLogin) return;
+
+    setQrLoginSubmitting(true);
+    try {
+      const accessToken = await new Promise<string>((resolve, reject) => {
+        getAccessToken({
+          success: (token) => resolve(token as string),
+          fail: (error) => reject(error),
+        });
+      });
+
+      const result = await apiFetch<{ ok: boolean; requestedHost?: string }>('/api/auth/qr-login/confirm', {
+        method: 'POST',
+        body: JSON.stringify({
+          token: pendingQrLogin.token,
+          accessToken,
+        }),
+      });
+
+      toast.success(`Đã xác nhận đăng nhập cho ${result.requestedHost || pendingQrLogin.requestedHost}`);
+      setPendingQrLogin(null);
+    } catch (err: any) {
+      toast.error(err?.message || 'Không thể xác nhận đăng nhập web');
+    } finally {
+      setQrLoginSubmitting(false);
+    }
+  }, [pendingQrLogin]);
+
+  const hasTenantMismatch =
+    !!pendingQrLogin?.requestedTenantSlug &&
+    !!tenant?.slug &&
+    pendingQrLogin.requestedTenantSlug !== tenant.slug;
+
   // ── Render ──
 
   return (
@@ -227,22 +333,39 @@ export default function DashboardPage() {
         <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--foreground)', margin: 0 }}>
           Xin chào, {userName}
         </h2>
-        
-        <button 
-          onClick={() => navigate('/notifications')}
-          style={{ position: 'relative', padding: 8, background: 'transparent', border: 'none', cursor: 'pointer' }}
-        >
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--foreground)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
-            <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
-          </svg>
-          {unreadCount > 0 && (
-            <div style={{
-              position: 'absolute', top: 4, right: 6, width: 10, height: 10, 
-              background: '#ef4444', borderRadius: '50%', border: '2px solid var(--background, #f8fafc)'
-            }} />
-          )}
-        </button>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            onClick={handleScanQrLogin}
+            style={{
+              padding: 8,
+              background: '#ecfdf5',
+              border: '1px solid #a7f3d0',
+              borderRadius: 12,
+              cursor: 'pointer',
+              color: '#047857',
+            }}
+            aria-label="Quét mã QR đăng nhập"
+          >
+            <QrLoginIcon size={22} />
+          </button>
+
+          <button 
+            onClick={() => navigate('/notifications')}
+            style={{ position: 'relative', padding: 8, background: 'transparent', border: 'none', cursor: 'pointer' }}
+          >
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--foreground)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+              <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+            </svg>
+            {unreadCount > 0 && (
+              <div style={{
+                position: 'absolute', top: 4, right: 6, width: 10, height: 10,
+                background: '#ef4444', borderRadius: '50%', border: '2px solid var(--background, #f8fafc)'
+              }} />
+            )}
+          </button>
+        </div>
       </div>
 
       {showShortcutPrompt && (
@@ -462,6 +585,96 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
+
+      {pendingQrLogin && (
+        <div className="modal-backdrop" style={{ zIndex: 1200, alignItems: 'center' }} onClick={() => !qrLoginSubmitting && setPendingQrLogin(null)}>
+          <div className="modal-content modal-content-center" style={{ maxWidth: 360, padding: 20 }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+              <div>
+                <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: '#0f172a' }}>Xác nhận đăng nhập web</h3>
+                <p style={{ margin: '6px 0 0', fontSize: 13, color: '#64748b', lineHeight: 1.5 }}>
+                  Bạn sắp đăng nhập cho <strong style={{ color: '#0f172a' }}>{pendingQrLogin.requestedHost}</strong> bằng tài khoản Mini App hiện tại.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => !qrLoginSubmitting && setPendingQrLogin(null)}
+                style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer', color: '#94a3b8' }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+
+            <div style={{ marginTop: 16, borderRadius: 14, background: '#f8fafc', border: '1px solid #e2e8f0', padding: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 40, height: 40, borderRadius: 12, background: '#dcfce7', color: '#047857', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="m8.5 12.5 2.3 2.3 4.7-5.1" />
+                  </svg>
+                </div>
+                <div>
+                  <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#0f172a' }}>Đăng nhập nhanh bằng Zalo Mini App</p>
+                  <p style={{ margin: '4px 0 0', fontSize: 12, color: '#64748b' }}>Chỉ xác nhận nếu chính bạn đang mở web cần đăng nhập.</p>
+                </div>
+              </div>
+            </div>
+
+            {hasTenantMismatch && (
+              <div style={{ marginTop: 12, borderRadius: 14, background: '#fff7ed', border: '1px solid #fdba74', padding: 14 }}>
+                <p style={{ margin: 0, fontSize: 12, fontWeight: 800, color: '#c2410c', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  Cảnh báo tenant khác nhau
+                </p>
+                <p style={{ margin: '6px 0 0', fontSize: 12, color: '#9a3412', lineHeight: 1.6 }}>
+                  Mini App hiện đang làm việc với <strong>{tenant?.slug}</strong>, nhưng mã QR này yêu cầu đăng nhập vào <strong>{pendingQrLogin.requestedTenantSlug}</strong>.
+                  Bạn vẫn có thể tiếp tục quét. Nếu tài khoản không thuộc tenant đó, web sẽ báo không có quyền truy cập sau khi đăng nhập.
+                </p>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+              <button
+                type="button"
+                onClick={() => setPendingQrLogin(null)}
+                disabled={qrLoginSubmitting}
+                style={{
+                  flex: 1,
+                  height: 42,
+                  borderRadius: 12,
+                  border: '1px solid #cbd5e1',
+                  background: 'white',
+                  color: '#475569',
+                  fontWeight: 700,
+                  cursor: qrLoginSubmitting ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmQrLogin}
+                disabled={qrLoginSubmitting}
+                style={{
+                  flex: 1,
+                  height: 42,
+                  borderRadius: 12,
+                  border: 'none',
+                  background: '#16a34a',
+                  color: 'white',
+                  fontWeight: 700,
+                  cursor: qrLoginSubmitting ? 'not-allowed' : 'pointer',
+                  opacity: qrLoginSubmitting ? 0.7 : 1,
+                }}
+              >
+                {qrLoginSubmitting ? 'Đang xác nhận...' : 'Xác nhận'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
