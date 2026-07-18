@@ -7,13 +7,54 @@ import { handleApiError } from '../../_helpers'
 import crypto from 'crypto'
 import { prefixSku } from '@/lib/sku'
 
+const PRODUCT_PRICE_PERMISSION = 'products.manage_prices'
+
+function canManageProductPrices(permissions: string[]) {
+  return permissions.includes(PRODUCT_PRICE_PERMISSION)
+}
+
+function stripProductPriceFields<T extends Record<string, any>>(payload: T): Omit<T, 'sell_price' | 'cost_price' | 'min_price'> {
+  const { sell_price, cost_price, min_price, ...rest } = payload
+  return rest
+}
+
+function stripUnitPriceFields<T extends Record<string, any>>(payload: T): Omit<T, 'sell_price' | 'cost_price'> {
+  const { sell_price, cost_price, ...rest } = payload
+  return rest
+}
+
+function hasOwnPriceField(payload: Record<string, any>, fields: string[]) {
+  return fields.some((field) => Object.prototype.hasOwnProperty.call(payload, field))
+}
+
+function hasProductPricePayload(productBody: Record<string, any>, variants: unknown) {
+  if (hasOwnPriceField(productBody, ['sell_price', 'cost_price', 'min_price'])) return true
+  if (Array.isArray(productBody.product_units) && productBody.product_units.some((unit) => hasOwnPriceField(unit, ['sell_price', 'cost_price']))) return true
+  if (Array.isArray(variants) && variants.some((variant) => hasOwnPriceField(variant, ['sell_price', 'cost_price']))) return true
+  return false
+}
+
+function maskCostPrice<T extends Record<string, any>>(product: T): T {
+  const { cost_price, ...rest } = product
+  return {
+    ...rest,
+    product_units: Array.isArray(product.product_units)
+      ? product.product_units.map((unit: Record<string, any>) => {
+          const { cost_price: _unitCostPrice, ...unitRest } = unit
+          return unitRest
+        })
+      : product.product_units,
+  } as unknown as T
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ shopId: string }> }
 ) {
   try {
     const { shopId } = await params
-    const { connector } = await requireShopAccess(shopId, 'products.view')
+    const { connector, permissions } = await requireShopAccess(shopId, 'products.view')
+    const canSeeCostPrice = canManageProductPrices(permissions)
 
     const sp = req.nextUrl.searchParams
     const page = Math.max(1, parseInt(sp.get('page') ?? '1'))
@@ -97,7 +138,10 @@ export async function GET(
           { tags: [shopTag(shopId, 'products')], revalidate: cacheTTL.products }
         )
 
-    return NextResponse.json(result)
+    return NextResponse.json(canSeeCostPrice ? result : {
+      ...result,
+      data: result.data.map((product: Record<string, any>) => maskCostPrice(product)),
+    })
   } catch (e) {
     return handleApiError(e, 'GET products')
   }
@@ -109,7 +153,8 @@ export async function POST(
 ) {
   try {
     const { shopId } = await params
-    const { connector, shop } = await requireShopAccess(shopId, 'products.create')
+    const { connector, shop, permissions } = await requireShopAccess(shopId, 'products.create')
+    const canEditPrices = canManageProductPrices(permissions)
     const tenantId = shop.tenant_id
     
     // ── Plan limit check ────────────────────────────────────────
@@ -120,8 +165,15 @@ export async function POST(
 
     const body = await req.json()
     const { variants, ...productBody } = body
+    if (!canEditPrices && hasProductPricePayload(productBody, variants)) {
+      return NextResponse.json(
+        { error: 'Bạn cần quyền quản lý giá bán và giá vốn để cập nhật dữ liệu giá.' },
+        { status: 403 }
+      )
+    }
 
-    const data = productCreateSchema.parse(productBody)
+    const parsedData = productCreateSchema.parse(productBody)
+    const data = canEditPrices ? parsedData : stripProductPriceFields(parsedData)
     if (data.sku) {
       data.sku = prefixSku(data.sku, tenantHash)
     }
@@ -149,9 +201,11 @@ export async function POST(
         parent_id: parentId,
         variant_options: JSON.stringify({ [optionName]: v.value }),
         sku: prefixSku(v.sku || '', tenantHash),
-        sell_price: v.sell_price || '0',
-        cost_price: v.cost_price || '0',
-        min_price: data.min_price ?? '0',
+        ...(canEditPrices ? {
+          sell_price: v.sell_price || '0',
+          cost_price: v.cost_price || '0',
+        } : {}),
+        min_price: canEditPrices ? parsedData.min_price ?? '0' : '0',
         barcode: v.barcode || '',
         stock_track: 'TRUE',
         active: 'TRUE',
@@ -169,14 +223,17 @@ export async function POST(
     
     // ── Unit Conversions ──────────────────────────────────────────────
     if (Array.isArray(body.product_units) && body.product_units.length > 0) {
-      const unitsData = body.product_units.map((u: any) => ({
-        product_id: created.id || (created as any).product_id,
-        unit_name: u.unit_name,
-        conversion_rate: u.conversion_rate,
-        barcode: u.barcode || '',
-        sell_price: u.sell_price || '0',
-        cost_price: u.cost_price || '0',
-      }))
+      const unitsData = body.product_units.map((u: any) => {
+        const unitPayload = {
+          product_id: created.id || (created as any).product_id,
+          unit_name: u.unit_name,
+          conversion_rate: u.conversion_rate,
+          barcode: u.barcode || '',
+          sell_price: u.sell_price || '0',
+          cost_price: u.cost_price || '0',
+        }
+        return canEditPrices ? unitPayload : stripUnitPriceFields(unitPayload)
+      })
       await connector.batchCreate('product-units', unitsData)
     }
 

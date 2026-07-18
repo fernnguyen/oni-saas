@@ -20,6 +20,19 @@ import { broadcastHydrateRefresh } from '@/lib/localDb/tabSync'
 import { cleanSku } from '@/lib/sku'
 import { isSystemTimeChargeProduct } from '@oni/core'
 import { BarcodePrintModal, PrintProduct } from '@/app/components/ui/BarcodePrintModal'
+import { usePermissions } from '@/app/components/ui/PermissionGate'
+
+const PRODUCT_PRICE_PERMISSION = 'products.manage_prices'
+
+function stripProductPriceFields<T extends Record<string, any>>(payload: T): Omit<T, 'sell_price' | 'cost_price' | 'min_price'> {
+  const { sell_price, cost_price, min_price, ...rest } = payload
+  return rest
+}
+
+function stripUnitPriceFields<T extends Record<string, any>>(payload: T): Omit<T, 'sell_price' | 'cost_price'> {
+  const { sell_price, cost_price, ...rest } = payload
+  return rest
+}
 
 function RowActions({ r, onEdit, onDuplicate, onToggleActive, onPrintBarcode }: { r: Record<string, string>, onEdit: () => void, onDuplicate: () => void, onToggleActive: () => void, onPrintBarcode: () => void }) {
   const [open, setOpen] = useState(false)
@@ -190,6 +203,8 @@ async function compressImageToWebP(file: File, maxWidth = 1024, maxHeight = 1024
 
 export function ProductsClient({ shopId, shopName, industryType = 'retail', maxProducts, planCode }: Props) {
   const queryClient = useQueryClient()
+  const { hasPermission } = usePermissions()
+  const canManageProductPrices = hasPermission(PRODUCT_PRICE_PERMISSION)
   const searchParams = useSearchParams()
   const initialSearch = searchParams?.get('search') || searchParams?.get('productId') || ''
 
@@ -348,12 +363,13 @@ export function ProductsClient({ shopId, shopName, industryType = 'retail', maxP
   )
 
   const bomTotalCost = useMemo(() => {
+    if (!canManageProductPrices) return 0
     return bomItems.reduce((acc, item) => {
       const comp = allProducts.find(p => (p.product_id || p.id) === item.component_product_id)
       const unitCost = Number(comp?.cost_price || 0)
       return acc + Number(item.qty || 0) * unitCost
     }, 0)
-  }, [bomItems, allProducts])
+  }, [bomItems, allProducts, canManageProductPrices])
 
 
 
@@ -421,6 +437,10 @@ export function ProductsClient({ shopId, shopName, industryType = 'retail', maxP
     mutationFn: async (payload: Record<string, string>) => {
       setSaveStatus('saving')
       const isVariantParent = formData.product_type === 'variant_parent'
+      const productPayload = canManageProductPrices ? payload : stripProductPriceFields(payload)
+      const productUnitsPayload = canManageProductPrices
+        ? unitRows
+        : unitRows.map((unit) => stripUnitPriceFields(unit))
 
       const hasPharmacyData = Object.values(pharmacyMetadata).some(Boolean)
       const finalMetadata = hasPharmacyData ? pharmacyMetadata : null
@@ -432,18 +452,21 @@ export function ProductsClient({ shopId, shopName, industryType = 'retail', maxP
         if (variantRows.some((r) => !r.value.trim())) throw new Error('Vui lòng nhập giá trị cho tất cả các variant')
 
         const enrichedPayload = {
-          ...payload,
+          ...productPayload,
           product_type: 'variant_parent',
           variant_options: JSON.stringify({ option_name: optionName.trim() }),
-          sell_price: '0',
-          variants: variantRows.map((r) => ({
-            value: r.value.trim(),
-            sku: r.sku.trim(),
-            sell_price: r.sell_price || '0',
-            cost_price: r.cost_price || '0',
-            barcode: r.barcode.trim(),
-          })),
-          product_units: unitRows,
+          ...(canManageProductPrices ? { sell_price: '0' } : {}),
+          variants: variantRows.map((r) => {
+            const variantPayload = {
+              value: r.value.trim(),
+              sku: r.sku.trim(),
+              sell_price: r.sell_price || '0',
+              cost_price: r.cost_price || '0',
+              barcode: r.barcode.trim(),
+            }
+            return canManageProductPrices ? variantPayload : stripUnitPriceFields(variantPayload)
+          }),
+          product_units: productUnitsPayload,
           metadata: finalMetadata,
         }
 
@@ -476,10 +499,10 @@ export function ProductsClient({ shopId, shopName, industryType = 'retail', maxP
       const finalVariantOptions = hasModifiers ? JSON.stringify({ groups: modifierGroups }) : ''
 
       const enrichedPayload: Record<string, any> = {
-        ...payload,
+        ...productPayload,
         product_type: finalProductType,
         variant_options: finalVariantOptions,
-        product_units: unitRows,
+        product_units: productUnitsPayload,
         metadata: finalMetadata,
       }
 
@@ -1293,17 +1316,17 @@ export function ProductsClient({ shopId, shopName, industryType = 'retail', maxP
   const handleToggleBom = () => {
     const turningOn = formData.has_bom !== 'TRUE'
     if (turningOn) {
-      setPreviousCostPrice(formData.cost_price || '0')
+      if (canManageProductPrices) setPreviousCostPrice(formData.cost_price || '0')
       setFormData(prev => ({
         ...prev,
         has_bom: 'TRUE',
-        cost_price: String(bomTotalCost)
+        ...(canManageProductPrices ? { cost_price: String(bomTotalCost) } : {})
       }))
     } else {
       setFormData(prev => ({
         ...prev,
         has_bom: 'FALSE',
-        cost_price: previousCostPrice || '0'
+        ...(canManageProductPrices ? { cost_price: previousCostPrice || '0' } : {})
       }))
     }
   }
@@ -1457,18 +1480,20 @@ export function ProductsClient({ shopId, shopName, industryType = 'retail', maxP
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
             Tải lại
           </button>
-          <button
-            onClick={() => {
-              setImportModalOpen(true)
-              setImportProvider(null)
-              setImportFile(null)
-              setParsedProducts([])
-            }}
-            className="flex items-center gap-1.5 rounded-xl border border-primary/20 bg-primary/5 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/10 transition-colors shadow-sm cursor-pointer"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>
-            Import
-          </button>
+          {canManageProductPrices && (
+            <button
+              onClick={() => {
+                setImportModalOpen(true)
+                setImportProvider(null)
+                setImportFile(null)
+                setParsedProducts([])
+              }}
+              className="flex items-center gap-1.5 rounded-xl border border-primary/20 bg-primary/5 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/10 transition-colors shadow-sm cursor-pointer"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>
+              Import
+            </button>
+          )}
           <button
             onClick={() => {
               if (maxProducts && data && data.total >= maxProducts) {
@@ -1717,74 +1742,81 @@ export function ProductsClient({ shopId, shopName, industryType = 'retail', maxP
 
                 {/* ── Giá bán / Giá vốn / Giá sàn (grouped horizontally in columns) ── */}
                 {formData.product_type !== 'variant_parent' && (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className={`grid grid-cols-1 gap-3 ${canManageProductPrices ? 'md:grid-cols-3' : 'md:grid-cols-1'}`}>
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <label className="block text-sm font-medium text-slate-700">Giá bán</label>
-                        <div className="flex items-center gap-1">
-                          <span className="text-[10px] text-slate-400"></span>
-                          {[10, 20, 50, 100].map(pct => (
-                            <button
-                              key={pct}
-                              type="button"
-                              onClick={() => {
-                                const cost = Number(formData.cost_price || 0)
-                                if (cost > 0) {
-                                  const sell = Math.round(cost * (1 + pct / 100))
-                                  setFormData(prev => ({ ...prev, sell_price: String(sell) }))
-                                  toast.success(`Đã tính giá bán: Giá vốn + ${pct}%`)
-                                } else {
-                                  toast.error('Vui lòng nhập Giá vốn trước')
-                                }
-                              }}
-                              className="rounded bg-slate-100 px-1 py-0.5 text-[9px] font-medium text-slate-600 hover:bg-primary/10 hover:text-primary transition-colors"
-                            >
-                              +{pct}%
-                            </button>
-                          ))}
-                        </div>
+                        {canManageProductPrices && (
+                          <div className="flex items-center gap-1">
+                            <span className="text-[10px] text-slate-400"></span>
+                            {[10, 20, 50, 100].map(pct => (
+                              <button
+                                key={pct}
+                                type="button"
+                                onClick={() => {
+                                  const cost = Number(formData.cost_price || 0)
+                                  if (cost > 0) {
+                                    const sell = Math.round(cost * (1 + pct / 100))
+                                    setFormData(prev => ({ ...prev, sell_price: String(sell) }))
+                                    toast.success(`Đã tính giá bán: Giá vốn + ${pct}%`)
+                                  } else {
+                                    toast.error('Vui lòng nhập Giá vốn trước')
+                                  }
+                                }}
+                                className="rounded bg-slate-100 px-1 py-0.5 text-[9px] font-medium text-slate-600 hover:bg-primary/10 hover:text-primary transition-colors"
+                              >
+                                +{pct}%
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       <NumberInput
                         value={formData.sell_price}
                         onChange={(v) => setFormData(prev => ({ ...prev, sell_price: v }))}
+                        disabled={!canManageProductPrices}
                         suffix="đ"
                       />
                     </div>
 
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="block text-sm font-medium text-slate-700">Giá vốn</label>
-                        {formData.has_bom === 'TRUE' && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setFormData(prev => ({ ...prev, cost_price: String(bomTotalCost) }))
-                              toast.success(bomLabels.syncSuccess)
-                            }}
-                            className="text-xs text-primary hover:underline font-medium"
-                          >
-                            + {bomLabels.buttonSync}
-                          </button>
-                        )}
+                    {canManageProductPrices && (
+                      <>
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="block text-sm font-medium text-slate-700">Giá vốn</label>
+                            {formData.has_bom === 'TRUE' && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setFormData(prev => ({ ...prev, cost_price: String(bomTotalCost) }))
+                                  toast.success(bomLabels.syncSuccess)
+                                }}
+                                className="text-xs text-primary hover:underline font-medium"
+                              >
+                                + {bomLabels.buttonSync}
+                              </button>
+                            )}
+                          </div>
+                          <NumberInput
+                            value={formData.cost_price}
+                            onChange={(v) => setFormData(prev => ({ ...prev, cost_price: v }))}
+                            suffix="đ"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1">
+                            Giá sàn <small className="text-[10px] text-slate-400 font-normal normal-case">(Giá tối thiểu cho phép bán)</small>
+                          </label>
+                          <NumberInput
+                            value={formData.min_price}
+                            onChange={(v) => setFormData(prev => ({ ...prev, min_price: v }))}
+                            suffix="đ"
+                          />
+                        </div>
+                      </>
+                    )}
                       </div>
-                      <NumberInput
-                        value={formData.cost_price}
-                        onChange={(v) => setFormData(prev => ({ ...prev, cost_price: v }))}
-                        suffix="đ"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">
-                        Giá sàn <small className="text-[10px] text-slate-400 font-normal normal-case">(Giá tối thiểu cho phép bán)</small>
-                      </label>
-                      <NumberInput
-                        value={formData.min_price}
-                        onChange={(v) => setFormData(prev => ({ ...prev, min_price: v }))}
-                        suffix="đ"
-                      />
-                    </div>
-                  </div>
                 )}
 
                 {/* ── Thông tin Dược phẩm chuyên biệt (Pharmacy Details) ── */}
@@ -1943,7 +1975,7 @@ export function ProductsClient({ shopId, shopName, industryType = 'retail', maxP
                               <th className="py-2 pr-2 font-medium">SL quy đổi</th>
                               <th className="py-2 pr-2 font-medium">Mã vạch</th>
                               <th className="py-2 pr-2 font-medium">Giá bán</th>
-                              <th className="py-2 pr-2 font-medium">Giá vốn</th>
+                              {canManageProductPrices && <th className="py-2 pr-2 font-medium">Giá vốn</th>}
                               <th className="py-2 w-8"></th>
                             </tr>
                           </thead>
@@ -1992,7 +2024,8 @@ export function ProductsClient({ shopId, shopName, industryType = 'retail', maxP
                                 <td className="py-2 pr-2">
                                   <NumberInput
                                     value={row.sell_price}
-                                    inputClassName="w-full rounded border border-slate-200 px-2 py-1.5 text-right text-sm outline-none focus:border-primary bg-white"
+                                    disabled={!canManageProductPrices}
+                                    inputClassName="w-full rounded border border-slate-200 px-2 py-1.5 text-right text-sm outline-none focus:border-primary bg-white disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500"
                                     onChange={(v) => {
                                       const newRows = [...unitRows]
                                       newRows[idx].sell_price = v
@@ -2000,17 +2033,19 @@ export function ProductsClient({ shopId, shopName, industryType = 'retail', maxP
                                     }}
                                   />
                                 </td>
-                                <td className="py-2 pr-2">
-                                  <NumberInput
-                                    value={row.cost_price}
-                                    inputClassName="w-full rounded border border-slate-200 px-2 py-1.5 text-right text-sm outline-none focus:border-primary bg-white"
-                                    onChange={(v) => {
-                                      const newRows = [...unitRows]
-                                      newRows[idx].cost_price = v
-                                      setUnitRows(newRows)
-                                    }}
-                                  />
-                                </td>
+                                {canManageProductPrices && (
+                                  <td className="py-2 pr-2">
+                                    <NumberInput
+                                      value={row.cost_price}
+                                      inputClassName="w-full rounded border border-slate-200 px-2 py-1.5 text-right text-sm outline-none focus:border-primary bg-white"
+                                      onChange={(v) => {
+                                        const newRows = [...unitRows]
+                                        newRows[idx].cost_price = v
+                                        setUnitRows(newRows)
+                                      }}
+                                    />
+                                  </td>
+                                )}
                                 <td className="py-2 text-right">
                                   <button
                                     type="button"
@@ -2057,10 +2092,12 @@ export function ProductsClient({ shopId, shopName, industryType = 'retail', maxP
                     {/* Variant rows */}
                     <div className="space-y-2">
                       <div className="grid grid-cols-12 gap-1.5 text-[11px] font-semibold text-violet-500 uppercase tracking-wide px-1">
-                        <div className="col-span-2">Giá trị</div>
-                        <div className="col-span-3">SKU</div>
+                        <div className={canManageProductPrices ? 'col-span-2' : 'col-span-3'}>Giá trị</div>
+                        <div className={canManageProductPrices ? 'col-span-3' : 'col-span-5'}>SKU</div>
                         <div className="col-span-3">Giá bán</div>
-                        <div className="col-span-3">Giá vốn</div>
+                        {canManageProductPrices && (
+                          <div className="col-span-3">Giá vốn</div>
+                        )}
                         <div className="col-span-1"></div>
                       </div>
                       {variantRows.length === 0 && (
@@ -2069,29 +2106,32 @@ export function ProductsClient({ shopId, shopName, industryType = 'retail', maxP
                       {variantRows.map((row) => (
                         <div key={row.id} className="grid grid-cols-12 gap-1.5 items-center">
                           <input
-                            className="col-span-2 rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-sm focus:border-violet-400 focus:outline-none"
+                            className={`${canManageProductPrices ? 'col-span-2' : 'col-span-3'} rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-sm focus:border-violet-400 focus:outline-none`}
                             placeholder={optionName || 'VD: S'}
                             value={row.value}
                             onChange={(e) => updateVariantRow(row.id, 'value', e.target.value)}
                           />
                           <input
-                            className="col-span-3 rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-sm focus:border-violet-400 focus:outline-none font-mono"
+                            className={`${canManageProductPrices ? 'col-span-3' : 'col-span-5'} rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-sm focus:border-violet-400 focus:outline-none font-mono`}
                             placeholder="SKU-001"
                             value={row.sku}
                             onChange={(e) => updateVariantRow(row.id, 'sku', e.target.value)}
                           />
                           <input
-                            className="col-span-3 rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-sm focus:border-violet-400 focus:outline-none"
+                            className="col-span-3 rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-sm focus:border-violet-400 focus:outline-none disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500"
                             placeholder="0"
                             value={row.sell_price}
+                            disabled={!canManageProductPrices}
                             onChange={(e) => updateVariantRow(row.id, 'sell_price', e.target.value)}
                           />
-                          <input
-                            className="col-span-3 rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-sm focus:border-violet-400 focus:outline-none"
-                            placeholder="0"
-                            value={row.cost_price}
-                            onChange={(e) => updateVariantRow(row.id, 'cost_price', e.target.value)}
-                          />
+                          {canManageProductPrices && (
+                            <input
+                              className="col-span-3 rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-sm focus:border-violet-400 focus:outline-none"
+                              placeholder="0"
+                              value={row.cost_price}
+                              onChange={(e) => updateVariantRow(row.id, 'cost_price', e.target.value)}
+                            />
+                          )}
                           <button
                             type="button"
                             onClick={() => removeVariantRow(row.id)}
@@ -2387,9 +2427,11 @@ export function ProductsClient({ shopId, shopName, industryType = 'retail', maxP
                                     </div>
                                     <p className="text-xs text-slate-500 font-mono">SKU: {cleanSku(p.sku) || 'N/A'} • ĐVT: {p.unit || 'Cái'}</p>
                                   </div>
-                                  <span className="text-xs font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded flex-shrink-0">
-                                    {Number(p.cost_price || 0).toLocaleString()}đ
-                                  </span>
+                                  {canManageProductPrices && (
+                                    <span className="text-xs font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded flex-shrink-0">
+                                      {Number(p.cost_price || 0).toLocaleString()}đ
+                                    </span>
+                                  )}
                                 </button>
                               ))}
                             </div>
@@ -2409,15 +2451,19 @@ export function ProductsClient({ shopId, shopName, industryType = 'retail', maxP
                                 <th className="px-3 py-2.5">{bomLabels.tableHeaderName}</th>
                                 <th className="px-3 py-2.5 w-16 text-center">ĐVT</th>
                                 <th className="px-3 py-2.5 w-20 text-center">Số lượng</th>
-                                <th className="px-3 py-2.5 text-right w-24">Giá vốn (đ)</th>
-                                <th className="px-3 py-2.5 text-right w-28">Thành tiền</th>
+                                {canManageProductPrices && (
+                                  <>
+                                    <th className="px-3 py-2.5 text-right w-24">Giá vốn (đ)</th>
+                                    <th className="px-3 py-2.5 text-right w-28">Thành tiền</th>
+                                  </>
+                                )}
                                 <th className="px-2 py-2.5 w-8"></th>
                               </tr>
                             </thead>
                             <tbody>
                               {bomItems.length === 0 ? (
                                 <tr>
-                                  <td colSpan={6} className="px-3 py-6 text-center text-xs text-slate-400">
+                                  <td colSpan={canManageProductPrices ? 6 : 4} className="px-3 py-6 text-center text-xs text-slate-400">
                                     {bomLabels.emptyState}
                                   </td>
                                 </tr>
@@ -2450,12 +2496,16 @@ export function ProductsClient({ shopId, shopName, industryType = 'retail', maxP
                                           className="w-full text-center rounded-lg border border-slate-200 px-1 py-1 text-xs font-semibold focus:border-primary focus:outline-none"
                                         />
                                       </td>
-                                      <td className="px-3 py-2 text-right text-slate-600 font-mono">
-                                        {unitCost.toLocaleString()}
-                                      </td>
-                                      <td className="px-3 py-2 text-right font-bold text-slate-900 font-mono">
-                                        {subtotal.toLocaleString()}
-                                      </td>
+                                      {canManageProductPrices && (
+                                        <>
+                                          <td className="px-3 py-2 text-right text-slate-600 font-mono">
+                                            {unitCost.toLocaleString()}
+                                          </td>
+                                          <td className="px-3 py-2 text-right font-bold text-slate-900 font-mono">
+                                            {subtotal.toLocaleString()}
+                                          </td>
+                                        </>
+                                      )}
                                       <td className="px-2 py-2 text-center">
                                         <button
                                           type="button"
@@ -2478,7 +2528,7 @@ export function ProductsClient({ shopId, shopName, industryType = 'retail', maxP
                         </div>
 
                         {/* Summary calculations */}
-                        {bomItems.length > 0 && (() => {
+                        {bomItems.length > 0 && canManageProductPrices && (() => {
                           const sellPrice = Number(formData.sell_price || 0)
                           const profit = sellPrice - bomTotalCost
                           const margin = sellPrice > 0 ? (profit / sellPrice) * 100 : 0
@@ -2679,7 +2729,7 @@ export function ProductsClient({ shopId, shopName, industryType = 'retail', maxP
                   <span className="font-semibold text-slate-800 text-right">{productTypeLabel}</span>
                 </div>
 
-                {!isVariantParent && (
+                {!isVariantParent && canManageProductPrices && (
                   <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
                     <div className="rounded-lg bg-white p-2 border border-slate-100/80">
                       <span className="text-[10px] text-slate-400 block">Giá bán</span>
@@ -3117,7 +3167,7 @@ export function ProductsClient({ shopId, shopName, industryType = 'retail', maxP
                             <th className="px-3 py-2">Danh mục</th>
                             <th className="px-3 py-2">ĐVT Cơ bản</th>
                             <th className="px-3 py-2 text-right">Giá bán</th>
-                            <th className="px-3 py-2 text-right">Giá vốn</th>
+                            {canManageProductPrices && <th className="px-3 py-2 text-right">Giá vốn</th>}
                             <th className="px-3 py-2 text-right">Tồn kho</th>
                             <th className="px-3 py-2 text-center">Chi tiết</th>
                           </tr>
@@ -3130,7 +3180,9 @@ export function ProductsClient({ shopId, shopName, industryType = 'retail', maxP
                               <td className="px-3 py-2 text-slate-500">{p.categoryStr || '—'}</td>
                               <td className="px-3 py-2 text-slate-600">{p.unit || '—'}</td>
                               <td className="px-3 py-2 text-right font-semibold text-slate-700">{Number(p.sell_price || 0).toLocaleString()}đ</td>
-                              <td className="px-3 py-2 text-right font-semibold text-slate-700">{Number(p.cost_price || 0).toLocaleString()}đ</td>
+                              {canManageProductPrices && (
+                                <td className="px-3 py-2 text-right font-semibold text-slate-700">{Number(p.cost_price || 0).toLocaleString()}đ</td>
+                              )}
                               <td className="px-3 py-2 text-right font-bold text-primary font-mono">{Number(p.stock_qty || 0).toLocaleString()}</td>
                               <td className="px-3 py-2 text-center space-y-0.5">
                                 {p.product_units?.length > 0 && (

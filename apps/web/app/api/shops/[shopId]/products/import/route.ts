@@ -5,6 +5,16 @@ import { handleApiError } from '../../../_helpers'
 import crypto from 'crypto'
 import { prefixSku } from '@/lib/sku'
 
+const PRODUCT_PRICE_PERMISSION = 'products.manage_prices'
+
+function hasPricePayload(product: Record<string, any>) {
+  if (product.sell_price || product.cost_price || product.min_price || product.min_stock) return true
+  if (Array.isArray(product.product_units)) {
+    return product.product_units.some((unit: Record<string, any>) => unit.sell_price || unit.cost_price)
+  }
+  return false
+}
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ shopId: string }> }
@@ -12,7 +22,7 @@ export async function POST(
   try {
     const { shopId } = await params
     // Require products.create permission
-    const { connector, shop } = await requireShopAccess(shopId, 'products.create')
+    const { connector, shop, permissions } = await requireShopAccess(shopId, 'products.create')
     const tenantId = shop.tenant_id
     const branchId = shopId
 
@@ -22,6 +32,13 @@ export async function POST(
 
     if (!Array.isArray(products)) {
       return NextResponse.json({ error: 'Invalid products payload' }, { status: 400 })
+    }
+
+    if (!permissions.includes(PRODUCT_PRICE_PERMISSION) && products.some((p) => hasPricePayload(p))) {
+      return NextResponse.json(
+        { error: 'Bạn cần quyền quản lý giá bán và giá vốn để import file có dữ liệu giá.' },
+        { status: 403 }
+      )
     }
 
     if (!warehouse_id) {
