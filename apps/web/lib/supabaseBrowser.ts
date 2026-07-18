@@ -1,10 +1,10 @@
 import { createBrowserClient } from '@supabase/ssr';
+import { getAuthCookieDomainForHost } from './authCookieScope';
 
 export function getSupabaseBrowserClient() {
   const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN || 'localhost:3000';
-  // Note: Browsers usually reject domain cookies for 'localhost'.
-  // We only set it if we are on a real domain or if we use localtest.me etc.
-  const cookieDomain = rootDomain.includes('localhost') ? undefined : `.${rootDomain}`;
+  const currentHost = typeof window === 'undefined' ? rootDomain : window.location.host;
+  const cookieDomain = getAuthCookieDomainForHost(currentHost, rootDomain);
 
   return createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

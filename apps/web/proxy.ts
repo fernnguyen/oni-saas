@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
+import { getAuthCookieDomainForHost, getGlobalAuthCookieDomain } from './lib/authCookieScope';
 
 // Paths that are public on the MAIN domain (no auth required)
 const MAIN_DOMAIN_PUBLIC = ['/auth', '/api', '/_next', '/favicon', '/register', '/onboarding', '/admin-login', '/qr-order', '/solutions', '/icons', '/logos', '/fonts', '/.well-known', '/support', '/privacy'];
@@ -214,6 +215,11 @@ function decodeJWTClaim(token: string, claim: string): string | null {
 }
 
 async function withSupabaseSession(req: NextRequest, res: NextResponse): Promise<NextResponse> {
+  const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
+  const requestHost = req.headers.get('x-forwarded-host') ?? req.headers.get('host');
+  const cookieDomain = getAuthCookieDomainForHost(requestHost, rootDomain);
+  const globalCookieDomain = getGlobalAuthCookieDomain(rootDomain);
+
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
@@ -221,10 +227,25 @@ async function withSupabaseSession(req: NextRequest, res: NextResponse): Promise
       cookies: {
         get(name: string) { return req.cookies.get(name)?.value; },
         set(name: string, value: string, options: Record<string, unknown>) {
-          res.cookies.set({ name, value, ...options });
+          const scopedOptions = { name, value, ...options };
+          if (cookieDomain) {
+            res.cookies.set({ ...scopedOptions, value: '', maxAge: 0 });
+            res.cookies.set({ ...scopedOptions, domain: cookieDomain });
+            return;
+          }
+
+          if (globalCookieDomain) {
+            res.cookies.set({ ...scopedOptions, value: '', domain: globalCookieDomain, maxAge: 0 });
+          }
+
+          res.cookies.set(scopedOptions);
         },
         remove(name: string, options: Record<string, unknown>) {
-          res.cookies.set({ name, value: '', ...options });
+          const clearedValue = { name, value: '', ...options };
+          res.cookies.set(clearedValue);
+          if (globalCookieDomain) {
+            res.cookies.set({ ...clearedValue, domain: globalCookieDomain });
+          }
         },
       },
     },
