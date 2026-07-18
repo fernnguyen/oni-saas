@@ -17,12 +17,17 @@ export async function GET(
     const page = Math.max(1, parseInt(sp.get('page') ?? '1'))
     const limit = Math.min(10000, Math.max(1, parseInt(sp.get('limit') ?? '50')))
     const search = sp.get('search') ?? ''
+    const nocache = sp.get('nocache') === 'true' || sp.get('bypassCache') === 'true'
 
-    const result = await shopCache(
-      () => connector.list('categories', { page, limit, search: search || undefined, sortDesc: true }),
-      ['categories', shopId, String(page), String(limit), search],
-      { tags: [shopTag(shopId, 'categories')], revalidate: cacheTTL.categories }
-    )
+    const fetchCategories = () => connector.list('categories', { page, limit, search: search || undefined, sortDesc: true })
+
+    const result = nocache
+      ? await fetchCategories()
+      : await shopCache(
+          fetchCategories,
+          ['categories', shopId, String(page), String(limit), search],
+          { tags: [shopTag(shopId, 'categories')], revalidate: cacheTTL.categories }
+        )
 
     return NextResponse.json(result)
   } catch (e) {

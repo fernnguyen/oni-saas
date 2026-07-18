@@ -250,9 +250,13 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
   const [isRefreshingDetail, setIsRefreshingDetail] = useState(false)
   const [refreshTick, setRefreshTick] = useState(0)
 
-  const handleRefreshIndex = () => {
+  const refreshCustomerQueries = () => {
     setRefreshTick(prev => prev + 1)
     queryClient.invalidateQueries({ queryKey: ['customers', shopId] })
+  }
+
+  const handleRefreshIndex = () => {
+    refreshCustomerQueries()
     toast.success('Đã làm mới danh sách khách hàng!')
   }
 
@@ -268,7 +272,7 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
       await Promise.all([
         queryClient.refetchQueries({ queryKey: ['customer-orders', shopId, viewTarget.customer_id] }),
         queryClient.refetchQueries({ queryKey: ['customer-transactions', shopId, viewTarget.customer_id] }),
-        queryClient.invalidateQueries({ queryKey: ['customers', shopId] })
+        refreshCustomerQueries()
       ])
       toast.success('Đã cập nhật dữ liệu mới nhất!')
     } catch (err: any) {
@@ -313,7 +317,7 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
     queryKey: ['primary-candidates', shopId, debouncedMergeSearch, mergeTarget?.customer_id],
     queryFn: async () => {
       if (!debouncedMergeSearch || !mergeTarget) return { data: [] }
-      const sp = new URLSearchParams({ search: debouncedMergeSearch, page: '1', limit: '10' })
+      const sp = new URLSearchParams({ search: debouncedMergeSearch, page: '1', limit: '10', nocache: 'true' })
       const res = await fetch(`/api/shops/${shopId}/customers?${sp}`)
       if (!res.ok) throw new Error('Không tải được danh sách ứng viên')
       const json = await res.json() as { data: Record<string, string>[] }
@@ -345,7 +349,7 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
     onSuccess: () => {
       toast.success(editingId ? 'Đã cập nhật' : 'Đã tạo mới')
       setSlideOpen(false)
-      queryClient.invalidateQueries({ queryKey: ['customers', shopId] })
+      refreshCustomerQueries()
     },
     onError: (err: Error) => toast.error(err.message),
   })
@@ -361,7 +365,7 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
     onSuccess: () => {
       toast.success('Đã xóa')
       setDeleteTarget(null)
-      queryClient.invalidateQueries({ queryKey: ['customers', shopId] })
+      refreshCustomerQueries()
     },
     onError: (err: Error) => toast.error(err.message),
   })
@@ -385,7 +389,7 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
       setMergeTarget(null)
       setSelectedPrimaryCustomer(null)
       setMergeSearch('')
-      queryClient.invalidateQueries({ queryKey: ['customers', shopId] })
+      refreshCustomerQueries()
       queryClient.invalidateQueries({ queryKey: ['orders', shopId] })
       queryClient.invalidateQueries({ queryKey: ['cashbook', shopId] })
     },
@@ -410,7 +414,7 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
       setConfirmUnmergeOpen(false)
       setDetailOpen(false)
       setViewTarget(null)
-      queryClient.invalidateQueries({ queryKey: ['customers', shopId] })
+      refreshCustomerQueries()
       queryClient.invalidateQueries({ queryKey: ['orders', shopId] })
       queryClient.invalidateQueries({ queryKey: ['cashbook', shopId] })
     },
@@ -506,7 +510,7 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
       setDepositTarget(null)
       setDepositAmount('0')
       setDepositNote('')
-      queryClient.invalidateQueries({ queryKey: ['customers', shopId] })
+      refreshCustomerQueries()
       queryClient.invalidateQueries({ queryKey: ['cashbook', shopId] })
       queryClient.invalidateQueries({ queryKey: ['payment-funds', shopId] })
     },
@@ -878,9 +882,8 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
       setImportFile(null)
       setImportProvider(null)
       setParsedCustomers([])
-      queryClient.resetQueries({ queryKey: ['customers', shopId] })
-      queryClient.refetchQueries({ queryKey: ['customers', shopId] })
-      queryClient.invalidateQueries({ queryKey: ['customers', shopId] })
+      setPage(1)
+      refreshCustomerQueries()
       queryClient.invalidateQueries({ queryKey: ['cashbook', shopId] })
       router.refresh()
     } catch (err: any) {
@@ -1657,7 +1660,7 @@ export function CustomersClient({ shopId, shopName, permissions = [] }: Props) {
           if (customerId) {
             queryClient.invalidateQueries({ queryKey: ['customer-transactions', shopId, customerId] })
           }
-          queryClient.invalidateQueries({ queryKey: ['customers', shopId] })
+          refreshCustomerQueries()
           setCollectDebtTarget(null)
         }}
       />

@@ -350,9 +350,11 @@ export function ProductsClient({ shopId, shopName, industryType = 'retail', maxP
 
   // Query to fetch all products for the BOM component selection combobox
   const { data: allProductsData } = useQuery({
-    queryKey: ['all-products', shopId],
+    queryKey: ['all-products', shopId, refreshTick],
     queryFn: async () => {
-      const res = await fetch(`/api/shops/${shopId}/products?limit=5000&active=TRUE`)
+      const sp = new URLSearchParams({ limit: '5000', active: 'TRUE' })
+      if (refreshTick > 0) sp.set('nocache', 'true')
+      const res = await fetch(`/api/shops/${shopId}/products?${sp}`)
       if (!res.ok) return { data: [] }
       return res.json() as Promise<{ data: Record<string, string>[] }>
     },
@@ -432,6 +434,15 @@ export function ProductsClient({ shopId, shopName, industryType = 'retail', maxP
       return res.json() as Promise<{ data: Record<string, string>[]; total: number }>
     },
   })
+
+  const refreshProductQueries = (includeRelated = false) => {
+    setRefreshTick(prev => prev + 1)
+    queryClient.invalidateQueries({ queryKey: ['products', shopId] })
+    if (includeRelated) {
+      queryClient.invalidateQueries({ queryKey: ['all-products', shopId] })
+      queryClient.invalidateQueries({ queryKey: ['categories', shopId] })
+    }
+  }
 
   const saveMutation = useMutation({
     mutationFn: async (payload: Record<string, string>) => {
@@ -561,7 +572,7 @@ export function ProductsClient({ shopId, shopName, industryType = 'retail', maxP
       toast.success(editingId ? 'Đã cập nhật' : 'Đã tạo mới')
       setSlideOpen(false)
       setSaveConfirmOpen(false)
-      queryClient.invalidateQueries({ queryKey: ['products', shopId] })
+      refreshProductQueries(true)
     },
     onError: (err: Error) => {
       setSaveStatus('idle')
@@ -629,15 +640,17 @@ export function ProductsClient({ shopId, shopName, industryType = 'retail', maxP
     onSuccess: (newActive) => {
       toast.success(newActive === 'TRUE' ? 'Đã mở bán lại sản phẩm' : 'Đã ngừng kinh doanh sản phẩm')
       setActionTarget(null)
-      queryClient.invalidateQueries({ queryKey: ['products', shopId] })
+      refreshProductQueries(true)
     },
     onError: () => toast.error('Lỗi thao tác'),
   })
 
   const { data: catData } = useQuery({
-    queryKey: ['categories', shopId],
+    queryKey: ['categories', shopId, refreshTick],
     queryFn: async () => {
-      const res = await fetch(`/api/shops/${shopId}/categories?limit=200`)
+      const sp = new URLSearchParams({ limit: '200' })
+      if (refreshTick > 0) sp.set('nocache', 'true')
+      const res = await fetch(`/api/shops/${shopId}/categories?${sp}`)
       if (!res.ok) return { data: [] }
       return res.json() as Promise<{ data: Record<string, string>[] }>
     }
@@ -1048,7 +1061,8 @@ export function ProductsClient({ shopId, shopName, industryType = 'retail', maxP
       setImportModalOpen(false)
       setImportFile(null)
       setParsedProducts([])
-      queryClient.invalidateQueries({ queryKey: ['products', shopId] })
+      setPage(1)
+      refreshProductQueries(true)
 
       // Silent IndexedDB hydration for offline POS
       hydrateAll(shopId, shopId)
@@ -1086,9 +1100,7 @@ export function ProductsClient({ shopId, shopName, industryType = 'retail', maxP
       setResetConfirmText('')
       setImportModalOpen(false)
       setPage(1)
-      queryClient.invalidateQueries({ queryKey: ['products', shopId] })
-      queryClient.invalidateQueries({ queryKey: ['categories', shopId] })
-      queryClient.invalidateQueries({ queryKey: ['all-products', shopId] })
+      refreshProductQueries(true)
 
       // Reset local client-side IndexedDB to prevent stale POS offline data
       try {
@@ -1472,8 +1484,7 @@ export function ProductsClient({ shopId, shopName, industryType = 'retail', maxP
           )}
           <button
             onClick={() => {
-              setRefreshTick(prev => prev + 1)
-              queryClient.invalidateQueries({ queryKey: ['products', shopId] })
+              refreshProductQueries()
             }}
             className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors shadow-sm cursor-pointer"
           >
