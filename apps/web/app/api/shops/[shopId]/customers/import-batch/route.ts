@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { revalidateTag } from 'next/cache'
 import { requireShopAccess } from '@/lib/server/shopAccess'
-import { invalidate } from '@/lib/server/cache'
+import { invalidate, shopTag } from '@/lib/server/cache'
 import { handleApiError } from '../../../_helpers'
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
 
@@ -437,8 +438,9 @@ export async function POST(
       await connector.batchCreate('cashbook', cashbookToCreate)
     }
 
-    // Invalidate caches to refresh screens instantly
-    invalidate(shopId, 'customers')
+    // Hard-expire the customer list so the next normal page load cannot receive
+    // the stale "Khach le only" cached payload created before import.
+    revalidateTag(shopTag(shopId, 'customers'), { expire: 0 })
     if (cashbookToCreate.length > 0) {
       invalidate(shopId, 'cashbook')
     }

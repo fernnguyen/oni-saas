@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
+import { revalidateTag } from 'next/cache'
 import { requireShopAccess } from '@/lib/server/shopAccess'
 import { customerCreateSchema } from '@/lib/validators/customers'
 import { shopTag, invalidate, shopCache } from '@/lib/server/cache'
@@ -222,6 +223,10 @@ export async function GET(
       }
 
       return res
+    }
+
+    if (nocache) {
+      revalidateTag(shopTag(shopId, 'customers'), { expire: 0 })
     }
 
     const result = nocache
