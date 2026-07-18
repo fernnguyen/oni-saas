@@ -206,8 +206,8 @@ export class OniLocalDB extends Dexie {
   syncQueue!:   Table<SyncQueueItem>
   meta!:        Table<MetaEntry>
 
-  constructor() {
-    super('oni-pos')
+  constructor(databaseName = 'oni-pos') {
+    super(databaseName)
     this.version(1).stores({
       products:   'product_id, sku, barcode, category_id, active',
       categories: 'category_id, parent_id',
@@ -236,4 +236,109 @@ export class OniLocalDB extends Dexie {
   }
 }
 
-export const localDb = typeof window !== 'undefined' ? new OniLocalDB() : null as unknown as OniLocalDB
+const LEGACY_DB_NAME = 'oni-pos'
+const LEGACY_MIGRATION_KEY = 'legacy_scope_migration_v1'
+const browserDatabases = new Map<string, OniLocalDB>()
+
+function getBrowserDatabase(databaseName: string): OniLocalDB {
+  const existing = browserDatabases.get(databaseName)
+  if (existing) return existing
+
+  const database = new OniLocalDB(databaseName)
+  browserDatabases.set(databaseName, database)
+  return database
+}
+
+export let localDb = typeof window !== 'undefined'
+  ? getBrowserDatabase(LEGACY_DB_NAME)
+  : null as unknown as OniLocalDB
+
+export function activateLocalDbScope(scopeId: string): OniLocalDB {
+  if (typeof window === 'undefined') return localDb
+  localDb = getBrowserDatabase(`${LEGACY_DB_NAME}:${scopeId}`)
+  return localDb
+}
+
+export function getLocalDbScope(scopeId: string): OniLocalDB {
+  if (typeof window === 'undefined') return localDb
+  return getBrowserDatabase(`${LEGACY_DB_NAME}:${scopeId}`)
+}
+
+// Preserve offline work created before per-shop databases were introduced.
+// The legacy database remains untouched so migration is non-destructive.
+export async function migrateLegacyLocalDbToScope(scopeId: string, shopId: string, branchId: string): Promise<void> {
+  if (typeof window === 'undefined') return
+
+  const target = activateLocalDbScope(scopeId)
+  if (await target.meta.get(LEGACY_MIGRATION_KEY)) return
+
+  if (!(await Dexie.exists(LEGACY_DB_NAME))) {
+    await target.meta.put({ key: LEGACY_MIGRATION_KEY, value: new Date().toISOString() })
+    return
+  }
+
+  const legacy = getBrowserDatabase(LEGACY_DB_NAME)
+  const hydratedShopId = (await legacy.meta.get('hydrated_shop_id'))?.value
+  const hydratedBranchId = (await legacy.meta.get('hydrated_branch_id'))?.value
+  const shouldCopyMasterData = hydratedShopId === shopId && (!hydratedBranchId || hydratedBranchId === branchId)
+
+  const legacyOrders = await legacy.orders.filter((order) => order.branch_id === branchId).toArray()
+  const orderIds = new Set(legacyOrders.map((order) => order.local_id))
+  const legacyQueue = await legacy.syncQueue
+    .filter((item) => item.payload.order.branch_id === branchId || orderIds.has(item.local_order_id))
+    .toArray()
+
+  const [orderItems, payments] = await Promise.all([
+    legacy.orderItems.filter((item) => orderIds.has(item.order_local_id)).toArray(),
+    legacy.payments.filter((payment) => orderIds.has(payment.order_local_id)).toArray(),
+  ])
+
+  const masterData = shouldCopyMasterData
+    ? await Promise.all([
+        legacy.products.toArray(),
+        legacy.categories.toArray(),
+        legacy.priceLists.toArray(),
+        legacy.discounts.toArray(),
+        legacy.employees.toArray(),
+        legacy.inventory.filter((row) => row.branch_id === branchId).toArray(),
+        legacy.inventoryBatches.filter((row) => row.branch_id === branchId).toArray(),
+        legacy.customers.toArray(),
+      ])
+    : [[], [], [], [], [], [], [], []] as const
+
+  const [products, categories, priceLists, discounts, employees, inventory, inventoryBatches, customers] = masterData
+  const lastHydratedAt = shouldCopyMasterData
+    ? (await legacy.meta.get('last_hydrated_at'))?.value
+    : undefined
+
+  await target.transaction('rw',
+    [target.products, target.categories, target.priceLists, target.discounts,
+     target.employees, target.inventory, target.inventoryBatches, target.customers,
+     target.orders, target.orderItems, target.payments, target.syncQueue, target.meta],
+    async () => {
+      await Promise.all([
+        products.length ? target.products.bulkPut(products) : null,
+        categories.length ? target.categories.bulkPut(categories) : null,
+        priceLists.length ? target.priceLists.bulkPut(priceLists) : null,
+        discounts.length ? target.discounts.bulkPut(discounts) : null,
+        employees.length ? target.employees.bulkPut(employees) : null,
+        inventory.length ? target.inventory.bulkPut(inventory) : null,
+        inventoryBatches.length ? target.inventoryBatches.bulkPut(inventoryBatches) : null,
+        customers.length ? target.customers.bulkPut(customers) : null,
+        legacyOrders.length ? target.orders.bulkPut(legacyOrders) : null,
+        orderItems.length ? target.orderItems.bulkPut(orderItems) : null,
+        payments.length ? target.payments.bulkPut(payments) : null,
+        legacyQueue.length ? target.syncQueue.bulkPut(legacyQueue) : null,
+      ])
+
+      if (lastHydratedAt) {
+        await Promise.all([
+          target.meta.put({ key: 'last_hydrated_at', value: lastHydratedAt }),
+          target.meta.put({ key: 'hydrated_branch_id', value: branchId }),
+          target.meta.put({ key: 'hydrated_shop_id', value: shopId }),
+        ])
+      }
+      await target.meta.put({ key: LEGACY_MIGRATION_KEY, value: new Date().toISOString() })
+    }
+  )
+}

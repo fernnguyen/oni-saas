@@ -271,9 +271,11 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
   }, [cart.items, activeCartItemId])
 
   // ── Parallel Tabs & Storage System (Sprint 1) ───────────────────────
+  const tabsStorageKey = `oni-pos-tabs:${shopId}:${branchId}`
+  const activeTabStorageKey = `oni-pos-active-tab-id:${shopId}:${branchId}`
   const [tabs, setTabs] = useState<OrderTab[]>(() => {
     if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('oni-pos-tabs')
+      const stored = localStorage.getItem(tabsStorageKey)
       if (stored) {
         try {
           return JSON.parse(stored)
@@ -285,7 +287,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
 
   const [activeTabId, setActiveTabId] = useState<string>(() => {
     if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('oni-pos-active-tab-id')
+      const stored = localStorage.getItem(activeTabStorageKey)
       if (stored) return stored
     }
     return 'default'
@@ -368,12 +370,12 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
   const isInitialRestoreRef = useRef(false)
 
   useEffect(() => {
-    localStorage.setItem('oni-pos-tabs', JSON.stringify(tabs))
-  }, [tabs])
+    localStorage.setItem(tabsStorageKey, JSON.stringify(tabs))
+  }, [tabs, tabsStorageKey])
 
   useEffect(() => {
-    localStorage.setItem('oni-pos-active-tab-id', activeTabId)
-  }, [activeTabId])
+    localStorage.setItem(activeTabStorageKey, activeTabId)
+  }, [activeTabId, activeTabStorageKey])
 
   // Mount-time restore from active tab
   useEffect(() => {

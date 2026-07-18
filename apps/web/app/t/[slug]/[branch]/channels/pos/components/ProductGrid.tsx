@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState, useRef } from 'react'
+import { liveQuery } from 'dexie'
 import { toast } from 'sonner'
 import { localDb, type LocalCategory, type LocalProduct } from '@/lib/localDb/schema'
 import { usePOSProductSearch } from '@/hooks/usePOSProductSearch'
@@ -42,6 +43,7 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
   const [isCameraOpen, setIsCameraOpen] = useState(false)
 
   const inputRef = useRef<HTMLInputElement>(null)
+  const database = localDb
 
   // Focus search input on mount
   useEffect(() => {
@@ -77,8 +79,14 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
   }, [search, categoryId, showOutOfStock])
 
   useEffect(() => {
-    localDb.categories.filter((c) => c.active).sortBy('sort_order').then(setCategories)
-  }, [])
+    const subscription = liveQuery(() =>
+      database.categories.filter((category) => category.active).sortBy('sort_order')
+    ).subscribe({
+      next: setCategories,
+      error: () => setCategories([]),
+    })
+    return () => subscription.unsubscribe()
+  }, [database, branchId])
 
   function handleProductClick(product: LocalProduct) {
     const type = (product as any).product_type ?? 'simple'

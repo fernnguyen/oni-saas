@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { liveQuery } from 'dexie'
 import { useDebounce } from 'use-debounce'
 import { localDb, type LocalProduct } from '@/lib/localDb/schema'
 import { cleanSku } from '@/lib/sku'
@@ -9,13 +10,13 @@ export function usePOSProductSearch(query: string, categoryId?: string) {
   const [results, setResults] = useState<LocalProduct[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [debouncedQuery] = useDebounce(query.trim(), 200)
+  const database = localDb
 
   useEffect(() => {
-    let cancelled = false
-    async function search() {
+    const subscription = liveQuery(async () => {
       setIsLoading(true)
       try {
-        let items = await localDb.products.filter((p) => p.active && (p as any).product_type !== 'variant_child' && !isSystemTimeChargeProduct(p.product_id, p.sku)).toArray()
+        let items = await database.products.filter((p) => p.active && (p as any).product_type !== 'variant_child' && !isSystemTimeChargeProduct(p.product_id, p.sku)).toArray()
 
         if (categoryId) {
           items = items.filter((p) => p.category_id === categoryId)
@@ -58,19 +59,19 @@ export function usePOSProductSearch(query: string, categoryId?: string) {
 
         items.sort((a, b) => a.name.localeCompare(b.name, 'vi'))
 
-        if (!cancelled) {
-          setResults(items.slice(0, 200))
-          setIsLoading(false)
-        }
+        return items.slice(0, 200)
       } catch {
-        if (!cancelled) setIsLoading(false)
+        return []
       }
-    }
-    search()
-    return () => {
-      cancelled = true
-    }
-  }, [debouncedQuery, categoryId])
+    }).subscribe({
+      next: (items) => {
+        setResults(items)
+        setIsLoading(false)
+      },
+      error: () => setIsLoading(false),
+    })
+    return () => subscription.unsubscribe()
+  }, [database, debouncedQuery, categoryId])
 
   return { results, isLoading }
 }

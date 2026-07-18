@@ -1,4 +1,4 @@
-import { localDb, type SyncQueueItem } from '@/lib/localDb/schema'
+import { localDb, type OniLocalDB, type SyncQueueItem } from '@/lib/localDb/schema'
 import { broadcastOrderSynced } from '@/lib/localDb/tabSync'
 
 const INBOUND_TYPES = ['purchase_in', 'p2p_purchase_in', 'return_in', 'transfer_in']
@@ -21,10 +21,12 @@ export class SyncWorker {
   private running = false
   private stopped = false
   private shopId: string
+  private db: OniLocalDB
   private onNotify?: (info: NotifyInfo) => void
 
-  constructor(shopId: string) {
+  constructor(shopId: string, database = localDb) {
     this.shopId = shopId
+    this.db = database
   }
 
   setNotifyCallback(cb: (info: NotifyInfo) => void) {
@@ -35,7 +37,7 @@ export class SyncWorker {
     // Web Locks are released automatically on page unload, so on startup there
     // are no active locks. Resetting all 'syncing' items is always safe here —
     // no worker can hold a lock on them until this worker acquires one.
-    await localDb.syncQueue
+    await this.db.syncQueue
       .where('status').equals('syncing')
       .modify((item) => {
         item.status = 'pending'
@@ -57,7 +59,7 @@ export class SyncWorker {
   }
 
   async retryFailed() {
-    await localDb.syncQueue
+    await this.db.syncQueue
       .where('status').equals('failed')
       .modify((item) => {
         item.status = 'pending'
@@ -70,7 +72,7 @@ export class SyncWorker {
   // Resets both stuck-syncing and failed items so the user can recover without
   // reloading the page (e.g. after a long offline period or a hung request).
   async retryAll() {
-    await localDb.syncQueue
+    await this.db.syncQueue
       .where('status').anyOf('syncing', 'failed')
       .modify((item) => {
         item.status = 'pending'
@@ -92,7 +94,7 @@ export class SyncWorker {
   }
 
   private async flushQueue() {
-    const items = await localDb.syncQueue
+    const items = await this.db.syncQueue
       .where('status').equals('pending')
       .sortBy('id') // FIFO — auto-increment id preserves creation order
 
@@ -146,7 +148,7 @@ export class SyncWorker {
     // any 'syncing' items — no active worker will be holding a stale lock.
     if (typeof navigator !== 'undefined' && 'locks' in navigator) {
       await navigator.locks.request(
-        `pos-sync-${rawItem.id}`,
+        `pos-sync-${this.shopId}-${rawItem.id}`,
         { ifAvailable: true },
         async (lock) => {
           if (!lock) return  // another tab is already processing this item
@@ -163,10 +165,10 @@ export class SyncWorker {
     // Also re-reads to pick up server_order_id / steps_done from prior attempts.
     // If another worker already claimed this item, item stays undefined and we bail.
     let item: SyncQueueItem | undefined
-    await localDb.transaction('rw', [localDb.syncQueue], async () => {
-      const current = await localDb.syncQueue.get(rawItem.id!)
+    await this.db.transaction('rw', [this.db.syncQueue], async () => {
+      const current = await this.db.syncQueue.get(rawItem.id!)
       if (!current || current.status !== 'pending') return
-      await localDb.syncQueue.update(rawItem.id!, {
+      await this.db.syncQueue.update(rawItem.id!, {
         status: 'syncing',
         syncing_since: new Date().toISOString(),
       })
@@ -200,7 +202,7 @@ export class SyncWorker {
         orderNo  = result.order_no ?? ''
 
         stepsDone.add('batch')
-        await localDb.syncQueue.update(syncItem.id!, {
+        await this.db.syncQueue.update(syncItem.id!, {
           steps_done:      [...stepsDone],
           server_order_id: serverId,
           server_order_no: orderNo,
@@ -225,11 +227,11 @@ export class SyncWorker {
           }
 
           stepsDone.add(invKey)
-          await localDb.syncQueue.update(syncItem.id!, { steps_done: [...stepsDone] })
+          await this.db.syncQueue.update(syncItem.id!, { steps_done: [...stepsDone] })
         }
 
         stepsDone.add('inventory')
-        await localDb.syncQueue.update(syncItem.id!, { steps_done: [...stepsDone] })
+        await this.db.syncQueue.update(syncItem.id!, { steps_done: [...stepsDone] })
       }
 
       // ── Step 3: Customer upsert ──
@@ -239,16 +241,16 @@ export class SyncWorker {
           await this.upsertCustomer(cust.name, cust.phone)
         }
         stepsDone.add('customer')
-        await localDb.syncQueue.update(syncItem.id!, { steps_done: [...stepsDone] })
+        await this.db.syncQueue.update(syncItem.id!, { steps_done: [...stepsDone] })
       }
 
       // ── Done ──
-      await localDb.transaction('rw', [localDb.syncQueue, localDb.orders], async () => {
-        await localDb.syncQueue.update(syncItem.id!, {
+      await this.db.transaction('rw', [this.db.syncQueue, this.db.orders], async () => {
+        await this.db.syncQueue.update(syncItem.id!, {
           status:    'done',
           synced_at: new Date().toISOString(),
         })
-        await localDb.orders
+        await this.db.orders
           .where('local_id').equals(syncItem.local_order_id)
           .modify({ server_id: serverId, sync_status: 'done' })
       })
@@ -258,7 +260,7 @@ export class SyncWorker {
     } catch (err) {
       const retries = (syncItem.retry_count ?? 0) + 1
       const isFinal = retries >= MAX_RETRY
-      await localDb.syncQueue.update(item.id!, {
+      await this.db.syncQueue.update(item.id!, {
         status:      isFinal ? 'failed' : 'pending',
         retry_count: retries,
         last_error:  String(err),

@@ -1,6 +1,7 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { hydrateAll, getLastHydratedAt, isHydrationStale } from '@/lib/localDb/hydration'
+import { activateLocalDbScope, migrateLegacyLocalDbToScope } from '@/lib/localDb/schema'
 import { listenPOSEvents } from '@/lib/localDb/tabSync'
 import { useNetworkStatus } from './useNetworkStatus'
 
@@ -17,6 +18,8 @@ interface UsePOSHydrationResult {
 }
 
 export function usePOSHydration(shopId: string, branchId: string): UsePOSHydrationResult {
+  const scopeId = `${shopId}:${branchId}`
+  activateLocalDbScope(scopeId)
   const [status, setStatus] = useState<HydrationStatus>('idle')
   const [lastHydratedAt, setLastHydratedAt] = useState<string | null>(null)
   const [isStale, setIsStale] = useState(true)
@@ -28,46 +31,54 @@ export function usePOSHydration(shopId: string, branchId: string): UsePOSHydrati
     if (!navigator.onLine) return
     setStatus('loading')
     try {
-      await hydrateAll(shopId, branchId)
-      const ts = await getLastHydratedAt()
+      await hydrateAll(shopId, branchId, scopeId)
+      const ts = await getLastHydratedAt(scopeId)
       setLastHydratedAt(ts)
       setIsStale(false)
       setStatus('ready')
     } catch {
       setStatus('error')
     }
-  }, [shopId, branchId])
+  }, [shopId, branchId, scopeId])
 
   // Initial hydration
   useEffect(() => {
     let cancelled = false
     async function init() {
-      const stale = await isHydrationStale(STALE_TTL_MS)
-      const ts = await getLastHydratedAt()
-      if (!cancelled) {
-        setLastHydratedAt(ts)
-        setIsStale(stale)
-      }
-      if (stale && navigator.onLine && !cancelled) {
-        await refresh()
-      } else if (!cancelled) {
-        setStatus('ready')
+      try {
+        setStatus('loading')
+        await migrateLegacyLocalDbToScope(scopeId, shopId, branchId)
+        if (cancelled) return
+        const stale = await isHydrationStale(STALE_TTL_MS, scopeId)
+        const ts = await getLastHydratedAt(scopeId)
+        if (!cancelled) {
+          setLastHydratedAt(ts)
+          setIsStale(stale)
+        }
+        if (stale && navigator.onLine && !cancelled) {
+          await refresh()
+        } else if (!cancelled) {
+          setStatus('ready')
+        }
+      } catch (error) {
+        console.error('Failed to initialize scoped POS database:', error)
+        if (!cancelled) setStatus('error')
       }
     }
     init()
     return () => { cancelled = true }
-  }, [refresh])
+  }, [refresh, scopeId, shopId, branchId])
 
   // Re-hydrate every 5 minutes while online
   useEffect(() => {
     refreshTimer.current = setInterval(async () => {
-      const stale = await isHydrationStale(STALE_TTL_MS)
+      const stale = await isHydrationStale(STALE_TTL_MS, scopeId)
       if (stale && navigator.onLine) refresh()
     }, REFRESH_INTERVAL_MS)
     return () => {
       if (refreshTimer.current) clearInterval(refreshTimer.current)
     }
-  }, [refresh])
+  }, [refresh, scopeId])
 
   // Re-hydrate when network restores after being offline
   useEffect(() => {

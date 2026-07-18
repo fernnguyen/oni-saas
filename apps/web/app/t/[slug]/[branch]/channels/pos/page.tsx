@@ -114,6 +114,7 @@ export default async function POSPage({ params }: Props) {
   if (vertical.posLayout === 'table_map' || vertical.posLayout === 'room_map') {
     return (
       <TableMapPOS
+        key={shop.id}
         shopId={shop.id}
         branchId={shop.id}
         shopName={shop.name}
@@ -137,6 +138,7 @@ export default async function POSPage({ params }: Props) {
 
   return (
     <POSClient
+      key={shop.id}
       shopId={shop.id}
       branchId={shop.id}
       shopName={shop.name}
