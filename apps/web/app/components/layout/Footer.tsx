@@ -24,10 +24,6 @@ export function Footer() {
                   support@oni.vn
                 </a>
               </p>
-              <div className="pt-2">
-                <p className="mb-2 text-sm font-bold  text-slate-500">Quan tâm Zalo OA để nhận ưu đãi</p>
-                <div className="zalo-follow-only-button" data-oaid="2780444502954767948" />
-              </div>
             </div>
             {/* <div className="text-xs text-slate-500 font-bold">
               &copy; {new Date().getFullYear()} ONI.vn. Đã đăng ký bản quyền.

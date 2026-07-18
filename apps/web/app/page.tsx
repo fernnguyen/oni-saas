@@ -764,9 +764,17 @@ export default async function LandingPage() {
               href="https://zalo.me/2780444502954767948"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center justify-center rounded-xl border border-blue-200 bg-blue-50 px-8 py-4 text-lg font-bold text-blue-700 shadow-sm transition-all hover:bg-blue-100"
+              className="flex items-center justify-center gap-3 rounded-xl border border-blue-200 bg-blue-50 px-8 py-4 text-lg font-bold text-blue-700 shadow-sm transition-all hover:bg-blue-100"
             >
-              Quan tâm Zalo OA
+              <Image
+                src="/partners/zalo.svg"
+                alt=""
+                width={24}
+                height={24}
+                className="h-6 w-6"
+                aria-hidden="true"
+              />
+              Phần mềm ONI trên Zalo
             </a>
             <a
               href="https://zalo.me/s/3208409885005498355"

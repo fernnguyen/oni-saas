@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/auth-store';
 import { useTenantStore } from '@/stores/tenant-store';
@@ -6,7 +6,19 @@ import { logout } from '@/services/auth';
 import { openChat, getAccessToken, authorize } from 'zmp-sdk/apis';
 import { apiFetch } from '@/services/api';
 import toast from 'react-hot-toast';
-import { useEffect } from 'react';
+
+type PasswordStatusResponse = {
+  hasPassword: boolean;
+  phone: string;
+  maskedPhone: string | null;
+};
+
+function maskPhone(phone: string | null | undefined) {
+  if (!phone) return null;
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length < 4) return phone;
+  return `${digits.slice(0, 3)}xxx${digits.slice(-2)}`;
+}
 
 export default function SettingsPage() {
   const navigate = useNavigate();
@@ -21,9 +33,19 @@ export default function SettingsPage() {
   const [zaloLinked, setZaloLinked] = useState<boolean | null>(null);
   const [zaloProfile, setZaloProfile] = useState<{name: string; avatar: string} | null>(null);
   const [linking, setLinking] = useState(false);
+  const [passwordStatusLoading, setPasswordStatusLoading] = useState(true);
+  const [hasPassword, setHasPassword] = useState(false);
+  const [maskedPhone, setMaskedPhone] = useState<string | null>(maskPhone(profile?.phone));
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSubmitting, setPasswordSubmitting] = useState(false);
 
   useEffect(() => {
     fetchZaloStatus();
+    fetchPasswordStatus();
   }, []);
 
   const fetchZaloStatus = async () => {
@@ -38,6 +60,19 @@ export default function SettingsPage() {
       }
     } catch (e) {
       console.warn('Failed to fetch Zalo status', e);
+    }
+  };
+
+  const fetchPasswordStatus = async () => {
+    setPasswordStatusLoading(true);
+    try {
+      const res = await apiFetch<PasswordStatusResponse>('/api/auth/password/status');
+      setHasPassword(Boolean(res.hasPassword));
+      setMaskedPhone(res.maskedPhone || maskPhone(res.phone) || maskPhone(profile?.phone));
+    } catch (e) {
+      console.warn('Failed to fetch password status', e);
+    } finally {
+      setPasswordStatusLoading(false);
     }
   };
 
@@ -114,6 +149,72 @@ export default function SettingsPage() {
     }
   };
 
+  const resetPasswordForm = () => {
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+    setPasswordError('');
+    setPasswordSubmitting(false);
+  };
+
+  const openPasswordModal = () => {
+    resetPasswordForm();
+    setShowPasswordModal(true);
+  };
+
+  const closePasswordModal = (force = false) => {
+    if (passwordSubmitting && !force) return;
+    resetPasswordForm();
+    setShowPasswordModal(false);
+  };
+
+  const handleSavePassword = async () => {
+    setPasswordError('');
+
+    if (hasPassword && !currentPassword) {
+      setPasswordError('Vui lòng nhập mật khẩu hiện tại.');
+      return;
+    }
+
+    if (!newPassword) {
+      setPasswordError('Vui lòng nhập mật khẩu mới.');
+      return;
+    }
+
+    if (newPassword.length < 8) {
+      setPasswordError('Mật khẩu mới phải có ít nhất 8 ký tự.');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setPasswordError('Mật khẩu xác nhận không khớp.');
+      return;
+    }
+
+    setPasswordSubmitting(true);
+    try {
+      const res = await apiFetch<{ message?: string; hasPassword?: boolean }>('/api/auth/password/update', {
+        method: 'POST',
+        body: JSON.stringify({
+          currentPassword: hasPassword ? currentPassword : undefined,
+          newPassword,
+          confirmPassword,
+        }),
+      });
+
+      setHasPassword(res.hasPassword ?? true);
+      toast.success(res.message || 'Cập nhật mật khẩu thành công.');
+      await fetchPasswordStatus();
+      closePasswordModal(true);
+    } catch (e: any) {
+      setPasswordError(e?.message || 'Không thể cập nhật mật khẩu.');
+      setPasswordSubmitting(false);
+    }
+  };
+
+  const phoneDisplay = maskedPhone || maskPhone(profile?.phone);
+  const profileSubtitle = profile?.phone || profile?.email || '';
+
   return (
     <div className="min-h-full bg-background">
       {/* User Info */}
@@ -126,7 +227,7 @@ export default function SettingsPage() {
             <p className="text-base font-semibold text-foreground truncate">
               {profile?.full_name || 'Người dùng'}
             </p>
-            <p className="text-sm text-subtitle truncate">{profile?.email || ''}</p>
+            <p className="text-sm text-subtitle truncate">{profileSubtitle}</p>
           </div>
         </div>
       </div>
@@ -181,6 +282,39 @@ export default function SettingsPage() {
             </button>
           </div>
         )}
+      </div>
+
+      <div className="mx-4 mt-3 bg-section rounded-xl p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-2xs text-subtitle uppercase font-medium tracking-wider mb-2">
+              Bảo mật tài khoản
+            </p>
+            {passwordStatusLoading ? (
+              <p className="text-sm text-subtitle">Đang kiểm tra trạng thái mật khẩu...</p>
+            ) : (
+              <>
+                <p className="text-sm font-semibold text-foreground">
+                  {hasPassword ? 'Đổi mật khẩu đăng nhập' : 'Thiết lập mật khẩu đăng nhập'}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-subtitle">
+                  {phoneDisplay
+                    ? `Bạn có thể dùng số điện thoại ${phoneDisplay} và mật khẩu này để đăng nhập trên web và các nền tảng khác.`
+                    : 'Thiết lập mật khẩu để dùng tài khoản này đăng nhập trên web và các nền tảng khác.'}
+                </p>
+              </>
+            )}
+          </div>
+
+          {!passwordStatusLoading && (
+            <button
+              onClick={openPasswordModal}
+              className="shrink-0 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700"
+            >
+              {hasPassword ? 'Đổi' : 'Thiết lập'}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Actions */}
@@ -278,6 +412,113 @@ export default function SettingsPage() {
                   Đăng xuất
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPasswordModal && (
+        <div className="modal-backdrop" style={{ zIndex: 1250, alignItems: 'center' }} onClick={closePasswordModal}>
+          <div
+            className="modal-content modal-content-center"
+            style={{ maxWidth: 360, padding: 18 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-base font-semibold text-foreground">
+                  {hasPassword ? 'Đổi mật khẩu' : 'Thiết lập mật khẩu'}
+                </h3>
+                <p className="mt-1 text-xs leading-5 text-subtitle">
+                  {phoneDisplay
+                    ? `Số điện thoại đăng nhập: ${phoneDisplay}`
+                    : 'Mật khẩu này sẽ dùng để đăng nhập tài khoản trên các nền tảng khác.'}
+                </p>
+              </div>
+              <button onClick={closePasswordModal} className="p-1 text-subtitle" disabled={passwordSubmitting}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {hasPassword && (
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-subtitle">Mật khẩu hiện tại</label>
+                  <input
+                    type="password"
+                    className="auth-input"
+                    value={currentPassword}
+                    onChange={(e) => {
+                      setCurrentPassword(e.target.value);
+                      setPasswordError('');
+                    }}
+                    placeholder="Nhập mật khẩu hiện tại"
+                    autoComplete="current-password"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="mb-1 block text-xs font-medium text-subtitle">Mật khẩu mới</label>
+                <input
+                  type="password"
+                  className="auth-input"
+                  value={newPassword}
+                  onChange={(e) => {
+                    setNewPassword(e.target.value);
+                    setPasswordError('');
+                  }}
+                  placeholder="Tối thiểu 8 ký tự"
+                  autoComplete="new-password"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-medium text-subtitle">Xác nhận mật khẩu mới</label>
+                <input
+                  type="password"
+                  className="auth-input"
+                  value={confirmPassword}
+                  onChange={(e) => {
+                    setConfirmPassword(e.target.value);
+                    setPasswordError('');
+                  }}
+                  placeholder="Nhập lại mật khẩu mới"
+                  autoComplete="new-password"
+                />
+              </div>
+
+              {passwordError && (
+                <p className="rounded-xl bg-red-50 px-3 py-2 text-xs leading-5 text-red-600">
+                  {passwordError}
+                </p>
+              )}
+            </div>
+
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                className="auth-btn border border-[var(--border)] bg-white text-foreground"
+                onClick={closePasswordModal}
+                disabled={passwordSubmitting}
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                className="auth-btn bg-emerald-600 text-white"
+                onClick={handleSavePassword}
+                disabled={passwordSubmitting}
+              >
+                {passwordSubmitting
+                  ? 'Đang lưu...'
+                  : hasPassword
+                    ? 'Đổi mật khẩu'
+                    : 'Thiết lập'}
+              </button>
             </div>
           </div>
         </div>
