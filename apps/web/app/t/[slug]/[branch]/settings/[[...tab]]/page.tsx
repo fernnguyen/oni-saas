@@ -1,6 +1,7 @@
 import { redirect, notFound } from 'next/navigation';
 import { getSupabaseServerClient } from '@/lib/server/supabaseServer';
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
+import { getTenantAndShopBySlugs } from '@/lib/server/shops';
 import { getUserPermissions } from '@/lib/server/permissions';
 import { ShopSettingsForm } from '@/app/components/settings/ShopSettingsForm';
 import { PermissionGate } from '@/app/components/ui/PermissionGate';
@@ -22,20 +23,9 @@ export default async function BranchSettingsPage({ params }: Props) {
   }
 
   const admin = getSupabaseAdminClient();
-  const { data: shop } = await admin
-    .from('shops_view')
-    .select('id, name, slug, address, tenant_id, industry_type')
-    .eq('slug', branch)
-    .maybeSingle();
+  const { tenant, shop } = await getTenantAndShopBySlugs(slug, branch);
 
-  if (!shop) notFound();
-
-  // Fetch tenant to get the industry_type
-  const { data: tenant } = await admin
-    .from('tenants')
-    .select('industry_type')
-    .eq('id', shop.tenant_id)
-    .maybeSingle();
+  if (!tenant || !shop) notFound();
 
   const permissions: string[] = await getUserPermissions(authData.user.id, shop.tenant_id, shop.id).catch(() => [] as string[]);
   if (!permissions.includes('settings.view') && !permissions.includes('shops.view') && !permissions.includes('shops.manage')) {

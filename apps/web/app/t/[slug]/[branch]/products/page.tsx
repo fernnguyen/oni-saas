@@ -1,6 +1,7 @@
 import { redirect, notFound } from 'next/navigation'
 import { getSupabaseServerClient } from '@/lib/server/supabaseServer'
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
+import { getTenantAndShopBySlugs } from '@/lib/server/shops'
 import { ProductsClient } from './ProductsClient'
 
 interface Props {
@@ -17,20 +18,9 @@ export default async function ProductsPage({ params }: Props) {
   }
 
   const admin = getSupabaseAdminClient()
-  const { data: shop } = await admin
-    .from('shops_view')
-    .select('id, name, industry_type')
-    .eq('slug', branch)
-    .maybeSingle()
+  const { tenant, shop } = await getTenantAndShopBySlugs(slug, branch)
 
-  if (!shop) notFound()
-
-  // Fetch industry_type and max_products
-  const { data: tenant } = await admin
-    .from('tenants')
-    .select('id, industry_type')
-    .eq('slug', slug)
-    .maybeSingle()
+  if (!tenant || !shop) notFound()
 
   const industryType = shop.industry_type ?? tenant?.industry_type ?? 'retail'
 

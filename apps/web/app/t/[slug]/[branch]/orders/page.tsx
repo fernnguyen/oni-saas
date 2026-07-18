@@ -1,6 +1,6 @@
 import { redirect, notFound } from 'next/navigation'
 import { getSupabaseServerClient } from '@/lib/server/supabaseServer'
-import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
+import { getTenantAndShopBySlugs } from '@/lib/server/shops'
 import { getUserPermissions } from '@/lib/server/permissions'
 import { OrdersClient } from './OrdersClient'
 
@@ -9,7 +9,7 @@ interface Props {
 }
 
 export default async function OrdersPage({ params }: Props) {
-  const { branch } = await params
+  const { slug, branch } = await params
   const supabase = await getSupabaseServerClient()
   const { data: authData } = await supabase.auth.getUser()
 
@@ -17,14 +17,8 @@ export default async function OrdersPage({ params }: Props) {
     redirect(`/auth/signin?next=${encodeURIComponent('/')}`)
   }
 
-  const admin = getSupabaseAdminClient()
-  
   // Lấy ID trực tiếp để truyền cho Client, các logic kiểm tra quyền đã nằm ở Layout
-  const { data: shop } = await admin
-    .from('shops_view')
-    .select('id, name, tenant_id')
-    .eq('slug', branch)
-    .maybeSingle()
+  const { shop } = await getTenantAndShopBySlugs(slug, branch)
 
   if (!shop) notFound()
 

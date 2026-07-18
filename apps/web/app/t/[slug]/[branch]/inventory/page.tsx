@@ -1,6 +1,7 @@
 import { redirect, notFound } from 'next/navigation'
 import { getSupabaseServerClient } from '@/lib/server/supabaseServer'
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
+import { getTenantAndShopBySlugs } from '@/lib/server/shops'
 import { InventoryClient } from './InventoryClient'
 
 interface Props {
@@ -8,7 +9,7 @@ interface Props {
 }
 
 export default async function InventoryPage({ params }: Props) {
-  const { branch } = await params
+  const { slug, branch } = await params
   const supabase = await getSupabaseServerClient()
   const { data: authData } = await supabase.auth.getUser()
 
@@ -17,11 +18,7 @@ export default async function InventoryPage({ params }: Props) {
   }
 
   const admin = getSupabaseAdminClient()
-  const { data: shop } = await admin
-    .from('shops')
-    .select('id, name, tenant_id')
-    .eq('slug', branch)
-    .maybeSingle()
+  const { shop } = await getTenantAndShopBySlugs(slug, branch)
     
   if (!shop) notFound()
 

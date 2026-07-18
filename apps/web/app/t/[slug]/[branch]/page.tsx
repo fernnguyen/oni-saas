@@ -1,6 +1,7 @@
 import { redirect, notFound } from 'next/navigation';
 import { getSupabaseServerClient } from '@/lib/server/supabaseServer';
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
+import { getTenantAndShopBySlugs } from '@/lib/server/shops';
 import { ShopDashboard } from '@/app/s/[slug]/ShopDashboard';
 
 interface Props {
@@ -18,11 +19,7 @@ export default async function BranchPage({ params }: Props) {
   }
 
   const admin = getSupabaseAdminClient();
-  const { data: shop } = await admin
-    .from('shops_view')
-    .select('id, tenant_id, name, slug, address')
-    .eq('slug', branch)
-    .maybeSingle();
+  const { shop } = await getTenantAndShopBySlugs(slug, branch);
 
   if (!shop) notFound();
 

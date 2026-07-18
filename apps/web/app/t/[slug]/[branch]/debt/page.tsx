@@ -1,6 +1,6 @@
 import { redirect, notFound } from 'next/navigation'
 import { getSupabaseServerClient } from '@/lib/server/supabaseServer'
-import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
+import { getTenantAndShopBySlugs } from '@/lib/server/shops'
 import { DebtClientDynamic as DebtClient } from './DebtClientDynamic'
 import { Suspense } from 'react'
 
@@ -9,7 +9,7 @@ interface Props {
 }
 
 export default async function DebtPage({ params }: Props) {
-  const { branch } = await params
+  const { slug, branch } = await params
   const supabase = await getSupabaseServerClient()
   const { data: authData } = await supabase.auth.getUser()
 
@@ -17,12 +17,7 @@ export default async function DebtPage({ params }: Props) {
     redirect(`/auth/signin?next=${encodeURIComponent('/')}`)
   }
 
-  const admin = getSupabaseAdminClient()
-  const { data: shop } = await admin
-    .from('shops_view')
-    .select('id, name')
-    .eq('slug', branch)
-    .maybeSingle()
+  const { shop } = await getTenantAndShopBySlugs(slug, branch)
 
   if (!shop) notFound()
 

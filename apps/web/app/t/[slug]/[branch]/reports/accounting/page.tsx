@@ -1,6 +1,6 @@
 import { redirect, notFound } from 'next/navigation'
 import { getSupabaseServerClient } from '@/lib/server/supabaseServer'
-import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
+import { getTenantAndShopBySlugs } from '@/lib/server/shops'
 import { AccountingClient } from './AccountingClient'
 import { PermissionGate } from '@/app/components/ui/PermissionGate'
 
@@ -17,12 +17,7 @@ export default async function AccountingPage({ params }: Props) {
     redirect(`/auth/signin?next=${encodeURIComponent('/')}`)
   }
 
-  const admin = getSupabaseAdminClient()
-  const { data: shop } = await admin
-    .from('shops_view')
-    .select('id, tenant_id')
-    .eq('slug', branch)
-    .maybeSingle()
+  const { shop } = await getTenantAndShopBySlugs(slug, branch)
 
   if (!shop) notFound()
 

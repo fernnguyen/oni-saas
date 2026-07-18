@@ -27,6 +27,28 @@ export async function getShopBySlug(slug: string) {
   return data;
 }
 
+export async function getTenantAndShopBySlugs(tenantSlug: string, shopSlug: string) {
+  const admin = getSupabaseAdminClient();
+  const { data: tenant, error: tenantError } = await admin
+    .from('tenants')
+    .select('*')
+    .eq('slug', tenantSlug)
+    .maybeSingle();
+
+  if (tenantError) throw tenantError;
+  if (!tenant) return { tenant: null, shop: null };
+
+  const { data: shop, error: shopError } = await admin
+    .from('shops_view')
+    .select('*')
+    .eq('tenant_id', tenant.id)
+    .eq('slug', shopSlug)
+    .maybeSingle();
+
+  if (shopError) throw shopError;
+  return { tenant, shop };
+}
+
 export async function assertUserShopAccess(userId: string, shopId: string, preFetchedShop?: any): Promise<boolean> {
   const admin = getSupabaseAdminClient();
 

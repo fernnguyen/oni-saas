@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { redirect, notFound } from 'next/navigation';
 import { getSupabaseServerClient } from '@/lib/server/supabaseServer';
-import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
+import { getTenantAndShopBySlugs } from '@/lib/server/shops';
 
 interface Props {
   params: Promise<{ slug: string; branch: string; segments: string[] }>;
@@ -56,7 +56,7 @@ const moduleMeta: Record<string, { title: string; description: string }> = {
 
 // Only accessible via subdomain rewrite. slug = tenant slug, branch = shop slug.
 export default async function BranchSectionPage({ params }: Props) {
-  const { branch, segments } = await params;
+  const { slug, branch, segments } = await params;
   const supabase = await getSupabaseServerClient();
   const { data: authData } = await supabase.auth.getUser();
 
@@ -64,12 +64,7 @@ export default async function BranchSectionPage({ params }: Props) {
     redirect(`/auth/signin?next=${encodeURIComponent('/')}`);
   }
 
-  const admin = getSupabaseAdminClient();
-  const { data: shop } = await admin
-    .from('shops_view')
-    .select('name')
-    .eq('slug', branch)
-    .maybeSingle();
+  const { shop } = await getTenantAndShopBySlugs(slug, branch);
 
   if (!shop) notFound();
 
