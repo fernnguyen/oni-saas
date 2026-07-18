@@ -1098,11 +1098,20 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
 
       {/* ── Onboarding Welcome Modal ────────────────────────────────────────── */}
       {onboardModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/75 backdrop-blur-md p-4 overflow-y-auto">
-          <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_20px_50px_rgba(0,0,0,0.15)] max-w-lg w-full overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col">
+        <div
+          onClick={() => {
+            setOnboardModalOpen(false);
+            localStorage.setItem(`oni_onboard_dismissed_${shop.id}`, 'true');
+          }}
+          className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/75 backdrop-blur-md p-3 sm:items-center sm:p-4 overflow-y-auto"
+        >
+          <div
+            onClick={(event) => event.stopPropagation()}
+            className="bg-white rounded-3xl border border-slate-100 shadow-[0_20px_50px_rgba(0,0,0,0.15)] max-w-lg w-full max-h-[calc(100vh-1.5rem)] sm:max-h-[calc(100vh-2rem)] overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col"
+          >
             
             {/* Modal Header */}
-            <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+            <div className="shrink-0 p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
               <div className="flex items-center gap-2">
                 <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
                 <span className="text-xs font-bold uppercase tracking-wider text-emerald-600">Hướng dẫn chuẩn bị</span>
@@ -1121,17 +1130,17 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
             </div>
 
             {/* Modal Body */}
-            <div className="p-6 md:p-8 flex-1 overflow-y-auto space-y-6">
+            <div className="min-h-0 p-6 md:p-8 flex-1 overflow-y-auto space-y-6">
               {onboardStep === 1 && (
                 <div className="space-y-4 text-center sm:text-left">
-                  <div className="flex justify-center sm:justify-start">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white border border-slate-100 shadow-sm overflow-hidden">
+                  <div className="flex items-center justify-center gap-3 sm:justify-start">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white border border-slate-100 shadow-sm overflow-hidden">
                       <img src="/logo.png" alt="ONI Logo" className="h-10 w-10 object-contain" />
                     </div>
+                    <h3 className="text-xl font-extrabold text-primary tracking-tight">
+                      Cảm ơn bạn đã sử dụng phần mềm ONI!
+                    </h3>
                   </div>
-                  <h3 className="text-xl font-extrabold text-primary tracking-tight">
-                    Cảm ơn bạn đã sử dụng phần mềm ONI!
-                  </h3>
                   <p className="text-slate-600 text-sm leading-relaxed font-medium">
                     Hệ thống quản lý bán lẻ & dịch vụ của bạn đã được thiết lập thành công. Hãy bắt đầu trải nghiệm đầy đủ các tính năng của ONI.
                   </p>
@@ -1636,7 +1645,7 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
 
             {/* Modal Footer */}
             {onboardStep < 3 && (
-              <div className="p-5 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
+              <div className="shrink-0 p-5 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
                 <div className="flex gap-1">
                   <span className={`h-1.5 w-1.5 rounded-full transition-all ${onboardStep === 1 ? 'bg-primary w-3' : 'bg-slate-300'}`} />
                   <span className={`h-1.5 w-1.5 rounded-full transition-all ${onboardStep === 2 ? 'bg-primary w-3' : 'bg-slate-300'}`} />
@@ -1679,5 +1688,3 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
     </div>
   );
 }
-
-
