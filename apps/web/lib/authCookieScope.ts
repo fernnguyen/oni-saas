@@ -26,3 +26,17 @@ export function getAuthCookieDomainForHost(host: string | null | undefined, root
   if (!isMainAuthHost(host, rootDomain)) return undefined;
   return getGlobalAuthCookieDomain(rootDomain);
 }
+
+export function getSupabaseAuthCookieBaseName(supabaseUrl: string) {
+  const hostname = new URL(supabaseUrl).hostname;
+  return `sb-${hostname.split('.')[0]}-auth-token`;
+}
+
+export function getScopedAuthCookieName(
+  host: string | null | undefined,
+  rootDomain: string,
+  supabaseUrl: string,
+) {
+  const baseName = getSupabaseAuthCookieBaseName(supabaseUrl);
+  return isMainAuthHost(host, rootDomain) ? `${baseName}-root` : `${baseName}-workspace`;
+}

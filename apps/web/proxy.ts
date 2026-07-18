@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
-import { getAuthCookieDomainForHost, getGlobalAuthCookieDomain } from './lib/authCookieScope';
+import { getAuthCookieDomainForHost, getGlobalAuthCookieDomain, getScopedAuthCookieName } from './lib/authCookieScope';
 
 // Paths that are public on the MAIN domain (no auth required)
 const MAIN_DOMAIN_PUBLIC = ['/auth', '/api', '/_next', '/favicon', '/register', '/onboarding', '/admin-login', '/qr-order', '/solutions', '/icons', '/logos', '/fonts', '/.well-known', '/support', '/privacy'];
@@ -153,10 +153,20 @@ function extractSubdomain(host: string, rootDomain: string): string | null {
 }
 
 async function getUser(req: NextRequest) {
+  const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
+  const requestHost = req.headers.get('x-forwarded-host') ?? req.headers.get('host');
+  const cookieName = getScopedAuthCookieName(
+    requestHost,
+    rootDomain,
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  );
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
     {
+      cookieOptions: {
+        name: cookieName,
+      },
       cookies: {
         get(name: string) { return req.cookies.get(name)?.value; },
         set() {},
@@ -170,10 +180,20 @@ async function getUser(req: NextRequest) {
 
 // Checks if user needs MFA upgrade. Returns a redirect Response or null.
 async function checkMFARedirect(req: NextRequest, pathname: string): Promise<NextResponse | null> {
+  const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
+  const requestHost = req.headers.get('x-forwarded-host') ?? req.headers.get('host');
+  const cookieName = getScopedAuthCookieName(
+    requestHost,
+    rootDomain,
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  );
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
     {
+      cookieOptions: {
+        name: cookieName,
+      },
       cookies: {
         get(name: string) { return req.cookies.get(name)?.value; },
         set() {},
@@ -219,11 +239,19 @@ async function withSupabaseSession(req: NextRequest, res: NextResponse): Promise
   const requestHost = req.headers.get('x-forwarded-host') ?? req.headers.get('host');
   const cookieDomain = getAuthCookieDomainForHost(requestHost, rootDomain);
   const globalCookieDomain = getGlobalAuthCookieDomain(rootDomain);
+  const cookieName = getScopedAuthCookieName(
+    requestHost,
+    rootDomain,
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  );
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
     {
+      cookieOptions: {
+        name: cookieName,
+      },
       cookies: {
         get(name: string) { return req.cookies.get(name)?.value; },
         set(name: string, value: string, options: Record<string, unknown>) {

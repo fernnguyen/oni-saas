@@ -1,7 +1,7 @@
 import { cookies, headers } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
 import { env } from '../env';
-import { getAuthCookieDomainForHost, getGlobalAuthCookieDomain } from '../authCookieScope';
+import { getAuthCookieDomainForHost, getGlobalAuthCookieDomain, getScopedAuthCookieName } from '../authCookieScope';
 
 export async function getSupabaseServerClient() {
   const cookieStore = await cookies();
@@ -12,8 +12,12 @@ export async function getSupabaseServerClient() {
   const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN || 'localhost:3000';
   const cookieDomain = getAuthCookieDomainForHost(requestHost, rootDomain);
   const globalCookieDomain = getGlobalAuthCookieDomain(rootDomain);
+  const cookieName = getScopedAuthCookieName(requestHost, rootDomain, env.SUPABASE_URL);
 
   const supabase = createServerClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY, {
+    cookieOptions: {
+      name: cookieName,
+    },
     global: {
       headers: {
         ...(authHeader ? { 'Authorization': authHeader } : {}),
