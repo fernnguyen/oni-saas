@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
-import { getAuthCookieDomainForHost, getGlobalAuthCookieDomain, getScopedAuthCookieName } from './lib/authCookieScope';
+import {
+  getAuthCookieDomainForHost,
+  getGlobalAuthCookieDomain,
+  getScopedAuthCookieName,
+  getStaleSupabaseAuthCookieNames,
+} from './lib/authCookieScope';
 
 // Paths that are public on the MAIN domain (no auth required)
 const MAIN_DOMAIN_PUBLIC = ['/auth', '/api', '/_next', '/favicon', '/register', '/onboarding', '/admin-login', '/qr-order', '/solutions', '/icons', '/logos', '/fonts', '/.well-known', '/support', '/privacy'];
@@ -244,6 +249,19 @@ async function withSupabaseSession(req: NextRequest, res: NextResponse): Promise
     rootDomain,
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
   );
+  const staleCookieNames = getStaleSupabaseAuthCookieNames(
+    req.cookies.getAll().map((cookie) => cookie.name),
+    cookieName,
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  );
+
+  function clearCookie(name: string, options: Record<string, unknown>) {
+    const clearedValue = { name, value: '', ...options };
+    res.cookies.set(clearedValue);
+    if (globalCookieDomain) {
+      res.cookies.set({ ...clearedValue, domain: globalCookieDomain });
+    }
+  }
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -255,6 +273,10 @@ async function withSupabaseSession(req: NextRequest, res: NextResponse): Promise
       cookies: {
         get(name: string) { return req.cookies.get(name)?.value; },
         set(name: string, value: string, options: Record<string, unknown>) {
+          for (const staleCookieName of staleCookieNames) {
+            clearCookie(staleCookieName, options);
+          }
+
           const scopedOptions = { name, value, ...options };
           if (cookieDomain) {
             res.cookies.set({ ...scopedOptions, value: '', maxAge: 0 });
@@ -269,11 +291,11 @@ async function withSupabaseSession(req: NextRequest, res: NextResponse): Promise
           res.cookies.set(scopedOptions);
         },
         remove(name: string, options: Record<string, unknown>) {
-          const clearedValue = { name, value: '', ...options };
-          res.cookies.set(clearedValue);
-          if (globalCookieDomain) {
-            res.cookies.set({ ...clearedValue, domain: globalCookieDomain });
+          for (const staleCookieName of staleCookieNames) {
+            clearCookie(staleCookieName, options);
           }
+
+          clearCookie(name, options);
         },
       },
     },

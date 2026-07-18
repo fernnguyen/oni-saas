@@ -1,7 +1,12 @@
 import { cookies, headers } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
 import { env } from '../env';
-import { getAuthCookieDomainForHost, getGlobalAuthCookieDomain, getScopedAuthCookieName } from '../authCookieScope';
+import {
+  getAuthCookieDomainForHost,
+  getGlobalAuthCookieDomain,
+  getScopedAuthCookieName,
+  getStaleSupabaseAuthCookieNames,
+} from '../authCookieScope';
 
 export async function getSupabaseServerClient() {
   const cookieStore = await cookies();
@@ -13,6 +18,19 @@ export async function getSupabaseServerClient() {
   const cookieDomain = getAuthCookieDomainForHost(requestHost, rootDomain);
   const globalCookieDomain = getGlobalAuthCookieDomain(rootDomain);
   const cookieName = getScopedAuthCookieName(requestHost, rootDomain, env.SUPABASE_URL);
+  const staleCookieNames = getStaleSupabaseAuthCookieNames(
+    cookieStore.getAll().map((cookie) => cookie.name),
+    cookieName,
+    env.SUPABASE_URL,
+  );
+
+  function clearCookie(name: string, options: any) {
+    const clearedValue = { name, value: '', ...options };
+    cookieStore.set(clearedValue);
+    if (globalCookieDomain) {
+      cookieStore.set({ ...clearedValue, domain: globalCookieDomain });
+    }
+  }
 
   const supabase = createServerClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY, {
     cookieOptions: {
@@ -28,6 +46,10 @@ export async function getSupabaseServerClient() {
         return cookieStore.get(name)?.value;
       },
       set(name: string, value: string, options: any) {
+        for (const staleCookieName of staleCookieNames) {
+          clearCookie(staleCookieName, options);
+        }
+
         const scopedOptions = { name, value, ...options };
         if (cookieDomain) {
           cookieStore.set({ ...scopedOptions, value: '', maxAge: 0 });
@@ -42,11 +64,11 @@ export async function getSupabaseServerClient() {
         cookieStore.set(scopedOptions);
       },
       remove(name: string, options: any) {
-        const clearedValue = { name, value: '', ...options };
-        cookieStore.set(clearedValue);
-        if (globalCookieDomain) {
-          cookieStore.set({ ...clearedValue, domain: globalCookieDomain });
+        for (const staleCookieName of staleCookieNames) {
+          clearCookie(staleCookieName, options);
         }
+
+        clearCookie(name, options);
       },
     },
   });

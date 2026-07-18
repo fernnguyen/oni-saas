@@ -40,3 +40,25 @@ export function getScopedAuthCookieName(
   const baseName = getSupabaseAuthCookieBaseName(supabaseUrl);
   return isMainAuthHost(host, rootDomain) ? `${baseName}-root` : `${baseName}-workspace`;
 }
+
+export function getSupabaseAuthCookieFamilyNames(supabaseUrl: string) {
+  const baseName = getSupabaseAuthCookieBaseName(supabaseUrl);
+  return [baseName, `${baseName}-root`, `${baseName}-workspace`];
+}
+
+export function getStaleSupabaseAuthCookieNames(
+  cookieNames: string[],
+  activeCookieName: string,
+  supabaseUrl: string,
+) {
+  const familyNames = getSupabaseAuthCookieFamilyNames(supabaseUrl);
+
+  return cookieNames.filter((cookieName) => {
+    const matchesFamily = familyNames.some(
+      (familyName) => cookieName === familyName || cookieName.startsWith(`${familyName}.`),
+    );
+
+    if (!matchesFamily) return false;
+    return !(cookieName === activeCookieName || cookieName.startsWith(`${activeCookieName}.`));
+  });
+}
