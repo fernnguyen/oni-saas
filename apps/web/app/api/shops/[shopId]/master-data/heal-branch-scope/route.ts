@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 
 import crypto from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
+import { getCacheService } from '@oni/adapters'
 import { requireShopAccess } from '@/lib/server/shopAccess'
 import { invalidate } from '@/lib/server/cache'
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
@@ -744,19 +745,25 @@ export async function GET(
         )
       }
 
-      if (!dryRun) {
-        invalidate(shopId, 'products')
-        invalidate(shopId, 'categories')
-        invalidate(shopId, 'suppliers')
-        invalidate(shopId, 'inventory')
-        invalidate(shopId, 'stock-movements')
-        invalidate(shopId, 'cashbook')
-      }
-
       if (dryRun) {
         await client.query('ROLLBACK')
       } else {
         await client.query('COMMIT')
+        try {
+          const affectedBranchIds = new Set([shopId, mainBranchId])
+          const cacheService = getCacheService()
+          for (const affectedBranchId of affectedBranchIds) {
+            invalidate(affectedBranchId, 'products')
+            invalidate(affectedBranchId, 'categories')
+            invalidate(affectedBranchId, 'suppliers')
+            invalidate(affectedBranchId, 'inventory')
+            invalidate(affectedBranchId, 'stock-movements')
+            invalidate(affectedBranchId, 'cashbook')
+            await cacheService.deletePattern(`oni:data:${shop.tenant_id}:${affectedBranchId}:*`)
+          }
+        } catch {
+          report.warnings.push('Healing committed, but cache invalidation failed; cached reads may remain stale until TTL expiry.')
+        }
       }
 
       return NextResponse.json({
