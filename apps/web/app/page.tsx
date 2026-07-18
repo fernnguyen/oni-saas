@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import Image from 'next/image';
+import { unstable_cache } from 'next/cache';
 import { getSupabaseAdminClient } from '../lib/server/supabaseAdmin';
 import { PricingSection } from './PricingSection';
 import { Navbar } from './components/layout/Navbar';
@@ -8,7 +9,6 @@ import { HeroDashboardMock } from './HeroDashboardMock';
 import { INDUSTRY_GROUPS, INDUSTRIES_LIST } from './components/layout/industriesData';
 import { FloatingZalo } from './components/layout/FloatingZalo';
 import { AppDownloadButtons } from './components/layout/AppDownloadButtons';
-import { getSystemSettings, formatTrialDurationVi } from '../lib/server/settings';
 import { 
   Database, 
   Sparkles, 
@@ -87,14 +87,25 @@ const PLAN_DETAILS: Record<string, any> = {
   }
 };
 
+export const revalidate = 3600;
+
+const getPublicPlans = unstable_cache(
+  async () => {
+    const admin = getSupabaseAdminClient();
+    const { data } = await admin
+      .from('plans')
+      .select('name, code, price_monthly, price_yearly, metadata')
+      .order('id', { ascending: true });
+
+    return data || [];
+  },
+  ['public_plans'],
+  { tags: ['plans'], revalidate: 3600 }
+);
+
 /* ── Page ────────────────────────────────────────────────────── */
 export default async function LandingPage() {
-  const admin = getSupabaseAdminClient();
-  const config = await getSystemSettings();
-  void config; // kept for possible future use (e.g., maintenance_mode)
-
-  const { data: dbPlans } = await admin.from('plans').select('*').order('id', { ascending: true });
-  const plans = (dbPlans || [])
+  const plans = (await getPublicPlans())
     .filter((p: any) => p.metadata?.show_public !== false)
     .map((p: any) => {
       const detail = PLAN_DETAILS[p.code];
@@ -128,9 +139,9 @@ export default async function LandingPage() {
       <section className="relative pt-32 pb-24 lg:pt-40 lg:pb-32 overflow-hidden bg-slate-50 border-b border-slate-200">
         {/* Dynamic Shapes for modern SaaS feel */}
         <div className="absolute top-0 left-0 right-0 bottom-0 overflow-hidden pointer-events-none">
-          <div className="absolute -top-[20%] -left-[10%] h-[800px] w-[800px] rounded-full bg-blue-100/30 blur-[100px]" />
-          <div className="absolute top-[20%] -right-[10%] h-[600px] w-[600px] rounded-full bg-cyan-100/50 blur-[100px]" />
-          <div className="absolute -bottom-[20%] left-[20%] h-[500px] w-[500px] rounded-full bg-blue-200/40 blur-[80px]" />
+          <div className="hidden md:block absolute -top-[20%] -left-[10%] h-[800px] w-[800px] rounded-full bg-blue-100/30 blur-[100px]" />
+          <div className="hidden md:block absolute top-[20%] -right-[10%] h-[600px] w-[600px] rounded-full bg-cyan-100/50 blur-[100px]" />
+          <div className="hidden md:block absolute -bottom-[20%] left-[20%] h-[500px] w-[500px] rounded-full bg-blue-200/40 blur-[80px]" />
           
           {/* Floating glassmorphism shapes */}
           <div className="hidden lg:block absolute top-[25%] right-[15%] h-[120px] w-[120px] rounded-[2rem] rotate-12 bg-white/50 backdrop-blur-2xl border border-blue-100 animate-pulse shadow-xl shadow-blue-900/5" />
@@ -140,7 +151,7 @@ export default async function LandingPage() {
 
         <div className="relative mx-auto max-w-7xl px-6 flex flex-col lg:flex-row items-center gap-16">
           <div className="flex-1 text-center lg:text-left z-10">
-            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50/80 backdrop-blur-md px-4 py-1.5 text-sm font-medium text-primary shadow-sm">
+            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-4 py-1.5 text-sm font-medium text-primary shadow-sm md:bg-blue-50/80 md:backdrop-blur-md">
               <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
               Sở hữu cơ sở dữ liệu riêng biệt (BYOD)
             </div>
@@ -158,7 +169,7 @@ export default async function LandingPage() {
                 Bắt đầu bán hàng ngay
                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
               </Link>
-              <a href="#solutions" className="flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white/50 backdrop-blur-md px-8 py-4 text-base font-semibold text-slate-700 hover:bg-slate-50 transition-all">
+              <a href="#solutions" className="flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-8 py-4 text-base font-semibold text-slate-700 transition-all hover:bg-slate-50 md:bg-white/50 md:backdrop-blur-md">
                 Xem giải pháp ngành nghề
               </a>
             </div>
@@ -464,7 +475,7 @@ export default async function LandingPage() {
             <div className="order-1 lg:order-2 rounded-3xl bg-slate-900 p-8 border border-slate-800 relative overflow-hidden shadow-2xl">
                <div className="absolute top-0 left-0 p-6 opacity-10 text-white"><MessageSquare className="h-24 w-24" /></div>
                <div className="relative z-10 space-y-4 max-w-sm mx-auto">
-                  <div className="bg-slate-800/80 backdrop-blur-md p-4 rounded-xl border border-slate-700/50 flex items-start gap-3">
+                  <div className="bg-slate-800 p-4 rounded-xl border border-slate-700/50 flex items-start gap-3 md:bg-slate-800/80 md:backdrop-blur-md">
                     <div className="h-9 w-9 rounded-full bg-blue-500/20 flex items-center justify-center shrink-0">
                       <svg className="w-5 h-5 text-blue-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .24z"/></svg>
                     </div>
@@ -473,7 +484,7 @@ export default async function LandingPage() {
                       <div className="text-[11px] text-slate-400 mt-1 leading-relaxed">Hệ thống vừa tự động gửi hóa đơn số #1025 trị giá 185,000đ thành công qua Zalo OA cho khách hàng <strong>Nguyễn Văn A</strong>.</div>
                     </div>
                   </div>
-                  <div className="bg-slate-800/80 backdrop-blur-md p-4 rounded-xl border border-slate-700/50 flex items-start gap-3 ml-6">
+                  <div className="bg-slate-800 p-4 rounded-xl border border-slate-700/50 flex items-start gap-3 ml-6 md:bg-slate-800/80 md:backdrop-blur-md">
                     <div className="h-9 w-9 rounded-full bg-amber-500/20 flex items-center justify-center shrink-0">
                       <span className="text-amber-400 font-bold text-xs">Bot</span>
                     </div>
@@ -623,7 +634,7 @@ export default async function LandingPage() {
             <div className="order-1 lg:order-2 rounded-3xl bg-slate-900 p-8 border border-slate-800 relative overflow-hidden shadow-2xl">
                <div className="absolute top-0 right-0 p-6 opacity-10 text-white"><Server className="h-24 w-24" /></div>
                <div className="relative z-10 space-y-4 max-w-sm mx-auto">
-                  <div className="bg-slate-800/80 backdrop-blur-md p-5 rounded-2xl border border-slate-700/50 flex flex-col gap-3">
+                  <div className="bg-slate-800 p-5 rounded-2xl border border-slate-700/50 flex flex-col gap-3 md:bg-slate-800/80 md:backdrop-blur-md">
                     <div className="flex items-center justify-between border-b border-slate-700 pb-2">
                       <span className="font-extrabold text-slate-200 text-xs">Cơ sở Hạ tầng Máy chủ Riêng</span>
                       <span className="text-[9px] font-black text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-2 py-0.5 rounded-md uppercase">Dedicated</span>
@@ -727,8 +738,8 @@ export default async function LandingPage() {
       {/* ═══ CTA ═══ */}
       <section className="relative py-24 md:py-32 bg-slate-50 border-t border-slate-200 overflow-hidden">
         <div className="pointer-events-none absolute inset-0">
-          <div className="absolute top-0 left-0 h-[500px] w-[500px] rounded-full bg-blue-100/30 blur-[100px]" />
-          <div className="absolute bottom-0 right-0 h-[400px] w-[400px] rounded-full bg-cyan-100/50 blur-[80px]" />
+          <div className="hidden md:block absolute top-0 left-0 h-[500px] w-[500px] rounded-full bg-blue-100/30 blur-[100px]" />
+          <div className="hidden md:block absolute bottom-0 right-0 h-[400px] w-[400px] rounded-full bg-cyan-100/50 blur-[80px]" />
         </div>
         <div className="relative mx-auto max-w-4xl px-6 text-center z-10">
           <h2 className="text-4xl md:text-5xl font-extrabold text-slate-900 tracking-tight mb-6">
@@ -737,7 +748,7 @@ export default async function LandingPage() {
           <p className="text-xl text-slate-650 font-medium mb-10 max-w-2xl mx-auto">
             Bắt đầu bán hàng ngay với gói Tiên phong miễn phí vĩnh viễn. Nâng cấp linh hoạt khi quy mô mở rộng.
           </p>
-          <div className="mb-8 rounded-3xl border border-slate-200 bg-white/80 px-6 py-5 text-left shadow-sm backdrop-blur-sm">
+          <div className="mb-8 rounded-3xl border border-slate-200 bg-white px-6 py-5 text-left shadow-sm md:bg-white/80 md:backdrop-blur-sm">
             <div className="grid gap-3 text-sm text-slate-600 md:grid-cols-3">
               <div>
                 <div className="text-xs font-bold uppercase tracking-[0.16em] text-primary">Đơn vị quản lý</div>

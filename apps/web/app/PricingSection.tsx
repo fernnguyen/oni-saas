@@ -352,7 +352,7 @@ export function PricingSection({ plans }: { plans: any[] }) {
 
   return (
     <section id="pricing" className="relative py-24 md:py-32 bg-slate-50">
-      <div className="pointer-events-none absolute top-0 left-1/3 h-[500px] w-[500px] rounded-full bg-orange-200/30 blur-[120px]" />
+      <div className="pointer-events-none absolute top-0 left-1/3 hidden h-[500px] w-[500px] rounded-full bg-orange-200/30 blur-[120px] md:block" />
       <div className="relative mx-auto max-w-7xl px-6">
 
         {/* Header */}
