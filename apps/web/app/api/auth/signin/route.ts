@@ -48,10 +48,16 @@ export async function POST(req: NextRequest) {
   const isPhone = !isEmail && isValidVNPhone(identifier);
 
   let email: string | undefined;
+  let phonePlus84: string | null = null;
+  let phone84: string | null = null;
 
   if (isEmail) {
     email = identifier;
-  } else if (!isPhone) {
+  } else if (isPhone) {
+    const normalizedPhone = normalizeVNPhone(identifier);
+    phonePlus84 = normalizedPhone ? toVNPhonePlus84(normalizedPhone) : null;
+    phone84 = normalizedPhone ? toVNPhone84(normalizedPhone) : null;
+  } else {
     // Plain username — must have tenant context
     if (!tenant_slug) {
       return NextResponse.json(
@@ -65,30 +71,26 @@ export async function POST(req: NextRequest) {
     email = buildFakeEmail(identifier, tenant_slug);
   }
 
-  // --- Bypass Supabase Phone Provider ---
-  // If the user inputs a phone number, we look up their email via the tenants table
-  // because Supabase Phone login requires an SMS provider to be configured.
-  let actualEmailToLogin: string | undefined = email;
+  const attempts: Array<{ email: string } | { phone: string }> = [];
 
   if (isPhone) {
+    if (phonePlus84) attempts.push({ phone: phonePlus84 });
+    if (phone84 && phone84 !== phonePlus84) attempts.push({ phone: phone84 });
+
+    // Legacy fallback: older phone-like accounts were represented by an email.
     const admin = getSupabaseAdminClient();
-    const normalizedPhone = normalizeVNPhone(identifier);
-    const phonePlus84 = normalizedPhone ? toVNPhonePlus84(normalizedPhone) : null;
-    const phone84 = normalizedPhone ? toVNPhone84(normalizedPhone) : null;
-    
-    // Lookup user by phone using RPC directly against auth.users
     let foundEmail: string | undefined;
-    
+
     if (phonePlus84) {
       const { data: userData, error: rpcError } = await admin.rpc('get_user_by_phone', { p_phone: phonePlus84 });
-      if (!rpcError && userData && userData.email) {
+      if (!rpcError && userData?.email) {
         foundEmail = userData.email;
       }
     }
 
     if (!foundEmail && phone84) {
       const { data: userData2, error: rpcError2 } = await admin.rpc('get_user_by_phone', { p_phone: phone84 });
-      if (!rpcError2 && userData2 && userData2.email) {
+      if (!rpcError2 && userData2?.email) {
         foundEmail = userData2.email;
       }
     }
@@ -97,25 +99,27 @@ export async function POST(req: NextRequest) {
       foundEmail = `zalo_${phone84}@oni.vn`;
     }
 
-    if (foundEmail) {
-      actualEmailToLogin = foundEmail;
-    }
-
-    // If we couldn't find their real email, fallback to fake email format
-    if (!actualEmailToLogin) {
-      actualEmailToLogin = formatPhoneAsEmail(identifier);
-    }
+    attempts.push({ email: foundEmail ?? formatPhoneAsEmail(identifier) });
+  } else if (email) {
+    attempts.push({ email });
   }
 
-  const { error } = await supabase.auth.signInWithPassword({ email: actualEmailToLogin!, password });
+  let signInError: { message: string } | null = null;
+  for (const attempt of attempts) {
+    const { error } = await supabase.auth.signInWithPassword({ ...attempt, password } as { email: string; password: string } | { phone: string; password: string });
+    if (!error) {
+      signInError = null;
+      break;
+    }
+    signInError = error;
+  }
 
-
-  if (error) {
+  if (signInError) {
     const message =
-      error.message.toLowerCase().includes('invalid login credentials') ||
-      error.message.toLowerCase().includes('invalid email or password')
+      signInError.message.toLowerCase().includes('invalid login credentials') ||
+      signInError.message.toLowerCase().includes('invalid email or password')
         ? 'Tên đăng nhập hoặc mật khẩu không đúng'
-        : error.message;
+        : signInError.message;
     return NextResponse.json({ message }, { status: 400 });
   }
 

@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useTransition, FormEvent } from 'react';
+import { useEffect, useState, useTransition, FormEvent } from 'react';
 import type { Role } from '@/lib/server/roles';
+import { isValidVNPhone } from '@/lib/utils/phone';
 
 const ROLE_LOCALIZATION: Record<string, { name: string; desc: string }> = {
   owner: { name: 'Chủ sở hữu / Lãnh đạo', desc: 'Có toàn quyền vĩ mô, thanh toán gói dịch vụ và xem báo cáo tài chính tổng hợp toàn chuỗi.' },
@@ -46,7 +47,7 @@ interface Props {
   maxUsers?: number;
 }
 
-export function TeamClient({ tenantId, tenantSlug, initialUsers, shops, roles, canInvite, canRemove, currentUserId, maxUsers }: Props) {
+export function TeamClient({ tenantId, initialUsers, shops, roles, canInvite, canRemove, currentUserId, maxUsers }: Props) {
   const [users, setUsers] = useState<TenantUser[]>(initialUsers);
   const [showModal, setShowModal] = useState(false);
   const [resetTarget, setResetTarget] = useState<TenantUser | null>(null);
@@ -72,9 +73,9 @@ export function TeamClient({ tenantId, tenantSlug, initialUsers, shops, roles, c
   async function handleDelete(user: TenantUser) {
     const res = await fetch(`/api/tenants/${tenantId}/users/${user.user_id}`, { method: 'DELETE' });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) { flash(data.message || 'Không thể xóa người dùng', 'err'); return; }
+    if (!res.ok) { flash(data.message || 'Không thể gỡ thành viên', 'err'); return; }
     setDeleteTarget(null);
-    flash('Đã xóa thành viên');
+    flash(data.deletedAuthUser ? 'Đã gỡ thành viên và xóa tài khoản không còn liên kết nào khác' : 'Đã gỡ thành viên khỏi workspace hiện tại');
     startTransition(() => { refreshUsers(); });
   }
 
@@ -199,7 +200,6 @@ export function TeamClient({ tenantId, tenantSlug, initialUsers, shops, roles, c
       {showModal && (
         <AddMemberModal
           tenantId={tenantId}
-          tenantSlug={tenantSlug}
           shops={shops}
           roles={roles}
           onClose={() => setShowModal(false)}
@@ -208,7 +208,6 @@ export function TeamClient({ tenantId, tenantSlug, initialUsers, shops, roles, c
             flash(msg);
             startTransition(() => { refreshUsers(); });
           }}
-          onError={(msg) => flash(msg, 'err')}
         />
       )}
 
@@ -243,9 +242,9 @@ export function TeamClient({ tenantId, tenantSlug, initialUsers, shops, roles, c
       {/* Delete confirmation */}
       {deleteTarget && (
         <ConfirmDialog
-          title="Xóa thành viên"
-          message={`Bạn có chắc muốn xóa "${deleteTarget.display_name ?? deleteTarget.username}"? Hành động này không thể hoàn tác.`}
-          confirmLabel="Xóa thành viên"
+          title="Gỡ thành viên"
+          message={`Bạn có chắc muốn gỡ "${deleteTarget.display_name ?? deleteTarget.username ?? deleteTarget.login_email}" khỏi workspace hiện tại? Tài khoản global sẽ được giữ nếu còn liên kết ở nơi khác.`}
+          confirmLabel="Gỡ thành viên"
           danger
           onConfirm={() => handleDelete(deleteTarget)}
           onCancel={() => setDeleteTarget(null)}
@@ -257,18 +256,27 @@ export function TeamClient({ tenantId, tenantSlug, initialUsers, shops, roles, c
 
 // ─── Add Member Modal ─────────────────────────────────────────────────────────
 
-function AddMemberModal({ tenantId, tenantSlug, shops, roles, onClose, onSuccess, onError }: {
+function AddMemberModal({ tenantId, shops, roles, onClose, onSuccess }: {
   tenantId: string;
-  tenantSlug: string;
   shops: Shop[];
   roles: Role[];
   onClose: () => void;
   onSuccess: (msg: string) => void;
-  onError: (msg: string) => void;
 }) {
-  const [tab, setTab] = useState<'workspace' | 'personal'>('workspace');
-  const [username, setUsername] = useState('');
+  type IdentityLookup = {
+    exists: boolean;
+    alreadyMember: boolean;
+    normalizedIdentifier: string;
+    user?: { id: string; display_name?: string | null; email?: string | null; phone?: string | null };
+  };
+
+  const [accountMethod, setAccountMethod] = useState<'email' | 'phone'>('email');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [identityLookup, setIdentityLookup] = useState<IdentityLookup | null>(null);
+  const [checkedIdentifier, setCheckedIdentifier] = useState('');
+  const [checking, setChecking] = useState(false);
+  const [modalError, setModalError] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -278,15 +286,101 @@ function AddMemberModal({ tenantId, tenantSlug, shops, roles, onClose, onSuccess
 
   const selectedRole = roles.find((r) => r.code === role);
   const isShopScoped = selectedRole?.scope === 'shop';
+  const identifier = accountMethod === 'email' ? email.trim() : phone.trim();
+  const lookupKey = `${accountMethod}:${identifier}`;
+  const hasFreshLookup = Boolean(identityLookup && checkedIdentifier === lookupKey);
+  const needsPassword = hasFreshLookup && identityLookup?.exists === false;
+
+  function resetLookup() {
+    setIdentityLookup(null);
+    setCheckedIdentifier('');
+  }
+
+  function setIdentifierError(message: string) {
+    setModalError(message);
+    resetLookup();
+  }
+
+  function validateIdentifier() {
+    if (accountMethod === 'email') {
+      if (isValidVNPhone(identifier)) {
+        return 'Bạn đang chọn tạo bằng email. Vui lòng nhập email hợp lệ, không nhập số điện thoại.';
+      }
+      if (!identifier.includes('@')) {
+        return 'Email không hợp lệ';
+      }
+      return null;
+    }
+
+    if (!isValidVNPhone(identifier)) {
+      return 'Số điện thoại không hợp lệ';
+    }
+    return null;
+  }
+
+  async function lookupIdentity() {
+    if (!identifier || checking || loading) return null;
+    if (hasFreshLookup) return identityLookup;
+
+    const validationError = validateIdentifier();
+    if (validationError) {
+      setIdentifierError(validationError);
+      return null;
+    }
+
+    setChecking(true);
+    setModalError(null);
+    const params = new URLSearchParams({ lookup_account_type: accountMethod, identifier });
+    const res = await fetch(`/api/tenants/${tenantId}/users?${params.toString()}`);
+    const data = await res.json().catch(() => ({}));
+    setChecking(false);
+
+    if (!res.ok) {
+      setModalError(data.message || 'Không thể kiểm tra tài khoản');
+      return null;
+    }
+
+    const result = data as IdentityLookup;
+    setIdentityLookup(result);
+    setCheckedIdentifier(lookupKey);
+    if (result.alreadyMember) {
+      setModalError('Tài khoản này đã là thành viên của workspace');
+    }
+    return result;
+  }
+
+  useEffect(() => {
+    function handleVisibilityChange() {
+      if (document.visibilityState === 'hidden' && identifier && !hasFreshLookup) {
+        void lookupIdentity();
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [accountMethod, identifier, hasFreshLookup, checking, loading]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+
+    const lookup = hasFreshLookup ? identityLookup : await lookupIdentity();
+    if (!lookup) return;
+    if (lookup.alreadyMember) {
+      setModalError('Tài khoản này đã là thành viên của workspace');
+      return;
+    }
+    if (!lookup.exists && password.length < 6) {
+      setModalError('Mật khẩu tối thiểu 6 ký tự');
+      return;
+    }
+
     setLoading(true);
+    setModalError(null);
 
     const body =
-      tab === 'workspace'
-        ? { account_type: 'workspace', username, display_name: displayName || undefined, password, role, tenant_slug: tenantSlug, shop_id: isShopScoped && shopId ? shopId : undefined }
-        : { account_type: 'personal', email, display_name: displayName || undefined, password, role, shop_id: isShopScoped && shopId ? shopId : undefined };
+      accountMethod === 'email'
+        ? { account_type: 'email', email: identifier, display_name: displayName || undefined, password: lookup.exists ? undefined : password, role, shop_id: isShopScoped && shopId ? shopId : undefined }
+        : { account_type: 'phone', phone: identifier, display_name: displayName || undefined, password: lookup.exists ? undefined : password, role, shop_id: isShopScoped && shopId ? shopId : undefined };
 
     const res = await fetch(`/api/tenants/${tenantId}/users`, {
       method: 'POST',
@@ -295,55 +389,104 @@ function AddMemberModal({ tenantId, tenantSlug, shops, roles, onClose, onSuccess
     });
     const data = await res.json().catch(() => ({}));
     setLoading(false);
-    if (!res.ok) { onError(data.message || 'Không thể tạo thành viên'); return; }
-    onSuccess('Đã thêm thành viên thành công');
+    if (!res.ok) { setModalError(data.message || 'Không thể tạo thành viên'); return; }
+    onSuccess(lookup.exists ? 'Đã liên kết thành viên vào shop hiện tại' : 'Đã thêm thành viên thành công');
   }
 
   return (
     <Modal title="Thêm thành viên" onClose={onClose}>
-      {/* Tab toggle */}
       <div className="flex rounded-xl border border-slate-200 p-1 gap-1 mb-5">
-        {(['workspace', 'personal'] as const).map((t) => (
+        {(['email', 'phone'] as const).map((method) => (
           <button
-            key={t}
+            key={method}
             type="button"
-            onClick={() => setTab(t)}
+            onClick={() => {
+              setAccountMethod(method);
+              setPassword('');
+              setModalError(null);
+              resetLookup();
+            }}
             className={`flex-1 rounded-lg py-1.5 text-sm font-medium transition-colors ${
-              tab === t ? 'bg-primary text-white' : 'text-slate-500 hover:text-slate-800'
+              accountMethod === method ? 'bg-primary text-white' : 'text-slate-500 hover:text-slate-800'
             }`}
           >
-            {t === 'workspace' ? 'Tài khoản workspace' : 'Email cá nhân'}
+            {method === 'email' ? 'Email' : 'Số điện thoại'}
           </button>
         ))}
       </div>
 
       <form onSubmit={onSubmit} className="space-y-4">
-        {/* Identifier */}
-        {tab === 'workspace' ? (
-          <Field label="Tên đăng nhập" hint="Chữ thường, số, dấu _  (3–30 ký tự)">
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value.toLowerCase().trim())}
-              placeholder="john_store"
-              required
-              className={inputCls}
-            />
+        {modalError && (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{modalError}</div>
+        )}
+
+        {accountMethod === 'email' ? (
+          <Field label="Email đăng nhập">
+            <div className="flex gap-2">
+              <input
+                type="email"
+                value={email}
+                onBlur={() => { void lookupIdentity(); }}
+                onChange={(e) => { setEmail(e.target.value.trim()); setModalError(null); resetLookup(); }}
+                placeholder="nguyen@gmail.com"
+                required
+                className={inputCls}
+              />
+              <button
+                type="button"
+                onClick={lookupIdentity}
+                disabled={checking || !identifier}
+                className="shrink-0 rounded-xl border border-slate-200 px-3 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+              >
+                {checking ? 'Đang kiểm tra...' : 'Kiểm tra'}
+              </button>
+            </div>
           </Field>
         ) : (
-          <Field label="Email cá nhân">
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value.trim())}
-              placeholder="nguyen@gmail.com"
-              required
-              className={inputCls}
-            />
+          <Field label="Số điện thoại đăng nhập" hint="Hỗ trợ định dạng 039..., 8439..., +8439...">
+            <div className="flex gap-2">
+              <input
+                type="tel"
+                inputMode="tel"
+                value={phone}
+                onBlur={() => { void lookupIdentity(); }}
+                onChange={(e) => { setPhone(e.target.value.trim()); setModalError(null); resetLookup(); }}
+                placeholder="0395591769"
+                required
+                className={inputCls}
+              />
+              <button
+                type="button"
+                onClick={lookupIdentity}
+                disabled={checking || !identifier}
+                className="shrink-0 rounded-xl border border-slate-200 px-3 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+              >
+                {checking ? 'Đang kiểm tra...' : 'Kiểm tra'}
+              </button>
+            </div>
           </Field>
         )}
 
-        <Field label="Tên hiển thị" hint="Tùy chọn">
+        {hasFreshLookup && identityLookup?.exists && (
+          <div className={`rounded-xl border px-3 py-2 text-sm ${identityLookup.alreadyMember ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-blue-200 bg-blue-50 text-blue-800'}`}>
+            <p className="font-medium">{identityLookup.alreadyMember ? 'Tài khoản đã là thành viên' : 'Tìm thấy tài khoản hiện có'}</p>
+            <p className="mt-0.5 text-xs">
+              {identityLookup.user?.display_name || identityLookup.user?.email || identityLookup.user?.phone || identityLookup.normalizedIdentifier}
+            </p>
+            {(identityLookup.user?.email || identityLookup.user?.phone) && (
+              <p className="mt-0.5 text-xs text-slate-500">{[identityLookup.user.email, identityLookup.user.phone].filter(Boolean).join(' · ')}</p>
+            )}
+          </div>
+        )}
+
+        {hasFreshLookup && identityLookup?.exists === false && (
+          <div className="rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">
+            <p className="font-medium">Chưa có tài khoản global</p>
+            <p className="mt-0.5 text-xs">Hệ thống sẽ tạo tài khoản mới với thông tin này.</p>
+          </div>
+        )}
+
+        <Field label="Tên hiển thị" hint={identityLookup?.exists ? 'Tùy chọn, để trống sẽ dùng tên hiện có' : 'Tùy chọn'}>
           <input
             type="text"
             value={displayName}
@@ -353,27 +496,29 @@ function AddMemberModal({ tenantId, tenantSlug, shops, roles, onClose, onSuccess
           />
         </Field>
 
-        <Field label="Mật khẩu">
-          <div className="relative">
-            <input
-              type={showPassword ? 'text' : 'password'}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Tối thiểu 6 ký tự"
-              required
-              minLength={6}
-              className={inputCls + ' pr-10'}
-            />
-            <button
-              type="button"
-              tabIndex={-1}
-              onClick={() => setShowPassword((v) => !v)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-            >
-              {showPassword ? <IconEyeOff /> : <IconEye />}
-            </button>
-          </div>
-        </Field>
+        {needsPassword && (
+          <Field label="Mật khẩu">
+            <div className="relative">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Tối thiểu 6 ký tự"
+                required
+                minLength={6}
+                className={inputCls + ' pr-10'}
+              />
+              <button
+                type="button"
+                tabIndex={-1}
+                onClick={() => setShowPassword((v) => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              >
+                {showPassword ? <IconEyeOff /> : <IconEye />}
+              </button>
+            </div>
+          </Field>
+        )}
 
         <div>
           <label className="mb-2 block text-sm font-medium text-slate-700">Vai trò & phạm vi</label>
@@ -412,7 +557,6 @@ function AddMemberModal({ tenantId, tenantSlug, shops, roles, onClose, onSuccess
           </div>
         </div>
 
-        {/* Shop selector — only for shop-scoped roles */}
         {isShopScoped && shops.length > 0 && (
           <Field label="Chi nhánh được phân công">
             <select
@@ -440,10 +584,10 @@ function AddMemberModal({ tenantId, tenantSlug, shops, roles, onClose, onSuccess
           </button>
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || checking || !hasFreshLookup || Boolean(identityLookup?.alreadyMember)}
             className="flex-1 rounded-xl bg-primary py-2.5 text-sm font-semibold text-white hover:bg-primary-dark disabled:opacity-60"
           >
-            {loading ? 'Đang tạo...' : 'Thêm thành viên'}
+            {loading ? 'Đang xử lý...' : identityLookup?.exists ? 'Liên kết thành viên' : 'Thêm thành viên'}
           </button>
         </div>
       </form>

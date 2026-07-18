@@ -1,4 +1,5 @@
 import { getSupabaseAdminClient } from './supabaseAdmin';
+import { normalizeVNPhone, toVNPhone84, toVNPhonePlus84 } from '../utils/phone';
 
 const USERNAME_REGEX = /^[a-z0-9_]{3,30}$/;
 // Strip port (e.g. localhost:3000 → localhost) so the fake email is always valid RFC 5321
@@ -12,6 +13,57 @@ export function parseFakeEmail(email: string): { username: string; tenantSlug: s
   const match = email.match(/^([^@]+)@([^.]+)\..+$/);
   if (!match) return null;
   return { username: match[1], tenantSlug: match[2] };
+}
+
+type AuthUserIdentity = {
+  id: string;
+  email?: string | null;
+  phone?: string | null;
+  user_metadata?: Record<string, unknown>;
+};
+
+async function findAuthUserByEmail(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+  email: string,
+): Promise<AuthUserIdentity | null> {
+  const perPage = 1000;
+  const normalizedEmail = email.toLowerCase();
+
+  for (let page = 1; page <= 100; page += 1) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
+    if (error) throw new Error(error.message);
+
+    const users = data?.users ?? [];
+    const existingUser = users.find((u) => u.email?.toLowerCase() === normalizedEmail);
+    if (existingUser) return existingUser;
+    if (users.length < perPage) break;
+  }
+
+  const { data: profileByLoginEmail } = await admin
+    .from('tenant_user_profiles')
+    .select('user_id, login_email')
+    .ilike('login_email', email)
+    .limit(1)
+    .maybeSingle();
+
+  if (!profileByLoginEmail?.user_id) return null;
+
+  const { data: authData, error: authError } = await admin.auth.admin.getUserById(profileByLoginEmail.user_id);
+  if (authError || !authData.user) {
+    return {
+      id: profileByLoginEmail.user_id,
+      email: profileByLoginEmail.login_email,
+      phone: null,
+      user_metadata: {},
+    };
+  }
+
+  return {
+    id: authData.user.id,
+    email: authData.user.email ?? profileByLoginEmail.login_email,
+    phone: authData.user.phone ?? null,
+    user_metadata: authData.user.user_metadata,
+  };
 }
 
 export type TenantUserRole = 'owner' | 'admin' | 'staff' | 'viewer';
@@ -35,13 +87,23 @@ export interface CreatePersonalUserParams {
   accountType: 'personal';
   tenantId: string;
   email: string;
-  password: string;
+  password?: string;
   displayName?: string;
   roleCode: string;
   shopId?: string;
 }
 
-export type CreateTenantUserParams = CreateWorkspaceUserParams | CreatePersonalUserParams;
+export interface CreatePhoneUserParams {
+  accountType: 'phone';
+  tenantId: string;
+  phone: string;
+  password?: string;
+  displayName?: string;
+  roleCode: string;
+  shopId?: string;
+}
+
+export type CreateTenantUserParams = CreateWorkspaceUserParams | CreatePersonalUserParams | CreatePhoneUserParams;
 
 export async function createTenantUser(params: CreateTenantUserParams) {
   const admin = getSupabaseAdminClient();
@@ -52,9 +114,11 @@ export async function createTenantUser(params: CreateTenantUserParams) {
 
   if (params.accountType === 'workspace') {
     return _createWorkspaceUser(params);
-  } else {
-    return _createPersonalUser(params);
   }
+  if (params.accountType === 'phone') {
+    return _createPhoneUser(params);
+  }
+  return _createPersonalUser(params);
 }
 
 async function _createWorkspaceUser(params: CreateWorkspaceUserParams) {
@@ -100,8 +164,7 @@ async function _createPersonalUser(params: CreatePersonalUserParams) {
   }
 
   // Check if email already registered — add to tenant without re-creating
-  const { data: existingAuth } = await admin.auth.admin.listUsers();
-  const existingUser = existingAuth?.users?.find((u) => u.email === email);
+  const existingUser = await findAuthUserByEmail(admin, email);
 
   if (existingUser) {
     // User already exists — just add to this tenant (if not already a member)
@@ -113,9 +176,20 @@ async function _createPersonalUser(params: CreatePersonalUserParams) {
       .maybeSingle();
     if (alreadyMember) throw new Error('Email này đã là thành viên của workspace');
 
-    return _finalizeUser({ admin, userId: existingUser.id, tenantId, roleCode, shopId, profile: {
-      username: null, display_name: displayName ?? email, account_type: 'personal', login_email: email,
+    const existingDisplayName =
+      typeof existingUser.user_metadata?.display_name === 'string'
+        ? existingUser.user_metadata.display_name
+        : typeof existingUser.user_metadata?.full_name === 'string'
+          ? existingUser.user_metadata.full_name
+          : email;
+
+    return _finalizeUser({ admin, userId: existingUser.id, tenantId, roleCode, shopId, deleteAuthOnFailure: false, profile: {
+      username: null, display_name: displayName ?? existingDisplayName, account_type: 'personal', login_email: email,
     }});
+  }
+
+  if (!password) {
+    throw new Error('Mật khẩu tối thiểu 6 ký tự');
   }
 
   // New user — create auth account
@@ -132,8 +206,147 @@ async function _createPersonalUser(params: CreatePersonalUserParams) {
   }});
 }
 
+async function _createPhoneUser(params: CreatePhoneUserParams) {
+  const { tenantId, phone, password, displayName, roleCode, shopId } = params;
+  const admin = getSupabaseAdminClient();
+  const normalizedPhone = normalizeVNPhone(phone);
+  const phonePlus84 = normalizedPhone ? toVNPhonePlus84(normalizedPhone) : null;
+  const phone84 = normalizedPhone ? toVNPhone84(normalizedPhone) : null;
+
+  if (!normalizedPhone || !phonePlus84 || !phone84) {
+    throw new Error('Số điện thoại không hợp lệ');
+  }
+
+  let existingUser: { id: string; email?: string | null; phone?: string | null; user_metadata?: Record<string, unknown> } | null = null;
+  const { data: existingPlus84, error: plus84Error } = await admin.rpc('get_user_by_phone', { p_phone: phonePlus84 });
+  if (!plus84Error && existingPlus84?.id) {
+    existingUser = existingPlus84;
+  }
+
+  if (!existingUser) {
+    const { data: existing84, error: phone84Error } = await admin.rpc('get_user_by_phone', { p_phone: phone84 });
+    if (!phone84Error && existing84?.id) {
+      existingUser = existing84;
+    }
+  }
+
+  if (existingUser) {
+    const { data: alreadyMember } = await admin
+      .from('tenant_user_profiles')
+      .select('id')
+      .eq('user_id', existingUser.id)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    if (alreadyMember) throw new Error('Số điện thoại này đã là thành viên của workspace');
+
+    const existingDisplayName =
+      typeof existingUser.user_metadata?.display_name === 'string'
+        ? existingUser.user_metadata.display_name
+        : typeof existingUser.user_metadata?.full_name === 'string'
+          ? existingUser.user_metadata.full_name
+          : normalizedPhone;
+
+    return _finalizeUser({ admin, userId: existingUser.id, tenantId, roleCode, shopId, deleteAuthOnFailure: false, profile: {
+      username: null, display_name: displayName ?? existingDisplayName, account_type: 'personal', login_email: normalizedPhone,
+    }});
+  }
+
+  if (!password) {
+    throw new Error('Mật khẩu tối thiểu 6 ký tự');
+  }
+
+  const { data: authData, error: authError } = await admin.auth.admin.createUser({
+    phone: phonePlus84,
+    password,
+    phone_confirm: true,
+    user_metadata: { display_name: displayName ?? normalizedPhone, phone: normalizedPhone },
+  });
+  if (authError || !authData.user) throw new Error(authError?.message ?? 'Không thể tạo tài khoản');
+
+  return _finalizeUser({ admin, userId: authData.user.id, tenantId, roleCode, shopId, profile: {
+    username: null, display_name: displayName ?? normalizedPhone, account_type: 'personal', login_email: normalizedPhone,
+  }});
+}
+
+export async function lookupTenantUserIdentity({
+  tenantId,
+  accountType,
+  identifier,
+}: {
+  tenantId: string;
+  accountType: 'email' | 'phone';
+  identifier: string;
+}) {
+  const admin = getSupabaseAdminClient();
+  const trimmedIdentifier = identifier.trim();
+
+  let existingUser: {
+    id: string;
+    email?: string | null;
+    phone?: string | null;
+    user_metadata?: Record<string, unknown>;
+  } | null = null;
+  let normalizedIdentifier = trimmedIdentifier;
+
+  if (accountType === 'email') {
+    existingUser = await findAuthUserByEmail(admin, trimmedIdentifier);
+  } else {
+    const normalizedPhone = normalizeVNPhone(trimmedIdentifier);
+    const phonePlus84 = normalizedPhone ? toVNPhonePlus84(normalizedPhone) : null;
+    const phone84 = normalizedPhone ? toVNPhone84(normalizedPhone) : null;
+
+    if (!normalizedPhone || !phonePlus84 || !phone84) {
+      throw new Error('Số điện thoại không hợp lệ');
+    }
+
+    normalizedIdentifier = normalizedPhone;
+
+    const { data: existingPlus84, error: plus84Error } = await admin.rpc('get_user_by_phone', { p_phone: phonePlus84 });
+    if (!plus84Error && existingPlus84?.id) {
+      existingUser = existingPlus84;
+    }
+
+    if (!existingUser) {
+      const { data: existing84, error: phone84Error } = await admin.rpc('get_user_by_phone', { p_phone: phone84 });
+      if (!phone84Error && existing84?.id) {
+        existingUser = existing84;
+      }
+    }
+  }
+
+  if (!existingUser) {
+    return { exists: false, alreadyMember: false, normalizedIdentifier };
+  }
+
+  const { data: profile } = await admin
+    .from('tenant_user_profiles')
+    .select('display_name')
+    .eq('user_id', existingUser.id)
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+
+  const metadataDisplayName =
+    typeof existingUser.user_metadata?.display_name === 'string'
+      ? existingUser.user_metadata.display_name
+      : typeof existingUser.user_metadata?.full_name === 'string'
+        ? existingUser.user_metadata.full_name
+        : null;
+
+  return {
+    exists: true,
+    alreadyMember: Boolean(profile),
+    normalizedIdentifier,
+    user: {
+      id: existingUser.id,
+      display_name: profile?.display_name ?? metadataDisplayName,
+      email: existingUser.email ?? null,
+      phone: existingUser.phone ?? null,
+    },
+  };
+}
+
 async function _finalizeUser({
-  admin, userId, tenantId, roleCode, shopId, profile,
+  admin, userId, tenantId, roleCode, shopId, profile, deleteAuthOnFailure = true,
 }: {
   admin: ReturnType<typeof import('./supabaseAdmin').getSupabaseAdminClient>;
   userId: string;
@@ -141,6 +354,7 @@ async function _finalizeUser({
   roleCode: string;
   shopId?: string;
   profile: { username: string | null; display_name: string; account_type: string; login_email: string };
+  deleteAuthOnFailure?: boolean;
 }) {
   try {
     const { error: profileErr } = await admin.from('tenant_user_profiles').insert({
@@ -164,7 +378,9 @@ async function _finalizeUser({
 
     return { userId, loginEmail: profile.login_email, username: profile.username };
   } catch (err) {
-    await admin.auth.admin.deleteUser(userId).catch(() => {});
+    if (deleteAuthOnFailure) {
+      await admin.auth.admin.deleteUser(userId).catch(() => {});
+    }
     throw err;
   }
 }
@@ -231,8 +447,45 @@ export async function deleteTenantUser(userId: string, tenantId: string) {
     .maybeSingle();
   if (!profile) throw new Error('Người dùng không thuộc workspace này');
 
-  const { error } = await admin.auth.admin.deleteUser(userId);
-  if (error) throw new Error(error.message);
+  const { data: tenantShops } = await admin.from('shops').select('id').eq('tenant_id', tenantId);
+  const shopIds = (tenantShops ?? []).map((shop) => shop.id);
+
+  if (shopIds.length > 0) {
+    const { error: shopErr } = await admin.from('user_shops').delete().eq('user_id', userId).in('shop_id', shopIds);
+    if (shopErr) throw new Error(shopErr.message);
+  }
+
+  const { error: tenantErr } = await admin.from('user_tenants').delete().eq('user_id', userId).eq('tenant_id', tenantId);
+  if (tenantErr) throw new Error(tenantErr.message);
+
+  const { error: profileErr } = await admin.from('tenant_user_profiles').delete().eq('id', profile.id);
+  if (profileErr) throw new Error(profileErr.message);
+
+  const { count: remainingProfiles } = await admin
+    .from('tenant_user_profiles')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId);
+  const { count: remainingTenantMemberships } = await admin
+    .from('user_tenants')
+    .select('user_id', { count: 'exact', head: true })
+    .eq('user_id', userId);
+  const { count: remainingShopMemberships } = await admin
+    .from('user_shops')
+    .select('user_id', { count: 'exact', head: true })
+    .eq('user_id', userId);
+
+  const isOrphan =
+    (remainingProfiles ?? 0) === 0 &&
+    (remainingTenantMemberships ?? 0) === 0 &&
+    (remainingShopMemberships ?? 0) === 0;
+
+  if (isOrphan) {
+    const { error } = await admin.auth.admin.deleteUser(userId);
+    if (error) throw new Error(error.message);
+    return { unlinked: true, deletedAuthUser: true };
+  }
+
+  return { unlinked: true, deletedAuthUser: false };
 }
 
 // ─── Reset password ───────────────────────────────────────────────────────────

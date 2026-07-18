@@ -29,8 +29,8 @@ export async function DELETE(
   if (!allowed) return NextResponse.json({ message: 'Forbidden' }, { status: 403 });
 
   try {
-    await deleteTenantUser(userId, tenantId);
-    return NextResponse.json({ ok: true });
+    const result = await deleteTenantUser(userId, tenantId);
+    return NextResponse.json({ ok: true, ...result });
   } catch (err: unknown) {
     return NextResponse.json(
       { message: err instanceof Error ? err.message : 'Không thể xóa người dùng' },

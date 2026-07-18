@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getSupabaseServerClient } from '../../../../../lib/server/supabaseServer';
 import { hasPermission } from '../../../../../lib/server/permissions';
-import { createTenantUser, listTenantUsers } from '../../../../../lib/server/tenantUsers';
+import { createTenantUser, listTenantUsers, lookupTenantUserIdentity } from '../../../../../lib/server/tenantUsers';
+import { isValidVNPhone } from '../../../../../lib/utils/phone';
 
 const baseSchema = z.object({
   display_name: z.string().min(1).max(100).optional(),
@@ -19,22 +20,61 @@ const workspaceSchema = baseSchema.extend({
   tenant_slug: z.string().min(1),
 });
 
+const emailSchema = baseSchema.extend({
+  account_type: z.literal('email'),
+  email: z.string().email('Email không hợp lệ'),
+  password: z.string().min(6, 'Mật khẩu tối thiểu 6 ký tự').optional(),
+});
+
+const phoneSchema = baseSchema.extend({
+  account_type: z.literal('phone'),
+  phone: z.string().refine(isValidVNPhone, 'Số điện thoại không hợp lệ'),
+  password: z.string().min(6, 'Mật khẩu tối thiểu 6 ký tự').optional(),
+});
+
 const personalSchema = baseSchema.extend({
   account_type: z.literal('personal'),
   email: z.string().email('Email không hợp lệ'),
-  password: z.string().min(6, 'Mật khẩu tối thiểu 6 ký tự'),
+  password: z.string().min(6, 'Mật khẩu tối thiểu 6 ký tự').optional(),
 });
 
-const createSchema = z.discriminatedUnion('account_type', [workspaceSchema, personalSchema]);
+const createSchema = z.discriminatedUnion('account_type', [workspaceSchema, emailSchema, phoneSchema, personalSchema]);
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ tenantId: string }> },
 ) {
   const { tenantId } = await params;
   const supabase = await getSupabaseServerClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
+
+  const url = new URL(req.url);
+  const lookupAccountType = url.searchParams.get('lookup_account_type');
+  const lookupIdentifier = url.searchParams.get('identifier');
+
+  if (lookupAccountType || lookupIdentifier) {
+    const allowed = await hasPermission(user.id, tenantId, 'users.invite');
+    if (!allowed) return NextResponse.json({ message: 'Forbidden' }, { status: 403 });
+
+    if ((lookupAccountType !== 'email' && lookupAccountType !== 'phone') || !lookupIdentifier) {
+      return NextResponse.json({ message: 'Dữ liệu kiểm tra không hợp lệ' }, { status: 400 });
+    }
+
+    try {
+      const result = await lookupTenantUserIdentity({
+        tenantId,
+        accountType: lookupAccountType,
+        identifier: lookupIdentifier,
+      });
+      return NextResponse.json(result);
+    } catch (err: unknown) {
+      return NextResponse.json(
+        { message: err instanceof Error ? err.message : 'Dữ liệu kiểm tra không hợp lệ' },
+        { status: 400 },
+      );
+    }
+  }
 
   const allowed = await hasPermission(user.id, tenantId, 'users.view');
   if (!allowed) return NextResponse.json({ message: 'Forbidden' }, { status: 403 });
@@ -85,15 +125,25 @@ export async function POST(
             roleCode: data.role,
             shopId: data.shop_id,
           }
-        : {
-            accountType: 'personal',
-            tenantId,
-            email: data.email,
-            password: data.password,
-            displayName: data.display_name,
-            roleCode: data.role,
-            shopId: data.shop_id,
-          },
+        : data.account_type === 'phone'
+          ? {
+              accountType: 'phone',
+              tenantId,
+              phone: data.phone,
+              password: data.password,
+              displayName: data.display_name,
+              roleCode: data.role,
+              shopId: data.shop_id,
+            }
+          : {
+              accountType: 'personal',
+              tenantId,
+              email: data.email,
+              password: data.password,
+              displayName: data.display_name,
+              roleCode: data.role,
+              shopId: data.shop_id,
+            },
     );
     return NextResponse.json({ ok: true, user: result }, { status: 201 });
   } catch (err: unknown) {
@@ -101,7 +151,9 @@ export async function POST(
     const status =
       message.includes('đã tồn tại') ||
       message.includes('đã là thành viên') ||
-      message.includes('giới hạn')
+      message.includes('giới hạn') ||
+      message.includes('không hợp lệ') ||
+      message.includes('Mật khẩu')
         ? 400
         : 500;
     return NextResponse.json({ message }, { status });
