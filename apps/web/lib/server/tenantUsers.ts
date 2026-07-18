@@ -15,6 +15,10 @@ export function parseFakeEmail(email: string): { username: string; tenantSlug: s
   return { username: match[1], tenantSlug: match[2] };
 }
 
+function buildPhoneAuthEmail(phone: string, tenantSlug: string): string {
+  return buildFakeEmail(phone, tenantSlug);
+}
+
 type AuthUserIdentity = {
   id: string;
   email?: string | null;
@@ -217,6 +221,17 @@ async function _createPhoneUser(params: CreatePhoneUserParams) {
     throw new Error('Số điện thoại không hợp lệ');
   }
 
+  const { data: tenant, error: tenantError } = await admin
+    .from('tenants')
+    .select('slug')
+    .eq('id', tenantId)
+    .maybeSingle();
+  if (tenantError || !tenant?.slug) {
+    throw new Error('Workspace không hợp lệ');
+  }
+
+  const maskedEmail = buildPhoneAuthEmail(normalizedPhone, tenant.slug);
+
   let existingUser: { id: string; email?: string | null; phone?: string | null; user_metadata?: Record<string, unknown> } | null = null;
   const { data: existingPlus84, error: plus84Error } = await admin.rpc('get_user_by_phone', { p_phone: phonePlus84 });
   if (!plus84Error && existingPlus84?.id) {
@@ -228,6 +243,11 @@ async function _createPhoneUser(params: CreatePhoneUserParams) {
     if (!phone84Error && existing84?.id) {
       existingUser = existing84;
     }
+  }
+
+  const maskedEmailUser = await findAuthUserByEmail(admin, maskedEmail);
+  if (maskedEmailUser?.id && (!existingUser || maskedEmailUser.id !== existingUser.id)) {
+    throw new Error('Email kỹ thuật của số điện thoại này đã thuộc tài khoản khác');
   }
 
   if (existingUser) {
@@ -246,6 +266,14 @@ async function _createPhoneUser(params: CreatePhoneUserParams) {
           ? existingUser.user_metadata.full_name
           : normalizedPhone;
 
+    if (!existingUser.email) {
+      const { error: emailSyncError } = await admin.auth.admin.updateUserById(existingUser.id, {
+        email: maskedEmail,
+        email_confirm: true,
+      });
+      if (emailSyncError) throw new Error(emailSyncError.message);
+    }
+
     return _finalizeUser({ admin, userId: existingUser.id, tenantId, roleCode, shopId, deleteAuthOnFailure: false, profile: {
       username: null, display_name: displayName ?? existingDisplayName, account_type: 'personal', login_email: normalizedPhone,
     }});
@@ -256,8 +284,10 @@ async function _createPhoneUser(params: CreatePhoneUserParams) {
   }
 
   const { data: authData, error: authError } = await admin.auth.admin.createUser({
+    email: maskedEmail,
     phone: phonePlus84,
     password,
+    email_confirm: true,
     phone_confirm: true,
     user_metadata: { display_name: displayName ?? normalizedPhone, phone: normalizedPhone },
   });
@@ -357,6 +387,11 @@ async function _finalizeUser({
   deleteAuthOnFailure?: boolean;
 }) {
   try {
+    const { data: authUser, error: authLookupError } = await admin.auth.admin.getUserById(userId);
+    if (authLookupError || !authUser.user) {
+      throw new Error('Không tìm thấy tài khoản Auth tương ứng để liên kết thành viên');
+    }
+
     const { error: profileErr } = await admin.from('tenant_user_profiles').insert({
       user_id: userId, tenant_id: tenantId, ...profile,
     });
