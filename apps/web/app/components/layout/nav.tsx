@@ -159,7 +159,7 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
       {
         label: 'Quản lý hệ thống',
         items: [
-          { href: '/super/tenants',    label: 'Tất cả tổ chức',  icon: Building2 },
+          { href: '/super/tenants',    label: 'Tất cả cửa hàng',  icon: Building2 },
           { href: '/super/plans',      label: 'Gói dịch vụ',     icon: CreditCard },
           { href: '/super/users',      label: 'Tìm người dùng',  icon: UserSearch },
           { href: '/super/invitations', label: 'Quản lý mã mời',  icon: Ticket },

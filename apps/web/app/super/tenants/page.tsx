@@ -64,8 +64,8 @@ export default async function SuperTenants({
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-slate-900">Tất cả tổ chức</h1>
-          <p className="text-sm text-slate-500 mt-0.5">{filtered.length} tổ chức</p>
+          <h1 className="text-xl font-bold text-slate-900">Tất cả cửa hàng</h1>
+          <p className="text-sm text-slate-500 mt-0.5">{filtered.length} cửa hàng</p>
         </div>
         <Link
           href="/super/tenants/create"
@@ -127,7 +127,7 @@ export default async function SuperTenants({
         </div>
       )}
 
-      <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+      <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 border-b border-slate-200">
             <tr>
@@ -143,7 +143,7 @@ export default async function SuperTenants({
             {filtered.length === 0 ? (
               <tr>
                 <td colSpan={6} className="px-4 py-12 text-center text-slate-400 text-sm">
-                  Không có tổ chức nào
+                  Chưa có cửa hàng nào
                 </td>
               </tr>
             ) : (
