@@ -34,6 +34,9 @@ interface Overview {
   ordersLastMonth: number;
   tenantsWithConnector: number;
   connectorErrors: number;
+  revenueToday?: number;
+  revenueThisMonth?: number;
+  revenueLastMonth?: number;
 }
 
 interface StatsData {
@@ -47,7 +50,7 @@ interface StatsData {
     id: string; name: string; slug: string;
     ordersMonth: number; ordersToday: number; products: number; customers: number;
   }[];
-  orderTrend: { date: string; count: number }[];
+  orderTrend: { date: string; count: number; revenue?: number }[];
   newTenantsTrend: { date: string; count: number }[];
   tenants: {
     id: string; name: string; slug: string;
@@ -122,7 +125,7 @@ function CompareCard({
 }
 
 function BarChart({ data, color = '#6366f1', emptyLabel, tooltipSuffix = 'đơn' }: {
-  data: { date: string; count: number }[];
+  data: { date: string; count: number; revenue?: number }[];
   color?: string;
   emptyLabel?: string;
   tooltipSuffix?: string;
@@ -161,8 +164,12 @@ function BarChart({ data, color = '#6366f1', emptyLabel, tooltipSuffix = 'đơn'
                 style={{ height: `${heightPx}px`, backgroundColor: color }}
               />
               {d.count > 0 && (
-                <div className="absolute bottom-full left-1/2 z-10 hidden -translate-x-1/2 whitespace-nowrap rounded-lg bg-slate-900 px-2 py-1 text-xs text-white shadow-lg group-hover:block">
-                  {formatMD(d.date)} - {d.count.toLocaleString('vi-VN')} {tooltipSuffix}
+                <div className="absolute bottom-full left-1/2 z-10 hidden -translate-x-1/2 whitespace-nowrap rounded-lg bg-slate-900 px-2 py-1.5 text-xs text-white shadow-lg group-hover:block">
+                  <div className="text-center font-medium">{formatMD(d.date)}</div>
+                  <div className="mt-0.5 text-slate-300">
+                    {d.count.toLocaleString('vi-VN')} {tooltipSuffix}
+                    {d.revenue ? ` · ${fmt(d.revenue)}đ` : ''}
+                  </div>
                 </div>
               )}
             </div>
@@ -375,16 +382,23 @@ export default function SuperDashboard() {
         </div>
       ) : ov ? (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          <StatCard icon={Building2}    label="Cửa hàng"      value={ov.totalTenants}   color="bg-indigo-50 text-indigo-600"   sub={`${ov.tenantsWithConnector} có connector`} />
+          {!selectedTenant && (
+            <StatCard icon={Building2}    label="Cửa hàng"      value={ov.totalTenants}   color="bg-indigo-50 text-indigo-600"   sub={`${ov.tenantsWithConnector} có connector`} />
+          )}
+          
           <StatCard icon={Store}        label="Chi nhánh"     value={ov.totalShops}     color="bg-blue-50 text-blue-600" />
           <StatCard icon={Users}        label="Thành viên"    value={ov.totalUsers}     color="bg-violet-50 text-violet-600" />
           <StatCard icon={Package}      label="Sản phẩm"      value={ov.totalProducts}  color="bg-amber-50 text-amber-600" />
           <StatCard icon={UserCheck}    label="Khách hàng"    value={ov.totalCustomers} color="bg-rose-50 text-rose-600" />
           <StatCard icon={ClipboardList} label="Tổng đơn hàng" value={ov.totalOrders}  color="bg-emerald-50 text-emerald-600" />
+          
+          {selectedTenant && (
+            <StatCard icon={TrendingUp}   label="Doanh thu (tháng)" value={ov.revenueThisMonth || 0} color="bg-indigo-50 text-indigo-600" />
+          )}
         </div>
       ) : null}
 
-      {/* ── Order comparison — 2 cols mobile, 4 cols sm+ ── */}
+      {/* ── Order/Revenue comparison — 2 cols mobile, 4 cols sm+ ── */}
       {isLoading ? (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24 sm:h-28" />)}
@@ -392,13 +406,22 @@ export default function SuperDashboard() {
       ) : ov ? (
         <div>
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Đơn hàng theo thời gian
+            {selectedTenant ? 'Đơn hàng & Doanh thu' : 'Đơn hàng theo thời gian'}
           </h2>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <CompareCard label="Hôm nay"    current={ov.ordersToday}     previous={ov.ordersYesterday} previousLabel="hôm qua" />
-            <CompareCard label="Hôm qua"    current={ov.ordersYesterday} previous={0}                  previousLabel="" />
-            <CompareCard label="7 ngày qua" current={ov.ordersLast7Days} previous={ov.ordersLastMonth > 0 ? Math.round(ov.ordersLastMonth * 7 / 30) : 0} previousLabel="tháng trước" />
             <CompareCard label="Tháng này"  current={ov.ordersThisMonth} previous={ov.ordersLastMonth} previousLabel="tháng trước" />
+            {!selectedTenant ? (
+              <>
+                <CompareCard label="Hôm qua"    current={ov.ordersYesterday} previous={0}                  previousLabel="" />
+                <CompareCard label="7 ngày qua" current={ov.ordersLast7Days} previous={ov.ordersLastMonth > 0 ? Math.round(ov.ordersLastMonth * 7 / 30) : 0} previousLabel="tháng trước" />
+              </>
+            ) : (
+              <>
+                <CompareCard label="Doanh thu hôm nay"   current={ov.revenueToday || 0}     previous={0} previousLabel="" />
+                <CompareCard label="Doanh thu tháng này" current={ov.revenueThisMonth || 0} previous={ov.revenueLastMonth || 0} previousLabel="tháng trước" />
+              </>
+            )}
           </div>
         </div>
       ) : null}

@@ -6,45 +6,41 @@ import { getConnectorForTenant } from '@/lib/server/connectorFactory';
 import type { IDataConnector } from '@oni/adapters';
 
 // ─── GMT+7 helpers ────────────────────────────────────────────────────────────
+// The database stores timezone-naive timestamps representing VN time.
+// We use "Fake UTC" Date objects where their internal UTC values actually represent VN local time.
 
 const TZ_MS = 7 * 60 * 60 * 1000;
 
 function nowGMT7(): Date {
-  const n = new Date();
-  return new Date(n.getTime() + n.getTimezoneOffset() * 60_000 + TZ_MS);
+  return new Date(Date.now() + TZ_MS);
 }
 
-/** Returns midnight of d, treating d's UTC values as local GMT+7 */
-function startOfDay(d: Date): Date {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+function startOfDay(dFake: Date): Date {
+  return new Date(Date.UTC(dFake.getUTCFullYear(), dFake.getUTCMonth(), dFake.getUTCDate()));
 }
 
-function subDays(base: Date, n: number): Date {
-  return new Date(base.getTime() - n * 86_400_000);
+function subDays(baseFake: Date, n: number): Date {
+  return new Date(baseFake.getTime() - n * 86_400_000);
 }
 
-function startOfMonth(d: Date, monthsBack = 0): Date {
-  const c = new Date(d);
+function startOfMonth(dFake: Date, monthsBack = 0): Date {
+  const c = new Date(dFake);
   c.setUTCDate(1);
   c.setUTCMonth(c.getUTCMonth() - monthsBack);
   c.setUTCHours(0, 0, 0, 0);
   return c;
 }
 
-/** 'YYYY-MM-DD' key in GMT+7 local time */
+/** 'YYYY-MM-DD' key from a fake UTC iso string */
 function dayKey(isoStr: string): string {
-  try {
-    const local = new Date(new Date(isoStr).getTime() + TZ_MS);
-    return local.toISOString().slice(0, 10);
-  } catch {
-    return '';
-  }
+  if (!isoStr) return '';
+  return isoStr.slice(0, 10);
 }
 
-function buildDayKeys(now: Date, days = 30): string[] {
+function buildDayKeys(nowFake: Date, days = 30): string[] {
   const keys: string[] = [];
   for (let i = days - 1; i >= 0; i--) {
-    const d = subDays(startOfDay(now), i);
+    const d = subDays(startOfDay(nowFake), i);
     keys.push(
       `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`,
     );
@@ -85,8 +81,11 @@ interface TenantStats {
   ordersLastMonth: number;
   productsTotal: number;
   customersTotal: number;
+  revenueToday: number;
+  revenueThisMonth: number;
+  revenueLastMonth: number;
   /** Only in single-tenant mode: orders by day for the last 30 days */
-  orderTrend: { date: string; count: number }[];
+  orderTrend: { date: string; count: number; revenue: number }[];
   ok: boolean;
 }
 
@@ -94,7 +93,9 @@ const ZERO = (id: string): TenantStats => ({
   tenantId: id,
   ordersTotal: 0, ordersToday: 0, ordersYesterday: 0,
   ordersLast7Days: 0, ordersThisMonth: 0, ordersLastMonth: 0,
-  productsTotal: 0, customersTotal: 0, orderTrend: [], ok: false,
+  productsTotal: 0, customersTotal: 0,
+  revenueToday: 0, revenueThisMonth: 0, revenueLastMonth: 0,
+  orderTrend: [], ok: false,
 });
 
 // ── Global mode: COUNT-only per tenant, no row fetching ───────────────────────
@@ -124,7 +125,9 @@ async function fetchCountsOnly(
       tenantId,
       ordersTotal, ordersToday, ordersYesterday,
       ordersLast7Days, ordersThisMonth, ordersLastMonth,
-      productsTotal, customersTotal, orderTrend: [], ok: true,
+      productsTotal, customersTotal,
+      revenueToday: 0, revenueThisMonth: 0, revenueLastMonth: 0,
+      orderTrend: [], ok: true,
     };
   } catch {
     return ZERO(tenantId);
@@ -139,23 +142,23 @@ async function fetchSingleTenantStats(
   tenantId: string,
   connector: IDataConnector,
   dayKeys: string[],
-  now: Date,
-  nowISO: string,
+  nowFake: Date,
+  nowFakeISO: string,
   dates: Record<string, string>,
 ): Promise<TenantStats> {
   try {
-    const todayMs       = startOfDay(now).getTime();
-    const yesterdayMs   = subDays(startOfDay(now), 1).getTime();
-    const last7Ms       = subDays(startOfDay(now), 6).getTime();
-    const thisMonthMs   = startOfMonth(now, 0).getTime();
-    const lastMonthMs   = startOfMonth(now, 1).getTime();
-    const thisMonthEnd  = startOfMonth(now, 0).getTime(); // = lastMonth upper bound
+    const todayMs       = startOfDay(nowFake).getTime();
+    const yesterdayMs   = subDays(startOfDay(nowFake), 1).getTime();
+    const last7Ms       = subDays(startOfDay(nowFake), 6).getTime();
+    const thisMonthMs   = startOfMonth(nowFake, 0).getTime();
+    const lastMonthMs   = startOfMonth(nowFake, 1).getTime();
+    const thisMonthEnd  = startOfMonth(nowFake, 0).getTime(); 
 
     const [ordersRes, productsRes, customersRes] = await Promise.all([
-      // Fetch recent orders (last 30 days + all time count needs a separate query)
+      // Fetch recent orders up to current VN time (nowFakeISO)
       connector.list('orders', {
         limit: 5000,
-        date_range: { column: 'created_at', start: dates.last30Start, end: nowISO },
+        date_range: { column: 'created_at', start: dates.lastMonthStart, end: nowFakeISO },
       }),
       connector.list('products', { limit: 1 }),
       connector.list('customers', { limit: 1 }).catch(() => ({ total: 0, data: [] })),
@@ -170,22 +173,46 @@ async function fetchSingleTenantStats(
     let ordersLast7Days = 0;
     let ordersThisMonth = 0;
     let ordersLastMonth = 0;
+    let revenueToday    = 0;
+    let revenueThisMonth = 0;
+    let revenueLastMonth = 0;
 
-    const byDay: Record<string, number> = Object.fromEntries(dayKeys.map((k) => [k, 0]));
+    const byDay: Record<string, { count: number; revenue: number }> = Object.fromEntries(
+      dayKeys.map((k) => [k, { count: 0, revenue: 0 }])
+    );
 
     for (const row of ordersRes.data) {
       const t = new Date(row.created_at || 0).getTime();
-      if (t >= todayMs)      ordersToday++;
+      const amount = Number(row.total_amount || row.amount || row.total || 0);
+
+      if (t >= todayMs) {
+        ordersToday++;
+        revenueToday += amount;
+      }
       if (t >= yesterdayMs && t < todayMs) ordersYesterday++;
-      if (t >= last7Ms)      ordersLast7Days++;
-      if (t >= thisMonthMs)  ordersThisMonth++;
-      if (t >= lastMonthMs && t < thisMonthEnd) ordersLastMonth++;
+      if (t >= last7Ms) ordersLast7Days++;
+
+      if (t >= thisMonthMs) {
+        ordersThisMonth++;
+        revenueThisMonth += amount;
+      }
+      if (t >= lastMonthMs && t < thisMonthEnd) {
+        ordersLastMonth++;
+        revenueLastMonth += amount;
+      }
 
       const k = dayKey(row.created_at);
-      if (k in byDay) byDay[k]++;
+      if (k in byDay) {
+        byDay[k].count++;
+        byDay[k].revenue += amount;
+      }
     }
 
-    const orderTrend = dayKeys.map((date) => ({ date, count: byDay[date] }));
+    const orderTrend = dayKeys.map((date) => ({
+      date,
+      count: byDay[date].count,
+      revenue: byDay[date].revenue,
+    }));
 
     return {
       tenantId,
@@ -194,6 +221,7 @@ async function fetchSingleTenantStats(
       ordersThisMonth, ordersLastMonth,
       productsTotal:   productsRes.total,
       customersTotal:  customersRes.total,
+      revenueToday, revenueThisMonth, revenueLastMonth,
       orderTrend, ok: true,
     };
   } catch {
@@ -213,20 +241,21 @@ export async function GET(req: NextRequest) {
     const isSingleTenant = Boolean(tenantId);
 
     const admin  = getSupabaseAdminClient();
-    const now    = nowGMT7();
-    const nowISO = new Date().toISOString();
+    
+    const nowFake    = nowGMT7();
+    const nowFakeISO = nowFake.toISOString();
 
-    const dayKeys30 = buildDayKeys(now, 30);
+    const dayKeys30 = buildDayKeys(nowFake, 30);
 
-    // Date boundaries
+    // Fake UTC boundaries matching VN midnight
     const dates = {
-      todayStart:     startOfDay(now).toISOString(),
-      yesterdayStart: subDays(startOfDay(now), 1).toISOString(),
-      yesterdayEnd:   new Date(startOfDay(now).getTime() - 1).toISOString(),
-      last7Start:     subDays(startOfDay(now), 6).toISOString(),
-      thisMonthStart: startOfMonth(now, 0).toISOString(),
-      lastMonthStart: startOfMonth(now, 1).toISOString(),
-      last30Start:    subDays(startOfDay(now), 29).toISOString(),
+      todayStart:     startOfDay(nowFake).toISOString(),
+      yesterdayStart: subDays(startOfDay(nowFake), 1).toISOString(),
+      yesterdayEnd:   new Date(startOfDay(nowFake).getTime() - 1).toISOString(),
+      last7Start:     subDays(startOfDay(nowFake), 6).toISOString(),
+      thisMonthStart: startOfMonth(nowFake, 0).toISOString(),
+      lastMonthStart: startOfMonth(nowFake, 1).toISOString(),
+      last30Start:    subDays(startOfDay(nowFake), 29).toISOString(),
     };
 
     // ── Supabase platform queries (never touch connector) ─────────────────────
@@ -290,8 +319,8 @@ export async function GET(req: NextRequest) {
             catch { return ZERO(t.id); }
 
             return isSingleTenant
-              ? fetchSingleTenantStats(t.id, connector, dayKeys30, now, nowISO, dates)
-              : fetchCountsOnly(t.id, connector, dates, nowISO);
+              ? fetchSingleTenantStats(t.id, connector, dayKeys30, nowFake, nowFakeISO, dates)
+              : fetchCountsOnly(t.id, connector, dates, nowFakeISO);
           };
           return withTimeout(work().catch(() => ZERO(t.id)), TIMEOUT_MS, ZERO(t.id));
         }),
