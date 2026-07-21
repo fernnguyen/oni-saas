@@ -136,18 +136,34 @@ export async function signInWithZalo(): Promise<SocialAuthResult> {
     throw new Error('Zalo SDK chưa được cài đặt đúng cách. Vui lòng build lại app.');
   }
 
-  // Gọi native SDK — mở app Zalo nếu có, không thì mở WebView
+  // Gọi native SDK — mở app Zalo nếu có, không thì mở WebView.
+  // SDK sẽ tự xử lý deep link callback nội bộ (qua ZDKApplicationDelegate)
+  // rồi resolve Promise với oauthCode.
   const zaloResult = await ZaloKit.login('AUTH_VIA_APP_OR_WEB');
 
   if (!zaloResult?.oauthCode) {
     throw new Error('Zalo không trả về mã xác thực. Vui lòng thử lại.');
   }
 
-  // Trao đổi token an toàn qua Supabase Edge Function
+  return await exchangeZaloCodeForSession(
+    zaloResult.oauthCode,
+    zaloResult.codeVerifier ?? ''
+  );
+}
+
+/**
+ * Dùng chung cho cả signInWithZalo (SDK Promise) và ZaloOAuthCallback (deep link).
+ * Trao đổi oauthCode → Supabase session qua Edge Function zalo-auth.
+ */
+export async function exchangeZaloCodeForSession(
+  oauthCode: string,
+  codeVerifier: string
+): Promise<SocialAuthResult> {
+  // Dùng hằng số module-level ZALO_APP_ID (đã khai báo ở trên, tránh shadow variable)
   const { data: fnData, error: fnError } = await supabase.functions.invoke('zalo-auth', {
     body: {
-      oauthCode: zaloResult.oauthCode,
-      codeVerifier: zaloResult.codeVerifier ?? '',
+      oauthCode,
+      codeVerifier,
       appId: ZALO_APP_ID,
     },
   });
@@ -160,7 +176,6 @@ export async function signInWithZalo(): Promise<SocialAuthResult> {
     throw new Error('Không nhận được phiên từ máy chủ sau khi xác thực Zalo.');
   }
 
-  // Thiết lập Supabase session từ token Edge Function trả về
   const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
     access_token: fnData.access_token,
     refresh_token: fnData.refresh_token,
