@@ -40,6 +40,9 @@ function withZaloIosPlist(config, { appID }) {
       }
     });
 
+    // Thêm ZaloAppID (rất quan trọng, nếu thiếu SDK sẽ crash trên iOS)
+    plist.ZaloAppID = appID;
+
     return config;
   });
 }
@@ -48,32 +51,59 @@ function withZaloIosPlist(config, { appID }) {
 function withZaloAppDelegate(config, { appID }) {
   return withAppDelegate(config, (config) => {
     let appDelegate = config.modResults.contents;
+    const isSwift = config.modResults.language === 'swift';
 
-    // Thêm import ZaloSDK
-    if (!appDelegate.includes('#import <ZaloSDK/ZaloSDK.h>')) {
-      appDelegate = appDelegate.replace(
-        '#import "AppDelegate.h"',
-        '#import "AppDelegate.h"\n#import <ZaloSDK/ZaloSDK.h>'
-      );
-    }
+    if (isSwift) {
+      // 1. Thêm import
+      if (!appDelegate.includes('import ZaloSDK')) {
+        appDelegate = appDelegate.replace(
+          'import ReactAppDependencyProvider',
+          'import ReactAppDependencyProvider\nimport ZaloSDK'
+        );
+      }
 
-    // Khởi tạo SDK trong didFinishLaunchingWithOptions
-    const zaloInit = `  [[ZaloSDK sharedInstance] initializeWithAppId:@"${appID}"];`;
-    if (!appDelegate.includes('initializeWithAppId')) {
-      appDelegate = appDelegate.replace(
-        'return [super application:application didFinishLaunchingWithOptions:launchOptions];',
-        `${zaloInit}\n  return [super application:application didFinishLaunchingWithOptions:launchOptions];`
-      );
-    }
+      // 2. Khởi tạo trong didFinishLaunchingWithOptions
+      const swiftInit = `    ZaloSDK.sharedInstance().initialize(withAppId: "${appID}")`;
+      if (!appDelegate.includes('ZaloSDK.sharedInstance().initialize(withAppId:')) {
+        appDelegate = appDelegate.replace(
+          'let delegate = ReactNativeDelegate()',
+          `${swiftInit}\n    let delegate = ReactNativeDelegate()`
+        );
+      }
 
-    // Xử lý URL callback từ Zalo
-    const handleOpenURL = `
+      // 3. Xử lý openURL
+      const swiftOpenUrl = `    ZaloSDK.sharedInstance().application(app, open: url, options: options)`;
+      if (!appDelegate.includes('ZaloSDK.sharedInstance().application(app, open: url')) {
+        appDelegate = appDelegate.replace(
+          'return super.application(app, open: url, options: options)',
+          `${swiftOpenUrl}\n    return super.application(app, open: url, options: options)`
+        );
+      }
+    } else {
+      // Objective-C (legacy)
+      if (!appDelegate.includes('#import <ZaloSDK/ZaloSDK.h>')) {
+        appDelegate = appDelegate.replace(
+          '#import "AppDelegate.h"',
+          '#import "AppDelegate.h"\n#import <ZaloSDK/ZaloSDK.h>'
+        );
+      }
+
+      const zaloInit = `  [[ZaloSDK sharedInstance] initializeWithAppId:@"${appID}"];`;
+      if (!appDelegate.includes('initializeWithAppId')) {
+        appDelegate = appDelegate.replace(
+          'return [super application:application didFinishLaunchingWithOptions:launchOptions];',
+          `${zaloInit}\n  return [super application:application didFinishLaunchingWithOptions:launchOptions];`
+        );
+      }
+
+      const handleOpenURL = `
 - (BOOL)application:(UIApplication *)application openURL:(NSURL *)url options:(NSDictionary<UIApplicationOpenURLOptionsKey,id> *)options {
   return [[ZaloSDK sharedInstance] application:application openURL:url options:options];
 }
 `;
-    if (!appDelegate.includes('ZaloSDK sharedInstance] application:application openURL:')) {
-      appDelegate = appDelegate.replace('@end', `${handleOpenURL}\n@end`);
+      if (!appDelegate.includes('ZaloSDK sharedInstance] application:application openURL:')) {
+        appDelegate = appDelegate.replace('@end', `${handleOpenURL}\n@end`);
+      }
     }
 
     config.modResults.contents = appDelegate;

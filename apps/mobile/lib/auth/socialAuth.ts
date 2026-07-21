@@ -137,7 +137,7 @@ export async function signInWithZalo(): Promise<SocialAuthResult> {
   }
 
   // Gọi native SDK — mở app Zalo nếu có, không thì mở WebView
-  const zaloResult = await ZaloKit.login(ZaloKit.AUTH_VIA_APP_OR_WEB);
+  const zaloResult = await ZaloKit.login('AUTH_VIA_APP_OR_WEB');
 
   if (!zaloResult?.oauthCode) {
     throw new Error('Zalo không trả về mã xác thực. Vui lòng thử lại.');

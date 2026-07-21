@@ -106,7 +106,7 @@ Deno.serve(async (req: Request) => {
     const zaloAvatar: string | null = profile.picture?.data?.url ?? null;
 
     // Email placeholder duy nhất cho Zalo user (Zalo không bắt buộc trả về email)
-    const placeholderEmail = `zalo_${zaloId}@zalo.oni.vn`;
+    const placeholderEmail = `zalo_${zaloId}@oni.vn`;
 
     // ── BƯỚC 3: Tìm hoặc tạo Supabase user ────────────────────────────────────
     const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {

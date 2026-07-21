@@ -5,6 +5,7 @@ project_id = "ddkjsthxnskdncefnuhi"
 #   - sepay-webhook   : checks "Apikey {SEPAY_WEBHOOK_API_KEY}" header
 #   - create-sepay-order : verifies Bearer JWT via _shared/auth.ts
 #   - check-sepay-order  : verifies Bearer JWT via _shared/auth.ts
+#   - zalo-auth          : login flow, no JWT available yet. Verified via Zalo API + App Secret.
 
 [functions.sepay-webhook]
 verify_jwt = false
@@ -13,4 +14,7 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.check-sepay-order]
+verify_jwt = false
+
+[functions.zalo-auth]
 verify_jwt = false

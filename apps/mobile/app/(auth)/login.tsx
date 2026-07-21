@@ -22,7 +22,7 @@ import {
   GOOGLE_ANDROID_CLIENT_ID,
   GOOGLE_WEB_CLIENT_ID,
 } from '../../lib/auth/socialAuth';
-
+import { isValidVNPhone, toVNPhone84, toVNPhonePlus84, formatPhoneAsEmail } from '../../lib/utils/phone';
 WebBrowser.maybeCompleteAuthSession();
 
 
@@ -273,29 +273,63 @@ export default function LoginScreen() {
  setIsLoading(true);
  try {
  const trimmedTenant = tenantCode.trim().toLowerCase();
- const trimmedEmail = email.trim();
+ const identifier = email.trim();
 
  // Lưu lại thông tin đăng nhập thành công
  await AsyncStorage.setItem('saved_tenant_code', trimmedTenant);
- await AsyncStorage.setItem('saved_email', trimmedEmail);
+ await AsyncStorage.setItem('saved_email', identifier);
  await AsyncStorage.setItem('active_tenant_code', trimmedTenant);
  setIsTenantCodeSaved(true);
 
- // Gọi Supabase Auth thực tế
- const {data, error} = await supabase.auth.signInWithPassword({
- email: trimmedEmail,
- password: password,
-});
+ const isEmail = identifier.includes('@');
+ const isPhone = !isEmail && isValidVNPhone(identifier);
 
- if (error) {
+ const attempts: Array<{ email: string } | { phone: string }> = [];
+
+ if (isPhone) {
+   const phonePlus84 = toVNPhonePlus84(identifier);
+   const phone84 = toVNPhone84(identifier);
+   
+   if (phonePlus84) attempts.push({ phone: phonePlus84 });
+   if (phone84 && phone84 !== phonePlus84) attempts.push({ phone: phone84 });
+   
+   if (phone84) {
+     attempts.push({ email: `zalo_${phone84}@oni.vn` });
+   }
+   attempts.push({ email: formatPhoneAsEmail(identifier) });
+ } else if (isEmail) {
+   attempts.push({ email: identifier });
+ } else {
+   // Plain username
+   attempts.push({ email: `${identifier}@${trimmedTenant}.oni.vn` });
+ }
+
+ let signInError = null;
+ let signInData = null;
+
+ for (const attempt of attempts) {
+   const { data: resData, error } = await supabase.auth.signInWithPassword({
+     ...attempt,
+     password: password,
+   } as any);
+
+   if (!error) {
+     signInError = null;
+     signInData = resData;
+     break;
+   }
+   signInError = error;
+ }
+
+ if (signInError) {
  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
  Alert.alert('Đăng nhập thất bại', 'Sai thông tin tài khoản hoặc mật khẩu.');
  setIsLoading(false);
  return;
 }
 
- if (data?.user) {
-    const fullName = data.user.user_metadata?.full_name || data.user.user_metadata?.name || trimmedEmail.split('@')[0];
+ if (signInData?.user) {
+    const fullName = signInData.user.user_metadata?.full_name || signInData.user.user_metadata?.name || identifier.split('@')[0];
     await AsyncStorage.setItem('user_name', fullName);
   }
 
@@ -303,7 +337,7 @@ export default function LoginScreen() {
  setIsLoading(false);
 
  // Đề xuất sinh trắc học nếu khả dụng
- const didOffer = await checkAndOfferBiometrics(trimmedTenant, trimmedEmail);
+ const didOffer = await checkAndOfferBiometrics(trimmedTenant, identifier);
  if (!didOffer) {
    router.push('/(auth)/select-branch');
  }
@@ -507,10 +541,9 @@ export default function LoginScreen() {
       showsVerticalScrollIndicator={false}
     >
       <View style={{flex: 1, justifyContent: 'space-between'}}>
-        <View style={{height: 20}} />
 
  {/* 1. BRAND HEADER & LOGO THƯƠNG HIỆU */}
- <View style={{alignItems: 'center', marginTop: 30}}>
+ <View style={{alignItems: 'center', marginTop: 10}}>
  <Image 
  source={require('../../assets/logo.png')} 
  style={{width: 76, height: 76, resizeMode: 'contain', marginBottom: 12}} 
@@ -607,9 +640,9 @@ export default function LoginScreen() {
     </>
   )}
 
-  {/* Tên Đăng nhập / Email */}
+  {/* Tên Đăng nhập / Email / SĐT */}
   <Text style={{fontSize: 14, color: '#64748b', fontWeight: '600', letterSpacing: 0.5, marginBottom: 6}}>
-    Tên đăng nhập / Email
+    Tên đăng nhập / Email / SĐT
   </Text>
   <View style={{
     flexDirection: 'row', 
@@ -624,7 +657,7 @@ export default function LoginScreen() {
   }}>
     <Ionicons name="mail-outline" size={16} color="#94a3b8" />
     <TextInput
-      placeholder="admin@oni.vn"
+      placeholder="admin / 098... / email@oni.vn"
       placeholderTextColor="#cbd5e1"
       value={email}
       onChangeText={setEmail}
@@ -742,114 +775,104 @@ export default function LoginScreen() {
  {/* ── SOCIAL LOGIN SECTION ─────────────────────────────────── */}
  <View style={{marginTop: 4, marginBottom: 8}}>
    {/* Divider "hoặc" */}
-   <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 16}}>
+   <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 20}}>
      <View style={{flex: 1, height: 1, backgroundColor: '#e2e8f0'}} />
      <Text style={{fontSize: 12, color: '#94a3b8', fontWeight: '500', marginHorizontal: 12}}>hoặc đăng nhập bằng</Text>
      <View style={{flex: 1, height: 1, backgroundColor: '#e2e8f0'}} />
    </View>
 
-   {/* Nút Apple — chỉ hiện trên iOS khi Apple auth khả dụng */}
-   {isAppleAvailable && (
+   <View style={{flexDirection: 'row', justifyContent: 'center', gap: 20}}>
+     {/* Nút Apple */}
+     {isAppleAvailable && (
+       <TouchableOpacity
+         activeOpacity={0.85}
+         onPress={handleAppleLogin}
+         disabled={isSocialLoading !== null || isLoading}
+         style={{
+           width: 56,
+           height: 56,
+           borderRadius: 28,
+           backgroundColor: '#000000',
+           alignItems: 'center',
+           justifyContent: 'center',
+           opacity: isSocialLoading !== null ? 0.6 : 1,
+           shadowColor: '#000',
+           shadowOffset: {width: 0, height: 4},
+           shadowOpacity: 0.1,
+           shadowRadius: 8,
+           elevation: 2,
+         }}
+       >
+         {isSocialLoading === 'apple' ? (
+           <ActivityIndicator size="small" color="#ffffff" />
+         ) : (
+           <Ionicons name="logo-apple" size={24} color="#ffffff" />
+         )}
+       </TouchableOpacity>
+     )}
+
+     {/* Nút Google */}
      <TouchableOpacity
        activeOpacity={0.85}
-       onPress={handleAppleLogin}
-       disabled={isSocialLoading !== null || isLoading}
+       onPress={handleGoogleLogin}
+       disabled={isSocialLoading !== null || isLoading || !googleRequest}
        style={{
-         flexDirection: 'row',
+         width: 56,
+         height: 56,
+         borderRadius: 28,
+         backgroundColor: '#ffffff',
          alignItems: 'center',
          justifyContent: 'center',
-         backgroundColor: '#000000',
-         borderRadius: 14,
-         height: 52,
-         marginBottom: 10,
+         borderWidth: 1,
+         borderColor: '#dadce0',
          opacity: isSocialLoading !== null ? 0.6 : 1,
+         shadowColor: '#000',
+         shadowOffset: {width: 0, height: 2},
+         shadowOpacity: 0.05,
+         shadowRadius: 4,
+         elevation: 1,
        }}
      >
-       {isSocialLoading === 'apple' ? (
-         <ActivityIndicator size="small" color="#ffffff" />
+       {isSocialLoading === 'google' ? (
+         <ActivityIndicator size="small" color="#4285F4" />
        ) : (
-         <>
-           <Ionicons name="logo-apple" size={20} color="#ffffff" style={{marginRight: 8}} />
-           <Text style={{color: '#ffffff', fontWeight: '600', fontSize: 15, letterSpacing: 0.2}}>
-             Tiếp tục với Apple
-           </Text>
-         </>
-       )}
-     </TouchableOpacity>
-   )}
-
-   {/* Nút Google */}
-   <TouchableOpacity
-     activeOpacity={0.85}
-     onPress={handleGoogleLogin}
-     disabled={isSocialLoading !== null || isLoading || !googleRequest}
-     style={{
-       flexDirection: 'row',
-       alignItems: 'center',
-       justifyContent: 'center',
-       backgroundColor: '#ffffff',
-       borderRadius: 14,
-       height: 52,
-       marginBottom: 10,
-       borderWidth: 1.5,
-       borderColor: '#dadce0',
-       opacity: isSocialLoading !== null ? 0.6 : 1,
-       shadowColor: '#000',
-       shadowOffset: {width: 0, height: 1},
-       shadowOpacity: 0.06,
-       shadowRadius: 4,
-       elevation: 1,
-     }}
-   >
-     {isSocialLoading === 'google' ? (
-       <ActivityIndicator size="small" color="#4285F4" />
-     ) : (
-       <>
          <Image
            source={require('../../assets/google.png')}
-           style={{width: 22, height: 22, marginRight: 10}}
+           style={{width: 26, height: 26}}
          />
-         <Text style={{color: '#3c4043', fontWeight: '600', fontSize: 15, letterSpacing: 0.2}}>
-           Tiếp tục với Google
-         </Text>
-       </>
-     )}
-   </TouchableOpacity>
+       )}
+     </TouchableOpacity>
 
-   {/* Nút Zalo */}
-   <TouchableOpacity
-     activeOpacity={0.85}
-     onPress={handleZaloLogin}
-     disabled={isSocialLoading !== null || isLoading}
-     style={{
-       flexDirection: 'row',
-       alignItems: 'center',
-       justifyContent: 'center',
-       backgroundColor: '#0068ff',
-       borderRadius: 14,
-       height: 52,
-       opacity: isSocialLoading !== null ? 0.6 : 1,
-       shadowColor: '#0068ff',
-       shadowOffset: {width: 0, height: 4},
-       shadowOpacity: 0.2,
-       shadowRadius: 8,
-       elevation: 3,
-     }}
-   >
-     {isSocialLoading === 'zalo' ? (
-       <ActivityIndicator size="small" color="#ffffff" />
-     ) : (
-       <>
+     {/* Nút Zalo */}
+     <TouchableOpacity
+       activeOpacity={0.85}
+       onPress={handleZaloLogin}
+       disabled={isSocialLoading !== null || isLoading}
+       style={{
+         width: 56,
+         height: 56,
+         borderRadius: 28,
+         backgroundColor: '#0068ff',
+         alignItems: 'center',
+         justifyContent: 'center',
+         opacity: isSocialLoading !== null ? 0.6 : 1,
+         shadowColor: '#0068ff',
+         shadowOffset: {width: 0, height: 4},
+         shadowOpacity: 0.2,
+         shadowRadius: 8,
+         elevation: 3,
+       }}
+     >
+       {isSocialLoading === 'zalo' ? (
+         <ActivityIndicator size="small" color="#ffffff" />
+       ) : (
          <Image
            source={require('../../assets/zalo.png')}
-           style={{width: 22, height: 22, borderRadius: 4, marginRight: 8}}
+           style={{width: 32, height: 32, borderRadius: 6}}
          />
-         <Text style={{color: '#ffffff', fontWeight: '600', fontSize: 15, letterSpacing: 0.2}}>
-           Đăng nhập với Zalo
-         </Text>
-       </>
-     )}
-   </TouchableOpacity>
+       )}
+     </TouchableOpacity>
+   </View>
  </View>
 
   {/* 3. CHÂN TRANG FOOTER */}

@@ -666,13 +666,28 @@ export default function SelectBranchScreen() {
  </View>
  ) : branches.length === 0 ? (
  <View className="flex-1 justify-center items-center">
- <Ionicons name="storefront-outline" size={48} color="#cbd5e1" />
- <Text className="text-xs text-slate-450 font-medium mt-3 text-center">Không tìm thấy chi nhánh hoạt động nào.</Text>
+ <Ionicons name="alert-circle-outline" size={56} color="#cbd5e1" />
+ <Text className="text-[15px] text-slate-800 font-bold mt-4 text-center">Bạn không có gian hàng nào</Text>
+ <Text className="text-[13px] text-slate-500 font-medium mt-2 text-center leading-relaxed px-4">
+   Vui lòng chắc chắn rằng người quản lý cửa hàng đã phân quyền hoặc tạo tài khoản đúng với thông tin mà bạn vừa sử dụng để đăng nhập.
+ </Text>
  <TouchableOpacity 
- className="mt-4 bg-orange-500 px-4 py-2 rounded-xl"
- onPress={() => setRefreshTrigger(p => p + 1)}
+ className="mt-8 bg-slate-800 active:bg-slate-700 px-8 py-3.5 rounded-2xl flex-row items-center shadow-sm"
+ onPress={async () => {
+    try {
+      await supabase.auth.signOut();
+      await AsyncStorage.removeItem('active_tenant_code');
+      await AsyncStorage.removeItem('active_tenant_id');
+      await AsyncStorage.removeItem('active_shop_id');
+      await AsyncStorage.removeItem('active_shop_name');
+      router.replace('/(auth)/login');
+    } catch (e) {
+      router.replace('/(auth)/login');
+    }
+ }}
  >
- <Text className="text-white text-xs font-medium">Thử lại</Text>
+ <Ionicons name="log-out-outline" size={18} color="white" style={{marginRight: 6}} />
+ <Text className="text-white text-sm font-semibold">Đăng xuất</Text>
  </TouchableOpacity>
  </View>
  ) : (
@@ -752,17 +767,17 @@ export default function SelectBranchScreen() {
  <View style={{height: '100%', backgroundColor: '#fa5908', width: `${Math.min(100, Math.max(0, syncProgress * 100))}%`}} />
  </View>
  </View>
- ) : (
+ ) : branches.length > 0 ? (
  <TouchableOpacity 
  className="bg-orange-500 active:bg-orange-600 py-4 rounded-2xl items-center shadow-lg shadow-orange-500/20 flex-row justify-center w-full"
  style={{alignSelf: 'stretch'}}
  onPress={handleStartSession}
- disabled={isLoading || branches.length === 0}
+ disabled={isLoading}
  >
  <Text className="text-white font-medium text-sm mr-1.5">Bắt đầu ca làm việc</Text>
  <Ionicons name="play" size={16} color="white" />
  </TouchableOpacity>
- )}
+ ) : null}
  </View>
 
  <Modal
