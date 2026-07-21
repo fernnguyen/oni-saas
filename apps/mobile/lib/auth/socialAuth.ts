@@ -131,7 +131,7 @@ export async function signInWithZalo(): Promise<SocialAuthResult> {
   // Import động để tránh lỗi trên web/simulator không có native module
   let ZaloKit: any;
   try {
-    ZaloKit = require('react-native-zalo-kit').default;
+    ZaloKit = require('react-native-zalo-kit');
   } catch (e) {
     throw new Error('Zalo SDK chưa được cài đặt đúng cách. Vui lòng build lại app.');
   }

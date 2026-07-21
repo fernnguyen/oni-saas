@@ -109,9 +109,9 @@
       "eas": {
         "projectId": "3e9d8515-e699-4f8a-90d0-d7df57b5cb9c"
       },
-      "googleIosClientId": "GOOGLE_IOS_CLIENT_ID_PLACEHOLDER",
-      "googleAndroidClientId": "GOOGLE_ANDROID_CLIENT_ID_PLACEHOLDER",
-      "googleWebClientId": "GOOGLE_WEB_CLIENT_ID_PLACEHOLDER",
+      "googleIosClientId": "700659794993-1dbt8dnh3qma4qsp6nstpuagclmv0pn5.apps.googleusercontent.com",
+      "googleAndroidClientId": "700659794993-06c158bp86vsjeoh92df4usqeuinhfk1.apps.googleusercontent.com",
+      "googleWebClientId": "700659794993-pbpi258rkhbh3r0a5otoppkhdv5br880.apps.googleusercontent.com",
       "zaloAppId": "600170175253575588"
     }
   }
