@@ -2,7 +2,7 @@
   "expo": {
     "name": "Oni POS",
     "slug": "oni-pos",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "orientation": "default",
     "userInterfaceStyle": "light",
     "icon": "./assets/icon.png",
@@ -34,7 +34,7 @@
         "ITSAppUsesNonExemptEncryption": false,
         "LSApplicationQueriesSchemes": ["zalosdk", "zaloshareext"]
       },
-      "buildNumber": "3"
+      "buildNumber": "4"
     },
     "android": {
       "package": "vn.oni.pos",
@@ -49,7 +49,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "versionCode": 3
+      "versionCode": 4
     },
     "plugins": [
       [
