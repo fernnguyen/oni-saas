@@ -71,13 +71,29 @@ function withZaloAppDelegate(config, { appID }) {
         );
       }
 
-      // 3. Xử lý openURL
-      const swiftOpenUrl = `    ZaloSDK.sharedInstance().application(app, open: url, options: options)`;
-      if (!appDelegate.includes('ZaloSDK.sharedInstance().application(app, open: url')) {
-        appDelegate = appDelegate.replace(
-          'return super.application(app, open: url, options: options)',
-          `${swiftOpenUrl}\n    return super.application(app, open: url, options: options)`
-        );
+      // 3. Xử lý openURL — PHẢI dùng ZDKApplicationDelegate, không phải ZaloSDK
+      const swiftOpenUrl = `    ZDKApplicationDelegate.sharedInstance().application(app, open: url, options: options)`;
+      if (!appDelegate.includes('ZDKApplicationDelegate.sharedInstance().application(app, open: url')) {
+        // Trường hợp 1: đã có override application(_:open:options:) → chèn vào trước return
+        if (appDelegate.includes('return super.application(app, open: url, options: options)')) {
+          appDelegate = appDelegate.replace(
+            'return super.application(app, open: url, options: options)',
+            `${swiftOpenUrl}\n    return super.application(app, open: url, options: options)`
+          );
+        } else {
+          // Trường hợp 2: chưa có override → thêm func mới trước dấu đóng class
+          const openUrlFunc = `
+  public override func application(
+    _ app: UIApplication,
+    open url: URL,
+    options: [UIApplication.OpenURLOptionsKey: Any] = [:]
+  ) -> Bool {
+    ZDKApplicationDelegate.sharedInstance().application(app, open: url, options: options)
+    return super.application(app, open: url, options: options)
+  }
+`;
+          appDelegate = appDelegate.replace(/}\s*$/, `${openUrlFunc}\n}`);
+        }
       }
     } else {
       // Objective-C (legacy)
