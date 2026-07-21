@@ -71,14 +71,15 @@ function withZaloAppDelegate(config, { appID }) {
         );
       }
 
-      // 3. Xử lý openURL — PHẢI dùng ZDKApplicationDelegate, không phải ZaloSDK
-      const swiftOpenUrl = `    ZDKApplicationDelegate.sharedInstance().application(app, open: url, options: options)`;
+      // 3. Xử lý openURL — PHẢI dùng ZDKApplicationDelegate, không phải ZaloSDK.
+      // QUAN TRỌNG: phải check return value và return true sớm nếu Zalo đã handle URL,
+      // không để RCTLinkingManager (Expo Router) nhận URL đó lần nữa (tránh double-consume oauthCode).
       if (!appDelegate.includes('ZDKApplicationDelegate.sharedInstance().application(app, open: url')) {
-        // Trường hợp 1: đã có override application(_:open:options:) → chèn vào trước return
+        // Trường hợp 1: đã có override application(_:open:options:) → thay thế toàn bộ thân hàm
         if (appDelegate.includes('return super.application(app, open: url, options: options)')) {
           appDelegate = appDelegate.replace(
             'return super.application(app, open: url, options: options)',
-            `${swiftOpenUrl}\n    return super.application(app, open: url, options: options)`
+            `if ZDKApplicationDelegate.sharedInstance().application(app, open: url, options: options) {\n      return true\n    }\n    return super.application(app, open: url, options: options)`
           );
         } else {
           // Trường hợp 2: chưa có override → thêm func mới trước dấu đóng class
@@ -88,7 +89,10 @@ function withZaloAppDelegate(config, { appID }) {
     open url: URL,
     options: [UIApplication.OpenURLOptionsKey: Any] = [:]
   ) -> Bool {
-    ZDKApplicationDelegate.sharedInstance().application(app, open: url, options: options)
+    // Nếu Zalo SDK xử lý URL này, return true ngay — không để Expo Router nhận thêm
+    if ZDKApplicationDelegate.sharedInstance().application(app, open: url, options: options) {
+      return true
+    }
     return super.application(app, open: url, options: options)
   }
 `;

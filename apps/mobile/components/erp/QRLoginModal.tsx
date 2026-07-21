@@ -9,6 +9,7 @@ import {
   Platform,
   StyleSheet,
   Animated,
+  Linking,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
@@ -124,6 +125,14 @@ export function QRLoginModal({ visible, onClose, onSuccess, onError }: QRLoginMo
     }
   }, [visible]);
 
+  // Auto-trigger system permission dialog when status is undetermined
+  // (Apple guideline: request at the moment of need, from user action)
+  useEffect(() => {
+    if (visible && permission && permission.status === 'undetermined') {
+      requestPermission();
+    }
+  }, [visible, permission]);
+
   const handleBarCodeScanned = useCallback(({ data }: { data: string }) => {
     if (scanned) return;
     setScanned(true);
@@ -201,21 +210,52 @@ export function QRLoginModal({ visible, onClose, onSuccess, onError }: QRLoginMo
           <View style={{ width: 38 }} />
         </View>
 
-        {/* Camera or permission prompt */}
+        {/* Permission gate — 3 states matching BarcodeScannerModal pattern */}
         {!permission ? (
+          // State 1: loading camera status
           <View style={styles.centered}>
             <ActivityIndicator size="large" color="#fa5908" />
+            <Text style={styles.permissionLoadingText}>Đang kết nối camera...</Text>
+          </View>
+        ) : permission.status === 'undetermined' ? (
+          // State 2: waiting for system dialog (auto-triggered by useEffect above)
+          <View style={styles.centered}>
+            <ActivityIndicator size="large" color="#fa5908" />
+            <Text style={styles.permissionLoadingText}>Đang yêu cầu quyền camera...</Text>
           </View>
         ) : !permission.granted ? (
+          // State 3: denied — guide user to Settings (same as BarcodeScannerModal)
           <View style={styles.centered}>
-            <Ionicons name="camera-outline" size={52} color="#94a3b8" />
-            <Text style={styles.permissionTitle}>Cần quyền truy cập camera</Text>
-            <Text style={styles.permissionDesc}>
-              Để quét mã QR đăng nhập từ web, vui lòng cấp quyền camera cho ứng dụng.
-            </Text>
-            <TouchableOpacity onPress={requestPermission} style={styles.permissionBtn} activeOpacity={0.8}>
-              <Text style={styles.permissionBtnText}>Cấp quyền camera</Text>
-            </TouchableOpacity>
+            <View style={styles.deniedCard}>
+              <View style={styles.deniedIconRow}>
+                <View style={styles.deniedIconWrap}>
+                  <Ionicons name="camera-outline" size={28} color="#fa5908" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.deniedTitle}>Quyền Camera bị từ chối</Text>
+                  <Text style={styles.deniedDesc}>
+                    Để quét mã QR đăng nhập web, hãy cấp quyền camera trong Cài đặt thiết bị.
+                  </Text>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                onPress={() => Linking.openSettings().catch(() => {})}
+                style={styles.settingsBtn}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="settings-outline" size={16} color="white" />
+                <Text style={styles.settingsBtnText}>Mở Cài đặt</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={onClose}
+                style={styles.cancelPermissionBtn}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.cancelPermissionBtnText}>Đóng</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         ) : !pendingQrLogin ? (
           // Scanner view
@@ -401,31 +441,83 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     lineHeight: 19,
   },
-  // Permission prompts
-  permissionTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#0f172a',
-    marginTop: 16,
-    textAlign: 'center',
-  },
-  permissionDesc: {
+  // ─── Permission gate styles (3-state: loading, undetermined, denied) ───
+  permissionLoadingText: {
     fontSize: 13,
     color: '#64748b',
+    fontWeight: '500',
+    marginTop: 12,
     textAlign: 'center',
-    marginTop: 8,
-    lineHeight: 20,
   },
-  permissionBtn: {
-    marginTop: 24,
-    backgroundColor: '#fa5908',
-    paddingHorizontal: 28,
-    paddingVertical: 13,
+  deniedCard: {
+    width: '100%',
+    backgroundColor: 'white',
+    borderRadius: 20,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  deniedIconRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    backgroundColor: '#fff7ed',
+    borderWidth: 1,
+    borderColor: '#fed7aa',
     borderRadius: 14,
+    padding: 14,
   },
-  permissionBtnText: {
+  deniedIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: '#ffedd5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  deniedTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0f172a',
+    marginTop: 2,
+  },
+  deniedDesc: {
+    fontSize: 12,
+    color: '#64748b',
+    marginTop: 6,
+    lineHeight: 18,
+  },
+  settingsBtn: {
+    marginTop: 16,
+    backgroundColor: '#fa5908',
+    borderRadius: 14,
+    height: 46,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  settingsBtnText: {
     color: 'white',
     fontWeight: '700',
+    fontSize: 14,
+  },
+  cancelPermissionBtn: {
+    marginTop: 10,
+    height: 44,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelPermissionBtnText: {
+    color: '#64748b',
+    fontWeight: '600',
     fontSize: 14,
   },
   // Confirmation card

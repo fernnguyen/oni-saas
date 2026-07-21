@@ -28,7 +28,7 @@
         "UIBackgroundModes": [
           "remote-notification"
         ],
-        "NSCameraUsageDescription": "Ứng dụng cần quyền truy cập camera để quét mã vạch sản phẩm và chụp ảnh sản phẩm tải lên.",
+        "NSCameraUsageDescription": "Ứng dụng cần quyền truy cập camera để quét mã vạch sản phẩm, chụp ảnh sản phẩm và quét mã QR đăng nhập web.",
         "NSPhotoLibraryUsageDescription": "Ứng dụng cần quyền truy cập thư viện ảnh để chọn ảnh sản phẩm từ thiết bị của bạn.",
         "NSFaceIDUsageDescription": "Ứng dụng cần quyền sử dụng Face ID để xác thực và đăng nhập nhanh vào tài khoản cửa hàng của bạn.",
         "ITSAppUsesNonExemptEncryption": false,
