@@ -805,15 +805,10 @@ export default function LoginScreen() {
        <ActivityIndicator size="small" color="#4285F4" />
      ) : (
        <>
-         {/* Google G logo SVG-like via text — hoặc dùng image */}
-         <View style={{
-           width: 20, height: 20, borderRadius: 10,
-           backgroundColor: '#ffffff', marginRight: 10,
-           alignItems: 'center', justifyContent: 'center',
-           borderWidth: 1, borderColor: '#e8eaed'
-         }}>
-           <Text style={{fontSize: 12, fontWeight: '900', color: '#4285F4'}}>G</Text>
-         </View>
+         <Image
+           source={require('../../assets/google.png')}
+           style={{width: 22, height: 22, marginRight: 10}}
+         />
          <Text style={{color: '#3c4043', fontWeight: '600', fontSize: 15, letterSpacing: 0.2}}>
            Tiếp tục với Google
          </Text>
