@@ -23,7 +23,7 @@ function TabLayoutContent() {
 
   useEffect(() => {
     const onBackPress = () => {
-      // Nếu người dùng đang ở tab đầu tiên (Tổng quan), nhấn back sẽ thoát app thay vì quay về select-branch
+      // Nếu người dùng đang ở tab đầu tiên (Trang chủ), nhấn back sẽ thoát app thay vì quay về select-branch
       if (pathname === '/' || pathname === '/(tabs)' || pathname === '/(tabs)/' || pathname === '/(tabs)/index') {
         BackHandler.exitApp();
         return true; // Đã xử lý, chặn bubbling lên root Stack
@@ -95,11 +95,11 @@ function TabLayoutContent() {
         },
       }}
     >
-      {/* 1. TỔNG QUAN */}
+      {/* 1. TRANG CHỦ */}
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Tổng quan',
+          title: 'Trang chủ',
           tabBarIcon: ({color, focused}) => (
             <Ionicons name={focused ? 'analytics' : 'analytics-outline'} size={22} color={color} />
           ),

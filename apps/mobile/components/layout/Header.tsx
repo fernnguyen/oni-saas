@@ -14,7 +14,8 @@ import {eq, and, or, like} from 'drizzle-orm';
 import {ActivityIndicator, Modal as RNModal} from 'react-native';
 
 // UI components
-import {SyncBanner} from '../erp/SyncBanner';
+import {SyncDotButton} from '../erp/SyncDotButton';
+import {QRLoginModal} from '../erp/QRLoginModal';
 import {Dialog} from '../ui/Dialog';
 import {useNotifications} from '../../lib/notifications/NotificationContext';
 
@@ -413,6 +414,7 @@ export function Header({
 };
 
   const [isHeaderSyncing, setIsHeaderSyncing] = useState(false);
+  const [isQRScannerVisible, setIsQRScannerVisible] = useState(false);
 
   const handleSyncPress = async () => {
     if (onPressSync) {
@@ -423,6 +425,14 @@ export function Header({
     
     await loadSyncCounts();
     setIsSyncModalVisible(true);
+  };
+
+  const handleQRLoginSuccess = (host: string) => {
+    showToast(`Đã đăng nhập thành công cho ${host}`, 'success');
+  };
+
+  const handleQRLoginError = () => {
+    showToast('Không thể xác nhận đăng nhập web. Vui lòng thử lại!', 'error');
   };
 
  return (
@@ -469,31 +479,77 @@ export function Header({
   )}
   </View>
 
-  {/* SyncStatusBar và Chuông thông báo Right */}
+  {/* Sync + QR Login + Chuông thông báo Right */}
   <View className="flex-row items-center gap-2">
-  <SyncBanner 
+
+  {/* Sync status dot button */}
+  <SyncDotButton
     shopId={activeBranchId}
-    forceStatus={syncStatus} 
-    onPressSync={handleSyncPress} 
-    isSyncing={isSyncing || isHeaderSyncing} 
+    forceStatus={syncStatus}
+    onPress={handleSyncPress}
+    isSyncing={isSyncing || isHeaderSyncing}
     pendingCount={pendingCount}
-    entityName={entityName}
   />
- 
- <TouchableOpacity 
- activeOpacity={0.7}
- className="p-2 bg-slate-50 rounded-xl border border-slate-100 relative"
- onPress={() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    router.push('/notifications');
-  }}
- >
- <Ionicons name="notifications-outline" size={15} color="#64748b" />
- {unreadCount > 0 && (
- <View className="absolute top-1.5 right-1.5 bg-red-500 w-1.5 h-1.5 rounded-full" />
- )}
- </TouchableOpacity>
- </View>
+
+  {/* QR Login button */}
+  <TouchableOpacity
+    activeOpacity={0.7}
+    style={{
+      padding: 7,
+      backgroundColor: '#f8fafc',
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: '#f1f5f9',
+      alignItems: 'center',
+      justifyContent: 'center',
+    }}
+    onPress={() => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      setIsQRScannerVisible(true);
+    }}
+    accessibilityLabel="Quét mã QR đăng nhập web"
+  >
+    <Ionicons name="qr-code-outline" size={22} color="#64748b" />
+  </TouchableOpacity>
+
+  {/* Chuông thông báo — dot đỏ nằm bên ngoài button */}
+  <View style={{ position: 'relative' }}>
+    <TouchableOpacity
+      activeOpacity={0.7}
+      style={{
+        padding: 7,
+        backgroundColor: '#f8fafc',
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#f1f5f9',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+      onPress={() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+        router.push('/notifications');
+      }}
+    >
+      <Ionicons name="notifications-outline" size={22} color="#64748b" />
+    </TouchableOpacity>
+    {unreadCount > 0 && (
+      <View
+        style={{
+          position: 'absolute',
+          top: -3,
+          right: -3,
+          width: 9,
+          height: 9,
+          borderRadius: 5,
+          backgroundColor: '#ef4444',
+          borderWidth: 1.5,
+          borderColor: 'white',
+          zIndex: 10,
+        }}
+      />
+    )}
+  </View>
+  </View>
 
  {/* DROPDOWN MENU CHUYỂN CHI NHÁNH THẢ XUỐNG */}
  <Modal
@@ -717,6 +773,14 @@ export function Header({
       </View>
     </View>
    </RNModal>
+
+   {/* QR Login Scanner Modal */}
+   <QRLoginModal
+     visible={isQRScannerVisible}
+     onClose={() => setIsQRScannerVisible(false)}
+     onSuccess={handleQRLoginSuccess}
+     onError={handleQRLoginError}
+   />
 
    {renderToast()}
  </View>
