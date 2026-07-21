@@ -136,19 +136,19 @@ export async function signInWithZalo(): Promise<SocialAuthResult> {
     throw new Error('Zalo SDK chưa được cài đặt đúng cách. Vui lòng build lại app.');
   }
 
-  // Gọi native SDK — mở app Zalo nếu có, không thì mở WebView.
-  // SDK sẽ tự xử lý deep link callback nội bộ (qua ZDKApplicationDelegate)
-  // rồi resolve Promise với oauthCode.
-  const zaloResult = await ZaloKit.login('AUTH_VIA_APP_OR_WEB');
+  // Zalo Developer Portal được cấu hình redirect về oni-pos://oauthcode?success=XXX
+  // → ZDKApplicationDelegate KHÔNG nhận URL này (sai scheme), nên Promise của ZaloKit.login()
+  //   sẽ không bao giờ resolve từ SDK.
+  // → RCTLinkingManager nhận URL → Expo Router điều hướng đến app/oauthcode.tsx
+  //   → oauthcode.tsx mới thực sự exchange oauthCode và tạo session.
+  //
+  // Vì vậy: chỉ cần kích hoạt SDK mở Zalo app (fire-and-forget),
+  // KHÔNG await kết quả. Throw ERR_CANCELED để handleSocialLoginSuccess thoát yên lặng.
+  ZaloKit.login('AUTH_VIA_APP_OR_WEB').catch(() => {
+    // Ignore — oauthcode.tsx handles everything
+  });
 
-  if (!zaloResult?.oauthCode) {
-    throw new Error('Zalo không trả về mã xác thực. Vui lòng thử lại.');
-  }
-
-  return await exchangeZaloCodeForSession(
-    zaloResult.oauthCode,
-    zaloResult.codeVerifier ?? ''
-  );
+  throw new Error('ERR_CANCELED');
 }
 
 /**

@@ -31,17 +31,26 @@ export default function ZaloOAuthCallback() {
 
   const handleCallback = async () => {
     try {
-      // Zalo trả về oauthCode qua param "success"
-      const oauthCode = params.success;
-      const codeVerifier = params.code_challenge ?? '';
+      // Log để debug — xem Zalo thực sự gửi param tên gì
+      console.log('[oauthcode] URL params nhận được:', JSON.stringify(params));
+
+      // Zalo có thể gửi oauthCode qua các tên param khác nhau tuỳ version
+      const oauthCode =
+        params.success ||           // dạng: oni-pos://oauthcode?success=XXX
+        (params as any).code ||     // dạng: oni-pos://oauthcode?code=XXX
+        (params as any).oauth_code; // fallback
+
+      // codeVerifier chỉ có trong SDK Promise, không có trong deep link URL
+      // → gửi chuỗi rỗng, Edge Function sẽ bỏ qua nếu không cần PKCE
+      const codeVerifier = (params as any).code_verifier ?? params.code_challenge ?? '';
 
       if (!oauthCode) {
-        const errDetail = params.error ?? 'Không nhận được mã xác thực từ Zalo.';
+        const errDetail = (params as any).error ?? params.error ?? 'Không nhận được mã xác thực từ Zalo.';
         throw new Error(errDetail);
       }
 
       // Dùng helper dùng chung: exchange oauthCode → Supabase session
-      await exchangeZaloCodeForSession(oauthCode, codeVerifier);
+      await exchangeZaloCodeForSession(oauthCode as string, codeVerifier as string);
 
       // Thành công → điều hướng đến chọn chi nhánh
       router.replace('/(auth)/select-branch');
