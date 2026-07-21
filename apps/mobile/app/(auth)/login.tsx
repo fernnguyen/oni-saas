@@ -9,6 +9,21 @@ import {loadApiBaseUrl, saveApiBaseUrl} from '../../lib/api/config';
 import * as Haptics from 'expo-haptics';
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as SecureStore from 'expo-secure-store';
+import * as AppleAuthentication from 'expo-apple-authentication';
+import * as Google from 'expo-auth-session/providers/google';
+import * as WebBrowser from 'expo-web-browser';
+import Constants from 'expo-constants';
+import {
+  signInWithApple,
+  signInWithGoogleIdToken,
+  signInWithZalo,
+  isAppleAuthAvailable,
+  GOOGLE_IOS_CLIENT_ID,
+  GOOGLE_ANDROID_CLIENT_ID,
+  GOOGLE_WEB_CLIENT_ID,
+} from '../../lib/auth/socialAuth';
+
+WebBrowser.maybeCompleteAuthSession();
 
 
 export default function LoginScreen() {
@@ -22,6 +37,17 @@ export default function LoginScreen() {
  const [isTenantCodeSaved, setIsTenantCodeSaved] = useState(false);
  const [isBiometricSaved, setIsBiometricSaved] = useState(false);
 
+ // Social Login states
+ const [isSocialLoading, setIsSocialLoading] = useState<'apple' | 'google' | 'zalo' | null>(null);
+ const [isAppleAvailable, setIsAppleAvailable] = useState(false);
+
+ // Google auth hook (PKCE flow)
+ const [googleRequest, googleResponse, googlePromptAsync] = Google.useAuthRequest({
+   iosClientId: GOOGLE_IOS_CLIENT_ID || undefined,
+   androidClientId: GOOGLE_ANDROID_CLIENT_ID || undefined,
+   webClientId: GOOGLE_WEB_CLIENT_ID || undefined,
+ });
+
  // States cài đặt Server URL & Hỗ trợ kỹ thuật
  const [isServerModalOpen, setIsServerModalOpen] = useState(false);
  const [customServerUrl, setCustomServerUrl] = useState('');
@@ -29,6 +55,9 @@ export default function LoginScreen() {
 
  // 1. Tự động tải dữ liệu & URL Server đã cấu hình
  useEffect(() => {
+  // Kiểm tra Apple Sign In có khả dụng không
+  isAppleAuthAvailable().then(setIsAppleAvailable);
+
  const loadInitialData = async () => {
  try {
    const alreadyLaunched = await AsyncStorage.getItem('already_launched');
@@ -160,6 +189,78 @@ export default function LoginScreen() {
     }
     return false;
   };
+
+ // 2b. Xử lý Google response (khi googleResponse thay đổi)
+ useEffect(() => {
+   if (googleResponse?.type === 'success') {
+     const { id_token } = googleResponse.params;
+     if (id_token) {
+       handleSocialLoginSuccess(
+         () => signInWithGoogleIdToken(id_token),
+         'google'
+       );
+     }
+   } else if (googleResponse?.type === 'error') {
+     setIsSocialLoading(null);
+     Alert.alert('Đăng nhập Google thất bại', googleResponse.error?.message || 'Vui lòng thử lại.');
+   }
+ }, [googleResponse]);
+
+ // ── Helper xử lý kết quả Social Login thành công ───────────────────────────
+ const handleSocialLoginSuccess = async (
+   authFn: () => Promise<any>,
+   provider: 'apple' | 'google' | 'zalo'
+ ) => {
+   setIsSocialLoading(provider);
+   try {
+     const result = await authFn();
+     // Lưu tên user vào AsyncStorage để Header hiển thị
+     if (result?.fullName) {
+       await AsyncStorage.setItem('user_name', result.fullName);
+     }
+     // Social login không cần tenant code thủ công
+     // → Điều hướng đến select-branch, API /api/tenants/me sẽ tự resolve tenant
+     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+     router.push('/(auth)/select-branch');
+   } catch (err: any) {
+     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+     // Bỏ qua lỗi user_cancel (user chủ động huỷ)
+     if (
+       err?.code !== '1001' && // Apple cancel code
+       err?.message !== 'The user canceled the sign-in flow.' &&
+       err?.message !== 'ERR_CANCELED'
+     ) {
+       Alert.alert(
+         `Đăng nhập ${provider === 'apple' ? 'Apple' : provider === 'google' ? 'Google' : 'Zalo'} thất bại`,
+         err?.message || 'Vui lòng thử lại sau.'
+       );
+     }
+   } finally {
+     setIsSocialLoading(null);
+   }
+ };
+
+ // ── Handlers từng provider ────────────────────────────────────────────────
+ const handleAppleLogin = () => {
+   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+   handleSocialLoginSuccess(signInWithApple, 'apple');
+ };
+
+ const handleGoogleLogin = async () => {
+   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+   if (!GOOGLE_IOS_CLIENT_ID && !GOOGLE_ANDROID_CLIENT_ID) {
+     Alert.alert('Chưa cấu hình', 'Google Client ID chưa được thiết lập. Vui lòng liên hệ quản trị viên.');
+     return;
+   }
+   setIsSocialLoading('google');
+   await googlePromptAsync();
+   // Kết quả được xử lý trong useEffect googleResponse
+ };
+
+ const handleZaloLogin = () => {
+   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+   handleSocialLoginSuccess(signInWithZalo, 'zalo');
+ };
 
  // 3. Xử lý Đăng nhập
  const handleLogin = async () => {
@@ -636,6 +737,124 @@ export default function LoginScreen() {
  <Ionicons name="finger-print" size={24} color="#fa5908" />
  </TouchableOpacity>
  </View>
+ </View>
+
+ {/* ── SOCIAL LOGIN SECTION ─────────────────────────────────── */}
+ <View style={{marginTop: 4, marginBottom: 8}}>
+   {/* Divider "hoặc" */}
+   <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 16}}>
+     <View style={{flex: 1, height: 1, backgroundColor: '#e2e8f0'}} />
+     <Text style={{fontSize: 12, color: '#94a3b8', fontWeight: '500', marginHorizontal: 12}}>hoặc đăng nhập bằng</Text>
+     <View style={{flex: 1, height: 1, backgroundColor: '#e2e8f0'}} />
+   </View>
+
+   {/* Nút Apple — chỉ hiện trên iOS khi Apple auth khả dụng */}
+   {isAppleAvailable && (
+     <TouchableOpacity
+       activeOpacity={0.85}
+       onPress={handleAppleLogin}
+       disabled={isSocialLoading !== null || isLoading}
+       style={{
+         flexDirection: 'row',
+         alignItems: 'center',
+         justifyContent: 'center',
+         backgroundColor: '#000000',
+         borderRadius: 14,
+         height: 52,
+         marginBottom: 10,
+         opacity: isSocialLoading !== null ? 0.6 : 1,
+       }}
+     >
+       {isSocialLoading === 'apple' ? (
+         <ActivityIndicator size="small" color="#ffffff" />
+       ) : (
+         <>
+           <Ionicons name="logo-apple" size={20} color="#ffffff" style={{marginRight: 8}} />
+           <Text style={{color: '#ffffff', fontWeight: '600', fontSize: 15, letterSpacing: 0.2}}>
+             Tiếp tục với Apple
+           </Text>
+         </>
+       )}
+     </TouchableOpacity>
+   )}
+
+   {/* Nút Google */}
+   <TouchableOpacity
+     activeOpacity={0.85}
+     onPress={handleGoogleLogin}
+     disabled={isSocialLoading !== null || isLoading || !googleRequest}
+     style={{
+       flexDirection: 'row',
+       alignItems: 'center',
+       justifyContent: 'center',
+       backgroundColor: '#ffffff',
+       borderRadius: 14,
+       height: 52,
+       marginBottom: 10,
+       borderWidth: 1.5,
+       borderColor: '#dadce0',
+       opacity: isSocialLoading !== null ? 0.6 : 1,
+       shadowColor: '#000',
+       shadowOffset: {width: 0, height: 1},
+       shadowOpacity: 0.06,
+       shadowRadius: 4,
+       elevation: 1,
+     }}
+   >
+     {isSocialLoading === 'google' ? (
+       <ActivityIndicator size="small" color="#4285F4" />
+     ) : (
+       <>
+         {/* Google G logo SVG-like via text — hoặc dùng image */}
+         <View style={{
+           width: 20, height: 20, borderRadius: 10,
+           backgroundColor: '#ffffff', marginRight: 10,
+           alignItems: 'center', justifyContent: 'center',
+           borderWidth: 1, borderColor: '#e8eaed'
+         }}>
+           <Text style={{fontSize: 12, fontWeight: '900', color: '#4285F4'}}>G</Text>
+         </View>
+         <Text style={{color: '#3c4043', fontWeight: '600', fontSize: 15, letterSpacing: 0.2}}>
+           Tiếp tục với Google
+         </Text>
+       </>
+     )}
+   </TouchableOpacity>
+
+   {/* Nút Zalo */}
+   <TouchableOpacity
+     activeOpacity={0.85}
+     onPress={handleZaloLogin}
+     disabled={isSocialLoading !== null || isLoading}
+     style={{
+       flexDirection: 'row',
+       alignItems: 'center',
+       justifyContent: 'center',
+       backgroundColor: '#0068ff',
+       borderRadius: 14,
+       height: 52,
+       opacity: isSocialLoading !== null ? 0.6 : 1,
+       shadowColor: '#0068ff',
+       shadowOffset: {width: 0, height: 4},
+       shadowOpacity: 0.2,
+       shadowRadius: 8,
+       elevation: 3,
+     }}
+   >
+     {isSocialLoading === 'zalo' ? (
+       <ActivityIndicator size="small" color="#ffffff" />
+     ) : (
+       <>
+         <Image
+           source={require('../../assets/zalo.png')}
+           style={{width: 22, height: 22, borderRadius: 4, marginRight: 8}}
+         />
+         <Text style={{color: '#ffffff', fontWeight: '600', fontSize: 15, letterSpacing: 0.2}}>
+           Đăng nhập với Zalo
+         </Text>
+       </>
+     )}
+   </TouchableOpacity>
  </View>
 
   {/* 3. CHÂN TRANG FOOTER */}

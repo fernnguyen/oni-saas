@@ -31,7 +31,8 @@
         "NSCameraUsageDescription": "Ứng dụng cần quyền truy cập camera để quét mã vạch sản phẩm và chụp ảnh sản phẩm tải lên.",
         "NSPhotoLibraryUsageDescription": "Ứng dụng cần quyền truy cập thư viện ảnh để chọn ảnh sản phẩm từ thiết bị của bạn.",
         "NSFaceIDUsageDescription": "Ứng dụng cần quyền sử dụng Face ID để xác thực và đăng nhập nhanh vào tài khoản cửa hàng của bạn.",
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "LSApplicationQueriesSchemes": ["zalosdk", "zaloshareext"]
       },
       "buildNumber": "3"
     },
@@ -87,6 +88,14 @@
           "photosPermission": "Ứng dụng cần truy cập thư viện ảnh để chọn ảnh sản phẩm hoặc ảnh đại diện.",
           "cameraPermission": "Ứng dụng cần truy cập camera để chụp ảnh sản phẩm."
         }
+      ],
+      "expo-apple-authentication",
+      "expo-web-browser",
+      [
+        "./plugins/withZaloKit",
+        {
+          "appID": "600170175253575588"
+        }
       ]
     ],
     "scheme": "oni-pos",
@@ -99,7 +108,11 @@
       },
       "eas": {
         "projectId": "3e9d8515-e699-4f8a-90d0-d7df57b5cb9c"
-      }
+      },
+      "googleIosClientId": "GOOGLE_IOS_CLIENT_ID_PLACEHOLDER",
+      "googleAndroidClientId": "GOOGLE_ANDROID_CLIENT_ID_PLACEHOLDER",
+      "googleWebClientId": "GOOGLE_WEB_CLIENT_ID_PLACEHOLDER",
+      "zaloAppId": "600170175253575588"
     }
   }
 }
